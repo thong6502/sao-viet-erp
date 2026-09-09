@@ -28,7 +28,7 @@ import { MucInHang } from "../components/MucIn";
 import { SanPhamTaiBanGoiY as SanPhamTaiBanCombo } from "../components/SanPhamTaiBanGoiY";
 import { Select, type SelectOption } from "../components/Select";
 import { ImpositionDiagram } from "./ImpositionDiagram";
-import { heSoChu, nhanDonVi } from "./lsxBuoc";
+import { heSoChu, nhanChang, nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
 // Nhãn ĐƠN VỊ của biến công thức lấy từ TỪ ĐIỂN BIẾN (`/api/bien-cong-thuc`), không khai lại ở đây —
 // xem ghi chú chỗ `humanizeFormula`.
@@ -205,11 +205,12 @@ function cellValue(v: string | number | null): string {
 // Engine trả công thức thế số dạng "don_gia(2.000) × to_nguyen(334)" (tên biến + giá trị).
 // Đổi sang diễn giải người-đọc-được "2.000 đ × 334 tờ": bỏ tên biến, gắn đơn vị.
 // Token lạ → chỉ giữ giá trị. Không match gì → trả nguyên chuỗi (an toàn).
-// Đơn vị bước ở bảng phân rã bù hao PHẢI đọc y hệt tên đã khai trong danh mục Công đoạn — người
-// lập phiếu đối chiếu hai màn với nhau, nhãn lệch một chữ là mất dấu. Nên KHÔNG khai bộ nhãn
-// riêng ở đây. `nhanDonVi` nay đọc TÊN từ chính danh mục Đơn vị (xem `pages/tenDonVi.ts`), nên
-// xưởng đổi tên là cả ba màn đổi theo — không còn bảng nhãn cứng nào để lệch.
-const dvNgan = nhanDonVi;
+// Đơn vị bước ở bảng phân rã bù hao PHẢI đọc y hệt nhãn ở danh mục Công đoạn — người lập phiếu
+// đối chiếu hai màn với nhau, lệch một chữ là mất dấu. `dv_vao`/`dv_ra` của bước giữ MÃ CHẶNG
+// dòng giấy nên tra bằng `nhanChang` (bảng chặng, `/api/don-vi/tram`), KHÔNG tra danh mục Đơn vị:
+// tra nhầm thì bước Đóng gói hiện "Con → Thành phẩm" ở màn Công đoạn mà "con → cái" ở đây.
+// Đơn vị THẬT của kho/khoán (vd `don_vi_gia` của giá công đoạn) vẫn dùng thẳng `nhanDonVi`.
+const dvNgan = nhanChang;
 
 /** Số + đơn vị ở cột phải khối "Số tờ tự tính".
  *
@@ -415,7 +416,7 @@ function humanizeFormula(s: string, tra: TraBien): string {
  *  đã nằm trong công thức của bước chế bản (`so_kem × đơn giá`) — cho ô nữa là tính hai lần. */
 const DAO_CO_PHI: Record<string, string> = {
   khuon_be: "khuôn bế",
-  khuon_ep: "khuôn ép nhũ / dập nổi",
+  khuon_ep: "khuôn ép kim",
   khung_lua: "khung lụa",
 };
 
@@ -453,8 +454,8 @@ function daoCuaBuoc(f: { cong_doan_id: number | null }, congDoans: Row[]): strin
   return DAO_CO_PHI[String(cd.tooling_type ?? "")] ?? null;
 }
 
-/** Mã LOẠI dụng cụ trần (vd "khung_lua"), khác `daoCuaBuoc` trả nhãn tiếng Việt để hiện — khối
- *  PHÍ KHUÔN cần mã trần để biết có vẽ thêm 3 ô kích thước khung lụa hay không. */
+/** Mã LOẠI dụng cụ trần (vd "khuon_ep"), khác `daoCuaBuoc` trả nhãn tiếng Việt để hiện — khối
+ *  PHÍ KHUÔN cần mã trần để biết có vẽ thêm 3 ô kích thước khuôn hay không. */
 function loaiDaoCuaBuoc(f: { cong_doan_id: number | null }, congDoans: Row[]): string | null {
   if (f.cong_doan_id == null) return null;
   const cd = congDoans.find((x) => x.id === f.cong_doan_id);
@@ -480,16 +481,15 @@ interface EditableFinishing {
    *  tổng. 0 = dùng lại dao cũ. Chỉ hỏi ở bước có cờ dụng cụ là dao lưu kho (xem `daoCuaBuoc`). */
   phi_khuon: number;
   /** Khuôn có sẵn hay làm mới — MỘT câu hỏi, hai nhánh. `null` = chưa chọn (phiếu cũ hoặc bỏ qua);
-   *  engine nhắc khi chưa chọn, im khi chọn `co_san`. Chọn `lam_moi` mới mở ô tiền + ô ngày. */
+   *  engine nhắc khi chưa chọn, im khi chọn `co_san`. Chọn `lam_moi` mới mở ô tiền. */
   khuon_nguon: "co_san" | "lam_moi" | null;
-  /** Ngày dự kiến có khuôn (`yyyy-mm-dd`, "" = chưa khai) — chỉ hỏi khi `khuon_nguon = "lam_moi"`. */
-  khuon_ngay_du_kien: string;
-  /** Ba ô riêng của bước khung lụa (`tooling_type = "khung_lua"`) — kích thước/số lượng khung, TÁCH
-   *  BIỆT với `phi_khuon`: không tự tính ra tiền, chỉ bơm vào công thức của CHÍNH công đoạn đó
-   *  (biến `dai_khung_lua`/`rong_khung_lua`/`so_khung_lua`, xem `bien_cong_thuc.py`). 0 = chưa khai. */
-  dai_khung_lua: number;
-  rong_khung_lua: number;
-  so_khung_lua: number;
+  /** Ba ô riêng của bước khuôn ép kim (`tooling_type = "khuon_ep"`) — kích thước/số
+   *  lượng khuôn, TÁCH BIỆT với `phi_khuon`: không tự tính ra tiền, chỉ bơm vào công thức của
+   *  CHÍNH công đoạn đó (biến `dai_khuon`/`rong_khuon`/`so_khuon`, xem `bien_cong_thuc.py`).
+   *  0 = chưa khai. Đổi chủ từ bước khung lụa 06/09/2026. */
+  dai_khuon: number;
+  rong_khuon: number;
+  so_khuon: number;
 }
 interface EditableVatTu {
   uid: string;
@@ -574,10 +574,9 @@ function blankFinishing(ten = "", cong_doan_id: number | null = null): EditableF
     ghi_chu: "",
     phi_khuon: 0,
     khuon_nguon: null,
-    khuon_ngay_du_kien: "",
-    dai_khung_lua: 0,
-    rong_khung_lua: 0,
-    so_khung_lua: 0,
+    dai_khuon: 0,
+    rong_khuon: 0,
+    so_khuon: 0,
   };
 }
 function blankComponent(ten = ""): EditableComponent {
@@ -639,10 +638,9 @@ function fromFinishing(f: ThanhPhamOut): EditableFinishing {
     ghi_chu: f.ghi_chu ?? "",
     phi_khuon: f.phi_khuon ?? 0,
     khuon_nguon: f.khuon_nguon ?? null,
-    khuon_ngay_du_kien: f.khuon_ngay_du_kien ?? "",
-    dai_khung_lua: f.dai_khung_lua ?? 0,
-    rong_khung_lua: f.rong_khung_lua ?? 0,
-    so_khung_lua: f.so_khung_lua ?? 0,
+    dai_khuon: f.dai_khuon ?? 0,
+    rong_khuon: f.rong_khuon ?? 0,
+    so_khuon: f.so_khuon ?? 0,
   };
 }
 function fromVatTu(v: VatTuLineOut): EditableVatTu {
@@ -751,11 +749,9 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
       ghi_chu: f.ghi_chu.trim() || null,
       phi_khuon: f.phi_khuon,
       khuon_nguon: f.khuon_nguon,
-      // Ô ngày để trống phải gửi null: chuỗi rỗng làm Pydantic ném 422 ở kiểu `date | None`.
-      khuon_ngay_du_kien: f.khuon_ngay_du_kien || null,
-      dai_khung_lua: f.dai_khung_lua,
-      rong_khung_lua: f.rong_khung_lua,
-      so_khung_lua: f.so_khung_lua,
+      dai_khuon: f.dai_khuon,
+      rong_khuon: f.rong_khuon,
+      so_khuon: f.so_khuon,
     })),
     vat_tus: c.vat_tus.map((v) => ({
       vat_tu_id: v.vat_tu_id,
@@ -828,10 +824,9 @@ function fromThanhPhanIn(cfg: ThanhPhanIn, giu: { uid: string; so_luong: number 
       ghi_chu: f.ghi_chu ?? "",
       phi_khuon: f.phi_khuon ?? 0,
       khuon_nguon: f.khuon_nguon ?? null,
-      khuon_ngay_du_kien: f.khuon_ngay_du_kien ?? "",
-      dai_khung_lua: f.dai_khung_lua ?? 0,
-      rong_khung_lua: f.rong_khung_lua ?? 0,
-      so_khung_lua: f.so_khung_lua ?? 0,
+      dai_khuon: f.dai_khuon ?? 0,
+      rong_khuon: f.rong_khuon ?? 0,
+      so_khuon: f.so_khuon ?? 0,
     })),
     vat_tus: (cfg.vat_tus ?? []).map((v) => ({
       uid: nextUid(),
@@ -1611,7 +1606,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       gid: c.giay_id, may: c.may_id, pgh: c.phi_giao_hang,
       cds: c.thanh_phams.map((f) => [
         f.cong_doan_id, f.phi_khuon, f.khuon_nguon,
-        f.dai_khung_lua, f.rong_khung_lua, f.so_khung_lua,
+        f.dai_khuon, f.rong_khuon, f.so_khuon,
       ]),
     });
   }, [editingComp, phieuSL]);
@@ -1822,10 +1817,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     [loaiSPById],
   );
 
-  /** Các sản phẩm CHƯA chọn loại — khoá cửa "Báo giá →" lại. Đây là chỗ "ép chọn": loại quyết
-   *  định dòng gộp và nhãn đơn vị trên báo giá gửi khách, để trống là in ra sai nhóm. Khoá tại
-   *  chỗ + gọi tên sản phẩm còn thiếu, KHÔNG ẩn nút (ẩn thì người dùng tưởng hỏng). Vẫn cho
-   *  "Tính giá" bình thường — tính giá vốn không cần loại. */
+  /** Các sản phẩm CHƯA chọn loại — chỉ để NHẮC, KHÔNG chặn "Báo giá →" (user chốt 09/09/2026;
+   *  trước đó nút bị khoá). Thiếu loại thì báo giá in ra nhóm/nhãn đơn vị chưa chuẩn, nhưng đó là
+   *  việc sửa được ngay trên màn báo giá — chặn ở đây chỉ làm nghẽn. Tên sản phẩm còn thiếu nằm ở
+   *  tooltip của nút, chip "chưa chọn loại" vẫn hiện ở cột Loại. */
   const spThieuLoai = useMemo(
     () => comps.filter((c) => loaiLabelOf(c) === null).map((c) => c.ten || "(chưa đặt tên)"),
     [comps, loaiLabelOf],
@@ -1963,12 +1958,12 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               variant="primary"
               onClick={openOrCreateQuote}
               loading={quoting}
-              disabled={!token || loading || !daLuu || spThieuLoai.length > 0}
+              disabled={!token || loading || !daLuu}
               title={
                 !daLuu
                   ? "Tính giá & lưu phiếu trước khi báo giá"
                   : spThieuLoai.length > 0
-                    ? `Chọn loại sản phẩm cho: ${keTen(spThieuLoai)} — loại quyết định dòng gộp và nhãn đơn vị trên báo giá.`
+                    ? `Tạo / mở báo giá. Chưa chọn loại: ${keTen(spThieuLoai)} — loại quyết định dòng gộp và nhãn đơn vị, chọn sau vẫn được.`
                     : "Tạo / mở báo giá từ phiếu tính giá này"
               }
             >
@@ -2134,9 +2129,12 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                               </td>
                               <td>
                                 {loaiLabelOf(c) ? (
-                                  <span className="badge neutral">
+                                  // Nhãn loại nằm trong span riêng: chip là inline-flex (chấm màu
+                                  // là flex item) nên "…" phải đặt lên chính ô chữ, không đặt được
+                                  // lên chip. Cột hẹp thì cắt chữ, `title` giữ lại bản đầy đủ.
+                                  <span className="badge neutral" title={loaiLabelOf(c) ?? undefined}>
                                     <span className="d" />
-                                    {loaiLabelOf(c)}
+                                    <span className="badge__t">{loaiLabelOf(c)}</span>
                                   </span>
                                 ) : (
                                   <span
@@ -2695,13 +2693,13 @@ function ComponentModal({
   const chuoiHao = liveMeta?.bu_hao_chi_tiet ?? [];
   const buocDauChuoi = chuoiHao.find((b) => b.dv_vao);
   const dvDauChuoi =
-    dvNgan(buocIn?.dv_vao) || dvNgan(buocDauChuoi?.dv_vao) || "tờ";
-  // `so_tp` là số THÀNH PHẨM trên một tờ, nên mẫu số phải là đơn vị thành phẩm — lấy ở bước ĐỔI
+    dvNgan(buocIn?.dv_vao) || dvNgan(buocDauChuoi?.dv_vao) || "tờ in";
+  // `so_con` là số THÀNH PHẨM trên một tờ, nên mẫu số phải là đơn vị thành phẩm — lấy ở bước ĐỔI
   // MỨC (dv_ra ≠ dv_vao). Lấy bừa `dv_ra` của bước cuối là sai khi chuỗi KHÔNG có bước đổi mức
   // (bìa sách: In → Cán màng, cả hai `tờ → tờ`) — ra "8 tờ/tờ", vô nghĩa. Không có bước đổi mức
   // thì dùng đơn vị tính của chính sản phẩm, đúng thứ dòng "Thành phẩm cần" đang hiện.
   const buocDoiMuc = [...chuoiHao].reverse().find((b) => b.dv_ra && b.dv_ra !== b.dv_vao);
-  const dvCuoiChuoi = dvNgan(buocDoiMuc?.dv_ra) || c.don_vi_tinh || "cái";
+  const dvCuoiChuoi = dvNgan(buocDoiMuc?.dv_ra) || c.don_vi_tinh || "thành phẩm";
   // Bước ĐẦU chuỗi đếm khác bước in ⇒ nó đứng ở chặng TỜ NGUYÊN (bước xả giấy). Không có bước xả
   // thì tờ nguyên chỉ là số suy ra, dùng nhãn mặc định.
   const dvToNguyen =
@@ -2739,6 +2737,31 @@ function ComponentModal({
     ],
     [giays, c.giay_id],
   );
+  // Ô "Máy in" (mở lại 06/09/2026) — CHỈ mời máy đã khai ở một CÔNG ĐOẠN GIAI ĐOẠN IN (07/09/2026).
+  //
+  // Trước đó lọc theo chữ "in" đứng riêng trong `loai_may`, tức đoán theo TÊN NHÓM MÁY: máy bế/cán
+  // mà nhóm có chữ "in" thì vẫn lọt, còn máy in xưởng xếp nhóm kiểu khác thì rớt — và cả hai lỗi
+  // đều im lặng. Nguồn đúng là bảng "Máy chạy được công đoạn này" của công đoạn nhóm In
+  // (`may_lam_duoc` × `nhom === "print"`), cũng chính là chỗ bài ghép và xếp lịch đọc để gán máy,
+  // nên ba màn không mời ba danh sách khác nhau.
+  //
+  // KHÔNG lùi về "mời cả danh mục" khi lọc ra rỗng: rỗng nghĩa là chưa công đoạn In nào khai máy,
+  // mời bừa thì phiếu ghi một cái máy xưởng không nhận. Nói thẳng bằng câu nhắc dưới ô.
+  // Máy ĐANG chọn thì luôn giữ lại dù rớt bộ lọc — phiếu cũ không được tự mất số đã khai.
+  const mayIn = useMemo(() => {
+    const cho = new Set<number>();
+    for (const cd of congDoans) {
+      if (cd.active === false || String(cd.nhom) !== "print") continue;
+      for (const r of (cd.may_lam_duoc as { may_id?: number }[] | null | undefined) ?? []) {
+        if (r?.may_id != null) cho.add(Number(r.may_id));
+      }
+    }
+    return mays.filter((m) => cho.has(m.id) || m.id === c.may_id);
+  }, [mays, congDoans, c.may_id]);
+  const mayOpts = useMemo<SelectOption<string>[]>(
+    () => [{ value: "", label: "— Không chọn —" }, ...optsConDung(mayIn, c.may_id)],
+    [mayIn, c.may_id],
+  );
   // Ô công đoạn là ô HÀNH ĐỘNG (chọn xong thì đẻ chip, ô tự về rỗng) nên không có mục "— Chọn —".
   // LỌC `active`: bấm "Xóa" một công đoạn còn nơi dùng thì hệ chỉ TẮT cờ `active` (xoá hẳn sẽ
   // làm hỏng phiếu/lệnh cũ). Danh sách nạp về cố ý KHÔNG lọc — tên cũ vẫn phải tra được để phiếu
@@ -2753,6 +2776,25 @@ function ComponentModal({
     ],
     [congDoans],
   );
+  // MỘT sản phẩm chỉ chạy MỘT bước in (`nhom === "print"`). Hai bước in trong cùng chuỗi làm
+  // engine đếm tờ in hai lần và bù hao máy cộng đôi. Bước in ĐANG có (nếu có) — dùng để chặn.
+  // Dòng tự nhập không gắn danh mục thì không đọc được `nhom` ⇒ không tính là bước in.
+  const buocInDaCo = useMemo(
+    () =>
+      c.thanh_phams
+        .map((f) => (f.cong_doan_id == null ? null : congDoans.find((x) => x.id === f.cong_doan_id)))
+        .find((cd) => cd != null && String(cd.nhom) === "print") ?? null,
+    [c.thanh_phams, congDoans],
+  );
+  // CHẶN chứ không tự xoá bước cũ: người lập phiếu vừa chọn nhầm, xoá hộ bước in đang có là
+  // đổi chuỗi sau lưng họ. Băng nhắc tự tắt sau 6 giây để không bám lại màn hình.
+  const [canhBaoIn, setCanhBaoIn] = useState<string | null>(null);
+  useEffect(() => {
+    if (!canhBaoIn) return;
+    const t = window.setTimeout(() => setCanhBaoIn(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [canhBaoIn]);
+
   // Một đường thêm chip cho CẢ hai chỗ: mũi tên chèn giữa chuỗi và nút "+ Thêm công đoạn" ở cuối.
   const themCongDoan = (v: string, insertIdx: number | null = null) => {
     if (!v) return;
@@ -2761,6 +2803,14 @@ function ComponentModal({
       return;
     }
     const cd = congDoans.find((x) => String(x.id) === v);
+    if (cd && String(cd.nhom) === "print" && buocInDaCo) {
+      setCanhBaoIn(
+        `Chuỗi đã có bước in "${cdName(buocInDaCo)}" — mỗi sản phẩm chỉ in MỘT lần. ` +
+          `Muốn đổi sang "${cdName(cd)}" thì xóa bước in cũ trước.`,
+      );
+      return;
+    }
+    setCanhBaoIn(null);
     addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "", insertIdx);
   };
 
@@ -3016,7 +3066,7 @@ function ComponentModal({
                       // Tên đơn vị đọc từ DANH MỤC, không phải chuỗi ba nhánh khai cứng ở đây —
                       // giấy bán theo đơn vị nào là việc của danh mục, thêm đơn vị mới thì dòng
                       // này tự hiện đúng thay vì rơi hết về "tờ".
-                      return `${fmt(numOf(g.don_gia))} đ / ${dvNgan(String(g.don_vi_gia ?? "")) || "—"}`;
+                      return `${fmt(numOf(g.don_gia))} đ / ${nhanDonVi(String(g.don_vi_gia ?? "")) || "—"}`;
                     })()}
                   </div>
                 </div>
@@ -3029,10 +3079,28 @@ function ComponentModal({
                 <span className="tg-step-badge">3</span> Kỹ thuật in &amp; Màu in
               </div>
               <div className="tg-grid">
-                {/* Ô "Máy in" ĐÃ ẨN (04/09/2026): phiếu tính giá không chọn máy nữa, khổ tờ in gõ
-                    thẳng vào hai ô ngay dưới. `may_id` vẫn nằm trong dữ liệu phiếu và engine vẫn
-                    đọc chừa lề · khổ giấy máy của phiếu CŨ đã gắn máy; phiếu mới thì chừa = 0.
-                    Quy cách in nới 5 → 6 cột để hàng đầu vẫn đủ 12 (6 + khổ dài 3 + khổ rộng 3). */}
+                {/* Ô "Máy in" hiện LẠI (06/09/2026) sau lần ẩn 04/09. Lúc này nó chỉ để GHI NHẬN
+                    máy dự kiến: chọn xong KHÔNG tự điền khổ tờ in, KHÔNG áp chừa lề. Hai ô khổ tờ
+                    in ngay dưới vẫn gõ tay như trước. Phần logic bám theo máy để pha sau. */}
+                <label className="tg-field tg-span-6">
+                  <span className="tg-microlabel">Máy in</span>
+                  <Select
+                    options={mayOpts}
+                    value={c.may_id == null ? "" : String(c.may_id)}
+                    onChange={(v) => patchComp(c.uid, { may_id: v === "" ? null : Number(v) })}
+                    ariaLabel="Máy in"
+                    searchable
+                    portal
+                    className="tg-input"
+                    listClassName="tg-pop"
+                  />
+                  {mayIn.length === 0 && (
+                    <span className="tg-hint" style={{ marginTop: "2px" }}>
+                      Chưa công đoạn nhóm In nào khai máy — mở Danh mục ▸ Công đoạn, chọn công đoạn
+                      In rồi điền bảng “Máy chạy được công đoạn này”.
+                    </span>
+                  )}
+                </label>
                 <div className="tg-field tg-span-6">
                   <span className="tg-microlabel">
                     <span>Quy cách in</span>
@@ -3240,6 +3308,18 @@ function ComponentModal({
                   />
                 </div>
               </div>
+              {/* Băng nhắc CHẶN thêm bước in thứ hai. Đặt ngay dưới dãy chip vì cả hai đường thêm
+                  (mũi tên chèn giữa · nút cuối) đều nằm trong dãy đó — nhắc ở đây thì bấm ở chỗ
+                  nào cũng thấy. Màn này chưa có toast chung nên dùng đúng lối `tg-hint` đỏ như ③. */}
+              {canhBaoIn && (
+                <p
+                  className="tg-hint"
+                  role="alert"
+                  style={{ margin: "6px 0 0", color: "var(--rust)" }}
+                >
+                  {canhBaoIn}
+                </p>
+              )}
 
               {/* PHÍ KHUÔN — chỉ mọc khi chuỗi có bước cần dao lưu kho. Chuỗi toàn bước phẳng thì
                   khối này không tồn tại, màn hình không đổi một pixel.
@@ -3281,13 +3361,9 @@ function ComponentModal({
                                 name={`kn-${f.uid}`}
                                 checked={f.khuon_nguon === "co_san"}
                                 onChange={() =>
-                                  /* Chọn "có sẵn" là DỌN luôn tiền + ngày: bỏ số cũ nằm lại thì Σ
-                                     phí khuôn vẫn cộng nó, báo giá đội tiền một con dao không làm. */
-                                  patchFin(c.uid, f.uid, {
-                                    khuon_nguon: "co_san",
-                                    phi_khuon: 0,
-                                    khuon_ngay_du_kien: "",
-                                  })
+                                  /* Chọn "có sẵn" là DỌN luôn tiền: bỏ số cũ nằm lại thì Σ phí
+                                     khuôn vẫn cộng nó, báo giá đội tiền một con dao không làm. */
+                                  patchFin(c.uid, f.uid, { khuon_nguon: "co_san", phi_khuon: 0 })
                                 }
                               />
                               Có sẵn
@@ -3303,67 +3379,54 @@ function ComponentModal({
                             </label>
                           </div>
                         </div>
-                        {/* Ô tiền + ô ngày CHỈ mở khi làm dao mới: hỏi tiền cho con dao đã nằm
-                            trong kho là mời người ta gõ nhầm. */}
+                        {/* Ô tiền CHỈ mở khi làm dao mới: hỏi tiền cho con dao đã nằm trong kho
+                            là mời người ta gõ nhầm. */}
                         {f.khuon_nguon === "lam_moi" && (
-                          <>
-                            <div className="tg-khuon__row tg-khuon__row--phu">
-                              <span className="tg-khuon__ten">Phí làm khuôn</span>
-                              <div className="tg-khuon__input">
-                                <input
-                                  className="tg-khuon__num"
-                                  type="number"
-                                  min={0}
-                                  step={1000}
-                                  /* Ô số trần không có <label> nối vào — trình đọc màn hình chỉ đọc
-                                     "spin button". Ghép tên bước + loại dao thành nhãn. */
-                                  aria-label={`Phí ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
-                                  value={f.phi_khuon || ""}
-                                  placeholder="0"
-                                  onChange={(e) =>
-                                    patchFin(c.uid, f.uid, {
-                                      phi_khuon: Math.max(0, Number(e.target.value) || 0),
-                                    })
-                                  }
-                                />
-                                <small>đ</small>
-                              </div>
+                          <div className="tg-khuon__row tg-khuon__row--phu">
+                            <span className="tg-khuon__ten">Phí làm khuôn</span>
+                            <div className="tg-khuon__input">
+                              <input
+                                className="tg-khuon__num"
+                                type="number"
+                                min={0}
+                                step={1000}
+                                /* Ô số trần không có <label> nối vào — trình đọc màn hình chỉ đọc
+                                   "spin button". Ghép tên bước + loại dao thành nhãn. */
+                                aria-label={`Phí ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                                value={f.phi_khuon || ""}
+                                placeholder="0"
+                                onChange={(e) =>
+                                  patchFin(c.uid, f.uid, {
+                                    phi_khuon: Math.max(0, Number(e.target.value) || 0),
+                                  })
+                                }
+                              />
+                              <small>đ</small>
                             </div>
-                            <div className="tg-khuon__row tg-khuon__row--phu">
-                              <span className="tg-khuon__ten">Dự kiến có khuôn</span>
-                              <div className="tg-khuon__input">
-                                <input
-                                  className="tg-khuon__num tg-khuon__date"
-                                  type="date"
-                                  aria-label={`Ngày dự kiến có ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
-                                  value={f.khuon_ngay_du_kien}
-                                  onChange={(e) =>
-                                    patchFin(c.uid, f.uid, { khuon_ngay_du_kien: e.target.value })
-                                  }
-                                />
-                              </div>
-                            </div>
-                          </>
+                          </div>
                         )}
-                        {loai === "khung_lua" && (
-                          /* Kích thước/số khung TÁCH RIÊNG khỏi phí ở trên — không cộng dồn vào
+                        {loai === "khuon_ep" && (
+                          /* Kích thước/số khuôn TÁCH RIÊNG khỏi phí ở trên — không cộng dồn vào
                              Σ phí khuôn, chỉ bơm vào công thức của chính công đoạn này (xem
-                             dai_khung_lua/rong_khung_lua/so_khung_lua ở bien_cong_thuc.py). */
+                             dai_khuon/rong_khuon/so_khuon ở bien_cong_thuc.py).
+                             Ba ô này đổi chủ 06/09/2026: trước mở cho bước khung lụa, nay mở cho
+                             bước khuôn ép kim — nhà làm khuôn báo giá theo diện tích
+                             khắc, còn khung lụa xưởng trả một cục nên ô "Phí khuôn" ở trên là đủ. */
                           <div className="tg-khuon__kl">
                             <div className="tg-khuon__row">
-                              <span className="tg-khuon__ten">Dài khung lụa</span>
+                              <span className="tg-khuon__ten">Dài khuôn ép kim</span>
                               <div className="tg-khuon__input">
                                 <input
                                   className="tg-khuon__num"
                                   type="number"
                                   min={0}
                                   step={1}
-                                  aria-label={`Dài khung lụa của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
-                                  value={f.dai_khung_lua || ""}
+                                  aria-label={`Dài khuôn ép kim của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                                  value={f.dai_khuon || ""}
                                   placeholder="0"
                                   onChange={(e) =>
                                     patchFin(c.uid, f.uid, {
-                                      dai_khung_lua: Math.max(0, Number(e.target.value) || 0),
+                                      dai_khuon: Math.max(0, Number(e.target.value) || 0),
                                     })
                                   }
                                 />
@@ -3371,19 +3434,19 @@ function ComponentModal({
                               </div>
                             </div>
                             <div className="tg-khuon__row">
-                              <span className="tg-khuon__ten">Rộng khung lụa</span>
+                              <span className="tg-khuon__ten">Rộng khuôn ép kim</span>
                               <div className="tg-khuon__input">
                                 <input
                                   className="tg-khuon__num"
                                   type="number"
                                   min={0}
                                   step={1}
-                                  aria-label={`Rộng khung lụa của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
-                                  value={f.rong_khung_lua || ""}
+                                  aria-label={`Rộng khuôn ép kim của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                                  value={f.rong_khuon || ""}
                                   placeholder="0"
                                   onChange={(e) =>
                                     patchFin(c.uid, f.uid, {
-                                      rong_khung_lua: Math.max(0, Number(e.target.value) || 0),
+                                      rong_khuon: Math.max(0, Number(e.target.value) || 0),
                                     })
                                   }
                                 />
@@ -3391,23 +3454,23 @@ function ComponentModal({
                               </div>
                             </div>
                             <div className="tg-khuon__row">
-                              <span className="tg-khuon__ten">Số khung lụa sử dụng</span>
+                              <span className="tg-khuon__ten">Số khuôn ép kim</span>
                               <div className="tg-khuon__input">
                                 <input
                                   className="tg-khuon__num"
                                   type="number"
                                   min={0}
                                   step={1}
-                                  aria-label={`Số khung lụa sử dụng của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
-                                  value={f.so_khung_lua || ""}
+                                  aria-label={`Số khuôn ép kim của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                                  value={f.so_khuon || ""}
                                   placeholder="0"
                                   onChange={(e) =>
                                     patchFin(c.uid, f.uid, {
-                                      so_khung_lua: Math.max(0, Number(e.target.value) || 0),
+                                      so_khuon: Math.max(0, Number(e.target.value) || 0),
                                     })
                                   }
                                 />
-                                <small>khung</small>
+                                <small>khuôn</small>
                               </div>
                             </div>
                           </div>
@@ -3467,10 +3530,6 @@ function ComponentModal({
                     <small>đ</small>
                   </div>
                 </div>
-                <p className="tg-khuon__hint">
-                  Để trống = không thu tiền chở. Khoản này cộng vào giá vốn nên sang Báo giá được
-                  tính lãi như phần còn lại.
-                </p>
               </div>
             </section>
 

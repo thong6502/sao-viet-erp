@@ -4,6 +4,9 @@ Hai điều cần chắc TRƯỚC KHI chạy trên prod:
   1. IDEMPOTENT — chạy `run(db)` hai lần: lần 2 thêm 0 dòng, tổng số dòng mỗi bảng KHÔNG đổi.
   2. ENGINE NUỐT ĐƯỢC — mọi `cong_thuc_*` insert vào DB đều `safe_eval` trót lọt với ngữ cảnh
      phủ ĐỦ 20 biến hợp lệ (bắt lỗi gõ nhầm tên biến, thứ mà insert ORM KHÔNG kiểm).
+  3. MÀN KHAI SỬA LẠI ĐƯỢC — mỗi câu còn phải qua `kiem_cong_thuc` với ĐÚNG loại ô của nó
+     (07/09/2026). Script insert thẳng ORM nên không đi qua cổng của service; câu nào cổng ấy từ
+     chối thì dòng danh mục ship kèm sẽ không sửa nổi trên màn khai.
 
 Chạy nhắm đích (KHÔNG chạy cả init.ps1):
     cd backend; python -m pytest tests/test_import_danh_muc_prod.py -q
@@ -24,28 +27,31 @@ from app.models.may_thiet_bi import MayThietBi
 from app.models.piece_work import PieceRate
 from app.models.san_xuat_ly_do import SanXuatLyDo
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
-from app.services.bien_cong_thuc import BIEN
-from app.services.thanh_phan_engine import safe_eval
+from app.services.bien_cong_thuc import BIEN, LOAI_CONG_DOAN, LOAI_QUY_DOI, LOAI_VAT_TU
+from app.services.thanh_phan_engine import kiem_cong_thuc, safe_eval
 
 # Ngữ cảnh phủ ĐỦ MỌI biến hợp lệ (16 chung + dinh_luong + sl_vao/sl_ra + 2 đơn giá).
 # Kích thước ở MÉT (engine đã ÷1000). Giá trị > 0 để công thức có max()/chia vẫn ra số thật.
 _CTX_DAY_DU = {b["ma"]: 1.0 for b in BIEN}
 _CTX_DAY_DU.update(
     dai_tp=0.21, rong_tp=0.29, dai_nguyen=0.79, rong_nguyen=1.09,
-    dai_in=0.52, rong_in=0.72, so_luong=5000, so_tp=8,
+    dai_in=0.52, rong_in=0.72, so_luong=5000, so_con=8,
     to_dau_vao=5200, to_sau_in=5100, to_nguyen=1050,
     so_mau=4, so_mau_pha=1, so_mat=2, so_kem=8,
     dinh_luong=0.15, sl_vao=5200, sl_ra=5000,
     don_gia_giay=27000, don_gia_vat_tu=250000,
 )
 
-# Các bảng danh mục + cột công thức cần soi.
+# Các bảng danh mục + (cột công thức, LOẠI ô) cần soi. Loại quyết định tập biến ô đó cho phép —
+# `_CTX_DAY_DU` dưới đây là HỢP của mọi loại nên một mình nó không bắt được câu dùng biến của ô
+# khác (vd `don_gia_giay` trong ô ra LƯỢNG). Từ 07/09/2026 service chặn ca đó, nên bộ danh mục
+# ship kèm mà phạm là người dùng không sửa nổi dòng ấy trên màn khai nữa.
 _BANG_CONG_THUC = [
-    (CongDoan, ["cong_thuc_gia", "cong_thuc_san_luong"]),
-    (GiayNguyen, ["cong_thuc_luong"]),
-    (VatTuInAn, ["cong_thuc_gia", "cong_thuc_luong"]),
-    (MayThietBi, ["cong_thuc_luong"]),
-    (PieceRate, ["cong_thuc_luong"]),
+    (CongDoan, [("cong_thuc_gia", LOAI_CONG_DOAN), ("cong_thuc_san_luong", LOAI_QUY_DOI)]),
+    (GiayNguyen, [("cong_thuc_luong", LOAI_QUY_DOI)]),
+    # Máy · Công việc khoán không còn ô công thức nào (mg `0274`) nên rơi khỏi danh sách này;
+    # Vật tư khác chỉ còn ô giá.
+    (VatTuInAn, [("cong_thuc_gia", LOAI_VAT_TU)]),
 ]
 
 # Bảng cần đối chiếu số dòng giữa hai lần chạy (idempotent).
@@ -92,9 +98,14 @@ def test_run_idempotent_va_cong_thuc_engine_nuot_duoc(db):
     loi = []
     for model, cols in _BANG_CONG_THUC:
         for row in db.execute(select(model)).scalars():
-            for col in cols:
+            for col, loai in cols:
                 ct = getattr(row, col, None)
                 if not ct or not str(ct).strip():
+                    continue
+                try:
+                    kiem_cong_thuc(str(ct), nhan=col, loai=loai)
+                except ValueError as e:
+                    loi.append(f"{model.__name__}[{row.ma}].{col} = {ct!r} → màn khai từ chối: {e}")
                     continue
                 try:
                     val = safe_eval(str(ct), _CTX_DAY_DU)

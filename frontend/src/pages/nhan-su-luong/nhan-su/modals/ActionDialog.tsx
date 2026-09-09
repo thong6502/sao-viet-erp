@@ -106,10 +106,14 @@ export function ActionDialog({
           {error && <div className="banner banner--error">{error}</div>}
 
           {isTransition && (
-            <Field label="Ngày hiệu lực">
+            <Field
+              label="Ngày hiệu lực"
+              hint="Không chọn được ngày sau hôm nay: máy đổi trạng thái / phòng ban và khoá tài khoản ngay lúc bấm — tới ngày đó hãy bấm."
+            >
               <input
                 type="date"
                 value={effective}
+                max={today}
                 onChange={(e) => setEffective(e.target.value)}
               />
             </Field>

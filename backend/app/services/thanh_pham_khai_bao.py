@@ -34,6 +34,7 @@ import re
 import unicodedata
 
 from ..models.vat_lieu_kho import VatTuInAn
+from ..repositories.don_vi_do_repo import DonViDoRepository
 
 #: Tiền tố mã thành phẩm. `ma` chỉ 30 ký tự nên `TP-` + mã khách (`KH001`) + `-001` là vừa.
 TIEN_TO = "TP"
@@ -55,6 +56,35 @@ def chuan_ten(ten: str | None) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     # Chỉ gọt dấu câu ở HAI ĐẦU — gọt cả chuỗi thì "7×5cm" và "75cm" hoá một.
     return s.strip(" -–—.,;:·|/\\")
+
+
+def ma_don_vi(db, gia_tri: str | None) -> str | None:
+    """ĐVT của dòng đơn (một cái TÊN) → MÃ danh mục cho `vat_tu_in_an.don_vi_gia`.
+
+    ⚠️ Hai cột này KHÔNG cùng một thứ tiếng, và đó là chủ ý ở cả hai đầu:
+
+    * `order_lines.don_vi_tinh` giữ **TÊN** ("cái", "hộp"). Chuỗi đó chảy từ phiếu tính giá qua
+      báo giá rồi IN LÊN GIẤY GỬI KHÁCH — `PhieuTinhGiaDetailView.useDanhMucDonVi` ghi rõ lý do
+      không đổi sang mã: mọi báo giá cũ sẽ in ra chữ khác.
+    * `vat_tu_in_an.don_vi_gia` giữ **MÃ** ("cai", "hop") — cùng lối `giay_nguyen.don_vi_gia`,
+      vì kho và mọi quy đổi tra đơn vị bằng mã (`DonViDoRepository.ten_theo_ma`).
+
+    Chép thẳng tên sang mã là màn Thành phẩm mở dòng nào cũng báo đỏ *"cái · không có trong danh
+    mục"* trong khi không ai gõ sai gì — đơn vị đó CÓ trong danh mục, chỉ là dưới mã `cai`.
+
+    Không tra được (đơn vị gõ tay kiểu "chiếc") ⇒ **None**, không ghi chuỗi lạ vào cột mã. Màn hiện
+    "Chưa chọn đơn vị" — trạng thái THẬT và nhìn ra ngay, đúng lối mg `0170` đã chọn cho bảng này
+    (`don_vi_gia = NULL` cho mọi giá trị không khớp mã nào).
+    """
+    v = (gia_tri or "").strip()
+    if not v:
+        return None
+    repo = DonViDoRepository(db)
+    # Đã là mã thì trả về MÃ CHUẨN của danh mục, không trả nguyên văn: dòng cũ có thể ghi "Cai".
+    for d in repo.all_rows():
+        if (d.ma or "").strip().lower() == v.lower():
+            return (d.ma or "").strip()
+    return repo.ma_theo_ten().get(v.lower())
 
 
 def _ma_ke_tiep(db) -> str:
@@ -106,7 +136,7 @@ def tim_hoac_khai(db, *, customer_id: int | None = None, ten: str, dvt: str | No
         # NGUYÊN VĂN mô tả dòng đơn (PRD L3) — kho tìm bằng đúng cái tên khách đặt. Cắt 150 theo
         # `vat_tu_in_an.ten`.
         ten=(ten or "").strip()[:150] or "(chưa có tên)",
-        don_vi_gia=dvt or None,
+        don_vi_gia=ma_don_vi(db, dvt),
         don_gia=0,
         customer_id=customer_id,
         # `order_id` / `order_line_id` = đơn ĐẦU TIÊN đặt món này, giữ để tra nguồn gốc. KHÔNG

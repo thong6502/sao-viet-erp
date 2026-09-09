@@ -110,7 +110,7 @@ def _dong_to(dept_id: int, **kw) -> dict:
         "department_ten": "Tổ Dán", "trang_thai": "da_xep",
         "start_at": datetime(2026, 7, 27, 8, tzinfo=timezone.utc),
         "finish_at": datetime(2026, 7, 27, 12, tzinfo=timezone.utc),
-        "so_nhan_cong": 2, "loai_buoc": "to", "is_locked": False,
+        "so_nguoi": 2, "loai_buoc": "to", "is_locked": False,
     }
     d.update(kw)
     return d
@@ -119,8 +119,8 @@ def _dong_to(dept_id: int, **kw) -> dict:
 def test_qua_tai_to_chan_khi_tong_nguoi_vuot_quan_so(db, vd_svc, to_dan):
     """Tổ 3 người mà hai việc cùng lúc đòi 2 + 2 = 4 người → Chặn."""
     rows = [
-        _dong_to(to_dan.id, id=1, so_nhan_cong=2),
-        _dong_to(to_dan.id, id=2, lsx_ma="LSX-0002", so_nhan_cong=2,
+        _dong_to(to_dan.id, id=1, so_nguoi=2),
+        _dong_to(to_dan.id, id=2, lsx_ma="LSX-0002", so_nguoi=2,
                  start_at=datetime(2026, 7, 27, 9, tzinfo=timezone.utc)),
     ]
     out = vd_svc._qua_tai_to(rows)
@@ -136,8 +136,8 @@ def test_trung_gio_trong_to_KHONG_con_la_xung_dot_neu_du_nguoi(db, vd_svc, to_da
     học cách bỏ qua báo đỏ — mất luôn giá trị của những báo đỏ thật.
     """
     rows = [
-        _dong_to(to_dan.id, id=1, so_nhan_cong=2),
-        _dong_to(to_dan.id, id=2, lsx_ma="LSX-0002", so_nhan_cong=1,
+        _dong_to(to_dan.id, id=1, so_nguoi=2),
+        _dong_to(to_dan.id, id=2, lsx_ma="LSX-0002", so_nguoi=1,
                  start_at=datetime(2026, 7, 27, 9, tzinfo=timezone.utc)),
     ]
     assert vd_svc._qua_tai_to(rows) == []
@@ -153,8 +153,8 @@ def test_to_CHUA_KHAI_nhan_su_thi_khong_bao_qua_tai(db, vd_svc):
     db.add(trong)
     db.commit()
     rows = [
-        _dong_to(trong.id, id=1, so_nhan_cong=5),
-        _dong_to(trong.id, id=2, lsx_ma="LSX-0002", so_nhan_cong=5,
+        _dong_to(trong.id, id=1, so_nguoi=5),
+        _dong_to(trong.id, id=2, lsx_ma="LSX-0002", so_nguoi=5,
                  start_at=datetime(2026, 7, 27, 9, tzinfo=timezone.utc)),
     ]
     assert vd_svc._qua_tai_to(rows) == []
@@ -167,7 +167,7 @@ def test_go_de_0_nguoi_thi_VAN_chan(db, xl_svc, vd_svc, admin):
     db.commit()
     xl_svc.dat_quan_so(department_id=to.id, ngay=NGAY, so_nguoi=0,
                        ly_do="cả tổ nghỉ bù", actor=admin)
-    assert vd_svc._qua_tai_to([_dong_to(to.id, id=1, so_nhan_cong=1)]) != []
+    assert vd_svc._qua_tai_to([_dong_to(to.id, id=1, so_nguoi=1)]) != []
 
 
 def test_qua_tai_to_quet_theo_MOC_khong_so_tung_cap(db, xl_svc, vd_svc, admin, to_dan):
@@ -175,7 +175,7 @@ def test_qua_tai_to_quet_theo_MOC_khong_so_tung_cap(db, xl_svc, vd_svc, admin, t
     xl_svc.dat_quan_so(department_id=to_dan.id, ngay=NGAY, so_nguoi=9,
                        ly_do="huy động cả tổ", actor=admin)
     rows = [
-        _dong_to(to_dan.id, id=i, lsx_ma=f"LSX-000{i}", so_nhan_cong=3,
+        _dong_to(to_dan.id, id=i, lsx_ma=f"LSX-000{i}", so_nguoi=3,
                  start_at=datetime(2026, 7, 27, 8 + i, tzinfo=timezone.utc))
         for i in range(1, 4)
     ]
@@ -185,8 +185,8 @@ def test_qua_tai_to_quet_theo_MOC_khong_so_tung_cap(db, xl_svc, vd_svc, admin, t
 def test_go_de_quan_so_lam_thay_doi_ket_luan_qua_tai(db, xl_svc, vd_svc, admin, to_dan):
     """Mượn người xong thì cái đang Chặn phải TỰ HẾT — không bắt người dùng đi dời việc oan."""
     rows = [
-        _dong_to(to_dan.id, id=1, so_nhan_cong=2),
-        _dong_to(to_dan.id, id=2, lsx_ma="LSX-0002", so_nhan_cong=2,
+        _dong_to(to_dan.id, id=1, so_nguoi=2),
+        _dong_to(to_dan.id, id=2, lsx_ma="LSX-0002", so_nguoi=2,
                  start_at=datetime(2026, 7, 27, 9, tzinfo=timezone.utc)),
     ]
     assert vd_svc._qua_tai_to(rows) != []

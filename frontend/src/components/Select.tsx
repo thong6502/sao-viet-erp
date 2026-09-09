@@ -6,7 +6,7 @@
 // `portal`: render the popover in a portal at document.body (position: fixed at the trigger)
 // so it is NOT clipped by a scrolling parent — use it inside modals. Inline (default) keeps
 // the simpler absolute popover and does not close on page scroll.
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { khopGanDung } from "../utils/timGanDung";
 import "./select.css";
@@ -23,6 +23,12 @@ export interface SelectOption<T extends SelectValue = SelectValue> {
   sub?: string;
   /** Chấm số ĐỎ (báo "mới/chưa xem") ở cuối lựa chọn — vd số phản hồi kho chưa xem. Ẩn khi ≤0. */
   badge?: number;
+  /** Text CHỈ để tìm, KHÔNG hiện ra. Dùng khi mã món làm rối mắt danh sách nhưng người dùng vẫn
+   *  quen gõ mã ("gl-0001", "vt-keo") — bỏ mã khỏi nhãn mà vẫn tìm được. */
+  search?: string;
+  /** Nhãn NHÓM. Các lựa chọn liền nhau cùng `group` được gộp dưới một tiêu đề (thay `<optgroup>`
+   *  của thẻ select gốc). Không truyền thì danh sách phẳng như cũ. */
+  group?: string;
 }
 
 interface SelectProps<T extends SelectValue> {
@@ -85,8 +91,10 @@ export function Select<T extends SelectValue>({
     searchable && !onSearch && query.trim()
       ? // Khớp GẦN ĐÚNG: bỏ dấu + tách từ (xem `utils/timGanDung`). Gõ "may in nho" phải ra
         // "MÁY IN NHỎ 46×64" — lọc `includes` thường trả rỗng ở đúng những lần gõ như vậy.
-        // Soi cả `sub` vì dòng phụ hay chứa đúng thứ người ta nhớ (khổ máy, gsm giấy).
-        options.filter((o) => khopGanDung(`${o.label} ${o.hint ?? ""} ${o.sub ?? ""}`, query))
+        // Soi cả `sub` vì dòng phụ hay chứa đúng thứ người ta nhớ (khổ máy, gsm giấy), và `search`
+        // cho phần không hiện ra (mã món).
+        options.filter((o) =>
+          khopGanDung(`${o.label} ${o.hint ?? ""} ${o.sub ?? ""} ${o.search ?? ""}`, query))
       : options;
 
   // Portal mode: pin the popover to the trigger's current viewport rect.
@@ -246,8 +254,13 @@ export function Select<T extends SelectValue>({
         </li>
       )}
       {shown.map((opt, i) => (
+        <Fragment key={i}>
+        {/* Tiêu đề nhóm: chỉ in khi nhóm ĐỔI so với dòng trên. Bám `shown` (đã lọc) chứ không
+            `options`, nếu không thì gõ tìm xong còn trơ lại tiêu đề của nhóm rỗng. */}
+        {opt.group && opt.group !== shown[i - 1]?.group && (
+          <li className="sel__group" role="presentation">{opt.group}</li>
+        )}
         <li
-          key={i}
           id={`${listId}-${i}`}
           role="option"
           aria-selected={opt.value === value}
@@ -278,6 +291,7 @@ export function Select<T extends SelectValue>({
             <span className="sel__opt-check" aria-hidden="true">✓</span>
           )}
         </li>
+        </Fragment>
       ))}
     </ul>
   );

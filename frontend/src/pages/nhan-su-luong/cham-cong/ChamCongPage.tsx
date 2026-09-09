@@ -34,11 +34,14 @@ import "../../cham-cong.css";
 export function ChamCongPage({
   navigate,
   focusEmployeeId,
+  openTab,
   onChanged,
   eventTick,
 }: {
   navigate?: NavigateFn;
   focusEmployeeId?: number;
+  /** Mở thẳng tab Khai ca (nút "Đặt ca nền" ở hồ sơ NV) — xem `NavParams.chamCongTab`. */
+  openTab?: "khai-ca";
   /** Gọi sau mỗi lần tải/thao tác → AppShell refetch badge sidebar + chuông ngay. */
   onChanged?: () => void;
   /** Tăng theo mỗi sự kiện real-time (SSE) → tab phiếu đang mở tự tải lại, khỏi bắt F5. */
@@ -82,10 +85,15 @@ export function ChamCongPage({
   // vào màn là thấy một tab trống trơn không hiểu vì sao.
   const [tab, setTab] = useState<Tab>("me");
 
-  // Liên thông từ Hồ sơ NV → mở "Nhật ký chấm công" lọc đúng NV đó.
+  // Liên thông từ Hồ sơ NV → mở "Nhật ký chấm công" lọc đúng NV đó; nút "Đặt ca nền" thì mở
+  // thẳng Khai ca (bản rà E6, 07/09/2026) — lưới phân ca tự lọc + mở form ca nền cho người đó.
   useEffect(() => {
+    if (openTab === "khai-ca" && canKhaiCa) {
+      setTab("khai-ca");
+      return;
+    }
     if (focusEmployeeId && canViewLog) setTab("logs");
-  }, [focusEmployeeId, canViewLog]);
+  }, [focusEmployeeId, canViewLog, openTab, canKhaiCa]);
 
   return (
     <main className="ns">
@@ -194,7 +202,12 @@ export function ChamCongPage({
         />
       )}
       {tab === "locations" && canConfig && <LocationsTab token={token!} />}
-      {tab === "khai-ca" && canConfig && <ShiftsTab token={token!} />}
+      {tab === "khai-ca" && canConfig && (
+        <ShiftsTab
+          token={token!}
+          focusEmployeeId={openTab === "khai-ca" ? focusEmployeeId : undefined}
+        />
+      )}
       {tab === "lich-le" && canConfig && <CalendarTab token={token!} />}
       {tab === "logs" && canViewLog && (
         <LogsTab token={token!} focusEmployeeId={focusEmployeeId} />
@@ -207,7 +220,7 @@ export function ChamCongPage({
         />
       )}
       {tab === "yeu-cau" && canViewYcch && (
-        <AdjustRequestsTab token={token!} canAdjust={canApproveYcch} />
+        <AdjustRequestsTab token={token!} canAdjust={canApproveYcch} eventTick={eventTick} />
       )}
     </main>
   );

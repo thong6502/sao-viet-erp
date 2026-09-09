@@ -32,7 +32,6 @@ def _off74(**over):
     base = dict(
         ma="OFF-74-4C", ten="Offset 74 4 màu", loai_may="press_offset_sheet",
         kho_max_dai=740, kho_max_rong=530, kho_min_dai=210, kho_min_rong=280,
-        so_nhan_cong=2,
     )
     base.update(over)
     return base
@@ -49,12 +48,10 @@ def test_create_va_sua_may():
     assert m2.ten == "Offset 74 đổi tên" and m2.id == m.id
 
 
-def test_kip_van_hanh_tieu_chuan_la_du_lieu_khai_bao_cua_may():
-    assert "so_nhan_cong" in MayThietBiIn.model_fields
-    payload = MayThietBiIn(**_off74(so_nhan_cong=3))
-    assert payload.so_nhan_cong == 3
-    with pytest.raises(ValidationError):
-        MayThietBiIn(**_off74(so_nhan_cong=0))
+def test_may_khong_con_o_kip_van_hanh():
+    """Ô "Số người vận hành tiêu chuẩn" GỠ 06/09/2026 (mg `0270`): kíp của mọi loại bước nay lấy
+    từ định mức đầu việc của công đoạn, máy không khai số người của riêng nó nữa."""
+    assert "so_nhan_cong" not in MayThietBiIn.model_fields
 
 
 def test_duplicate_ma_rejected():

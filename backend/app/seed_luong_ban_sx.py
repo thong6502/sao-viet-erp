@@ -101,7 +101,7 @@ _DON_VI_KHAU_SACH: dict[str, tuple[str, str]] = {
     "CD-0008": ("tay", "cai"),   # bắt tay + vào keo: gom `so_tay` tay → 1 cuốn
     "CD-0009": ("cai", "cai"),   # xén 3 mặt: đếm cuốn thành phẩm, không đổi mức
     "CD-0010": ("to", "to"),     # cán màng mờ: chạy tờ, ra tờ
-    "CD-0011": ("to", "cai"),    # bế thành phẩm: 1 tờ ra `so_tp` con → thành phẩm
+    "CD-0011": ("to", "cai"),    # bế thành phẩm: 1 tờ ra `so_con` con → thành phẩm
     "CD-0012": ("cai", "cai"),   # đóng gói: đếm thành phẩm
     "CD-0013": ("to", "to"),     # ghép màng metalize: chạy tờ, ra tờ
     "CD-0014": ("to", "cai"),    # xén rời: 1 tờ in cắt ra `con` thành phẩm
@@ -152,8 +152,15 @@ def _utcnow() -> datetime:
 def _ensure_cong_doan(db: Session) -> dict[str, int]:
     """Bổ sung công đoạn khâu sách/thẻ (idempotent theo mã). Trả map mã → id của MỌI công đoạn."""
     from .models.department import Department
+    from .seed import TO_SX_SEED
 
     to_ids = {d.name: d.id for d in db.execute(select(Department)).scalars()}
+    # Bảng dưới khai theo tên tổ ĐỜI ĐẦU ("Tổ Đóng gói"…). Xưởng dùng tên khác (xem `TO_SX_SEED`),
+    # nên bắc thêm cầu tên-cũ → tổ đang có, nếu không mọi dòng đều rơi vào `department_id = None`.
+    for _ten_moi, _slug, _ten_cu in TO_SX_SEED:
+        if _ten_moi in to_ids:
+            for _t in _ten_cu:
+                to_ids.setdefault(_t, to_ids[_ten_moi])
     co_san = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
     for (ma, ten, nhom, ct, rate, setup, ns, may_ma, to_ten, kieu_bh, so_to_bh,
          tooling, tooling_type, ghi_chu) in _CONG_DOAN_MOI:
@@ -198,9 +205,17 @@ def _ensure_don_gia_khoan(db: Session) -> None:
     """Số hoá bảng CÔNG KHOÁN của từng tổ (idempotent theo mã). Chạy SAU `seed_san_xuat_org` vì cần
     các tổ đã tồn tại — không có tổ thì bỏ qua dòng đó, KHÔNG tạo tổ mới ở đây."""
     from .models.department import Department
+    from .seed import TO_SX_SEED
     from .models.piece_work import PieceRate
 
-    to_ids = {d.name: d.id for d in db.execute(select(Department)).scalars()}
+    to_ten = {d.id: d.name for d in db.execute(select(Department)).scalars()}
+    to_ids = {ten: i for i, ten in to_ten.items()}
+    # Bảng dưới khai theo tên tổ ĐỜI ĐẦU ("Tổ Đóng gói"…). Xưởng dùng tên khác (xem `TO_SX_SEED`),
+    # nên bắc thêm cầu tên-cũ → tổ đang có, nếu không mọi dòng đều rơi vào `department_id = None`.
+    for _ten_moi, _slug, _ten_cu in TO_SX_SEED:
+        if _ten_moi in to_ids:
+            for _t in _ten_cu:
+                to_ids.setdefault(_t, to_ids[_ten_moi])
     # Tổ của đầu việc SUY TỪ CÔNG ĐOẠN nó áp dụng, không hardcode theo tên tổ: tổ của công đoạn là
     # nguồn sự thật duy nhất (`cong_doan.department_id`), và nó có thể lệch tên tôi đoán ở đây —
     # ĐÃ LỆCH THẬT: "Đóng gói + nhập kho" bị heuristic seed xếp vào Tổ KCS vì có chữ "nhập kho",
@@ -217,8 +232,11 @@ def _ensure_don_gia_khoan(db: Session) -> None:
         )
         if dept_id is None:
             continue   # chưa có tổ nào nhận → khai đơn giá cũng không ai dùng
+        # NHÃN TỔ lấy từ tổ vừa tra ra, KHÔNG lấy `ten_to` của bảng trên: bảng khai tên tổ đời đầu
+        # ("Tổ Đóng gói"…), tổ ở xưởng tên khác, mà tab lọc của màn Công việc khoán dựng đúng từ
+        # `group_name` ⇒ ghi tên cũ vào là màn mọc lại tab của tổ đã xoá.
         rows.append(PieceRate(
-            group_name=ten_to, department_id=dept_id, ma=ma, ten=ten,
+            group_name=(to_ten.get(dept_id) or ten_to)[:40], department_id=dept_id, ma=ma, ten=ten,
             unit=don_vi, unit_price=don_gia,
             note=ghi_chu, active=True,
         ))
@@ -261,7 +279,7 @@ def _ensure_dinh_muc_to(db: Session) -> None:
                 continue
             cd.dau_viec_dinh_muc.append(CongDoanDauViec(
                 piece_rate_id=rate.id, nang_suat_nguoi_gio=float(cd.nang_suat or 500),
-                so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3,
+                so_nguoi_tieu_chuan=1,
             ))
     db.commit()
 

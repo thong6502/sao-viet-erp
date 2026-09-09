@@ -35,14 +35,10 @@ class MayThietBiIn(BaseModel):
     toc_do_min: float | None = None      # dải năng lực, CHỈ ĐỂ KHAI (xem model)
     toc_do_max: float | None = None
     don_vi_toc_do: str | None = None
-    #: Cách đo LƯỢNG theo đơn vị tốc độ của CHÍNH máy này (vd `sl_vao * dai_in * rong_in` cho máy
-    #: đo m²/giờ). Rỗng = để hệ quy đổi như cũ — xem `LsxService._sl_theo_don_vi`.
-    cong_thuc_luong: str | None = None
+    #: Cách đo lượng ĐÃ GỠ khỏi máy (mg `0274`) — nay khai theo cặp (công đoạn × máy).
     # `makeready_time_default` = thời gian CANH MÁY, Xếp lịch đọc. KHÁC "Chuẩn bị" của Công đoạn
     # (`cong_doan.setup_time`, Lệnh SX đọc) — hai nơi hai việc, không gộp không cộng.
     makeready_time_default: float | None = None
-    # Kíp chuẩn cần để vận hành máy. Đây là nhu cầu nhân lực, không nhân tốc độ máy.
-    so_nhan_cong: float = Field(default=1, ge=1)
     # Túi JSON: `chuan_bi_khoan` (các khoản chuẩn bị) + `lich_bao_tri` (Lịch bảo trì định kỳ).
     fields_theo_loai: dict | None = None
     # Máy còn dùng hay đã thanh lý (mg `0202`). Máy dừng TẠM thì vẫn `True` — khai ở
@@ -65,7 +61,6 @@ class MayThietBiRow(BaseModel):
     toc_do_min: float | None = None
     toc_do_max: float | None = None
     don_vi_toc_do: str | None = None
-    cong_thuc_luong: str | None = None
     # TÊN đọc được của đơn vị tốc độ, tra từ danh mục Đơn vị (`may_thiet_bi_service.gan_ten_don_vi`)
     # — bảng chỉ lưu MÃ (`to_gio`) mà mã không thành lời. Cùng cách đã làm cho Giấy · Vật tư ·
     # Công đoạn, để màn khỏi nhúng bảng nhãn thứ hai rồi lệch với danh mục.
@@ -73,11 +68,7 @@ class MayThietBiRow(BaseModel):
     # ⚠️ BẪY ĐÃ DÍNH 4 LẦN: service trả thêm field mà schema Out không khai thì Pydantic NUỐT IM
     # LẶNG và FE nhận `undefined`, không lỗi nào. Thêm field phải đi HẾT đường service → schema.
     don_vi_toc_do_ten: str | None = None
-    # "Lần trước công thức lượng" (mục 3+7) — router gán từ `cong_thuc_lich_su`, không có trong DB.
-    cong_thuc_luong_truoc: str | None = None
-    cong_thuc_luong_sua_luc: datetime | None = None
     makeready_time_default: float | None = None
-    so_nhan_cong: float = 1
     # Engine bình bài
     kho_max_dai: int | None = None
     kho_max_rong: int | None = None

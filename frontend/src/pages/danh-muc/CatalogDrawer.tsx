@@ -14,13 +14,15 @@ import { crud, type Row } from "../../api/rebuildCatalog";
 import { Drawer } from "./components/Drawer";
 import {
   BandsField, ChuanBiKhoanField, DinhMucDauViecField, DonViTocDoField, FormulaField,
-  LichBaoTriField, NhomMayField, NhomMayMultiField, RefMultiField, RefSearchField,
+  LichBaoTriField, MayCuaCongDoanField, NhomMayField, NhomMayMultiField, RefMultiField,
+  RefSearchField,
   SelfRefMultiField,
 } from "./fields";
 import { goiYMaTiepTheo } from "./maGoiY";
+import { useNapTenDonVi } from "../tenDonVi";
 import { NhatKyTab } from "./nhat-ky/NhatKyTab";
 import type {
-  BacRow, CatalogConfig, ChuanBiKhoanRow, DinhMucRow, FieldDef, LichBaoTriRow,
+  BacRow, CatalogConfig, ChuanBiKhoanRow, DinhMucRow, FieldDef, LichBaoTriRow, MayCongDoanRow,
 } from "./types";
 
 /** Tách đuôi đơn vị khỏi nhãn: "Khổ rộng (cm)" → nhãn "Khổ rộng" + hậu tố "cm" dán trong ô. */
@@ -41,6 +43,11 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
   onClose: () => void; onSaved: (moi?: Row) => void;
 }) {
   const { token } = useAuth();
+  // Nạp lại bảng nhãn (đơn vị + chặng dòng giấy) MỖI LẦN MỞ drawer. Trang danh sách cũng gọi hook
+  // này, nhưng nó đứng yên suốt buổi: chuyến nạp hụt lúc trang mở ra thì ở đó không có nhịp nào
+  // để thử lại, và ô "Đơn vị đầu vào/đầu ra" nằm im với menu rỗng. Mở drawer là một nhịp mount
+  // mới ⇒ hook tự nạp lại nếu còn thiếu bảng (đủ rồi thì không tốn request nào).
+  useNapTenDonVi();
   const api = useMemo(() => crud(config.prefix), [config.prefix]);
   const isEdit = existing != null;
   const [form, setForm] = useState<Record<string, unknown>>(() => {
@@ -51,7 +58,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") {
+      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -149,7 +156,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const theoPrefix = new Map<string, Record<string, unknown>>();
     for (const f of config.fields) {
       if (!f.refPrefix) continue;
-      if (!(f.type === "ref" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "ref-search" || f.type === "ref-search-ma" || f.type === "dau-viec-dinh-muc" || f.type === "don_vi_toc_do" || f.type === "nhom_may" || f.type === "nhom_may-multi")) continue;
+      if (!(f.type === "ref" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "ref-search" || f.type === "ref-search-ma" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan" || f.type === "don_vi_toc_do" || f.type === "nhom_may" || f.type === "nhom_may-multi")) continue;
       theoPrefix.set(f.refPrefix, { ...(theoPrefix.get(f.refPrefix) ?? {}), ...(f.refParams ?? {}) });
     }
     if (theoPrefix.size === 0) return;
@@ -174,7 +181,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
     const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
     const laDonVi = config.prefix.includes("don-vi");
-    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
     const Tag = f.type === "formula" || f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" ? "div" : "label";
@@ -191,6 +198,12 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
         ) : f.type === "bands" ? (
           <BandsField value={Array.isArray(form[f.key]) ? (form[f.key] as BacRow[]) : []}
             onChange={(v) => set(f.key, v)} />
+        ) : f.type === "may-cua-cong-doan" ? (
+          <MayCuaCongDoanField value={Array.isArray(form[f.key]) ? form[f.key] as MayCongDoanRow[] : []}
+            options={refData[f.refPrefix ?? ""] ?? []}
+            nhomChoPhep={Array.isArray(form.nhom_may_cho_phep) ? form.nhom_may_cho_phep as string[] : []}
+            nhomCongDoan={String(form.nhom ?? "")}
+            onChange={(v) => set(f.key, v)} />
         ) : f.type === "dau-viec-dinh-muc" ? (
           <DinhMucDauViecField value={Array.isArray(form[f.key]) ? form[f.key] as DinhMucRow[] : []}
             options={refData[f.refPrefix ?? ""] ?? []}
@@ -201,7 +214,14 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
           <div className="rc-input-wrapper">
             <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)}>
               <option value="">—</option>
-              {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {/* Menu RỖNG = bảng nhãn chưa về (ô chặng dòng giấy đọc `/api/don-vi/tram`), KHÔNG
+                  phải "không có lựa chọn nào". Nói thẳng ra, đừng để lại mỗi dòng "—" rồi người
+                  khai ngồi đoán mình mất menu hay danh mục trống. */}
+              {(() => {
+                const ds = typeof f.options === "function" ? f.options() : f.options;
+                if (f.options && !ds?.length) return <option disabled>Đang nạp danh sách…</option>;
+                return ds?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>);
+              })()}
             </select>
           </div>
         ) : f.type === "nhom_may" ? (
@@ -273,11 +293,11 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             // Ô tự khai loại (vd "Công thức tính lượng" ở Vật tư/Giấy) thì ÉP bộ chip theo nó —
             // một màn có thể có hai ô công thức hỏi hai câu khác nhau.
             loaiO={f.loaiO}
-            // Ba chip khung lụa (dai_khung_lua/rong_khung_lua/so_khung_lua) từng bị ẩn trừ khi
-            // "Loại khuôn" = Khung lụa. Bỏ ẩn theo yêu cầu 29/08/2026: engine đã bơm 3 biến này
-            // cho MỌI bước và mặc định 0 khi phiếu chưa khai (xem thanh_phan_engine.py) nên hiện
-            // sẵn không có rủi ro tính sai, chỉ đỡ người khai phải bật "Loại khuôn" mới thấy chip.
-            an={f.an}
+            // `an` nhận cả HÀM theo form đang gõ (xem `types.ts`) — ba chip khuôn ép kim chỉ hiện
+            // khi bước khai "Loại khuôn = Khuôn ép kim", vì chỉ bước đó phiếu tính giá
+            // mới hỏi ba ô Dài/Rộng/Số. Bước khung lụa hay khuôn bế mà bày chip là mời gõ vào chỗ
+            // luôn bằng 0. Ẩn CHỈ ở khâu hiển thị: công thức cũ lỡ dùng vẫn hợp lệ, vẫn tính như cũ.
+            an={typeof f.an === "function" ? f.an(form) : f.an}
             id={`formula-${f.key}`}
             // Nhãn TRONG khung đi theo nhãn của CHÍNH field. Trước 17/08/2026 nó đóng đinh
             // "Công thức tính giá", chấp nhận được khi mỗi màn chỉ có một ô; nay Giấy và Vật tư
@@ -331,7 +351,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     if (!config.autoCode || isEdit) body.ma = form.ma;
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) {
         const kieuChu = !f.type || f.type === "text" || f.type === "date" || f.type === "nhom_may";
         const voonCoGiaTri = isEdit && existing != null && existing[f.key] != null

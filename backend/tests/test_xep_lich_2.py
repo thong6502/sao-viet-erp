@@ -1478,7 +1478,7 @@ _KHOA_BUOC = {
     "id", "thu_tu", "cong_doan_ten", "loai_buoc", "trang_thai", "is_locked",
     "start_at", "finish_at", "chiem_may_phut", "chiem_may_phut_min", "chiem_may_phut_max",
     "theo_may", "nguon_thoi_luong", "may_id", "may_ten", "department_id", "to_ten",
-    "nha_cung_cap", "so_nhan_cong", "dinh_bien", "quan_so", "van_de",
+    "nha_cung_cap", "dinh_bien", "quan_so", "van_de",
 }
 
 
@@ -1520,7 +1520,8 @@ def test_boi_canh_buoc_du_khoa_va_sap_theo_thu_tu(v2, db, orders, lsx_svc, admin
     assert thu_tu == sorted(thu_tu), "chuỗi bước sắp theo thứ tự routing"
     for b in bc["buoc"]:
         assert _KHOA_BUOC <= set(b), f"bước thiếu khoá Panel: {_KHOA_BUOC - set(b)}"
-        assert set(b["dinh_bien"]) == {"toi_thieu", "tieu_chuan", "toi_da"}
+        # Hai mốc tối thiểu/tối đa đã gỡ (mg 0270/0274) — `_dinh_bien` chỉ còn trả kíp chuẩn.
+        assert set(b["dinh_bien"]) == {"tieu_chuan"}
         assert isinstance(b["van_de"], list)
         assert b["nguon_thoi_luong"] in ("may", "tay", "thue_ngoai")
 

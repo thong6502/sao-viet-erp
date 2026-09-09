@@ -1,7 +1,15 @@
 // Báo giá (Quotation / Quote) — spec-09, Phase 2B/2C/2D.
 // Danh sách phiếu (mã+version, khách, tổng giá bán, trạng thái, hạn hiệu lực) + Tạo/Sửa
 // (H-V-I structure, multi-quantity spreadsheet pricing table, version timeline, PDF preview & Order handoff).
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {
   ApiError,
   api,
@@ -17,7 +25,7 @@ import {
   type QuoteAttachment,
   type QuoteItemDetail,
 } from "../api/client";
-import { gopTheoNhom, nhomLechSoLuong } from "../utils/gop-nhom";
+import { gopTheoNhom, gopTrungTen, nhomLechSoLuong } from "../utils/gop-nhom";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
@@ -1412,8 +1420,9 @@ function QuotationDetailView({
               {/* Đếm DÒNG, không phải phiếu — 1 phiếu tính giá đẻ nhiều dòng là chuyện thường. */}
               <span className="tag">{multi ? `${d.items.length} dòng` : "Khóa từ PTG"}</span>
             </div>
-            {/* Bản in CHỈ gộp các phần cùng SL (`utils/gop-nhom`). Lệch nhau thường là
-                khai nhầm (bìa 1.000 / ruột 500) → nêu THẲNG phần nào bao nhiêu + sẽ in ra mấy dòng. */}
+            {/* Bản in gộp các phần cùng SL thành một cụm, rồi xếp các cụm cùng tên thành nhiều
+                MỨC trong một dòng (`utils/gop-nhom`). Lệch SL thường là khai nhầm (bìa 1.000 /
+                ruột 500) → nêu THẲNG phần nào bao nhiêu + sẽ in ra mấy mức. */}
             {nhomLech.length > 0 && (
               <div className="hint hint--warn hint--lechnhom" role="status">
                 <TriangleAlert size={15} />
@@ -1430,8 +1439,9 @@ function QuotationDetailView({
                         ))}
                       </ul>
                       <div className="lechnhom__ket">
-                        Chỉ các phần cùng số lượng mới gộp chung, nên bản gửi khách sẽ in{" "}
-                        <b>{n.soDongSeIn}</b> dòng cho nhãn này. Kiểm lại trước khi gửi.
+                        Chỉ các phần cùng số lượng mới gộp chung, nên bản gửi khách sẽ in nhãn này
+                        thành <b>1</b> dòng với <b>{n.soDongSeIn}</b> mức số lượng. Kiểm lại trước
+                        khi gửi.
                       </div>
                     </div>
                   ))}
@@ -2237,6 +2247,9 @@ function QuotationPrintModal({
     vatPct: it.vat_percent,
     dienGiai: it.dien_giai,
   }));
+  // Tầng gộp thứ HAI: các cụm CÙNG TÊN về một dòng, mỗi SL là một mức trong ba cột số. Ba mức
+  // của cùng một món trước đây in ra ba dòng lặp y hệt phần mô tả (chốt 05/09/2026).
+  const dongIn = gopTrungTen(lines);
   const netSubtotal = lines.reduce((s, l) => s + l.thanhTien, 0); // Σ tiền hàng chưa VAT
   const vatAmount = d.vat_amount;
   const grand = d.total; // tổng thanh toán (gồm VAT)
@@ -2326,32 +2339,42 @@ function QuotationPrintModal({
             <tbody>
               {/* Báo giá chưa có dòng nào: in ra khung bảng rỗng trông như lỗi in. Nói thẳng ra
                   giấy là chưa có sản phẩm, để người cầm tờ biết đây không phải trang bị mất chữ. */}
-              {lines.length === 0 && (
+              {dongIn.length === 0 && (
                 <tr>
                   <td className="c q-empty" colSpan={6}>Báo giá chưa có sản phẩm nào.</td>
                 </tr>
               )}
-              {lines.map((g, i) => {
+              {dongIn.map((g, i) => {
                 // Nhóm 1 dòng → mã hàng + ghi chú của chính dòng đó; nhóm gộp → để trống vì mã
-                // của ruột và bìa khác nhau, in một cái ra là sai.
+                // của ruột và bìa khác nhau, in một cái ra là sai. Nhiều MỨC cũng vậy: mỗi mức có
+                // ghi chú riêng, in ghi chú của mức đầu lên cả cụm là gán nhầm cho hai mức kia.
                 const don = g.goc.length === 1 ? g.goc[0] : null;
                 return (
-                  <tr key={g.key}>
-                    <td className="c">{i + 1}</td>
-                    <td className="q-desc">
-                      <span className="q-prod">{g.ten}</span>{don?.note ? `, ${don.note}` : ""}
-                      {/* Diễn giải quy cách: gạch đầu dòng dưới tên SP (nhóm gộp → mỗi phần 1 mục). */}
-                      {g.dienGiai.length > 0 && (
-                        <ul className="q-dg">
-                          {g.dienGiai.map((ln, k) => <li key={k}>{ln}</li>)}
-                        </ul>
-                      )}
-                    </td>
-                    <td className="c">{g.donViTinh}</td>
-                    <td className="r">{g.soLuong.toLocaleString("vi-VN")}</td>
-                    <td className="r">{donGia(g.soLuong > 0 ? g.thanhTien / g.soLuong : g.thanhTien)}</td>
-                    <td className="r">{money(g.thanhTien)}</td>
-                  </tr>
+                  <Fragment key={g.key}>
+                    {g.muc.map((m, j) => (
+                      // STT · mô tả · ĐVT kéo suốt các mức (rowSpan); chỉ 3 cột số tách theo mức.
+                      <tr key={j} className={j > 0 ? "q-muc-tiep" : undefined}>
+                        {j === 0 && (
+                          <>
+                            <td className="c" rowSpan={g.muc.length}>{i + 1}</td>
+                            <td className="q-desc" rowSpan={g.muc.length}>
+                              <span className="q-prod">{g.ten}</span>{don?.note ? `, ${don.note}` : ""}
+                              {/* Diễn giải quy cách: gạch đầu dòng dưới tên SP (nhóm gộp → mỗi phần 1 mục). */}
+                              {g.dienGiai.length > 0 && (
+                                <ul className="q-dg">
+                                  {g.dienGiai.map((ln, k) => <li key={k}>{ln}</li>)}
+                                </ul>
+                              )}
+                            </td>
+                            <td className="c" rowSpan={g.muc.length}>{g.donViTinh}</td>
+                          </>
+                        )}
+                        <td className="r">{m.soLuong.toLocaleString("vi-VN")}</td>
+                        <td className="r">{donGia(m.soLuong > 0 ? m.thanhTien / m.soLuong : m.thanhTien)}</td>
+                        <td className="r">{money(m.thanhTien)}</td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 );
               })}
             </tbody>

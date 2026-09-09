@@ -478,7 +478,7 @@ class XepLich2Service:
         # Nhân lực của bước đi kèm xem-trước. Hộp xác nhận vốn chỉ in NGUYÊN VĂN câu vấn đề
         # ("Đỉnh 5 người cùng lúc vượt quân số 3 của tổ") — người xếp đọc xong không biết số 5 ở
         # đâu ra và định biên của bước là bao nhiêu, phải mở màn Lệnh sản xuất mới tra được.
-        # Trả kèm số bố trí + ba mốc để hộp thoại tự nói hết.
+        # Trả kèm kíp chuẩn của bước để hộp thoại tự nói hết (ô bố trí riêng gỡ ở mg `0281`).
         op = self._op_cua_dong(dong)
         anh_huong, han_moi, han_sx, han_giao = self._anh_huong_ha_nguon(dong, t["finish"])
         tre = (han_moi.date() - han_sx).days if (han_moi is not None and han_sx is not None) else None
@@ -498,7 +498,6 @@ class XepLich2Service:
             "han_giao": han_giao,
             "tre_han_sx": bool(tre is not None and tre > 0),
             "tre_ngay": tre if (tre is not None and tre > 0) else None,
-            "so_nhan_cong": int(getattr(op, "so_nhan_cong", 1) or 1) if op is not None else None,
             "dinh_bien": self._dinh_bien(op),
         }
 
@@ -925,7 +924,6 @@ class XepLich2Service:
             "department_id": r.department_id,
             "to_ten": self._ten_to(r.department_id),
             "nha_cung_cap": (r.nha_cung_cap or None),
-            "so_nhan_cong": int(getattr(op, "so_nhan_cong", 1) or 1) if op is not None else None,
             "dinh_bien": self._dinh_bien(op),
             "quan_so": self._quan_so_buoc(r, r.department_id, t["start"], t["finish"]),
             "van_de": t["van_de"],
@@ -933,15 +931,14 @@ class XepLich2Service:
 
     @staticmethod
     def _dinh_bien(op) -> dict:
-        """Ba mốc định biên tham khảo của bước (kế thừa từ danh mục, sửa được tại bước). None nếu
-        bước routing đã bị xoá — Panel hiện '—' thay vì đoán bừa."""
+        """Kíp chuẩn tham khảo của bước (kế thừa từ danh mục, sửa được tại bước). None nếu bước
+        routing đã bị xoá — Panel hiện '—' thay vì đoán bừa.
+
+        Hai mốc tối thiểu/tối đa đã gỡ (migration `0270`): cả hệ nay chỉ còn MỘT con số định mức
+        nhân lực, khai ở đầu việc của công đoạn."""
         if op is None:
-            return {"toi_thieu": None, "tieu_chuan": None, "toi_da": None}
-        return {
-            "toi_thieu": getattr(op, "so_nhan_cong_toi_thieu", None),
-            "tieu_chuan": getattr(op, "so_nhan_cong_tieu_chuan", None),
-            "toi_da": getattr(op, "so_nhan_cong_toi_da", None),
-        }
+            return {"tieu_chuan": None}
+        return {"tieu_chuan": getattr(op, "so_nhan_cong_tieu_chuan", None)}
 
     def _quan_so_buoc(self, r: XepLichCongDoan, department_id, start, finish) -> dict | None:
         """Quân số tổ NGÀY bước chạy + phần CÒN RẢNH tại đỉnh chồng giờ (gồm chính bước này).

@@ -10,6 +10,7 @@ import { Pager, trangHopLe } from "../../components/Pager";
 import { useTre } from "../../lib/useTre";
 import { ApiError } from "../../api/client";
 import { crud, type Row } from "../../api/rebuildCatalog";
+import { useNapTenDonVi } from "../tenDonVi";
 import { CatalogDrawer } from "./CatalogDrawer";
 import { ImportExcelDialog } from "./ImportExcelDialog";
 import { OTim } from "./OTim";
@@ -29,6 +30,11 @@ const PAGE_SIZE = 20;
 export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; onMutate?: () => void }) {
   const { token } = useAuth();
   const can = useCan();
+  // Nạp bảng nhãn ĐƠN VỊ + CHẶNG dòng giấy cho cả trang lẫn drawer con: cột "Đơn vị" của màn Công
+  // đoạn và ô chọn Đơn vị đầu vào/ra đọc `/api/don-vi/tram` (xem `tenDonVi.ts`). Gọi ở ĐÂY chứ
+  // không ở từng config vì config là dữ liệu, không phải component — và một lần gọi ở gốc thì
+  // drawer vẽ lại theo. Bảng nạp một lần cho cả phiên nên các màn khác không tốn thêm chuyến nào.
+  useNapTenDonVi();
   // Gác nút GHI theo quyền module. Trước 15/08/2026 màn này không hỏi quyền một câu nào: vai
   // chỉ-đọc vẫn thấy đủ Thêm / Xóa / Bật lại, bấm xong mới ăn 403 — nút bày ra để rồi từ chối.
   // `moduleQuyen` bỏ trống (vd màn dùng trong test) = không gác, hành vi cũ y nguyên.
@@ -397,7 +403,7 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
                 // Khuôn: "Ngày có khuôn" đổi giữa ngày ngắn và "dự kiến DD/MM/YYYY" dài hơn — cột
                 // hẹp nên bản ngắn cũng từng vỡ dòng ở đúng biên pixel; cắt 1 dòng cho chắc.
                 "ngay_ve_du_kien",
-                // Khuôn: "Loại" ("Khuôn ép nhũ / dập nổi") và "Tình trạng" ("Đang đặt làm") là
+                // Khuôn: "Loại" ("Khuôn ép kim") và "Tình trạng" ("Đang đặt làm") là
                 // nhãn ánh xạ nhưng có giá trị dài hơn hẳn số còn lại trong cùng cột — cột hẹp
                 // nên vỡ 2-3 dòng ngay cả khi các giá trị khác vẫn gọn 1 dòng.
                 "loai", "tinh_trang",
@@ -439,11 +445,8 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
                           Đã ngừng
                         </span>
                       )}
-                      {Boolean(r.tram_dong_giay) && (
-                        <span className="badge-sem badge-sem--steel" title={`Trạm dòng giấy: ${String(r.tram_dong_giay)}`}>
-                          Trạm giấy
-                        </span>
-                      )}
+                      {/* GỠ 06/09/2026: badge "Trạm giấy". Đơn vị không còn mang cờ trạm — 5 chặng
+                          của dòng giấy nay khai thẳng ở ô Đơn vị vào/ra của màn Công đoạn. */}
                     </div>
                   </td>
                   {config.columns.map((c) => {

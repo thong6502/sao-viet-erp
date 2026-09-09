@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import func, asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.employee import (
@@ -463,6 +463,25 @@ class EmployeeRepository:
         self.db.add(row)
         return row
 
+    def co_ky_cong_da_chot_tu(self, ngay: date) -> bool:
+        """Có kỳ công ĐÃ CHỐT nào ở tháng của `ngay` hoặc sau đó không — guard gỡ mốc ca nền (A3)."""
+        from ..models.attendance import APERIOD_LOCKED, AttendancePeriod
+        rows = self.db.execute(
+            select(AttendancePeriod.year, AttendancePeriod.month)
+            .where(AttendancePeriod.status == APERIOD_LOCKED)
+        ).all()
+        return any((int(y), int(m)) >= (ngay.year, ngay.month) for y, m in rows)
+
+    def count_shift_changes_after(self, moc, den_ngay: date) -> int:
+        """Số lần đổi ca (ca nền hoặc ô lưới) ghi SAU `moc` (UTC) mà ngày áp dụng ≤ `den_ngay` —
+        Bảng công tháng đã chốt hỏi để cắm cờ "đổi ca sau chốt" (bản rà liên thông B8, 08/09/2026)."""
+        return int(self.db.execute(
+            select(func.count()).select_from(EmployeeShiftChangeLog).where(
+                EmployeeShiftChangeLog.created_at > moc,
+                EmployeeShiftChangeLog.apply_date <= den_ngay,
+            )
+        ).scalar() or 0)
+
     def list_shift_changes(
         self, *, employee_ids: list[int] | None = None, kind: str | None = None,
         start: date | None = None, end: date | None = None, limit: int = 500,
@@ -574,6 +593,21 @@ class EmployeeRepository:
                 )
             ).scalars()
         )
+
+    def events_map(self, employee_ids) -> dict[int, list[EmployeeEvent]]:
+        """Sự kiện của NHIỀU NV trong MỘT truy vấn — nuôi hàm biên chế dùng chung (`services/bien_che`)
+        khi dựng Bảng công / lưới phân ca / bảng lương, thay vì N truy vấn lẻ."""
+        ids = sorted({int(i) for i in (employee_ids or [])})
+        out: dict[int, list[EmployeeEvent]] = {i: [] for i in ids}
+        if not ids:
+            return out
+        for ev in self.db.execute(
+            select(EmployeeEvent)
+            .where(EmployeeEvent.employee_id.in_(ids))
+            .order_by(EmployeeEvent.effective_date.asc().nullsfirst(), EmployeeEvent.id.asc())
+        ).scalars():
+            out.setdefault(ev.employee_id, []).append(ev)
+        return out
 
     # --- attachments --------------------------------------------------------
 

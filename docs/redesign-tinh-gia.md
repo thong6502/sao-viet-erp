@@ -3,6 +3,10 @@
 > Làm lại từ đầu module Tính giá. Bản này **thay thế** thiết kế cũ (engine cứng 4 rổ).
 > Nguồn gốc: phiếu tính giá tay thật của xưởng (hộp đôi ITALY + rộ bông, 4.000 thành phẩm).
 > Đơn vị đếm sản phẩm gọi là **"thành phẩm"** (không dùng tiếng lóng "con").
+> **Sửa 08/09/2026 (mg `0286`):** luật trên chỉ còn áp cho TỔNG hàng làm ra (`so_luong`).
+> Riêng TỈ LỆ "một tờ in ra mấy cái" gọi lại đúng tiếng xưởng — **`so_con`, "số con/tờ in"**.
+> Gọi nó là "số thành phẩm/tờ" là mời người đọc nhầm nó với `so_luong`, mà nhầm hai thứ này
+> thì công thức tiền lệch cả nghìn lần chứ không phải sai chính tả.
 
 ---
 
@@ -38,7 +42,7 @@ chi phí**, nhưng **phơi vài biến** (số màu / mặt / kẽm) cho công t
 | `dai_nguyen` `rong_nguyen` | dài/rộng khổ giấy nguyên | nhập | m |
 | `dai_in` `rong_in` | dài/rộng khổ giấy in | nhập | m |
 | `so_luong` | số lượng (thành phẩm) | nhập | thành phẩm |
-| `so_tp` | số thành phẩm/tờ | nhập | — |
+| `so_con` | số con/tờ in — 1 tờ in ra mấy cái | nhập | con |
 | `so_mau` | số màu in | quy cách | màu |
 | `so_mat` | số mặt in (1 mặt→1; 2 mặt/tự trở→2) | quy cách | mặt |
 | `so_kem` | số bản kẽm | quy cách | bản |
@@ -58,9 +62,9 @@ Bù hao KHÔNG phải một cục cộng vào cuối — nó là **chuỗi NGƯ�
 Mỗi bước hỏi *"để nhả ra `ra` tờ tốt thì phải nhận vào bao nhiêu?"*:
 
 ```
-vào(bước) = (ra(bước) + tờ_cố_định) / (1 − %/100)      # tờ thì CỘNG, % thì CHIA
+vào(bước) = ra(bước) × (1 + %/100) + tờ_cố_định      # % NHÂN trên số ra, tờ thì CỘNG
 
-to_net      = ⌈so_luong / so_tp⌉                        → tờ tốt cần ở CUỐI chuỗi
+to_net      = ⌈so_luong / so_con⌉                        → tờ tốt cần ở CUỐI chuỗi
 to_dau_vao  = ⌈vào(bước đầu chuỗi)⌉                     → nuôi GIẤY + IN
 to_sau_in   = ra(bước có nhom="print")                  → nuôi CÔNG ĐOẠN SAU IN
 ```
@@ -110,7 +114,7 @@ với công thức — 2 nguồn sự thật).
 - Công đoạn nối quy tắc qua `kieu_bu_hao`; `bu_hao_engine` dò bậc theo `so_luong`.
   Không nối → dùng `so_to_bu_hao` (cộng cố định).
 - Đơn vị `%` **nhân thẳng với `so_luong`** → ra số tờ bù (vd `1,5% × 40.000 = 600 tờ`),
-  cộng **thẳng** vào `to_dau_vao`, KHÔNG chia `so_tp`.
+  cộng **thẳng** vào `to_dau_vao`, KHÔNG chia `so_con`.
 - Σ bù hao các công đoạn → cộng vào `to_dau_vao`.
 
 ---
@@ -127,27 +131,27 @@ Nhãn tầng: **[Nhập]** KTV gõ · **[Auto]** tự điền từ danh mục, s
 | Nguồn giấy: **Công ty** \| **Khách cấp** | [Nhập] | Khách cấp → **bỏ tiền giấy** |
 | Loại giấy (nếu Công ty) | [Nhập] | → công thức + field giấy (định lượng, đơn giá/kg) |
 | Khổ giấy nguyên (D×R) · khổ giấy in (D×R) | [Nhập] | cảnh báo nếu khổ in > khổ máy |
-| Số thành phẩm/tờ (`so_tp`) | [Nhập] | cảnh báo bình bài (so với số thành phẩm/tờ hình học) |
+| Số con/tờ in (`so_con`) | [Nhập] | cảnh báo bình bài (so với số con/tờ hình học) |
 | ~~"+ Bù thêm" (vào `to_dau_vao`)~~ | — | **ĐÃ BỎ** cùng đợt với "− Hao" — không còn ô tay nào cộng vào `to_dau_vao`, xem §3 |
 | Danh sách công đoạn (thêm/xóa) | [Auto] | routing Loại SP; mỗi công đoạn có công thức + bù hao |
 | Vật tư thêm | [Nhập] | danh mục vật tư in ấn; mỗi vật tư có công thức |
-| **số tờ đầu vào / sau in · số thành phẩm/tờ (hình học) · đ/thành phẩm từng dòng · tổng** | [Hiện] | tính-ra, khóa |
+| **số tờ đầu vào / sau in · số con/tờ in (hình học) · đ/thành phẩm từng dòng · tổng** | [Hiện] | tính-ra, khóa |
 
-**Số thành phẩm/tờ (hình học)** — số thành phẩm tối đa nhét vừa 1 tờ in, tự tính có xoay bài:
+**Số con/tờ in (hình học)** — số con tối đa nhét vừa 1 tờ in, tự tính có xoay bài:
 ```
 = max( ⌊dai_in/dai_tp⌋×⌊rong_in/rong_tp⌋ , ⌊dai_in/rong_tp⌋×⌊rong_in/dai_tp⌋ )
 ```
-Chỉ để **đối chiếu cảnh báo**: nếu `so_tp` (nhập tay) > số hình học → cảnh báo "bình bài không vừa".
-Tiền vẫn tính theo `so_tp` KTV gõ.
+Chỉ để **đối chiếu cảnh báo**: nếu `so_con` (nhập tay) > số hình học → cảnh báo "bình bài không vừa".
+Tiền vẫn tính theo `so_con` KTV gõ.
 
 **Khối Quy cách in** (mô tả — KHÔNG tính tiền, in ra cho sản xuất đọc): mẫu in · **cách in**
 (1 mặt / tự trở / trở nhíp / AB) · màu in (CMYK / màu pha / vecni bóng / mờ) · **SL kẽm** + khổ kẽm.
 
 - **Số màu · số mặt · số kẽm** phơi thành biến (`so_mau/so_mat/so_kem`) cho công thức dùng.
-- **Cách in KHÔNG có luật ẩn** — chỉ là nhãn; KTV tự nhập `so_mat` & `so_tp` cho đúng:
+- **Cách in KHÔNG có luật ẩn** — chỉ là nhãn; KTV tự nhập `so_mat` & `so_con` cho đúng:
   - 1 mặt → `so_mat`=1
-  - **AB** (2 mặt khác bài, 2 bộ kẽm) → `so_mat`=2, `so_tp` **giữ nguyên**
-  - Tự trở / trở nhíp (1 bộ kẽm, lật tờ) → `so_mat`=2, `so_tp` **÷2**
+  - **AB** (2 mặt khác bài, 2 bộ kẽm) → `so_mat`=2, `so_con` **giữ nguyên**
+  - Tự trở / trở nhíp (1 bộ kẽm, lật tờ) → `so_mat`=2, `so_con` **÷2**
 - Chi tiết thuần sản xuất (mẫu in duyệt, chốt khổ kẽm cụ thể) có thể để trống ở tính giá → firm
   up khi **lên đơn / lệnh sản xuất**.
 
@@ -186,7 +190,7 @@ vật tư) + dòng **TỔNG (giá vốn) đ/thành phẩm**. Không markup ở m
 ## 9. Cảnh báo (không chặn)
 
 - Khổ in > khổ máy.
-- `so_tp` > số thành phẩm/tờ hình học (bình bài không vừa).
+- `so_con` > số con/tờ hình học (bình bài không vừa).
 - Công thức lỗi / thiếu biến → dòng 0đ.
 - Giấy khách cấp → bỏ tiền giấy.
 
@@ -194,7 +198,7 @@ vật tư) + dòng **TỔNG (giá vốn) đ/thành phẩm**. Không markup ở m
 
 ## 10. Ghép nhiều mã
 
-Coi là **1 sản phẩm trên 1 tờ**: nhập `so_luong` tổng + `so_tp` tổng. Không chia chi phí riêng
+Coi là **1 sản phẩm trên 1 tờ**: nhập `so_luong` tổng + `so_con` tổng. Không chia chi phí riêng
 theo mã.
 
 ---
@@ -208,7 +212,7 @@ số đó**, dù đơn giá danh mục đã đổi.
 
 ## 12. Làm tròn
 
-Số thành phẩm/tờ **floor** · số tờ **ceil** · % bù hao **ceil** · tiền mỗi dòng **round** ·
+Số con/tờ in **floor** · số tờ **ceil** · % bù hao **ceil** · tiền mỗi dòng **round** ·
 đ/thành phẩm **round**.
 
 ---
@@ -216,7 +220,7 @@ Số thành phẩm/tờ **floor** · số tờ **ceil** · % bù hao **ceil** ·
 ## 13. Golden test neo (phiếu hộp đôi thật)
 
 ```
-SL 4.000 · số thành phẩm/tờ 2 · khổ in 0,435×0,64 · khổ nguyên 0,445×0,64
+SL 4.000 · số con/tờ in 2 · khổ in 0,435×0,64 · khổ nguyên 0,445×0,64
 giấy D250 (đl 0,25 kg/m², 17.100 đ/kg) · bù 250 (đầu vào) · hao 150 (sau in)
 
 to_dau_vao = 4000/2 + 250 = 2.250
@@ -253,7 +257,7 @@ Rewire sang Báo giá · in theo giờ máy · web/cuộn · sách nhiều tay (
 ## 16. Đã chốt (trước còn treo)
 
 - Định lượng **lưu thẳng kg/m²** (0,25) — biến `dinh_luong` dùng luôn, không quy đổi.
-- `%` bù hao **nhân với `so_luong`** → ra số tờ, cộng thẳng vào `to_dau_vao` (không chia `so_tp`).
+- `%` bù hao **nhân với `so_luong`** → ra số tờ, cộng thẳng vào `to_dau_vao` (không chia `so_con`).
 
 ---
 *Tạo lại 2026-07-14. Nguồn: phiếu tính giá tay thật (hộp đôi ITALY + rộ bông). Đơn vị đếm =

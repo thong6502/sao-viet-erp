@@ -77,13 +77,48 @@ TRAM_CON = "con"
 TRAM_TAY = "tay"
 TRAM_CAI = "cai"
 TRAM_DONG_GIAY = (TRAM_TO_NGUYEN, TRAM_TO, TRAM_CON, TRAM_TAY, TRAM_CAI)
+# NHÃN của 5 chặng — NGUỒN DUY NHẤT cho cả hệ, bày ra `GET /api/don-vi/tram`.
+#
+# Trước 09/09/2026 nhãn chặng nằm ở BA nơi và lệch nhau: bảng này (không ai dùng), bảng cứng
+# `TRAM_DONG_GIAY` bên `frontend/rebuildCatalogConfigs.tsx` (màn Công đoạn), và — tệ nhất — phép
+# tra mã chặng vào DANH MỤC ĐƠN VỊ ở mọi màn còn lại (`nhanDonVi`). Nên cùng một công đoạn Đóng gói
+# hiện "Con → Thành phẩm" ở màn danh mục nhưng "20.000 con → 20.000 cái" ở phiếu tính giá.
+#
+# KHÔNG tra danh mục Đơn vị & quy đổi cho mấy mã này, dù chuỗi trùng nhau: `cong_doan.don_vi_vao/ra`
+# giữ MÃ CHẶNG của dòng giấy, còn danh mục kia là đơn vị KHO / MUA HÀNG do người khác khai. Tra
+# nhầm thì ai đổi tên đơn vị `con` ở màn Kho là chữ trong màn Công đoạn đổi theo, dù dòng giấy
+# chẳng liên quan gì (đã gỡ một lần 08/09/2026 — xem `cong_doan_service`, đừng nối lại).
+#
+# HAI dạng cho HAI vai, cùng một bảng nên không thể lệch nhau:
+#   · `TRAM_NHAN`      — đứng MỘT MÌNH: menu ô "Đơn vị đầu vào/ra", cột Đơn vị của màn Công đoạn.
+#                        Nói rõ chặng nào, chấp nhận dài.
+#   · `TRAM_NHAN_NGAN` — đứng SAU CON SỐ: "2.750 tờ in → 20.400 con". Bỏ phần trong ngoặc, viết
+#                        thường, vì nó là hậu tố của một con số chứ không phải một tiêu đề.
 TRAM_NHAN = {
     TRAM_TO_NGUYEN: "Tờ nguyên (giấy mua về)",
     TRAM_TO: "Tờ in",
-    TRAM_CON: "Con (mảnh bế ra)",
+    TRAM_CON: "Con",
     TRAM_TAY: "Tay sách",
     TRAM_CAI: "Thành phẩm",
 }
+TRAM_NHAN_NGAN = {
+    TRAM_TO_NGUYEN: "tờ nguyên",
+    TRAM_TO: "tờ in",
+    TRAM_CON: "con",
+    TRAM_TAY: "tay sách",
+    TRAM_CAI: "thành phẩm",
+}
+
+
+def nhan_tram(ma: str | None, *, ngan: bool = False) -> str | None:
+    """Nhãn của một MÃ CHẶNG. `None` = mã không phải chặng ⇒ nơi gọi tự lo (tra danh mục, hiện mã trần).
+
+    Trả `None` thay vì chính mã: nơi gọi cần phân biệt "chặng, có nhãn" với "không phải chặng" để
+    còn quyết định có tra danh mục Đơn vị hay không. Nuốt khác biệt đó là mở lại đúng cái lỗi
+    khối chú thích trên vừa kể.
+    """
+    k = (ma or "").strip().lower()
+    return (TRAM_NHAN_NGAN if ngan else TRAM_NHAN).get(k)
 # CẦU giữa hai trạm — dòng giấy chảy MỘT CHIỀU và chỉ qua những nhịp CÓ HỆ SỐ:
 #     tờ nguyên ──(số mảnh xả)──▶ tờ in ──┬─(con/tờ)─▶ con ─(1/số con)─▶ thành phẩm
 #                                         ├─(1)──────▶ tay ─(số tay)──▶ thành phẩm   (khâu sách)
@@ -160,11 +195,17 @@ class DonViDo(Base):
     dung_lam_toc_do: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
-    # Đơn vị này đứng ở TRẠM nào trên dòng giấy — xem khối `TRAM_DONG_GIAY` đầu file. NULL = ngoài
-    # dòng giấy (kg · thùng · kẽm · lượt…), là trạng thái của gần hết danh mục.
+    # ⚠️ CỘT CHẾT 06/09/2026 — KHÔNG nơi nào đọc nữa, giữ để dữ liệu cũ không mất (cùng kiểu với
+    # `he_so_goc` và `dung_lam_toc_do` ở trên; xoá cột phải viết migration nên để lượt sau).
     #
-    # String chứ không Boolean: engine cần biết trạm NÀO để kiểm chiều chảy (tờ nguyên → tờ in →
-    # con/tay → cái); Boolean chỉ nói được "có nằm trên dòng hay không" nên không chặn nổi `cai → to`.
+    # Nó từng nói đơn vị này đứng ở CHẶNG nào của dòng giấy, để công đoạn khai đơn vị tự do rồi
+    # engine tra ngược ra chặng. Cái hỏng: dòng giấy có ĐÚNG 5 chặng đóng cứng trong code
+    # (`CAU_TRAM` + `lsx_service._he_so_cau`), nên cờ này chỉ cho phép ĐỔI TÊN một chặng chứ không
+    # thêm được chặng thứ 6 — đổi lại nó bắt người khai danh mục đơn vị (việc của kho và mua hàng)
+    # phải hiểu dòng giấy, sai một dòng là số giấy của mọi lệnh lệch theo mà chẳng màn nào báo.
+    #
+    # Nay ô "Đơn vị đầu vào / đầu ra" của màn Công đoạn là MENU ĐÓNG đúng 5 chặng `TRAM_DONG_GIAY`,
+    # để trống = bước ngoài dòng giấy. Hỏi đúng người, đúng lúc — xem `services/dong_giay.py`.
     tram_dong_giay: Mapped[str | None] = mapped_column(String(12), nullable=True)
     # `cong_thuc` (CÁCH ĐO của đơn vị, mg 0192) GỠ 17/08/2026 — mg `0215`. Bảng này nay chỉ trả lời
     # HAI câu: đơn vị nào có, và đổi qua lại thế nào (cặp `don_vi_quy_doi`, hệ số cố định).

@@ -2,7 +2,7 @@
 // Trang hồ sơ (tab Thông tin / Quá trình công tác / Đính kèm / Nhật ký) + dialog Đổi
 // trạng thái / Điều chuyển / Nâng bậc (sinh Quá trình công tác) + nối/tạo tài khoản.
 // Backend là cổng quyền thật (403); useCan chỉ ẩn/hiện nút cho gọn UX.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   assetUrl,
@@ -11,7 +11,7 @@ import {
   type EmployeeRow,
 } from "../../../api/client";
 import { Button } from "../../../components/Button";
-import { EmptyRow } from "../../../components/EmptyState";
+import { EmptyRow, EmptyState } from "../../../components/EmptyState";
 import { useAuth } from "../../../auth/useAuth";
 import { useCan } from "../../../auth/permissions";
 // `fmtDate` DÙNG CHUNG (utils/format) — trước đây file này tự chép một bản y hệt.
@@ -92,8 +92,13 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
     loadReqs();
   }, [loadReqs]);
 
+  /** Số thứ tự lượt tải danh sách. Đổi 2 bộ lọc liền tay là 2 request bay song song; phản hồi
+   *  của lượt CŨ về sau đè lượt mới ⇒ bảng hiện sai bộ lọc đang chọn (test luồng 08/09/2026).
+   *  Chỉ nhận phản hồi của lượt mới nhất. */
+  const luotTai = useRef(0);
   const load = useCallback(() => {
     if (!token) return;
+    const luot = ++luotTai.current;
     setLoading(true);
     api.employees
       .list(token, {
@@ -106,11 +111,16 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
         size,
       })
       .then((res) => {
+        if (luot !== luotTai.current) return;
         setData({ items: res.items, total: res.total, kpis: res.kpis });
         setListError(null);
       })
-      .catch((e) => setListError(errMsg(e)))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (luot === luotTai.current) setListError(errMsg(e));
+      })
+      .finally(() => {
+        if (luot === luotTai.current) setLoading(false);
+      });
   }, [token, q, statusFilter, deptFilter, accountFilter, sort, page]);
 
   /** Tải file .xlsx do MÁY CHỦ dựng.
@@ -261,27 +271,28 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
               {q && (
                 <button
                   type="button"
-                  style={{
-                    position: "absolute",
-                    right: "10px",
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    color: "#94a3b8",
-                    display: "flex",
-                    alignItems: "center",
-                    padding: 0,
-                  }}
+                  className="ns-search-clear"
                   onClick={() => {
                     setQ("");
                     setPage(1);
                   }}
                   title="Xóa tìm kiếm"
+                  aria-label="Xóa tìm kiếm"
                 >
                   <X size={14} />
                 </button>
               )}
             </div>
+            {canExport && (
+              <button
+                className="ns-btn-excel"
+                onClick={exportExcel}
+                disabled={exporting}
+              >
+                <Download size={14} />
+                {exporting ? "Đang xuất…" : "Xuất Excel"}
+              </button>
+            )}
             <div className="ns2__filters">
               <div className="ns-select-wrapper">
                 <select
@@ -353,16 +364,6 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                 </select>
                 <ChevronDown className="ns-select-chevron" size={14} />
               </div>
-              {canExport && (
-                <button
-                  className="ns-btn-excel"
-                  onClick={exportExcel}
-                  disabled={exporting}
-                >
-                  <Download size={14} />
-                  {exporting ? "Đang xuất…" : "Xuất Excel"}
-                </button>
-              )}
               {/* Bỏ chip "Sắp hết thử việc ×": dải lọc phía trên đã sáng đúng ô đó rồi,
                   hai chỗ báo cùng một trạng thái chỉ làm người dùng phải đọc hai lần. */}
             </div>
@@ -497,6 +498,113 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
             </table>
           </div>
 
+          {/* Dạng thẻ Mobile (< 768px) hỗ trợ cảm ứng tiện dụng */}
+          <div className="ns-cards-wrapper">
+            {loading && <EmptyState trangThai="dang-tai" />}
+            {!loading && listError && (
+              <EmptyState
+                trangThai="loi"
+                loi={listError}
+                onThuLai={load}
+              />
+            )}
+            {!loading && !listError && rows.length === 0 && (
+              <EmptyState
+                icon="users"
+                title={
+                  endingSoon
+                    ? "Chưa có ai sắp hết thử việc"
+                    : "Chưa có nhân viên nào khớp"
+                }
+                sub={
+                  endingSoon
+                    ? "Danh sách này chỉ hiện người còn dưới ngưỡng ngày tới hạn thử việc."
+                    : "Thử bỏ bớt bộ lọc, hoặc thêm nhân viên mới."
+                }
+              />
+            )}
+            {!loading &&
+              !listError &&
+              rows.map((e) => {
+                const avatarClass = getAvatarClass(e.full_name);
+                const photoSrc = assetUrl(e.photo_url);
+                return (
+                  <div
+                    key={e.id}
+                    className="ns-mobile-card"
+                    onClick={() => setSelectedId(e.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(ev) => {
+                      if (ev.key === "Enter" || ev.key === " ") {
+                        ev.preventDefault();
+                        setSelectedId(e.id);
+                      }
+                    }}
+                  >
+                    <div className="ns-mobile-card__head">
+                      <div className="ns-avatar-wrapper">
+                        {photoSrc ? (
+                          <img
+                            src={photoSrc}
+                            alt={e.full_name}
+                            className="ns-table-avatar-img"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <span className={`ns-table-avatar ${avatarClass}`}>
+                            {e.full_name.trim().slice(0, 1).toUpperCase()}
+                          </span>
+                        )}
+                        <span
+                          className={`ns-avatar-dot ns-avatar-dot--${e.status}`}
+                          title={`Trạng thái: ${STATUS_LABEL[e.status] ?? e.status}`}
+                        />
+                      </div>
+                      <div className="ns-mobile-card__title-col">
+                        <div className="ns-mobile-card__title-row">
+                          <span className="ns-mobile-card__name">{e.full_name}</span>
+                          {e.account_username && (
+                            <span title={`Tài khoản: ${e.account_username}`}>
+                              <Key size={13} style={{ marginLeft: "2px" }} />
+                            </span>
+                          )}
+                        </div>
+                        <span className="ns-code-chip">{e.code}</span>
+                      </div>
+                      <div className="ns-mobile-card__badge-col">
+                        <StatusBadge status={e.status} />
+                      </div>
+                    </div>
+                    <div className="ns-mobile-card__meta-grid">
+                      <div className="ns-mobile-card__meta-item">
+                        <span className="ns-mobile-card__meta-label">Phòng/Tổ</span>
+                        <span className="ns-mobile-card__meta-val">{e.department_name ?? "—"}</span>
+                      </div>
+                      <div className="ns-mobile-card__meta-item">
+                        <span className="ns-mobile-card__meta-label">Chức danh</span>
+                        <span className="ns-mobile-card__meta-val">{e.role_name ?? e.position ?? "—"}</span>
+                      </div>
+                      <div className="ns-mobile-card__meta-item">
+                        <span className="ns-mobile-card__meta-label">Bậc nghề</span>
+                        <span className="ns-mobile-card__meta-val">
+                          {e.job_grade_name || e.job_grade ? (
+                            <span className="ns-grade-chip">{e.job_grade_name ?? e.job_grade}</span>
+                          ) : (
+                            "—"
+                          )}
+                        </span>
+                      </div>
+                      <div className="ns-mobile-card__meta-item">
+                        <span className="ns-mobile-card__meta-label">Ngày vào</span>
+                        <span className="ns-mobile-card__meta-val ns-num">{fmtDate(e.hire_date)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
           {/* Chân bảng chuẩn: TỔNG bên trái, nút chuyển trang bên phải và CHỈ hiện khi có
               hơn 1 trang — một cặp ‹ › mờ tịt dưới bảng 3 dòng chỉ làm người dùng đi tìm
               trang thứ hai không tồn tại. */}
@@ -530,26 +638,14 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
       </div>
 
       {selectedId != null && (
-        <div
-          className="ns-modal"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setSelectedId(null)}
-        >
-          <div
-            className="ns-detail-modal-box"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <EmployeeDetailPanel
-              token={token!}
-              employeeId={selectedId}
-              meta={meta}
-              navigate={navigate}
-              onClose={() => setSelectedId(null)}
-              onChanged={load}
-            />
-          </div>
-        </div>
+        <EmployeeDetailPanel
+          token={token!}
+          employeeId={selectedId}
+          meta={meta}
+          navigate={navigate}
+          onClose={() => setSelectedId(null)}
+          onChanged={load}
+        />
       )}
 
       {wizardOpen && meta && (

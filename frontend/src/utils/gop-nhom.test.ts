@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { gopTheoNhom, nhomLechSoLuong, type DongGopDuoc } from "./gop-nhom";
+import {
+  gopTheoNhom,
+  gopTrungTen,
+  nhomLechSoLuong,
+  type DongDaGop,
+  type DongGopDuoc,
+} from "./gop-nhom";
 
 /** Dòng báo giá rút gọn cho test — chỉ giữ các trường `gopTheoNhom` cần. */
 type Dong = DongGopDuoc;
@@ -110,5 +116,108 @@ describe("nhomLechSoLuong", () => {
     expect(lech[0].ten).toBe("sách");
     expect(lech[0].soDongSeIn).toBe(2);
     expect(lech[0].phan.map((p) => p.soLuong)).toEqual([10_000, 100]);
+  });
+});
+
+describe("gopTrungTen", () => {
+  const g = (
+    ten: string,
+    soLuong: number,
+    thanhTien: number,
+    x: Partial<DongDaGop<Dong>> = {},
+  ): DongDaGop<Dong> => ({
+    key: `${ten}-${soLuong}`,
+    ten,
+    soLuong,
+    donViTinh: "cái",
+    thanhTien,
+    tienVat: 0,
+    vatPct: 10,
+    kichThuoc: null,
+    dienGiai: [],
+    donGia: soLuong > 0 ? Math.round(thanhTien / soLuong) : thanhTien,
+    goc: [],
+    ...x,
+  });
+
+  it("trùng TÊN sản phẩm → 1 dòng, mỗi SL là một mức", () => {
+    const out = gopTrungTen([
+      g("Hộp bánh 200g", 10_000, 32_000_000),
+      g("Hộp bánh 200g", 20_000, 61_524_494),
+      g("Hộp bánh 200g", 50_000, 144_678_957),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].ten).toBe("Hộp bánh 200g");
+    expect(out[0].muc.map((m) => m.soLuong)).toEqual([10_000, 20_000, 50_000]);
+    expect(out[0].muc.map((m) => m.thanhTien)).toEqual([32_000_000, 61_524_494, 144_678_957]);
+    // Chân bảng giữ nguyên: Σ thành tiền của dòng gộp = Σ các mức.
+    expect(out[0].thanhTien).toBe(32_000_000 + 61_524_494 + 144_678_957);
+  });
+
+  it("khác tên thì đứng riêng, thứ tự theo lần xuất hiện đầu", () => {
+    const out = gopTrungTen([
+      g("Hộp bánh 200g", 10_000, 32_000_000),
+      g("Thẻ nhân viên", 500, 1_000_000),
+      g("Hộp bánh 200g", 20_000, 61_524_494),
+    ]);
+    expect(out.map((x) => x.ten)).toEqual(["Hộp bánh 200g", "Thẻ nhân viên"]);
+    expect(out[0].muc).toHaveLength(2);
+    expect(out[1].muc).toHaveLength(1);
+  });
+
+  it("gõ lệch hoa/thường và khoảng trắng vẫn coi là cùng tên", () => {
+    const out = gopTrungTen([
+      g("Hộp bánh 200g", 10_000, 32_000_000),
+      g("  hộp BÁNH 200g ", 20_000, 61_524_494),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].ten).toBe("Hộp bánh 200g"); // giữ nguyên chữ của mức ĐẦU
+  });
+
+  it("các mức trùng diễn giải → chỉ in một lần; lệch thì giữ đủ, không trùng lặp", () => {
+    const a = ["KT: 420×300mm", "Giấy C300 300g"];
+    const trung = gopTrungTen([
+      g("Hộp bánh", 10_000, 1, { dienGiai: [...a] }),
+      g("Hộp bánh", 20_000, 1, { dienGiai: [...a] }),
+    ]);
+    expect(trung[0].dienGiai).toEqual(a);
+
+    const lech = gopTrungTen([
+      g("Hộp bánh", 10_000, 1, { dienGiai: [...a] }),
+      g("Hộp bánh", 20_000, 1, { dienGiai: [...a, "Cán màng mờ"] }),
+    ]);
+    expect(lech[0].dienGiai).toEqual([...a, "Cán màng mờ"]);
+  });
+
+  it("mức lệch VAT% → cột % để trống, tiền vẫn cộng đủ", () => {
+    const out = gopTrungTen([
+      g("Hộp bánh", 10_000, 1_000_000, { tienVat: 100_000, vatPct: 10 }),
+      g("Hộp bánh", 20_000, 2_000_000, { tienVat: 160_000, vatPct: 8 }),
+    ]);
+    expect(out[0].vatPct).toBeNull();
+    expect(out[0].tienVat).toBe(260_000);
+  });
+
+  it("kích thước chỉ giữ khi mọi mức giống nhau", () => {
+    const cung = gopTrungTen([
+      g("Hộp bánh", 10_000, 1, { kichThuoc: "420×300" }),
+      g("Hộp bánh", 20_000, 1, { kichThuoc: "420×300" }),
+    ]);
+    expect(cung[0].kichThuoc).toBe("420×300");
+    const lech = gopTrungTen([
+      g("Hộp bánh", 10_000, 1, { kichThuoc: "420×300" }),
+      g("Hộp bánh", 20_000, 1, { kichThuoc: "500×300" }),
+    ]);
+    expect(lech[0].kichThuoc).toBeNull();
+  });
+
+  it("giữ được dòng gốc của MỌI mức (chỗ gọi cần `note` khi dòng chỉ có 1 mức)", () => {
+    const r1 = dong({ ten: "A", soLuong: 10, thanhTien: 1 });
+    const r2 = dong({ ten: "A", soLuong: 20, thanhTien: 2 });
+    const out = gopTrungTen([
+      g("Hộp bánh", 10, 1, { goc: [r1] }),
+      g("Hộp bánh", 20, 2, { goc: [r2] }),
+    ]);
+    expect(out[0].goc).toEqual([r1, r2]);
   });
 });

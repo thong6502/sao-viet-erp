@@ -64,7 +64,7 @@ tp = {
         row("Khuôn bế (một lần)",
             cd("finishing", "Khuôn bế", "don_gia"), don_gia=800000),
         row("Bế thành phẩm",
-            cd("finishing", "Bế TP", "so_luong / so_tp * don_gia"), don_gia=300),
+            cd("finishing", "Bế TP", "so_luong / so_con * don_gia"), don_gia=300),
         row("Dán thành phẩm",
             cd("finishing", "Dán TP", "so_luong * don_gia"), don_gia=300),
         row("Đóng gói",

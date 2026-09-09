@@ -5,11 +5,11 @@ TÁCH RIÊNG khỏi `kcs.py` (chỉ đọc, không viết) để không làm fil
 (`_hang_kcs_theo_scope`) — bắt buộc để "cùng filter trả cùng tổng" (§9 mục 10) không thể lệch
 khi một bên sửa mà quên bên kia.
 
-`kcs_department_id` trên `SanXuatKcsBatch` CHỈ được set cho batch `dot_xuat` (kiêm nhiệm); batch
-`routing` để NULL — tổ sở hữu thật của nó là `cong_viec.department_id` (tổ đang chạy việc, vì
-bước KCS routing đứng sẵn trong routing của CHÍNH tổ đó). `_to_kcs_hieu_luc` gộp hai nhánh này —
-cùng khái niệm "tổ hiệu lực" mà `_gate_dieu_chinh` (Task 6) đã dùng cho gate ghi, ở đây dùng cho
-lọc/scope đọc.
+`kcs_department_id` trên `SanXuatKcsBatch` được set cho MỌI batch ghi trên thẻ việc của tổ khác
+(`dot_xuat` kiêm nhiệm và `diem_kiem` theo công đoạn); riêng batch `routing` để NULL — tổ sở hữu
+thật của nó là `cong_viec.department_id` (tổ đang chạy việc, vì bước KCS routing đứng sẵn trong
+routing của CHÍNH tổ đó). `_to_kcs_hieu_luc` gộp hai nhánh này — cùng khái niệm "tổ hiệu lực" mà
+`_gate_dieu_chinh` (Task 6) đã dùng cho gate ghi, ở đây dùng cho lọc/scope đọc.
 """
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ from ...models.san_xuat_kcs import (
     KCS_DAT,
     KCS_DAT_MOT_PHAN,
     KCS_KHONG_DAT,
+    KCS_LOAI_DIEM_KIEM,
     KCS_LOAI_DOT_XUAT,
     KCS_LOAI_ROUTING,
     SanXuatKcsBatch,
@@ -41,15 +42,21 @@ from .board import _to_thay_duoc
 from .thuc_thi import _aware
 
 _VN_TZ = ZoneInfo("Asia/Bangkok")
-_LOAI_LABEL = {KCS_LOAI_ROUTING: "Routing", KCS_LOAI_DOT_XUAT: "Đột xuất"}
+_LOAI_LABEL = {
+    KCS_LOAI_ROUTING: "Bước KCS",
+    KCS_LOAI_DOT_XUAT: "Đột xuất",
+    KCS_LOAI_DIEM_KIEM: "Điểm kiểm",
+}
 _KET_LUAN_LABEL = {KCS_DAT: "Đạt", KCS_DAT_MOT_PHAN: "Đạt một phần", KCS_KHONG_DAT: "Không đạt"}
 _CHUA_GAN_TO = "Chưa gán"
 _CHUA_PHAN_LOAI = "Chưa phân loại"
 
 
 def _to_kcs_hieu_luc(cv: SanXuatCongViec, kcs: SanXuatKcsBatch) -> int | None:
-    """Tổ SỞ HỮU kết quả KCS — routing lấy tổ đang chạy việc, đột xuất lấy tổ đi kiểm (mục 3.4)."""
-    if kcs.loai == KCS_LOAI_DOT_XUAT:
+    """Tổ SỞ HỮU kết quả KCS — bước KCS trong routing lấy tổ đang chạy việc; đột xuất VÀ điểm
+    kiểm lấy tổ ĐI KIỂM (mục 3.4) — hai loại đó ghi trên thẻ việc của tổ KHÁC, quy về tổ bị kiểm
+    là báo cáo tính công KCS cho chính người bị kiểm."""
+    if kcs.loai != KCS_LOAI_ROUTING:
         return kcs.kcs_department_id
     return cv.department_id
 

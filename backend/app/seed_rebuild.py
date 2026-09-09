@@ -37,9 +37,9 @@ _DON_VI_SEED: list[tuple[str, str, str, str]] = [
     ("g", "g", "khoi_luong", ""),
     ("m", "mét", "do_dai", ""),
     ("mm", "mm", "do_dai", ""),
-    # Bốn mã dưới đây là TRẠM trên dòng giấy (cùng `con` và `cai` bên dưới) — cờ `tram_dong_giay`
-    # suy từ mã, xem `seed_don_vi_do`. Thiếu `to_nguyen`/`tay` thì công đoạn Xả giấy / Gấp không
-    # chọn được đơn vị của chính mình (trước 11/08/2026 hai mã này chỉ sống trong hằng số của code).
+    # Bốn mã dưới đây là CHẶNG trên dòng giấy (cùng `con` và `cai` bên dưới). Chúng vẫn phải có
+    # mặt trong danh mục đơn vị vì kho / mua hàng / khoán cũng đếm bằng chúng — riêng ô Đơn vị
+    # vào/ra của công đoạn thì từ 06/09/2026 KHÔNG đọc danh mục nữa mà dùng thẳng `TRAM_DONG_GIAY`.
     ("to_nguyen", "tờ nguyên", "to", "Tờ giấy khổ mua về, CHƯA xả ra tờ in."),
     ("to", "tờ", "to", "Tờ giấy chạy qua máy in."),
     ("tay", "tay sách", "to", "Tờ in đã gấp lại thành một tay, mang nhiều trang."),
@@ -100,14 +100,9 @@ def seed_don_vi_do(db: Session) -> None:
     Bổ sung theo MÃ / CẶP CÒN THIẾU (không dùng `_empty`): thêm dòng mới vào hai danh sách trên là
     DB đang chạy cũng nhận, khỏi phải drop bảng. Cặp người dùng tự sửa thì KHÔNG bị ghi đè.
     """
-    from .models.don_vi_do import TRAM_DONG_GIAY   # 5 trạm dòng giấy, mã trùng tên trạm
-
     co = {d.ma for d in db.execute(select(DonViDo)).scalars()}
     moi = [
-        DonViDo(ma=ma, ten=ten, ho=ho, ghi_chu=gc or None,
-                # Cờ TRẠM suy từ mã (5 mã dòng giấy trùng đúng tên trạm) — đừng chép tay danh sách
-                # thứ hai ở đây. DB đang chạy nhận cờ này qua migration 0186.
-                tram_dong_giay=ma if ma in TRAM_DONG_GIAY else None)
+        DonViDo(ma=ma, ten=ten, ho=ho, ghi_chu=gc or None)
         for ma, ten, ho, gc in _DON_VI_SEED if ma not in co
     ]
     if moi:

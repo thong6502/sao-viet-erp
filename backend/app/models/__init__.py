@@ -92,7 +92,7 @@ from .plate_die_rate import PlateDieRate
 from .norm import Norm
 from .may_thiet_bi import MayThietBi, NhomMay
 from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
-from .cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
+from .cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu, CongDoanMay
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang, KhoViTri
@@ -162,7 +162,6 @@ from .san_xuat_kcs import (
     SanXuatKcsLoi,
     SanXuatKcsLoiAnh,
     SanXuatKcsTieuChi,
-    SanXuatKcsTieuChiCongDoan,
 )
 from .san_xuat_kho import (
     SanXuatKhoHang,
@@ -171,6 +170,12 @@ from .san_xuat_kho import (
 )
 from .san_xuat_vat_tu import SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong
 from .cong_doan_tag import CongDoanTag, CongDoanTagCatalog
+from .tai_san import (
+    TaiSan,
+    TaiSanBienDong,
+    TaiSanChiPhi,
+    TaiSanMoc,
+)
 
 __all__ = [
     "CongDoanTag",
@@ -292,6 +297,7 @@ __all__ = [
     "LsxCongDoanPhuThuoc",
     "CongDoanDauViec",
     "CongDoanDauViecVatTu",
+    "CongDoanMay",
     "BaiGhep",
     "BaiGhepThanhVien",
     "XepLichCongDoan",
@@ -331,10 +337,13 @@ __all__ = [
     "SanXuatKcsLoi",
     "SanXuatKcsLoiAnh",
     "SanXuatKcsTieuChi",
-    "SanXuatKcsTieuChiCongDoan",
     "SanXuatKhoHang",
     "SanXuatKhoLot",
     "SanXuatNhapKhoYc",
     "SanXuatVatTuDeNghi",
     "SanXuatVatTuDeNghiDong",
+    "TaiSan",
+    "TaiSanChiPhi",
+    "TaiSanBienDong",
+    "TaiSanMoc",
 ]

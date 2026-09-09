@@ -7,9 +7,9 @@ Dependency INLINE (bám `routers/bu_hao.py`). MODULE quyền = "dm_don_vi" — q
 đi ké `dm_cong_doan`, nghĩa là muốn cho kế toán khai "1 thùng = 24 hộp" thì phải mở luôn cho họ
 danh mục công đoạn. Đơn vị dùng chung cho kho · mua hàng · khoán lương, không thuộc riêng ai.
 
-⚠️ THỨ TỰ TRONG FILE = thứ tự khớp route của FastAPI. Ba route tĩnh (`/ho`, `/bien`, `/thu`) và cả
-nhánh `/quy-doi` phải khai TRƯỚC factory của đơn vị — nó dựng `/{item_id}`, và `"ho"` không ép
-được sang int nên sẽ ăn 422.
+⚠️ THỨ TỰ TRONG FILE = thứ tự khớp route của FastAPI. Bốn route tĩnh (`/ho`, `/bien`, `/tram`,
+`/thu`) và cả nhánh `/quy-doi` phải khai TRƯỚC factory của đơn vị — nó dựng `/{item_id}`, và
+`"ho"` không ép được sang int nên sẽ ăn 422.
 """
 from __future__ import annotations
 
@@ -23,9 +23,10 @@ from ..deps import require_any_permission
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
+from ..models.don_vi_do import TRAM_DONG_GIAY, TRAM_NHAN, TRAM_NHAN_NGAN
 from ..schemas.don_vi_do import (
     BienListOut, CapIn, CapListOut, CapRowOut, DonViDoIn, DonViDoListOut, DonViDoRow, HoListOut,
-    QuyDoiIn, QuyDoiOut,
+    QuyDoiIn, QuyDoiOut, TramListOut, TramRow,
 )
 from ..services.don_vi_do_service import (
     CapQuyDoiService, DonViDoService,
@@ -102,6 +103,23 @@ def list_ho(svc: Service, _: Annotated[User, Depends(_doc_don_vi)]) -> HoListOut
 def list_bien(_: Annotated[User, Depends(_doc_don_vi)]) -> BienListOut:
     """Biến dùng được trong công thức quy đổi — màn khai phải LIỆT KÊ, không bắt người ta đoán tên."""
     return BienListOut(items=[{"ma": k, "nhan": v} for k, v in BIEN.items()])
+
+
+@router.get("/tram", response_model=TramListOut)
+def list_tram(_: Annotated[User, Depends(_doc_don_vi)]) -> TramListOut:
+    """5 CHẶNG của dòng giấy + nhãn — nguồn DUY NHẤT, frontend không giữ bản sao nào.
+
+    Đứng ở router này vì nó là hàng xóm gần nhất (`/api/don-vi/bien` cũng bày một bảng hằng của
+    code ra cho màn khai), CHỨ KHÔNG PHẢI vì chặng là một đơn vị trong danh mục: `don_vi_vao/ra`
+    của công đoạn giữ mã chặng, không tra vào bảng `don_vi_do`. Xem `models/don_vi_do.TRAM_NHAN`.
+
+    Danh sách ĐÓNG: thêm chặng thứ 6 phải khai cả cầu hệ số (`CAU_TRAM`, `_he_so_cau`) nên là việc
+    sửa code, không phải khai danh mục.
+    """
+    return TramListOut(items=[
+        TramRow(ma=ma, nhan=TRAM_NHAN[ma], nhan_ngan=TRAM_NHAN_NGAN[ma])
+        for ma in TRAM_DONG_GIAY
+    ])
 
 
 @router.post("/thu", response_model=QuyDoiOut)

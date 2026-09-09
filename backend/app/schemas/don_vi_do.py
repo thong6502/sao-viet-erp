@@ -18,9 +18,8 @@ class DonViDoIn(BaseModel):
     # Bày trong ô "Đơn vị tốc độ" của màn Máy hay không. Mặc định KHÔNG: bảng này dùng chung cho
     # kho/khoán/mua hàng, đơn vị mới thêm chưa chắc là tốc độ máy.
     dung_lam_toc_do: bool = False
-    # Trạm trên DÒNG GIẤY (`to_nguyen · to · con · tay · cai`) — None = ngoài dòng giấy, đúng cho
-    # gần hết danh mục. Đây là thứ duy nhất engine bù hao cần biết về một đơn vị.
-    tram_dong_giay: str | None = Field(default=None, max_length=12)
+    # `tram_dong_giay` GỠ 06/09/2026 — 5 chặng dòng giấy nay khai thẳng ở ô Đơn vị vào/ra của
+    # màn Công đoạn, đơn vị không mang cờ nữa. Cột còn trong DB nhưng không ai đọc.
 
 
 class DonViDoRow(BaseModel):
@@ -34,7 +33,6 @@ class DonViDoRow(BaseModel):
     ghi_chu: str | None = None
     active: bool
     dung_lam_toc_do: bool = False
-    tram_dong_giay: str | None = None
     updated_at: datetime | None = None
     # Cảnh báo mềm (chưa khai quy đổi với ai) — hiện ở màn khai, không chặn lưu.
     canh_bao: list[str] = Field(default_factory=list)
@@ -57,6 +55,20 @@ class BienListOut(BaseModel):
     """Biến dùng được trong công thức quy đổi động: {ma, nhan}."""
 
     items: list[dict]
+
+
+class TramRow(BaseModel):
+    """MỘT chặng của dòng giấy — mã + hai dạng nhãn. Xem `models/don_vi_do.TRAM_NHAN`."""
+
+    ma: str
+    #: Đứng một mình (menu ô Đơn vị đầu vào/ra, cột Đơn vị của màn Công đoạn).
+    nhan: str
+    #: Đứng sau con số ("2.750 tờ in").
+    nhan_ngan: str
+
+
+class TramListOut(BaseModel):
+    items: list[TramRow]
 
 
 class HoListOut(BaseModel):

@@ -436,7 +436,10 @@ export function MyTimesheetTab({ token }: { token: string }) {
                   <tr key={r.id}>
                     <td>{r.work_date}</td>
                     <td>{r.check_type === "in" ? "VÀO" : "RA"}</td>
-                    <td>{r.suggested_time ?? "—"}</td>
+                    <td>
+                      {r.suggested_time ?? "—"}
+                      {r.suggested_next_day ? " (+1)" : ""}
+                    </td>
                     <td>
                       {r.reason}
                       {r.decision_note ? ` · (${r.decision_note})` : ""}

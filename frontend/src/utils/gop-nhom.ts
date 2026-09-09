@@ -200,3 +200,89 @@ export function nhomLechSoLuong<T>(
     .filter((v) => new Set(v.phan.map(cum)).size > 1)
     .map((v) => ({ ten: v.ten, soDongSeIn: new Set(v.phan.map(cum)).size, phan: v.phan }));
 }
+
+/** Một MỨC số lượng bên trong dòng gộp theo tên. Đơn giá KHÔNG tính sẵn ở đây: bản in tự chia
+ *  `thanhTien / soLuong` và giữ 2 số lẻ, để khách nhân tay trên giấy vẫn khớp. */
+export interface MucSoLuong {
+  soLuong: number;
+  thanhTien: number;
+  tienVat: number;
+}
+
+/** Dòng in cuối cùng: một ô mô tả, nhiều mức số lượng. */
+export interface DongTheoTen<T> {
+  key: string;
+  /** Tên hiển thị — giữ nguyên chữ của mức ĐẦU (khoá gộp mới là bản chuẩn hoá). */
+  ten: string;
+  donViTinh: string;
+  /** null = các mức lệch khổ → cột để trống. */
+  kichThuoc: string | null;
+  dienGiai: string[];
+  /** Các mức theo thứ tự xuất hiện. Luôn có ít nhất 1 phần tử. */
+  muc: MucSoLuong[];
+  /** Σ các mức — chân bảng cộng như cũ, không đổi một đồng. */
+  thanhTien: number;
+  tienVat: number;
+  /** null = các mức lệch VAT% → cột % để trống, tiền vẫn cộng đủ. */
+  vatPct: number | null;
+  goc: T[];
+}
+
+/**
+ * GỘP THEO TÊN SẢN PHẨM cho bản in gửi khách (chốt 05/09/2026).
+ *
+ * Cùng một sản phẩm báo nhiều mức số lượng (10.000 / 20.000 / 50.000 cái) trước đây in ra 3 dòng
+ * lặp y hệt nhau: 3 lần tên, 3 lần khổ, 3 lần chuỗi công đoạn — khách phải đọc chéo mới thấy chỉ
+ * khác mỗi con số. Nay MỘT ô mô tả, ba mức nằm trong ba cột số.
+ *
+ * Chạy SAU `gopTheoNhom`: tầng kia lo "ruột + bìa là một quyển sách" (khoá là nhãn `nhom`), tầng
+ * này lo "các mức của cùng một sản phẩm" (khoá là TÊN). Nhãn nhóm bị `gopTheoNhom` tách vì lệch SL
+ * cũng chảy vào đây và về lại một dòng, vì các dòng đó cùng mang tên nhãn.
+ *
+ * KHÔNG cộng dồn số lượng: ba mức là ba phương án SL của cùng một món, cộng lại thành 80.000 cái
+ * là con số không ai đặt.
+ */
+export function gopTrungTen<T>(rows: DongDaGop<T>[]): DongTheoTen<T>[] {
+  const out: DongTheoTen<T>[] = [];
+  const viTri = new Map<string, number>();
+
+  for (const r of rows) {
+    const k = r.ten.trim().toLowerCase();
+    const idx = viTri.get(k);
+    const muc: MucSoLuong = {
+      soLuong: r.soLuong,
+      thanhTien: r.thanhTien,
+      tienVat: r.tienVat,
+    };
+
+    if (idx === undefined) {
+      viTri.set(k, out.length);
+      out.push({
+        key: r.key,
+        ten: r.ten,
+        donViTinh: r.donViTinh,
+        kichThuoc: r.kichThuoc,
+        dienGiai: [...r.dienGiai],
+        muc: [muc],
+        thanhTien: r.thanhTien,
+        tienVat: r.tienVat,
+        vatPct: r.vatPct,
+        goc: [...r.goc],
+      });
+      continue;
+    }
+
+    const g = out[idx];
+    g.muc.push(muc);
+    g.thanhTien += r.thanhTien;
+    g.tienVat += r.tienVat;
+    if (g.vatPct !== r.vatPct) g.vatPct = null;
+    if (g.kichThuoc !== r.kichThuoc) g.kichThuoc = null;
+    // Các mức thường tả y hệt nhau (chỉ khác SL) nên bỏ gạch trùng; mức nào tả thêm thì gạch đó
+    // được giữ, đứng sau — không mất chữ mà cũng không in lặp.
+    for (const ln of r.dienGiai) if (!g.dienGiai.includes(ln)) g.dienGiai.push(ln);
+    g.goc.push(...r.goc);
+  }
+
+  return out;
+}

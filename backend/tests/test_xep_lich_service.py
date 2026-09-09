@@ -176,6 +176,11 @@ def _giu_cho_du(db, *, lsx_ids=(), bai_ghep_ids=()):
 
     Kho đầy = một lô rất lớn cho MỌI mặt hàng trong danh mục. Thô nhưng đúng ý: fixture này nói
     "vật tư không phải là biến của bài toán đang kiểm".
+
+    [08/09/2026] Fixture còn KHAI GIẤY lên bước In của từng lệnh. Trước đây bảng cân đối tự suy
+    dòng giấy từ `quy_cach_json`, nên "bật giữ chỗ" luôn có thứ để giữ; nay giấy chỉ vào bảng qua
+    dòng vật tư của bước, không khai thì lệnh KHÔNG CẦN GÌ và mọi test "vật tư chưa đủ chặn phát
+    hành" mất tiền đề. Khai ở đây, một chỗ, đúng thao tác người lập lệnh thật.
     """
     from app.models.kho_hang import KhoHang
     from app.models.stock_lot import LOT_AVAILABLE, StockLot
@@ -215,9 +220,47 @@ def _giu_cho_du(db, *, lsx_ids=(), bai_ghep_ids=()):
     )
     gc = GiuChoService(db, kh)
     for i in lsx_ids:
+        _khai_giay_len_buoc_in(db, i)
+    for i in lsx_ids:
         gc.bat(lsx_id=i)
     for i in bai_ghep_ids:
         gc.bat(bai_ghep_id=i)
+
+
+def _khai_giay_len_buoc_in(db, lsx_id: int) -> None:
+    """Khai dòng GIẤY (danh mục Giấy) lên bước In của một lệnh — đường DUY NHẤT giấy vào bảng cân
+    đối ở tầng lệnh từ 08/09/2026.
+
+    Đặt ở bước IN chứ không bước đầu chuỗi: ghi kẽm đo bằng `m² → bài`, nó không chạm tờ nào. Đây
+    cũng là bước bài ghép ép chạy chung, nên khi lệnh vào bài thì dòng này tự rơi khỏi vòng lệnh
+    (`bi_buoc_chung_de`) và giấy chỉ còn đếm MỘT lần, ở bài.
+    """
+    from app.models.lsx import Lsx, LsxCongDoanVatTu
+    from app.models.vat_lieu_kho import GiayNguyen
+
+    lsx = db.get(Lsx, lsx_id)
+    if lsx is None:
+        return
+    giay_id = (lsx.quy_cach_json or {}).get("giay_id")
+    buoc = _in_step(db, lsx_id)
+    if not giay_id or buoc is None:
+        return
+    g = db.get(GiayNguyen, int(giay_id))
+    if g is None:
+        return
+    if db.query(LsxCongDoanVatTu).filter(
+        LsxCongDoanVatTu.lsx_cong_doan_id == buoc.id,
+        LsxCongDoanVatTu.hang_loai == "giay",
+        LsxCongDoanVatTu.vat_tu_id == g.id,
+    ).first():
+        return
+    db.add(LsxCongDoanVatTu(
+        lsx_cong_doan_id=buoc.id, hang_loai="giay", vat_tu_id=g.id,
+        vat_tu_ma_snapshot=g.ma, vat_tu_ten_snapshot=g.ten,
+        don_vi_snapshot=g.don_vi_gia or "kg",
+        so_luong=1.0, thu_tu=0, tu_dong=False,
+    ))
+    db.commit()
 
 
 def _nha_cho(db, lsx_ids):
@@ -495,6 +538,32 @@ def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_
     # Thành viên bài ghép KHÔNG gỡ kế hoạch trực tiếp (phải gỡ qua bài ghép) — tránh mồ côi dòng in chung.
     with pytest.raises(XepLichConflict):
         xl_svc.go_lsx(lsx_id=created[0].id, actor=admin)
+
+
+def test_lenh_chua_khai_vat_tu_nao_bi_chan_va_cau_bao_chi_dung_viec_phai_lam(
+    db, orders, lsx_svc, xl_svc, admin, customer,
+):
+    """Từ 08/09/2026 giấy chỉ vào bảng cân đối qua DÒNG VẬT TƯ của bước, nên "lệnh chưa ra được nhu
+    cầu nào" là ca thường gặp chứ không còn là ca lạ.
+
+    Vẫn CHẶN (chưa ai nói lệnh này ăn giấy gì thì đừng xếp máy), nhưng câu báo cũ — "còn thiếu 0
+    mặt hàng" — vô nghĩa với người đọc: họ đi lập yêu cầu mua cho 0 món. Câu mới phải chỉ đúng chỗ
+    bấm: vào bước, ô Thêm vật tư.
+    """
+    from app.models.lsx import LsxCongDoanVatTu
+
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    # Gỡ đúng dòng giấy fixture vừa khai ⇒ lệnh về trạng thái "chưa khai món nào".
+    db.query(LsxCongDoanVatTu).filter(
+        LsxCongDoanVatTu.lsx_cong_doan_id.in_([c.id for c in lsx.cong_doans])
+    ).delete(synchronize_session=False)
+    db.commit()
+
+    with pytest.raises(XepLichConflict) as e:
+        xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
+    assert "chưa khai vật tư nào ở bước" in str(e.value)
+    assert "Thêm vật tư" in str(e.value)
+    assert "0 mặt hàng" not in str(e.value)
 
 
 def test_som_nhat_theo_gio_thuc_cua_buoc_truoc(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
@@ -984,7 +1053,7 @@ def test_xem_truoc_bao_to_thieu_nguoi(db, orders, lsx_svc, xl_svc, admin, custom
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     dong, step = _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer)
     to = _to_san_xuat(db)
-    step.so_nhan_cong = 3
+    step.so_nhan_cong_tieu_chuan = 3
     dong.department_id = to.id
     db.commit()
     xl_svc.dat_quan_so(department_id=to.id, ngay=date(2026, 7, 27), so_nguoi=1,

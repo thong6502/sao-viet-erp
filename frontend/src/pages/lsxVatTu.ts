@@ -4,16 +4,21 @@
 // được mà không phải dựng cả màn.
 //
 // Ba nhóm cố ý KHÔNG gộp làm một, vì ba bản chất khác nhau:
-//   · `nvl`     — giấy. Vào ở ĐÚNG MỘT bước (bước đầu tiên chạm dòng giấy), không rải khắp chuỗi.
+//   · `nvl`     — giấy, tức dòng bước lấy từ DANH MỤC GIẤY (`hang_loai === "giay"`).
 //   · `vat_tu`  — mực · kẽm · keo · màng. Khai ở bước, bước nào ăn gì tuỳ đầu việc của nó.
 //   · `dung_cu` — khuôn. MƯỢN RỒI TRẢ, không mất đi khỏi kho.
+//
+// [SỬA 08/09/2026] Panel KHÔNG còn tự đẻ dòng giấy từ `quy_cach_json.giay_id` + `so_to_nguyen` rồi
+// treo lên "bước đầu tiên chạm tờ". Hai chỗ đoán, hai chỗ sai: bước tiêu thụ giấy là thứ suy ra
+// NGÀY CẦN giấy ở bảng cân đối, mà máy chỉ đoán được nó. Nay người lập lệnh CHỌN TAY giấy trong ô
+// "Thêm vật tư" của đúng bước ăn giấy — panel chỉ đọc lại thứ đã khai, không suy gì nữa.
 //
 // ⚠️ BẪY CỘNG DỒN — vì sao `dung_cu` KHÔNG được cộng ở khối tổng: một con dao dùng ở hai bước vẫn
 // là MỘT con dao. Cộng thành "2 khuôn" là đòi xưởng làm thêm một con dao không ai cần. Giấy và vật
 // tư thì ngược lại, PHẢI cộng — mỗi bước ăn một phần thật, nhìn riêng từng bước sẽ mua thiếu.
 // (Có thật ngay ở lệnh đầu tiên: màng cán bóng khai ở 2 bước, mỗi bước 5.200 m² ⇒ tổng 10.400 m².)
 import type { LsxCongDoan } from "../api/client";
-import { tenDonVi } from "./tenDonVi";
+import { nhanTram, tenDonVi } from "./tenDonVi";
 
 export type NhomVatTu = "nvl" | "vat_tu" | "dung_cu";
 
@@ -73,6 +78,13 @@ function nhanDv(ma: string | null | undefined): string {
   return k ? (tenDonVi(k) ?? k) : "";
 }
 
+/** Nhãn CHẶNG dòng giấy cho `don_vi_vao/ra` của bước — bảng RIÊNG, không tra danh mục Đơn vị:
+ *  hai từ vựng trùng chuỗi mã nhưng khác hẳn nhau. Mã ngoài 5 chặng (bước ngoài dòng giấy, dữ
+ *  liệu trước 06/09/2026) rơi về `nhanDv`. Xem `tenDonVi.ts`. */
+function nhanChang(ma: string | null | undefined): string {
+  return nhanTram(ma) ?? nhanDv(ma);
+}
+
 function soHoac0(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -80,48 +92,26 @@ function soHoac0(v: unknown): number {
 
 export function bangKeVatTu(args: {
   congDoans: LsxCongDoan[];
-  quyCach: Record<string, unknown> | null;
-  soToNguyen: number;
-  /** Mã đơn vị chặng "tờ nguyên" — SERVER chấm (`don_vi_to_nguyen`), client chỉ tra tên. */
-  donViToNguyen: string | null;
 }): BangKeVatTu {
-  const { congDoans, quyCach, soToNguyen, donViToNguyen } = args;
+  const { congDoans } = args;
   const buocSap = [...congDoans].sort((a, b) => a.thu_tu - b.thu_tu);
-
-  // Giấy vào ở bước ĐẦU TIÊN nằm trên dòng giấy — không phải bước đầu routing. Bước ghi kẽm đứng
-  // trước nhưng đo bằng `m² → bài`, nó không chạm tờ giấy nào; treo giấy lên đó là chỉ sai bước
-  // tiêu thụ, mà bước tiêu thụ chính là thứ suy ra NGÀY CẦN giấy ở bảng cân đối.
-  const buocGiay = buocSap.find((c) => c.tren_dong_giay) ?? null;
-  const giayId = quyCach?.giay_id;
-  const coGiay = giayId != null && giayId !== "" && soToNguyen > 0 && buocGiay !== null;
-  const giayTen = String(quyCach?.giay_ten ?? "").trim() || `Giấy #${String(giayId ?? "")}`;
 
   const buocs: BuocKe[] = buocSap.map((c) => {
     const dong: DongKe[] = [];
 
-    if (coGiay && buocGiay !== null && c.id === buocGiay.id) {
-      dong.push({
-        nhom: "nvl",
-        khoa: `giay:${String(giayId)}`,
-        ma: null,
-        ten: giayTen,
-        so_luong: soToNguyen,
-        // Số tờ NGUYÊN (thứ đi mua), không phải tờ in — hai chặng khác nhau, trùng số ở nhiều lệnh
-        // nên lệch rất khó thấy. Nhãn phải nói đúng chặng.
-        don_vi: nhanDv(donViToNguyen) || "tờ nguyên",
-        chu_thich: "NVL chính",
-      });
-    }
-
     for (const v of c.vat_tus ?? []) {
+      // Món tới từ danh mục Giấy là NVL CHÍNH — khác nhóm, khác khoá gom. Khoá phải mang cả
+      // `hang_loai`: Giấy #7 và Vật tư #7 là hai món khác nhau, gom chung một khoá `7` là cộng
+      // nhầm kg giấy vào kg keo.
+      const giay = v.hang_loai === "giay";
       dong.push({
-        nhom: "vat_tu",
-        khoa: `vat_tu:${v.vat_tu_id}`,
+        nhom: giay ? "nvl" : "vat_tu",
+        khoa: `${giay ? "giay" : "vat_tu"}:${v.vat_tu_id}`,
         ma: v.vat_tu_ma ?? null,
         ten: v.vat_tu_ten ?? "",
         so_luong: soHoac0(v.so_luong),
         don_vi: nhanDv(v.don_vi),
-        chu_thich: null,
+        chu_thich: giay ? "NVL chính" : null,
       });
     }
 
@@ -146,9 +136,9 @@ export function bangKeVatTu(args: {
       dau_viec: c.khoan_ten ?? null,
       tren_dong_giay: c.tren_dong_giay !== false,
       sl_vao: soHoac0(c.so_luong_vao),
-      dv_vao: nhanDv(c.don_vi_vao),
+      dv_vao: nhanChang(c.don_vi_vao),
       sl_ra: soHoac0(c.so_luong_ra),
-      dv_ra: nhanDv(c.don_vi_ra),
+      dv_ra: nhanChang(c.don_vi_ra),
       dong,
       thieu_khuon: Boolean(c.requires_tooling) && c.khuon_be_id == null,
     };

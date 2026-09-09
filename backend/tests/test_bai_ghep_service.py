@@ -176,6 +176,12 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000, sl_them: tuple[int, ...] = ()) -> 
                          cong_thuc_gia="so_luong * don_gia")
         db.add(cd_in)
     cd_in.department_id = cd_in.department_id or to_id
+    # Đơn vị vào/ra PHẢI khai: từ 06/09/2026 bỏ TRỐNG cả hai nghĩa là "bước không chạm giấy"
+    # (ghi kẽm, đóng thùng), không còn là "chưa khai" — `tren_dong_giay` bỏ lối lùi theo `nhom`.
+    # Bài ghép đòi ÍT NHẤT một bước chung trên dòng giấy (`thieu_buoc_chung_tren_giay`), nên bước
+    # In để trống đơn vị thì cả fixture rơi khỏi dòng giấy và không bài nào sẵn sàng được.
+    cd_in.don_vi_vao = cd_in.don_vi_vao or "to"
+    cd_in.don_vi_ra = cd_in.don_vi_ra or "to"
     cd_in.setup_time = 45
     db.flush()
 
@@ -1214,7 +1220,7 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
     db.flush()
     db.add(CongDoanDauViec(
         cong_doan_id=cd_in_id, piece_rate_id=rate.id,
-        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2, so_nguoi_toi_da=3,
+        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2,
     ))
     db.commit()
 
@@ -1232,7 +1238,7 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
     assert sau["khoan_ten"] == "In tờ rời" and sau["khoan_don_gia"] == 35
     assert rate.id in {k["id"] for k in sau["khoan_chon_duoc"]}
     # Định mức đi kèm: chọn xong mà năng suất vẫn trống thì thẻ vẫn kêu "Chưa có năng suất".
-    assert sau["nang_suat"] == 3000 and sau["so_nhan_cong"] == 2
+    assert sau["nang_suat"] == 3000 and sau["so_nhan_cong_tieu_chuan"] == 2
     assert "Chưa có năng suất" not in sau["thieu"]
 
     # Đầu việc không thuộc tổ / công đoạn → CHẶN, không âm thầm ghim.
@@ -1270,15 +1276,16 @@ def test_dau_viec_khoan_luot_chung_mang_san_vat_tu_de_drawer_bung(
     db.flush()
     link = CongDoanDauViec(
         cong_doan_id=cd_in_id, piece_rate_id=rate.id,
-        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2, so_nguoi_toi_da=3,
+        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2,
     )
     db.add(link)
     db.flush()
     keo = VatTuInAn(ma="KEO-CH", ten="Keo bước chung", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="sl_vao * 0.001", active=True)
+                    active=True)
     db.add(keo)
     db.flush()
-    link.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    link.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0,
+                                             cong_thuc_luong="sl_vao * 0.001"))
     db.commit()
 
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
@@ -1453,6 +1460,32 @@ def test_khai_vat_tu_cho_luot_chung_va_snapshot_dung_don_vi(
         )
 
 
+def test_buoc_chung_to_ep_mot_luot_chay(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Bước chung TỔ ép 1 lượt — y như bước tổ của routing lệnh (chủ chốt 08/09/2026).
+
+    Ô "số lượt chạy qua máy" gỡ khỏi form bước chung ở loại bước tổ. Ép ở SERVER vì form chỉ
+    gửi phần NGƯỜI SỬA: đổi loại bước sang tổ mà không đụng ô lượt thì số 2 cũ ở lại vô hình.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    chung = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
+
+    # Bước máy: số đã khai giữ nguyên.
+    bg_svc.lap_ke_hoach_buoc_chung(
+        bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
+        patch={"loai_buoc": "may", "so_luot_chay": 2}, actor=admin,
+    )
+    assert bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]["so_luot_chay"] == 2
+
+    # Đổi sang TỔ trong lượt lưu KHÁC, không gửi lại ô lượt → server tự kéo về 1.
+    bg_svc.lap_ke_hoach_buoc_chung(
+        bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
+        patch={"loai_buoc": "to"}, actor=admin,
+    )
+    assert bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]["so_luot_chay"] == 1
+
+
 def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
     db, orders, lsx_svc, bg_svc, admin, customer,
 ):
@@ -1462,16 +1495,45 @@ def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
     field im lặng" nằm ở chỗ khoá nào service trả mà schema không khai thì rơi mất KHÔNG lỗi,
     frontend nhận `undefined` và bảng bóc tách hiện rỗng.
     """
+    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+    from app.models.piece_work import PieceRate
     from app.models.vat_lieu_kho import VatTuInAn
     from app.schemas.bai_ghep import SoDoOut
 
-    db.add(VatTuInAn(ma="VT-MUC-GY", ten="Mực đen", don_vi_gia="kg", don_gia=180_000,
-                     cong_thuc_luong="sl_vao / 1000", active=True))
+    muc = VatTuInAn(ma="VT-MUC-GY", ten="Mực đen", don_vi_gia="kg", don_gia=180_000,
+                    active=True)
+    db.add(muc)
     db.commit()
 
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    # Định mức nay treo ở DÒNG VẬT TƯ của đầu việc trong công đoạn (mg 0272), không còn ở món
+    # hàng — không khai qua đường này thì `so_luong` về `None` và drawer mất nút "Dùng số này".
+    # Khai TRƯỚC khi đụng tới bài: `_piece_rates()` cache theo instance.
+    to = _to_san_xuat(db)
+    cd_in_id = sorted(lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id
+    rate = PieceRate(group_name="to_in", ten="In tờ rời", unit="to", unit_price=35,
+                     department_id=to.id, active=True)
+    db.add(rate)
+    db.flush()
+    link = CongDoanDauViec(
+        cong_doan_id=cd_in_id, piece_rate_id=rate.id,
+        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2,
+    )
+    db.add(link)
+    db.flush()
+    link.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=muc.id, thu_tu=0,
+                                             cong_thuc_luong="sl_vao / 1000"))
+    db.commit()
+
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
     _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    # Phải CHỌN đầu việc ở bước chung: định mức đi theo đầu việc đang gắn ở bước, chưa chọn thì
+    # không có công thức nào để gợi ý và nút "Dùng số này" mất số.
+    truoc = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
+    bg_svc.lap_ke_hoach_buoc_chung(
+        bai_ghep_id=bg.id, gang_step_key=truoc["step_key"],
+        patch={"piece_rate_id": rate.id}, actor=admin,
+    )
 
     chung = SoDoOut.model_validate(bg_svc.so_do(bg_svc._get(bg.id))).model_dump()["gop"][0]
 
@@ -1482,12 +1544,15 @@ def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
             "phat_sinh_phut", "chay_phut", "tong_phut", "canh_bao"} <= set(dg)
     assert dg["tong_phut"] == pytest.approx(chung["tong_phut"])
 
-    goi_y = {g["vat_tu_id"]: g for g in chung["vat_tu_goi_y"]}
+    # Khoá theo CẶP: gợi ý nay gồm cả danh mục Giấy (08/09/2026), mà Giấy #7 với Vật tư #7 là hai
+    # món khác nhau — khoá bằng id trần thì một loại giấy trùng id đè mất dòng mực đang kiểm.
+    goi_y = {(g["hang_loai"], g["vat_tu_id"]): g for g in chung["vat_tu_goi_y"]}
     muc = db.query(VatTuInAn).filter(VatTuInAn.ma == "VT-MUC-GY").one()
-    assert muc.id in goi_y, "vật tư đang dùng phải có mặt thì drawer mới bày được nút Dùng số này"
+    k_muc = ("vat_tu", muc.id)
+    assert k_muc in goi_y, "vật tư đang dùng phải có mặt thì drawer mới bày được nút Dùng số này"
     # Số của LƯỢT CHUNG (tờ ghép), không phải số của một lệnh thành viên nào.
-    assert goi_y[muc.id]["so_luong"] == pytest.approx(chung["so_luong_vao"] / 1000, rel=1e-6)
-    assert goi_y[muc.id]["dien_giai"], "phải kèm câu công thức = thay số = kết quả"
+    assert goi_y[k_muc]["so_luong"] == pytest.approx(chung["so_luong_vao"] / 1000, rel=1e-6)
+    assert goi_y[k_muc]["dien_giai"], "phải kèm câu công thức = thay số = kết quả"
 
 
 def test_vat_tu_chung_mac_dinh_thu_cong(db, orders, lsx_svc, bg_svc, admin, customer):

@@ -9,8 +9,8 @@ from sqlalchemy.orm import aliased
 from ..models.don_vi_do import DonViDo, DonViQuyDoi
 from .catalog_base import CatalogRepo
 
-_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do",
-           "tram_dong_giay")
+# `tram_dong_giay` GỠ 06/09/2026 — cột thành cột chết, xem `services/dong_giay.py`.
+_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do")
 # `cong_thuc` KHÔNG còn ghi được ở CẢ HAI bảng: cặp bỏ 14/08/2026 (mg 0198), đơn vị bỏ 17/08/2026
 # (mg 0215). Công thức tính lượng nay khai ở món hàng / máy / đầu việc khoán / công đoạn.
 _CAP_FIELDS = ("tu_id", "den_id", "he_so", "ghi_chu")
@@ -95,6 +95,31 @@ class DonViDoRepository(CatalogRepo):
         """
         return {(d.ma or "").strip().lower(): d.ten for d in self.all_rows() if (d.ma or "").strip()}
 
+    def ma_theo_ten(self) -> dict[str, str]:
+        """Bảng tra NGƯỢC TÊN → MÃ: `{"cái": "cai", "bản kẽm": "kem"}` — gương của `ten_theo_ma`.
+
+        Dùng để ĐỠ những đường nhập vào cầm TÊN mà cột đích giữ MÃ: ĐVT của phiếu tính giá / báo
+        giá / đơn hàng cố ý lưu TÊN vì nó IN CHO KHÁCH (xem `PhieuTinhGiaDetailView.useDanhMucDonVi`),
+        nhưng `vat_tu_in_an.don_vi_gia` là MÃ. Ghi thẳng chuỗi "cái" vào cột mã là màn danh mục
+        báo đỏ "không có trong danh mục" mà không ai gõ sai gì cả.
+
+        `ten` KHÔNG unique: tên trùng nhau ⇒ BỎ HẲN khỏi bảng, không chọn bừa một mã. Thà để nơi
+        gọi coi như không tra được (ô trống, người dùng chọn tay) còn hơn gán sai đơn vị vào hàng.
+
+        Dùng `all_rows()` cùng lý do `ten_theo_ma`: chứng từ cũ trỏ vào đơn vị đã ngừng vẫn phải
+        tra ra được. Chặn GÁN MỚI đơn vị ngừng dùng là việc của `_kiem_don_vi`, không phải ở đây.
+        """
+        dem: dict[str, int] = {}
+        bang: dict[str, str] = {}
+        for d in self.all_rows():
+            ma = (d.ma or "").strip()
+            ten = (d.ten or "").strip().lower()
+            if not ma or not ten:
+                continue
+            dem[ten] = dem.get(ten, 0) + 1
+            bang[ten] = ma
+        return {t: m for t, m in bang.items() if dem[t] == 1}
+
     def distinct_ho(self) -> list[str]:
         """Họ đã có trong dữ liệu — gợi ý cho ô "Họ" (form MỞ, không phải whitelist)."""
         rows = self.db.execute(
@@ -149,26 +174,10 @@ class DonViDoRepository(CatalogRepo):
         ).scalars().first()
 
 
-    def cong_doan_lay_lam_don_vi_ra(self, ma: str) -> list[str]:
-        """Tên công đoạn đang lấy `ma` làm ĐƠN VỊ RA, và CẢ HAI vế đều ngoài dòng giấy.
-
-        Dùng để chặn chiều ngược của luật vòng tròn: công đoạn khai xong xuôi rồi mới có người vào
-        sửa công thức của đơn vị thêm `sl_vao`. Chỉ kể ca hai-vế-ngoài-dòng vì chỉ ở đó công thức
-        của đơn vị RA mới được đọc.
-        """
-        from ..models.cong_doan import CongDoan
-        from ..models.don_vi_do import DonViDo
-
-        if not ma:
-            return []
-        tram = {d.ma: d.tram_dong_giay for d in self.db.execute(select(DonViDo)).scalars()}
-        ra: list[str] = []
-        for cd in self.db.execute(
-            select(CongDoan).where(CongDoan.don_vi_ra == ma)
-        ).scalars():
-            if tram.get(cd.don_vi_vao) is None and tram.get(cd.don_vi_ra) is None:
-                ra.append(cd.ten)
-        return ra
+    # GỠ 06/09/2026: `cong_doan_lay_lam_don_vi_ra(ma)`. Nó chặn chiều ngược của luật vòng tròn hồi
+    # sản lượng bước ngoài dòng còn lấy từ công thức của ĐƠN VỊ RA; cột `don_vi_do.cong_thuc` đã gỡ
+    # từ mg `0215` (công thức chuyển về chính công đoạn) nên hàm này đã không còn nơi gọi, và nó
+    # cũng là chỗ cuối cùng trong repo đọc cờ `tram_dong_giay`.
 
     def create_cap(self, data: dict):
         obj = DonViQuyDoi(tu_id=data["tu_id"], den_id=data["den_id"], he_so=data["he_so"])

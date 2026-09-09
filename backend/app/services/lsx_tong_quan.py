@@ -1,35 +1,38 @@
-"""Hàng đèn TỔNG QUAN của lệnh sản xuất — đọc lại 2 engine đã có, KHÔNG tính lại gì.
+"""Hàng đèn TỔNG QUAN của lệnh sản xuất — đọc lại các engine đã có, KHÔNG tính lại gì.
 
 Câu hỏi màn Kế hoạch SX phải trả lời trong một cái liếc: *lệnh này đang tắc ở đâu*. Trước đây
-muốn biết phải mở 3 màn (Kế hoạch vật tư · Bài ghép · Xếp lịch). Ba đèn ở đây là ba thứ bảng lệnh
-CHƯA hề nói:
+muốn biết phải mở 3 màn (Kế hoạch vật tư · Bài ghép · Xếp lịch). Bốn đèn ở đây là bốn thứ bảng
+lệnh CHƯA hề nói:
 
   · **Vật tư**    — giữ chỗ đủ chưa. Cố ý soi ĐÚNG cửa `XepLichService._chan_chua_giu_du`: đèn đỏ
     nghĩa là bấm "Đưa vào kế hoạch" sẽ bị chặn, không phải "hình như có vấn đề".
   · **Máy & giờ** — bước nào chưa lên được lịch, hoặc lịch đang đá nhau.
   · **Người**     — tổ có đủ quân cho khung giờ đã xếp không.
+  · **Danh mục**  — (07/09/2026) lệnh còn giữ số của lần bung trong khi danh mục Công đoạn đã đổi.
+    VÀNG, không bao giờ đỏ: giữ số cũ không chặn gì cả, chỉ là số đã cũ.
 
-**Không thêm đèn cho Hạn và Định mức**: bảng lệnh đã có cột `Hạn` tô màu (`classHan`) và cột `CĐ`
-đỏ khi lệnh chưa có công đoạn. Đèn thứ tư nói lại chuyện cột bên cạnh vừa nói chỉ làm loãng đúng
-hai cái đèn đáng nhìn.
+**Không thêm đèn cho Hạn**: bảng lệnh đã có cột `Hạn` tô màu (`classHan`) và cột `CĐ` đỏ khi lệnh
+chưa có công đoạn. Đèn nói lại chuyện cột bên cạnh vừa nói chỉ làm loãng những cái đáng nhìn. Đèn
+Danh mục thì KHÔNG rơi vào đó — không cột nào của bảng lệnh nói hộ nó được.
 
-**Chỉ trả `do` / `vang` / `ok`** — FE chỉ vẽ chấm cho `do` và `vang`. 20 lệnh × 3 chấm mà đa số
+**Chỉ trả `do` / `vang` / `ok`** — FE chỉ vẽ chấm cho `do` và `vang`. 20 lệnh × 4 chấm mà đa số
 xanh thì mắt không bắt được cái đỏ; điều độ quét bảng để TÌM chỗ tắc, không cần xác nhận chỗ
 không tắc.
 
-Đắt: một lượt `KeHoachVatTuService.can_doi()` + một lượt `XepLichVanDeService` cho CẢ trang — chi
-phí gần như không đổi theo số lệnh, nhưng khác 0. Nên router gọi RỜI sau bảng lệnh, chỉ cho các
-lệnh đang hiển thị (xem `routers/lsx.py::tong_quan`).
+Đắt: một lượt `KeHoachVatTuService.can_doi()` + một lượt `XepLichVanDeService` + một lượt soi danh
+mục cho CẢ trang — chi phí gần như không đổi theo số lệnh, nhưng khác 0. Nên router gọi RỜI sau
+bảng lệnh, chỉ cho các lệnh đang hiển thị (xem `routers/lsx.py::tong_quan`).
 """
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
-from ..models.lsx import LB_TO
+from ..models.lsx import LB_TO, Lsx, LsxCongDoan
 from ..models.xep_lich_van_de import TT_NGOAI_LE
 from .xep_lich_van_de_service import (
     K_DE_KHOA_MAY, K_LECH_THUC_TE, K_LICH_DA_QUA, K_MAY_KHONG_KHAM, K_QUA_TAI_TO,
-    K_SAI_TIEN_NHIEM, K_THIEU_DU_LIEU, K_THIEU_NGUOI, K_TRUNG_MAY, XepLichVanDeService,
+    K_SAI_TIEN_NHIEM, K_THIEU_DU_LIEU, K_TRUNG_MAY, XepLichVanDeService,
 )
 
 MUC_DO = "do"
@@ -51,7 +54,7 @@ MAN_XEP_LICH = "xep-lich-cong-doan-2"
 # đèn tắt IM LẶNG (không lỗi, chỉ là không khớp cái nào) — kiểu hỏng khó thấy nhất.
 # Thứ tự trong tuple là thứ tự ưu tiên hiện chữ khi một lệnh dính nhiều thứ một lúc.
 CAT_MAY_DO = (K_TRUNG_MAY, K_DE_KHOA_MAY, K_SAI_TIEN_NHIEM, K_LICH_DA_QUA, K_THIEU_DU_LIEU)
-CAT_NGUOI_DO = (K_QUA_TAI_TO, K_THIEU_NGUOI)
+CAT_NGUOI_DO = (K_QUA_TAI_TO,)
 # Khổ tờ in vượt máy: CẢNH BÁO, không chặn (chốt 18/08/2026 — thợ còn cách xử lý, máy không quyết).
 # Tổ chạy lệch mốc đã xếp: cũng CẢNH BÁO — lệnh đã phát hành rồi, chặn ở đây không cứu được gì,
 # việc của điều độ là BIẾT để kéo lại tay (spec-thuc-te-vs-ke-hoach §2.2). Không có dòng này thì bộ
@@ -72,7 +75,6 @@ _CHU_MAY_VANG = {
 }
 _CHU_NGUOI_DO = {
     K_QUA_TAI_TO: "Tổ không đủ người cho các việc chạy cùng lúc",
-    K_THIEU_NGUOI: "Bố trí dưới số người tối thiểu của đầu việc",
 }
 
 
@@ -94,16 +96,18 @@ def _den_vat_tu(tt: dict, lsx_id: int) -> dict:
                         MAN_VAT_TU, lsx_id)
         return _den(MUC_OK)
     if not tt.get("bat"):
-        # Lệnh không cần vật tư nào cũng rơi vào đây (`du` cần `bool(can)`), và cửa chặn thật cũng
-        # chặn — đèn nói y hệt cửa thì người dùng không phải đoán vì sao bấm không được.
+        # Lệnh không ra được nhu cầu nào cũng rơi vào đây (`du` cần `bool(can)`), và cửa chặn thật
+        # cũng chặn — đèn nói y hệt cửa thì người dùng không phải đoán vì sao bấm không được.
         return _den(MUC_DO, "Chưa giữ chỗ vật tư", MAN_VAT_TU, lsx_id)
+    if tt.get("chua_co_nhu_cau"):
+        # ĐANG giữ chỗ mà không ra món nào ⇒ chắc chắn là chưa ai khai. Từ 08/09/2026 giấy chỉ vào
+        # bảng qua dòng vật tư của bước, nên đây là ca thường gặp — chỉ thẳng việc phải làm thay vì
+        # câu cũ "Chưa tính được nhu cầu vật tư của lệnh".
+        return _den(MUC_DO, "Chưa khai vật tư nào ở bước — kể cả giấy", MAN_VAT_TU, lsx_id)
     if tt.get("khong_ro"):
         return _den(MUC_DO, "Có vật tư chưa quy đổi được đơn vị kho", MAN_VAT_TU, lsx_id)
     thieu = tt.get("thieu") or {}
     if not thieu:
-        # `du` đòi `bool(can)`: lệnh không ra được nhu cầu nào cũng rơi vào nhánh này, và cửa chặn
-        # thật cũng chặn — nhưng câu "còn thiếu 0 mặt hàng" thì vô nghĩa, nói thẳng ra là chưa tính
-        # được nhu cầu.
         return _den(MUC_DO, "Chưa tính được nhu cầu vật tư của lệnh", MAN_VAT_TU, lsx_id)
     return _den(MUC_DO, f"Mới giữ được một phần, còn thiếu {len(thieu)} mặt hàng",
                 MAN_VAT_TU, lsx_id)
@@ -135,6 +139,41 @@ def _den_nguoi(cats: set[str], rows: list[dict], lsx_id: int) -> dict:
     if chua_to:
         return _den(MUC_VANG, f"{chua_to} bước tổ chưa gán tổ", MAN_XEP_LICH, lsx_id)
     return _den(MUC_OK)
+
+
+def _den_danh_muc(db: Session, ids: list[int]) -> dict[int, dict]:
+    """Chấm "Danh mục" cho cả trang — MỘT `LsxService` dùng chung để các cache của nó ăn được.
+
+    Đắt hay không nằm ở chỗ đó: dựng service mới cho mỗi lệnh là hỏi lại bảng đơn giá khoán, danh
+    mục đơn vị, cặp quy đổi và bảng vật tư đúng bằng số lệnh trên trang. Dùng chung một instance
+    thì bốn bảng ấy hỏi đúng một lần, phần còn lại chỉ là so trong Python.
+
+    VÀNG chứ không đỏ: giữ số cũ KHÔNG chặn gì cả — lệnh vẫn xếp lịch, vẫn chạy được. Nó chỉ có
+    nghĩa "số này là số của lần bung, danh mục nay khác rồi".
+    """
+    from ..repositories.audit_repo import AuditLogRepository
+    from ..repositories.document_sequence_repo import DocumentSequenceRepository
+    from ..repositories.lsx_repo import LsxRepository
+    from .lsx_service import LsxService
+    from .sequence_service import SequenceService
+
+    svc = LsxService(db, LsxRepository(db), AuditLogRepository(db),
+                     SequenceService(DocumentSequenceRepository(db)))
+    ra: dict[int, dict] = {}
+    rows = db.execute(
+        select(Lsx).where(Lsx.id.in_(ids)).options(
+            selectinload(Lsx.cong_doans).selectinload(LsxCongDoan.vat_tus))
+    ).scalars().all()
+    for lsx in rows:
+        try:
+            buocs = svc._soi_danh_muc(lsx)
+        except Exception as exc:                                        # noqa: BLE001
+            ra[lsx.id] = _den(MUC_OK, f"Chưa soi được danh mục ({type(exc).__name__})")
+            continue
+        ra[lsx.id] = _den(
+            MUC_VANG, f"{len(buocs)} công đoạn đang giữ số cũ — danh mục đã đổi"
+        ) if buocs else _den(MUC_OK)
+    return ra
 
 
 def _dung_vat_tu(db: Session):
@@ -225,6 +264,12 @@ def tong_quan_va_bang(db: Session, lsx_ids: list[int]) -> tuple[list[dict], dict
     except Exception as exc:                                            # noqa: BLE001
         loi_vt = f"Chưa đọc được vật tư ({type(exc).__name__})"
 
+    # --- Nguồn 3: danh mục đổi dưới chân lệnh (ảnh chụp khoán + dòng vật tư của bước) ---
+    try:
+        den_dm = _den_danh_muc(db, ids)
+    except Exception as exc:                                            # noqa: BLE001
+        den_dm = {i: _den(MUC_OK, f"Chưa soi được danh mục ({type(exc).__name__})") for i in ids}
+
     out: list[dict] = []
     for i in ids:
         if giu is not None:
@@ -242,7 +287,8 @@ def tong_quan_va_bang(db: Session, lsx_ids: list[int]) -> tuple[list[dict], dict
             den_may = _den_may(cats[i], rows_theo_lsx[i], i)
             den_nguoi = _den_nguoi(cats[i], rows_theo_lsx[i], i)
         out.append({"lsx_id": i, "slack_ngay": _slack(rows_theo_lsx[i]),
-                    "den": {"vat_tu": den_vt, "may_gio": den_may, "nguoi": den_nguoi}})
+                    "den": {"vat_tu": den_vt, "may_gio": den_may, "nguoi": den_nguoi,
+                            "danh_muc": den_dm.get(i) or _den(MUC_OK)}})
     return out, bang
 
 

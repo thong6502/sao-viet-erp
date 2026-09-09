@@ -32,7 +32,7 @@ from .routing_engine import basis_qty, compute_step_cost
 # TRẠM dòng giấy, KHÔNG phải mã đơn vị: chuỗi bù hao khoá hệ số và đọc mốc số tờ theo trạm, để
 # xưởng khai mã riêng cho một chặng (`to_in` gắn cờ *tờ in*) vẫn khớp. Xem `services/dong_giay.py`.
 from ..models.don_vi_do import TRAM_CAI, TRAM_CON, TRAM_TAY, TRAM_TO, TRAM_TO_NGUYEN
-from .bien_cong_thuc import MA_TANG_BUOC_TIEN, ngu_canh_phieu
+from .bien_cong_thuc import MA_TANG_BUOC_TIEN, ma_hop_le, ngu_canh_phieu
 from .bu_hao_engine import chuoi_nguoc_dv
 from .dong_giay import dich_chuoi
 
@@ -268,19 +268,81 @@ def _eval_node(node, variables: dict) -> float:
 _CHUYEN_TU_IF = re.compile(r'\bif\s*\(')
 
 
+def _chuan_hoa(expr_str: str) -> str:
+    """Chữ người gõ → cú pháp Python: × ÷ − và `if(` (xem `_CHUYEN_TU_IF`).
+
+    Tách khỏi `safe_eval` để `kiem_cong_thuc` chuẩn hoá y hệt. Hai nơi chuẩn hoá lệch nhau thì có câu
+    lưu được mà chạy không được — đúng cái bệnh muốn vá.
+    """
+    expr_str = expr_str.replace('×', '*').replace('÷', '/').replace('−', '-')
+    return _CHUYEN_TU_IF.sub('if_(', expr_str).strip()
+
+
 def safe_eval(expr_str: str, variables: dict) -> float:
     if not expr_str or not expr_str.strip():
         return 0.0
-    expr_str = expr_str.replace('×', '*').replace('÷', '/').replace('−', '-')
-    expr_str = _CHUYEN_TU_IF.sub('if_(', expr_str)
     try:
-        node = ast.parse(expr_str.strip(), mode='eval').body
+        node = ast.parse(_chuan_hoa(expr_str), mode='eval').body
         result = _eval_node(node, variables)
         if isinstance(result, bool):
             raise ValueError("Kết quả là điều kiện đúng/sai — cần bọc trong if(dieu_kien, dung, sai)")
         return float(result)
     except Exception as e:
         raise ValueError(f"Lỗi công thức: {e}")
+
+
+class _MoiBienDeuCo(dict):
+    """Bộ biến “cái gì cũng có” — dùng khi chỉ muốn xét CÚ PHÁP, không xét tên biến."""
+
+    def __contains__(self, key) -> bool:
+        return True
+
+    def __getitem__(self, key) -> float:
+        return 1.0
+
+
+# Lỗi do CHÍNH bộ số giả gây ra chứ không phải do câu khai sai: mọi biến đều bằng 1 nên `a - b`
+# thành 0 rồi có ai đó chia cho nó, hoặc `2 ** 99999` tràn số. Câu vẫn hợp lệ — số THẬT lúc chạy
+# mới quyết định được, và chặn ở đây là chặn oan.
+_LOI_CUA_SO_GIA = (ZeroDivisionError, OverflowError)
+
+
+def kiem_cong_thuc(cong_thuc: str | None, *, nhan: str, loai: str | None = None) -> None:
+    """Kiểm MỘT câu công thức lúc LƯU, khi chưa có số thật. Hợp lệ thì im, sai thì `ValueError`.
+
+    Trước 07/09/2026 không tầng nào ở server kiểm: `PUT /api/vat-lieu-kho/giay/6` với
+    `dinh_luong * dai_nguyen * rong_nguyen *` (thừa dấu nhân cuối) trả về 200 OK, câu hỏng nằm im
+    trong DB tới lúc bảng cân đối vật tư gọi mới nổ — nổ ở MÀN KHÁC, cách chỗ gõ sai nhiều ngày,
+    nên chẳng ai lần được về ô đã gõ. `bien_cong_thuc.ma_hop_le` vốn đã ghi "validator hai tầng
+    dùng chung tập này": tầng trình duyệt có sẵn (`fields/FormulaField.tsx` — nhưng nó chỉ đếm
+    ngoặc và soi tên chip, không bắt được dấu phép tính thừa), tầng này là tầng còn thiếu, và là
+    tầng DUY NHẤT chặn được hai đường không đi qua màn khai: nhập Excel và gọi thẳng API.
+
+    Chạy chính `_eval_node` với bộ số giả thay vì viết một bộ luật riêng: luật chỉ nằm ở engine,
+    thêm hàm/toán tử ở đó là ô khai nhận ngay, không phải sửa hai chỗ rồi lệch. Đổi lại phải bỏ
+    qua lỗi số học của chính bộ số giả — xem `_LOI_CUA_SO_GIA`.
+
+    `loai` = một trong `bien_cong_thuc.LOAI`, tra ra tập biến ô ấy cho phép; để None thì chỉ xét
+    cú pháp. `nhan` = tên ô ĐÚNG NHƯ TRÊN MÀN KHAI, vì câu lỗi này hiện thẳng cho người gõ.
+    """
+    if not cong_thuc or not cong_thuc.strip():
+        return
+    bien = dict.fromkeys(ma_hop_le(loai), 1.0) if loai else _MoiBienDeuCo()
+    try:
+        node = ast.parse(_chuan_hoa(cong_thuc), mode='eval').body
+    except SyntaxError:
+        raise ValueError(
+            f"{nhan}: câu “{cong_thuc.strip()}” chưa viết xong hoặc sai cú pháp — soi lại dấu "
+            f"phép tính thừa/thiếu và dấu ngoặc.")
+    try:
+        ket_qua = _eval_node(node, bien)
+    except _LOI_CUA_SO_GIA:
+        return
+    except Exception as e:  # noqa: BLE001 — mọi lỗi còn lại đều là câu khai sai
+        raise ValueError(f"{nhan}: {e}")
+    if isinstance(ket_qua, bool):
+        raise ValueError(
+            f"{nhan}: câu này ra ĐÚNG/SAI chứ không ra số — bọc trong if(dieu_kien, dung, sai).")
 
 
 # Biến ĐƠN GIÁ mà công thức vật tư / giấy có thể dùng. Đặt hết = 1 thì công thức tiền nhả ra chính
@@ -403,7 +465,7 @@ def chuan_hoa_cot(result: dict | None) -> dict | None:
 TOOLING_CO_PHI = frozenset({"khuon_be", "khuon_ep", "khung_lua"})
 # Nhãn đọc được của loại dao — vào thẳng tên dòng tiền ("Xén 3 mặt · phí khuôn bế"). Khớp
 # `DAO_CO_PHI` bên frontend; lệch thì hai màn gọi cùng một con dao bằng hai tên.
-TOOLING_NHAN = {"khuon_be": "khuôn bế", "khuon_ep": "khuôn ép nhũ / dập nổi", "khung_lua": "khung lụa"}
+TOOLING_NHAN = {"khuon_be": "khuôn bế", "khuon_ep": "khuôn ép kim", "khung_lua": "khung lụa"}
 
 
 def _canh_bao_khuon(chain: list[dict]) -> list[str]:
@@ -705,8 +767,9 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         """
         return cd.get(f"tram_{dau}", cd.get(f"don_vi_{dau}"))
 
-    # Bước ở trên DÒNG GIẤY = CẢ HAI đầu đứng ở một trạm. Ghi kẽm khai `bai → kem` (hai đầu ngoài
-    # trạm) nên tự rơi ra khỏi đây — không cần luật riêng theo `nhom`.
+    # Bước ở trên DÒNG GIẤY = CẢ HAI đầu đứng ở một chặng. Bước ngoài dòng giấy BỎ TRỐNG cả hai ô
+    # đơn vị (06/09/2026; trước đó khai đơn vị thật `bai → kem`) nên tự rơi ra khỏi đây — không cần
+    # luật riêng theo `nhom`.
     idx_giay = [i for i, r in enumerate(chain)
                 if _tram(r.get("cong_doan") or {}, "vao")
                 and _tram(r.get("cong_doan") or {}, "ra")]
@@ -862,7 +925,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         dai_tp=dai_tp_m, rong_tp=rong_tp_m,
         dai_nguyen=dai_nguyen_m, rong_nguyen=rong_nguyen_m,
         dai_in=dai_in_m, rong_in=rong_in_m,
-        so_luong=sl, so_tp=con,
+        so_luong=sl, so_con=con,
         so_trang=so_trang, trang_moi_tay=trang_moi_tay,
         to_dau_vao=to_dau_vao, to_sau_in=to_sau_in, to_nguyen=to_nguyen,
         so_mau=so_mau, so_mau_pha=so_mau_pha, so_mat=passes, so_kem=so_kem,
@@ -991,12 +1054,12 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         _b_nay = buoc.get(idx_buoc)
         ctx["sl_vao"] = ceil(_b_nay["vao"]) if _b_nay else to_dau_vao
         ctx["sl_ra"] = ceil(_b_nay["ra"]) if _b_nay else to_dau_vao
-        # Kích thước/số lượng khung lụa của CHÍNH bước — ba ô nhập riêng ở phiếu, TÁCH BIỆT với
-        # `phi_khuon`. Bơm cho MỌI bước (không chỉ bước khung lụa): công thức không gõ tới thì vô
+        # Kích thước/số lượng KHUÔN của CHÍNH bước — ba ô nhập riêng ở phiếu, TÁCH BIỆT với
+        # `phi_khuon`. Bơm cho MỌI bước (không chỉ bước khuôn ép): công thức không gõ tới thì vô
         # hại, gõ tới mà không bơm mới là thứ nổ `KeyError` ở vòng `MA_TANG_BUOC_TIEN` dưới đây.
-        ctx["dai_khung_lua"] = _f(row.get("dai_khung_lua"))
-        ctx["rong_khung_lua"] = _f(row.get("rong_khung_lua"))
-        ctx["so_khung_lua"] = _f(row.get("so_khung_lua"))
+        ctx["dai_khuon"] = _f(row.get("dai_khuon"))
+        ctx["rong_khuon"] = _f(row.get("rong_khuon"))
+        ctx["so_khuon"] = _f(row.get("so_khuon"))
         # so_mat: dòng IN (nhom=print) LUÔN theo số mặt cách in (passes) — KHÔNG để field mặc định=1
         # nuốt (N2: model so_mat default=1 khiến fallback passes thành code chết). Finishing tự set
         # so_mat (cán 1/2 mặt); ≤0 → dùng passes.

@@ -37,14 +37,14 @@ export const COMPONENT_ROWS: {
     // Vế "hiện mục khai ĐƠN GIÁ khoán của tổ ngay dưới" đã BỎ (04/09/2026): panel đó ẩn khỏi màn
     // này (`tabs/CoCheTab.tsx` — cờ `HIEN_DON_GIA_KHOAN`), để nguyên là chỉ người khai xuống một
     // chỗ không còn tồn tại. Trỏ thẳng sang cửa duy nhất còn khai được.
-    desc: "Bật khoán sẽ TỰ TẮT Tăng ca (đã khoán không tính tăng ca theo giờ). Đơn giá khoán của tổ khai ở Cấu hình danh mục → Công việc khoán. Tính tiền khoán theo sản lượng nối khi có Lệnh sản xuất.",
+    desc: "Tổ được cộng tiền khoán theo sản lượng (khi có nguồn Lệnh sản xuất). Đơn giá khoán của tổ khai ở Cấu hình danh mục → Công việc khoán. Từ 17/08/2026 khoán KHÔNG tự tắt Tăng ca — hai công tắc độc lập.",
     kind: null,
     unit: "—",
   },
   {
     key: "tang_ca",
     name: "Tăng ca",
-    desc: "",
+    desc: "Công tắc tiền tăng ca của tổ: TẮT thì phiếu tăng ca vẫn duyệt được nhưng tiền tăng ca, phụ cấp tăng ca đêm và cơm tăng ca của tổ = 0 (lương ngày lễ/nghỉ tuần có đi làm cũng mất phần hệ số; ngày nghỉ 1× vẫn trả đủ lương ngày công). Độc lập với Lương khoán.",
     kind: null,
     unit: "—",
   },
@@ -62,6 +62,7 @@ export const SAVED_NOTE =
 
 export const PARAMS_A = [
   "standard_hours_per_day",
+  "ca_khop_gio_chuan",
   "probation_ratio",
   "ot_multiplier",
   "ot_multiplier_restday",
@@ -84,9 +85,6 @@ export const PARAMS_INS = [
   "bhxh_rate",
   "bhyt_rate",
   "bhtn_rate",
-  "bhxh_rate_er",
-  "bhyt_rate_er",
-  "bhtn_rate_er",
   "bh_base_cap",
   "bhtn_base_cap",
   "cong_doan_rate",
@@ -158,12 +156,13 @@ export const OT_FIELDS: {
 
 export const NEW_COMPONENT: CompDraft = { name: "", kind: "thu", is_taxable: true };
 
+/** Cột NSDLĐ (3 tỷ lệ phía công ty) đã BỎ khỏi màn 07/09/2026 — chủ: không dùng tới. Chỉ còn
+ *  TNLĐ-BNN (ô riêng bên dưới) cho ca "BH đóng ở nơi khác". */
 export const INSURANCE_ROWS: {
   label: string;
-  er: "bhxh_rate_er" | "bhyt_rate_er" | "bhtn_rate_er";
   ee: "bhxh_rate" | "bhyt_rate" | "bhtn_rate";
 }[] = [
-  { label: "BHXH", er: "bhxh_rate_er", ee: "bhxh_rate" },
-  { label: "BHYT", er: "bhyt_rate_er", ee: "bhyt_rate" },
-  { label: "BHTN", er: "bhtn_rate_er", ee: "bhtn_rate" },
+  { label: "BHXH", ee: "bhxh_rate" },
+  { label: "BHYT", ee: "bhyt_rate" },
+  { label: "BHTN", ee: "bhtn_rate" },
 ];

@@ -46,6 +46,7 @@ import { LuongPage } from "../pages/nhan-su-luong/luong";
 import { HoSoCuaToiPage } from "../pages/nhan-su-luong/ho-so-cua-toi";
 import { NoiQuyPage } from "../pages/nhan-su-luong/noi-quy";
 import { NhanSuPage } from "../pages/nhan-su-luong/nhan-su";
+import { KcsKhaiBaoPage } from "../pages/danh-muc/KcsKhaiBaoPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
 import { KhoPage } from "../pages/KhoPage";
@@ -64,6 +65,7 @@ import { AccountingPurchaseInboxPage } from "../pages/ke-toan/don-mua-hang";
 import { PaymentVouchersPage } from "../pages/ke-toan/phieu-chi";
 import { PaymentReceiptsPage } from "../pages/ke-toan/phieu-thu";
 import { AccountingBankAccountsPage } from "../pages/ke-toan/tk-ngan-hang";
+import { TaiSanPage } from "../pages/tai-san";
 import {
   AUTHENTICATED_NAV_IDS,
   MODULES_BY_NAV_ID,
@@ -85,6 +87,10 @@ export interface NavParams {
   openOrderId?: number;
   /** Liên thông: mở Chấm công / Nghỉ phép / Lương lọc theo đúng nhân viên này. */
   focusEmployeeId?: number;
+  /** Liên thông từ Hồ sơ NV, nút "Đặt ca nền" (bản rà E6, 07/09/2026): mở Chấm công ở tab
+   *  Khai ca, lưới Phân ca tháng lọc sẵn + mở form ca nền cho đúng `focusEmployeeId`. Không có
+   *  nó thì `focusEmployeeId` mở tab Nhật ký như cũ. */
+  chamCongTab?: "khai-ca";
   /** Liên thông: mở màn Yêu cầu mua hàng (YCMH) lọc + tô sáng đúng mã phiếu này. */
   focusRequestCode?: string;
   /** Liên thông từ 3 đèn ở Kế hoạch SX: mở Kế hoạch vật tư / Xếp lịch với ô tìm điền sẵn mã lệnh.
@@ -892,7 +898,9 @@ export function AppShell() {
         pushToast(
           e.decision === "approved"
             ? "✓ Phiếu tăng ca của bạn đã được duyệt"
-            : "✕ Phiếu tăng ca của bạn bị từ chối",
+            : e.decision === "cancelled"
+              ? "✕ Phiếu tăng ca đã duyệt của bạn vừa bị HUỶ — tối nay không còn giấy phép tăng ca"
+              : "✕ Phiếu tăng ca của bạn bị từ chối",
           e.decision === "approved" ? "ok" : "warn",
         );
         reloadBadges();
@@ -909,6 +917,18 @@ export function AppShell() {
             lastOtPending.current = n;
           })
           .catch(() => {});
+      } else if (e.type === "adjust_decision") {
+        // NV gửi yêu cầu chỉnh công nhận quyết định (E7, 08/09/2026) — không phải F5 mới biết bị từ chối.
+        pushToast(
+          e.decision === "approved"
+            ? `✓ Yêu cầu chỉnh công ngày ${e.code ?? ""} đã được duyệt`
+            : `✕ Yêu cầu chỉnh công ngày ${e.code ?? ""} bị từ chối — xem lý do ở Chấm công`,
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("cham_cong") && e.type === "adjust_pending_changed") {
+        // Có yêu cầu chỉnh công mới/huỷ → người duyệt refetch (tab đang mở tự tải lại theo eventTick).
+        reloadBadges();
       } else if (e.type === "el_decision") {
         // NV nộp phiếu đi muộn / về sớm nhận quyết định của tổ trưởng — đẩy riêng tới đúng người.
         pushToast(
@@ -1292,6 +1312,11 @@ export function AppShell() {
     if (baseId === "quy-doi") {
       return <RebuildCatalogPage key="don-vi" config={REBUILD_CONFIGS["don-vi"]} />;
     }
+    // Tiêu chí KCS KHÔNG dùng nền danh mục phẳng: khai theo cây Giai đoạn → Công đoạn → hạng
+    // mục kiểm (08/09/2026, `docs/design-kcs-theo-cong-doan.md` mục 5).
+    if (baseId === "kcs-tieu-chi") {
+      return <KcsKhaiBaoPage key="kcs-tieu-chi" />;
+    }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
       return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
@@ -1314,6 +1339,7 @@ export function AppShell() {
           <ChamCongPage
             navigate={navigate}
             focusEmployeeId={navParams?.focusEmployeeId}
+            openTab={navParams?.chamCongTab}
             onChanged={reloadBadges}
             eventTick={quoteTick}
           />
@@ -1457,6 +1483,8 @@ export function AppShell() {
         return <BaoCaoKeToanPage navigate={navigate} />;
       case "ke-toan-tai-khoan-ngan-hang":
         return <AccountingBankAccountsPage />;
+      case "tai-san":
+        return <TaiSanPage />;
       case "ke-toan-phieu-thu":
         return (
           <PaymentReceiptsPage

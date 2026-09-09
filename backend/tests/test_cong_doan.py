@@ -28,15 +28,15 @@ def _svc():
 
 
 def _seed_don_vi(db) -> None:
-    """Danh mục Đơn vị tối thiểu — đơn vị vào/ra của công đoạn nay TRỎ vào bảng này (không còn
-    danh sách cứng trong code), nên DB trắng là không khai được đơn vị nào.
+    """Danh mục Đơn vị tối thiểu — kho / mua hàng / khoán vẫn tra tên ở đây.
 
-    5 mã đầu mang CỜ TRẠM (dòng giấy), 3 mã sau không — đủ để thử cả hai nhánh validate.
+    Ô đơn vị vào/ra của CÔNG ĐOẠN thì từ 06/09/2026 KHÔNG đọc bảng này nữa: nó là menu đóng đúng
+    5 chặng dòng giấy trong code. Vẫn seed để test nào cần đơn vị (vật tư, khoán) có mà dùng.
     """
     from app.models.don_vi_do import TRAM_DONG_GIAY, DonViDo
 
     db.add_all([
-        DonViDo(ma=ma, ten=ma, ho="khac", tram_dong_giay=ma if ma in TRAM_DONG_GIAY else None)
+        DonViDo(ma=ma, ten=ma, ho="khac")
         for ma in (*TRAM_DONG_GIAY, "kem", "bai", "thung")
     ])
     db.commit()
@@ -121,7 +121,7 @@ def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
         department_id=to.id, pricing_basis="per_finished_qty",
         dau_viec_dinh_muc=[dict(
             piece_rate_id=rate.id, nang_suat_nguoi_gio=500,
-            so_nguoi_tieu_chuan=3, so_nguoi_toi_da=5,
+            so_nguoi_tieu_chuan=3,
         )],
     ))
 
@@ -129,7 +129,7 @@ def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
     dm = cd.dau_viec_dinh_muc[0]
     assert dm.piece_rate_id == rate.id
     assert float(dm.nang_suat_nguoi_gio) == 500
-    assert (dm.so_nguoi_tieu_chuan, dm.so_nguoi_toi_da) == (3, 5)
+    assert dm.so_nguoi_tieu_chuan == 3
 
 
 def test_dau_viec_options_kem_ten_don_vi():
@@ -174,24 +174,23 @@ def test_dinh_muc_luu_dai_nang_suat_don_vi_va_ba_moc_nhan_luc():
         piece_rate_id=rate.id, nang_suat_nguoi_gio=250,
         nang_suat_nguoi_gio_min=200, nang_suat_nguoi_gio_max=320,
         don_vi_nang_suat="hop_gio",
-        so_nguoi_toi_thieu=2, so_nguoi_tieu_chuan=4, so_nguoi_toi_da=8,
+        so_nguoi_tieu_chuan=4,
     )]})
     dm = cd.dau_viec_dinh_muc[0]
     assert (float(dm.nang_suat_nguoi_gio_min), float(dm.nang_suat_nguoi_gio_max)) == (200, 320)
     assert dm.don_vi_nang_suat == "hop_gio"
-    assert (dm.so_nguoi_toi_thieu, dm.so_nguoi_tieu_chuan, dm.so_nguoi_toi_da) == (2, 4, 8)
+    assert dm.so_nguoi_tieu_chuan == 4
 
     # Tối thiểu > trung bình ⇒ "nhanh nhất" hoá ra chậm hơn "chậm nhất" — chặn ngay ở service.
     with pytest.raises(CongDoanValidationError, match="tối thiểu"):
         svc.create({**base, "ma": "DAN2", "dau_viec_dinh_muc": [dict(
             piece_rate_id=rate.id, nang_suat_nguoi_gio=250, nang_suat_nguoi_gio_min=400,
-            so_nguoi_tieu_chuan=4, so_nguoi_toi_da=8,
+            so_nguoi_tieu_chuan=4,
         )]})
-    # Ba mốc nhân lực phải xếp đúng thứ tự.
-    with pytest.raises(CongDoanValidationError, match="1 ≤ tối thiểu"):
+    # Kíp chuẩn phải từ 1 trở lên (hai mốc tối thiểu/tối đa đã gỡ ở mg `0270`).
+    with pytest.raises(CongDoanValidationError, match="Số người tiêu chuẩn"):
         svc.create({**base, "ma": "DAN3", "dau_viec_dinh_muc": [dict(
-            piece_rate_id=rate.id, nang_suat_nguoi_gio=250,
-            so_nguoi_toi_thieu=5, so_nguoi_tieu_chuan=4, so_nguoi_toi_da=8,
+            piece_rate_id=rate.id, nang_suat_nguoi_gio=250, so_nguoi_tieu_chuan=0,
         )]})
 
 
@@ -213,13 +212,13 @@ def test_luu_lai_dinh_muc_cung_dau_viec_khong_dung_unique():
                 department_id=to.id, pricing_basis="per_finished_qty")
     cd = svc.create({**base, "dau_viec_dinh_muc": [dict(
         piece_rate_id=rate.id, nang_suat_nguoi_gio=3000,
-        so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3,
+        so_nguoi_tieu_chuan=1,
     )]})
 
     cd = svc.update(cd.id, {**base, "dau_viec_dinh_muc": [dict(
         piece_rate_id=rate.id, nang_suat_nguoi_gio=3000,
         nang_suat_nguoi_gio_min=2000, nang_suat_nguoi_gio_max=5000,
-        so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3,
+        so_nguoi_tieu_chuan=1,
     )]})
     assert len(cd.dau_viec_dinh_muc) == 1
     dm = cd.dau_viec_dinh_muc[0]
@@ -245,16 +244,16 @@ def test_dinh_muc_to_chan_dau_viec_khac_to_va_cho_nhieu_dau_viec_khong_can_mac_d
     with pytest.raises(CongDoanValidationError, match="đúng tổ"):
         svc.create({**base, "dau_viec_dinh_muc": [dict(
             piece_rate_id=rates[2].id, nang_suat_nguoi_gio=100,
-            so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2,
+            so_nguoi_tieu_chuan=1,
         )]})
 
     # Hai đầu việc cùng tổ: KHÔNG còn phải chỉ định cái nào "mặc định" (cột đó gỡ 12/08/2026,
     # mg 0190). Lưu được trọn vẹn; việc chọn dùng cái nào để dành cho lúc lập lệnh.
     cd = svc.create({**base, "ma": "TO-A2", "dau_viec_dinh_muc": [
         dict(piece_rate_id=rates[0].id, nang_suat_nguoi_gio=100,
-             so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2),
+             so_nguoi_tieu_chuan=1),
         dict(piece_rate_id=rates[1].id, nang_suat_nguoi_gio=120,
-             so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3),
+             so_nguoi_tieu_chuan=1),
     ]})
     assert len(cd.dau_viec_dinh_muc) == 2
     assert not hasattr(cd.dau_viec_dinh_muc[0], "is_default"), "cờ mặc định phải hết hẳn"
@@ -290,12 +289,12 @@ def test_dau_viec_mang_danh_sach_vat_tu():
         department_id=to.id, pricing_basis="per_finished_qty",
         dau_viec_dinh_muc=[dict(
             piece_rate_id=rate.id, nang_suat_nguoi_gio=5000,
-            so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2,
-            vat_tu_ids=[muc.id, con.id],
+            so_nguoi_tieu_chuan=1,
+            vat_tus=[{"vat_tu_id": muc.id}, {"vat_tu_id": con.id}],
         )],
     ))
     dv = cd.dau_viec_dinh_muc[0]
-    assert dv.vat_tu_ids == [muc.id, con.id], "giữ đúng thứ tự người khai"
+    assert [v.vat_tu_id for v in dv.vat_tus] == [muc.id, con.id], "giữ đúng thứ tự người khai"
     assert [v.thu_tu for v in dv.vat_tus] == [0, 1]
 
     # Sửa lại danh sách: thay trọn, không cộng dồn.
@@ -304,10 +303,10 @@ def test_dau_viec_mang_danh_sach_vat_tu():
         department_id=to.id, pricing_basis="per_finished_qty",
         dau_viec_dinh_muc=[dict(
             piece_rate_id=rate.id, nang_suat_nguoi_gio=5000,
-            so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2, vat_tu_ids=[con.id],
+            so_nguoi_tieu_chuan=1, vat_tus=[{"vat_tu_id": con.id}],
         )],
     ))
-    assert cd.dau_viec_dinh_muc[0].vat_tu_ids == [con.id]
+    assert [v.vat_tu_id for v in cd.dau_viec_dinh_muc[0].vat_tus] == [con.id]
 
 
 def test_chan_vat_tu_ngung_dung_va_vat_tu_chua_co_don_vi():
@@ -324,15 +323,15 @@ def test_chan_vat_tu_ngung_dung_va_vat_tu_chua_co_don_vi():
     base = dict(ma="GC-X", ten="Gia công X", nhom="finishing",
                 department_id=to.id, pricing_basis="per_finished_qty")
     dm = dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=100,
-              so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2)
+              so_nguoi_tieu_chuan=1)
 
     with pytest.raises(CongDoanValidationError, match="đã ngừng dùng"):
-        svc.create({**base, "dau_viec_dinh_muc": [{**dm, "vat_tu_ids": [tat.id]}]})
+        svc.create({**base, "dau_viec_dinh_muc": [{**dm, "vat_tus": [{"vat_tu_id": tat.id}]}]})
     with pytest.raises(CongDoanValidationError, match="đơn vị tính"):
-        svc.create({**base, "ma": "GC-X2", "dau_viec_dinh_muc": [{**dm, "vat_tu_ids": [trong.id]}]})
+        svc.create({**base, "ma": "GC-X2", "dau_viec_dinh_muc": [{**dm, "vat_tus": [{"vat_tu_id": trong.id}]}]})
     with pytest.raises(CongDoanValidationError, match="trùng"):
         svc.create({**base, "ma": "GC-X3",
-                    "dau_viec_dinh_muc": [{**dm, "vat_tu_ids": [trong.id, trong.id]}]})
+                    "dau_viec_dinh_muc": [{**dm, "vat_tus": [{"vat_tu_id": trong.id}, {"vat_tu_id": trong.id}]}]})
 
 
 def test_vat_tu_ngung_dung_van_sua_duoc_cong_doan_dang_giu_no():
@@ -350,7 +349,7 @@ def test_vat_tu_ngung_dung_van_sua_duoc_cong_doan_dang_giu_no():
     db.add(vt)
     db.commit()
     dm = dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=100,
-              so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2, vat_tu_ids=[vt.id])
+              so_nguoi_tieu_chuan=1, vat_tus=[{"vat_tu_id": vt.id}])
     cd = svc.create(dict(ma="GC-Y", ten="Gia công Y", nhom="finishing", department_id=to.id,
                          pricing_basis="per_finished_qty", dau_viec_dinh_muc=[dm]))
 
@@ -361,7 +360,7 @@ def test_vat_tu_ngung_dung_van_sua_duoc_cong_doan_dang_giu_no():
                                  department_id=to.id, pricing_basis="per_finished_qty",
                                  dau_viec_dinh_muc=[dm]))
     assert sua.ten == "Gia công Y (đổi tên)"
-    assert sua.dau_viec_dinh_muc[0].vat_tu_ids == [vt.id]
+    assert [v.vat_tu_id for v in sua.dau_viec_dinh_muc[0].vat_tus] == [vt.id]
 
     # Nhưng GÁN THÊM một vật tư đã ngừng thì vẫn phải chặn.
     khac = VatTuInAn(ma="VT-TAT2", ten="Mực cũ", don_vi_gia="kg", don_gia=1, active=False)
@@ -370,7 +369,7 @@ def test_vat_tu_ngung_dung_van_sua_duoc_cong_doan_dang_giu_no():
     with pytest.raises(CongDoanValidationError, match="đã ngừng dùng"):
         svc.update(cd.id, dict(ma="GC-Y", ten="Gia công Y", nhom="finishing",
                                department_id=to.id, pricing_basis="per_finished_qty",
-                               dau_viec_dinh_muc=[{**dm, "vat_tu_ids": [vt.id, khac.id]}]))
+                               dau_viec_dinh_muc=[{**dm, "vat_tus": [{"vat_tu_id": vt.id}, {"vat_tu_id": khac.id}]}]))
 
 
 def test_cong_doan_trung_tinh_khong_mang_loai_thuc_hien_hoac_may_mac_dinh():
@@ -400,33 +399,35 @@ def test_don_vi_vao_ra_chi_chay_MOT_CHIEU():
     # Nhảy cóc: tờ nguyên không thành con một phát (thiếu bước xả + bế ở giữa).
     with pytest.raises(CongDoanValidationError):
         svc.create(dict(ma="X5", ten="Sai", don_vi_vao="to_nguyen", don_vi_ra="cai", **base))
-    # Mã KHÔNG có trong danh mục Đơn vị → chặn, dù trông giống mã thật.
+    # Mã NGOÀI 5 chặng → chặn, dù có thật trong danh mục Đơn vị (kho vẫn đếm bằng `kem`).
     with pytest.raises(CongDoanValidationError):
-        svc.create(dict(ma="X6met", ten="Sai", don_vi_vao="met", don_vi_ra="met", **base))
+        svc.create(dict(ma="X6kem", ten="Sai", don_vi_vao="kem", don_vi_ra="kem", **base))
     # Khai một nửa thì chặn — trống là trống cả hai.
     with pytest.raises(CongDoanValidationError):
         svc.create(dict(ma="X7", ten="Sai", don_vi_vao="to", don_vi_ra="", **base))
-    # Chế bản: để TRỐNG vì không chạm giấy. Engine tính giá loại nó khỏi dòng giấy; lệnh sản xuất
-    # tự suy ra kẽm từ `nhom` (xem `lsx_service._don_vi_theo_buoc`).
+    # Chế bản: để TRỐNG vì không chạm giấy. Cả engine tính giá lẫn lệnh sản xuất loại nó khỏi dòng
+    # giấy; SL của nó tính riêng từ `cong_thuc_san_luong` (xem `lsx_service.buoc_ngoai_dong`).
     cb = svc.create(dict(ma="X8", ten="Ghi kẽm CTP", nhom="prepress", pricing_basis="per_other"))
     assert (cb.don_vi_vao, cb.don_vi_ra) == (None, None)
 
 
-def test_don_vi_ngoai_dong_giay_khai_duoc():
-    """Bước KHÔNG chạm giấy nay khai được đơn vị THẬT (`bai → kem`) thay vì phải để trống.
+def test_don_vi_ngoai_dong_giay_de_trong_ca_hai():
+    """Bước KHÔNG chạm giấy BỎ TRỐNG cả hai ô đơn vị (06/09/2026).
 
-    Đây là điểm mở của 11/08/2026: trước đó service chỉ nhận 5 mã dòng giấy nên ghi kẽm buộc phải
-    bỏ trống đơn vị, kéo theo không khớp được tốc độ máy CTP (kẽm/giờ) lẫn định mức vật tư.
+    Giữa 11/08 và 06/09 nó khai đơn vị THẬT (`bai → kem`) và cờ `don_vi_do.tram_dong_giay` trả lời
+    hộ câu "có nằm trên dòng giấy không". Cờ ấy gỡ rồi: ô đơn vị của công đoạn là menu đóng 5
+    chặng, nên khai `kem` là chặn — SL của bước lấy từ `cong_thuc_san_luong`, không từ cặp đơn vị.
     """
     db, svc = _svc()
     base = dict(nhom="prepress", pricing_basis="per_other")
-    cd = svc.create(dict(ma="CTP", ten="Ghi kẽm CTP", don_vi_vao="bai", don_vi_ra="kem", **base))
-    assert (cd.don_vi_vao, cd.don_vi_ra) == ("bai", "kem")
-    # Ngoài dòng giấy thì KHÔNG có chiều nào để mà sai — cặp ngược cũng nhận.
-    assert svc.create(dict(ma="CTP2", ten="x", don_vi_vao="kem", don_vi_ra="bai",
-                           **base)).don_vi_ra == "bai"
-    # Nhưng một chân trong dòng giấy một chân ngoài (`cai → thung`, đóng gói) thì CHẶN: hệ số của
-    # cặp đó là sức chứa từng đơn, chưa có chỗ khai → cho qua là engine ăn hệ số 1 trong im lặng.
+    cd = svc.create(dict(ma="CTP", ten="Ghi kẽm CTP", cong_thuc_san_luong="so_kem", **base))
+    assert (cd.don_vi_vao, cd.don_vi_ra) == (None, None)
+    # Mã ngoài 5 chặng: chặn cả hai chiều, dù `kem`/`bai` có thật trong danh mục Đơn vị.
+    for vao, ra in (("bai", "kem"), ("kem", "bai")):
+        with pytest.raises(CongDoanValidationError, match="E-CD-DONVI"):
+            svc.create(dict(ma=f"X-{vao}-{ra}", ten="x", don_vi_vao=vao, don_vi_ra=ra, **base))
+    # Một chân trong dòng giấy một chân ngoài (`cai → thung`, đóng gói) cũng chặn: hệ số của cặp đó
+    # là sức chứa từng đơn, chưa có chỗ khai → cho qua là engine ăn hệ số 1 trong im lặng.
     with pytest.raises(CongDoanValidationError):
         svc.create(dict(ma="DG", ten="Đóng thùng", don_vi_vao="cai", don_vi_ra="thung",
                         nhom="finishing", pricing_basis="per_carton"))
@@ -477,8 +478,10 @@ def test_cascade_waste_backward():
              dict(nhom="finishing", spoilage_pct=3)]
     out = re.cascade_waste_backward(steps, 1000)
     assert out[-1]["output_qty"] == 1000
-    # bước cuối 3%: input = 1000/0.97 ≈ 1030.93
-    assert abs(out[-1]["input_qty"] - 1030.928) < 0.01
+    # bước cuối 3%: hao đo trên số RA ⇒ input = 1000 × 1,03 = 1030 (KHÔNG phải 1000/0,97 = 1030,93)
+    assert abs(out[-1]["input_qty"] - 1030.0) < 0.01
+    # bước giữa 2% ăn tiếp trên số ra của nó = 1030 ⇒ 1050,6
+    assert abs(out[1]["input_qty"] - 1050.6) < 0.01
     # bước in: spoilage ép 0 → input == output
     assert out[0]["input_qty"] == out[0]["output_qty"]
 
@@ -532,7 +535,7 @@ def test_cong_thuc_san_luong_chan_chip_cua_chinh_buoc():
     db, svc = _svc()
     with pytest.raises(CongDoanValidationError, match="E-CD-VONG-TRON"):
         svc.create(dict(ma="CTP1", ten="Ghi kẽm CTP", nhom="prepress",
-                        pricing_basis="per_sheet", don_vi_vao="kem", don_vi_ra="kem",
+                        pricing_basis="per_sheet",
                         cong_thuc_san_luong="sl_vao * 2"))
 
 
@@ -540,11 +543,82 @@ def test_cong_thuc_san_luong_luu_duoc_cho_buoc_ngoai_dong():
     """Công thức KHÔNG đọc số của chính bước thì lưu bình thường — vd Ghi kẽm ra `so_kem` bản."""
     db, svc = _svc()
     cd = svc.create(dict(ma="CTP2", ten="Ghi kẽm CTP", nhom="prepress",
-                         pricing_basis="per_sheet", don_vi_vao="kem", don_vi_ra="kem",
+                         pricing_basis="per_sheet",
                          cong_thuc_san_luong="so_kem"))
     assert cd.cong_thuc_san_luong == "so_kem"
     # Sửa xoá trắng cũng phải được — bỏ công thức là bước quay về khai tay số lượng.
     sua = svc.update(cd.id, dict(ma="CTP2", ten="Ghi kẽm CTP", nhom="prepress",
-                                 pricing_basis="per_sheet", don_vi_vao="kem", don_vi_ra="kem",
+                                 pricing_basis="per_sheet",
                                  cong_thuc_san_luong=None))
     assert not sua.cong_thuc_san_luong
+
+
+def test_migration_0276_chep_cong_thuc_khoan_sang_o_gio():
+    """Chép XUỐNG, không đoán: số của lệnh không được nhảy ngay sau khi chạy migration.
+
+    Hệ quả CÓ CHỦ ĐÍCH: chip `so_luot_chay` đang nằm trong công thức tiền công theo sang ô giờ,
+    nên lỗi "giờ nhân theo số lượt" CHƯA tự hết — xưởng phải vào từng đầu việc bỏ chip đó ra khỏi
+    ô giờ. Tự bỏ hộ là tự ý đổi giờ của mọi công đoạn đang chạy.
+    """
+    from sqlalchemy import text
+
+    from app.db_migrations import _migrate_cong_thuc_gio_dau_viec
+
+    db, svc = _svc()
+    to, rate = _to_va_rate(svc, db, ma_to="MG276", ma_rate="XEN276")
+    svc.create(dict(ma="CD-MG276", ten="Bế nổi", nhom="finishing", department_id=to.id,
+                    pricing_basis="per_finished_qty",
+                    dau_viec_dinh_muc=[dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=500,
+                                            so_nguoi_tieu_chuan=1,
+                                            cong_thuc_khoan="sl_vao * 1000 * so_luot_chay")]))
+
+    _migrate_cong_thuc_gio_dau_viec(db)
+    assert db.execute(text("SELECT cong_thuc_gio FROM cong_doan_dau_viec")).scalar() == \
+        "sl_vao * 1000 * so_luot_chay"
+
+    # Chạy lại KHÔNG đè cấu hình đã sửa tay — migration phải idempotent.
+    db.execute(text("UPDATE cong_doan_dau_viec SET cong_thuc_gio = 'sl_vao * 1000'"))
+    db.commit()
+    _migrate_cong_thuc_gio_dau_viec(db)
+    assert db.execute(text("SELECT cong_thuc_gio FROM cong_doan_dau_viec")).scalar() == \
+        "sl_vao * 1000"
+
+
+def test_cong_thuc_gio_dau_viec_luu_duoc_va_don_khoang_trang():
+    """Ô đo GIỜ đi trọn đường schema → service → DB, và khoảng trắng thừa về None.
+
+    Chuẩn hoá TẠI service để mọi đường vào (form, Excel, API) cùng một dạng: chuỗi toàn khoảng
+    trắng làm `if cong_thuc:` ở engine tưởng có khai rồi `safe_eval("  ")` nổ.
+    """
+    db, svc = _svc()
+    to, rate = _to_va_rate(svc, db, ma_to="CTG", ma_rate="XENG")
+    base = dict(ma="CD-CTG", ten="Xén", nhom="finishing", department_id=to.id,
+                pricing_basis="per_finished_qty")
+    cd = svc.create({**base, "dau_viec_dinh_muc": [dict(
+        piece_rate_id=rate.id, nang_suat_nguoi_gio=500, so_nguoi_tieu_chuan=1,
+        cong_thuc_khoan="sl_vao * so_luot_chay", cong_thuc_gio="sl_vao",
+        don_vi_nang_suat="to_gio",
+    )]})
+    dm = cd.dau_viec_dinh_muc[0]
+    assert dm.cong_thuc_gio == "sl_vao" and dm.don_vi_nang_suat == "to_gio"
+    assert dm.cong_thuc_khoan == "sl_vao * so_luot_chay"
+
+    sua = svc.update(cd.id, {**base, "dau_viec_dinh_muc": [dict(
+        piece_rate_id=rate.id, nang_suat_nguoi_gio=500, so_nguoi_tieu_chuan=1,
+        cong_thuc_gio="   ", don_vi_nang_suat="  ",
+    )]})
+    dm2 = sua.dau_viec_dinh_muc[0]
+    assert dm2.cong_thuc_gio is None and dm2.don_vi_nang_suat is None
+
+
+def test_cong_thuc_gio_dau_viec_sai_cu_phap_bi_chan():
+    """Câu lỗi phải GỌI TÊN đầu việc — bảng nhiều dòng, không nói tên thì người khai phải mở từng
+    panel để dò xem mình gõ hỏng ở đâu."""
+    db, svc = _svc()
+    to, rate = _to_va_rate(svc, db, ma_to="CTG2", ma_rate="XENG2")
+    with pytest.raises(CongDoanValidationError, match="Cách đo giờ chạy"):
+        svc.create(dict(ma="CD-CTG2", ten="Xén 2", nhom="finishing", department_id=to.id,
+                        pricing_basis="per_finished_qty",
+                        dau_viec_dinh_muc=[dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=500,
+                                                so_nguoi_tieu_chuan=1,
+                                                cong_thuc_gio="sl_vao * *")]))

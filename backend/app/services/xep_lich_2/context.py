@@ -116,13 +116,17 @@ class XepLich2Context:
 
     # --- Tổ / quân số ------------------------------------------------------
     def _so_nguoi(self, dong: XepLichCongDoan) -> int:
-        """Số nhân công MỘT dòng tiêu thụ — lấy đúng con số đã khai ở bước (§4)."""
+        """Kíp MỘT dòng tiêu thụ — kíp chuẩn đã khai ở bước (§4).
+
+        Ô "số người bố trí" riêng đã gỡ 08/09/2026 (mg `0281`): kíp chuẩn nay gánh cả hai vai —
+        chia thời lượng bước tổ và là số cân quân số ở bàn này.
+        """
         op = None
         if dong.nguon == NGUON_IN_GHEP and dong.bai_ghep_cong_doan_id:
             op = self.db.get(BaiGhepCongDoan, dong.bai_ghep_cong_doan_id)
         elif dong.lsx_cong_doan_id:
             op = self.db.get(LsxCongDoan, dong.lsx_cong_doan_id)
-        return max(1, int(getattr(op, "so_nhan_cong", 1) or 1))
+        return max(1, int(getattr(op, "so_nhan_cong_tieu_chuan", 1) or 1))
 
     def placements_to(
         self, department_id: int | None, exclude_id: int | None = None,

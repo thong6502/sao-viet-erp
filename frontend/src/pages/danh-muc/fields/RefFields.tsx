@@ -3,6 +3,7 @@
 //   `RefSearchField` — tìm-chọn MỘT (typeahead, bỏ dấu vẫn khớp), lưu id hoặc MÃ.
 import { useState } from "react";
 
+import { khopGanDung } from "../../../utils/timGanDung";
 import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from "../icons";
 import type { Row } from "../types";
 
@@ -68,17 +69,39 @@ export function RefSearchField({ value, options, placeholder, byMa, onChange }: 
 }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
-  const norm = (s: string) =>
-    s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d");
   const rong = value == null || value === "";
   const selected = rong ? null : options.find(
     (o) => (byMa ? String(o.ma ?? "").toLowerCase() === String(value).toLowerCase() : o.id === value)
   ) ?? null;
-  const nq = norm(q.trim());
+  // Khớp GẦN ĐÚNG (`utils/timGanDung`): bỏ dấu + tách từ, thứ tự nào cũng ăn. `includes` thường
+  // trượt đúng những lần gõ hay gặp nhất — "in bai" không chứa chuỗi con của "bài in", "to nguyen"
+  // trượt "Tờ nguyên (giấy mua về)" khi người ta gõ thêm chữ giữa chừng.
+  const nq = q.trim();
   const matches = (nq
-    ? options.filter((o) => norm(`${o.ma} ${o.ten}`).includes(nq))
+    ? options.filter((o) => khopGanDung(`${o.ma} ${o.ten}`, nq))
     : options
   ).slice(0, 20);
+
+  /** Nhận CHỮ ĐANG GÕ khi nó chỉ về đúng một dòng — chạy lúc ô mất focus (kể cả khi mất focus vì
+   *  người ta bấm thẳng "Lưu thay đổi").
+   *
+   *  Vì sao cần: gõ xong mà chưa bấm dòng nào thì ô TRÔNG y hệt ô đã chọn — chữ nằm sẵn trong ô —
+   *  nhưng giá trị vẫn rỗng. Bấm Lưu là 422, và câu lỗi server trả về gọi tên CỘT (`unit: Input
+   *  should be a valid string`) chứ không phải nhãn ô, nhìn màn hình không ra chỗ nào sai.
+   *
+   *  Khớp CHÍNH XÁC mã/tên được ưu tiên hơn khớp gần đúng: gõ "to" phải ra đơn vị `to`, không ra
+   *  "tờ nguyên" chỉ vì nó cũng chứa chữ ấy. Còn mơ hồ (từ 2 dòng trở lên) thì KHÔNG đoán — đoán
+   *  sai ở ô đơn vị là tiền khoán tính theo thứ khác. */
+  const nhanChuDangGo = () => {
+    const s = nq.toLowerCase();
+    if (!s) return;
+    const trung = options.find((o) =>
+      [o.ma, o.ten].some((x) => String(x ?? "").trim().toLowerCase() === s));
+    const chon = trung ?? (matches.length === 1 ? matches[0] : null);
+    if (!chon) return;
+    onChange(byMa ? String(chon.ma) : chon.id);
+    setQ("");
+  };
 
   // Có giá trị nhưng KHÔNG khớp danh mục (đơn vị đã ngừng dùng / mã cũ). Hiện nguyên mã + báo đỏ:
   // để ô trắng như chưa chọn thì người dùng tưởng trống, bấm Lưu và giá trị hỏng vẫn nằm nguyên đó.
@@ -106,11 +129,17 @@ export function RefSearchField({ value, options, placeholder, byMa, onChange }: 
     );
   }
   return (
-    <div className="rc-input-wrapper" style={{ position: "relative" }}>
-      <input className="rc-input" value={q} placeholder={placeholder ?? "Gõ mã / tên để tìm…"}
+    <div className="rc-input-wrapper" style={{ position: "relative", display: "block" }}>
+      {/* Còn chữ trong ô mà chưa chọn được dòng nào ⇒ ô phải TRÔNG NHƯ chưa xong. Đây đúng là
+          trạng thái đã đẻ ra lỗi 422 câm: người khai nhìn thấy chữ mình gõ nên tưởng đã khai. */}
+      <input className={`rc-input${nq ? " rc-input--invalid" : ""}`} value={q}
+        placeholder={placeholder ?? "Gõ mã / tên để tìm…"}
         onChange={(e) => { setQ(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)} />
+        onBlur={() => { nhanChuDangGo(); setTimeout(() => setOpen(false), 150); }} />
+      {nq && !open && (
+        <span className="rc-field__hint rc-field__hint--loi">Chưa chọn — bấm một dòng trong danh sách.</span>
+      )}
       {open && matches.length > 0 && (
         <div className="rc-ref-search-panel">
           {matches.map((o) => {

@@ -12,12 +12,16 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { LSX_LOAI_BUOC_META, type LsxLoaiBuoc } from "../api/client";
 import { Button } from "../components/Button";
-import { TagPicker } from "../components/TagPicker";
+import { Select, type SelectOption } from "../components/Select";
 import { dvNhan as dvNhanChung, type RefRow } from "./LsxRoutingTable";
 import { num } from "./keHoachSxShared";
 import {
   type EditRow,
+  type HangLoai,
+  capMon,
   heSoChu,
+  mayChonDuoc,
+  nhanChang,
   nhanDonVi,
   phut,
   tenBuoc,
@@ -83,8 +87,10 @@ export function LsxBuocDrawer({
   mayRefs,
   khuonRefs,
   tenSanPham,
+  tenKhach,
   onTaoKhuon,
   vatTuRefs,
+  giayRefs,
   phuThuocRefs,
   baiGhep,
   // (`dvChuoi` vẫn là prop — nơi gọi vẫn truyền — nhưng thân drawer hiện KHÔNG đọc tới, nên bỏ
@@ -116,9 +122,12 @@ export function LsxBuocDrawer({
   khuonRefs: import("../api/client").KhuonChonDuoc[] | null;
   /** Tên sản phẩm của lệnh — mặc định cho tên dao mới (KHÔNG lấy tên bước). */
   tenSanPham: string;
+  /** Tên khách của lệnh — để khối Khuôn nói rõ danh sách đang lọc theo ai. */
+  tenKhach: string;
   /** Tạo dao mới cho bước — trả id dao vừa tạo để gán luôn. */
   onTaoKhuon: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
   vatTuRefs: RefRow[] | null;
+  giayRefs: RefRow[] | null;
   phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
   /** Lệnh đang ghép chung tờ — bước in của nó do BÀI điều phối, khoá máy ở đây. */
   baiGhep: import("../api/client").LsxBaiGhep | null;
@@ -158,8 +167,10 @@ export function LsxBuocDrawer({
 
   const dvNhan = (dv: string | null | undefined) => dvNhanChung(dv, row);
   // CÔNG THỨC số VÀO — nói rõ số từ đâu ra thay vì để người dùng đoán (bug cũ: "vào 9 · hao 2 → ra
-  // 25" không khớp). CHỈ cho bước NGOÀI dòng giấy: số vào = ceil( (ra ÷ hệ số + hao cố định) ÷
-  // (1 − hao%) ). Trên dòng giấy số suy ngược theo chuỗi giấy nên caption ở node RA nói thay.
+  // 25" không khớp). CHỈ cho bước NGOÀI dòng giấy: số vào = ceil( ra ÷ hệ số × (1 + hao%) + hao cố
+  // định ). Hao % đo trên số RA (chốt 06/09/2026: ra 100 hao 10% ⇒ vào 110), nên thứ tự các vế ở
+  // đây phải khớp `LsxService.buoc_ngoai_dong` — đọc lệch một dấu là caption đá với pill.
+  // Trên dòng giấy số suy ngược theo chuỗi giấy nên caption ở node RA nói thay.
   const flowFormula = useMemo(() => {
     if (row.loi_quy_doi || row.tren_dong_giay !== false) return null;
     const ra = Number(row.so_luong_ra || 0);
@@ -171,26 +182,71 @@ export function LsxBuocDrawer({
     const dvR = dvNhan(row.don_vi_ra);
     let expr = `${num(ra)} ${dvR}`;
     if (hs !== 1) expr += ` ÷ ${num(hs)}`;
+    if (haoPct > 0) expr += ` × (1 + ${haoPct}%)`;
     if (haoCd > 0) expr += ` + ${num(haoCd)} ${dvV} hao`;
-    if (haoPct > 0) expr += ` ÷ (1 − ${haoPct}%)`;
     return { ket_qua: `${num(vao)} ${dvV}`, expr };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row]);
+  // Danh sách CÔNG ĐOẠN cho ô gõ-lọc. Danh mục công đoạn đã hơn 30 dòng và còn dài ra; thẻ
+  // <select> gốc chỉ nhảy theo ký tự ĐẦU nên "cán màng" phải gõ đúng "c-á-n", gõ "can mang"
+  // hay "mang mo" đều trượt. `Select searchable` khớp gần đúng (bỏ dấu, tách từ — xem
+  // `utils/timGanDung`) và soi cả `hint`, nên mã CD-00xx cũng tìm được.
+  const cdOpts = useMemo<SelectOption<string>[]>(() => {
+    if (!congDoanRefs) return [];
+    const ds: SelectOption<string>[] = [{ value: "", label: "— chọn công đoạn —" }];
+    // Bước khai tên tự do (không nối danh mục) và bước trỏ tới công đoạn ĐÃ ẨN/XOÁ khỏi danh mục
+    // vẫn phải hiện đúng tên đang có, không thì mở drawer ra là thấy ô rỗng và lưu đè mất tên.
+    if (row.cong_doan_id == null && row.ten) {
+      ds.push({ value: "__keep__", label: `${row.ten} (tên tự do)` });
+    }
+    if (row.cong_doan_id != null && !congDoanRefs.some((c) => c.id === row.cong_doan_id)) {
+      ds.push({ value: String(row.cong_doan_id), label: row.ten });
+    }
+    for (const c of congDoanRefs) {
+      ds.push({ value: String(c.id), label: c.ten, search: c.ma ?? "" });
+    }
+    return ds;
+  }, [congDoanRefs, row.cong_doan_id, row.ten]);
+
+  // Danh sách MÓN thêm được vào khối vật tư của bước. Nhãn KHÔNG mang mã: danh sách này dài và
+  // mã "GL-0001-COPY-COPY" đẩy tên món ra sau, nhìn cả cột chỉ thấy tiền tố giống nhau. Mã chuyển
+  // xuống `search` — vẫn gõ mã ra được, chỉ là không chiếm chỗ trên màn.
+  const themMonOpts = useMemo<SelectOption<string>[]>(() => {
+    const daCo = (hl: HangLoai, id: number) =>
+      row.vat_tus.some((v) => capMon(v.hang_loai, v.vat_tu_id) === capMon(hl, id));
+    const ds: SelectOption<string>[] = [];
+    // GIẤY đứng TRƯỚC: đây là món đắt nhất và là thứ người lập lệnh tìm đầu tiên. Chọn giấy ở đây
+    // CHÍNH LÀ khai NVL chính cho bước — bước nào mang dòng giấy thì ngày cần giấy bám bước đó.
+    for (const x of giayRefs ?? []) {
+      if (daCo("giay", x.id)) continue;
+      ds.push({
+        value: capMon("giay", x.id),
+        label: `${x.ten} (${nhanDonVi(x.donVi)})`,
+        search: x.ma ?? "",
+        group: "NVL chính — danh mục Giấy",
+      });
+    }
+    for (const x of vatTuRefs ?? []) {
+      if (daCo("vat_tu", x.id)) continue;
+      ds.push({
+        value: capMon("vat_tu", x.id),
+        label: `${x.ten} (${nhanDonVi(x.donVi)})`,
+        search: x.ma ?? "",
+        group: "Vật tư in ấn",
+      });
+    }
+    return ds;
+  }, [giayRefs, vatTuRefs, row.vat_tus]);
+
   const mayForm = mayRefs?.find((m) => m.id === row.may_id) ?? null;
   const t = useMemo(() => thoiLuong(row, mayForm), [row, mayForm]);
   const tg = useMemo(() => thoiLuongLive(row, mayForm), [row, mayForm]);
-  // Máy chọn được LỌC theo "Máy làm được công đoạn này" khai ở danh mục Công đoạn (loai_may). Cùng
-  // luật engine xếp lịch `_may_lam_duoc`: rỗng/không khai ⇒ nhận mọi máy; có khai ⇒ chỉ máy đúng
-  // nhóm, NHƯNG vẫn GIỮ máy đang gán dù sai loại (dữ liệu cũ) để không âm thầm bỏ lựa chọn hiện có.
+  // Luật lọc nằm ở `mayChonDuoc` (xem `lsxBuoc.ts`) — cùng một luật với backend, và tách ra khỏi
+  // JSX để test được: bảng máy của công đoạn thắng, chưa khai thì lùi về nhóm máy.
   const nhomMay = useMemo(() => {
     if (!mayRefs) return [];
-    const allow =
-      congDoanRefs?.find((c) => c.id === row.cong_doan_id)?.nhomMayChoPhep ?? null;
-    if (!allow || allow.length === 0) return nhomMayTheoLoai(mayRefs);
-    const loc = mayRefs.filter(
-      (m) => (m.nhom != null && allow.includes(m.nhom)) || m.id === row.may_id,
-    );
-    return nhomMayTheoLoai(loc);
+    const cd = congDoanRefs?.find((c) => c.id === row.cong_doan_id) ?? null;
+    return nhomMayTheoLoai(mayChonDuoc(mayRefs, cd, row.may_id));
   }, [mayRefs, congDoanRefs, row.cong_doan_id, row.may_id]);
 
   // Đầu việc khoán chọn được: danh sách server gửi + giữ cả đầu việc ĐANG ghim dù nó không còn khớp
@@ -207,20 +263,19 @@ export function LsxBuocDrawer({
     return ds;
   }, [row.khoan_chon_duoc, row.khoan_rate_id]);
   const mayDaChon = mayRefs?.find((m) => m.id === row.may_id);
-  // Số người bố trí có nằm trong biên định biên của bước không. Cảnh báo NGAY tại khối Nhân lực
-  // chứ không đợi bàn xếp lịch: tới đó mới biết thì lệnh đã phát, sửa lại tốn một vòng.
-  const nguoiBoTri = Math.max(1, Math.trunc(Number(row.so_nhan_cong)) || 1);
-  const bienMin = row.so_nhan_cong_toi_thieu;
-  const bienMax = row.so_nhan_cong_toi_da;
-  const ngoaiBien =
-    (bienMin != null && nguoiBoTri < bienMin) || (bienMax != null && nguoiBoTri > bienMax);
-  const bienText = `${bienMin ?? "–"}–${bienMax ?? "–"}`;
   const khoanDaChon = dsKhoan.find((k) => k.id === row.khoan_rate_id);
   // "Nhảy tiền" khi đổi đầu việc: server tính sẵn tiền công của TỪNG lựa chọn cho đúng bước này
   // (`tien_du_kien`), nên chọn ở dropdown là ra số ngay — khỏi Lưu trước. Có key ⇒ option đến từ
   // server cho bước hiện tại; đổi tổ nạp lại danh sách KHÔNG kèm số ⇒ rơi về "Lưu công đoạn…".
-  const khoanLive =
-    khoanDaChon && "tien_du_kien" in khoanDaChon ? khoanDaChon : undefined;
+  //
+  // `khoan_xem_truoc` THẮNG khi có (07/09/2026): số của dropdown tính theo SỐ LƯỢT ĐÃ LƯU, nên bấm
+  // "2 lượt" mà đọc nó thì tiền đứng im dù công thức có chip `so_luot_chay`. Bản xem trước hỏi lại
+  // server với đúng số lượt đang hiện, nên nó mới là số sẽ thấy sau khi Lưu.
+  const khoanXt = row.khoan_xem_truoc;
+  const khoanLive = khoanXt
+    ? { tien_du_kien: khoanXt.khoan_tien,
+        dien_giai_du_kien: khoanXt.khoan_dien_giai ?? khoanXt.khoan_ly_do }
+    : khoanDaChon && "tien_du_kien" in khoanDaChon ? khoanDaChon : undefined;
   const nhomPhuThuoc = useMemo(() => {
     const currentLsxId = phuThuocRefs.find((o) => o.step_key === row.key)?.lsx_id;
     const groups = new Map<number, typeof phuThuocRefs>();
@@ -278,18 +333,18 @@ export function LsxBuocDrawer({
     return {
       nang_suat: chon?.nang_suat_nguoi_gio ? String(chon.nang_suat_nguoi_gio) : "",
       don_vi_nang_suat: chon?.don_vi_nang_suat ?? "",
-      so_nhan_cong: String(chon?.so_nguoi_tieu_chuan ?? 1),
-      so_nhan_cong_toi_thieu: chon?.so_nguoi_toi_thieu ?? null,
       so_nhan_cong_tieu_chuan: chon?.so_nguoi_tieu_chuan ?? 1,
-      so_nhan_cong_toi_da: chon?.so_nguoi_toi_da ?? null,
     };
   }
 
   function bungVatTu(chon: (typeof dsKhoan)[number] | undefined): Partial<EditRow> {
     const giu = row.vat_tus.filter((v) => !v.tu_dong);
+    // Đầu việc CHỈ bung vật tư tiêu hao, không bao giờ bung giấy (xem `_vat_tu_active` ở BE) ⇒
+    // dòng bung ra luôn `hang_loai: "vat_tu"`, và so trùng cũng phải so trong danh mục đó.
     const moi = (chon?.vat_tus ?? [])
-      .filter((v) => !giu.some((g) => g.vat_tu_id === v.vat_tu_id))
+      .filter((v) => !giu.some((g) => capMon(g.hang_loai, g.vat_tu_id) === capMon("vat_tu", v.vat_tu_id)))
       .map((v) => ({
+        hang_loai: "vat_tu" as HangLoai,
         vat_tu_id: v.vat_tu_id,
         vat_tu_ma: v.ma,
         vat_tu_ten: v.ten,
@@ -307,24 +362,22 @@ export function LsxBuocDrawer({
   }
 
   function doiLoaiBuoc(k: LsxLoaiBuoc) {
+    // KÍP BÁM CÔNG ĐOẠN (06/09/2026, mg `0270`): mọi loại bước — máy · tổ · thuê ngoài — đều lấy
+    // kíp từ định mức đầu việc của công đoạn. Máy không còn khai số người vận hành riêng, nên đổi
+    // loại bước không đổi kíp; chỉ bước máy/thuê ngoài mới bỏ năng suất khoán (chúng chạy theo
+    // tốc độ máy) và bỏ máy đang gán khi quay về tổ.
+    const chon = dsKhoan.find((x) => x.id === row.khoan_rate_id) ?? dsKhoan[0];
     if (k === "may" || k === "thue_ngoai") {
-      // Bỏ định mức nhân lực của bảng khoán TỔ lại phía sau: bước máy (và thuê ngoài — cùng một
-      // đường nhập liệu) nghe số người vận hành của MÁY. Chưa gán máy thì tạm 1 người, chọn máy
-      // xong `onDoiMay` điền lại.
-      const kip = Math.max(Math.trunc(Number(mayForm?.soNguoiVanHanh ?? 1)) || 1, 1);
-      onPatch({
-        loai_buoc: k,
-        so_nhan_cong_tieu_chuan: kip,
-        so_nhan_cong_toi_thieu: null,
-        so_nhan_cong_toi_da: null,
-        so_nhan_cong: String(kip),
-      });
+      const kip = Math.max(Math.trunc(Number(chon?.so_nguoi_tieu_chuan ?? row.so_nhan_cong_tieu_chuan)) || 1, 1);
+      onPatch({ loai_buoc: k, so_nhan_cong_tieu_chuan: kip });
       return;
     }
-    const chon = dsKhoan.find((x) => x.id === row.khoan_rate_id) ?? dsKhoan[0];
     onPatch({
       loai_buoc: k,
       may_id: null,
+      // Ô "số lượt qua máy" không hiện ở bước tổ (08/09/2026) — trả về 1 ngay lúc đổi loại, để
+      // số 2 lượt của bước máy cũ không nằm lại vô hình trong bản nháp.
+      so_luot_chay: "1",
       ...(chon ? { khoan_rate_id: chon.id, ...tuDinhMuc(chon), ...bungVatTu(chon) } : {}),
     });
   }
@@ -476,29 +529,28 @@ export function LsxBuocDrawer({
                   <label className="khsx-field">
                     <span className="khsx-field__label">TÊN CÔNG ĐOẠN</span>
                     {congDoanRefs ? (
-                      <select
-                        className="khsx-select-std"
-                        value={row.cong_doan_id ?? (row.ten ? "__keep__" : "")}
-                        disabled={!canUpdate}
-                        onChange={(e) => {
-                          if (e.target.value === "__keep__") return;
-                          onDoiCongDoan(e.target.value ? Number(e.target.value) : null);
+                      <Select
+                        options={cdOpts}
+                        value={
+                          row.cong_doan_id != null
+                            ? String(row.cong_doan_id)
+                            : row.ten
+                              ? "__keep__"
+                              : ""
+                        }
+                        onChange={(v) => {
+                          if (v === "__keep__") return;
+                          onDoiCongDoan(v ? Number(v) : null);
                         }}
-                      >
-                        <option value="">— chọn công đoạn —</option>
-                        {row.cong_doan_id == null && row.ten && (
-                          <option value="__keep__">{row.ten} (tên tự do)</option>
-                        )}
-                        {row.cong_doan_id != null &&
-                          !congDoanRefs.some((c) => c.id === row.cong_doan_id) && (
-                            <option value={row.cong_doan_id}>{row.ten}</option>
-                          )}
-                        {congDoanRefs.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.ten}
-                          </option>
-                        ))}
-                      </select>
+                        disabled={!canUpdate}
+                        ariaLabel="Tên công đoạn"
+                        placeholder="— chọn công đoạn —"
+                        searchable
+                        searchPlaceholder="Gõ tên hoặc mã công đoạn…"
+                        // `portal`: drawer cuộn dọc, popover thường bị cắt ở mép khối "Nhận diện".
+                        portal
+                        className="khsx-select-std"
+                      />
                     ) : (
                       <input
                         className="khsx-input-std"
@@ -532,8 +584,10 @@ export function LsxBuocDrawer({
                     </div>
                   </div>
 
-                  {/* Hàng 2 - Cột 1: Ghi chú kỹ thuật */}
-                  <label className="khsx-field">
+                  {/* Hàng 2: Ghi chú kỹ thuật — chiếm cả hàng từ 07/09/2026, khi ô "Bước bắt buộc"
+                      ở cột 2 bị GỠ: routing đã khai bước nào thì bước đó PHẢI làm, không có bước
+                      tuỳ chọn nữa (`lsx_cong_doan.bat_buoc` luôn TRUE, xem migration 0275). */}
+                  <label className="khsx-field khsx-field--wide">
                     <span className="khsx-field__label">GHI CHÚ KỸ THUẬT CHO THỢ</span>
                     <input
                       className="khsx-input-std"
@@ -543,152 +597,16 @@ export function LsxBuocDrawer({
                       onChange={(e) => set("ghi_chu", e.target.value)}
                     />
                   </label>
-
-                  {/* Hàng 2 - Cột 2: Tùy chọn bước bắt buộc */}
-                  <div className="khsx-field">
-                    <span className="khsx-field__label">QUY ĐỊNH BẮT BUỘC</span>
-                    <label className={`khsx-check-pill ${row.bat_buoc ? "is-checked" : ""}`}>
-                      <input
-                        type="checkbox"
-                        checked={row.bat_buoc}
-                        disabled={!canUpdate}
-                        onChange={(e) => set("bat_buoc", e.target.checked)}
-                      />
-                      <span className="khsx-check-pill__text">
-                        <strong>Bước bắt buộc</strong> (không được bỏ qua trong lệnh)
-                      </span>
-                    </label>
-                  </div>
                 </div>
               </section>
 
-              {/* Khối Nhãn — gắn thẻ tự do cho bước (vd "Thuê ngoài", "Bế ngoài"). Logic y hệt gán
-                  thẻ ở module Khách hàng: kho nhãn dùng chung, thêm/gỡ tức thì, xoá khỏi kho hỏi số
-                  bước. Chỉ hiện khi bước ĐÃ LƯU (có id) — bước mới phải lưu công đoạn trước mới có
-                  chỗ neo nhãn. */}
-              <section className="khsx-section-card">
-                <div className="khsx-section-card__head">
-                  <h3 className="khsx-section-card__title">Nhãn</h3>
-                </div>
-                {row.id != null ? (
-                  <TagPicker buocLoai="lsx" buocId={row.id} canUpdate={canUpdate} />
-                ) : (
-                  <p className="khsx-hint-muted">
-                    Lưu công đoạn trước rồi mở lại để gắn nhãn cho bước này.
-                  </p>
-                )}
-              </section>
+              {/* Khối Nhãn (gắn thẻ tự do cho bước) ẨN 07/09/2026. API `cong-doan-tags` + nhãn đã
+                  gán vẫn còn nguyên trong DB, chỉ không bày cửa gán/gỡ ở drawer nữa — bật lại là
+                  trả `<TagPicker buocLoai="lsx" buocId={row.id} …>` vào đúng chỗ này. */}
 
-              {/* Tiêu chí KCS bổ sung (module KCS kiêm nhiệm, mg 0250, Task 3) — CHỈ hiện khi bước
-                  là KCS. Nối SAU checklist chuẩn của danh mục lúc phát hành (`nguon="bo_sung_lsx"`,
-                  `thu_tu` 1000+) — không sửa được checklist danh mục ở đây, chỉ thêm/bớt vài dòng
-                  riêng cho lệnh này. */}
-              {row.la_kcs && (
-                <section className="khsx-section-card">
-                  <div className="khsx-section-card__head">
-                    <div>
-                      <h3 className="khsx-section-card__title">Tiêu chí KCS bổ sung</h3>
-                      <p className="khsx-section-card__sub">
-                        Chỉ áp dụng riêng cho lệnh này — không sửa được checklist chuẩn ở danh mục
-                        Tiêu chí KCS.
-                      </p>
-                    </div>
-                    <span className="khsx-badge-count">
-                      {row.kcs_tieu_chi_bo_sung_json.length} tiêu chí
-                    </span>
-                  </div>
-
-                  {row.kcs_tieu_chi_bo_sung_json.length === 0 && (
-                    <p className="khsx-hint-muted">Chưa có tiêu chí bổ sung nào cho lệnh này.</p>
-                  )}
-
-                  {row.kcs_tieu_chi_bo_sung_json.map((tc, i) => (
-                    <div
-                      key={i}
-                      style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}
-                    >
-                      <input
-                        className="khsx-input-std"
-                        style={{ flex: "1 1 38%" }}
-                        placeholder="Tên tiêu chí"
-                        value={tc.ten}
-                        disabled={!canUpdate}
-                        onChange={(e) =>
-                          set(
-                            "kcs_tieu_chi_bo_sung_json",
-                            row.kcs_tieu_chi_bo_sung_json.map((x, j) =>
-                              j === i ? { ...x, ten: e.target.value } : x,
-                            ),
-                          )
-                        }
-                      />
-                      <input
-                        className="khsx-input-std"
-                        style={{ flex: "1 1 38%" }}
-                        placeholder="Hướng dẫn (tuỳ chọn)"
-                        value={tc.huong_dan ?? ""}
-                        disabled={!canUpdate}
-                        onChange={(e) =>
-                          set(
-                            "kcs_tieu_chi_bo_sung_json",
-                            row.kcs_tieu_chi_bo_sung_json.map((x, j) =>
-                              j === i ? { ...x, huong_dan: e.target.value || null } : x,
-                            ),
-                          )
-                        }
-                      />
-                      <label className={`khsx-check-pill ${tc.bat_buoc ? "is-checked" : ""}`}>
-                        <input
-                          type="checkbox"
-                          checked={tc.bat_buoc}
-                          disabled={!canUpdate}
-                          onChange={(e) =>
-                            set(
-                              "kcs_tieu_chi_bo_sung_json",
-                              row.kcs_tieu_chi_bo_sung_json.map((x, j) =>
-                                j === i ? { ...x, bat_buoc: e.target.checked } : x,
-                              ),
-                            )
-                          }
-                        />
-                        <span className="khsx-check-pill__text">Bắt buộc</span>
-                      </label>
-                      {canUpdate && (
-                        <button
-                          type="button"
-                          className="khsx-vattu-del-btn"
-                          title="Xoá tiêu chí bổ sung"
-                          onClick={() =>
-                            set(
-                              "kcs_tieu_chi_bo_sung_json",
-                              row.kcs_tieu_chi_bo_sung_json.filter((_, j) => j !== i),
-                            )
-                          }
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M18 6L6 18M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                  ))}
-
-                  {canUpdate && (
-                    <button
-                      type="button"
-                      className="khsx-vattu-sync-all-btn"
-                      onClick={() =>
-                        set("kcs_tieu_chi_bo_sung_json", [
-                          ...row.kcs_tieu_chi_bo_sung_json,
-                          { ten: "", huong_dan: null, bat_buoc: true },
-                        ])
-                      }
-                    >
-                      + Thêm tiêu chí
-                    </button>
-                  )}
-                </section>
-              )}
+              {/* Ô "Tiêu chí KCS bổ sung" GỠ 08/09/2026 (mg 0283): tiêu chí KCS chỉ còn MỘT
+                  nguồn là danh mục Tiêu chí KCS gắn theo công đoạn, khai một lần áp cho mọi
+                  lệnh chạy công đoạn đó. Xem `docs/design-kcs-theo-cong-doan.md` mục 5. */}
 
               {/* Khối Dòng chảy Số lượng (Production Flow Pipeline) */}
               <section className="khsx-section-card">
@@ -696,6 +614,10 @@ export function LsxBuocDrawer({
                   <h3 className="khsx-section-card__title">Dòng chảy số lượng & hao hụt</h3>
                 </div>
 
+                {/* Băng giải thích "bước không nằm trên dòng giấy" ĐÃ BỎ 09/09/2026 theo yêu cầu —
+                    nó chỉ mô tả lại cách máy tính số, không đòi người khai làm gì. `tren_dong_giay`
+                    vẫn về từ API và vẫn lái cách tính, chỉ không bày một câu chữ ở đây nữa.
+                    Băng ĐỎ dưới đây GIỮ: nó báo lệnh KHÔNG phát hành được, phải khai cầu quy đổi. */}
                 {row.loi_quy_doi ? (
                   <div className="khsx-note-banner khsx-note-banner--error">
                     <span className="khsx-note-icon">⚠</span>
@@ -703,14 +625,6 @@ export function LsxBuocDrawer({
                       <strong>Chưa tính được số vào.</strong> {row.loi_quy_doi}{" "}
                       Khai cầu quy đổi ở module <strong>Đơn vị &amp; quy đổi</strong> rồi mở lại
                       bước — không có cầu thì lệnh không phát hành được.
-                    </span>
-                  </div>
-                ) : row.tren_dong_giay === false ? (
-                  <div className="khsx-note-banner">
-                    <span>
-                      Bước này <strong>không nằm trên dòng giấy</strong> (đếm bằng{" "}
-                      {dvNhan(row.don_vi_vao)}) nên số vào suy từ số ra qua hệ số quy đổi + bù hao,
-                      không tính ngược từ bước cuối.
                     </span>
                   </div>
                 ) : null}
@@ -893,13 +807,13 @@ export function LsxBuocDrawer({
                     </div>
                   </section>
 
-                  {/* Nhân lực của bước — MỘT khối chung cho cả bước Máy lẫn bước Tổ (21/08/2026).
-                      Trước đây hai loại bước hở mỗi bên một nửa: bước máy chỉ có ô "kế hoạch" còn ba
-                      mốc định biên để trống, bước tổ thì ngược lại — ba mốc hiện đủ mà con số kế
-                      hoạch (đúng con số bàn xếp lịch dùng để cân quân số tổ) lại không có ô nào.
-                      Hậu quả thật: một bước tổ đọng số 5 người từ đường ghi cũ, lịch báo quá tải mà
-                      người khai không thấy 5 ở đâu để sửa. Nay cả hai loại cùng một hình — số bố trí
-                      ở trên, ba mốc ở dưới — và bố trí ra ngoài biên thì nói ngay tại chỗ. */}
+                  {/* Nhân lực của bước — MỘT ô duy nhất cho cả bước Máy lẫn bước Tổ.
+                      Đợt 21/08/2026 gộp hai loại bước về một hình (số bố trí + ba mốc định biên);
+                      mg `0270` thu ba mốc về một kíp chuẩn; mg `0281` (08/09/2026) gỡ nốt ô "số
+                      người bố trí" — nó chưa bao giờ có nguồn riêng, mọi đường sinh đều chép từ
+                      cùng `cong_doan_dau_viec.so_nguoi_tieu_chuan` như kíp chuẩn, nên hai ô luôn
+                      hiện một số. Kíp chuẩn nay gánh cả hai vai: chia thời lượng bước tổ VÀ là số
+                      bàn xếp lịch cộng dồn để cân quân số tổ. */}
                   <section className="khsx-section-card">
                       <div className="khsx-section-card__head">
                         <h3 className="khsx-section-card__title">
@@ -908,98 +822,48 @@ export function LsxBuocDrawer({
                       </div>
 
                       <div className="khsx-labor-section">
-                        <label className="khsx-field">
-                          <span className="khsx-field__label">SỐ NGƯỜI BỐ TRÍ (KẾ HOẠCH)</span>
-                          <div className="khsx-input-unit-combine">
-                            <input
-                              type="number"
-                              min="1"
-                              className="khsx-input-combine__num"
-                              value={row.so_nhan_cong}
-                              placeholder="1"
-                              disabled={!canUpdate}
-                              onChange={(e) => set("so_nhan_cong", e.target.value)}
-                            />
-                            <span className="khsx-input-combine__unit">người</span>
-                          </div>
-                          <span className="khsx-field__hint">
-                            Bàn xếp lịch cân quân số tổ theo đúng số này.{" "}
-                            {row.loai_buoc === "to"
-                              ? "Không đổi thời lượng bước — thời lượng chia theo số người tiêu chuẩn."
-                              : "Nhân lực không thay đổi tốc độ máy."}
-                            {ngoaiBien && (
-                              <strong className="khsx-labor-warn">
-                                {" "}
-                                Ngoài biên {bienText} người của bước.
-                              </strong>
-                            )}
-                          </span>
-                        </label>
-
-                        {/* Biên nhân lực — nuôi cảnh báo thiếu/quá người khi xếp lịch, không vào thời gian. */}
+                        {/* KÍP CHUẨN — ô nhân lực DUY NHẤT của bước. Ba ô (tối thiểu · chuẩn · tối
+                            đa) và ô riêng trên máy gộp về đây ở mg `0270`; ô "số người bố trí" gỡ nốt
+                            ở mg `0281`. Mọi loại bước cùng lấy số từ định mức đầu việc của công đoạn. */}
                         <div className="khsx-labor-triplet-card">
-                          <span className="khsx-field__label">BIÊN NHÂN LỰC (ĐỂ XẾP LỊCH)</span>
+                          <span className="khsx-field__label">KÍP CHUẨN (ĐỊNH MỨC CÔNG ĐOẠN)</span>
                           <div className="khsx-labor-triplet-grid">
-                            {([
-                              ["Tối thiểu", "so_nhan_cong_toi_thieu"],
-                              ["Tiêu chuẩn", "so_nhan_cong_tieu_chuan"],
-                              ["Tối đa", "so_nhan_cong_toi_da"],
-                            ] as const).map(([nhan, khoa]) => (
-                              <label className="khsx-labor-pill-input" key={khoa}>
-                                <span className="khsx-labor-pill-label">{nhan}</span>
-                                {row.loai_buoc !== "to" ? (
-                                  // Bước máy: kíp chuẩn là thông số của MÁY, sửa ở danh mục Máy để mọi
-                                  // lệnh cùng ăn — hiện ở đây nhưng khoá, kèm lý do ở dòng gợi ý dưới.
-                                  <span className="khsx-labor-num-field khsx-labor-num-field--ro">
-                                    {row[khoa] ?? "—"}
-                                  </span>
-                                ) : (
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    className="khsx-labor-num-field"
-                                    value={row[khoa] ?? ""}
-                                    placeholder="—"
-                                    disabled={!canUpdate}
-                                    onChange={(e) => {
-                                      if (khoa === "so_nhan_cong_tieu_chuan") {
-                                        const std =
-                                          e.target.value === ""
-                                            ? 1
-                                            : Math.max(1, Number(e.target.value) || 1);
-                                        const cu = Math.max(1, Number(row.so_nhan_cong_tieu_chuan) || 1);
-                                        const kh = Math.max(1, Number(row.so_nhan_cong) || 1);
-                                        // Kế hoạch đang bám kíp chuẩn ⇒ kéo theo cho khỏi lệch. Người
-                                        // khai đã chỉnh tay số khác ⇒ giữ nguyên, không giẫm lên họ.
-                                        onPatch(
-                                          kh === cu
-                                            ? { so_nhan_cong_tieu_chuan: std, so_nhan_cong: String(std) }
-                                            : { so_nhan_cong_tieu_chuan: std },
-                                        );
-                                        return;
-                                      }
-                                      set(khoa, e.target.value === "" ? null : Number(e.target.value));
-                                    }}
-                                  />
-                                )}
-                                <span className="khsx-labor-unit">người</span>
-                              </label>
-                            ))}
+                            <label className="khsx-labor-pill-input">
+                              <span className="khsx-labor-pill-label">Kíp chuẩn</span>
+                              <input
+                                type="number"
+                                min="1"
+                                className="khsx-labor-num-field"
+                                value={row.so_nhan_cong_tieu_chuan ?? ""}
+                                placeholder="—"
+                                disabled={!canUpdate}
+                                onChange={(e) =>
+                                  onPatch({
+                                    so_nhan_cong_tieu_chuan:
+                                      e.target.value === ""
+                                        ? 1
+                                        : Math.max(1, Number(e.target.value) || 1),
+                                  })
+                                }
+                              />
+                              <span className="khsx-labor-unit">người</span>
+                            </label>
                           </div>
                           <span className="khsx-field__hint">
                             {row.loai_buoc !== "to" ? (
                               <>
-                                Kíp tiêu chuẩn lấy từ danh mục Máy
-                                {mayDaChon ? ` (${mayDaChon.ten})` : " — chọn máy ở khối trên"}; đổi ở đó
-                                thì mọi lệnh cùng ăn. Máy chưa khai tối thiểu/tối đa nên để trống.
+                                Điền sẵn từ định mức đầu việc của công đoạn — sửa ở đây chỉ đổi cho lệnh
+                                này, muốn mọi lệnh cùng đổi thì sửa ở danh mục Công đoạn. Bàn xếp lịch
+                                cân quân số tổ theo đúng số này. Không ảnh hưởng tốc độ máy
+                                {mayDaChon ? ` (${mayDaChon.ten})` : ""}.
                               </>
                             ) : (
                               <>
-                                Kíp tiêu chuẩn <strong>rút ngắn thời gian</strong>: năng suất khoán khai
-                                theo đầu người nên kíp{" "}
+                                Kíp chuẩn <strong>rút ngắn thời gian</strong>: năng suất khoán khai theo
+                                đầu người nên kíp{" "}
                                 {Math.max(1, Number(row.so_nhan_cong_tieu_chuan) || 1)} người làm nhanh gấp{" "}
-                                {Math.max(1, Number(row.so_nhan_cong_tieu_chuan) || 1)}. Tối thiểu/tối đa
-                                chỉ để bàn xếp lịch cảnh báo, không đổi thời lượng bước.
+                                {Math.max(1, Number(row.so_nhan_cong_tieu_chuan) || 1)}. Bàn xếp lịch cũng{" "}
+                                <strong>cân quân số tổ</strong> theo đúng số này.
                               </>
                             )}
                           </span>
@@ -1070,6 +934,7 @@ export function LsxBuocDrawer({
                     <KhuonCuaBuoc
                       row={row}
                       tenSanPham={tenSanPham}
+                      tenKhach={tenKhach}
                       khuonRefs={khuonRefs}
                       canUpdate={canUpdate}
                       onChon={(id) => set("khuon_be_id", id)}
@@ -1088,10 +953,13 @@ export function LsxBuocDrawer({
               <section className="khsx-section-card">
                 <div className="khsx-section-card__head">
                   <div>
-                    <h3 className="khsx-section-card__title">Định mức vật tư tiêu hao (BOM)</h3>
-                    <p className="khsx-section-card__sub">Nhu cầu vật tư riêng biệt của công đoạn này.</p>
+                    <h3 className="khsx-section-card__title">Định mức NVL &amp; vật tư (BOM)</h3>
+                    <p className="khsx-section-card__sub">
+                      Món công đoạn này ăn — cả GIẤY (NVL chính) lẫn vật tư tiêu hao. Bước nào mang
+                      dòng giấy thì ngày cần giấy ở bảng cân đối bám đúng bước đó.
+                    </p>
                   </div>
-                  <span className="khsx-badge-count">{row.vat_tus.length} vật tư</span>
+                  <span className="khsx-badge-count">{row.vat_tus.length} món</span>
                 </div>
 
                 {/* Cảnh báo quy đổi vật tư */}
@@ -1120,7 +988,8 @@ export function LsxBuocDrawer({
 
                     {canUpdate &&
                       row.vat_tus.some((v) => {
-                        const g = row.vat_tu_goi_y.find((x) => x.vat_tu_id === v.vat_tu_id);
+                        const g = row.vat_tu_goi_y.find(
+                          (x) => capMon(x.hang_loai, x.vat_tu_id) === capMon(v.hang_loai, v.vat_tu_id));
                         return (
                           g?.so_luong != null &&
                           (!v.tu_dong || Math.abs(g.so_luong - Number(v.so_luong)) > 0.0005)
@@ -1134,7 +1003,8 @@ export function LsxBuocDrawer({
                             set(
                               "vat_tus",
                               row.vat_tus.map((v) => {
-                                const g = row.vat_tu_goi_y.find((x) => x.vat_tu_id === v.vat_tu_id);
+                                const g = row.vat_tu_goi_y.find(
+                          (x) => capMon(x.hang_loai, x.vat_tu_id) === capMon(v.hang_loai, v.vat_tu_id));
                                 return g?.so_luong != null
                                   ? { ...v, so_luong: String(g.so_luong), tu_dong: true }
                                   : v;
@@ -1164,12 +1034,13 @@ export function LsxBuocDrawer({
                       {row.vat_tus.length === 0 ? (
                         <tr className="khsx-vattu-tr">
                           <td colSpan={5} className="khsx-vattu-td" style={{ textAlign: "center", color: "#94a3b8", padding: "20px" }}>
-                            Chưa có vật tư tiêu hao cho công đoạn này.
+                            Chưa khai món nào cho công đoạn này — chọn giấy hoặc vật tư ở ô bên dưới.
                           </td>
                         </tr>
                       ) : (
                         row.vat_tus.map((v, i) => {
-                          const goiY = row.vat_tu_goi_y.find((g) => g.vat_tu_id === v.vat_tu_id);
+                          const goiY = row.vat_tu_goi_y.find(
+                            (g) => capMon(g.hang_loai, g.vat_tu_id) === capMon(v.hang_loai, v.vat_tu_id));
                           const soMay = goiY?.so_luong ?? null;
                           const soLuu = v.so_luong.trim() === "" ? null : Number(v.so_luong);
                           const lech =
@@ -1178,11 +1049,14 @@ export function LsxBuocDrawer({
                             Number.isFinite(soLuu) &&
                             Math.abs(soMay - soLuu) > 0.0005;
                           return (
-                            <tr className="khsx-vattu-tr" key={v.vat_tu_id}>
+                            <tr className="khsx-vattu-tr" key={capMon(v.hang_loai, v.vat_tu_id)}>
                               <td className="khsx-vattu-td khsx-vattu-td--info">
                                 <div className="khsx-vattu-cell-name">
                                   <span className="khsx-vattu-code">{v.vat_tu_ma}</span>
                                   <span className="khsx-vattu-name">{v.vat_tu_ten}</span>
+                                  {v.hang_loai === "giay" && (
+                                    <span className="khsx-vattu-nvl-badge">NVL chính</span>
+                                  )}
                                 </div>
                               </td>
                               <td className="khsx-vattu-td khsx-vattu-td--why">
@@ -1270,42 +1144,49 @@ export function LsxBuocDrawer({
                         })
                       )}
                     </tbody>
-                    {canUpdate && vatTuRefs && (
+                    {canUpdate && (vatTuRefs || giayRefs) && (
                       <tfoot className="khsx-vattu-tfoot">
                         <tr>
                           <td colSpan={5} className="khsx-vattu-td-add">
                             <div className="khsx-vattu-add-bar">
                               <span className="khsx-vattu-add-icon">＋</span>
-                              <select
-                                className="khsx-vattu-select-clean"
+                              <Select
+                                options={themMonOpts}
                                 value=""
-                                onChange={(e) => {
-                                  const item = vatTuRefs.find((v) => v.id === Number(e.target.value));
-                                  if (item && !row.vat_tus.some((v) => v.vat_tu_id === item.id)) {
-                                    const goiY = row.vat_tu_goi_y.find((g) => g.vat_tu_id === item.id);
-                                    set("vat_tus", [
-                                      ...row.vat_tus,
-                                      {
-                                        vat_tu_id: item.id,
-                                        vat_tu_ma: item.ma ?? "",
-                                        vat_tu_ten: item.ten,
-                                        don_vi: item.donVi ?? "",
-                                        so_luong: goiY?.so_luong != null ? String(goiY.so_luong) : "",
-                                        tu_dong: false,
-                                      },
-                                    ]);
-                                  }
+                                placeholder="— Thêm vật tư / NVL chính vào công đoạn —"
+                                ariaLabel="Thêm vật tư hoặc NVL chính vào công đoạn"
+                                searchable
+                                searchPlaceholder="Gõ tên hoặc mã vật tư…"
+                                portal
+                                className="khsx-vattu-select-clean"
+                                onChange={(v) => {
+                                  // Giá trị là CẶP `hang_loai:id` — hai danh mục đánh số độc lập,
+                                  // gửi id trần thì server không biết tra bảng nào.
+                                  const [hl, sid] = String(v).split(":");
+                                  if (!hl || !sid) return;
+                                  const hangLoai = hl as HangLoai;
+                                  const item = (hangLoai === "giay" ? giayRefs : vatTuRefs)
+                                    ?.find((v) => v.id === Number(sid));
+                                  const cap = capMon(hangLoai, Number(sid));
+                                  if (!item) return;
+                                  if (row.vat_tus.some(
+                                    (v) => capMon(v.hang_loai, v.vat_tu_id) === cap)) return;
+                                  const goiY = row.vat_tu_goi_y.find(
+                                    (g) => capMon(g.hang_loai, g.vat_tu_id) === cap);
+                                  set("vat_tus", [
+                                    ...row.vat_tus,
+                                    {
+                                      hang_loai: hangLoai,
+                                      vat_tu_id: item.id,
+                                      vat_tu_ma: item.ma ?? "",
+                                      vat_tu_ten: item.ten,
+                                      don_vi: item.donVi ?? "",
+                                      so_luong: goiY?.so_luong != null ? String(goiY.so_luong) : "",
+                                      tu_dong: false,
+                                    },
+                                  ]);
                                 }}
-                              >
-                                <option value="">— Thêm vật tư vào công đoạn —</option>
-                                {vatTuRefs
-                                  .filter((x) => !row.vat_tus.some((v) => v.vat_tu_id === x.id))
-                                  .map((x) => (
-                                    <option key={x.id} value={x.id}>
-                                      {x.ma} · {x.ten} ({nhanDonVi(x.donVi)})
-                                    </option>
-                                  ))}
-                              </select>
+                              />
                             </div>
                           </td>
                         </tr>
@@ -1384,7 +1265,11 @@ export function LsxBuocDrawer({
                 </div>
 
                 <div className="khsx-thoi-gian-grid">
-                  {row.loai_buoc !== "to" ? (
+                  {/* 08/09/2026: ô CHỈ hiện ở bước máy/thuê ngoài — làm tay thì không có
+                      "lượt qua máy" nào để đếm. Bước tổ ép cứng 1 lượt (payload gửi 1, server ghi
+                      lại 1 lần nữa), nên chip `so_luot_chay` của công thức tiền công vẫn có số
+                      thật để dùng, chỉ là luôn bằng 1. */}
+                  {row.loai_buoc !== "to" && (
                     <div className="khsx-field">
                       <span className="khsx-field__label">SỐ LƯỢT CHẠY QUA MÁY</span>
                       <div className="khsx-turns-control">
@@ -1403,7 +1288,7 @@ export function LsxBuocDrawer({
                             disabled={!canUpdate}
                             onClick={() => set("so_luot_chay", "2")}
                           >
-                            2 lượt (In trở)
+                            2 lượt
                           </button>
                         </div>
                         <div className="khsx-input-unit-combine khsx-turns-custom">
@@ -1421,8 +1306,6 @@ export function LsxBuocDrawer({
                       </div>
                       <span className="khsx-field__hint">In trở 2 mặt = 2 lượt qua máy</span>
                     </div>
-                  ) : (
-                    <div className="khsx-field" />
                   )}
 
                   <div className="khsx-field">
@@ -1615,7 +1498,7 @@ export function LsxBuocDrawer({
                         <div className="khsx-time-row__formula-card" style={{ marginTop: 0 }}>
                           <div className="khsx-formula-compact">
                             <span className="khsx-formula-token khsx-formula-token--qty">
-                              {tg.quy_doi_dien_giai ? String(tg.quy_doi_dien_giai) : `${num(Number(tg.so_luong_vao ?? 0))} ${nhanDonVi(tg.don_vi_vao as string | null)}`}
+                              {tg.quy_doi_dien_giai ? String(tg.quy_doi_dien_giai) : `${num(Number(tg.so_luong_vao ?? 0))} ${nhanChang(tg.don_vi_vao as string | null)}`}
                             </span>
                             <span className="khsx-formula-op">÷</span>
                             {row.loai_buoc === "to" && Number(tg.so_nhan_cong_tinh ?? 1) > 1 ? (
@@ -1758,6 +1641,29 @@ export function LsxBuocDrawer({
   );
 }
 
+/** Nhãn loại dụng cụ — khớp `khuon_be.LOAI_KHUON` (mg 0205; `khung_lua` thêm 04/09/2026 vì khung
+ *  lụa cũng nằm kho dùng lại, không phải vật tư tiêu hao). Trước đây chỗ này là phép hỏi
+ *  `=== "khuon_ep" ? … : "khuôn bế"`, nên bước IN LỤA mở thẻ ra thấy chữ "khuôn bế" — kho đã nhận
+ *  khung lụa mà màn vẫn gọi sai tên. Dòng chưa phân loại (`loai = null`, 6 dòng khai trước mg
+ *  0205) rơi về chữ chung. */
+const NHAN_TOOLING: Record<string, string> = {
+  khuon_be: "khuôn bế",
+  khuon_ep: "khuôn ép kim",
+  khung_lua: "khung lụa",
+};
+
+/** Tình trạng khuôn rút thành CHỮ NGẮN đứng cạnh tên trong ô chọn — chỉ hiện khi KHÔNG bình
+ *  thường. Dao sẵn sàng thì để trống cho danh sách đỡ rối; đã chọn rồi mới xem câu đầy đủ ở
+ *  `moTaTinhTrang`. */
+function nhanTinhTrangNgan(tt: string | null | undefined): string | undefined {
+  switch (tt) {
+    case "dang_dat_lam": return "ĐANG LÀM";
+    case "hong": return "HỎNG";
+    case "thanh_ly": return "ĐÃ THANH LÝ";
+    default: return undefined;
+  }
+}
+
 /** Ba MỨC của tình trạng dao */
 function nhomTinhTrang(tt: string | null | undefined): "san" | "cho" | "hong" {
   if (tt === "hong" || tt === "thanh_ly") return "hong";
@@ -1792,6 +1698,7 @@ function ngayVN(s: string): string {
 function KhuonCuaBuoc({
   row,
   tenSanPham,
+  tenKhach,
   khuonRefs,
   canUpdate,
   onChon,
@@ -1799,6 +1706,9 @@ function KhuonCuaBuoc({
 }: {
   row: EditRow;
   tenSanPham: string;
+  /** Tên khách của lệnh — CHỈ để nói ra thành lời cái bộ lọc server đã áp. Danh sách chỉ có vài
+   *  dòng nên dễ tưởng kho rỗng; ghi tên khách ra thì người chốt dao biết ngay vì sao ngắn. */
+  tenKhach: string;
   khuonRefs: import("../api/client").KhuonChonDuoc[] | null;
   canUpdate: boolean;
   onChon: (id: number | null) => void;
@@ -1810,12 +1720,28 @@ function KhuonCuaBuoc({
   const [dangTao, setDangTao] = useState(false);
   const [loi, setLoi] = useState<string | null>(null);
 
-  const nhanLoai = row.tooling_type === "khuon_ep" ? "khuôn ép nhũ / dập nổi" : "khuôn bế";
+  const nhanLoai = NHAN_TOOLING[row.tooling_type ?? ""] ?? "khuôn / khung";
 
   const chonDuoc = useMemo(() => {
     const ds = khuonRefs ?? [];
     return ds.filter((k) => !row.tooling_type || !k.loai || k.loai === row.tooling_type);
   }, [khuonRefs, row.tooling_type]);
+
+  // Ô chọn là `<Select>` gõ-lọc (bỏ dấu), không phải `<select>` gốc: kho dao của một khách lặp
+  // lại vẫn tới vài chục con và tên chúng na ná nhau ("hộp bánh 20×20", "hộp bánh 20×25"), cuộn
+  // tay để tìm là chỗ người ta bỏ cuộc rồi bấm "Làm khuôn mới" — đặt lại con dao đang nằm trên kệ.
+  // MÃ + SỐ KỆ xuống dòng phụ chứ không bỏ đi như ô vật tư/máy: ở đây mã là thứ dán trên con dao
+  // và số kệ là chỗ đi lấy nó, hai thứ đều phải đọc được lúc chọn. `khopGanDung` quét cả dòng phụ
+  // nên gõ "kb-0002" hay "b1" vẫn ra.
+  const khuonOpts = useMemo<SelectOption<string>[]>(
+    () => chonDuoc.map((k) => ({
+      value: String(k.id),
+      label: k.ten || k.ma,
+      sub: [k.ma, k.so_ke].filter(Boolean).join(" · "),
+      hint: nhanTinhTrangNgan(k.tinh_trang),
+    })),
+    [chonDuoc],
+  );
 
   const dao = useMemo(() => {
     if (row.khuon_be_id == null) return null;
@@ -1927,32 +1853,34 @@ function KhuonCuaBuoc({
           </span>
         </div>
       ) : (
-        <div className="khsx-khuon__chon">
-          <select
-            className="khsx-select-std"
-            value=""
-            onChange={(e) => e.target.value && onChon(Number(e.target.value))}
-            aria-label={`Chọn ${nhanLoai} có sẵn`}
-          >
-            <option value="">
-              {chonDuoc.length > 0
+        <>
+          <div className="khsx-khuon__chon">
+            <Select
+              options={khuonOpts}
+              value=""
+              placeholder={chonDuoc.length > 0
                 ? `— chọn ${nhanLoai} có sẵn (${chonDuoc.length}) —`
                 : `— khách này chưa có ${nhanLoai} nào —`}
-            </option>
-            {chonDuoc.map((k) => (
-              <option key={k.id} value={k.id}>
-                {k.ma} · {k.ten}
-                {k.tinh_trang === "dang_dat_lam" ? " · ĐANG LÀM"
-                  : k.tinh_trang === "hong" ? " · HỎNG"
-                  : k.tinh_trang === "thanh_ly" ? " · ĐÃ THANH LÝ"
-                  : k.so_ke ? ` · ${k.so_ke}` : ""}
-              </option>
-            ))}
-          </select>
-          <Button variant="secondary" onClick={() => { setMoTaoMoi(true); setTenMoi(tenSanPham); }}>
-            + Làm khuôn mới
-          </Button>
-        </div>
+              ariaLabel={`Chọn ${nhanLoai} có sẵn`}
+              disabled={chonDuoc.length === 0}
+              searchable
+              searchPlaceholder="Gõ tên, mã hoặc số kệ…"
+              portal
+              onChange={(v) => v && onChon(Number(v))}
+            />
+            <Button variant="secondary" onClick={() => { setMoTaoMoi(true); setTenMoi(tenSanPham); }}>
+              + Làm khuôn mới
+            </Button>
+          </div>
+          {/* Nói THÀNH LỜI bộ lọc mà server đã áp (`lsx_service.khuon_chon_duoc`: khách của lệnh +
+              loại của bước). Không có câu này thì danh sách 1–2 dòng trông y như kho rỗng, và
+              người chốt dao đi làm con dao mới trong khi khách khác đang giữ đúng con đó. */}
+          <span className="khsx-field__hint">
+            Chỉ hiện {nhanLoai} của khách <b>{tenKhach || "— chưa có khách"}</b> — dụng cụ là của
+            khách, không dùng chéo. Chưa thấy con cần tìm thì kiểm ở màn Khuôn &amp; khung xem nó
+            đã gắn đúng khách chưa.
+          </span>
+        </>
       )}
     </section>
   );

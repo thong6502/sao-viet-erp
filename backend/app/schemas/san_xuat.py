@@ -367,6 +367,10 @@ class PhanBoChiTietOut(BaseModel):
     q_tra_luong: float
     don_vi_tra_luong: str | None = None
     don_gia: float
+    # Đơn giá ở trên là số GỘP TỪ CÔNG THỨC tiền công của bước (`khoan_json.don_gia_hd`) hay đơn giá
+    # thẳng của đầu việc? Tổ trưởng nhìn "620 đ" trong khi danh mục ghi "40 đ/nhịp" mà không có chú
+    # thích thì tưởng hệ tính sai — con số đúng nhưng không giải thích được cũng là một lỗi.
+    don_gia_tu_cong_thuc: bool = False
     q_ban_dia: float | None = None
     don_vi_ban_dia: str | None = None
     tong_ty_le_ho_tro: float
@@ -862,6 +866,34 @@ class KcsChiTietOut(BaseModel):
     # — FE dùng số NÀY để tính "Còn chờ" cho khớp giới hạn thật, tránh cho phép nhập rồi bị 400.
     da_ban_giao_xac_nhan: float = 0.0
     batch: list[KcsBatchChiTietOut]
+
+
+class DiemKiemItemOut(WorkItemOut):
+    """Một ĐIỂM KIỂM trên bàn KCS (docs/design-kcs-theo-cong-doan.md mục 4) = thẻ việc + checklist
+    đã chụp + kết quả đã ghi, gói trong MỘT lượt tải. Kế thừa `WorkItemOut` để drawer KCS nhận
+    nguyên thẻ việc như mọi màn khác, và để bàn KCS không phải gọi `/work-items/{id}/kcs` theo
+    từng dòng (N+1) chỉ để biết đã kiểm chưa.
+
+    `to_*`/`nguoi` là cột "TÊN THỢ LÀM · NHÓM LÀM" của tờ ISO — ĐỌC từ thẻ việc, không chép sang
+    bảng KCS."""
+    to_id: int | None = None
+    to_ten: str = ""
+    nguoi: list[str] = []
+    checklist: list[KcsChiTietTieuChiOut] = []
+    batch: list[KcsBatchChiTietOut] = []
+    tong_dat: float = 0.0
+    tong_loi: float = 0.0
+
+
+class DiemKiemGiaiDoanOut(BaseModel):
+    """Một GIAI ĐOẠN (`cong_doan.nhom` đã chụp sang thẻ việc): prepress | print | finishing |
+    other, hoặc "" khi bước không tra được về danh mục. Nhóm rỗng KHÔNG được trả về."""
+    nhom: str
+    cong_viec: list[DiemKiemItemOut]
+
+
+class DiemKiemOut(BaseModel):
+    giai_doan: list[DiemKiemGiaiDoanOut]
 
 
 class KcsHopThuOut(BaseModel):

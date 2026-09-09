@@ -13,11 +13,10 @@ import pytest
 
 from app.db import Base, SessionLocal, engine
 from app.db_migrations import run_migrations
-from app.models.cong_doan import CongDoan, CongDoanDauViec
+from app.models.cong_doan import CongDoan, CongDoanDauViec, CongDoanMay
 from app.models.customer import Customer
 from app.models.department import Department
 from app.models.lsx import (
-    TT_CHO_BO_SUNG,
     TT_DA_LAP_KE_HOACH,
     TT_NHAP,
     TT_SAN_SANG,
@@ -36,7 +35,7 @@ from app.repositories.order_repo import OrderRepository
 from app.repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
 from app.repositories.quotation_repo import QuotationRepository
 from app.repositories.user_repo import UserRepository
-from app.schemas.lsx import LsxCongDoanIn, LsxUpdateIn
+from app.schemas.lsx import BuocMacDinhOut, LsxCongDoanIn, LsxUpdateIn
 from app.schemas.order import OrderCreate, OrderDepositReceiptIn, OrderUpdate
 from app.seed import seed_all
 from app.services.accounting_service import AccountingService
@@ -247,7 +246,7 @@ def test_hai_nguon_khop_tren_moi_hinh_routing(db, orders, lsx_svc, admin, custom
     phieu = compute_phieu(so_luong=lsx.so_luong_dat, thanh_phans=[resolved],
                           bu_hao_rows=lsx_svc._bu_hao_rows())["meta"]["components"][0]
     lenh = ngu_canh_lenh(quy_cach_bien(lsx))
-    doi = {"so_tp": "con", "so_luong": "so_luong", "to_dau_vao": "to_dau_vao",
+    doi = {"so_con": "con", "so_luong": "so_luong", "to_dau_vao": "to_dau_vao",
            "to_sau_in": "to_sau_in", "to_nguyen": "to_nguyen", "so_kem": "so_kem",
            "so_mau_pha": "so_mau_pha"}
     for bien, o_phieu in doi.items():
@@ -296,7 +295,7 @@ def test_hai_nguon_bien_ra_cung_so_khi_lenh_chua_ai_sua(db, orders, lsx_svc, adm
     # Bên LỆNH: qua đúng cửa mà quy đổi động đi.
     lenh = ngu_canh_lenh(quy_cach_bien(lsx))
 
-    for bien, o_phieu in (("so_luong", "so_luong"), ("so_tp", "con"),
+    for bien, o_phieu in (("so_luong", "so_luong"), ("so_con", "con"),
                           ("to_dau_vao", "to_dau_vao"), ("to_sau_in", "to_sau_in"),
                           ("to_nguyen", "to_nguyen"), ("so_kem", "so_kem"),
                           ("so_mau_pha", "so_mau_pha")):
@@ -614,11 +613,12 @@ def test_so_luong_lay_tu_don_khong_lay_tu_phieu_tinh_gia(db, orders, lsx_svc, ad
     assert db.query(PhieuTinhGia).filter(PhieuTinhGia.id == tp.phieu_id).first().result_json is None
 
 
-def test_dong_khong_co_phieu_tinh_gia_van_tao_duoc_lenh_o_cho_bo_sung(
-    db, orders, lsx_svc, admin, customer
-):
-    """Dòng đơn không gắn phiếu tính giá (đơn nhập giá tay) → lệnh vẫn tạo được, quy cách trống,
-    nằm ở CHỜ BỔ SUNG để kế hoạch tự khai."""
+def test_dong_khong_co_phieu_tinh_gia_van_tao_duoc_lenh(db, orders, lsx_svc, admin, customer):
+    """Dòng đơn không gắn phiếu tính giá (đơn nhập giá tay) → lệnh vẫn tạo được, quy cách trống.
+
+    Từ 07/09/2026 bảng lệnh dự kiến KHÔNG còn chấm checklist thiếu: payload không có `thieu` và
+    lệnh sinh ra ở NHÁP. Cửa gác còn lại là `thieu_cua` — nó vẫn kêu `khong_co_ptg` nên nút
+    "Sẵn sàng lập kế hoạch" vẫn đóng cho tới khi kế hoạch khai đủ."""
     from app.models.order import OrderLine
 
     ptg = _ptg_2_san_pham(db)
@@ -628,13 +628,16 @@ def test_dong_khong_co_phieu_tinh_gia_van_tao_duoc_lenh_o_cho_bo_sung(
     db.commit()
 
     pv = next(l for l in lsx_svc.preview(d.id)["lines"] if l["order_line_id"] == ol.id)
-    assert "khong_co_ptg" in pv["thieu"] and pv["routing"] == []
+    assert "thieu" not in pv and pv["routing"] == []
     # Chưa có bài tính giá → số dẫn xuất là "chưa tính được" = None (UI hiện "—"), KHÔNG bày 0/1 giả.
     assert pv["bu_hao_to"] is None and pv["so_to_ke_hoach"] is None and pv["so_to_nguyen"] is None
     assert pv["so_con"] is None and pv["so_kem"] is None and pv["so_luot"] is None
     [lsx] = lsx_svc.tao(order_id=d.id, order_line_ids=[ol.id], actor=admin)
-    assert lsx.trang_thai == TT_CHO_BO_SUNG and lsx.so_luong_dat == ol.qty
+    assert lsx.trang_thai == TT_NHAP and lsx.so_luong_dat == ol.qty
     assert lsx.cong_doans == []
+    assert "khong_co_ptg" in lsx_svc.thieu_cua(lsx)
+    with pytest.raises(LsxConflict):
+        lsx_svc.set_trang_thai(lsx_id=lsx.id, trang_thai=TT_SAN_SANG, actor=admin)
 
 
 # ============================ Sửa routing / trạng thái ============================
@@ -741,15 +744,14 @@ def test_san_sang_bi_chan_khi_con_thieu_va_mo_khi_du(db, orders, lsx_svc, admin,
     assert lsx_svc.set_trang_thai(lsx_id=hop.id, trang_thai=TT_SAN_SANG, actor=admin).trang_thai == TT_SAN_SANG
 
 
-def test_don_vi_nang_suat_KHOA_theo_don_gia_khoan(db, lsx_svc):
-    """Đơn vị năng suất LÀ đơn vị đơn giá khoán, người khai KHÔNG đổi được (chủ 10/08/2026).
+def test_don_vi_nang_suat_NGUOI_KHAI_CHON(db, lsx_svc):
+    """Đơn vị năng suất do người khai CHỌN, không còn khoá theo đơn giá khoán (07/09/2026).
 
-    Ghim luôn ca dễ hiểu nhầm: cột `cong_doan_dau_viec.don_vi_nang_suat` vẫn còn trong DB và vẫn
-    có dữ liệu cũ, nhưng thôi được đọc — đọc nó ra là quay lại lối "người khai chọn" vừa bỏ.
+    🔴 ĐẢO LẠI chốt 10/08/2026. Hồi đó nhãn bị khoá cứng vì tiền và giờ dùng CHUNG một công thức
+    nên hai đơn vị buộc phải là một. Nay đầu việc có ô đo giờ riêng (`cong_thuc_gio`) nên tách
+    được: khoán 120 đ/cuốn mà năng suất đếm 500 tờ/h.
 
-    🔴 ĐỔI 15/08/2026: trước đây trả MÃ `cuon_gio` qua `dv_nang_suat_theo_khoan` — một nhãn suông,
-    hiện "cuốn/h" trong khi công thức chia số TỜ. Hàm đó đã gỡ cùng hai cơ chế đơn vị khác; nay
-    trả thẳng TÊN đơn vị của đơn giá, và thời lượng quy SL vào về chính đơn vị này trước khi chia.
+    Trống thì vẫn lùi về đơn vị đơn giá khoán — đó là MẶC ĐỊNH hợp lý, không phải hành vi khoá.
     """
     from app.models.don_vi_do import DonViDo
     from app.models.piece_work import PieceRate
@@ -765,17 +767,45 @@ def test_don_vi_nang_suat_KHOA_theo_don_gia_khoan(db, lsx_svc):
                   don_vi_vao="to", don_vi_ra="cai", cong_thuc_gia="so_luong * don_gia")
     db.add(cd)
     db.flush()
-    db.add(CongDoanDauViec(
+    dm = CongDoanDauViec(
         cong_doan_id=cd.id, piece_rate_id=rate.id, nang_suat_nguoi_gio=500,
-        so_nguoi_tieu_chuan=1, so_nguoi_toi_da=1,
-        # Giá trị CŨ người khai từng chọn — phải bị bỏ qua, không được thắng đơn giá khoán.
-        don_vi_nang_suat="to_gio",
-    ))
+        so_nguoi_tieu_chuan=1, don_vi_nang_suat="to_gio",
+    )
+    db.add(dm)
     db.commit()
 
-    # Dòng đã khai sẵn "to_gio" vẫn phải bị đơn giá khoán thắng.
+    # Khai "to_gio" ⇒ năng suất đếm TỜ, trong khi đơn giá vẫn đếm CUỐN. Hai số, hai đơn vị.
     [dv] = [x for x in lsx_svc._dau_viec_option_dicts(cd, to.id) if x["id"] == rate.id]
-    assert dv["don_vi"] == "cuốn" and dv["don_vi_nang_suat"] == "cuốn"
+    assert dv["don_vi"] == "cuốn" and dv["don_vi_nang_suat"] == "to"
+
+    # Bỏ khai ⇒ lùi về đơn vị đơn giá khoán.
+    dm.don_vi_nang_suat = None
+    db.commit()
+    [dv2] = [x for x in lsx_svc._dau_viec_option_dicts(cd, to.id) if x["id"] == rate.id]
+    assert dv2["don_vi_nang_suat"] == "cuốn"
+
+
+def test_dich_gio_cua_khoan_ANH_CHUP_CU_van_doc_cong_thuc_tien_cong():
+    """Lệnh ĐÃ PHÁT trước 07/09/2026 không được xê dịch một phút nào.
+
+    Ảnh chụp cũ chỉ có `cong_thuc` (chung cho tiền lẫn giờ) và có thể mang `don_vi_nang_suat` rác
+    từ thời cột đó dormant. Dấu phân biệt là SỰ CÓ MẶT của khoá `cong_thuc_gio` — vắng khoá thì
+    đọc y như trước, kể cả khi `don_vi_nang_suat` có giá trị.
+    """
+    from app.services.lsx_service import dich_gio_cua_khoan
+
+    cu = {"don_vi": "cuốn", "cong_thuc": "sl_vao * so_luot_chay", "don_vi_nang_suat": "to_gio"}
+    assert dich_gio_cua_khoan(cu) == ("cuốn", "sl_vao * so_luot_chay")
+
+    # Ảnh chụp MỚI: đọc ô giờ + đơn vị năng suất đã cắt hậu tố `_gio`.
+    moi = {"don_vi": "cuốn", "cong_thuc": "sl_vao * so_luot_chay",
+           "cong_thuc_gio": "sl_vao", "don_vi_nang_suat": "to_gio"}
+    assert dich_gio_cua_khoan(moi) == ("to", "sl_vao")
+
+    # Ảnh chụp MỚI mà người khai CỐ Ý để trống ô giờ ⇒ KHÔNG được lùi về `cong_thuc`: trống nghĩa
+    # là để cầu quy đổi trả lời, đúng thứ người khai chọn.
+    trong = {"don_vi": "cuốn", "cong_thuc": "sl_vao * so_luot_chay", "cong_thuc_gio": ""}
+    assert dich_gio_cua_khoan(trong) == ("cuốn", "")
 
 
 def test_thoi_gian_buoc_TO_quy_SL_vao_ve_don_vi_don_gia_khoan(
@@ -819,10 +849,23 @@ def test_thoi_gian_buoc_TO_quy_SL_vao_ve_don_vi_don_gia_khoan(
     assert buoc["chay_phut"] == pytest.approx(vao_cai / 500 / (2 * 2) * 60, abs=0.01)
 
 
+def _khai_ct_gio(db, lsx_svc, cong_doan_id, may_id, ct: str) -> None:
+    """Khai công thức GIỜ CHẠY ở cặp (công đoạn × máy) — chỗ mới từ 06/09/2026.
+
+    `_ct_gio_cache` phải xoá theo: service nhớ lại kết quả tra để khỏi N+1, mà ở đây danh mục đổi
+    GIỮA hai lần tính — chuyện chỉ xảy ra trong test, một request thật không sửa danh mục giữa chừng.
+    """
+    from app.models.cong_doan import CongDoanMay
+
+    db.add(CongDoanMay(cong_doan_id=cong_doan_id, may_id=may_id, cong_thuc_gio=ct))
+    db.commit()
+    getattr(lsx_svc, "_ct_gio_cache", {}).clear()
+
+
 def test_thoi_gian_buoc_MAY_doc_cong_thuc_cua_CHINH_MAY(
     db, orders, lsx_svc, admin, customer,
 ):
-    """⭐ Máy khai `m²/giờ`, bước đếm `tờ`, không có cầu ⇒ chạy CÔNG THỨC của CHÍNH MÁY (mg `0213`).
+    """⭐ Máy khai `m²/giờ`, bước đếm `tờ`, không có cầu ⇒ chạy công thức của CẶP công đoạn × máy.
 
     Trước 17/08/2026 số này đọc công thức của ĐƠN VỊ đích (`don_vi_do.cong_thuc`, gỡ ở mg `0215`) —
     một cách đo dùng chung cho mọi máy đếm bằng `m²`, trong khi lượt của máy 5 màu khác máy 2 màu.
@@ -842,8 +885,9 @@ def test_thoi_gian_buoc_MAY_doc_cong_thuc_cua_CHINH_MAY(
     may = db.get(MayThietBi, may_in.may_id)
     may.don_vi_toc_do, may.toc_do = "m2_gio", 3000
     may.toc_do_min = may.toc_do_max = None
-    may.cong_thuc_luong = "sl_vao * 0.559"   # tờ 65×86 = 0,559 m²
     db.commit()
+    # tờ 65×86 = 0,559 m² — khai ở cặp (công đoạn × máy), không còn ở riêng máy.
+    _khai_ct_gio(db, lsx_svc, may_in.cong_doan_id, may.id, "sl_vao * 0.559")
 
     buoc = next(b for b in lsx_svc.detail_dict(lsx_svc.get(hop.id))["cong_doans"]
                 if b["id"] == may_in.id)
@@ -976,10 +1020,23 @@ def _gan_dinh_muc(db, *, cong_doan: CongDoan, ten: str, don_vi: str, don_gia: fl
         cong_doan_id=cong_doan.id, piece_rate_id=rate.id,
         nang_suat_nguoi_gio=nang_suat, nang_suat_nguoi_gio_min=ns_min,
         nang_suat_nguoi_gio_max=ns_max, don_vi_nang_suat=don_vi_ns,
-        so_nguoi_tieu_chuan=2, so_nguoi_toi_da=4,
+        so_nguoi_tieu_chuan=2,
     ))
     db.commit()
     return rate
+
+
+def _khai_ct_khoan(db, cong_doan: CongDoan, rate, ct: str) -> None:
+    """Khai CÔNG THỨC TÍNH TIỀN CÔNG ở dòng định mức của công đoạn — chỗ mới từ 06/09/2026.
+
+    Trước đó công thức treo ở `piece_rates.cong_thuc_luong`, dùng chung cho mọi công đoạn gọi tới
+    đầu việc ấy.
+    """
+    dm = (db.query(CongDoanDauViec)
+          .filter(CongDoanDauViec.cong_doan_id == cong_doan.id,
+                  CongDoanDauViec.piece_rate_id == rate.id).one())
+    dm.cong_thuc_khoan = ct
+    db.commit()
 
 
 def _chon_loai_buoc(lsx_svc, lsx, admin, chon: dict[str, str]):
@@ -1019,6 +1076,111 @@ def test_buoc_bung_ra_luon_la_may_khong_doan_theo_ten(db, orders, lsx_svc, admin
     hop = _chon_loai_buoc(lsx_svc, hop, admin, {"Dán hộp": "to"})
     dan = {cd.ten: cd for cd in hop.cong_doans}["Dán hộp"]
     assert dan.loai_buoc == "to" and dan.may_id is None
+
+
+def _ptg_mot_buoc_in(db, *, may_cua_phieu, may_lam_duoc) -> PhieuTinhGia:
+    """PTG một thành phần, routing đúng 2 bước In → Bế, để soi MÁY điền sẵn ở bước In.
+
+    `may_lam_duoc` là bảng "Máy chạy được công đoạn này" của công đoạn In — nó KHÁC danh sách máy
+    ô "Máy in" của phiếu mời chọn (phiếu mời HỢP của mọi công đoạn nhóm In), nên hai thứ lệch nhau
+    là chuyện thường ngày chứ không phải dữ liệu hỏng.
+    """
+    giay = GiayNguyen(ma="G-MAYIN", ten="Giấy máy in", gsm=300, don_gia=25_000, don_vi_gia="tan",
+                      cong_thuc_gia="to_nguyen * dai_nguyen * rong_nguyen * dinh_luong * don_gia / 1000")
+    db.add(giay)
+    to_id = _to_san_xuat(db).id
+    cd_in = CongDoan(ma="CD-IN-M", ten="In AB", nhom="print", department_id=to_id,
+                     don_vi_vao="to", don_vi_ra="to", cong_thuc_gia="so_luong * don_gia")
+    cd_be = CongDoan(ma="CD-BE-M", ten="Bế", nhom="finishing", department_id=to_id,
+                     don_vi_vao="to", don_vi_ra="to", cong_thuc_gia="so_luong * don_gia")
+    db.add_all([cd_in, cd_be])
+    db.flush()
+    for m in may_lam_duoc:
+        db.add(CongDoanMay(cong_doan_id=cd_in.id, may_id=m.id, cong_thuc_gio="sl_vao"))
+    db.flush()
+
+    p = PhieuTinhGia(ma="PTG-MAYIN-0001", ten_san_pham="Thẻ nhân viên", so_luong=500)
+    tp = PhieuThanhPhan(
+        thu_tu=0, ten="Thẻ nhân viên", so_luong=500, don_vi_tinh="cái",
+        dai_thanh_pham=86, rong_thanh_pham=54, giay_id=giay.id,
+        kho_nguyen_dai=860, kho_nguyen_rong=650, kho_in_dai=860, kho_in_rong=650,
+        so_mau_a=4, so_mau_b=1, quy_cach_in="hai_mat", co_in=True,
+        may_id=(may_cua_phieu.id if may_cua_phieu is not None else None),
+    )
+    for i, cd in enumerate((cd_in, cd_be)):
+        tp.thanh_phams.append(PhieuThanhPham(thu_tu=i, cong_doan_id=cd.id, ten=cd.ten, don_gia=50))
+    p.thanh_phans.append(tp)
+    db.add(p)
+    db.commit()
+    return p
+
+
+def _may_khac(db, ma: str) -> MayThietBi:
+    may = MayThietBi(ma=ma, ten=f"Máy {ma}", loai_may="press_offset_sheet",
+                     toc_do=5_000, don_vi_toc_do="to_gio", kho_max_dai=1020, kho_max_rong=720)
+    db.add(may)
+    db.flush()
+    return may
+
+
+def test_may_in_dien_san_o_buoc_in_phai_la_may_cong_doan_chay_duoc(
+    db, orders, lsx_svc, admin, customer
+):
+    """Máy của phiếu tính giá KHÔNG nằm trong "Máy chạy được công đoạn này" ⇒ không chép mù.
+
+    Ô "Máy in" của phiếu mời HỢP máy của MỌI công đoạn nhóm In, nên sale hoàn toàn có thể chọn máy
+    thuộc công đoạn In khác. Chép thẳng xuống thì cặp (công đoạn × máy) không tồn tại ⇒ bước không
+    có `cong_thuc_gio`, thời lượng ra "—", và lệnh vừa tạo đã kêu "máy không nằm trong danh sách".
+    Công đoạn khai đúng MỘT máy thì đó là câu trả lời duy nhất — điền nó, đúng lối `_khoan_mac_dinh`.
+    """
+    phieu_chon = _may_in(db)                 # máy sale chọn trên phiếu
+    cua_cong_doan = _may_khac(db, "MAY-IN-CD")   # máy DUY NHẤT công đoạn In khai
+    ptg = _ptg_mot_buoc_in(db, may_cua_phieu=phieu_chon, may_lam_duoc=[cua_cong_doan])
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                  actor=admin)[0].id)
+
+    assert lsx.may_id == phieu_chon.id           # cấp LỆNH vẫn giữ nguyên ý định của phiếu
+    buoc = {c.ten: c for c in lsx.cong_doans}
+    assert buoc["In AB"].may_id == cua_cong_doan.id
+    # Lệnh vừa tạo KHÔNG được đẻ ra sẵn một cảnh báo máy.
+    assert [x for x in lsx_svc._soi_danh_muc(lsx) if x.get("may_canh_bao")] == []
+
+
+@pytest.mark.parametrize("so_may, dien", [(1, True), (2, False)])
+def test_may_in_phieu_bo_trong_thi_chi_dien_khi_cong_doan_khai_dung_mot_may(
+    db, orders, lsx_svc, admin, customer, so_may, dien
+):
+    """Phiếu bỏ trống ô Máy in: công đoạn khai 1 máy ⇒ điền; khai 2 máy ⇒ để trống cho KHSX chọn.
+
+    Sale rất hay bỏ trống ô này (phiếu chỉ cần đơn giá công in), nên bước In xuống xưởng trống máy
+    là ca THƯỜNG chứ không phải ngoại lệ. Một máy thì không có gì để đoán — điền. Hai máy trở lên
+    là quyết định của người xếp lịch, máy không chọn hộ.
+    """
+    mays = [_may_in(db)] + [_may_khac(db, f"MAY-IN-{i}") for i in range(1, so_may)]
+    ptg = _ptg_mot_buoc_in(db, may_cua_phieu=None, may_lam_duoc=mays)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                  actor=admin)[0].id)
+
+    assert lsx.may_id is None
+    buoc_in = {c.ten: c for c in lsx.cong_doans}["In AB"]
+    assert buoc_in.may_id == (mays[0].id if dien else None)
+
+
+def test_may_in_cong_doan_chua_khai_may_nao_thi_tin_phieu(
+    db, orders, lsx_svc, admin, customer
+):
+    """Công đoạn In chưa khai bảng máy ⇒ không có gì đối chiếu, máy của phiếu xuống thẳng bước In."""
+    phieu_chon = _may_in(db)
+    ptg = _ptg_mot_buoc_in(db, may_cua_phieu=phieu_chon, may_lam_duoc=[])
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                  actor=admin)[0].id)
+    assert {c.ten: c for c in lsx.cong_doans}["In AB"].may_id == phieu_chon.id
 
 
 def test_danh_sach_va_preview_gui_kem_don_vi_theo_tung_dong(
@@ -1113,9 +1275,9 @@ def test_hai_dau_viec_cung_cong_doan_thi_khong_dien_ho(db, orders, lsx_svc, admi
     # Drawer phải có đủ định mức NGAY KHI mở dropdown để đổi đầu việc là xem được nhân lực
     # và thời gian live, không phải lưu bước rồi mới nhận snapshot từ backend.
     assert {
-        (k["nang_suat_nguoi_gio"], k["so_nguoi_tieu_chuan"], k["so_nguoi_toi_da"])
+        (k["nang_suat_nguoi_gio"], k["so_nguoi_tieu_chuan"])
         for k in buoc_be["khoan_chon_duoc"]
-    } == {(1000, 2, 4)}
+    } == {(1000, 2)}
     assert buoc_be["khoan_tien"] is None      # chưa chọn thì KHÔNG có số nào
 
 
@@ -1242,9 +1404,9 @@ def test_bung_vat_tu_theo_dau_viec_va_khong_de_len_dong_nguoi_sua(
     """BOM (mg 0191): đầu việc khai sẵn vật tư → bước lệnh có sẵn số lượng, và dòng người sửa thì
     máy chừa ra.
 
-    Số lượng CHỈ tới từ `cong_thuc_luong` của chính món (18/08/2026). Cồn ở đây đo bằng `kg` và
-    bảng cặp CÓ cạnh `cai → kg` — nhưng chưa khai công thức thì máy vẫn KHÔNG bung, chỉ nói thiếu
-    gì. Cạnh quy đổi trả lời hộ mọi món cùng đo `kg`, mà keo với cồn ăn khác nhau.
+    Số lượng CHỈ tới từ công thức của DÒNG vật tư trong đầu việc (06/09/2026). Cồn ở đây đo bằng
+    `kg` và bảng cặp CÓ cạnh `cai → kg` — nhưng chưa khai công thức thì máy vẫn KHÔNG bung, chỉ nói
+    thiếu gì. Cạnh quy đổi trả lời hộ mọi món cùng đo `kg`, mà keo với cồn ăn khác nhau.
     """
     from app.models.cong_doan import CongDoanDauViecVatTu
     from app.models.don_vi_do import DonViDo, DonViQuyDoi
@@ -1253,13 +1415,14 @@ def test_bung_vat_tu_theo_dau_viec_va_khong_de_len_dong_nguoi_sua(
     ptg = _ptg_2_san_pham(db)
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
-    keo = VatTuInAn(ma="KEO-T", ten="Keo dán hộp", don_vi_gia="kg", don_gia=95_000,
-                    cong_thuc_luong="sl_vao * 0.004")   # 1 hộp ăn 0,004 kg keo
+    keo = VatTuInAn(ma="KEO-T", ten="Keo dán hộp", don_vi_gia="kg", don_gia=95_000)
     coi = VatTuInAn(ma="COI-T", ten="Cồn chưa khai công thức", don_vi_gia="kg", don_gia=1)
     db.add_all([keo, coi])
     db.flush()
     dm = cd_dan.dau_viec_dinh_muc[0]
-    dm.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    # 1 hộp ăn 0,004 kg keo — khai ở DÒNG vật tư của đầu việc.
+    dm.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0,
+                                           cong_thuc_luong="sl_vao * 0.004"))
     dm.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=coi.id, thu_tu=1))
     # Cạnh `cai → kg` CÓ TỒN TẠI — để chứng minh nó KHÔNG còn đẻ số cho vật tư nữa.
     cai = db.query(DonViDo).filter(DonViDo.ma == "cai").one()
@@ -1284,7 +1447,7 @@ def test_bung_vat_tu_theo_dau_viec_va_khong_de_len_dong_nguoi_sua(
     assert chon["vat_tus"][0]["so_luong"] == pytest.approx(round(sl_buoc * 0.004, 3))
     assert chon["vat_tus"][0]["don_vi"] == "kg"
     canh_bao_coi = next(c for c in chon["canh_bao_vat_tu"] if "Cồn chưa khai công thức" in c)
-    assert "công thức lượng" in canh_bao_coi, \
+    assert "công thức định mức" in canh_bao_coi, \
         "chưa khai thì phải NÓI THIẾU GÌ và chỉ chỗ khai, không im lặng biến mất"
 
     # Lưu hai dòng: một của máy, một người tự thêm. Cờ phải đi đúng theo từng dòng.
@@ -1307,12 +1470,13 @@ def test_bung_vat_tu_theo_dau_viec_va_khong_de_len_dong_nguoi_sua(
     assert co["COI-T"]["so_luong"] == 7
 
 
-def test_so_luong_vat_tu_lay_tu_CONG_THUC_cua_chinh_mon_hang(db, orders, lsx_svc, admin, customer):
-    """Đường CHÍNH của BOM: vật tư khai `cong_thuc_luong` của CHÍNH nó (mg 0194).
+def test_so_luong_vat_tu_lay_tu_CONG_THUC_cua_dong_vat_tu(db, orders, lsx_svc, admin, customer):
+    """Đường CHÍNH của BOM: DÒNG vật tư trong đầu việc khai `cong_thuc_luong` (06/09/2026).
 
     Không đi qua bảng cặp, không cần đơn vị của bước khớp gì cả — công thức tự lấy chip từ quy cách
-    lệnh. Trước 17/08/2026 đường này đọc CÁCH ĐO của đơn vị (`don_vi_do.cong_thuc`, gỡ ở mg `0215`):
-    một công thức trả lời hộ mọi món cùng đơn vị, trong khi keo và mực cùng đo `kg` mà ăn khác nhau.
+    lệnh. Trước 17/08/2026 đường này đọc CÁCH ĐO của đơn vị (`don_vi_do.cong_thuc`, gỡ ở mg `0215`),
+    rồi tới 06/09/2026 rời khỏi CHÍNH MÓN HÀNG: một công thức treo ở món trả lời hộ mọi công đoạn
+    dùng món đó, trong khi cùng "Mực Cyan" mà hai khổ in ăn khác hẳn nhau.
     """
     from app.models.cong_doan import CongDoanDauViecVatTu
     from app.models.don_vi_do import DonViDo
@@ -1322,12 +1486,12 @@ def test_so_luong_vat_tu_lay_tu_CONG_THUC_cua_chinh_mon_hang(db, orders, lsx_svc
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
     db.add(DonViDo(ma="m2_tp", ten="m² thành phẩm"))
-    # Công thức khai trên CHÍNH món hàng: dài × rộng thành phẩm × số lượng đặt.
-    keo = VatTuInAn(ma="MANG-TP", ten="Màng phủ thành phẩm", don_vi_gia="m2_tp", don_gia=9_000,
-                    cong_thuc_luong="dai_tp * rong_tp * so_luong")
+    keo = VatTuInAn(ma="MANG-TP", ten="Màng phủ thành phẩm", don_vi_gia="m2_tp", don_gia=9_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    # Công thức khai trên DÒNG vật tư: dài × rộng thành phẩm × số lượng đặt.
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="dai_tp * rong_tp * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1348,7 +1512,7 @@ def test_so_luong_vat_tu_lay_tu_CONG_THUC_cua_chinh_mon_hang(db, orders, lsx_svc
 
     # Công thức ra 0 vì thiếu chip (lệnh này không có màu pha) ⇒ KHÔNG bung, nói thiếu biến nào.
     # Thà để trống cho người kế hoạch tự thêm còn hơn ghi 0 rồi mua hụt.
-    db.query(VatTuInAn).filter(VatTuInAn.ma == "MANG-TP").one().cong_thuc_luong = "so_mau_pha * dai_tp"
+    cd_dan.dau_viec_dinh_muc[0].vat_tus[0].cong_thuc_luong = "so_mau_pha * dai_tp"
     db.commit()
     buoc = next(b for b in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
                 if b["ten"] == "Dán hộp")
@@ -1372,12 +1536,12 @@ def test_vat_tu_khai_o_dau_viec_TU_BUNG_vao_buoc_luc_tao_lenh(db, orders, lsx_sv
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
     db.add(DonViDo(ma="kg_keo", ten="kg keo"))
-    # Định mức khai trên CHÍNH món keo: 2 g cho mỗi thành phẩm của lệnh.
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg_keo", don_gia=45_000,
-                    cong_thuc_luong="0.002 * so_luong")
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg_keo", don_gia=45_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    # Định mức khai trên DÒNG vật tư của đầu việc: 2 g cho mỗi thành phẩm của lệnh.
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="0.002 * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1394,12 +1558,13 @@ def test_vat_tu_khai_o_dau_viec_TU_BUNG_vao_buoc_luc_tao_lenh(db, orders, lsx_sv
     assert v.tu_dong is True, "dòng máy bung ⇒ lần đổi đầu việc sau phải thay được"
 
 
-def test_cong_thuc_luong_cua_VAT_TU_thang_cong_thuc_cua_don_vi(db, orders, lsx_svc, admin, customer):
-    """Keo đo bằng `kg` THẬT + công thức lượng riêng ⇒ BOM ra số kg, khỏi đẻ đơn vị `kg_keo`.
+def test_dinh_muc_vat_tu_lay_tu_dong_cua_dau_viec(db, orders, lsx_svc, admin, customer):
+    """Keo đo bằng `kg` THẬT + định mức khai ở DÒNG vật tư ⇒ BOM ra số kg, khỏi đẻ đơn vị `kg_keo`.
 
-    Chốt 13/08/2026: công thức ra LƯỢNG thuộc về MÓN HÀNG, không thuộc về ĐƠN VỊ. `kg` dùng chung
-    cho keo · mực · giấy mà mỗi thứ tiêu hao một kiểu — gắn lên `kg` là cả ba bị tính như nhau.
-    Kho và mua hàng vẫn thấy `kg` thật, không phải `kg_keo`.
+    Công thức ra LƯỢNG không thuộc về ĐƠN VỊ (chốt 13/08/2026) và từ 06/09/2026 cũng không thuộc về
+    MÓN HÀNG nữa, mà thuộc về DÒNG vật tư trong đầu việc của công đoạn. `kg` dùng chung cho keo ·
+    mực · giấy mà mỗi thứ tiêu hao một kiểu; và cùng một món keo dùng ở hai công đoạn cũng ăn khác
+    nhau. Kho và mua hàng vẫn thấy `kg` thật, không phải `kg_keo`.
     """
     from app.models.cong_doan import CongDoanDauViecVatTu
     from app.models.don_vi_do import DonViDo
@@ -1414,11 +1579,11 @@ def test_cong_thuc_luong_cua_VAT_TU_thang_cong_thuc_cua_don_vi(db, orders, lsx_s
         dv_kg = DonViDo(ma="kg", ten="kg", ho="khoi_luong")
         db.add(dv_kg)
     dv_kg.cong_thuc = "dinh_luong * dai_in * rong_in * to_dau_vao"
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="0.002 * so_luong")
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="0.002 * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1428,7 +1593,7 @@ def test_cong_thuc_luong_cua_VAT_TU_thang_cong_thuc_cua_don_vi(db, orders, lsx_s
     buoc = next(c for c in lsx.cong_doans if c.ten == "Dán hộp")
     v = next(x for x in buoc.vat_tus if x.vat_tu_ma_snapshot == "KEO-GAY")
 
-    # Số theo công thức CỦA KEO, KHÔNG phải công thức khối lượng giấy gắn trên `kg`.
+    # Số theo công thức CỦA DÒNG KEO, KHÔNG phải công thức khối lượng giấy gắn trên `kg`.
     assert float(v.so_luong) == pytest.approx(0.002 * float(lsx.so_luong_dat), rel=1e-6)
     assert v.don_vi_snapshot == "kg", "kho vẫn cân bằng kg thật, không phải kg_keo"
 
@@ -1442,16 +1607,24 @@ def test_goi_y_luong_cho_MOI_vat_tu_de_drawer_dien_san(db, orders, lsx_svc, admi
     Món chưa tính ra được VẪN có mặt, `so_luong=None` kèm `ly_do` chỉ chỗ khai (18/08/2026): ô vẫn
     để trống cho người khai (không đoán số), nhưng drawer nói được VÌ SAO nó trống thay vì để người
     dùng đoán là màn hỏng.
+
+    Từ 06/09/2026 công thức mượn của DÒNG vật tư trong đầu việc đang gắn ở bước — món đứng ngoài
+    mọi đầu việc thì không có gì để mượn, đúng nghĩa "chưa khai".
     """
+    from app.models.cong_doan import CongDoanDauViecVatTu
     from app.models.don_vi_do import DonViDo
     from app.models.vat_lieu_kho import VatTuInAn
 
     ptg = _ptg_2_san_pham(db)
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="0.002 * so_luong")
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000)
     # Món CHƯA khai gì để tính lượng ⇒ phải VẮNG khỏi gợi ý, không được bịa số.
     mu = VatTuInAn(ma="MU-LA", ten="Món lạ", don_vi_gia="thung_la", don_gia=1_000)
     db.add_all([keo, mu, DonViDo(ma="thung_la", ten="thùng lạ")])
+    db.flush()
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="0.002 * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1460,19 +1633,22 @@ def test_goi_y_luong_cho_MOI_vat_tu_de_drawer_dien_san(db, orders, lsx_svc, admi
                                  actor=admin)[0].id)
     buoc = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == "Dán hộp")
 
-    goi_y = {g["vat_tu_id"]: g for g in buoc["vat_tu_goi_y"]}
-    assert keo.id in goi_y, "vật tư có công thức lượng phải được tính sẵn"
-    assert goi_y[keo.id]["so_luong"] == pytest.approx(
+    # Khoá theo CẶP: gợi ý nay gồm cả danh mục Giấy, mà Giấy #7 với Vật tư #7 là hai món khác
+    # nhau — khoá bằng id trần thì một loại giấy trùng id sẽ đè mất dòng vật tư đang kiểm.
+    goi_y = {(g["hang_loai"], g["vat_tu_id"]): g for g in buoc["vat_tu_goi_y"]}
+    k_keo, k_mu = ("vat_tu", keo.id), ("vat_tu", mu.id)
+    assert k_keo in goi_y, "vật tư đã khai định mức trong đầu việc phải được tính sẵn"
+    assert goi_y[k_keo]["so_luong"] == pytest.approx(
         round(0.002 * float(lsx.so_luong_dat), 3), rel=1e-6)
-    dien_giai = goi_y[keo.id]["dien_giai"] or ""
+    dien_giai = goi_y[k_keo]["dien_giai"] or ""
     assert "Số lượng đặt" in dien_giai and dien_giai.endswith("kg"), \
         f"phải hiện công thức ĐÃ THAY SỐ để kiểm bằng mắt, đang là: {dien_giai!r}"
-    assert goi_y[keo.id]["ly_do"] is None
+    assert goi_y[k_keo]["ly_do"] is None
 
     # Món chưa khai: có mặt, KHÔNG có số, và câu lý do chỉ đúng chỗ khai.
-    assert goi_y[mu.id]["so_luong"] is None, "chưa tính ra được thì để trống, không bịa số 0"
-    assert "công thức lượng" in goi_y[mu.id]["ly_do"]
-    assert "Vật tư khác" in goi_y[mu.id]["ly_do"], "lý do phải chỉ được chỗ khai"
+    assert goi_y[k_mu]["so_luong"] is None, "chưa tính ra được thì để trống, không bịa số 0"
+    assert "công thức định mức" in goi_y[k_mu]["ly_do"]
+    assert "Công đoạn" in goi_y[k_mu]["ly_do"], "lý do phải chỉ được chỗ khai"
 
 
 def test_dau_viec_mang_san_vat_tu_da_tinh_so_de_drawer_bung(db, orders, lsx_svc, admin, customer):
@@ -1483,11 +1659,11 @@ def test_dau_viec_mang_san_vat_tu_da_tinh_so_de_drawer_bung(db, orders, lsx_svc,
     ptg = _ptg_2_san_pham(db)
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="0.002 * so_luong")
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="0.002 * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1673,6 +1849,74 @@ def test_xem_truoc_routing_chen_buoc_moi_thi_doi_lai_dung_step_key(
     assert not any(c.step_key == "r99" for c in lsx.cong_doans)
 
 
+def test_bo_buoc_giua_chuoi_khong_bao_oan_chinh_lenh_minh(db, orders, lsx_svc, admin, customer):
+    """Bỏ một bước GIỮA chuỗi ⇒ không được báo "bước đang được <chính lệnh này> phụ thuộc".
+
+    Lệnh sinh ra đã nối cạnh tuyến tính bước-trước → bước-sau. Chốt `removed_ids` cũ đọc cạnh ĐÃ
+    LƯU mà không nhìn chủ sở hữu, nên bước kế tiếp (cùng lệnh) luôn bị tính là "phụ thuộc bên
+    ngoài": xem trước báo băng đỏ, còn Lưu thì chặn cứng. Cạnh trong CHÍNH lệnh này do lần lưu
+    này vẽ lại nên phải gỡ, không phải chặn.
+    """
+    from app.schemas.lsx import XemTruocRoutingRow
+
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    hop, _tem = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    buoc = sorted(hop.cong_doans, key=lambda c: c.thu_tu)
+    assert len(buoc) >= 3, "cần ≥3 bước mới có bước GIỮA để bỏ"
+    bo = buoc[1]
+    con_lai = [c for c in buoc if c.step_key != bo.step_key]
+
+    # ① XEM TRƯỚC (payload cố ý KHÔNG mang `phu_thuoc_step_keys`) — phải ra số, không ném xung đột.
+    out = lsx_svc.xem_truoc_routing(lsx_id=hop.id, actor=admin, rows_in=[
+        XemTruocRoutingRow(step_key=c.step_key, thu_tu=i, cong_doan_id=c.cong_doan_id,
+                           ten=c.ten, nhom=c.nhom, loai_buoc=c.loai_buoc,
+                           department_id=c.department_id, may_id=c.may_id)
+        for i, c in enumerate(con_lai)
+    ])
+    assert [r["step_key"] for r in out] == [c.step_key for c in con_lai]
+    db.refresh(hop)
+    assert bo.step_key in {c.step_key for c in hop.cong_doans}, "xem trước không được ghi DB"
+
+    # ② LƯU thật — bước bị bỏ biến mất, cạnh chết trỏ vào nó cũng đi theo (FK RESTRICT không nổ).
+    lsx_svc.replace_routing(lsx_id=hop.id, actor=admin, rows_in=[
+        LsxCongDoanIn(step_key=c.step_key, thu_tu=i, cong_doan_id=c.cong_doan_id,
+                      ten=c.ten, nhom=c.nhom, loai_buoc=c.loai_buoc,
+                      department_id=c.department_id, may_id=c.may_id)
+        for i, c in enumerate(con_lai)
+    ])
+    sau = lsx_svc.get(hop.id)
+    assert [c.step_key for c in sorted(sau.cong_doans, key=lambda x: x.thu_tu)] == \
+        [c.step_key for c in con_lai]
+    con_id = {c.id for c in sau.cong_doans}
+    for c in sau.cong_doans:
+        assert all(e.buoc_truoc_id in con_id for e in c.phu_thuoc), "còn cạnh trỏ vào bước đã xoá"
+
+
+def test_bo_buoc_van_bi_chan_khi_LENH_KHAC_dang_phu_thuoc(db, orders, lsx_svc, admin, customer):
+    """Bước của lệnh KHÁC trỏ vào bước sắp xoá ⇒ vẫn chặn: lệnh này không viết lại cạnh của lệnh kia."""
+    from app.models.lsx import LsxCongDoanPhuThuoc
+
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    hop, tem = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    buoc = sorted(hop.cong_doans, key=lambda c: c.thu_tu)
+    bo = buoc[1]
+    db.add(LsxCongDoanPhuThuoc(buoc_truoc_id=bo.id, buoc_sau_id=tem.cong_doans[0].id))
+    db.commit()
+
+    with pytest.raises(LsxConflict) as ex:
+        lsx_svc.replace_routing(lsx_id=hop.id, actor=admin, rows_in=[
+            LsxCongDoanIn(step_key=c.step_key, thu_tu=i, cong_doan_id=c.cong_doan_id,
+                          ten=c.ten, nhom=c.nhom, loai_buoc=c.loai_buoc,
+                          department_id=c.department_id, may_id=c.may_id)
+            for i, c in enumerate(c for c in buoc if c.step_key != bo.step_key)
+        ])
+    assert tem.ma in str(ex.value)
+
+
 def test_danh_muc_doi_sau_khi_tao_lenh_thi_BAO_LECH_chu_khong_tu_de(
     db, orders, lsx_svc, admin, customer,
 ):
@@ -1728,11 +1972,11 @@ def test_chip_sl_vao_lay_so_cua_CHINH_BUOC_khong_phai_cua_lenh(
     # Cho bước có HAO để `so_luong_vao` khác hẳn SL đặt — không thì test không chứng minh được
     # chip lấy số của BƯỚC chứ không phải của lệnh.
     cd_dan.kieu_bu_hao, cd_dan.so_to_bu_hao = "co_dinh", 300
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="sl_vao * 0.002")
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="sl_vao * 0.002"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1750,7 +1994,7 @@ def test_chip_sl_vao_lay_so_cua_CHINH_BUOC_khong_phai_cua_lenh(
 def test_khoan_khong_co_cau_quy_doi_thi_doc_CONG_THUC_cua_DAU_VIEC(
     db, orders, lsx_svc, admin, customer,
 ):
-    """Không có cầu `tay → cuốn` ⇒ đọc công thức của CHÍNH ĐẦU VIỆC (mg `0213`), dùng chip `sl_ra`.
+    """Không có cầu `tay → cuốn` ⇒ đọc công thức của đầu việc TRONG công đoạn, dùng chip `sl_ra`.
 
     Ca thật ở xưởng: "Bắt tay + vào keo" bước đếm `tay`, khoán đ/`cuốn`. `tay` không nối với
     `cuốn` trong bảng cặp (cầu tay→cái nằm ở code `_he_so_cau`, không phải cặp khai) nên đầu việc
@@ -1767,10 +2011,10 @@ def test_khoan_khong_co_cau_quy_doi_thi_doc_CONG_THUC_cua_DAU_VIEC(
     rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Bắt tay vào keo", don_vi="cuốn", don_gia=700)
     if db.query(DonViDo).filter(DonViDo.ma == "cuon").one_or_none() is None:
         db.add(DonViDo(ma="cuon", ten="cuốn", ho="thanh_pham"))
-    # Cách đo khai trên CHÍNH đầu việc, không phải trên đơn vị `cuốn`: việc "đếm, bó" cùng đo bằng
-    # cuốn nhưng đo theo bó — hai việc, hai cách.
-    rate.cong_thuc_luong = "sl_ra"
     db.commit()
+    # Cách đo khai trên DÒNG ĐỊNH MỨC của công đoạn, không phải trên đơn vị `cuốn`: việc "đếm, bó"
+    # cùng đo bằng cuốn nhưng đo theo bó — hai việc, hai cách.
+    _khai_ct_khoan(db, cd_dan, rate, "sl_ra")
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     line = lsx_svc.preview(d.id)["lines"][0]
@@ -1840,9 +2084,9 @@ def test_cong_thuc_luong_cua_DAU_VIEC_thang_ca_cau_quy_doi(db, orders, lsx_svc, 
     db.commit()
     # Cầu quy đổi CÓ THẬT: 1 cuốn = 4 tay ⇒ đường ① sẽ ra `sl_vao / 4`.
     db.add(DonViQuyDoi(tu_id=cuon.id, den_id=tay.id, he_so=4))
-    # Công thức RIÊNG của đầu việc: đếm theo BÓ 10 cuốn.
-    rate.cong_thuc_luong = "sl_ra / 10"
     db.commit()
+    # Công thức RIÊNG của đầu việc TRONG công đoạn này: đếm theo BÓ 10 cuốn.
+    _khai_ct_khoan(db, cd_dan, rate, "sl_ra / 10")
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     line = lsx_svc.preview(d.id)["lines"][0]
@@ -1858,6 +2102,145 @@ def test_cong_thuc_luong_cua_DAU_VIEC_thang_ca_cau_quy_doi(db, orders, lsx_svc, 
         "công thức của đầu việc phải thắng cầu quy đổi"
     assert buoc["khoan_tien"] == round(sl_ra / 10 * 40)
     assert buoc["khoan_ly_do"] is None
+
+
+def _tien_khoan_cua_buoc(db, orders, lsx_svc, admin, customer, *, don_gia: float, ct: str):
+    """Dựng một lệnh có bước CD-DAN-T, khai đơn giá + công thức tiền công, trả khối khoán của bước."""
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Đóng gói trọn gói", don_vi="cai",
+                         don_gia=don_gia)
+    _khai_ct_khoan(db, cd_dan, rate, ct)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    return next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"]
+                if b["cong_doan_id"] == cd_dan.id)
+
+
+def test_chip_don_gia_khoan_ra_THANG_TIEN_khong_nhan_don_gia_lan_nua(
+    db, orders, lsx_svc, admin, customer,
+):
+    """⭐ Gọi chip `don_gia_khoan` ⇒ công thức RA TIỀN, engine THÔI nhân đơn giá (08/09/2026).
+
+    Ca dùng thật của xưởng: `50000 + don_gia_khoan * sl_ra` = tiền mở khuôn trọn gói CỘNG tiền
+    theo nhịp. Người khai đã tự nhân đơn giá ngay trong công thức; engine nhân lần nữa thì 70.600 đ
+    thành 2,8 triệu — và bài ghép lệch theo vì dùng chung engine này.
+    """
+    buoc = _tien_khoan_cua_buoc(db, orders, lsx_svc, admin, customer,
+                                don_gia=40, ct="50000 + don_gia_khoan * sl_ra")
+
+    sl_ra = float(buoc["so_luong_ra"])
+    assert sl_ra > 0
+    assert buoc["khoan_tien"] == round(50000 + 40 * sl_ra)
+    # Không có sản lượng khoán trung gian: bịa nó ra là mời nơi đọc nhân đơn giá lần nữa.
+    assert buoc["khoan_sl"] is None and buoc["khoan_don_vi_sl"] is None
+    # Chip phải hiện bằng NHÃN tiếng Việt trong câu diễn giải, không trơ mã.
+    assert "Đơn giá khoán" in buoc["khoan_dien_giai"]
+    assert buoc["khoan_dien_giai"].endswith("đ")
+
+
+def test_chip_don_gia_khoan_bam_dau_viec_KHAC_gia_thi_ra_tien_khac(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Cùng công thức, đổi đơn giá 40 → 80 thì tiền đổi theo — chip đọc giá của ĐÚNG dòng đang tính."""
+    buoc = _tien_khoan_cua_buoc(db, orders, lsx_svc, admin, customer,
+                                don_gia=80, ct="50000 + don_gia_khoan * sl_ra")
+
+    sl_ra = float(buoc["so_luong_ra"])
+    assert buoc["khoan_tien"] == round(50000 + 80 * sl_ra)
+
+
+def test_cong_thuc_KHONG_goi_chip_van_ra_luong_roi_moi_nhan_don_gia(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Luật CŨ không đổi: công thức không nhắc `don_gia_khoan` vẫn ra LƯỢNG, engine nhân đơn giá.
+
+    Đây là cái chốt giữ cho mọi công thức khai trước 08/09/2026 không xê dịch một đồng khi luật
+    "gọi chip ⇒ ra tiền" được thêm vào.
+    """
+    buoc = _tien_khoan_cua_buoc(db, orders, lsx_svc, admin, customer,
+                                don_gia=40, ct="sl_ra / 10")
+
+    sl_ra = float(buoc["so_luong_ra"])
+    assert buoc["khoan_sl"] == pytest.approx(sl_ra / 10, rel=1e-6)
+    assert buoc["khoan_tien"] == round(sl_ra / 10 * 40)
+
+
+def _buoc_va_quy_cach(db, orders, lsx_svc, admin, customer, *, don_gia: float, ct: str):
+    """Như `_tien_khoan_cua_buoc` nhưng trả BẢN GHI bước + quy cách — để gọi thẳng engine."""
+    from app.services.bien_cong_thuc import quy_cach_bien
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Đóng gói trọn gói", don_vi="cai",
+                         don_gia=don_gia)
+    _khai_ct_khoan(db, cd_dan, rate, ct)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    cd = next(c for c in lsx.cong_doans if c.cong_doan_id == cd_dan.id)
+    return cd, quy_cach_bien(lsx)
+
+
+def test_don_gia_hieu_dung_quy_cong_thuc_ra_tien_ve_don_gia_tren_don_vi(
+    db, orders, lsx_svc, admin, customer,
+):
+    """⭐ Công thức ra tiền ⇒ đơn giá HIỆU DỤNG = tiền của bước ÷ sản lượng ra (08/09/2026).
+
+    Tầng trả lương (`san_xuat/phan_bo.py`) trả bằng `đơn giá × phần sản lượng của TỪNG người`, còn
+    công thức thì ra TỔNG tiền của bước. Quy về một đơn giá trên đơn vị là cách nối hai thứ ấy mà
+    không phải đẻ cột tiền mới ở dòng phân bổ · bù trừ · phiếu sản lượng vào lương.
+
+    Hệ quả cố ý: khoản cố định `50000` (mở khuôn trọn gói) được RẢI ĐỀU trên sản lượng. Một bước
+    chia làm nhiều mẻ, trả nguyên cục thì mỗi mẻ lại lĩnh thêm 50.000 đ.
+    """
+    cd, qc = _buoc_va_quy_cach(db, orders, lsx_svc, admin, customer,
+                               don_gia=40, ct="50000 + don_gia_khoan * sl_ra")
+
+    sl_ra = float(cd.so_luong_ra)
+    assert sl_ra > 0
+    dg = lsx_svc.don_gia_hieu_dung(cd, qc)
+    assert dg == pytest.approx((50000 + 40 * sl_ra) / sl_ra, rel=1e-9)
+    # Chạy đúng sản lượng kế hoạch thì tổ nhận ĐÚNG số công thức ra — không hụt, không dôi.
+    assert dg * sl_ra == pytest.approx(50000 + 40 * sl_ra, rel=1e-9)
+
+
+def test_cong_thuc_KHONG_ra_tien_thi_khong_co_don_gia_hieu_dung(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Không gọi chip ⇒ `None` ⇒ tầng lương giữ nguyên đường cũ (đơn giá gốc của đầu việc).
+
+    Cùng vai trò cái chốt ở test trên: thêm luật mới không được đụng vào bước khai kiểu cũ.
+    """
+    cd, qc = _buoc_va_quy_cach(db, orders, lsx_svc, admin, customer,
+                               don_gia=40, ct="sl_ra / 10")
+
+    assert lsx_svc.don_gia_hieu_dung(cd, qc) is None
+
+
+def test_don_gia_khoan_khong_lot_vao_cong_thuc_gio_cua_may(db):
+    """Bước MÁY không đứng ở đầu việc nào ⇒ chip bằng 0, KHÔNG nổ NameError.
+
+    Bộ chip `quy_doi` dùng chung cho cả ô "Cách đo giờ chạy" của cặp công đoạn × máy. Chip bị ẩn ở
+    đó (`FormulaField.AN_MOI_O`) nhưng validator vẫn nhận, nên gõ tay được — và gõ tay thì phải ra
+    0 chứ không được làm vỡ cả bước.
+    """
+    from types import SimpleNamespace
+
+    from app.services.lsx_service import LsxService
+
+    svc = LsxService.__new__(LsxService)
+    svc._don_vis = lambda: {"to": {"ma": "to", "ten": "tờ"}}
+    svc._cap_quy_doi = lambda: []
+    buoc = SimpleNamespace(so_luong_vao=1000, so_luong_ra=1000, don_vi_vao="to",
+                           so_luot_chay=1, khoan_json=None)
+
+    # `sl_vao + don_gia_khoan` ⇒ 1000 + 0. Chạy được là đủ: điều đang khoá là KHÔNG NameError.
+    got = svc._sl_theo_don_vi(buoc, "to", {}, ct_rieng="sl_vao + don_gia_khoan")
+    assert got is not None and got[0] == pytest.approx(1000.0)
 
 
 def test_cong_thuc_dau_viec_duoc_GHIM_sua_danh_muc_khong_xe_dich_lenh(
@@ -1876,8 +2259,8 @@ def test_cong_thuc_dau_viec_duoc_GHIM_sua_danh_muc_khong_xe_dich_lenh(
     rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Bắt tay vào keo", don_vi="cuốn", don_gia=700)
     if db.query(DonViDo).filter(DonViDo.ma == "cuon").one_or_none() is None:
         db.add(DonViDo(ma="cuon", ten="cuốn", ho="thanh_pham"))
-    rate.cong_thuc_luong = "sl_ra"
     db.commit()
+    _khai_ct_khoan(db, cd_dan, rate, "sl_ra")
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     line = lsx_svc.preview(d.id)["lines"][0]
@@ -1888,8 +2271,7 @@ def test_cong_thuc_dau_viec_duoc_GHIM_sua_danh_muc_khong_xe_dich_lenh(
     assert truoc["khoan_tien"] == round(float(truoc["so_luong_ra"]) * 700)
 
     # Xưởng đổi cách đo ở DANH MỤC (chia 10) — lệnh đã tạo phải giữ nguyên số của nó.
-    rate.cong_thuc_luong = "sl_ra / 10"
-    db.commit()
+    _khai_ct_khoan(db, cd_dan, rate, "sl_ra / 10")
     db.expire_all()
     sau = next(b for b in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
                if b["cong_doan_id"] == cd_dan.id)
@@ -1897,11 +2279,62 @@ def test_cong_thuc_dau_viec_duoc_GHIM_sua_danh_muc_khong_xe_dich_lenh(
     assert sau["khoan_sl"] == pytest.approx(truoc["khoan_sl"], rel=1e-6)
 
 
-def test_cong_thuc_luong_cua_MAY_ra_luong_theo_don_vi_toc_do(db, orders, lsx_svc, admin, customer):
-    """⭐ Máy đo `m²/giờ` mà bước đếm `tờ` ⇒ công thức của CHÍNH MÁY ra số m², rồi mới chia tốc độ.
+def test_buoc_TO_so_luot_chi_nhan_TIEN_khong_nhan_GIO(db, orders, lsx_svc, admin, customer):
+    """⭐ Ca chủ bắt lỗi 07/09/2026: in trở 2 lượt thì TIỀN nhân đôi, GIỜ giữ nguyên.
 
-    Đọc SỐNG (khác đầu việc khoán bị ghim): đổi máy là đổi cả tốc độ lẫn cách đếm lượt, nên giờ
-    chạy phải tính theo máy ĐANG gán.
+    Trước đó bước Tổ chỉ có MỘT công thức và engine dùng nó cho cả tiền lẫn giờ, nên
+    `sl_ra * so_luot_chay` vừa nhân đôi tiền công — đúng — vừa nhân đôi thời lượng — sai: hai lượt
+    chồng lên nhau trên cùng một tờ, tổ vẫn chỉ sờ tay vào từng ấy tờ. Nay hai ô tách hẳn.
+    """
+    from app.models.don_vi_do import DonViDo
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán tay", don_vi="cuốn", don_gia=600,
+                         nang_suat=500, don_vi_ns=None)
+    if db.query(DonViDo).filter(DonViDo.ma == "cuon").one_or_none() is None:
+        db.add(DonViDo(ma="cuon", ten="cuốn", ho="thanh_pham"))
+    db.commit()
+    # Tiền đếm theo LƯỢT (2 lượt = 2 lần trả công), giờ đếm theo TỜ (2 lượt vẫn từng ấy tờ).
+    dm = (db.query(CongDoanDauViec)
+          .filter(CongDoanDauViec.cong_doan_id == cd_dan.id,
+                  CongDoanDauViec.piece_rate_id == rate.id).one())
+    dm.cong_thuc_khoan = "sl_ra * so_luot_chay"
+    dm.cong_thuc_gio = "sl_ra"
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    lsx = _chon_loai_buoc(lsx_svc, lsx, admin, {"Dán hộp": "to"})
+
+    def _doc(so_luot: int) -> dict:
+        b = next(x for x in lsx_svc.get(lsx.id).cong_doans if x.cong_doan_id == cd_dan.id)
+        b.so_luot_chay = so_luot
+        db.commit()
+        db.expire_all()
+        return next(x for x in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
+                    if x["cong_doan_id"] == cd_dan.id)
+
+    mot = _doc(1)
+    ra = float(mot["so_luong_ra"])
+    assert ra > 0 and mot["khoan_tien"] == round(ra * 600)
+    # phút = tờ ra ÷ (500 tờ/giờ × 2 người kíp chuẩn) × 60.
+    assert mot["chay_phut"] == pytest.approx(ra / (500 * 2) * 60, abs=0.01)
+
+    hai = _doc(2)
+    assert hai["khoan_tien"] == 2 * mot["khoan_tien"], "tiền công phải nhân đôi theo số lượt"
+    assert hai["chay_phut"] == pytest.approx(mot["chay_phut"], abs=0.01),         "giờ của bước tổ KHÔNG được nhân theo số lượt"
+
+
+def test_cong_thuc_luong_cua_MAY_ra_luong_theo_don_vi_toc_do(db, orders, lsx_svc, admin, customer):
+    """⭐ Máy đo `m²/giờ` mà bước đếm `tờ` ⇒ công thức của cặp CÔNG ĐOẠN × MÁY ra số m², rồi mới
+    chia tốc độ.
+
+    Từ 06/09/2026 công thức nằm ở `cong_doan_may.cong_thuc_gio` chứ không ở `may.cong_thuc_luong`:
+    cùng một máy chạy hai công đoạn thì đo khác nhau. Đọc SỐNG (khác đầu việc khoán bị ghim): đổi
+    máy là đổi cả tốc độ lẫn cách đếm lượt, nên giờ chạy phải tính theo máy ĐANG gán.
     """
     from app.models.don_vi_do import DonViDo
     from app.services.bien_cong_thuc import quy_cach_bien
@@ -1922,9 +2355,10 @@ def test_cong_thuc_luong_cua_MAY_ra_luong_theo_don_vi_toc_do(db, orders, lsx_svc
     may = db.get(MayThietBi, buoc["may_id"])
     may.don_vi_toc_do = "m2_gio"
     may.toc_do = 800
-    # 1 tờ in = dai_in × rong_in (m²) ⇒ lượng theo m² của CHÍNH bước này.
-    may.cong_thuc_luong = "sl_vao * dai_in * rong_in"
     db.commit()
+    # 1 tờ in = dai_in × rong_in (m²) ⇒ lượng theo m² của CHÍNH cặp công đoạn × máy này.
+    _khai_ct_gio(db, lsx_svc, db.get(LsxCongDoan, buoc["id"]).cong_doan_id, may.id,
+                 "sl_vao * dai_in * rong_in")
     db.expire_all()
 
     lsx_obj = lsx_svc.get(lsx.id)
@@ -1960,8 +2394,8 @@ def test_cong_thuc_may_thieu_bien_thi_ROI_XUONG_duong_quy_doi(db, orders, lsx_sv
 
     # `bien_khong_ton_tai` không có trong ngữ cảnh ⇒ công thức ra 0 ⇒ phải rơi xuống ①.
     may = db.get(MayThietBi, buoc["may_id"])
-    may.cong_thuc_luong = "sl_vao * bien_khong_ton_tai"
-    db.commit()
+    _khai_ct_gio(db, lsx_svc, db.get(LsxCongDoan, buoc["id"]).cong_doan_id, may.id,
+                 "sl_vao * bien_khong_ton_tai")
     db.expire_all()
     lsx_obj = lsx_svc.get(lsx.id)
     cd = next(c for c in lsx_obj.cong_doans if c.id == buoc["id"])
@@ -2039,36 +2473,35 @@ def test_may_nhan_so_luot_nhung_khong_chia_theo_kip_nguoi():
     may = _may_gia(toc_do=5000)
     assert _tlb(_buoc(loai_buoc="may", so_luong_vao=5000), may)["chay_phut"] == 60
     # In trở 2 lượt → chạy gấp đôi.
-    t = _tlb(_buoc(loai_buoc="may", so_luong_vao=5000,
-                              so_luot_chay=2, so_nhan_cong=3), may)
+    t = _tlb(_buoc(loai_buoc="may", so_luong_vao=5000, so_luot_chay=2), may)
     assert t["chay_phut"] == 120
     assert t["dien_giai"]["phuong_phap"] == "may"
     assert t["dien_giai"]["so_nhan_cong_tinh"] is None
-    assert t["dien_giai"]["so_nhan_cong_ke_hoach"] == 3
     assert t["dien_giai"]["so_nhan_cong_tieu_chuan"] == 1
 
 
-def test_to_chia_theo_nguoi_TIEU_CHUAN_khong_theo_ke_hoach():
-    """Bước TỔ nhân năng suất với SỐ NGƯỜI TIÊU CHUẨN — năng suất khoán khai theo ĐẦU NGƯỜI nên kíp
-    chuẩn N người làm nhanh gấp N (chốt 20/08/2026). Số người KẾ HOẠCH và TỐI ĐA KHÔNG lái thời
-    gian chuẩn — chúng chỉ để bàn xếp lịch cân quân số + đối chiếu lúc làm."""
-    # Kíp chuẩn 1 người: 5000 ÷ (500 × 1) × 60 = 600′. Kế hoạch 6 / tối đa 5 KHÔNG đụng số.
+def test_to_chia_theo_KIP_CHUAN():
+    """Bước TỔ nhân năng suất với KÍP CHUẨN — năng suất khoán khai theo ĐẦU NGƯỜI nên kíp chuẩn
+    N người làm nhanh gấp N (chốt 20/08/2026).
+
+    Từ 08/09/2026 (mg `0281`) đây là con số nhân lực DUY NHẤT của bước: ô "số người bố trí" riêng
+    đã gỡ vì nó luôn là bản sao của chính cột này.
+    """
+    # Kíp chuẩn 1 người: 5000 ÷ (500 × 1) × 60 = 600′.
     t1 = _tlb(_buoc(loai_buoc="to", so_luong_vao=5000, nang_suat=500,
-                    so_nhan_cong_tieu_chuan=1, so_nhan_cong=6, so_nhan_cong_toi_da=5))
+                    so_nhan_cong_tieu_chuan=1))
     assert t1["chay_phut"] == 600
     assert t1["chiem_may_phut"] == 600         # Tổ không gán máy ⇒ chuẩn bị = 0
     assert t1["dien_giai"]["so_nhan_cong_tinh"] == 1
     assert t1["dien_giai"]["nang_suat_hieu_dung"] == 500
-    # Kíp chuẩn 2 người: CÙNG năng suất, thời gian giảm còn nửa (300′). Kế hoạch/tối đa GIỮ NGUYÊN.
+    # Kíp chuẩn 2 người: CÙNG năng suất, thời gian giảm còn nửa (300′).
     t2 = _tlb(_buoc(loai_buoc="to", so_luong_vao=5000, nang_suat=500,
-                    so_nhan_cong_tieu_chuan=2, so_nhan_cong=6, so_nhan_cong_toi_da=5))
+                    so_nhan_cong_tieu_chuan=2))
     assert t2["chay_phut"] == 300
     assert t2["chiem_may_phut"] == 300
     assert t2["dien_giai"]["so_nhan_cong_tinh"] == 2
     assert t2["dien_giai"]["nang_suat_co_so"] == 500        # /người, chưa nhân kíp
     assert t2["dien_giai"]["nang_suat_hieu_dung"] == 1000   # 500/người × 2 người
-    assert t2["dien_giai"]["so_nhan_cong_ke_hoach"] == 6
-    assert t2["dien_giai"]["so_nhan_cong_toi_da"] == 5
 
 
 def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
@@ -2077,11 +2510,10 @@ def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
     5.000 cái ÷ 500 cái/giờ × 60 = 600′ theo mức TRUNG BÌNH; mức CAO (1.000) chạy nhanh hơn nên ra
     thời lượng NHỎ nhất, mức THẤP (400) ra lớn nhất. "Thời gian khác" là hằng số nên cộng đều vào
     cả ba, không làm khoảng rộng ra. Ở đây kíp chuẩn = 1 (chưa khai) nên ba số theo đúng năng suất
-    gốc; số người KẾ HOẠCH KHÔNG lái thời gian (chốt 20/08/2026).
+    gốc.
     """
     t = _tlb(_buoc(
         loai_buoc="to", so_luong_vao=5000, nang_suat=500, phat_sinh_phut=10,
-        so_nhan_cong=2, so_nhan_cong_toi_da=5,
         khoan_json={"nang_suat_nguoi_gio": 500,
                     "nang_suat_nguoi_gio_min": 400, "nang_suat_nguoi_gio_max": 1000},
     ))
@@ -2090,9 +2522,9 @@ def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
     assert t["chiem_may_phut_min"] == 310                   # 10 + 5000/1000×60
     assert t["chiem_may_phut_max"] == 760                   # 10 + 5000/400×60
     assert t["dien_giai"]["co_dai_toc_do"] is True
-    # Số KẾ HOẠCH 4 người KHÔNG đổi thời gian (kíp chuẩn vẫn = 1): ba con số như trên.
+    # Chưa khai kíp chuẩn (= 1) thì ba con số vẫn theo đúng năng suất gốc.
     t4 = _tlb(_buoc(
-        loai_buoc="to", so_luong_vao=5000, nang_suat=500, so_nhan_cong=4, so_nhan_cong_toi_da=5,
+        loai_buoc="to", so_luong_vao=5000, nang_suat=500,
         khoan_json={"nang_suat_nguoi_gio_min": 400, "nang_suat_nguoi_gio_max": 1000},
     ))
     assert t4["chay_phut"] == 600
@@ -2102,7 +2534,7 @@ def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
 def test_to_chua_khai_dai_thi_ba_muc_bang_nhau():
     """Định mức cũ (chưa khai min/max) → râu co về một điểm, KHÔNG bịa khoảng."""
     t = _tlb(_buoc(
-        loai_buoc="to", so_luong_vao=5000, nang_suat=500, so_nhan_cong=2,
+        loai_buoc="to", so_luong_vao=5000, nang_suat=500,
         khoan_json={"nang_suat_nguoi_gio": 500},
     ))
     assert t["chiem_may_phut"] == t["chiem_may_phut_min"] == t["chiem_may_phut_max"] == 600
@@ -2114,11 +2546,9 @@ def test_dai_nang_suat_va_don_vi_khai_bao_theo_lenh_xuong_buoc(
 ):
     """Khai dải năng suất ở định mức → bung lệnh là bước Tổ mang đủ, không phải khai lại.
 
-    ĐƠN VỊ thì ngược lại: từ 10/08/2026 nó KHOÁ theo đơn giá khoán, người khai không đè được nữa
-    (chủ: *"đơn vị này chỉ được theo đơn vị theo lương khoán và không được đổi"*). Dòng dưới cố ý
-    khai đè `hop_gio` trong khi đơn giá khoán ghi `cái` — bước phải ra `cai_gio`, tức giá trị khai
-    đè bị bỏ qua. Trước đó test này ghim chiều ngược lại (`hop_gio` thắng); đổi assert là do ĐỔI
-    LUẬT, không phải nới test cho qua.
+    ĐƠN VỊ ở đây để TRỐNG, và đó là ca mặc định: chưa khai thì lùi về đơn vị của ĐƠN GIÁ khoán
+    ("cái"). Ca người khai CHỌN đơn vị riêng nằm ở `test_don_vi_nang_suat_NGUOI_KHAI_CHON`
+    (07/09/2026 mở lại ô này, xem `dich_gio_cua_khoan`).
 
     🔴 15/08/2026: đơn vị THÔI là nhãn suông — thời lượng quy SL vào về chính đơn vị đó rồi mới
     chia. Ở ca này bước đếm `cai` và đơn giá khoán cũng `cái` nên tỉ số 1, mấy assert phút không
@@ -2127,14 +2557,14 @@ def test_dai_nang_suat_va_don_vi_khai_bao_theo_lenh_xuong_buoc(
     ptg = _ptg_2_san_pham(db)
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp", don_vi="cái", don_gia=80,
-                  nang_suat=500, ns_min=400, ns_max=1000, don_vi_ns="hop_gio")
+                  nang_suat=500, ns_min=400, ns_max=1000, don_vi_ns=None)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
     hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
     hop = _chon_loai_buoc(lsx_svc, hop, admin, {"Dán hộp": "to"})
 
     dan = {cd.ten: cd for cd in hop.cong_doans}["Dán hộp"]
-    # Khoá theo đơn giá khoán ("cái") — giá trị khai đè `hop_gio` KHÔNG thắng. Từ 15/08/2026 lưu
+    # Chưa khai đơn vị năng suất ⇒ lùi về đơn vị của ĐƠN GIÁ khoán ("cái"). Từ 15/08/2026 lưu
     # TÊN đơn vị chứ không phải mã `<đv>_gio`: thời lượng quy SL vào về chính đơn vị này.
     assert dan.don_vi_nang_suat == "cái"
     assert dan.khoan_json["nang_suat_nguoi_gio_min"] == 400
@@ -2162,19 +2592,69 @@ def test_buoc_to_go_may_va_ba_moc_nhan_luc_sua_duoc(db, orders, lsx_svc, admin, 
             # Kế hoạch bấm "Tổ" cho bước dán — server không tự đoán nữa (xem `_chon_loai_buoc`).
             loai_buoc="to" if cd.ten == "Dán hộp" else cd.loai_buoc,
             department_id=cd.department_id, may_id=cd.may_id,
-            **({"so_nhan_cong": 6, "so_nhan_cong_toi_thieu": 3, "so_nhan_cong_tieu_chuan": 5,
-                "so_nhan_cong_toi_da": 9} if cd.ten == "Dán hộp" else {}),
+            **({"so_nhan_cong_tieu_chuan": 5} if cd.ten == "Dán hộp" else {}),
         )
         for cd in sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
     ]
     lsx = lsx_svc.replace_routing(lsx_id=lsx.id, rows_in=rows, actor=admin)
     dan = {cd.ten: cd for cd in lsx.cong_doans}["Dán hộp"]
     assert dan.loai_buoc == "to" and dan.may_id is None   # Tổ ⇒ không giữ máy
-    assert (dan.so_nhan_cong_toi_thieu, dan.so_nhan_cong_tieu_chuan, dan.so_nhan_cong_toi_da) \
-        == (3, 5, 9)                                      # số gõ tay thắng định mức 2/4
-    assert dan.so_nhan_cong == 6
+    assert dan.so_nhan_cong_tieu_chuan == 5           # số gõ tay thắng định mức 2 của đầu việc
     # Kíp chuẩn 5 người sửa tay LÁI thời gian ⇒ "số người tính" = 5 (chốt 20/08/2026).
     assert _tl(dan, db)["dien_giai"]["so_nhan_cong_tinh"] == 5
+
+
+def test_buoc_to_ep_mot_luot_chay(db, orders, lsx_svc, admin, customer):
+    """Chủ chốt 08/09/2026: "loại bước là tổ thì ẩn cái này đi và cho mặc định là 1".
+
+    Ô "số lượt chạy qua máy" nay CHỈ còn ở bước máy/thuê ngoài — làm tay thì không có lượt qua
+    máy nào để đếm. Ép ở SERVER chứ không chỉ ẩn ô trên form (cùng lẽ với `may_id = None` của
+    bước tổ): số 2 lượt còn sót lại từ hồi bước là máy sẽ nằm VÔ HÌNH trong DB, mà chip
+    `so_luot_chay` của công thức tiền công đọc thẳng cột này.
+    """
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp", don_vi="cái", don_gia=80, nang_suat=500)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+
+    # Client cũ (hoặc bước từng là máy) gửi 2 lượt cho MỌI bước, kể cả bước tổ.
+    rows = [
+        LsxCongDoanIn(
+            step_key=cd.step_key, cong_doan_id=cd.cong_doan_id, ten=cd.ten, nhom=cd.nhom,
+            loai_buoc="to" if cd.ten == "Dán hộp" else cd.loai_buoc,
+            department_id=cd.department_id, may_id=cd.may_id, so_luot_chay=2,
+        )
+        for cd in sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
+    ]
+    lsx = lsx_svc.replace_routing(lsx_id=lsx.id, rows_in=rows, actor=admin)
+    theo_ten = {cd.ten: cd for cd in lsx.cong_doans}
+    assert theo_ten["Dán hộp"].so_luot_chay == 1
+    # Bước KHÔNG phải tổ giữ nguyên số đã khai — ô vẫn còn ở đó.
+    khac = [cd for cd in lsx.cong_doans if cd.loai_buoc != "to"]
+    assert khac and all(cd.so_luot_chay == 2 for cd in khac)
+
+
+def test_buoc_khong_con_o_so_nguoi_bo_tri(db, orders, lsx_svc, admin, customer):
+    """Gộp 08/09/2026 (mg `0281`): nhân lực của bước chỉ còn MỘT con số — KÍP CHUẨN.
+
+    Ô "số người bố trí" (`so_nhan_cong`) chưa bao giờ có nguồn riêng: mọi đường sinh nó đều chép
+    từ đúng cùng `cong_doan_dau_viec.so_nguoi_tieu_chuan` như kíp chuẩn, nên hai ô luôn hiện một
+    số cho tới khi ai đó gõ tay đè lên. Nay kíp chuẩn gánh cả hai vai — chia thời lượng bước tổ
+    VÀ là số bàn xếp lịch cộng dồn để dò đỉnh quân số tổ.
+    """
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp", don_vi="cái", don_gia=80, nang_suat=500)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+
+    buoc = lsx_svc.detail_dict(lsx)["cong_doans"][0]
+    assert "so_nhan_cong" not in buoc
+    assert buoc["so_nhan_cong_tieu_chuan"] >= 1
+    assert "so_nhan_cong_ke_hoach" not in buoc["thoi_luong_dien_giai"]
 
 
 def test_thieu_nang_suat_thi_khong_bia_so():
@@ -2283,6 +2763,100 @@ def test_chi_tiet_lenh_co_buoc_che_ban_van_qua_duoc_SCHEMA(db, orders, lsx_svc, 
     out = LsxOut.model_validate({**lsx.__dict__, **lsx_svc.detail_dict(lsx)})   # y hệt `routers.lsx._out`
     assert out.cong_doans[0].don_vi_vao is None and out.cong_doans[0].don_vi_ra is None
     assert out.cong_doans[1].don_vi_vao == "to"
+
+
+def test_chi_tiet_lenh_noi_ra_dang_giu_cho_vat_tu(db, orders, lsx_svc, admin, customer):
+    """Cờ giữ chỗ phải RA TỚI client — thiếu nó là màn lệnh không nói trước được cái khoá.
+
+    `_chan_dang_giu_cho` chặn sửa routing VÀ chặn cả `xem_truoc_routing` (cố ý, xem docstring của
+    nó). Mà FE nuốt lỗi xem-trước im lặng, nên không có cờ này thì người kế hoạch sửa xong cả
+    routing mới ăn 409 lúc bấm Lưu, còn mỗi lần đổi công đoạn thì số trên bảng đứng im không ai
+    giải thích. Trả cờ ra để bảng routing khoá lại + nói rõ đường lùi ngay từ đầu.
+    """
+    from app.schemas.lsx import LsxOut
+
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+
+    lsx = lsx_svc.get(hop.id)
+    assert LsxOut.model_validate(
+        {**lsx.__dict__, **lsx_svc.detail_dict(lsx)}).giu_cho_bat is False
+
+    lsx.giu_cho_bat = True
+    db.commit()
+    lsx = lsx_svc.get(hop.id)
+    assert LsxOut.model_validate(
+        {**lsx.__dict__, **lsx_svc.detail_dict(lsx)}).giu_cho_bat is True
+    # Đúng cái khoá mà cờ đang cảnh báo: bản XEM TRƯỚC cũng 409 y hệt lưu thật.
+    with pytest.raises(LsxConflict):
+        lsx_svc.xem_truoc_routing(lsx_id=hop.id, rows_in=[], actor=admin)
+
+
+def test_giu_cho_chan_dung_ba_duong_con_ten_ghi_chu_van_luu_duoc(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Cái khoá giữ chỗ CHẶN GÌ — màn lệnh khoá theo đúng đường này, không khoá cả màn.
+
+    `_chan_dang_giu_cho` chỉ nổ khi đụng vào thứ làm ĐỔI LƯỢNG VẬT TƯ CẦN: `so_luong_dat`,
+    `quy_cach`, routing, và xoá lệnh. Tên / hạn / ghi chú / cờ gấp không đụng vật tư nên phải
+    lưu được bình thường — FE dựa vào đúng ranh giới này để khoá cụm Thông số + nút Xoá mà vẫn
+    để nút "Lưu thay đổi" sống. Khoá rộng hơn là màn nói dối theo chiều ngược lại.
+    """
+    from app.schemas.lsx import LsxQuyCachIn
+
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+    sl_cu = hop.so_luong_dat
+
+    lsx = lsx_svc.get(hop.id)
+    lsx.giu_cho_bat = True
+    db.commit()
+
+    # `update` GÁN field rồi mới gọi `_chan_dang_giu_cho`, nên lần nổ để lại giá trị bẩn trong
+    # identity map của session. Thật thì mỗi request một session và transaction hỏng bị bỏ, nên
+    # phải `rollback()` sau mỗi lần chặn — không thì lần gọi sau so với số bẩn chứ không phải số DB.
+    with pytest.raises(LsxConflict):
+        lsx_svc.update(
+            lsx_id=hop.id, actor=admin,
+            payload=LsxUpdateIn(so_luong_dat=sl_cu + 100),
+        )
+    db.rollback()
+    with pytest.raises(LsxConflict):
+        lsx_svc.update(
+            lsx_id=hop.id, actor=admin,
+            payload=LsxUpdateIn(quy_cach=LsxQuyCachIn(quy_cach_in="tu_tro")),
+        )
+    db.rollback()
+    # `so_con` cũng phải chặn: đổi số con/tờ là bình bài lại ⇒ `_ap_chuoi_nguoc` viết lại số tờ kế
+    # hoạch ⇒ đổi lượng GIẤY cần. Nó là ô "Bình bài" ngay trong cụm thông số mà FE đã khoá.
+    with pytest.raises(LsxConflict):
+        lsx_svc.update(
+            lsx_id=hop.id, actor=admin,
+            payload=LsxUpdateIn(so_con=int(hop.so_con) + 1),
+        )
+    db.rollback()
+    with pytest.raises(LsxConflict):
+        lsx_svc.xoa(lsx_id=hop.id, actor=admin)
+    db.rollback()
+
+    # Còn ĐÂY thì phải qua — đó là lý do nút "Lưu thay đổi" ở màn lệnh vẫn để sống khi giữ chỗ.
+    ra = lsx_svc.update(
+        lsx_id=hop.id, actor=admin,
+        payload=LsxUpdateIn(ten="Đổi tên lúc đang giữ chỗ", ghi_chu="ghi chú mới", is_rush=True),
+    )
+    assert ra.ten == "Đổi tên lúc đang giữ chỗ"
+    assert ra.ghi_chu == "ghi chú mới"
+    assert ra.is_rush is True
+    # Gửi lại ĐÚNG số cũ thì không tính là đổi ⇒ không chạm khoá. `luu()` của FE gửi kèm
+    # `so_luong_dat` mỗi lần lưu, nên nếu chỗ này chặn thì nút Lưu thành nút báo lỗi.
+    assert lsx_svc.update(
+        lsx_id=hop.id, actor=admin,
+        payload=LsxUpdateIn(so_luong_dat=sl_cu, ten="Tên lần hai"),
+    ).ten == "Tên lần hai"
 
 
 def test_client_gui_so_luong_va_don_vi_len_thi_server_lo_di(db, orders, lsx_svc, admin, customer):
@@ -2440,49 +3014,15 @@ def test_doi_giay_tai_lenh_keo_theo_dinh_luong_va_ten(db, orders, lsx_svc, admin
     assert qc["giay_ten"] == "Couché 400"
 
 
-def test_kiem_thieu_he_so_doc_theo_TRAM_khong_theo_MA_don_vi(
-    db, orders, lsx_svc, admin, customer
-):
-    """Xưởng đặt tên đơn vị riêng ⇒ checklist VẪN phải chặn.
-
-    Đơn vị là danh mục ĐỘNG: xưởng khai `to_chay` (trạm `to`) thay cho `to`. Ba phép kiểm nguồn hệ
-    số phải hỏi CỜ TRẠM, không so mã. So mã thì trên dữ liệu thật `("to","cai") in cau` luôn False
-    ⇒ ba cảnh báo im lặng ⇒ nút "Sẵn sàng lập kế hoạch" mở toang dù thiếu Con/tờ.
-
-    Test cũ ngay trên KHÔNG bắt được vì fixture khai toàn mã mặc định (mã trùng trạm nên phép so
-    khớp do trùng hợp). Đây là bản chạy với mã do xưởng đặt.
-    """
-    from app.models.don_vi_do import DonViDo
-
-    ptg = _ptg_2_san_pham(db)
-    # Khai ở màn "Đơn vị & quy đổi": mã riêng + cờ trạm dòng giấy.
-    db.add_all([
-        DonViDo(ma="to_chay", ten="TỜ CHẠY MÁY", tram_dong_giay="to"),
-        DonViDo(ma="sp_xong", ten="SẢN PHẨM XONG", tram_dong_giay="cai"),
-    ])
-    # Màn "Công đoạn": trỏ vào/ra sang mã mới.
-    doi = {"to": "to_chay", "cai": "sp_xong"}
-    for cd in db.query(CongDoan).all():
-        cd.don_vi_vao = doi.get(cd.don_vi_vao or "", cd.don_vi_vao)
-        cd.don_vi_ra = doi.get(cd.don_vi_ra or "", cd.don_vi_ra)
-    db.commit()
-
-    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
-    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
-    hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
-    assert {c.don_vi_vao for c in hop.cong_doans} & {"to_chay", "sp_xong"}, \
-        "routing phải mang mã của xưởng, không thì test này không kiểm được gì"
-
-    hop.so_con = 0
-    db.commit()
-    assert "thieu_con_tren_to" in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
-    with pytest.raises(LsxConflict):
-        lsx_svc.set_trang_thai(lsx_id=hop.id, trang_thai=TT_SAN_SANG, actor=admin)
-
-    # Hệ số ĐÚNG BẰNG 1 (1 con/tờ — poster bằng khổ tờ) là hợp lệ, không được chặn.
-    hop.so_con = 1
-    db.commit()
-    assert "thieu_con_tren_to" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
+# GỠ 06/09/2026: `test_kiem_thieu_he_so_doc_theo_TRAM_khong_theo_MA_don_vi`.
+#
+# Nó dựng đơn vị mã riêng của xưởng (`to_chay` gắn cờ trạm `to`, `sp_xong` gắn `cai`) để chứng minh
+# ba phép kiểm nguồn hệ số hỏi CỜ TRẠM chứ không so mã. Cờ `don_vi_do.tram_dong_giay` đã gỡ: ô Đơn
+# vị vào/ra của công đoạn nay là menu ĐÓNG đúng 5 chặng, mã của bước CHÍNH LÀ tên chặng nên tình
+# huống test dựng ra không còn khai được — `cong_doan_service` chặn ngay ở màn danh mục.
+#
+# Phần luật còn sống (thiếu con/tờ thì chặn "Sẵn sàng lập kế hoạch") do
+# `test_thieu_NGUON_he_so_moi_chan_chu_khong_phai_he_so_bang_1` phía trên giữ.
 
 
 def test_thue_ngoai_doi_to_may_y_het_buoc_may(db, orders, lsx_svc, admin, customer):
@@ -2534,7 +3074,7 @@ def test_replace_routing_giu_nguyen_khoi_thue_ngoai(db, orders, lsx_svc, admin, 
             ngay_gui_dk=date.today(), ngay_nhan_dk=date.today() + timedelta(days=3),
             van_chuyen_ngay=1, gia_cong_ngay=1, hao_hut_cho_phep=50, don_gia_gia_cong=450,
             yeu_cau_ky_thuat="Màng mờ, không bong mép",
-            di_chuyen_phut=45, so_nhan_cong=3, bat_buoc=False,
+            di_chuyen_phut=45,
         ),
     ])
     cd = lsx_svc.get(hop.id).cong_doans[0]
@@ -2544,7 +3084,9 @@ def test_replace_routing_giu_nguyen_khoi_thue_ngoai(db, orders, lsx_svc, admin, 
     # `di_chuyen_phut` đã rời hợp đồng lưu routing (2026-08-04) — cột còn trong DB nhưng client
     # không gửi được nữa, nên nó KHÔNG sống sót qua vòng lưu. Khối thuê ngoài
     # (nhà cung cấp · ngày gửi/nhận · đơn giá · yêu cầu kỹ thuật) mới là thứ phải giữ.
-    assert cd.so_nhan_cong == 3 and cd.bat_buoc is False
+    # `bat_buoc` cũng rời hợp đồng lưu routing (07/09/2026): mọi bước đều bắt buộc, server giữ
+    # TRUE nên client có gửi `false` cũng không ghi được (mg 0275 backfill dòng cũ).
+    assert cd.bat_buoc is True
     assert float(cd.hao_hut_cho_phep) == 50 and cd.ngay_nhan_dk is not None
 
 
@@ -2633,6 +3175,10 @@ def test_mac_dinh_buoc_chi_tra_thuoc_tinh_cua_cong_doan(db, orders, lsx_svc, adm
         assert m["don_vi_vao"] == cd.don_vi_vao and m["don_vi_ra"] == cd.don_vi_ra, cd.ten
         assert float(m["setup_phut"]) == float(cd.setup_phut), cd.ten
         assert {"loai_buoc", "may_id", "nang_suat", "don_vi_nang_suat"}.isdisjoint(m), cd.ten
+        # Chặng CUỐI của router: dict service phải qua được `BuocMacDinhOut`. Không có dòng này thì
+        # cả ba test của endpoint đều dừng ở tầng service, còn schema trôi tự do — đúng cách endpoint
+        # 500 suốt mà bộ test vẫn xanh (schema đòi `loai_buoc`, service cố ý không trả).
+        BuocMacDinhOut.model_validate(m)
 
 
 def test_mac_dinh_buoc_tra_kem_co_dong_giay(db, orders, lsx_svc, admin, customer):
@@ -2666,6 +3212,37 @@ def test_mac_dinh_buoc_tra_kem_co_dong_giay(db, orders, lsx_svc, admin, customer
     assert lsx_svc.mac_dinh_buoc(lsx_id=hop.id, cong_doan_id=xen.id)["tren_dong_giay"] is True
 
 
+def test_mac_dinh_buoc_tra_kem_co_dung_cu(db, orders, lsx_svc, admin, customer):
+    """Đổi công đoạn phải trả kèm `requires_tooling` + `tooling_type` CỦA CÔNG ĐOẠN MỚI.
+
+    Ô chọn dao ở drawer bước lọc kho Khuôn & khung theo đúng hai cờ này (khách của lệnh × loại của
+    bước). Không trả kèm thì dòng giữ cờ của công đoạn CŨ và frontend không suy lại được — đổi bước
+    Bế sang một công đoạn cần KHUNG LỤA vẫn thấy thẻ "Khuôn của bước (khuôn bế)" và ô chọn vẫn bày
+    dao bế, sai loại và im lặng cho tới lúc lưu rồi nạp lại màn.
+    """
+    ptg = _ptg_2_san_pham(db)
+    to_id = _to_san_xuat(db).id
+    lua = CongDoan(ma="CD-LUA-T", ten="In lụa", nhom="print",
+                   cong_thuc_gia="so_luong * don_gia", department_id=to_id, setup_time=20,
+                   don_vi_vao="to", don_vi_ra="to",
+                   requires_tooling=True, tooling_type="khung_lua")
+    xen = CongDoan(ma="CD-XEN-D", ten="Xén thành phẩm", nhom="finishing",
+                   cong_thuc_gia="so_luong * don_gia", department_id=to_id, setup_time=10,
+                   don_vi_vao="to", don_vi_ra="to")
+    db.add_all([lua, xen])
+    db.commit()
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [line["order_line_id"] for line in lsx_svc.preview(d.id)["lines"]]
+    hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+
+    m = lsx_svc.mac_dinh_buoc(lsx_id=hop.id, cong_doan_id=lua.id)
+    assert m["requires_tooling"] is True and m["tooling_type"] == "khung_lua"
+    BuocMacDinhOut.model_validate(m)
+    # Công đoạn KHÔNG cần dụng cụ phải nói ra điều đó, không để client tự đoán bằng cách giữ cờ cũ.
+    m2 = lsx_svc.mac_dinh_buoc(lsx_id=hop.id, cong_doan_id=xen.id)
+    assert m2["requires_tooling"] is False and m2["tooling_type"] is None
+
+
 def test_replace_routing_ton_trong_loai_buoc_do_khsx_chon(
     db, orders, lsx_svc, admin, customer
 ):
@@ -2689,34 +3266,39 @@ def test_replace_routing_ton_trong_loai_buoc_do_khsx_chon(
     assert saved.may_id is None
 
 
-def test_doi_may_ke_thua_kip_chuan_nhung_giu_so_nguoi_ke_hoach_nhap_tai_lsx(
+def test_doi_may_giu_kip_chuan_cua_cong_doan(
     db, orders, lsx_svc, admin, customer
 ):
+    """Đổi máy KHÔNG đụng nhân lực (06/09/2026, mg `0270`) — kíp bám công đoạn, máy hết ô người.
+
+    Vế "số gõ tay tại lệnh vẫn thắng định mức" nay do
+    `test_buoc_to_go_may_va_ba_moc_nhan_luc_sua_duoc` canh: sau mg `0281` cả hệ chỉ còn MỘT cột
+    nhân lực nên hai vế không đứng chung một bước được nữa.
+    """
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     line_id = lsx_svc.preview(d.id)["lines"][0]["order_line_id"]
     hop = lsx_svc.tao(order_id=d.id, order_line_ids=[line_id], actor=admin)[0]
     may_moi = MayThietBi(
         ma="MAY-KIP-2", ten="Máy kíp 2", loai_may="Bế", toc_do=4000,
-        don_vi_toc_do="to_gio", so_nhan_cong=2,
+        don_vi_toc_do="to_gio",
     )
     db.add(may_moi)
     db.commit()
     muc_tieu = next(x for x in hop.cong_doans if x.loai_buoc == "may")
+    kip_truoc = int(muc_tieu.so_nhan_cong_tieu_chuan or 1)
 
     lsx_svc.replace_routing(lsx_id=hop.id, actor=admin, rows_in=[
         LsxCongDoanIn(
             step_key=x.step_key, cong_doan_id=x.cong_doan_id, ten=x.ten, nhom=x.nhom,
             department_id=x.department_id, loai_buoc=x.loai_buoc,
             may_id=may_moi.id if x.id == muc_tieu.id else x.may_id,
-            so_nhan_cong=4 if x.id == muc_tieu.id else x.so_nhan_cong,
         )
         for x in sorted(hop.cong_doans, key=lambda item: item.thu_tu)
     ])
 
     saved = next(x for x in lsx_svc.get(hop.id).cong_doans if x.id == muc_tieu.id)
-    assert saved.so_nhan_cong_tieu_chuan == 2
-    assert saved.so_nhan_cong == 4
+    assert saved.so_nhan_cong_tieu_chuan == kip_truoc   # máy mới không mang kíp riêng nào theo
     assert saved.may_id == may_moi.id
     # Tốc độ KHÔNG chép lên bước nữa (15/08/2026) — đổi máy là thời lượng tự đổi theo máy mới,
     # khỏi cần đồng bộ một bản chép.
@@ -2725,21 +3307,20 @@ def test_doi_may_ke_thua_kip_chuan_nhung_giu_so_nguoi_ke_hoach_nhap_tai_lsx(
         float(saved.so_luong_vao) * 60 / 4000, 2)
 
 
-def test_buoc_MAY_lay_kip_cua_MAY_khong_lay_dinh_muc_nhan_luc_cua_dau_viec(
+def test_buoc_MAY_lay_kip_cua_CONG_DOAN_khong_con_o_rieng_tren_may(
     db, orders, lsx_svc, admin, customer,
 ):
-    """Bước MÁY thì số người là KÍP ĐỨNG MÁY khai ở danh mục Máy, KHÔNG phải định mức "xúm mấy
-    người cho nhanh" của bảng khoán tổ (chủ 20/08/2026: *"loại bước thực hiện của công đoạn là máy
-    thì bạn nghĩ nghe ai"*).
+    """Bước MÁY lấy kíp từ ĐỊNH MỨC CÔNG ĐOẠN, y như bước tổ (chốt 06/09/2026, mg `0270`).
 
-    Bằng chứng ngược của lỗi cũ: nhánh đầu việc chạy SAU nhánh máy nên số 2 của máy bị định mức
-    ghi đè, màn hiện "kíp tiêu chuẩn 3 người" cho một cái máy khai 2 người.
+    Trước đây máy khai ô "Số người vận hành tiêu chuẩn" của riêng nó và bước máy nghe số đó. Bốn ô
+    cho cùng một câu hỏi "việc này mấy người làm" nên hễ ai khai lệch là hệ điền sai kíp mà không
+    màn nào bày hai số cạnh nhau để phát hiện. Nay chỉ còn MỘT nguồn.
     """
     ptg = _ptg_2_san_pham(db)
     cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-BE-T").one()
-    _gan_dinh_muc(db, cong_doan=cd_be, ten="Bế tay", don_vi="cai", don_gia=50)   # chuẩn 2 · tối đa 4
+    _gan_dinh_muc(db, cong_doan=cd_be, ten="Bế tay", don_vi="cai", don_gia=50)   # kíp chuẩn 2
     may_be = MayThietBi(ma="MAY-BE-KIP", ten="Máy bế Yawa", loai_may="Bế", toc_do=4000,
-                        don_vi_toc_do="to_gio", so_nhan_cong=3)
+                        don_vi_toc_do="to_gio")
     db.add(may_be)
     db.commit()
 
@@ -2758,21 +3339,19 @@ def test_buoc_MAY_lay_kip_cua_MAY_khong_lay_dinh_muc_nhan_luc_cua_dau_viec(
 
     saved = next(x for x in lsx.cong_doans if x.ten == "Bế")
     assert saved.loai_buoc == "may"
-    assert saved.so_nhan_cong_tieu_chuan == 3                      # kíp của MÁY, không phải 2
-    # Bước máy không có dải min/max: "xúm thêm người" không làm máy chạy nhanh hơn.
-    assert (saved.so_nhan_cong_toi_thieu, saved.so_nhan_cong_toi_da) == (None, None)
-    # Nhưng TIỀN khoán vẫn ghim như cũ — chỉ số NGƯỜI mới là chuyện của máy.
+    assert saved.so_nhan_cong_tieu_chuan == 2                      # kíp chuẩn của CÔNG ĐOẠN
+    # TIỀN khoán vẫn ghim như cũ — đổi nguồn kíp không đụng gì tới đơn giá.
     assert (saved.khoan_json or {}).get("rate_id")
 
 
-def test_xem_truoc_may_ra_gio_moi_ngay_va_khong_ghi_gi_vao_DB(
+def test_xem_truoc_buoc_ra_gio_moi_ngay_va_khong_ghi_gi_vao_DB(
     db, orders, lsx_svc, admin, customer,
 ):
     """Chọn máy trong drawer là ra số NGAY (chủ 20/08/2026: *"khi chọn máy là phải lấy số luôn"*),
     nhưng chưa bấm Lưu thì DB không được đổi một chữ."""
     ptg = _ptg_2_san_pham(db)
     may_cham = MayThietBi(ma="MAY-IN-CHAM", ten="Máy in cũ", loai_may="press_offset_sheet",
-                          toc_do=2_500, don_vi_toc_do="to_gio", so_nhan_cong=2)
+                          toc_do=2_500, don_vi_toc_do="to_gio")
     db.add(may_cham)
     db.commit()
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -2780,11 +3359,13 @@ def test_xem_truoc_may_ra_gio_moi_ngay_va_khong_ghi_gi_vao_DB(
     hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
     inn = next(x for x in hop.cong_doans if x.ten == "In offset")
     may_cu, vao = inn.may_id, float(inn.so_luong_vao)
+    kip_truoc = int(inn.so_nhan_cong_tieu_chuan or 1)
     assert may_cu is not None and may_cu != may_cham.id
 
-    xt = lsx_svc.xem_truoc_may(lsx_id=hop.id, step_key=inn.step_key, may_id=may_cham.id)
+    xt = lsx_svc.xem_truoc_buoc(lsx_id=hop.id, step_key=inn.step_key, may_id=may_cham.id)
 
-    assert xt["so_nhan_cong_tieu_chuan"] == 2
+    # Kíp GIỮ NGUYÊN khi rê sang máy khác (06/09/2026, mg `0270`): nhân lực bám công đoạn.
+    assert xt["so_nhan_cong_tieu_chuan"] == kip_truoc
     assert xt["thoi_luong_dien_giai"]["toc_do"] == 2_500
     assert xt["thoi_luong_dien_giai"]["chay_phut"] == pytest.approx(vao * 60 / 2_500, abs=0.01)
     # Máy cũ 5.000 tờ/giờ ⇒ máy này phải lâu gấp đôi, không phải "y hệt".
@@ -2795,7 +3376,7 @@ def test_xem_truoc_may_ra_gio_moi_ngay_va_khong_ghi_gi_vao_DB(
     assert van_the.may_id == may_cu                                # KHÔNG ghi gì
 
 
-def test_route_xem_truoc_may_dau_day_dung(client):
+def test_route_xem_truoc_buoc_dau_day_dung(client):
     """Đấu dây HTTP của cửa xem-trước: tên tham số + quyền + 404 khi lệnh không có thật.
 
     Service xanh mà route sai tên query (`step_key`) thì FastAPI trả 422 — drawer im ru, người
@@ -2804,10 +3385,10 @@ def test_route_xem_truoc_may_dau_day_dung(client):
     r = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
     h = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
-    assert client.get("/api/lsx/1/xem-truoc-may?step_key=s1").status_code == 401
-    assert client.get("/api/lsx/1/xem-truoc-may", headers=h).status_code == 422   # thiếu step_key
+    assert client.get("/api/lsx/1/xem-truoc-buoc?step_key=s1").status_code == 401
+    assert client.get("/api/lsx/1/xem-truoc-buoc", headers=h).status_code == 422   # thiếu step_key
     assert client.get(
-        "/api/lsx/999999/xem-truoc-may?step_key=s1&may_id=1", headers=h,
+        "/api/lsx/999999/xem-truoc-buoc?step_key=s1&may_id=1&loai_buoc=to", headers=h,
     ).status_code == 404
 
 
@@ -3365,3 +3946,331 @@ def test_tro_dao_roi_thi_het_thieu_khuon(db, orders, lsx_svc, admin, customer):
     db.commit()
     assert "thieu_khuon" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
 
+
+
+def test_xem_truoc_buoc_doi_LOAI_va_SO_LUOT_thi_so_doi_theo_form(
+    db, orders, lsx_svc, admin, customer,
+):
+    """⭐ Ca chủ 07/09/2026: drawer sửa gì thì xem trước phải nói theo cái đang sửa, không đợi Lưu.
+
+    Cửa xem trước cũ chỉ nhận `may_id`, nên bước đang lưu là MÁY mà người dùng vừa bấm sang TỔ thì
+    câu quy đổi trả về vẫn là của MÁY (đơn vị đích của máy · công thức cặp công đoạn × máy) — client
+    dán nó dưới nhãn "Tổ", số chỉ đúng sau khi bấm Lưu. Số lượt cũng vậy với tiền công: nó là chip
+    trong công thức tiền, mà tiền lại tính ở server theo bản ĐÃ LƯU.
+    """
+    from app.models.don_vi_do import DonViDo
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán tay", don_vi="cuốn", don_gia=600,
+                         nang_suat=500, don_vi_ns=None)
+    if db.query(DonViDo).filter(DonViDo.ma == "cuon").one_or_none() is None:
+        db.add(DonViDo(ma="cuon", ten="cuốn", ho="thanh_pham"))
+    db.commit()
+    dm = (db.query(CongDoanDauViec)
+          .filter(CongDoanDauViec.cong_doan_id == cd_dan.id,
+                  CongDoanDauViec.piece_rate_id == rate.id).one())
+    dm.cong_thuc_khoan = "sl_ra * so_luot_chay"     # tiền đếm theo LƯỢT
+    dm.cong_thuc_gio = "sl_ra"                      # giờ đếm theo TỜ
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    buoc = next(x for x in lsx.cong_doans if x.cong_doan_id == cd_dan.id)
+    assert buoc.loai_buoc == "may", "bước bung ra phải là máy thì mới thử được chiều đổi sang tổ"
+    ra = float(buoc.so_luong_ra)
+    kip = max(int(buoc.so_nhan_cong_tieu_chuan or 1), 1)
+
+    def _xt(**thay) -> dict:
+        return lsx_svc.xem_truoc_buoc(lsx_id=lsx.id, step_key=buoc.step_key, may_id=None, **thay)
+
+    # ① Bấm sang TỔ mà chưa Lưu ⇒ giờ đo bằng ô "Cách đo giờ chạy" của đầu việc.
+    to = _xt(loai_buoc="to", piece_rate_id=rate.id, so_luot_chay=1)
+    assert to["thoi_luong_dien_giai"]["chay_phut"] == pytest.approx(ra / (500 * kip) * 60, abs=0.01)
+    assert to["khoan"]["khoan_tien"] == round(ra * 600)
+
+    # ② Bấm "2 lượt" mà chưa Lưu ⇒ TIỀN nhân đôi, GIỜ giữ nguyên (đúng luật tách hai ô).
+    hai = _xt(loai_buoc="to", piece_rate_id=rate.id, so_luot_chay=2)
+    assert hai["khoan"]["khoan_tien"] == 2 * to["khoan"]["khoan_tien"]
+    assert hai["thoi_luong_dien_giai"]["chay_phut"] == pytest.approx(
+        to["thoi_luong_dien_giai"]["chay_phut"], abs=0.01)
+
+    # ③ Không ghi gì xuống DB — người dùng mới chỉ rê chuột trên form.
+    db.expire_all()
+    van_the = next(x for x in lsx_svc.get(lsx.id).cong_doans if x.cong_doan_id == cd_dan.id)
+    assert van_the.loai_buoc == "may" and int(van_the.so_luot_chay or 1) == 1
+
+
+# ================= Danh mục đổi dưới chân lệnh =================
+# Ảnh chụp KHÔNG tự đổi là đúng thiết kế (lệnh đã bung không được tự đổi tiền dưới chân thợ) —
+# nhưng im lặng thì sai: người lập kế hoạch chẳng có gì để BIẾT mà bấm lấy số mới. Bộ test dưới
+# canh đúng cặp đó: BÁO cho đủ, và GHI cho đúng những gì đã báo.
+
+def _lenh_da_ghim_dau_viec(db, orders, lsx_svc, admin, customer, *, don_gia=250):
+    """Lệnh có bước "Dán hộp" đã ghim đầu việc — điểm xuất phát chung của cả nhóm test này."""
+    ptg = _ptg_2_san_pham(db)
+    cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").first()
+    rate = _gan_dinh_muc(db, cong_doan=cd_be, ten="Dán thường", don_vi="cái", don_gia=don_gia)
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lines = lsx_svc.preview(d.id)["lines"]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=[lines[0]["order_line_id"]], actor=admin)[0]
+    rows = [
+        LsxCongDoanIn(
+            thu_tu=cd.thu_tu, cong_doan_id=cd.cong_doan_id, ten=cd.ten, nhom=cd.nhom,
+            department_id=cd.department_id, so_luong_vao=float(cd.so_luong_vao),
+            so_luong_ra=float(cd.so_luong_ra), don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra,
+            piece_rate_id=(rate.id if cd.ten == "Dán hộp" else None),
+        )
+        for cd in sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
+    ]
+    return lsx_svc.replace_routing(lsx_id=lsx.id, rows_in=rows, actor=admin), cd_be, rate
+
+
+def _buoc_dm(lsx_svc, lsx, ten="Dán hộp"):
+    return next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == ten)
+
+
+def test_vua_bung_xong_thi_khong_co_bang_danh_muc_nao(db, orders, lsx_svc, admin, customer):
+    """Băng phải im khi lệnh còn khớp danh mục. Băng vàng hiện thường trực là băng bị bỏ qua."""
+    lsx, _, _ = _lenh_da_ghim_dau_viec(db, orders, lsx_svc, admin, customer)
+    assert lsx_svc.detail_dict(lsx)["danh_muc_doi"] is None
+
+
+def test_xuong_len_gia_khoan_thi_bang_bao_dich_danh_buoc_va_o(
+    db, orders, lsx_svc, admin, customer,
+):
+    """So NỘI DUNG chứ không so `updated_at`: sửa `piece_rates` KHÔNG chạm `cong_doan.updated_at`
+    nên băng kiểu mốc-thời-gian sẽ im lặng đúng lúc cần nói nhất."""
+    lsx, _, rate = _lenh_da_ghim_dau_viec(db, orders, lsx_svc, admin, customer, don_gia=250)
+    rate.unit_price = 999
+    db.commit()
+
+    dm = lsx_svc.detail_dict(lsx_svc.get(lsx.id))["danh_muc_doi"]
+    assert dm is not None and dm["so_buoc"] == 1
+    [b] = dm["buocs"]
+    assert b["ten"] == "Dán hộp"
+    o = {x["nhan"]: x for x in b["khoan"]}
+    assert (o["Đơn giá khoán"]["cu"], o["Đơn giá khoán"]["moi"]) == ("250", "999")
+    assert dm["co_the_cap_nhat"] is True and dm["ly_do_khoa"] is None
+
+
+def test_cap_nhat_theo_danh_muc_ghi_so_moi_roi_bang_tat(db, orders, lsx_svc, admin, customer):
+    lsx, _, rate = _lenh_da_ghim_dau_viec(db, orders, lsx_svc, admin, customer, don_gia=250)
+    rate.unit_price = 999
+    db.commit()
+    assert _buoc_dm(lsx_svc, lsx_svc.get(lsx.id))["khoan_don_gia"] == 250
+
+    saved = lsx_svc.dong_bo_danh_muc(lsx_id=lsx.id, actor=admin)
+    assert _buoc_dm(lsx_svc, saved)["khoan_don_gia"] == 999
+    # Băng TẮT sau khi ghi — còn sáng nghĩa là nút vừa bấm không làm được việc nó hứa.
+    assert lsx_svc.detail_dict(saved)["danh_muc_doi"] is None
+
+
+def test_lenh_da_lap_ke_hoach_van_thay_bang_nhung_khong_bam_duoc(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Biết mà chưa sửa được vẫn hơn không biết: băng vẫn hiện, chỉ nút khoá và nói rõ đường lùi.
+    Cùng ba cửa mà `replace_routing` chặn — nới ở đây là mở cửa hậu cho chính thứ vừa khoá."""
+    lsx, _, rate = _lenh_da_ghim_dau_viec(db, orders, lsx_svc, admin, customer, don_gia=250)
+    rate.unit_price = 999
+    lsx.trang_thai = TT_DA_LAP_KE_HOACH
+    db.commit()
+
+    dm = lsx_svc.detail_dict(lsx_svc.get(lsx.id))["danh_muc_doi"]
+    assert dm["so_buoc"] == 1, "vẫn phải BÁO"
+    assert dm["co_the_cap_nhat"] is False
+    assert "gỡ kế hoạch" in dm["ly_do_khoa"]
+    with pytest.raises(LsxConflict):
+        lsx_svc.dong_bo_danh_muc(lsx_id=lsx.id, actor=admin)
+
+
+def _khai_vat_tu_cho_dau_viec(db, cd_be, rate, *, ma="VT-KEO", ct="sl_vao / 10000"):
+    """Xưởng khai định mức vật tư cho đầu việc của công đoạn — việc làm SAU khi lệnh đã bung."""
+    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+
+    muc = VatTuInAn(ma=ma, ten="Keo dán hộp", don_vi_gia="kg", don_gia=90_000, active=True)
+    db.add(muc)
+    db.flush()
+    dm_row = (db.query(CongDoanDauViec)
+              .filter_by(cong_doan_id=cd_be.id, piece_rate_id=rate.id).one())
+    db.add(CongDoanDauViecVatTu(cong_doan_dau_viec_id=dm_row.id, vat_tu_id=muc.id,
+                                thu_tu=0, cong_thuc_luong=ct))
+    db.commit()
+    return muc, dm_row
+
+
+def test_them_dinh_muc_vat_tu_sau_khi_bung_thi_bao_them_va_cap_nhat_them_dong(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Đúng tình huống 07/09/2026: xưởng khai định mức vật tư cho công đoạn SAU khi lệnh đã bung.
+    Bước lệnh không hay biết vì `lsx_cong_doan_vat_tu` chỉ được ghi lúc drawer gửi `vat_tus`."""
+    lsx, cd_be, rate = _lenh_da_ghim_dau_viec(db, orders, lsx_svc, admin, customer)
+    # Đọc THẲNG ORM chứ không qua `detail_dict`: một lần đọc lệnh làm nóng `_vat_tu_cache` của
+    # service, mà ngoài đời mỗi lần mở màn là một request ⇒ một service mới. Gọi ở đây là dựng ra
+    # một tình huống không có thật rồi bắt code chiều nó.
+    assert list(next(c for c in lsx.cong_doans if c.ten == "Dán hộp").vat_tus) == []
+    _khai_vat_tu_cho_dau_viec(db, cd_be, rate)
+
+    b = lsx_svc.detail_dict(lsx_svc.get(lsx.id))["danh_muc_doi"]["buocs"][0]
+    assert [x["ma"] for x in b["vat_tu_them"]] == ["VT-KEO"]
+    assert b["vat_tu_them"][0]["so_luong_cu"] is None
+
+    saved = lsx_svc.dong_bo_danh_muc(lsx_id=lsx.id, actor=admin)
+    [dong] = _buoc_dm(lsx_svc, saved)["vat_tus"]
+    assert dong["vat_tu_ma"] == "VT-KEO" and dong["so_luong"] > 0
+    assert lsx_svc.detail_dict(saved)["danh_muc_doi"] is None
+
+
+def test_dong_vat_tu_nguoi_khai_tay_khong_bi_so_danh_muc_de_len(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Người ta đã cố ý gõ đè số đó — lấy số danh mục ghi lên là xoá việc họ vừa làm."""
+    from app.models.lsx import LsxCongDoanVatTu
+
+    lsx, cd_be, rate = _lenh_da_ghim_dau_viec(db, orders, lsx_svc, admin, customer)
+    muc, _ = _khai_vat_tu_cho_dau_viec(db, cd_be, rate)
+    buoc = next(c for c in lsx.cong_doans if c.ten == "Dán hộp")
+    db.add(LsxCongDoanVatTu(
+        lsx_cong_doan_id=buoc.id, vat_tu_id=muc.id, vat_tu_ma_snapshot=muc.ma,
+        vat_tu_ten_snapshot=muc.ten, don_vi_snapshot="kg", so_luong=9.9, thu_tu=0, tu_dong=False,
+    ))
+    db.commit()
+
+    # Số tay khác số danh mục nhưng KHÔNG vào rổ lệch ⇒ băng cũng không hiện vì chuyện này.
+    dm = lsx_svc.detail_dict(lsx_svc.get(lsx.id))["danh_muc_doi"]
+    assert dm is None or dm["buocs"][0]["vat_tu_lech"] == []
+
+    lsx_svc.dong_bo_danh_muc(lsx_id=lsx.id, actor=admin)
+    [dong] = _buoc_dm(lsx_svc, lsx_svc.get(lsx.id))["vat_tus"]
+    assert dong["so_luong"] == 9.9, "số người khai phải nguyên vẹn"
+
+
+def test_go_dinh_muc_vat_tu_o_danh_muc_thi_chi_bao_khong_xoa_dong(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Dòng ấy vẫn tính vào nhu cầu vật tư — máy đoán sai là mất một dòng vật tư thật, nên bỏ hay
+    giữ là quyết định của người lập kế hoạch."""
+    from app.models.cong_doan import CongDoanDauViecVatTu
+
+    lsx, cd_be, rate = _lenh_da_ghim_dau_viec(db, orders, lsx_svc, admin, customer)
+    _, dm_row = _khai_vat_tu_cho_dau_viec(db, cd_be, rate)
+    lsx_svc.dong_bo_danh_muc(lsx_id=lsx.id, actor=admin)          # bước đã có dòng keo
+
+    # Xưởng xoá ô "Công thức định mức" ⇒ danh mục không bung món này nữa.
+    db.query(CongDoanDauViecVatTu).filter_by(cong_doan_dau_viec_id=dm_row.id).delete()
+    db.commit()
+
+    b = lsx_svc.detail_dict(lsx_svc.get(lsx.id))["danh_muc_doi"]["buocs"][0]
+    assert [x["ma"] for x in b["vat_tu_bo"]] == ["VT-KEO"]
+
+    lsx_svc.dong_bo_danh_muc(lsx_id=lsx.id, actor=admin)
+    assert [x["vat_tu_ma"] for x in _buoc_dm(lsx_svc, lsx_svc.get(lsx.id))["vat_tus"]] == ["VT-KEO"]
+
+
+def test_go_may_khoi_cong_doan_thi_bao_may_dang_gan_khong_con_thuoc(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Công thức giờ chạy của cặp (công đoạn × máy) đọc SỐNG lúc tính thời lượng nên không trôi
+    được. Thứ DUY NHẤT trôi là danh sách máy — bước vẫn ôm `may_id` đã bị gỡ."""
+    from app.models.cong_doan import CongDoanMay
+
+    lsx, cd_be, _ = _lenh_da_ghim_dau_viec(db, orders, lsx_svc, admin, customer)
+    may = db.query(MayThietBi).filter(MayThietBi.ma == "MAY-IN-T").one()
+    # Công đoạn CHỈ khai một máy khác ⇒ máy đang gán ở bước rơi ra ngoài danh sách.
+    db.add(CongDoanMay(cong_doan_id=cd_be.id, may_id=may.id + 999))
+    buoc = next(c for c in lsx.cong_doans if c.ten == "Dán hộp")
+    buoc.may_id = may.id
+    db.commit()
+
+    b = lsx_svc.detail_dict(lsx_svc.get(lsx.id))["danh_muc_doi"]["buocs"][0]
+    assert "không còn nằm trong danh sách máy" in b["may_canh_bao"]
+
+
+def test_dong_vat_tu_cua_buoc_mang_hang_loai_va_cho_trung_id_khac_loai(db):
+    """Giấy #7 và Vật tư #7 là HAI món khác nhau — unique key phải gồm cả `hang_loai`."""
+    from app.models.lsx import LsxCongDoanVatTu
+
+    cols = {c.name for c in LsxCongDoanVatTu.__table__.columns}
+    assert "hang_loai" in cols
+    uq = next(c for c in LsxCongDoanVatTu.__table__.constraints
+              if getattr(c, "name", "") == "uq_lsx_buoc_vat_tu")
+    assert [c.name for c in uq.columns] == ["lsx_cong_doan_id", "hang_loai", "vat_tu_id"]
+
+
+@pytest.fixture()
+def lenh_giay(db):
+    """Lệnh tối thiểu: 1 bước in, quy cách đủ khổ nguyên + định lượng + số tờ nguyên.
+
+    Không seed công đoạn/đầu việc: ca đang kiểm là giấy CHỌN TAY, thứ không đi qua đầu việc nào.
+    """
+    from app.models.lsx import TT_SAN_SANG, Lsx, LsxCongDoan
+    from app.models.order import Order, OrderLine
+
+    c = db.query(Customer).first() or Customer(code="KH-GIAY", name="KH Giấy")
+    db.add(c)
+    db.flush()
+    o = Order(order_no="DH-GIAY", customer_id=c.id)
+    db.add(o)
+    db.flush()
+    ln = OrderLine(order_id=o.id, description="hộp giấy", qty=2000)
+    db.add(ln)
+    db.flush()
+
+    l = Lsx(ma="LSX-GIAY", ten="LSX-GIAY", order_id=o.id, order_line_id=ln.id,
+            so_luong_dat=2000, so_to_nguyen=553, so_con=9,
+            trang_thai=TT_SAN_SANG,
+            quy_cach_json={"kho_nguyen_dai": 860, "kho_nguyen_rong": 650, "gsm": 300})
+    db.add(l)
+    db.flush()
+    b = LsxCongDoan(lsx_id=l.id, thu_tu=1, ten="In offset", loai_buoc="may",
+                    don_vi_vao="to_nguyen", don_vi_ra="to",
+                    so_luong_vao=553, so_luong_ra=553)
+    db.add(b)
+    db.commit()
+    return l, b
+
+
+def test_goi_y_luong_co_ca_GIAY_va_ra_kg_bang_cong_thuc_cua_chinh_loai_giay(db, lsx_svc, lenh_giay):
+    """Giấy chọn tay ở bước ⇒ lượng suy bằng `giay_nguyen.cong_thuc_luong`, ra ĐƠN VỊ GỐC (kg).
+
+    Không có đầu việc nào khai giấy — đó chính là ca thật: giấy tuỳ từng đơn, không khai trước ở
+    danh mục công đoạn được. Nên nguồn công thức phải là CHÍNH MÓN GIẤY, khác hẳn mực.
+    """
+    from app.services.bien_cong_thuc import quy_cach_bien
+
+    lsx, buoc = lenh_giay
+    g = GiayNguyen(
+        ma="GY-C300", ten="Giấy C300", gsm=300, kho_dai=860, kho_rong=650, don_vi_gia="kg",
+        cong_thuc_luong="dinh_luong * dai_nguyen * rong_nguyen * to_nguyen",
+    )
+    db.add(g)
+    db.commit()
+
+    goi_y = lsx_svc._goi_y_luong_vat_tu(buoc, quy_cach_bien(lsx))
+    dong = next(x for x in goi_y if x["hang_loai"] == "giay" and x["vat_tu_id"] == g.id)
+
+    # 0,3 kg/m² × 0,86 m × 0,65 m × 553 tờ nguyên = 92,73 kg
+    assert dong["so_luong"] == pytest.approx(92.73, abs=0.01)
+    assert dong["ly_do"] is None
+
+
+def test_goi_y_GIAY_chua_khai_cong_thuc_thi_chi_thang_danh_muc_GIAY_khong_chi_dau_viec(
+    db, lsx_svc, lenh_giay,
+):
+    """Câu lý do phải chỉ đúng ô người dùng cần mở — giấy khai ở danh mục Giấy, không ở đầu việc."""
+    from app.services.bien_cong_thuc import quy_cach_bien
+
+    lsx, buoc = lenh_giay
+    g = GiayNguyen(ma="GY-TRONG", ten="Giấy chưa khai", gsm=300, kho_dai=860, kho_rong=650,
+                   don_vi_gia="kg")
+    db.add(g)
+    db.commit()
+
+    dong = next(x for x in lsx_svc._goi_y_luong_vat_tu(buoc, quy_cach_bien(lsx))
+                if x["hang_loai"] == "giay" and x["vat_tu_id"] == g.id)
+    assert dong["so_luong"] is None
+    assert "danh mục Giấy" in dong["ly_do"]
+    assert "Đầu việc" not in dong["ly_do"]

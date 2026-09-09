@@ -397,6 +397,10 @@ def test_vat_tu_khong_lan_sang_lenh_khac(client, seed_credentials, sess, lenh_th
     vẫn ra dòng của lệnh khác). Không chiếu lại về đúng lệnh thì hồ sơ bày vật tư của lệnh hàng
     xóm, và bày một cách rất tự tin.
     """
+    # Khai TAY một món lên bước để có tiền đề. Từ 08/09/2026 lệnh không còn tự đẻ dòng giấy từ
+    # `quy_cach_json` nữa — mọi thứ trong khối vật tư đều tới từ dòng của bước.
+    _khai_vat_tu_buoc(sess, _buoc_cua(sess, lenh_that)[-1],
+                      _vat_tu_moi(sess, ma="VT-HS-LAN", ten="Keo dán"), 30)
     ma_lenh = sess.get(Lsx, lenh_that).ma
     v = _ho_so(client, seed_credentials, lenh_that)["vat_tu"]
     moi_dong = v["hien_tai"]["dong"] + v["canh_bao_sau"] + v["da_cap"]

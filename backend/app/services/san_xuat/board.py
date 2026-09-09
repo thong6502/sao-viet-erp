@@ -741,6 +741,9 @@ def chi_tiet_cong_viec(
                 "q_tra_luong": float(h.q_tra_luong or 0),
                 "don_vi_tra_luong": h.don_vi_tra_luong,
                 "don_gia": float(h.don_gia or 0),
+                # Số trên là đơn giá HIỆU DỤNG gộp từ công thức tiền công, hay đơn giá thẳng của
+                # đầu việc? Đọc dấu ngay ở ảnh chụp của công việc — xem `phan_bo._don_gia_don_vi`.
+                "don_gia_tu_cong_thuc": bool((cv.khoan_json or {}).get("don_gia_hd")),
                 "q_ban_dia": float(h.q_ban_dia) if h.q_ban_dia is not None else None,
                 "don_vi_ban_dia": h.don_vi_ban_dia,
                 "tong_ty_le_ho_tro": float(h.tong_ty_le_ho_tro or 0),

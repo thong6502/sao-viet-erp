@@ -1942,10 +1942,49 @@ select.rc-input:focus {
   background: color-mix(in srgb, #2b6cb0 6%, #fff);
   border-bottom: 2px solid color-mix(in srgb, #2b6cb0 40%, transparent);
 }
+/* NĂNG LỰC MÁY (tốc độ · canh máy) trong bảng "Máy chạy được công đoạn này" — tông TRUNG TÍNH,
+   cố ý khác hẳn dải cam "Năng suất khoán" và dải xanh "Kíp chuẩn" của bảng đầu việc: hai dải kia
+   là số khai TẠI drawer này, dải này kế thừa từ danh mục Thiết bị & Máy móc và chỉ đọc. Cùng lối
+   nói của `.rc-dinh-muc-unit` bên dưới — mực nhạt để ô không trông như chỗ chờ điền. */
+.rc-dinh-muc-table .rc-group--may {
+  background: color-mix(in srgb, var(--ash, #8a8676) 9%, #fff);
+  border-bottom: 2px solid color-mix(in srgb, var(--ash, #8a8676) 38%, transparent);
+}
+/* ĐƠN GIÁ KHOÁN (đơn vị tính · đơn giá) trong bảng "Đầu việc và định mức của tổ" — cùng tông xám
+   trung tính với `.rc-group--may` ở trên và vì đúng một lý do: hai cột này KẾ THỪA từ danh mục
+   Công việc khoán, chỉ đọc. Dải cam/xanh dành riêng cho số khai tại chính drawer này. */
+.rc-dinh-muc-table .rc-group--dg {
+  background: color-mix(in srgb, var(--ash, #8a8676) 9%, #fff);
+  border-bottom: 2px solid color-mix(in srgb, var(--ash, #8a8676) 38%, transparent);
+}
 .rc-dinh-muc-table .rc-col--left { text-align: left; vertical-align: middle; }
 .rc-dinh-muc-table .rc-col--num { text-align: right; width: 72px; min-width: 68px; vertical-align: middle; }
+/* Đơn giá là tiền: rộng hơn cột số thường để "1.250.000 đ" không đẩy bảng ra. */
+.rc-dinh-muc-table .rc-col--dg { text-align: right; width: 104px; min-width: 96px; vertical-align: middle; }
 .rc-dinh-muc-table .rc-col--unit { text-align: center; width: 125px; min-width: 125px; vertical-align: middle; }
+/* Đơn vị của máy ngắn ("tờ/h"), không phải cột chọn như bên Năng suất khoán ⇒ 125px là thừa. */
+.rc-dinh-muc-table .rc-col--unit-hep { width: 78px; min-width: 78px; }
 .rc-dinh-muc-table .rc-col--center { text-align: center; vertical-align: middle; }
+/* `tabular-nums`: chữ số cùng bề ngang thì ba cột tốc độ xếp thẳng hàng đơn vị–chục–trăm, so
+   dọc giữa các máy mới ăn tiền. Mực nhạt = chỉ đọc. */
+.rc-dinh-muc-table .rc-may-nl {
+  color: var(--ash, #8a8676);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 6px 8px;
+}
+/* Trung bình đậm hơn hai mốc biên vì nó là số hệ THẬT SỰ chia để ra thời lượng bước
+   (`lsx_service._thoi_luong` / `xep_lich_service`); min–max chỉ dựng khoảng nhanh–chậm. */
+.rc-dinh-muc-table .rc-may-nl--tb { color: var(--ink, #14130f); font-weight: 600; }
+/* Bốn cột số cộng thêm ~400px: cho khung cuộn ngang (wrapper đã `overflow-x: auto`) thay vì bóp
+   hai ô công thức xuống còn vài ký tự. */
+.rc-dinh-muc-table--may { min-width: 1120px; }
+.rc-dinh-muc-table--may-gia { min-width: 1280px; }
+.rc-dinh-muc-note {
+  font-size: 11.5px;
+  color: var(--ash, #8a8676);
+  padding: 0 2px;
+}
 
 .rc-dinh-muc-name {
   font-weight: 500;
@@ -2019,6 +2058,92 @@ select.rc-input:focus {
   background: var(--rust, #c5400a);
   border-color: var(--rust, #c5400a);
 }
+/* Ô công thức trong bảng = NÚT mở đúng ô đó (07/09/2026). Trước đó chỉ bấm được cái pill
+   ở cột đầu, nên bấm ô "Cách tính giá" của dòng 3 không có gì xảy ra: panel của dòng mở trước
+   vẫn nằm đó và trông như hệ bay ra công thức của nhầm dòng. Viền chỉ hiện lúc rê/mở để bảng
+   đứng yên khi chỉ đọc. */
+.rc-ct-cell {
+  font: inherit;
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--ink-soft, #6b6455);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-ct-cell:hover {
+  background: color-mix(in srgb, var(--rust, #c5400a) 8%, #fff);
+  border-color: color-mix(in srgb, var(--rust, #c5400a) 22%, transparent);
+  color: var(--ink, #14130f);
+}
+.rc-ct-cell.is-open {
+  background: color-mix(in srgb, var(--rust, #c5400a) 12%, #fff);
+  border-color: var(--rust, #c5400a);
+  color: var(--ink, #14130f);
+}
+.rc-ct-cell.is-empty {
+  color: var(--ash, #7c766a);
+}
+
+/* Panel công thức NỔI, neo vào ô vừa bấm (07/09/2026 — xem `fields/FormulaPopover.tsx`). Toạ độ
+   do JS đặt (`position: fixed` + left/top/width), ở đây chỉ lo mặt mũi. Nằm trên drawer nên
+   z-index phải cao hơn lớp drawer; `--shadow-lg` để tách khỏi bảng phía dưới. */
+.rc-ct-pop {
+  z-index: 120;
+  /* `max-height` do JS đặt inline theo chỗ trống thật quanh ô; dòng này chỉ là trần chung. */
+  max-height: min(78vh, 640px);
+  /* Cột: chỉ RUỘT cuộn, chân đứng yên — cuộn tới cuối danh sách biến mà mất luôn nút "Xong" thì
+     đúng lúc cần nó nhất lại không thấy. */
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  background: var(--canvas, #fff);
+  border: 1px solid var(--rule, #e3ddd2);
+  border-left: 3px solid var(--rust, #c5400a);
+  border-radius: var(--r-6, 8px);
+  box-shadow: var(--shadow-lg, 0 18px 40px rgba(20, 19, 15, 0.18));
+  animation: rc-ct-pop-in 0.14s var(--easing-standard, ease-out);
+}
+/* KHÔNG có thanh tiêu đề riêng: tên ô và nút ✕ đã nằm trên hàng đầu của chính ô công thức
+   (`rc-formula__editor-header`). Thêm một băng nữa ở đây là hai dải xám chồng nhau. */
+.rc-ct-pop__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.rc-ct-pop__foot {
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  padding-top: 8px;
+}
+.rc-ct-pop__ok {
+  padding: 6px 20px;
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--rust, #c5400a);
+  border-radius: 6px;
+  background: var(--rust, #c5400a);
+  color: #fff;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.rc-ct-pop__ok:hover { filter: brightness(1.1); }
+.rc-ct-pop__ok:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+@keyframes rc-ct-pop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) { .rc-ct-pop { animation: none; } }
+
 .rc-dm-vt__row td {
   padding: 0 !important;
   background: var(--paper, #faf8f5);
@@ -2481,13 +2606,17 @@ select.rc-input:focus {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* `flex-start` + nhãn `margin-right: auto`: hàng này có lúc 2 nút (trong popup nổi có thêm ✕),
+     `space-between` sẽ rải chúng ra hai đầu thay vì dồn cụm về phải. */
+  justify-content: flex-start;
+  gap: 6px;
   background: #f8fafc;
   padding: 8px 12px;
   border-bottom: 1px solid #e2e8f0;
   border-radius: 9px 9px 0 0;
 }
 .rc-formula__editor-label {
+  margin-right: auto;
   font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: 700;
@@ -2535,6 +2664,31 @@ select.rc-input:focus {
   outline-offset: 1px;
 }
 .rc-formula__syntax-btn svg { opacity: 0.9; }
+/* ✕ của popup nổi — cùng hàng, cùng cỡ với "Cú pháp" nhưng vuông và không viền lúc nghỉ, để nó
+   đọc ra là "đóng" chứ không phải một nút chức năng thứ hai. */
+.rc-formula__close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: #64748b;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.rc-formula__close-btn:hover {
+  color: #fff;
+  background: color-mix(in srgb, var(--rust) 34%, transparent);
+  border-color: var(--rust);
+}
+.rc-formula__close-btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
 
 /* Popover tra cứu cú pháp — thẻ sáng on-brand, neo dưới nút */
 .rc-syntax {

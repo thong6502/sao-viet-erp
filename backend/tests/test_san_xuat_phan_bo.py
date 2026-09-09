@@ -26,6 +26,7 @@ from app.models.san_xuat_ly_do import (
     NHOM_TAM_DUNG,
     SanXuatLyDo,
 )
+from app.models.san_xuat_phan_bo import SanXuatPhanBo
 from app.models.san_xuat_san_luong import SanXuatBanGiao, SanXuatBatch
 from app.models.san_xuat_thuc_thi import SanXuatKhoangThamGia
 from app.models.user import User
@@ -323,6 +324,58 @@ def test_chot_roi_feed_luong(db, orders, lsx_svc, admin, customer):
     assert rows and all(x.tinh_khoan for x in rows)
     assert abs(sum(x.quantity for x in rows) - 100.0) < 1e-6           # feed đúng tổng Q
     assert all(abs(x.unit_price - 10.0) < 1e-9 for x in rows)          # đơn giá ẢNH CHỤP
+
+
+def test_cong_thuc_ra_tien_thi_luong_an_don_gia_hieu_dung(db, orders, lsx_svc, admin, customer):
+    """⭐ Bước khai ô tiền công bằng CÔNG THỨC RA TIỀN ⇒ lương nhân `don_gia_hd`, KHÔNG nhân `don_gia`.
+
+    `don_gia` gốc (40 đ/nhịp) chỉ còn là một số liệu BÊN TRONG công thức người ta viết; nhân nó với
+    sản lượng ở tầng này là bỏ qua cả công thức — đúng thứ chủ cấm ngày 08/09/2026. Ảnh chụp mang
+    theo `don_gia_hd` (đóng băng lúc phát hành, xem `snapshot._DonGiaHieuDung`) và tầng lương phải
+    ăn số đó.
+    """
+    to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-HD")
+    cv.khoan_json = {
+        "don_gia": 40, "don_vi": "nhịp",
+        "cong_thuc": "50000 + don_gia_khoan * sl_ra", "don_gia_hd": 620.0,
+    }
+    db.commit()
+    e = _emp(db, to, "NV-PB-HD")
+    _cham_cong(db, e)
+    db.commit()
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    db.commit()
+
+    kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
+    phan_bo.chot_phan_bo(db, user=admin, phan_bo_id=kq["phan_bo_id"])
+
+    rows = ProductionOutputRepository(db).list_nguoi_by_period(2026, 8)
+    assert rows
+    assert all(abs(x.unit_price - 620.0) < 1e-9 for x in rows)
+    # 100 tờ × 620 đ — không phải 100 × 40; tổng đúng bằng tiền công thức của phần sản lượng này.
+    assert abs(sum(x.unit_price * x.quantity for x in rows) - 62000.0) < 1e-6
+
+
+def test_don_gia_hieu_dung_keo_theo_NHAN_don_vi_ra_cua_buoc(db, orders, lsx_svc, admin, customer):
+    """Nhãn đơn vị trả lương đi THEO đơn giá đang dùng: `don_gia_hd` tính trên đơn vị RA của bước.
+
+    Giữ nhãn `nhịp` của đầu việc trong khi số lại đếm theo `tờ` là dán sai đơn vị lên tiền — tổ
+    trưởng đối chiếu phiếu sẽ không hiểu vì sao 620 đ/nhịp mà nhân với số tờ.
+    """
+    to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-DV")
+    cv.khoan_json = {"don_gia": 40, "don_vi": "nhịp",
+                     "cong_thuc": "50000 + don_gia_khoan * sl_ra", "don_gia_hd": 620.0}
+    db.commit()
+    e = _emp(db, to, "NV-PB-DV")
+    _cham_cong(db, e)
+    db.commit()
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    db.commit()
+
+    kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
+    header = db.get(SanXuatPhanBo, kq["phan_bo_id"])
+    assert header.don_vi_tra_luong == "tờ"
+    assert float(header.don_gia) == pytest.approx(620.0)
 
 
 # --- §7.3 Thiếu chấm công + loại trừ khỏi lương batch ---------------------------------------

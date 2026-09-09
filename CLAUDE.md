@@ -13,7 +13,10 @@ progress.md ĐÃ CŨ (dừng ở RBAC) — ĐỪNG tin nó để biết trạng 
   - **prod**: PostgreSQL 16 trên VPS.
   - **test**: `sqlite:///:memory:`, ép ở `backend/tests/conftest.py` TRƯỚC mọi import `app.*`.
     Fixture `db` chạy `drop_all` + `create_all` mỗi test — nhờ dòng ép đó nó không đụng DB thật.
-  - `SEED_DEMO=true` trong `.env` ⇒ mỗi lần uvicorn khởi động là seeder ghi dữ liệu demo vào DB dev.
+  - `SEED_DEMO` trong `.env` ⇒ mỗi lần uvicorn khởi động là seeder ghi dữ liệu demo vào DB dev:
+    dựng lại tổ đã xoá, kéo người sang tổ khác, đẻ hồ sơ trùng tên. **ĐANG TẮT (`false`) từ
+    08/09/2026 và ĐỪNG bật lại trên DB dev đang có dữ liệu** — dữ liệu nhập/sửa tay sẽ bị đè.
+    Chỉ bật khi trỏ vào DB TRẮNG (worktree mới, browser-validate).
 
 ## Xác minh — LỆNH DUY NHẤT
 

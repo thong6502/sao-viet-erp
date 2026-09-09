@@ -30,12 +30,79 @@ def _num(x) -> float | None:
     return None if x is None else float(x)
 
 
+class _DonGiaHieuDung:
+    """Tra `đơn giá hiệu dụng` của các bước trong gói phát hành — dựng service TRỄ, cache theo lệnh.
+
+    Chỉ những bước có ô tiền công RA THẲNG TIỀN (gọi chip `don_gia_khoan`) mới cần tới: công thức
+    của chúng ra tổng tiền của bước, mà tầng trả lương thì nhân `đơn giá × phần sản lượng của từng
+    người`, nên phải quy về một đơn giá trên đơn vị TRƯỚC khi đóng băng vào công việc. Xem
+    `LsxService.don_gia_hieu_dung`.
+
+    Vì sao chốt Ở ĐÂY chứ không lúc chọn đầu việc: công thức ăn `sl_vao`/`sl_ra` của bước, mà hai
+    số ấy còn đổi suốt lúc lập kế hoạch. Phát hành là ĐÚNG khoảnh khắc kế hoạch đóng băng, cũng là
+    lúc mọi ảnh chụp khác của công việc được chụp — chốt sớm hơn thì số ghim lệch với số bước đang
+    hiện trên màn.
+
+    Dựng trễ + cache: gói không có bước nào ra tiền (đại đa số) thì không đụng tới `LsxService`
+    hay `BaiGhepService` lần nào; có thì mỗi lệnh / mỗi bài chỉ dựng quy cách MỘT lần.
+    """
+
+    def __init__(self, db) -> None:
+        self.db = db
+        self._svc = None
+        self._qc_lsx: dict[int, dict] = {}
+        self._qc_bai: dict[int, dict] = {}
+
+    def _lsx_svc(self):
+        if self._svc is None:
+            from ...repositories.lsx_repo import LsxRepository
+            from ..lsx_service import LsxService
+
+            # `audit`/`sequence` = None: hàm dùng ở đây chỉ ĐỌC và tính, không ghi vết nào —
+            # cùng cách `ke_hoach_vat_tu_service` dựng service chỉ để hỏi số.
+            self._svc = LsxService(self.db, LsxRepository(self.db), None, None)
+        return self._svc
+
+    def _quy_cach_lsx(self, lsx_id: int) -> dict:
+        if lsx_id not in self._qc_lsx:
+            from ...models.lsx import Lsx
+            from ..bien_cong_thuc import quy_cach_bien
+
+            lsx = self.db.get(Lsx, lsx_id)
+            self._qc_lsx[lsx_id] = quy_cach_bien(lsx) if lsx is not None else {}
+        return self._qc_lsx[lsx_id]
+
+    def _quy_cach_bai(self, bg_id: int) -> dict:
+        if bg_id not in self._qc_bai:
+            from ...models.bai_ghep import BaiGhep
+            from ...repositories.bai_ghep_repo import BaiGhepRepository
+            from ..bai_ghep_service import BaiGhepService
+
+            bg = self.db.get(BaiGhep, bg_id)
+            svc = BaiGhepService(self.db, BaiGhepRepository(self.db), None, None)
+            self._qc_bai[bg_id] = svc.quy_cach_bien_cua_bai(bg) if bg is not None else {}
+        return self._qc_bai[bg_id]
+
+    def khoan_json(self, cd, *, lsx_id: int | None = None, bai_ghep_id: int | None = None):
+        """`khoan_json` đem ghim vào công việc = ảnh chụp của bước, GẮN THÊM `don_gia_hd` nếu có.
+
+        Khoá mới nằm CẠNH `don_gia` chứ không đè lên: `don_gia` vẫn là đơn giá gốc của đầu việc để
+        đọc lại ảnh chụp và đối chiếu nhật ký, `don_gia_hd` mới là số tầng lương nhân. Đè lên thì
+        không còn cách nào biết bước này ăn công thức hay ăn đơn giá thẳng.
+        """
+        kh = getattr(cd, "khoan_json", None)
+        if not kh:
+            return kh
+        qc = (self._quy_cach_bai(bai_ghep_id) if bai_ghep_id
+              else self._quy_cach_lsx(lsx_id) if lsx_id else {})
+        dg = self._lsx_svc().don_gia_hieu_dung(cd, qc)
+        return kh if dg is None else {**kh, "don_gia_hd": round(dg, 4)}
+
+
 def _dinh_muc(cd) -> dict:
     """Ảnh định mức nhân lực + thời gian của một bước (LSX hoặc bài ghép — cùng hình dạng)."""
     return {
         "so_nhan_cong_tieu_chuan": getattr(cd, "so_nhan_cong_tieu_chuan", None),
-        "so_nhan_cong_toi_da": getattr(cd, "so_nhan_cong_toi_da", None),
-        "so_nhan_cong_toi_thieu": getattr(cd, "so_nhan_cong_toi_thieu", None),
         "setup_phut": _num(getattr(cd, "setup_phut", None)),
         "nang_suat": _num(getattr(cd, "nang_suat", None)),
         "don_vi_nang_suat": getattr(cd, "don_vi_nang_suat", None),
@@ -133,24 +200,33 @@ def _ten_phan_doan(ten: str | None, phan_doan_so: int, phan_doan_tong: int) -> s
     return goc[: 255 - len(hau_to)] + hau_to
 
 
-def _checklist(cd, tieu_chi_theo_cd: dict[int, list], la_kcs: bool) -> list[dict] | None:
-    """Ghép checklist danh mục (theo cong_doan_id của bước) + bổ sung riêng của bước, đúng thứ tự.
-    None nếu bước không phải KCS — `la_kcs` đã được tính sẵn ở `dung_cong_viec` (suy tự động, xem
-    đó), không đọc cột nào ở đây."""
-    if not la_kcs:
+def _checklist(cd, tieu_chi_theo_cd: dict[int, list]) -> list[dict] | None:
+    """Checklist KCS của bước — lấy từ danh mục theo `cong_doan_id`, KHÔNG gate theo `la_kcs`.
+
+    08/09/2026 (`docs/design-kcs-theo-cong-doan.md`): KCS đổi sang ba tầng Giai đoạn → Công đoạn →
+    Checklist, nên MỌI công đoạn có tiêu chí gắn vào đều là một điểm kiểm — không riêng bước cuối
+    routing. Gate cũ (`if not la_kcs: return None`) làm bàn KCS chỉ thấy đúng một bước cuối, đúng
+    thứ tờ ISO của xưởng KHÔNG làm: tờ đó kiểm ở cả khâu in lẫn từng công đoạn sau in.
+
+    `la_kcs` vẫn sống nhưng nói việc KHÁC — "thẻ việc này thuộc về tổ KCS" (và `la_kcs_cuoi` mở cửa
+    nhập kho thành phẩm). Đừng gộp hai khái niệm: bật `la_kcs` cho mọi công đoạn có checklist là ném
+    toàn bộ việc sản xuất lên bàn KCS.
+
+    TRẢ None (không phải `[]`) khi công đoạn không có tiêu chí nào: cột NULL chính là bộ lọc "thẻ
+    việc này có phải điểm kiểm không" mà bàn KCS truy vấn. Ghi `[]` là đẻ ra điểm kiểm rỗng.
+
+    Nguồn DUY NHẤT là danh mục — ô "Tiêu chí KCS bổ sung" của bước lệnh đã gỡ ở mg `0283`.
+    """
+    ds = tieu_chi_theo_cd.get(cd.cong_doan_id) if cd.cong_doan_id else None
+    if not ds:
         return None
-    out: list[dict] = []
-    for tc in tieu_chi_theo_cd.get(cd.cong_doan_id, []) if cd.cong_doan_id else []:
-        out.append({
+    return [
+        {
             "tieu_chi_id": tc.id, "ma": tc.ma, "ten": tc.ten, "huong_dan": tc.huong_dan,
             "bat_buoc": bool(tc.bat_buoc), "nguon": "danh_muc", "thu_tu": tc.thu_tu,
-        })
-    for i, bs in enumerate(getattr(cd, "kcs_tieu_chi_bo_sung_json", None) or []):
-        out.append({
-            "tieu_chi_id": None, "ma": None, "ten": bs.get("ten"), "huong_dan": bs.get("huong_dan"),
-            "bat_buoc": bool(bs.get("bat_buoc", True)), "nguon": "bo_sung_lsx", "thu_tu": 1000 + i,
-        })
-    return out
+        }
+        for tc in ds
+    ]
 
 
 def _cong_viec_theo_phan_doan(
@@ -161,6 +237,7 @@ def _cong_viec_theo_phan_doan(
     tieu_chi_theo_cd: dict[int, list],
     la_kcs: bool,
     chung: dict,
+    khoan_json: dict | None,
 ) -> list[SanXuatCongViec]:
     """Đẻ MỘT công việc cho MỖI phân đoạn lịch của một bước; trả danh sách theo `phan_doan_so`.
 
@@ -196,14 +273,14 @@ def _cong_viec_theo_phan_doan(
             don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra, he_so_quy_doi=cd.he_so_quy_doi,
             # Định mức/khoán/vật tư KHÔNG chia theo phân đoạn: chúng là ĐỊNH MỨC (trên một đơn vị
             # / trên một lượt), chia nữa là chia hai lần. Sản lượng đã mang phần của phân đoạn.
-            dinh_muc_json=_dinh_muc(cd), khoan_json=cd.khoan_json, vat_tu_json=_vat_tu(cd),
+            dinh_muc_json=_dinh_muc(cd), khoan_json=khoan_json, vat_tu_json=_vat_tu(cd),
             # Nhà gia công + con dao: chụp CÙNG LÚC với vật tư, cùng một lý do — bàn tổ và các màn
             # theo dõi phải tự đứng được, không tra ngược lệnh (lệnh còn sửa được sau khi phát).
             nha_cung_cap=getattr(cd, "nha_cung_cap", None),
             khuon_json=_khuon(repo.db, cd),
             # Gọi lại `_checklist` cho TỪNG phân đoạn: mỗi dòng phải giữ bản JSON riêng, dùng
             # chung một list Python là sửa checklist của mẻ này lan sang mẻ kia.
-            kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd, la_kcs),
+            kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd),
             trang_thai=CV_PHAT_HANH,
         )
         repo.add(cv)
@@ -234,6 +311,7 @@ def dung_cong_viec(
     """
     cv_by_step: dict[str, list[SanXuatCongViec]] = {}
     tieu_chi_theo_cd = tieu_chi_theo_cd or {}
+    dg_hd = _DonGiaHieuDung(repo.db)
 
     # KCS kiêm nhiệm — suy TỰ ĐỘNG (không còn khai tay ở danh mục Công đoạn): một bước là KCS khi
     # nó là bước CUỐI CÙNG trong routing của một LSX VÀ tổ thực hiện có `Department.is_kcs=true`
@@ -268,6 +346,7 @@ def dung_cong_viec(
             cvs = _cong_viec_theo_phan_doan(
                 repo, lich=repo.lich_bg_step(cd.id), cd=cd,
                 tieu_chi_theo_cd=tieu_chi_theo_cd, la_kcs=la_kcs,
+                khoan_json=dg_hd.khoan_json(cd, bai_ghep_id=bg_id),
                 chung=dict(
                     goi_id=goi.id, phien_ban_so=phien_ban_so,
                     nhom_id=nhom_id, lsx_id=None, bai_ghep_id=bg_id,
@@ -289,6 +368,7 @@ def dung_cong_viec(
             cv_by_step[cd.step_key] = _cong_viec_theo_phan_doan(
                 repo, lich=repo.lich_lsx_step(cd.id), cd=cd,
                 tieu_chi_theo_cd=tieu_chi_theo_cd, la_kcs=la_kcs,
+                khoan_json=dg_hd.khoan_json(cd, lsx_id=lsx_id),
                 chung=dict(
                     goi_id=goi.id, phien_ban_so=phien_ban_so,
                     nhom_id=grp.id if grp else None, lsx_id=lsx_id, bai_ghep_id=None,
@@ -421,7 +501,7 @@ def dung_diem_toa(
             cvs = cv_by_step.get(cd.step_key)
             if not cvs or cvs[0].bai_ghep_id is None:
                 continue
-            if not tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, tram, nhom=cd.nhom):
+            if not tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, tram):
                 continue
             diem_toa_idx = i
         if diem_toa_idx is None:

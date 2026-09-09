@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, true as sa_true,
+    Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -243,18 +243,25 @@ class PhieuThanhPham(Base):
     # thời gian chờ dao.
     #
     # NULL = chưa chọn (phiếu cũ, hoặc người lập bỏ qua) → engine giữ nguyên lời nhắc như trước.
+    #
+    # Ô "Dự kiến có khuôn" đi kèm (`khuon_ngay_du_kien`) ĐÃ GỠ 06/09/2026, migration `0269`: nó chỉ
+    # là DỰ TRÙ, không nơi nào đọc — lệnh sản xuất lấy mốc thật từ `khuon_be.ngay_ve_du_kien` của
+    # chính con dao. Giữ lại chỉ tổ bắt sale khai một ngày rồi không ai dùng.
     khuon_nguon: Mapped[str | None] = mapped_column(String(10), nullable=True)  # co_san|lam_moi
-    # Ngày sale dự kiến có khuôn — chỉ có nghĩa với `khuon_nguon='lam_moi'`. Đây là DỰ TRÙ để kế
-    # hoạch liệu cơm gắp mắm, KHÔNG phải mốc ràng buộc lịch: mốc thật nằm ở `khuon_be`.
-    khuon_ngay_du_kien: Mapped[date | None] = mapped_column(Date, nullable=True)
-    # Kích thước/số lượng khung lụa dùng ở CHÍNH bước này — CHỈ có nghĩa khi bước dùng công đoạn
-    # `tooling_type = "khung_lua"`. BA Ô NÀY TÁCH BIỆT với `phi_khuon` ở trên: không dùng để tự
-    # tính phí, chỉ bơm vào công thức của công đoạn (chip `dai_khung_lua`/`rong_khung_lua`/
-    # `so_khung_lua`, xem `bien_cong_thuc.py`) để NGƯỜI DÙNG tự quy ra tiền theo công thức họ khai
-    # (vd đơn giá/m² × dài × rộng × số khung). 0 = chưa khai, công thức không dùng thì bỏ qua.
-    dai_khung_lua: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
-    rong_khung_lua: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
-    so_khung_lua: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Kích thước/số lượng KHUÔN dùng ở CHÍNH bước này — CHỈ có nghĩa khi bước dùng công đoạn
+    # `tooling_type = "khuon_ep"` (nhãn màn hình "Khuôn ép kim"). BA Ô NÀY TÁCH BIỆT với `phi_khuon` ở
+    # trên: không dùng để tự tính phí, chỉ bơm vào công thức của công đoạn (chip `dai_khuon`/
+    # `rong_khuon`/`so_khuon`, xem `bien_cong_thuc.py`) để NGƯỜI DÙNG tự quy ra tiền theo công thức
+    # họ khai (vd đơn giá/cm² × dài × rộng × số khuôn). 0 = chưa khai, công thức không dùng thì bỏ
+    # qua.
+    #
+    # ĐỔI CHỦ 06/09/2026: trước đây ba ô này mở cho bước `khung_lua` và mang tên `*_khung_lua`.
+    # Sai nghề: khung lụa xưởng trả một cục theo cái khung (ô `phi_khuon` ở trên là đủ), còn khuôn
+    # ép nhũ / dập nổi mới là thứ nhà làm khuôn báo giá theo DIỆN TÍCH khắc — đúng chỗ cần dài ×
+    # rộng × số con. Hai cơ chế đảo chỗ cho nhau, tên cột đổi theo (migration `0268`).
+    dai_khuon: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    rong_khuon: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    so_khuon: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

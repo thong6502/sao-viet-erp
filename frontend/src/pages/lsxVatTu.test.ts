@@ -2,6 +2,9 @@
 //
 // Số liệu lấy từ LSX26-0004 trên DB dev (sách 160 trang · 1.000 cuốn · 5 tay/cuốn · Ford 70 65×86),
 // gồm cả ca "màng cán bóng khai ở HAI bước" — chính là ca chứng minh khối tổng không thừa.
+//
+// [SỬA 08/09/2026] Panel không còn tự suy dòng giấy từ quy cách lệnh. Giấy vào bảng kê y hệt mọi
+// món khác: một dòng của BƯỚC, chỉ khác `hang_loai === "giay"`.
 import { describe, expect, it } from "vitest";
 import type { LsxCongDoan } from "../api/client";
 import { bangKeVatTu } from "./lsxVatTu";
@@ -22,13 +25,18 @@ function buoc(p: Partial<LsxCongDoan> = {}): LsxCongDoan {
 }
 
 function vt(id: number, ten: string, so_luong: number, don_vi = "kg"): VatTuDong {
-  return { id: id * 100, vat_tu_id: id, vat_tu_ma: `VT-${id}`, vat_tu_ten: ten,
-           don_vi, so_luong, tu_dong: false } as VatTuDong;
+  return { id: id * 100, hang_loai: "vat_tu", vat_tu_id: id, vat_tu_ma: `VT-${id}`,
+           vat_tu_ten: ten, don_vi, so_luong, tu_dong: false } as VatTuDong;
 }
 
-const QUY_CACH = { giay_id: 3, giay_ten: "Ford 70 65×86" };
+/** Dòng lấy từ DANH MỤC GIẤY — cùng bảng, cùng ô "Thêm vật tư", chỉ khác danh mục nguồn. */
+function giay(id: number, ten: string, so_luong: number, don_vi = "kg"): VatTuDong {
+  return { id: id * 100 + 1, hang_loai: "giay", vat_tu_id: id, vat_tu_ma: `GY-${id}`,
+           vat_tu_ten: ten, don_vi, so_luong, tu_dong: false } as VatTuDong;
+}
 
-/** Chuỗi 6 bước thật của LSX26-0004. Bước ghi kẽm đứng ĐẦU nhưng ngoài dòng giấy. */
+/** Chuỗi 6 bước thật của LSX26-0004. Bước ghi kẽm đứng ĐẦU nhưng ngoài dòng giấy, và người lập
+ *  lệnh khai giấy ở bước In — đúng bước ăn giấy thật. */
 function chuoiSach() {
   seq = 0;
   return [
@@ -37,7 +45,8 @@ function chuoiSach() {
     buoc({ ten: "In offset", khoan_ten: "In 2 màu", department_ten: "Tổ In offset",
            may_ten: "Máy 2 màu Mitsubishi 72×102",
            so_luong_vao: 5200, so_luong_ra: 5000,
-           vat_tus: [vt(6, "Màng cán bóng", 5200.07, "m2"), vt(2, "Mực pha Pantone", 1_000_000)] }),
+           vat_tus: [giay(3, "Ford 70 65×86", 436.02),
+                     vt(6, "Màng cán bóng", 5200.07, "m2"), vt(2, "Mực pha Pantone", 1_000_000)] }),
     buoc({ ten: "Gấp tay sách", khoan_ten: "Gấp tay sách máy",
            so_luong_vao: 5000, so_luong_ra: 5000, don_vi_ra: "tay" }),
     buoc({ ten: "Bắt tay + vào keo", khoan_ten: "Bắt tay + vào keo gáy vuông",
@@ -49,30 +58,35 @@ function chuoiSach() {
   ];
 }
 
-function ke(congDoans: LsxCongDoan[], quyCach: Record<string, unknown> | null = QUY_CACH) {
-  return bangKeVatTu({ congDoans, quyCach, soToNguyen: 5200, donViToNguyen: "to_nguyen" });
+function ke(congDoans: LsxCongDoan[]) {
+  return bangKeVatTu({ congDoans });
 }
 
 describe("bangKeVatTu", () => {
-  it("giấy treo vào bước ĐẦU TIÊN TRÊN DÒNG GIẤY, không phải bước đầu routing", () => {
-    // Ghi kẽm đứng trước nhưng đo `m² → bài` — nó không chạm tờ giấy nào. Treo giấy lên đó là chỉ
-    // sai bước tiêu thụ, mà bước tiêu thụ chính là thứ suy ra NGÀY CẦN giấy ở bảng cân đối.
+  it("giấy nằm ở ĐÚNG bước người ta khai, không bị máy treo sang bước khác", () => {
     const b = ke(chuoiSach()).buocs;
-    expect(b[0].dong).toHaveLength(0);
+    expect(b[0].dong).toHaveLength(0);      // ghi kẽm không khai gì thì trống, đừng nhét giấy vào
     const nvl = b[1].dong.filter((d) => d.nhom === "nvl");
     expect(nvl).toHaveLength(1);
     expect(nvl[0].ten).toBe("Ford 70 65×86");
-    expect(nvl[0].so_luong).toBe(5200);
+    expect(nvl[0].so_luong).toBe(436.02);
+    expect(nvl[0].chu_thich).toBe("NVL chính");
   });
 
-  it("mọi bước ngoài dòng giấy ⇒ KHÔNG treo giấy vào đâu cả, thà thiếu còn hơn sai bước", () => {
+  it("không bước nào khai giấy ⇒ bảng kê KHÔNG tự đẻ dòng NVL", () => {
     seq = 0;
-    const r = ke([buoc({ tren_dong_giay: false }), buoc({ tren_dong_giay: false })]);
+    const r = ke([buoc({ vat_tus: [vt(2, "Mực", 5)] }), buoc()]);
     expect(r.tong.filter((t) => t.nhom === "nvl")).toHaveLength(0);
   });
 
-  it("lệnh chưa chọn giấy ⇒ không đẻ dòng NVL rỗng", () => {
-    expect(ke(chuoiSach(), {}).tong.filter((t) => t.nhom === "nvl")).toHaveLength(0);
+  it("Giấy #7 và Vật tư #7 là HAI món — khoá gom phải mang cả danh mục", () => {
+    // Trùng id giữa hai danh mục là chuyện thường. Gom bằng id trần thì kg giấy cộng thẳng vào
+    // kg keo, ra một dòng vô nghĩa mà nhìn vẫn "có vẻ đúng".
+    seq = 0;
+    const r = ke([buoc({ vat_tus: [giay(7, "Ivory 350", 40), vt(7, "Keo dán", 3)] })]);
+    expect(r.tong).toHaveLength(2);
+    expect(r.tong.map((t) => t.khoa).sort()).toEqual(["giay:7", "vat_tu:7"]);
+    expect(r.tong.find((t) => t.nhom === "nvl")?.so_luong).toBe(40);
   });
 
   it("vật tư khai ở HAI bước thì khối tổng phải CỘNG lại", () => {

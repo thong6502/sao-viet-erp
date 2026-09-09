@@ -367,9 +367,12 @@ def render_pdf(
     #
     # Vẫn giữ STT vì đó là cách người ta gọi nhau qua tờ giấy ("dòng 12"), chỉ thôi để nó một mình
     # gánh nghĩa thứ tự thi công.
+    #
+    # Cột "Bắt buộc" GỠ 07/09/2026: bước đã có trong routing thì PHẢI làm (`bat_buoc` luôn TRUE,
+    # migration 0275), nên cột chỉ in chữ "Có" trên mọi dòng — mực chết trên tờ giấy thợ đọc.
     routing_rows = [[
         nhan("STT"), nhan("Lớp"), nhan("Công đoạn"), nhan("Nhóm"), nhan("Loại bước"),
-        nhan("SL vào"), nhan("SL ra"), nhan("ĐVT"), nhan("Tổ"), nhan("Bắt buộc"),
+        nhan("SL vào"), nhan("SL ra"), nhan("ĐVT"), nhan("Tổ"),
     ]]
     for i, node in enumerate(nodes, start=1):
         ma_dv = node.get("don_vi_ra") or node.get("don_vi_vao")
@@ -402,16 +405,15 @@ def render_pdf(
             gia_tri(_so(node.get("so_luong_ra"))),
             gia_tri(nhan_don_vi(bang_dv, ma_dv)),
             gia_tri(node.get("to")),
-            gia_tri("Có" if node.get("bat_buoc") else "Không"),
         ])
-    # Cộng đúng 176mm, khung nội dung rộng 180mm (xem `_LE_MM`). Chỗ nhường cho cột Lớp lấy từ
-    # Công đoạn (38→34) và Bắt buộc (18→14) — hai cột dư nhất: tên công đoạn tự xuống dòng trong
-    # `Paragraph`, còn ô Bắt buộc chỉ chứa "Có"/"Không".
+    # Cộng đúng 176mm, khung nội dung rộng 180mm (xem `_LE_MM`). 14mm của cột "Bắt buộc" vừa gỡ
+    # trả về hai cột từng bị bóp nhất: Công đoạn (34→42, tên dài tự xuống dòng trong `Paragraph`)
+    # và Tổ (24→30, tên tổ đầy đủ kiểu "Tổ Chế bản · Máy bế tự động Yawa").
     routing_table = Table(
         routing_rows,
         colWidths=[
-            9 * mm, 10 * mm, 34 * mm, 19 * mm, 26 * mm,
-            14 * mm, 14 * mm, 12 * mm, 24 * mm, 14 * mm,
+            9 * mm, 10 * mm, 42 * mm, 19 * mm, 26 * mm,
+            14 * mm, 14 * mm, 12 * mm, 30 * mm,
         ],
         repeatRows=1,
     )

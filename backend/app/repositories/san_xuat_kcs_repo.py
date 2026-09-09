@@ -63,6 +63,23 @@ class SanXuatKcsRepository:
             )
         )
 
+    def cac_kcs_batch_nhieu(
+        self, cong_viec_ids: set[int]
+    ) -> dict[int, list[SanXuatKcsBatch]]:
+        """{cong_viec_id: [batch]} cho CẢ bàn điểm kiểm trong MỘT truy vấn — bàn KCS theo công
+        đoạn có thể có hàng chục thẻ việc, gọi `cac_kcs_batch` theo từng dòng là N+1."""
+        if not cong_viec_ids:
+            return {}
+        rows = self.db.scalars(
+            select(SanXuatKcsBatch)
+            .where(SanXuatKcsBatch.cong_viec_id.in_(cong_viec_ids))
+            .order_by(SanXuatKcsBatch.bat_dau, SanXuatKcsBatch.id)
+        )
+        out: dict[int, list[SanXuatKcsBatch]] = {}
+        for b in rows:
+            out.setdefault(b.cong_viec_id, []).append(b)
+        return out
+
     def kcs_batch_theo_nhom(self, nhom_id: int) -> list[SanXuatKcsBatch]:
         """Mọi batch KCS của một nhóm thành phẩm — dùng cho nền nhập kho + đóng nhóm (§14, §16)."""
         return list(

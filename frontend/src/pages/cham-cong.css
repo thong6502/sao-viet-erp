@@ -1462,77 +1462,410 @@
   gap: var(--sp-2);
 }
 
-/* Shifts Cards */
-.cc-shift-card {
+/* ==========================================================================
+   Shifts Cards v3 — Tinh tế, thoáng đãng, không vỡ dòng (Flat Clean ERP)
+   ========================================================================== */
+.cc-shift-card-v3 {
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
-  border-left: 4px solid var(--moss);
   border-radius: var(--r-5);
-  padding: 16px var(--sp-4);
+  padding: 16px;
   box-shadow: var(--shadow-1);
   position: relative;
-  transition: all var(--duration-base) var(--easing-standard);
+  transition: transform var(--duration-base) var(--easing-standard),
+              box-shadow var(--duration-base) var(--easing-standard),
+              border-color var(--duration-base) var(--easing-standard);
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  gap: 12px;
 }
-.cc-shift-card:hover {
+.cc-shift-card-v3:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-3);
-  border-color: var(--ash-2);
+  border-color: var(--rule);
 }
-.cc-shift-card--overnight {
-  border-left-color: var(--plum);
+.cc-shift-card-v3.is-inactive {
+  opacity: 0.72;
+  background: var(--paper);
 }
-.cc-shift-card-header {
+.cc-shift-card-v3.is-inactive:hover {
+  opacity: 0.9;
+}
+
+/* Header v3: Icon 16px + Tên ca thoáng đãng + Badges + Trạng thái */
+.cc-shift-card-header-v3 {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2px;
-  padding-right: 48px; /* Chừa khoảng trống cho cụm nút sửa/xóa */
+  gap: 10px;
 }
-.cc-shift-name {
-  font-size: 15px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-}
-.cc-shift-card-actions {
+.cc-shift-header-main {
+  min-width: 0;
+  flex: 1;
   display: flex;
+  flex-direction: column;
   gap: 4px;
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  opacity: 0;
-  transition: opacity var(--duration-fast) ease;
 }
-.cc-shift-card:hover .cc-shift-card-actions {
-  opacity: 1;
+.cc-shift-title-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
-@media (hover: none) {
-  .cc-shift-card-actions {
-    opacity: 1;
-  }
-}
-.cc-shift-times {
+.cc-shift-icon-wrap {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: var(--rule-hair);
-  padding: 5px 12px;
-  border-radius: var(--r-4);
-  font-size: 14px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-  margin: var(--sp-3) 0 var(--sp-2.5);
-  font-family: var(--ff-sans);
-  border: 1px solid var(--rule-soft);
-  align-self: flex-start;
+  justify-content: center;
+  flex-shrink: 0;
 }
-.cc-shift-meta {
+.cc-shift-icon-wrap.is-day {
+  color: var(--amber-deep);
+}
+.cc-shift-icon-wrap.is-overnight {
+  color: var(--plum-deep);
+}
+.cc-shift-name-v3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-shift-meta-badges {
   display: flex;
+  align-items: center;
+  gap: 6px;
   flex-wrap: wrap;
+}
+.cc-shift-meta-code {
+  font-weight: 600;
+  color: inherit;
+}
+
+/* Status Pill */
+.cc-shift-status-wrap {
+  flex-shrink: 0;
+}
+.cc-shift-status-pill {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2.5px 8px;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.cc-shift-status-pill.is-active {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  border: 1px solid rgba(47, 93, 58, 0.2);
+}
+.cc-shift-status-pill.is-inactive {
+  background: var(--rule-hair);
+  color: var(--ash-2);
+  border: 1px solid var(--rule-soft);
+}
+.cc-shift-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.cc-shift-status-dot.is-active {
+  background: var(--moss);
+  box-shadow: 0 0 5px var(--moss);
+}
+.cc-shift-status-dot.is-inactive {
+  background: var(--ash-2);
+}
+
+/* Khung giờ: Không gãy dòng, thoáng đãng, bỏ hộp xám */
+.cc-shift-time-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: nowrap;
+  padding: 4px 0 2px;
+}
+.cc-shift-time-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cc-shift-clock-icon {
+  color: var(--ash-2);
+  flex-shrink: 0;
+}
+.cc-shift-time-range {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+.cc-shift-time-arrow {
+  color: var(--ash-2);
+  font-weight: 400;
+  margin: 0 1px;
+}
+.cc-shift-chip-overnight {
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 1.5px 6px;
+  border-radius: var(--r-pill);
+  background: var(--plum-soft);
+  color: var(--plum-deep);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cc-shift-hours-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  padding: 2.5px 8px;
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  white-space: nowrap;
+  border: 1px solid rgba(47, 93, 58, 0.18);
+  flex-shrink: 0;
+}
+
+/* Lịch trình & Kỷ luật: 2 cột phẳng, hairline dashed tinh tế */
+.cc-shift-schedule-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+  font-size: 12px;
+  color: var(--ash);
+  padding: 6px 0;
+  border-top: 1px dashed var(--rule-soft);
+  border-bottom: 1px dashed var(--rule-soft);
+}
+.cc-shift-schedule-col {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.cc-shift-schedule-col--right {
+  justify-content: flex-end;
+}
+.cc-shift-col-icon {
+  color: var(--ash-2);
+  flex-shrink: 0;
+}
+.cc-shift-col-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-shift-col-text.is-muted {
+  color: var(--ash-2);
+  opacity: 0.85;
+}
+
+/* Hàng đãi ngộ: Text tóm tắt tinh tế, không hộp xám */
+.cc-shift-perks {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: 11.5px;
+  color: var(--ash);
+  padding: 1px 0;
+}
+.cc-shift-perk {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.cc-shift-perk__lbl {
+  color: var(--ash-2);
+  font-size: 11px;
+}
+.cc-shift-perk__val {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+.cc-shift-perk--night .cc-shift-perk__val {
+  color: var(--plum-deep);
+}
+.cc-shift-perk__sep {
+  color: var(--rule);
+  font-weight: 700;
+  user-select: none;
+}
+
+/* Ghi chú thẻ ca */
+.cc-shift-note-v3 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--ash);
+  overflow: hidden;
+  background: var(--paper);
+  padding: 4px 8px;
+  border-radius: var(--r-2);
+}
+.cc-shift-note__icon {
+  color: var(--ash-2);
+  flex-shrink: 0;
+}
+.cc-shift-note__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Footer thẻ ca v3 */
+.cc-shift-card-foot-v3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule-soft);
+}
+.cc-shift-btn-edit {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--r-3);
+}
+.cc-shift-btn-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
-  margin-top: 4px;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: var(--r-3);
+  color: var(--signal);
+}
+.cc-shift-btn-del:hover {
+  background: var(--signal-soft);
+}
+
+/* Modal Xác nhận xóa ca làm việc chuẩn ERP */
+.cc-delete-shift-modal {
+  max-width: 460px;
+  width: 100%;
+}
+.cc-del-modal__head {
+  padding-bottom: var(--sp-3);
+}
+.cc-del-modal__title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cc-del-modal__icon-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-3);
+  background: var(--signal-soft);
+  color: var(--signal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cc-del-modal__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+.cc-del-modal__sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--ash);
+}
+.cc-del-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: var(--sp-3);
+}
+.cc-del-modal__target-info {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cc-del-modal__info-row {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+}
+.cc-del-modal__info-label {
+  color: var(--ash);
+  width: 85px;
+  flex-shrink: 0;
+  font-size: 12.5px;
+}
+.cc-del-modal__shift-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.cc-del-modal__warning-box {
+  background: var(--signal-soft);
+  border: 1px solid rgba(179, 38, 30, 0.2);
+  border-radius: var(--r-3);
+  padding: 10px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.cc-del-modal__warning-icon {
+  color: var(--signal);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.cc-del-modal__warning-text {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--signal-deep);
+}
+.cc-del-modal__warning-text strong {
+  color: var(--signal);
+}
+.cc-del-modal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
+}
+
+/* Helper định dạng số chuẩn tabular-nums */
+.cc-shift-num {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
 }
 .cc-badge-pill {
   font-size: 10px;
@@ -2759,31 +3092,33 @@
   transition: background var(--duration-fast);
 }
 .cc-day-hdr-v2-weekday {
-  font-size: 9px;
+  font-size: 10px;
   text-transform: uppercase;
-  color: var(--on-charcoal-muted);
+  color: var(--ash);
   font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
   margin-bottom: 2px;
   line-height: 1;
 }
 .cc-day-hdr-v2-num {
-  font-family: var(--ff-sans);
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
   font-size: 13.5px;
   font-weight: var(--fw-bold);
-  color: var(--on-charcoal);
+  color: var(--ink);
   line-height: 1.2;
 }
 
-/* Weekend specific styles in dark headers */
+/* Weekend specific styles in light calendar header */
 .cc-day-hdr-v2--weekend {
-  background: #2d1e1a !important; /* dark reddish brown */
-  border-right: 1px solid #3d2924 !important;
+  background: rgba(197, 64, 10, 0.05) !important;
+  border-right: 1px solid var(--rule-hair) !important;
 }
 .cc-day-hdr-v2--weekend .cc-day-hdr-v2-weekday {
-  color: #e8a38e !important; /* light rust */
+  color: var(--rust-deep) !important;
 }
 .cc-day-hdr-v2--weekend .cc-day-hdr-v2-num {
-  color: #f4e2d6 !important;
+  color: var(--rust) !important;
 }
 
 /* Weekend columns highlights inside grid table (Diagonal Stripe Pattern) */
@@ -5867,3 +6202,544 @@
     min-width: 0;
   }
 }
+
+
+/* ---- 07/09/2026 — phiếu TC đã duyệt mà chưa có cặp bấm + modal "Xác nhận TC theo phiếu" ---- */
+/* Chấm "!" vàng góc trái ô ngày: có phiếu tăng ca duyệt rồi mà không có cặp bấm ⇒ chốt là 0 phút. */
+.cc-cell-ot-dot--thieu {
+  background: var(--amber-deep);
+  left: -4px;
+  right: auto;
+}
+.cc-ot-thieu-list {
+  margin: 6px 0 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  max-height: 160px;
+  overflow: auto;
+}
+.cc-ot-thieu-list li {
+  margin: 2px 0;
+}
+.cc-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  font-weight: var(--fw-bold);
+}
+.cc-otc-toolbar {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-3);
+}
+.cc-otc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.cc-otc-table th,
+.cc-otc-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rule-soft);
+  text-align: left;
+  vertical-align: middle;
+}
+.cc-otc-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash);
+}
+.cc-otc-status {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--steel-soft);
+  white-space: nowrap;
+}
+.cc-otc-status--ok {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-weight: var(--fw-bold);
+}
+.cc-otc-punches {
+  font-family: var(--ff-num);
+  font-size: 12px;
+  color: var(--ash);
+  white-space: nowrap;
+}
+.cc-otc-summary {
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+.cc-otc-summary ul {
+  margin: 4px 0 0 0;
+  padding-left: 18px;
+}
+
+/* Ghi chú cảnh báo trong form Khai ca: giờ làm thực lệch giờ công chuẩn (07/09/2026). */
+.cc-note--warn {
+  color: var(--amber-deep);
+  font-weight: var(--fw-bold);
+}
+
+/* ==========================================================================
+   Modal Thêm / Sửa ca làm việc nâng cấp - Flat Clean UI (07/09/2026)
+   Giải quyết: Loại bỏ hoàn toàn hộp xám viền rối mắt, phẳng hoá toàn bộ form,
+   ngăn cách bằng hairline mờ và spacing thoáng đạt chuẩn Linear / Apple.
+   ========================================================================== */
+
+.ns-modal__box--shift {
+  width: 580px !important;
+  max-width: calc(100vw - 32px);
+  max-height: 92vh !important;
+}
+
+.shift-form-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Khối section phẳng thuần: KHÔNG nền xám, KHÔNG border hộp */
+.shift-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Ngăn cách giữa các khối bằng đường kẻ tóc mờ nhạt */
+.shift-section--divided {
+  padding-top: 18px;
+  border-top: 1px solid var(--rule-hair, #f1f5f9);
+}
+
+.shift-section__title {
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.shift-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 520px) {
+  .shift-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.shift-input-unit {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.shift-input-unit input {
+  width: 100%;
+  padding-right: 56px !important;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.shift-input-unit__badge {
+  position: absolute;
+  right: 10px;
+  font-size: 11.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ash-2);
+  pointer-events: none;
+  background: var(--paper, #f8fafc);
+  padding: 2px 6px;
+  border-radius: var(--r-3);
+}
+
+/* Status Pill */
+.shift-status-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding: 0 12px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--duration-fast);
+}
+
+.shift-status-pill:hover {
+  border-color: var(--rule-soft);
+}
+
+.shift-status-pill.is-active {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.shift-status-pill__indicator {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+}
+
+.shift-status-pill.is-active .shift-status-pill__indicator {
+  color: #166534;
+}
+
+.shift-status-pill__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ash-2);
+}
+
+.shift-status-pill.is-active .shift-status-pill__dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2);
+}
+
+/* Time range row */
+.shift-time-range {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.shift-time-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shift-time-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+}
+
+.shift-time-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 38px;
+  color: var(--ash-2);
+  flex-shrink: 0;
+}
+
+/* Time select styling adjustments */
+.shift-time-picker .cc-time-selects {
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-4);
+  padding: 2px 6px;
+  gap: 4px;
+}
+
+.shift-time-picker .cc-time-selects:focus-within {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.08);
+}
+
+.shift-time-picker .cc-time-select select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 100%;
+  height: 38px !important;
+  font-size: 15px !important;
+  font-family: var(--ff-num) !important;
+  font-variant-numeric: tabular-nums !important;
+  font-weight: var(--fw-bold) !important;
+  padding: 13px 22px 2px 8px !important;
+  background: var(--paper) !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--r-3) !important;
+  outline: none !important;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.shift-time-picker .cc-time-select select:hover {
+  background: var(--canvas) !important;
+  border-color: var(--rule-soft) !important;
+}
+
+.shift-time-picker .cc-time-select select:focus {
+  background: var(--canvas) !important;
+  border-color: var(--rust) !important;
+}
+
+.shift-time-picker .cc-time-select__caption {
+  font-size: 8.5px !important;
+  top: 3px !important;
+  left: 8px !important;
+  letter-spacing: 0.03em;
+  font-weight: var(--fw-bold);
+  color: var(--ash-2);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.shift-time-picker .cc-time-select__chevron {
+  position: absolute;
+  top: 50%;
+  right: 6px !important;
+  transform: translateY(-50%);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.shift-time-picker .cc-time-selects__separator {
+  font-size: 16px !important;
+  font-weight: var(--fw-bold) !important;
+  color: var(--ash-2) !important;
+}
+
+/* Quick Presets phẳng nhẹ, không viền cứng */
+.shift-presets {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.shift-presets__title {
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ash-2);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.shift-presets__list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.shift-preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: var(--paper);
+  border: 1px solid transparent;
+  color: var(--ash);
+  font-size: 11.5px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.shift-preset-chip:hover {
+  background: #f1f5f9;
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.shift-preset-chip.is-active {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+}
+
+.shift-preset-chip__range {
+  font-family: var(--ff-num);
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+/* Dòng Giờ làm thực tế inline thanh thoát (KHÔNG ĐÓNG CARD HỘP) */
+.shift-actual-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--ash);
+  flex-wrap: wrap;
+}
+
+.shift-actual-inline__lbl {
+  font-size: 12.5px;
+  color: var(--ash-2);
+}
+
+.shift-actual-inline__val {
+  font-family: var(--ff-num);
+  font-size: 14.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.shift-actual-inline__sep {
+  color: var(--ash-3, #cbd5e1);
+  font-size: 10px;
+}
+
+.shift-actual-badge {
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  padding: 2.5px 8px;
+  border-radius: var(--r-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.shift-actual-badge--ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.shift-actual-badge--warn {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.shift-actual-badge--err {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Danh sách thiết lập phẳng (Flat settings list kiểu iOS / Linear) */
+.shift-settings-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.shift-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity var(--duration-fast);
+}
+
+.shift-setting-row:not(:last-child) {
+  border-bottom: 1px solid var(--rule-hair, #f8fafc);
+}
+
+.shift-setting-row:hover {
+  opacity: 0.9;
+}
+
+.shift-setting-row__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 16px;
+}
+
+.shift-setting-row__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+
+.shift-setting-row__desc {
+  font-size: 11.5px;
+  color: var(--ash-2);
+  line-height: 1.35;
+  padding-left: 22px;
+}
+
+/* Mở rộng tự nhiên thụt lề 22px (không dùng hộp viền nét đứt) */
+.shift-nested-box {
+  padding-left: 22px;
+  margin-top: 4px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shift-nested-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ash-2);
+  line-height: 1.35;
+}
+
+/* Apple-style Switch component */
+.shift-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.shift-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.shift-switch__slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 22px;
+}
+
+.shift-switch__slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.shift-switch input:checked + .shift-switch__slider {
+  background-color: var(--rust);
+}
+
+.shift-switch input:checked + .shift-switch__slider:before {
+  transform: translateX(16px);
+}
+

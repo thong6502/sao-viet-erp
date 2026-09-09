@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from app.db import SessionLocal
 from app.models.customer import Customer
+from app.models.don_vi_do import DonViDo
 from app.models.order import STATUS_DRAFT, Order, OrderLine
 from app.models.vat_lieu_kho import VatTuInAn
 from app.services.thanh_pham_khai_bao import chuan_ten, khai_cho_don
@@ -155,7 +156,8 @@ def test_khai_lay_NGUYEN_VAN_mo_ta_dong_don(client):
     _khai(_don("ten-1", kh))
     h = _cua_khach(kh)[0]
     assert h.ten == TEN_THAT
-    assert h.don_vi_gia == "hộp"
+    # ĐVT thì KHÔNG nguyên văn: dòng đơn giữ TÊN ("hộp") để in cho khách, cột này giữ MÃ danh mục.
+    assert h.don_vi_gia == "hop"
 
 
 def test_don_hai_dong_khai_du_hai(client):
@@ -283,7 +285,7 @@ def test_KHAI_TAY_xong_van_MO_RA_SUA_duoc(client):
         "ma": "TP-MORA-001", "ten": "Khai tay roi sua", "don_vi_gia": "thùng", "customer_id": kh,
     }, headers=h)
     assert sua.status_code == 200, sua.text
-    assert sua.json()["don_vi_gia"] == "thùng"
+    assert sua.json()["don_vi_gia"] == "thung", "gõ tên thì hiểu, nhưng phải LƯU MÃ"
 
 
 def test_dong_VAT_TU_con_order_line_id_doi_cu_van_mo_duoc(client):
@@ -327,14 +329,14 @@ def test_sua_duoc_ten_va_DVT_nhung_KHONG_sua_duoc_ma(client):
     ma_goc = _cua_khach(kh)[0].ma
 
     r = client.put(f"/api/vat-lieu-kho/thanh-pham/{tp_id}", json={
-        "ma": "TP-DOI-MA", "ten": "Tên đã sửa", "don_vi_gia": "thùng",
+        "ma": "TP-DOI-MA", "ten": "Tên đã sửa", "don_vi_gia": "thung",
         "ghi_chu": "ghi thêm", "customer_id": kh,
     }, headers=h)
     assert r.status_code == 200, r.text
     ra = r.json()
     assert ra["ma"] == ma_goc, "mã bị sửa ⇒ mất dấu với lô tồn và phiếu đã ghi sổ"
     assert ra["ten"] == "Tên đã sửa"
-    assert ra["don_vi_gia"] == "thùng"
+    assert ra["don_vi_gia"] == "thung"
 
 
 # ------------------------------------------------------------------ quyền
@@ -349,3 +351,62 @@ def test_o_quyen_dm_thanh_pham_co_that_va_RIENG(client):
     assert ("dm_thanh_pham", "Thành phẩm") in MODULES_SEED
     d = theo_loai("thanh_pham")
     assert d is not None and d.path == "thanh-pham"
+
+
+# --------------------------------------------- ⭐ ĐVT: dòng đơn giữ TÊN, danh mục giữ MÃ
+
+
+def test_DVT_tu_don_hang_luu_MA_chu_khong_luu_TEN(client):
+    """⭐ Lỗi thật 08/09/2026 — mở "Bìa sách" ra thì ô Đơn vị tính báo đỏ *"cái · không có trong
+    danh mục"*, trong khi `cái` CÓ trong danh mục, dưới mã `cai`.
+
+    Hai cột không cùng một thứ tiếng, cả hai đều cố ý: `order_lines.don_vi_tinh` giữ TÊN vì nó in
+    lên báo giá gửi khách; `vat_tu_in_an.don_vi_gia` giữ MÃ vì kho và mọi quy đổi tra bằng mã.
+    `tim_hoac_khai` chép thẳng từ cột này sang cột kia là đẻ ra một cái tên nằm trong cột mã —
+    không lỗi, không ai biết, tới lúc mở dòng ra mới thấy đỏ.
+    """
+    kh = _khach("dvt-ma")
+    _khai(_don("dvt-ma-1", kh, ten="Bìa sách", dvt="cái"))
+    h = _cua_khach(kh)[0]
+    assert h.don_vi_gia == "cai", "lưu TÊN vào cột MÃ ⇒ màn danh mục báo đỏ"
+
+    # Điều kiện để ô KHÔNG báo đỏ: giá trị phải khớp một mã đang có trong danh mục — đúng phép so
+    # mà `RefSearchField` (frontend) dùng.
+    db = SessionLocal()
+    try:
+        ma_dv = {(d.ma or "").strip().lower() for d in db.query(DonViDo).all()}
+    finally:
+        db.close()
+    assert h.don_vi_gia in ma_dv
+
+
+def test_DVT_khong_tra_duoc_thi_de_TRONG_chu_khong_ghi_rac(client):
+    """Đơn vị gõ tay kiểu "chiếc" không có trong danh mục ⇒ để trống, màn hiện "Chưa chọn đơn vị".
+
+    Trạng thái đó nhìn ra ngay ở bảng và sửa được; nhét chuỗi lạ vào cột mã thì kho không nhập
+    được mặt hàng mà chẳng ai biết vì sao. Cùng lối mg `0170` đã chọn cho chính bảng này.
+    """
+    kh = _khach("dvt-la")
+    _khai(_don("dvt-la-1", kh, ten="Món đơn vị lạ", dvt="chiếc"))
+    assert _cua_khach(kh)[0].don_vi_gia is None
+
+
+def test_man_danh_muc_CHAN_don_vi_khong_co_trong_danh_muc(client):
+    """Nửa sau của cùng một lỗi: màn Thành phẩm trước đây không có cổng nào cho đơn vị nên nhận
+    cả chuỗi lạ — Excel nhập danh mục đi đúng đường này."""
+    h = auth_headers(client)
+    r = client.post("/api/vat-lieu-kho/thanh-pham", json={
+        "ma": "TP-DV-LA", "ten": "Đơn vị lạ", "don_vi_gia": "chiếc",
+    }, headers=h)
+    assert r.status_code == 422, r.text
+    assert "không có trong danh mục" in r.text
+
+
+def test_go_TEN_don_vi_o_man_thi_hieu_va_luu_MA(client):
+    """Người gõ "cái" (tên họ đọc thấy) vẫn phải vào được — chỉ là lưu xuống thành mã."""
+    h = auth_headers(client)
+    r = client.post("/api/vat-lieu-kho/thanh-pham", json={
+        "ma": "TP-DV-TEN", "ten": "Gõ tên đơn vị", "don_vi_gia": "cái",
+    }, headers=h)
+    assert r.status_code == 201, r.text
+    assert r.json()["don_vi_gia"] == "cai"

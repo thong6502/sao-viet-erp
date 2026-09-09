@@ -655,7 +655,7 @@ class XepLichService:
                         if _aware(r["start_at"]) <= s and _aware(r["finish_at"]) >= e]
                 if not chay:
                     continue
-                dung = sum(int(r.get("so_nhan_cong") or 1) for r in chay)
+                dung = sum(int(r.get("so_nguoi") or 1) for r in chay)
                 qs = _qs(dept_id, s.date())
                 if qs["so_nguoi"] <= 0 and not qs["go_de"]:
                     continue                    # chưa khai nhân sự — không kết luận
@@ -844,13 +844,18 @@ class XepLichService:
         return round(tong, 2)
 
     def _so_nguoi_dong(self, r: XepLichCongDoan) -> int | None:
-        """Số người bố trí cho một dòng — bước lệnh đọc `lsx_cong_doan`, bài ghép đọc bước chung."""
+        """Kíp của một dòng — bước lệnh đọc `lsx_cong_doan`, bài ghép đọc bước chung.
+
+        Đọc KÍP CHUẨN (`so_nhan_cong_tieu_chuan`). Ô "số người bố trí" riêng đã gỡ 08/09/2026
+        (mg `0281`): nó luôn là bản sao của kíp chuẩn — cùng rót từ
+        `cong_doan_dau_viec.so_nguoi_tieu_chuan` — mà không ai đồng bộ lại bản sao đó.
+        """
         buoc = (
             self._lcd(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
             else self.db.get(BaiGhepCongDoan, r.bai_ghep_cong_doan_id)
             if r.bai_ghep_cong_doan_id else None
         )
-        return int(getattr(buoc, "so_nhan_cong", 1) or 1) if buoc else None
+        return int(getattr(buoc, "so_nhan_cong_tieu_chuan", 1) or 1) if buoc else None
 
     def _khoang_may(self, may_id: int | None, kieu: str) -> tuple[tuple[datetime, datetime], ...]:
         if not may_id:
@@ -1140,6 +1145,15 @@ class XepLichService:
         if not tt["bat"]:
             raise XepLichConflict(
                 f"{ma} chưa giữ chỗ vật tư — vào màn Kế hoạch vật tư bấm Giữ chỗ trước khi xếp lịch."
+            )
+        if tt.get("chua_co_nhu_cau"):
+            # `du` đòi `bool(can)`: lệnh KHÔNG ra được nhu cầu nào cũng bị chặn — ĐANG giữ chỗ mà
+            # vẫn rỗng thì chắc chắn là chưa ai khai. Từ 08/09/2026 đây là ca thường gặp (giấy chỉ
+            # vào bảng khi được khai thành dòng vật tư của bước), và câu cũ "còn thiếu 0 mặt hàng"
+            # thì vô nghĩa — người đọc đi lập yêu cầu mua cho 0 món.
+            raise XepLichConflict(
+                f"{ma} chưa khai vật tư nào ở bước — kể cả giấy. Mở lệnh, vào bước ăn giấy và "
+                "chọn loại giấy trong ô Thêm vật tư, rồi giữ chỗ lại."
             )
         if tt["khong_ro"]:
             raise XepLichConflict(
@@ -1527,7 +1541,7 @@ class XepLichService:
     # ================= GỢI Ý (cơ bản) =================
 
     def _may_lam_duoc(self, dong: XepLichCongDoan) -> list[MayThietBi]:
-        """Máy LÀM ĐƯỢC công đoạn của dòng — theo `cong_doan.nhom_may_cho_phep` (khớp `may.loai_may`).
+        """Máy LÀM ĐƯỢC công đoạn của dòng — theo danh sách máy của công đoạn, thiếu thì theo nhóm.
 
         Chưa khai ràng buộc ⇒ MỌI máy. Máy đang gán luôn có mặt kể cả khi sai loại, không thì gợi
         ý tự loại chính lựa chọn hiện tại và người dùng tưởng mình gán bậy.
@@ -1549,12 +1563,12 @@ class XepLichService:
         elif dong.bai_ghep_cong_doan_id:
             bgcd = self.db.get(BaiGhepCongDoan, dong.bai_ghep_cong_doan_id)
             cd = self.db.get(CongDoan, bgcd.cong_doan_id) if bgcd and bgcd.cong_doan_id else None
-        allow = (getattr(cd, "nhom_may_cho_phep", None) or []) if cd is not None else []
         mays = [m for m in self.db.execute(select(MayThietBi)).scalars()
                 if m.active or m.id == dong.may_id]
-        if allow:
-            mays = [m for m in mays if m.loai_may in allow or m.id == dong.may_id]
-        return mays
+        # Luật chặn nay dùng CHUNG một hàm với bài ghép (06/09/2026): danh sách máy của công đoạn
+        # thắng, chưa khai thì lùi về nhóm máy — hai nơi phán quyết khác nhau là mời khai lệch.
+        return [m for m in mays
+                if m.id == dong.may_id or not BaiGhepService.may_ngoai_cong_doan(cd, m)]
 
     def goi_y(self, *, dong_id: int) -> dict:
         """Gợi ý MÁY cho một dòng — top 3 sắp theo **GIỜ XONG**, không phải theo giờ trống.
@@ -1788,7 +1802,7 @@ class XepLichService:
         if dept and finish is not None:
             gia_dinh = [{"id": dong.id, "trang_thai": TT_DA_XEP, "department_id": dept,
                          "department_ten": None, "start_at": _naive(start),
-                         "finish_at": _naive(finish), "so_nhan_cong": self._so_nguoi_dong(dong)}]
+                         "finish_at": _naive(finish), "so_nguoi": self._so_nguoi_dong(dong)}]
             for r in self.repo.rows_da_xep_theo_to(dept):
                 if r.id == dong.id:
                     continue
@@ -1796,7 +1810,7 @@ class XepLichService:
                     continue
                 gia_dinh.append({"id": r.id, "trang_thai": TT_DA_XEP, "department_id": dept,
                                  "department_ten": None, "start_at": r.start_at,
-                                 "finish_at": r.finish_at, "so_nhan_cong": self._so_nguoi_dong(r)})
+                                 "finish_at": r.finish_at, "so_nguoi": self._so_nguoi_dong(r)})
             for k in self.khoang_tai_to(gia_dinh):
                 if k["qua_tai"]:
                     out.append({"loai": CB_THIEU_NGUOI,
@@ -2271,11 +2285,10 @@ class XepLichService:
                 ),
                 "can_xac_nhan": bool(ly_do_xn), "ly_do_xac_nhan": ly_do_xn,
                 "is_rush": bool(lsx.is_rush) if lsx else False,
-                # --- Nền cho detector số người tối thiểu (G) ---
-                "so_nhan_cong": int(getattr(buoc, "so_nhan_cong", 1) or 1) if buoc else None,
-                "so_nhan_cong_toi_thieu": (
-                    getattr(buoc, "so_nhan_cong_toi_thieu", None) if buoc else None
-                ),
+                # Kíp của bước — ĐẦU VÀO của `khoang_tai_to`/`_qua_tai_to`, không phải số để bày.
+                # Đọc kíp chuẩn: ô "số người bố trí" riêng gỡ ở mg `0281` (nó luôn là bản sao),
+                # và detector "thiếu người" gỡ ở `0270` (hết mốc tối thiểu để so).
+                "so_nguoi": int(getattr(buoc, "so_nhan_cong_tieu_chuan", 1) or 1) if buoc else None,
                 # (E) Khoá GOM việc cùng loại — cùng giấy · cùng khổ tờ in · cùng bộ mực. Hai việc
                 # cùng khoá thì đổi từ việc này sang việc kia gần như không phải canh lại máy.
                 "gom_key": self._gom_key(lsx),

@@ -9,37 +9,41 @@ TRƯỚC 2026-08-11 việc phân loại này nằm rải ba chỗ, mỗi chỗ m
     dòng giấy, nên "có khai đơn vị" ⇔ "trên dòng giấy" — đúng nhưng chỉ đúng NHỜ danh sách cứng)
   - `bai_ghep_service`: `nhom != "prepress"`      (theo NHÓM công đoạn)
   - `_canh_bao_don_vi`: lại lọc theo đơn vị None   (hàm đã gỡ 25/08/2026 cùng rổ cảnh báo mềm)
-Nay công đoạn khai đơn vị TỰ DO từ danh mục Đơn vị & quy đổi (bước ghi kẽm khai thẳng `bai → kem`
-thay vì để trống), nên "có khai đơn vị" KHÔNG còn đồng nghĩa "trên dòng giấy" — phải hỏi CỜ TRẠM
-trên danh mục (`don_vi_do.tram_dong_giay`). Một luật, một chỗ, ba nơi cùng gọi.
+Từ 2026-08-11 câu hỏi đó hỏi CỜ TRẠM trên danh mục (`don_vi_do.tram_dong_giay`): công đoạn khai đơn
+vị tự do từ danh mục Đơn vị & quy đổi, nên "có khai đơn vị" không còn đồng nghĩa "trên dòng giấy".
+
+Từ 2026-09-06 CỜ ĐÓ ĐÃ GỠ. Ô "Đơn vị đầu vào / đầu ra" của công đoạn nay là MENU ĐÓNG đúng 5 chặng
+(`TRAM_DONG_GIAY`), nên mã đơn vị Ở BƯỚC chính là tên chặng — không cần lớp trung gian nào dịch
+giữa hai thứ. Lớp ấy vốn chỉ cho phép ĐỔI TÊN một chặng (khai `to_chay` thay `to`), chứ không thêm
+được chặng thứ 6: `CAU_TRAM` và `_he_so_cau` đóng cứng trong code. Đổi lại nó bắt người khai danh
+mục đơn vị (việc của kho, mua hàng) phải hiểu dòng giấy để gắn cờ cho đúng — sai một dòng là số
+giấy của mọi lệnh lệch theo, mà chẳng màn nào báo.
+
+`ban_do_tram` vì thế không còn truy vấn DB, nhưng GIỮ NGUYÊN chữ ký `(db)` và cái map truyền tay:
+5 service (~20 chỗ gọi) đang chuyền `ban_do` xuống các hàm thuần, gỡ tham số ấy là một đợt sửa rộng
+không mua thêm gì. Ai đọc tới đây rồi muốn dọn nốt thì dọn cả cụm một lần.
 """
 from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models.don_vi_do import TRAM_DONG_GIAY, TRAM_TO, DonViDo, tram_chay_xuoi
+from ..models.don_vi_do import TRAM_DONG_GIAY, TRAM_TO, tram_chay_xuoi
 
 __all__ = ["TRAM_MAC_DINH", "ban_do_tram", "tram_cua", "tren_dong_giay", "chieu_hop_le",
            "dich_chuoi", "don_vi_chuoi", "ma_cua_tram"]
 
-# Bộ trạm MẶC ĐỊNH của ngành in — dùng khi danh mục chưa gắn cờ trạm nào (DB chưa chạy migration,
-# hoặc bộ test dựng bảng trắng). Đây là GỢI Ý MẶC ĐỊNH, không phải nguồn sự thật: gắn cờ cho dù chỉ
-# một đơn vị là danh mục thắng hoàn toàn.
-#
-# Vì sao phải có: thiếu nó thì `ban_do_tram` trả {} ⇒ KHÔNG bước nào nằm trên dòng giấy ⇒ chuỗi
-# ngược rỗng ⇒ mọi lệnh về 0 tờ trong im lặng. Hỏng kiểu đó không ai thấy cho tới lúc cấp giấy.
+# 5 chặng của dòng giấy. Mã đơn vị ở bước = tên chặng, nên map này là ánh xạ đồng nhất — giữ dạng
+# dict để mọi hàm bên dưới (và 5 service đang chuyền `ban_do` xuống) không phải đổi.
 TRAM_MAC_DINH: dict[str, str] = {ma: ma for ma in TRAM_DONG_GIAY}
 
 
-def ban_do_tram(db: Session) -> dict[str, str]:
-    """`{mã đơn vị: trạm}` — CHỈ đơn vị có cờ trạm. Đọc MỘT lần rồi truyền xuống, đừng gọi trong vòng lặp."""
-    co = {
-        ma: tram for ma, tram in db.execute(
-            select(DonViDo.ma, DonViDo.tram_dong_giay).where(DonViDo.tram_dong_giay.isnot(None))
-        ).all() if tram
-    }
-    return co or dict(TRAM_MAC_DINH)
+def ban_do_tram(db: Session | None = None) -> dict[str, str]:
+    """`{mã đơn vị: trạm}` — nay là hằng số, `db` chỉ còn để nơi gọi khỏi phải sửa.
+
+    Trả BẢN SAO: vài chỗ gọi nhét thêm khoá vào map nhận được (test, preview), sửa trúng hằng số
+    dùng chung thì lỗi rò sang request sau.
+    """
+    return dict(TRAM_MAC_DINH)
 
 
 def tram_cua(don_vi: str | None, ban_do: dict[str, str]) -> str | None:
@@ -49,22 +53,22 @@ def tram_cua(don_vi: str | None, ban_do: dict[str, str]) -> str | None:
 
 def tren_dong_giay(don_vi_vao: str | None, don_vi_ra: str | None, ban_do: dict[str, str],
                    *, nhom: str | None = None) -> bool:
-    """Bước này có nằm trên dòng giấy không.
+    """Bước này có nằm trên dòng giấy không. MỘT luật: hai đầu đều là chặng.
 
-    Khai đủ hai đơn vị → hỏi cờ trạm, PHẢI cả hai đầu đều là trạm. Bước `cai → thung` (đóng gói)
-    một chân trong một chân ngoài ⇒ FALSE ở lát này: cho nó vào chuỗi thì đích của chuỗi hoá ra
-    đếm bằng thùng, mà cầu `cái → thùng` là sức chứa của từng đơn chứ không phải cầu quy cách —
-    chưa có chỗ khai nên vào chuỗi là ăn hệ số 1 trong im lặng. Mở ở lát đóng gói.
+    Bỏ TRỐNG cả hai = bước ngoài dòng giấy — đó là câu người khai nói thẳng ở ô Đơn vị vào/ra của
+    màn Công đoạn (menu đóng 5 chặng, mục trống là "—"), không còn là "dữ liệu cũ chưa khai".
 
-    `nhom` = lối LÙI cho bước CHƯA khai đơn vị (danh mục cũ, hoặc bước kế hoạch tự thêm): giữ
-    nguyên luật cũ theo nhóm công đoạn. Không truyền `nhom` thì chưa khai đơn vị = đứng ngoài.
+    Vì thế lối LÙI theo `nhom` (chưa khai đơn vị + `nhom != "prepress"` ⇒ coi như trên dòng) đã BỎ
+    06/09/2026: giữ nó thì cùng một bước bỏ trống lại được trả lời khác nhau tuỳ nơi gọi có truyền
+    `nhom` hay không — `lsx_service` bảo ngoài dòng, `bai_ghep_service` bảo trong dòng. Tham số
+    `nhom` giữ lại (bị bỏ qua) để mấy chỗ gọi cũ không gãy; đừng truyền thêm ở chỗ mới.
+
+    Một chân trong một chân ngoài (`cai → thung`, đóng gói) KHÔNG còn khai được — validate của
+    công đoạn chặn. Nếu lọt qua từ dữ liệu cũ thì FALSE: cho nó vào chuỗi thì đích của chuỗi hoá
+    ra đếm bằng thùng, mà cầu `cái → thùng` là sức chứa của từng đơn chứ không phải cầu quy cách.
     """
-    if don_vi_vao and don_vi_ra:
-        return (tram_cua(don_vi_vao, ban_do) is not None
-                and tram_cua(don_vi_ra, ban_do) is not None)
-    if nhom is not None:
-        return nhom != "prepress"
-    return False
+    return (tram_cua(don_vi_vao, ban_do) is not None
+            and tram_cua(don_vi_ra, ban_do) is not None)
 
 
 def dich_chuoi(so_luong_dat: float, *, tram_ra_cuoi: str | None, cai_moi_to: float,

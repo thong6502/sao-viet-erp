@@ -76,9 +76,9 @@ def _cau_hinh_tu_thanh_phan(tp: PhieuThanhPhan) -> dict:
                 nha_cung_cap=cd.nha_cung_cap,
                 ghi_chu=cd.ghi_chu,
                 phi_khuon=cd.phi_khuon,
-                dai_khung_lua=cd.dai_khung_lua,
-                rong_khung_lua=cd.rong_khung_lua,
-                so_khung_lua=cd.so_khung_lua,
+                dai_khuon=cd.dai_khuon,
+                rong_khuon=cd.rong_khuon,
+                so_khuon=cd.so_khuon,
             )
             for cd in sorted(tp.thanh_phams, key=lambda x: x.thu_tu)
         ],

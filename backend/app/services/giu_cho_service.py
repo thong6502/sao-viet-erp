@@ -229,7 +229,15 @@ class GiuChoService:
         ngay_ve = [r.ngay_ve for r in dang if r.nguon == NGUON_DANG_VE and r.ngay_ve]
         return {
             "bat": self._co_bat(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id),
+            # `bool(can)` GIỮ NGUYÊN (rà lại 08/09/2026): lệnh không ra được nhu cầu nào thì KHÔNG
+            # phải "đủ". Từ 08/09/2026 giấy không còn tự suy từ `quy_cach_json` nữa mà là dòng vật
+            # tư người lập lệnh khai tay lên bước, nên `can` rỗng nghĩa là chưa ai nói lệnh này ăn
+            # giấy gì — chặn xếp lịch ở đó là đúng, chỉ CÂU BÁO phải nói thẳng (xem
+            # `xep_lich_service._chan_chua_giu_du`), đừng bảo "còn thiếu 0 mặt hàng".
             "du": not thieu and not khong_ro and bool(can),
+            # Lệnh/bài KHÔNG ra được món nào. Tách hẳn khỏi `thieu` để đèn và cửa chặn nói đúng
+            # việc phải làm ("vào bước khai giấy") thay vì "còn thiếu 0 mặt hàng".
+            "chua_co_nhu_cau": not can,
             "khong_ro": khong_ro,
             "thieu": thieu,
             "dang_giu": giu_theo_hang,

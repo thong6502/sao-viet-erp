@@ -35,6 +35,8 @@ from ..schemas.overtime import (
     OvertimeRequestIn,
     OvertimeRequestOut,
     OvertimeRequestsOut,
+    OvertimeRosterEmpOut,
+    OvertimeRosterOut,
     OvertimeSummaryOut,
 )
 from ..services.overtime_service import (
@@ -78,9 +80,10 @@ SelfWriter = Annotated[User, Depends(require_permission(MODULE, "create"))]
 # cả hai ô. Ai không có ô nào trong hai ô này thì không đụng được — trước đây chỉ cần
 # đăng nhập là gọi được, đúng chỗ tester bắt.
 SelfOrApprover = Annotated[
-    # Người TẠO sửa/huỷ phiếu của mình ⇒ đòi ô THAO TÁC của Tự phục vụ (`create`),
-    # không phải ô Xem. Người DUYỆT làm hộ thì đi bằng ô duyệt của phân hệ.
-    User, Depends(get_current_user)
+    # Người TẠO sửa/huỷ phiếu của mình ⇒ đòi ô THAO TÁC (`create`), không phải ô Xem. Người DUYỆT
+    # làm hộ thì đi bằng ô duyệt của phân hệ. Trước 07/09/2026 chỗ này chỉ là `get_current_user`
+    # (ghi chú nói một đằng, code một nẻo) ⇒ ai đăng nhập cũng gọi được PUT/cancel.
+    User, Depends(require_any_permission((MODULE, "create"), (MODULE, "approve")))
 ]
 
 Service = Annotated[OvertimeService, Depends(get_overtime_service)]
@@ -188,16 +191,25 @@ def summary(svc: Service, authz: Authz, user: SelfUser):
 
 
 @router.get("/tran-thang", response_model=TranThangOut)
-def tran_thang(svc: Service, employees: Employees, user: SelfUser,
+def tran_thang(svc: Service, employees: Employees, authz: Authz, user: SelfUser,
                year: int, month: int, employee_id: int | None = None,
                exclude_id: int | None = None):
     """Số dư trần giờ làm thêm tháng. Không truyền `employee_id` ⇒ của CHÍNH người gọi.
 
     Trần là luật của công ty, không phải dữ liệu nhạy cảm của người khác — nhưng vẫn chỉ cho xem
-    người trong tầm duyệt của mình. Rẻ: 1 câu SUM."""
+    người trong tầm duyệt của mình (kiểm thật từ 07/09/2026 — trước đó docstring nói vậy mà handler
+    nhận mọi `employee_id`). Rẻ: 1 câu SUM."""
     if employee_id is None:
         emp = svc._employee_for_user(user)
         employee_id = emp.id
+    else:
+        emp = employees.get_by_id(employee_id)
+        me = employees.get_by_user_id(user.id)
+        la_toi = me is not None and emp is not None and me.id == emp.id
+        if emp is None or not (la_toi or employees.can_access(
+                employee=emp, scope=_scope(authz, user), actor=user)):
+            raise HTTPException(status_code=403,
+                                detail="Nhân viên này ngoài phạm vi quản lý của bạn.")
     return TranThangOut(**svc.tran_thang_info(employee_id, int(year), int(month),
                                               exclude_id=exclude_id))
 
@@ -207,18 +219,37 @@ def mark_seen(svc: Service, user: SelfUser):
     svc.mark_seen(user=user)
 
 
+@router.get("/roster", response_model=OvertimeRosterOut)
+def roster(employees: Employees, authz: Authz,
+           user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> OvertimeRosterOut:
+    """Thợ trong tầm của người duyệt — nuôi dropdown "Tạo hộ thợ". Đứng TRƯỚC `/{request_id}`:
+    FastAPI khớp route theo thứ tự khai báo, để sau thì "roster" bị nuốt làm id và trả 422."""
+    scope = _scope(authz, user)
+    emps = [
+        OvertimeRosterEmpOut(
+            id=e.id, code=getattr(e, "code", None), full_name=e.full_name,
+            department=getattr(getattr(e, "department", None), "name", None),
+        )
+        for e in employees.list_scoped_all(scope=scope, actor=user)
+        if getattr(e, "status", None) != "resigned"
+    ]
+    emps.sort(key=lambda e: (e.full_name or "").lower())
+    return OvertimeRosterOut(employees=emps)
+
+
 # --- tổ trưởng / HCNS -------------------------------------------------------
 
 
 @router.post("", response_model=OvertimeRequestOut, status_code=status.HTTP_201_CREATED)
-def create_for_employee(body: OvertimeRequestForIn, svc: Service, employees: Employees,
+def create_for_employee(body: OvertimeRequestForIn, svc: Service, employees: Employees, authz: Authz,
                         user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
-    """Tổ trưởng tạo THẲNG cho thợ → duyệt luôn (không bắt thợ gửi rồi duyệt lại)."""
+    """Tổ trưởng tạo THẲNG cho thợ → duyệt luôn (không bắt thợ gửi rồi duyệt lại) — chỉ cho thợ
+    TRONG PHẠM VI của mình (07/09/2026)."""
     try:
         r = svc.create_request(actor=user, work_date=body.work_date,
                                from_minute=body.from_minute, to_minute=body.to_minute,
                                reason=body.reason, employee_id=body.employee_id,
-                               auto_approve=True)
+                               auto_approve=True, scope=_scope(authz, user))
     except OvertimeError as exc:
         _raise(exc)
     _notify_decision(r, employees, "approved")
@@ -311,8 +342,13 @@ def update_my_request(request_id: int, body: OvertimeRequestIn, svc: Service, em
 def cancel(request_id: int, svc: Service, employees: Employees, authz: Authz, user: SelfOrApprover):
     try:
         r = svc.cancel(actor=user, request_id=request_id,
-                       is_manager=authz.can(user, MODULE, "approve"))
+                       is_manager=authz.can(user, MODULE, "approve"), scope=_scope(authz, user))
     except OvertimeError as exc:
         _raise(exc)
-    _notify_pending_changed()
+    # Huỷ hộ phiếu ĐÃ DUYỆT = thợ mất giấy phép tăng ca mà tối vẫn đi làm ⇒ 0đ; phải báo tới đúng người
+    # như lúc duyệt/từ chối (bản rà liên thông D8, 08/09/2026). Tự huỷ phiếu của mình thì chỉ cần hạ badge.
+    if getattr(user, "id", None) != getattr(r, "created_by", None):
+        _notify_decision(r, employees, "cancelled")
+    else:
+        _notify_pending_changed()
     return _resolve(employees, [r])[0]

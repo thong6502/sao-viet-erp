@@ -1,8 +1,8 @@
 """Model nền module KCS kiêm nhiệm — Task 1/12 (`.superpowers/sdd/2026-08-31-kcs-kiem-nhiem`).
 
 Soi TẦNG MODEL (không service, không HTTP — Task 1 chỉ dựng schema):
-  · cột JSON checklist (nullable) trên `lsx_cong_doan`/`bai_ghep_cong_doan`
-    (`kcs_tieu_chi_bo_sung_json`) và `san_xuat_cong_viec` (`kcs_tieu_chi_json`);
+  · cột JSON checklist (nullable) `san_xuat_cong_viec.kcs_tieu_chi_json` — ảnh chụp lúc phát hành;
+    ô "bổ sung" trên bước lệnh/bài ghép ĐÃ GỠ (mg `0283`), xem test cùng tên bên dưới;
   · 3 cột mới trên `san_xuat_kcs_batch` (`loai` mặc định `routing`, `kcs_department_id`,
     `checklist_json`) — KHÔNG động tới cột legacy;
   · 2 bảng danh mục checklist MỚI: `san_xuat_kcs_tieu_chi` + `san_xuat_kcs_tieu_chi_cong_doan`
@@ -30,7 +30,6 @@ from app.models.san_xuat_kcs import (
     KCS_LOAI_ROUTING,
     SanXuatKcsBatch,
     SanXuatKcsTieuChi,
-    SanXuatKcsTieuChiCongDoan,
 )
 from app.models.lsx import LsxCongDoan
 
@@ -46,28 +45,17 @@ def db():
         session.close()
 
 
-def test_lsx_cong_doan_checklist_bo_sung(db):
-    buoc = LsxCongDoan(lsx_id=1)
-    db.add(buoc)
-    db.commit()
-    db.refresh(buoc)
-    assert buoc.kcs_tieu_chi_bo_sung_json is None
-
-    buoc.kcs_tieu_chi_bo_sung_json = [
-        {"tieu_chi_id": None, "ma": None, "ten": "Đối chiếu mẫu màu khách duyệt",
-         "huong_dan": None, "bat_buoc": True, "nguon": "bo_sung_lsx", "thu_tu": 1000}
-    ]
-    db.commit()
-    db.refresh(buoc)
-    assert buoc.kcs_tieu_chi_bo_sung_json[0]["nguon"] == "bo_sung_lsx"
-
-
-def test_bai_ghep_cong_doan_checklist_bo_sung_mac_dinh_none(db):
-    buoc = BaiGhepCongDoan(bai_ghep_id=1)
-    db.add(buoc)
-    db.commit()
-    db.refresh(buoc)
-    assert buoc.kcs_tieu_chi_bo_sung_json is None
+def test_buoc_lenh_khong_con_o_tieu_chi_bo_sung(db):
+    """Ô "Tiêu chí KCS bổ sung" ĐÃ GỠ khỏi bước lệnh và bước bài ghép (mg `0283`, 08/09/2026):
+    tiêu chí KCS chỉ còn MỘT nguồn là danh mục gắn theo công đoạn
+    (`docs/design-kcs-theo-cong-doan.md` mục 5). Chốt bằng test để không ai lặng lẽ khai lại cột
+    thứ hai rồi hai nguồn lại lệch nhau."""
+    for buoc in (LsxCongDoan(lsx_id=1), BaiGhepCongDoan(bai_ghep_id=1)):
+        db.add(buoc)
+        db.commit()
+        db.refresh(buoc)
+        assert not hasattr(buoc, "kcs_tieu_chi_bo_sung_json")
+        assert "kcs_tieu_chi_bo_sung_json" not in buoc.__table__.columns
 
 
 def test_san_xuat_cong_viec_kcs_tieu_chi_json_nullable(db):
@@ -119,26 +107,33 @@ def test_san_xuat_kcs_batch_cot_moi_khong_dung_cot_legacy(db):
 
 
 def test_san_xuat_kcs_tieu_chi_danh_muc(db):
-    tc = SanXuatKcsTieuChi(ma="IN-CHONG-MAU", ten="Chồng màu đúng")
+    cd = CongDoan(ma="CD-KCS-TEST-1", ten="In offset", nhom="print")
+    db.add(cd)
+    db.commit()
+    tc = SanXuatKcsTieuChi(ma="IN-CHONG-MAU", ten="Chồng màu đúng", cong_doan_id=cd.id)
     db.add(tc)
     db.commit()
     db.refresh(tc)
     assert tc.bat_buoc is True
     assert tc.active is True
     assert tc.thu_tu == 0
+    assert tc.cong_doan_id == cd.id
 
 
-def test_san_xuat_kcs_tieu_chi_cong_doan_gan_va_unique(db):
-    cd = CongDoan(ma="CD-KCS-TEST-2", ten="In offset 2", nhom="print")
-    tc = SanXuatKcsTieuChi(ma="IN-CHONG-MAU-2", ten="Chồng màu đúng 2")
-    db.add_all([cd, tc])
+def test_hang_muc_kiem_khong_trung_ten_trong_mot_cong_doan(db):
+    """Hạng mục THUỘC một công đoạn (mg `0285`) — cùng công đoạn cấm trùng câu chữ, khác công
+    đoạn thì được (hai tờ ISO khác nhau vẫn có dòng "Chồng màu đúng")."""
+    cd1 = CongDoan(ma="CD-KCS-TEST-2", ten="In offset 2", nhom="print")
+    cd2 = CongDoan(ma="CD-KCS-TEST-3", ten="In lụa", nhom="print")
+    db.add_all([cd1, cd2])
     db.commit()
 
-    lien_ket = SanXuatKcsTieuChiCongDoan(tieu_chi_id=tc.id, cong_doan_id=cd.id)
-    db.add(lien_ket)
+    db.add(SanXuatKcsTieuChi(ma="KM0001", ten="Chồng màu đúng", cong_doan_id=cd1.id))
+    db.commit()
+    # Cùng câu chữ ở CÔNG ĐOẠN KHÁC → hợp lệ.
+    db.add(SanXuatKcsTieuChi(ma="KM0002", ten="Chồng màu đúng", cong_doan_id=cd2.id))
     db.commit()
 
-    # Gắn TRÙNG cặp (tiêu_chi, công_đoạn) lần hai → vi phạm unique constraint.
-    db.add(SanXuatKcsTieuChiCongDoan(tieu_chi_id=tc.id, cong_doan_id=cd.id))
+    db.add(SanXuatKcsTieuChi(ma="KM0003", ten="Chồng màu đúng", cong_doan_id=cd1.id))
     with pytest.raises(IntegrityError):
         db.commit()

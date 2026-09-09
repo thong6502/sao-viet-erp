@@ -93,7 +93,7 @@ DANH_MUC = [
      lambda c, h, i: {"ma": f"ZZVT{i}", "ten": f"ZZ Vật tư {i}"}, False, False),
     ("/api/may-thiet-bi", "dm_thiet_bi",
      lambda c, h, i: {"ma": f"ZZM{i}", "ten": f"ZZ Máy {i}", "loai_may": "Máy in",
-                      "so_nhan_cong": 1}, False, False),
+                      }, False, False),
 ]
 IDS = [d[0] for d in DANH_MUC]
 
@@ -194,12 +194,21 @@ def test_row_khong_nuot_field(client, path, module, payload, auto_ma, xoa_mem):
         assert "active" in row, f"{path}: thiếu `active` ⇒ FE không vẽ được badge Đã ngừng"
 
 
+def _openapi() -> dict:
+    """Sơ đồ OpenAPI lấy THẲNG từ app: `/openapi.json` (và /docs, /redoc) đã tắt từ 08/09/2026
+    (commit 6f7341c — không bày sơ đồ API công khai), nhưng hai test dưới cần chính sơ đồ đó để
+    bắt route trùng tên và schema `items: list` trần. Sinh lỗi thì `app.openapi()` ném y như route cũ."""
+    from app.main import app
+    return app.openapi()
+
+
 def test_openapi_dung_duoc(client):
     """Sinh được OpenAPI = không có route nào trùng tên/`operation_id`. Đây là cái gãy đầu tiên
     khi một factory sinh router chạy nhiều lần mà quên tham số hoá tên."""
-    r = client.get("/openapi.json")
-    assert r.status_code == 200
-    assert r.json()["paths"]
+    spec = _openapi()
+    assert spec["paths"]
+    # Route HTTP đã tắt cố ý — khoá luôn để ai bật lại phải biết là có test canh.
+    assert client.get("/openapi.json").status_code == 404
 
 
 def test_items_khong_con_list_tran_trong_openapi(client):
@@ -213,7 +222,7 @@ def test_items_khong_con_list_tran_trong_openapi(client):
     sinh cho `list` trần ra `{"type": "array", "items": {}}`: khoá CÓ mặt nhưng RỖNG. Vì thế
     test vẫn xanh suốt trong lúc bốn schema kia đang hỏng. Nay bắt đúng ca `items` rỗng.
     """
-    spec = client.get("/openapi.json").json()
+    spec = _openapi()
     xau = []
     for ten, sch in spec["components"]["schemas"].items():
         it = (sch.get("properties") or {}).get("items")
@@ -300,7 +309,7 @@ def test_hang_may_tra_kem_ten_don_vi_toc_do(client):
 
     tao = client.post("/api/may-thiet-bi", headers=h, json={
         "ma": "ZZMTD1", "ten": "ZZ Máy có đơn vị tốc độ", "loai_may": "Máy in",
-        "so_nhan_cong": 1, "toc_do": 8000, "don_vi_toc_do": "zzto_gio"})
+        "toc_do": 8000, "don_vi_toc_do": "zzto_gio"})
     assert tao.status_code == 201, tao.text
     assert tao.json().get("don_vi_toc_do_ten") == "ZZ Tờ", \
         f"POST nuốt mất `don_vi_toc_do_ten`: {sorted(tao.json())}"
@@ -319,7 +328,7 @@ def test_may_chua_khai_don_vi_toc_do_thi_ten_la_None_chu_khong_vang_khoa(client)
     và cột hiện trống mà không phân biệt được "chưa khai" với "lỗi tải"."""
     h = _admin(client)
     tao = client.post("/api/may-thiet-bi", headers=h, json={
-        "ma": "ZZMTD2", "ten": "ZZ Máy không đơn vị", "loai_may": "Máy in", "so_nhan_cong": 1})
+        "ma": "ZZMTD2", "ten": "ZZ Máy không đơn vị", "loai_may": "Máy in"})
     assert tao.status_code == 201, tao.text
     assert "don_vi_toc_do_ten" in tao.json()
     assert tao.json()["don_vi_toc_do_ten"] is None

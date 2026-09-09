@@ -281,7 +281,7 @@ def _buoc_to(db, *, so_luong_vao=10000.0) -> LsxCongDoan:
     b = LsxCongDoan(
         lsx_id=9_999, thu_tu=0, ten="Dán hộp", loai_buoc=LB_TO,
         so_luong_vao=so_luong_vao, don_vi_vao="to",
-        nang_suat=1000, so_nhan_cong=1, so_nhan_cong_tieu_chuan=1,
+        nang_suat=1000, so_nhan_cong_tieu_chuan=1,
         khoan_json={"don_vi": "to"},
     )
     db.add(b)

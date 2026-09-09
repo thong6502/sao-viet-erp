@@ -10,7 +10,9 @@ import { Button } from "../../../../components/Button";
 import { errMsg } from "../shared/helpers";
 
 export function LeaveTypeForm({ token, type, onClose, onSaved }: {
-  token: string; type: LeaveType | null; onClose: () => void; onSaved: () => void;
+  token: string; type: LeaveType | null; onClose: () => void;
+  /** `canhBao` = backend báo đổi cờ có-lương chạm N đơn đã duyệt (C16) — tab hiện băng vàng. */
+  onSaved: (canhBao?: string | null) => void;
 }) {
   const [form, setForm] = useState<LeaveTypeInput>({
     name: type?.name ?? "", is_paid: type?.is_paid ?? true, annual_quota: type?.annual_quota ?? 0,
@@ -25,9 +27,10 @@ export function LeaveTypeForm({ token, type, onClose, onSaved }: {
     setBusy(true); setError(null);
     try {
       if (!form.name.trim()) throw new ApiError("Vui lòng nhập tên loại nghỉ.", 400);
-      if (type) await api.leaves.updateType(token, type.id, form);
+      let canhBao: string | null = null;
+      if (type) canhBao = (await api.leaves.updateType(token, type.id, form)).canh_bao ?? null;
       else await api.leaves.createType(token, form);
-      onSaved();
+      onSaved(canhBao);
     } catch (e) { setError(errMsg(e)); setBusy(false); }
   }
 

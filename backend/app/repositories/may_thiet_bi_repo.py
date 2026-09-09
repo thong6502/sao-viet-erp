@@ -13,9 +13,8 @@ from .catalog_base import CatalogRepo
 # cho danh sách đã gỡ và lý do.
 ASSIGNABLE = (
     "ten", "loai_may", "hang_san_xuat", "model", "so_seri", "ghi_chu",
-    "toc_do", "toc_do_min", "toc_do_max", "don_vi_toc_do", "cong_thuc_luong",
+    "toc_do", "toc_do_min", "toc_do_max", "don_vi_toc_do",
     "makeready_time_default",
-    "so_nhan_cong",
     "kho_max_dai", "kho_max_rong", "kho_min_dai", "kho_min_rong",
     "kho_kem_dai", "kho_kem_rong", "vung_in_dai", "vung_in_rong", "nhip_giay_mm",
     "le_hong_mm", "duoi_thang_mau_mm",

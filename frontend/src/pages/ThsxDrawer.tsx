@@ -20,7 +20,7 @@ import { Button } from "../components/Button";
 import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { Icon } from "../components/Icons";
 import { num, ngayGio } from "./keHoachSxShared";
-import { nhanDonVi } from "./lsxBuoc";
+import { nhanChang } from "./lsxBuoc";
 import { sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 import { ThsxExecPanels, type ThsxExec } from "./ThsxExecPanels";
 import { ThsxKcsPanel, ThsxKhoPanel, ThsxDongNhomPanel, ThsxThuongToTruongPanel, type Opt } from "./ThsxG5";
@@ -227,12 +227,12 @@ export function ThsxDrawer({
               )}
               <div className="thsx-kv"><span className="thsx-kv__k">SL vào</span>
                 <span className="thsx-kv__v thsx-kv__v--num">
-                  {cv.so_luong_vao != null ? `${num(cv.so_luong_vao)}${cv.don_vi_vao ? ` ${nhanDonVi(cv.don_vi_vao)}` : ""}` : "—"}
+                  {cv.so_luong_vao != null ? `${num(cv.so_luong_vao)}${cv.don_vi_vao ? ` ${nhanChang(cv.don_vi_vao)}` : ""}` : "—"}
                 </span>
               </div>
               <div className="thsx-kv"><span className="thsx-kv__k">SL ra</span>
                 <span className="thsx-kv__v thsx-kv__v--num">
-                  {cv.so_luong_ra != null ? `${num(cv.so_luong_ra)}${cv.don_vi_ra ? ` ${nhanDonVi(cv.don_vi_ra)}` : ""}` : "—"}
+                  {cv.so_luong_ra != null ? `${num(cv.so_luong_ra)}${cv.don_vi_ra ? ` ${nhanChang(cv.don_vi_ra)}` : ""}` : "—"}
                 </span>
               </div>
               <div className="thsx-kv"><span className="thsx-kv__k">Nguồn</span>
@@ -275,13 +275,13 @@ export function ThsxDrawer({
               <div className="thsx-kv"><span className="thsx-kv__k">Thực nhận</span>
                 <span className="thsx-kv__v thsx-kv__v--num">
                   {cv.thuc_nhan != null
-                    ? `${num(cv.thuc_nhan)}${cv.don_vi_vao ? ` ${nhanDonVi(cv.don_vi_vao)}` : ""}`
+                    ? `${num(cv.thuc_nhan)}${cv.don_vi_vao ? ` ${nhanChang(cv.don_vi_vao)}` : ""}`
                     : "— chưa ai giao tới"}
                 </span>
               </div>
               <div className="thsx-kv"><span className="thsx-kv__k">Đã làm</span>
                 <span className="thsx-kv__v thsx-kv__v--num">
-                  {cv.da_lam != null ? `${num(cv.da_lam)}${cv.don_vi_ra ? ` ${nhanDonVi(cv.don_vi_ra)}` : ""}` : "—"}
+                  {cv.da_lam != null ? `${num(cv.da_lam)}${cv.don_vi_ra ? ` ${nhanChang(cv.don_vi_ra)}` : ""}` : "—"}
                 </span>
               </div>
               <div className="thsx-kv"><span className="thsx-kv__k">Còn thiếu</span>
@@ -289,7 +289,7 @@ export function ThsxDrawer({
                   {cv.con_thieu == null
                     ? "—"
                     : cv.con_thieu > 0
-                      ? `${num(cv.con_thieu)}${cv.don_vi_ra ? ` ${nhanDonVi(cv.don_vi_ra)}` : ""}`
+                      ? `${num(cv.con_thieu)}${cv.don_vi_ra ? ` ${nhanChang(cv.don_vi_ra)}` : ""}`
                       : "đủ"}
                 </span>
               </div>
@@ -297,7 +297,7 @@ export function ThsxDrawer({
                 && cv.muc_tieu < cv.so_luong_ra && (
                 <p className="thsx-note">
                   Nhận thiếu so với kế hoạch — mốc của tổ rút còn {num(cv.muc_tieu)}
-                  {cv.don_vi_ra ? ` ${nhanDonVi(cv.don_vi_ra)}` : ""}.
+                  {cv.don_vi_ra ? ` ${nhanChang(cv.don_vi_ra)}` : ""}.
                 </p>
               )}
             </section>

@@ -8,7 +8,7 @@ Giữ đúng tầng: mọi truy vấn/ghi DB của module gom ở đây; service
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import null, select
 from sqlalchemy.orm import Session
 
 from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
@@ -19,7 +19,9 @@ from ..models.lsx import Lsx, LsxCongDoan, LsxCongDoanPhuThuoc
 from ..models.may_thiet_bi import MayThietBi
 from ..models.order import OrderLine
 from ..models.san_xuat import (
+    CV_DANG_CHAY,
     CV_HOAN_THANH,
+    CV_TAM_DUNG,
     GOI_DANG_PHAT_HANH,
     SanXuatCongViec,
     SanXuatGoiPhatHanh,
@@ -28,7 +30,7 @@ from ..models.san_xuat import (
     SanXuatPhienBan,
     SanXuatPhuThuoc,
 )
-from ..models.san_xuat_kcs import SanXuatKcsBatch, SanXuatKcsTieuChi, SanXuatKcsTieuChiCongDoan
+from ..models.san_xuat_kcs import SanXuatKcsBatch, SanXuatKcsTieuChi
 from ..models.san_xuat_san_luong import BG_DIEU_CHINH, BG_XAC_NHAN, SanXuatBanGiao
 from ..models.san_xuat_thuc_thi import PC_HOAT_DONG, SanXuatPhanCong
 from ..models.xep_lich import XepLichCongDoan
@@ -259,21 +261,20 @@ class SanXuatRepository:
         return set(rows)
 
     def checklist_theo_cong_doan(self, cong_doan_ids: set[int]) -> dict[int, list[SanXuatKcsTieuChi]]:
-        """{cong_doan_id: [tiêu chí active, sort thu_tu rồi id]} — MỘT truy vấn cho cả gói phát hành."""
+        """{cong_doan_id: [hạng mục kiểm active, sort thu_tu rồi id]} — MỘT truy vấn cho cả gói."""
         if not cong_doan_ids:
             return {}
         rows = self.db.execute(
-            select(SanXuatKcsTieuChiCongDoan.cong_doan_id, SanXuatKcsTieuChi)
-            .join(SanXuatKcsTieuChi, SanXuatKcsTieuChi.id == SanXuatKcsTieuChiCongDoan.tieu_chi_id)
+            select(SanXuatKcsTieuChi)
             .where(
-                SanXuatKcsTieuChiCongDoan.cong_doan_id.in_(cong_doan_ids),
+                SanXuatKcsTieuChi.cong_doan_id.in_(cong_doan_ids),
                 SanXuatKcsTieuChi.active.is_(True),
             )
             .order_by(SanXuatKcsTieuChi.thu_tu, SanXuatKcsTieuChi.id)
-        ).all()
+        ).scalars()
         out: dict[int, list[SanXuatKcsTieuChi]] = {}
-        for cd_id, tc in rows:
-            out.setdefault(cd_id, []).append(tc)
+        for tc in rows:
+            out.setdefault(tc.cong_doan_id, []).append(tc)
         return out
 
     # ================= GHI SNAPSHOT =================
@@ -409,6 +410,61 @@ class SanXuatRepository:
         rows = list(self.db.execute(q).scalars())
         rows.sort(key=lambda cv: (cv.du_kien_bat_dau is None, cv.du_kien_bat_dau, cv.id))
         return rows
+
+    # ---- Bàn ĐIỂM KIỂM của tổ KCS (docs/design-kcs-theo-cong-doan.md mục 4) ----
+
+    def diem_kiem(self, department_ids: set[int]) -> list[SanXuatCongViec]:
+        """Thẻ việc là ĐIỂM KIỂM: đã phát hành, CÓ checklist (`kcs_tieu_chi_json IS NOT NULL`) và
+        ĐÃ khởi động. Sắp theo giờ dự kiến rồi id — service mới gom theo giai đoạn.
+
+        KHÁC `cong_viec_cua_to(la_kcs=True)` ở hai chỗ, đừng gộp lại:
+        · Lọc bằng CHECKLIST chứ không bằng `la_kcs` — `la_kcs` là "thẻ việc thuộc tổ KCS", còn
+          điểm kiểm nằm rải ở mọi công đoạn của mọi tổ.
+        · `department_ids` ở đây là PHẠM VI QUYỀN ĐỌC của người đang xem (mọi tổ họ thấy), KHÔNG
+          phải tổ KCS đi kiểm: tổ KCS kiểm việc của tổ KHÁC.
+
+        Chỉ nhận trạng thái đã khởi động — cổng ghi (`kcs._TRANG_THAI_GHI_DUOC`) không nhận bước
+        chưa bắt đầu, bày ra chỉ tổ nhiễu một danh sách bấm vào là báo lỗi."""
+        if not department_ids:
+            return []
+        rows = list(
+            self.db.execute(
+                select(SanXuatCongViec)
+                .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)
+                .where(
+                    SanXuatCongViec.department_id.in_(department_ids),
+                    # `null()` chứ KHÔNG phải `None`: với cột JSON, SQLAlchemy hiểu `None` là giá
+                    # trị JSON `null` nên `isnot(None)` khớp CẢ dòng NULL thật — bàn KCS sẽ nuốt
+                    # trọn mọi bước sản xuất. Chỉ `null()` mới ra `IS NOT NULL` của SQL.
+                    SanXuatCongViec.kcs_tieu_chi_json.isnot(null()),
+                    SanXuatCongViec.trang_thai.in_(
+                        (CV_DANG_CHAY, CV_TAM_DUNG, CV_HOAN_THANH)
+                    ),
+                    SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
+                )
+            ).scalars()
+        )
+        rows.sort(key=lambda cv: (cv.du_kien_bat_dau is None, cv.du_kien_bat_dau, cv.id))
+        return rows
+
+    def nguoi_lam_theo_cong_viec(self, cong_viec_ids: set[int]) -> dict[int, list[str]]:
+        """{cong_viec_id: [tên thợ đang được giao]} — cột "TÊN THỢ LÀM" của tờ ISO, ĐỌC từ thẻ
+        việc chứ không chép sang bảng KCS. Một truy vấn cho cả bàn, không hỏi theo từng dòng."""
+        if not cong_viec_ids:
+            return {}
+        rows = self.db.execute(
+            select(SanXuatPhanCong.cong_viec_id, Employee.full_name)
+            .join(Employee, Employee.id == SanXuatPhanCong.employee_id)
+            .where(
+                SanXuatPhanCong.cong_viec_id.in_(cong_viec_ids),
+                SanXuatPhanCong.trang_thai == PC_HOAT_DONG,
+            )
+            .order_by(Employee.full_name)
+        ).all()
+        out: dict[int, list[str]] = {}
+        for cv_id, ten in rows:
+            out.setdefault(cv_id, []).append(ten or "")
+        return out
 
     @staticmethod
     def _duoc_giao_cho(employee_id: int | None):

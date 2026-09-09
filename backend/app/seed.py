@@ -7,6 +7,8 @@ Credentials come from config/env (SEED_ADMIN_*).
 """
 from __future__ import annotations
 
+import os
+
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -57,6 +59,7 @@ MODULES: list[tuple[str, str]] = [
     # ăn ké quyền Xem của hai khoá trên, migration 0260 sao chép quyền cũ sang.
     ("bao_cao_cong_no", "Báo cáo công nợ"),
     ("tk_ngan_hang", "Tài khoản ngân hàng"),
+    ("tai_san", "Tài sản & Công cụ dụng cụ"),
     # TÁCH THEO MÀN (chủ chốt 17/08/2026, đường A — giống Thu mua/Kế toán): 6 mục menu khối Sản
     # xuất trước đây treo trên ĐÚNG HAI khoá, bật một công tắc là mở 4 màn. Nay mỗi màn một ô.
     # Hai khoá cũ GIỮ NGUYÊN TÊN, chỉ thu hẹp nghĩa còn đúng một màn — đổi khoá là mọi hàng
@@ -720,6 +723,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "cong_no_phai_thu": _read(SCOPE_ALL),
             # Tài khoản ngân hàng: sửa số dư / ghi chú, KHÔNG tự mở hay xoá tài khoản.
             "tk_ngan_hang": {**_read(SCOPE_ALL), "can_update": True},
+            # Sổ tài sản + CCDC: lập phiếu, chạy khấu hao, CHỐT KỲ (dùng lại `can_close_book`
+            # của kho — chốt sổ là cùng một loại quyền, không đẻ cột mới). Xoá được vì phiếu
+            # nhập nhầm chưa qua kỳ nào phải bỏ được; đã có số ở kỳ chốt thì service tự chặn.
+            "tai_san": {**_rcu(SCOPE_ALL), "can_delete": True,
+                        "can_close_book": True, "can_export": True},
             "nha_cung_cap": _read(SCOPE_ALL),
             "thu_mua": _read(SCOPE_ALL),
             # Ghi phiếu thu CỌC ngay trên đơn hàng bán (cùng ô của vai "Kế toán bán hàng").
@@ -2020,7 +2028,10 @@ def backfill_employee_profiles(db: Session) -> None:
             full_name=u.name or u.username,
             department_id=u.department_id,
             status=STATUS_ACTIVE,
-            hire_date=date.today(),
+            # Mốc giữ chỗ cho hồ sơ dựng hộ tài khoản có sẵn. Trước 08/09/2026 là `date.today()`
+            # ⇒ luật biên chế chung (services/bien_che) coi mọi ngày trước hôm nay là "chưa vào làm"
+            # — hồ sơ admin không chấm bù / xin phép lùi ngày được. HCNS sửa lại ngày vào ở hồ sơ.
+            hire_date=date(2020, 1, 1),
         )
         repo.update(emp, user_id=u.id)
 
@@ -2066,68 +2077,37 @@ def seed_payroll(db: Session) -> None:
     from datetime import date
 
     from .models.employee import Employee
-    from .models.payroll import AMOUNT_MANUAL, BAND_LT1, BAND_Y1_5, BAND_Y5_10, BAND_GT10
+    from .models.payroll import AMOUNT_MANUAL
     from .repositories.payroll_repo import PayrollRepository
     from .repositories.user_repo import UserRepository
 
     repo = PayrollRepository(db)
-    if repo.list_rules():
-        return  # đã seed
-    if repo.get_params() is None:
-        repo.create_params()
-
-    # Quy tắc mức lương (số hóa bảng lương thật 2026).
-    # Tổ In — theo BẬC THỢ.
-    for key, amount in (("tho_1", 25_000_000), ("tho_2", 22_000_000), ("tho_3", 20_000_000),
-                        ("phu_1", 14_500_000), ("phu_2", 10_500_000)):
-        repo.create_rule(payroll_group="to_in", pay_grade_key=key, monthly_amount=amount,
-                         effective_from=date(2026, 1, 1), note="Tổ In theo bậc thợ")
-    # Tổ sản xuất (Dán/Bồi/Thành phẩm…) — theo THÂM NIÊN × GIỚI TÍNH.
-    prod = [
-        (BAND_LT1, "male", 8_000_000), (BAND_LT1, "female", 7_000_000),
-        (BAND_Y1_5, "male", 8_500_000), (BAND_Y1_5, "female", 7_500_000),
-        (BAND_Y5_10, "male", 10_000_000), (BAND_Y5_10, "female", 9_000_000),
-        (BAND_GT10, "male", 10_000_000), (BAND_GT10, "female", 9_000_000),
-    ]
-    for band, gender, amount in prod:
-        repo.create_rule(payroll_group="san_xuat", seniority_band=band, gender=gender,
-                         monthly_amount=amount, effective_from=date(2026, 1, 1),
-                         note="Tổ sản xuất theo thâm niên × giới tính")
-    # Văn phòng — mức chung (theo vị trí, demo 1 mức nền).
-    repo.create_rule(payroll_group="van_phong", monthly_amount=10_000_000,
-                     effective_from=date(2026, 1, 1), note="Khối văn phòng (nền)")
-
-    # Gán nhóm lương cho NV demo theo vị trí + tạo lương ấn định (rule).
-    def _group_of(pos: str | None) -> tuple[str, str | None]:
-        p = (pos or "").lower()
-        if "in" in p and "kinh" not in p:  # thợ in / máy in (tránh "kinh doanh")
-            grade = "phu_1" if ("phụ" in p or "phu" in p) else "tho_3"
-            return "to_in", grade
-        for kw in ("dán", "dan", "bồi", "boi", "bế", "be", "cắt", "cat", "cán", "can",
-                   "thành phẩm", "thanh pham", "giao", "gia công", "gia cong"):
-            if kw in p:
-                return "san_xuat", None
-        return "van_phong", None
-
     users = UserRepository(db)
     admin = users.get_by_username(settings.seed_admin_username)
     admin_emp_id = None
     if admin is not None:
         row = db.query(Employee).filter(Employee.user_id == admin.id).first()
         admin_emp_id = row.id if row is not None else None
+    # Mốc "đã seed" (07/09/2026): trước là "đã có bảng mức lương theo bậc" — bảng đó đã gỡ. Nay mốc
+    # = GĐ đã có mốc lương demo.
+    if admin_emp_id is not None and repo.list_salaries(admin_emp_id):
+        return  # đã seed
+    if repo.get_params() is None:
+        # `SEED_CA_KHOP_GIO_CHUAN=false` CHỈ dành cho bộ test (conftest): nhiều test cố ý khai ca
+        # 9h/10h/24h làm số tròn. Dev/prod mặc định BẬT — ca phải khớp giờ công chuẩn (07/09/2026).
+        repo.create_params(
+            ca_khop_gio_chuan=(os.environ.get("SEED_CA_KHOP_GIO_CHUAN", "true").strip().lower()
+                               != "false"),
+        )
 
-    for emp in db.query(Employee).all():
-        group, grade = _group_of(emp.position)
-        emp.payroll_group = group
-        emp.pay_grade_key = grade
-        # Lương ấn định: GĐ (admin) nhập tay 40tr; còn lại theo quy tắc.
-        if emp.id == admin_emp_id:
-            repo.create_salary(employee_id=emp.id, effective_from=date(2026, 1, 1),
-                               amount_mode=AMOUNT_MANUAL, base_amount=40_000_000,
-                               allowance=500_000, note="Giám đốc — theo kết quả")
-        else:
-            repo.create_salary(employee_id=emp.id, effective_from=date(2026, 1, 1),
-                               amount_mode="rule", allowance=300_000)
+    # (07/09/2026) Bảng mức lương theo nhóm/bậc/thâm niên đã GỠ (engine không đọc từ lâu) — không
+    # seed rule, không gán `payroll_group`/`pay_grade_key`, không đẻ mốc lương `amount_mode="rule"`
+    # rỗng (dòng như thế = 0đ lặng lẽ). Mức nền demo: GĐ khai tay ở đây; khối SX/văn phòng do
+    # `seed_tai_khoan_va_luong_sx` / `seed_van_phong_staff` khai; người khác coi như CHƯA KHAI LƯƠNG.
+    if admin_emp_id is not None:
+        repo.create_salary(employee_id=admin_emp_id, effective_from=date(2026, 1, 1),
+                           amount_mode=AMOUNT_MANUAL, base_amount=40_000_000,
+                           allowance=500_000, note="Giám đốc — theo kết quả")
     db.commit()
 
     # Vài tạm ứng demo cho GĐ trong kỳ hiện tại.
@@ -2293,10 +2273,7 @@ _PAYROLL_COMPONENTS_SEED = [
     ("tra_dong_phuc",      "Trả đồng phục",          "thu", True,  130),
     # Hai khoản MỞ (chủ 27/07/2026): khoản lặt vặt phát sinh một lần (thưởng nóng của Sếp) thì
     # dùng luôn hai khoản này + ghi chú, KHÔNG phải đẻ một danh mục mới dùng một lần rồi bỏ.
-    # Hoa hồng KD — HỆ TỰ TÍNH theo hoá đơn bán trong kỳ, không ai gõ tay (nguồn `auto`).
-    # Phải seed cả ở đây lẫn mg 0227: DB trắng không chạy migration, mà thiếu khoản này thì
-    # engine không có chỗ ghi ⇒ hoa hồng bằng 0 mà không báo gì.
-    ("hoa_hong_kd",        "Hoa hồng kinh doanh",    "thu", True,  140),
+    # (07/09/2026) Hoa hồng KD KHÔNG còn là dòng danh mục — cột `payroll_lines.hoa_hong` (mg 0269).
     ("thu_nhap_khac_ct",   "Thu nhập khác (chịu thuế)", "thu", True,  900),
     ("thu_nhap_khac_mt",   "Thu nhập khác (miễn thuế)", "thu", False, 910),
 ]
@@ -2339,9 +2316,48 @@ def seed_job_grades(db: Session) -> None:
     db.commit()
 
 
+# SÁU "vai tổ" của bộ dữ liệu demo khối SX → (tên tổ, slug đặt username, tên cũ từng seed).
+#
+# Cơ cấu THẬT của xưởng là 8 tổ (kỹ thuật · cắt · in · bồi · cán phủ · bế · dán · thành phẩm/KCS),
+# người dùng khai tay trong màn Phòng ban. Trước 08/09/2026 seeder tra tổ theo ĐÚNG tên demo
+# ("Tổ Chế bản", "Tổ In offset"…), không thấy thì TẠO — nên nó dựng một hàng tổ SONG SONG với tổ
+# thật, và gộp tay xong khởi động lại uvicorn là mọc lại y nguyên. Nay mỗi vai nhận thêm danh sách
+# TÊN CŨ: có tổ nào (tên chính hoặc tên cũ) thì DÙNG, không có mới tạo. Hai vai đóng gói/KCS cùng
+# trỏ "Tổ thành phẩm / KCS" — xưởng gộp hai khâu này vào một tổ.
+TO_SX_SEED: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("Tổ kỹ thuật",         "cheban",  ("Tổ Chế bản",)),
+    ("Tổ in",               "in",      ("Tổ In offset",)),
+    ("Tổ cán phủ",          "can",     ("Tổ Cán màng",)),
+    ("Tổ bế",               "be",      ("Tổ Bế & Xén",)),
+    ("Tổ thành phẩm / KCS", "donggoi", ("Tổ Đóng gói",)),
+    ("Tổ thành phẩm / KCS", "kcs",     ("Tổ KCS",)),
+)
+
+
+def to_sx_theo_ten(depts: DepartmentRepository, ten: str, ten_cu: tuple[str, ...] = ()) -> object:
+    """Tổ SX theo tên chính, thiếu thì tra các TÊN CŨ. `None` = chưa có tổ nào trong DB."""
+    for t in (ten, *ten_cu):
+        d = depts.get_by_name(t)
+        if d is not None:
+            return d
+    return None
+
+
+def to_sx_theo_ten_bat_ky(depts: DepartmentRepository, ten: str) -> object:
+    """Tra tổ theo tên BẤT KỲ — tên đang dùng hoặc tên demo cũ. Dùng cho các bảng dữ liệu mẫu
+    (đơn giá khoán, công đoạn nhập sẵn) còn khai theo tên tổ đời đầu."""
+    d = depts.get_by_name(ten)
+    if d is not None:
+        return d
+    for ten_moi, _slug, ten_cu in TO_SX_SEED:
+        if ten in ten_cu:
+            return depts.get_by_name(ten_moi)
+    return None
+
+
 def seed_san_xuat_org(db: Session) -> None:
     """Nền phòng ban SẢN XUẤT: đánh dấu "Sản xuất" là khối sản
-    xuất + dựng cây TỔ con (Chế bản/In/Cán/Bế/Đóng gói/KCS, cấp "Tổ"), gắn công đoạn → tổ, chuyển
+    xuất + nhận diện cây TỔ con (xem `TO_SX_SEED`, cấp "Tổ"), gắn công đoạn → tổ, chuyển
     thợ demo từ HCNS về đúng tổ. Idempotent (bấm lại an toàn). Chạy trong SEED_DEMO (cần công đoạn
     + nhân sự demo). Thực tế: con người tự cấu hình tổ trong màn Phòng ban — đây chỉ là dữ liệu mẫu."""
     from sqlalchemy import select
@@ -2361,58 +2377,52 @@ def seed_san_xuat_org(db: Session) -> None:
     # 2) Cấp "Tổ" (để chức danh đầu = Tổ trưởng).
     to_level = db.execute(select(UnitLevel).where(UnitLevel.name == "Tổ")).scalar_one_or_none()
 
-    # 3) Dựng các TỔ con dưới "Sản xuất" (idempotent theo tên).
-    to_names = ["Tổ Chế bản", "Tổ In offset", "Tổ Cán màng", "Tổ Bế & Xén", "Tổ Đóng gói", "Tổ KCS"]
-    to_by_name: dict[str, Department] = {}
-    for name in to_names:
-        d = depts.get_by_name(name)
+    # 3) Nhận diện các TỔ con dưới "Sản xuất" (tên chính → tên cũ → tạo mới; xem `TO_SX_SEED`).
+    to_by_slug: dict[str, Department] = {}
+    for ten, slug, ten_cu in TO_SX_SEED:
+        d = to_sx_theo_ten(depts, ten, ten_cu)
         if d is None:
-            d = depts.create(name=name, parent_id=sx.id)
+            d = depts.create(name=ten, parent_id=sx.id)
         if to_level is not None and d.level_id != to_level.id:
             depts.set_level(d, to_level.id)
-        to_by_name[name] = d
+        to_by_slug[slug] = d
 
     def _to_for_cd(cd: CongDoan) -> Department:
         nhom = (cd.nhom or "").lower()
         ten = f"{cd.ten or ''} {cd.ten_hien_thi or ''} {cd.ma or ''}".lower()
         if nhom == "prepress":
-            return to_by_name["Tổ Chế bản"]
+            return to_by_slug["cheban"]
         if nhom == "print":
-            return to_by_name["Tổ In offset"]
+            return to_by_slug["in"]
         if any(k in ten for k in ("cán", "màng", "uv", "nhũ", "phủ", "ép")):
-            return to_by_name["Tổ Cán màng"]
+            return to_by_slug["can"]
         if any(k in ten for k in ("bế", "xén", "cắt", "cấn")):
-            return to_by_name["Tổ Bế & Xén"]
+            return to_by_slug["be"]
         if any(k in ten for k in ("kcs", "kiểm", "nhập kho")):
-            return to_by_name["Tổ KCS"]
-        return to_by_name["Tổ Đóng gói"]  # gấp/dán/đóng cuốn/thành phẩm + mặc định finishing
+            return to_by_slug["kcs"]
+        return to_by_slug["donggoi"]  # gấp/dán/đóng cuốn/thành phẩm + mặc định finishing
 
     # 4) Gắn công đoạn → tổ (chỉ set khi chưa gắn hoặc đang trỏ chung phòng "Sản xuất").
     for cd in db.execute(select(CongDoan)).scalars():
         if cd.department_id in (None, sx.id):
             cd.department_id = _to_for_cd(cd).id
 
-    # 5) Chuyển thợ demo từ HCNS về đúng tổ (theo chức danh). Chỉ đụng "thợ".
-    pos_map = [("in offset", "Tổ In offset"), ("chế bản", "Tổ Chế bản"),
-               ("xén", "Tổ Bế & Xén"), ("bế", "Tổ Bế & Xén"), ("cán", "Tổ Cán màng")]
+    # 5) Chuyển thợ demo từ HCNS về đúng tổ (theo chức danh). Chỉ đụng "thợ", và chỉ người CHƯA
+    # thuộc tổ nào của khối SX — ai đã được xếp tổ (seeder cũ hay người dùng xếp tay) thì để yên,
+    # nếu không heuristic theo chức danh sẽ kéo thợ của tổ này sang tổ khác mỗi lần khởi động.
+    trong_to = {d.id for d in to_by_slug.values()} | {d.id for d in depts.to_san_xuat()}
+    pos_map = [("in offset", "in"), ("chế bản", "cheban"),
+               ("xén", "be"), ("bế", "be"), ("cán", "can")]
     for emp in db.execute(select(Employee)).scalars():
         pos = (emp.position or "").lower()
-        if "thợ" not in pos:
+        if "thợ" not in pos or emp.department_id in trong_to:
             continue
-        for key, tname in pos_map:
+        for key, slug in pos_map:
             if key in pos:
-                emp.department_id = to_by_name[tname].id
+                emp.department_id = to_by_slug[slug].id
                 break
 
     db.commit()
-
-
-# Sáu TỔ khối Sản xuất → slug đặt username (`tt_<slug>` · `tho_<slug>N`). Dùng chung cho
-# `seed_san_xuat_accounts` và `seed_tai_khoan_va_luong_sx` — hai nơi lệch nhau là đẻ trùng tài khoản.
-_SLUG_TO_SX: dict[str, str] = {
-    "Tổ Chế bản": "cheban", "Tổ In offset": "in", "Tổ Cán màng": "can",
-    "Tổ Bế & Xén": "be", "Tổ Đóng gói": "donggoi", "Tổ KCS": "kcs",
-}
 
 
 def seed_san_xuat_accounts(db: Session) -> None:
@@ -2444,6 +2454,12 @@ def seed_san_xuat_accounts(db: Session) -> None:
         u = users.get_by_username(username)
         if u is None:
             u = users.create(username=username, name=name, password_hash=_hash("123456"))
+        # Đã ở đúng phòng và đang mang vai CỦA CHÍNH phòng đó ⇒ giữ nguyên vai. Không có nhánh này
+        # thì mỗi lần khởi động seeder lại kéo tổ trưởng thật của tổ về vai demo "Tổ trưởng SX"
+        # (15 ô quyền) trong khi người dùng đã đặt họ ở vai "Tổ trưởng" (53 ô).
+        vai_cu = roles.get_by_id(u.role_id) if u.role_id else None
+        if u.department_id == dept_id and vai_cu is not None and vai_cu.department_id == dept_id:
+            role_id = vai_cu.id
         users.set_assignment(u, department_id=dept_id, role_id=role_id, is_active=True)
         if head_of is not None:
             depts.set_head(head_of, u.id)
@@ -2452,22 +2468,27 @@ def seed_san_xuat_accounts(db: Session) -> None:
     _mk("kehoach", "Kế hoạch sản xuất", sx.id, r_ke_hoach)
     _mk("qc1", "QC / KCS", sx.id, r_qc)
 
-    for tname, slug in _SLUG_TO_SX.items():
-        to = depts.get_by_name(tname)
+    for tname, slug, ten_cu in TO_SX_SEED:
+        to = to_sx_theo_ten(depts, tname, ten_cu)
         if to is None:
             continue
-        _mk(f"tt_{slug}", f"Tổ trưởng {tname}", to.id, r_to_truong, head_of=to)
+        # Chỉ nhận làm người đứng đầu khi tổ CHƯA có ai: tổ thật đã có tổ trưởng do người dùng
+        # đặt, seeder không được đá người ta ra mỗi lần khởi động.
+        _mk(f"tt_{slug}", f"Tổ trưởng {to.name}", to.id, r_to_truong,
+            head_of=(to if to.head_user_id is None else None))
         for i in (1, 2):
-            _mk(f"tho_{slug}{i}", f"Thợ {tname} {i}", to.id, r_tho)
+            _mk(f"tho_{slug}{i}", f"Thợ {to.name} {i}", to.id, r_tho)
     db.commit()
 
 
-# Hồ sơ demo khối SẢN XUẤT: (họ tên, giới tính, chức danh, mã bậc tay nghề). Mỗi tổ khai ĐỦ 10
+# Hồ sơ demo khối SẢN XUẤT theo SLUG tổ (xem `TO_SX_SEED`): (họ tên, giới tính, chức danh, mã bậc
+# tay nghề). Khoá là slug chứ không phải tên tổ — tên tổ do người dùng đặt, đổi tên là hỏng. Mỗi tổ
+# khai ĐỦ 10
 # ứng viên (kể cả tổ đang trống hoàn toàn) — seeder chỉ lấy đúng số còn THIẾU cho đủ
 # `_QUAN_SO_MOI_TO`, tổ nào đã đủ người thật thì không đụng tới. Chức danh bám nghề in offset
 # thật (thợ cả · thợ · phụ máy), không phải "Nhân viên 1/2/3".
 _NHAN_SU_TO_SX: dict[str, list[tuple[str, str, str, str]]] = {
-    "Tổ Chế bản": [
+    "cheban": [
         ("Nguyễn Hữu Tài", "male", "Kỹ thuật viên chế bản", "bac_1"),
         ("Trần Thị Mai Lan", "female", "Thợ chế bản", "bac_2"),
         ("Lê Quang Vinh", "male", "Thợ ghi kẽm CTP", "bac_2"),
@@ -2479,7 +2500,7 @@ _NHAN_SU_TO_SX: dict[str, list[tuple[str, str, str, str]]] = {
         ("Trần Văn Nhựt", "male", "Thợ ghi kẽm CTP", "bac_3"),
         ("Phạm Anh Duy", "male", "Phụ chế bản", "bac_4"),
     ],
-    "Tổ In offset": [
+    "in": [
         ("Nguyễn Văn Sáng", "male", "Thợ cả máy in", "bac_1"),
         ("Trịnh Công Lý", "male", "Thợ in offset", "bac_2"),
         ("Hoàng Đình Nam", "male", "Thợ in offset", "bac_2"),
@@ -2491,7 +2512,7 @@ _NHAN_SU_TO_SX: dict[str, list[tuple[str, str, str, str]]] = {
         ("Võ Văn Tú", "male", "Thợ pha mực", "bac_3"),
         ("Trần Ngọc Hưng", "male", "Phụ máy in", "bac_4"),
     ],
-    "Tổ Cán màng": [
+    "can": [
         ("Trần Đăng Khoa", "male", "Thợ cả máy cán", "bac_1"),
         ("Nguyễn Thị Bích Thủy", "female", "Thợ cán màng", "bac_2"),
         ("Lê Văn Hậu", "male", "Thợ cán màng", "bac_2"),
@@ -2503,7 +2524,7 @@ _NHAN_SU_TO_SX: dict[str, list[tuple[str, str, str, str]]] = {
         ("Nguyễn Văn Cường", "male", "Thợ máy cán", "bac_3"),
         ("Bùi Thị Kim Anh", "female", "Phụ máy cán", "bac_4"),
     ],
-    "Tổ Bế & Xén": [
+    "be": [
         ("Nguyễn Văn Thắng", "male", "Thợ cả máy bế", "bac_1"),
         ("Trương Minh Hải", "male", "Thợ bế", "bac_2"),
         ("Cao Thị Lệ Quyên", "female", "Thợ xén", "bac_2"),
@@ -2515,7 +2536,7 @@ _NHAN_SU_TO_SX: dict[str, list[tuple[str, str, str, str]]] = {
         ("Nguyễn Thị Thanh Hà", "female", "Thợ xén", "bac_3"),
         ("Đỗ Minh Nhật", "male", "Phụ máy bế", "bac_4"),
     ],
-    "Tổ Đóng gói": [
+    "donggoi": [
         ("Nguyễn Thị Hạnh", "female", "Trưởng ca đóng gói", "bac_2"),
         ("Lê Thị Thanh Trúc", "female", "Nhân viên đóng gói", "bac_3"),
         ("Phạm Văn Sơn", "male", "Nhân viên đóng gói", "bac_3"),
@@ -2527,7 +2548,7 @@ _NHAN_SU_TO_SX: dict[str, list[tuple[str, str, str, str]]] = {
         ("Nguyễn Thị Lan Chi", "female", "Nhân viên vào bìa", "bac_4"),
         ("Hoàng Thị Ngọc Diệp", "female", "Nhân viên đóng gói", "bac_4"),
     ],
-    "Tổ KCS": [
+    "kcs": [
         ("Nguyễn Thị Thu Hương", "female", "Nhân viên KCS", "bac_1"),
         ("Trần Quốc Việt", "male", "Nhân viên KCS", "bac_2"),
         ("Lê Thị Ngọc Ánh", "female", "Nhân viên KCS", "bac_2"),
@@ -2590,9 +2611,10 @@ def seed_nhan_su_to_san_xuat(db: Session) -> None:
     )
 
     stt = 0
-    for ten_to, ung_vien in _NHAN_SU_TO_SX.items():
-        to = depts.get_by_name(ten_to)
-        if to is None:
+    for ten_to, slug, ten_cu in TO_SX_SEED:
+        ung_vien = _NHAN_SU_TO_SX.get(slug, [])
+        to = to_sx_theo_ten(depts, ten_to, ten_cu)
+        if to is None or not ung_vien:
             continue
         dem = db.execute(
             select(func.count(Employee.id)).where(Employee.department_id == to.id)
@@ -2686,7 +2708,7 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
        thứ hai nếu ta tạo tài khoản mà quên nối. Ở đây tạo `tho_<tổ><n>` nối tiếp `tho_<tổ>1/2`
        của `seed_san_xuat_accounts` (cùng mật khẩu `123456`, cùng vai "Thợ SX", phòng ban = chính
        tổ đó để thợ HIỆN trong drawer gán việc) và NỐI `employee.user_id` ngay.
-    2. Lương — `seed_payroll` chốt cửa bằng `if repo.list_rules(): return` nên nó chỉ chạy đúng
+    2. Lương — `seed_payroll` chốt cửa bằng "GĐ đã có mốc lương" (07/09/2026) nên nó chỉ chạy đúng
        MỘT lần, trước khi khối SX có người; hậu quả là cả 6 tổ không ai có dòng lương, màn Lương
        và bảng lương ra 0đ. Khai mức nền vào `luong_vi_tri` (+ `luong_trach_nhiem` cho tổ
        trưởng/quản lý), phụ cấp ca · thâm niên · chuyên cần · khác khai phẳng theo từng người.
@@ -2737,13 +2759,12 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
             vi_tri, trach_nhiem = 11_000_000, 1_000_000
         elif "Thợ cả" in nhan or "Kỹ thuật viên" in nhan:
             trach_nhiem = 800_000
-        nam = max(0, ((today - emp.hire_date).days // 365)) if emp.hire_date else 0
         return {
             "luong_vi_tri": vi_tri,
             "luong_trach_nhiem": trach_nhiem,
             # Phụ cấp ca chỉ cho người đứng máy theo ca; khối điều hành ở phòng SX không hưởng.
             "phu_cap_ca": 500_000 if trong_to else 0,
-            "phu_cap_tham_nien": min(nam, 5) * 200_000,
+            "phu_cap_tham_nien": 0,   # NGƯNG 07/09/2026 — chủ bỏ ô này; engine không trả
             "chuyen_can": 300_000,
             "allowance": 300_000,   # phụ cấp KHÁC (cơm ca · xăng xe)
         }
@@ -2776,8 +2797,8 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
             **_muc(emp, trong_to),
         )
 
-    for ten_to, slug in _SLUG_TO_SX.items():
-        to = depts.get_by_name(ten_to)
+    for ten_to, slug, ten_cu in TO_SX_SEED:
+        to = to_sx_theo_ten(depts, ten_to, ten_cu)
         if to is None:
             continue
         n = 3   # `tho_<slug>1/2` là của `seed_san_xuat_accounts`
@@ -2914,7 +2935,7 @@ def seed_van_phong_staff(db: Session) -> None:
     2. Hồ sơ — NỐI vào hồ sơ có sẵn của `seed_employees` khi có (Trần Văn An · Lê Thị Bình ·
        Nguyễn Thị Dung đang trống `user_id`), còn lại tạo mới. Phải chạy TRƯỚC
        `backfill_employee_profiles`, không thì mỗi tài khoản ở đây bị đẻ thêm một hồ sơ TRỐNG.
-    3. Lương — `seed_payroll` chốt cửa `if repo.list_rules(): return` nên chỉ chạy đúng một lần,
+    3. Lương — `seed_payroll` chốt cửa "GĐ đã có mốc lương" (07/09/2026) nên chỉ chạy đúng một lần,
        người seed sau không ai có mức; khai thẳng `luong_vi_tri` (+ trách nhiệm) như khối SX.
 
     Idempotent theo TỪNG NGƯỜI: có tài khoản / hồ sơ / dòng lương rồi thì bỏ qua, không ghi đè
@@ -2987,7 +3008,6 @@ def seed_van_phong_staff(db: Session) -> None:
             emps.update(emp, default_shift_id=ca_hc)
 
         if not _co_muc_nen(emp.id):
-            nam = max(0, ((today - emp.hire_date).days // 365)) if emp.hire_date else 0
             luong.create_salary(
                 employee_id=emp.id,
                 effective_from=max(emp.hire_date or date(2026, 1, 1), date(2026, 1, 1)),
@@ -2998,7 +3018,7 @@ def seed_van_phong_staff(db: Session) -> None:
                 luong_vi_tri=ng["vi_tri"],
                 luong_trach_nhiem=ng["trach_nhiem"],
                 phu_cap_ca=0,   # khối văn phòng làm giờ hành chính, không hưởng phụ cấp ca
-                phu_cap_tham_nien=min(nam, 5) * 200_000,
+                phu_cap_tham_nien=0,   # NGƯNG 07/09/2026 — chủ bỏ ô này
                 chuyen_can=300_000,
                 allowance=ng.get("phu_cap", 300_000),   # phụ cấp KHÁC (cơm ca · xăng xe)
             )
@@ -3070,10 +3090,12 @@ def seed_ca_nen_san_xuat(db: Session) -> None:
             shift_id_before=truoc, shift_id_after=shift_id, actor_user_id=None,
         )
 
-    for ten_to in _SLUG_TO_SX:
-        to = depts.get_by_name(ten_to)
-        if to is None:
+    da_xet: set[int] = set()
+    for ten_to, _slug, ten_cu in TO_SX_SEED:
+        to = to_sx_theo_ten(depts, ten_to, ten_cu)
+        if to is None or to.id in da_xet:   # hai vai đóng gói/KCS chung một tổ
             continue
+        da_xet.add(to.id)
         ds = _ds(to.id)
         dem = {sid: 0 for sid in ca_xuong}
         for e in ds:

@@ -67,8 +67,8 @@ def tong_bu_hao(cong_doans: list[dict], *, rows: list[dict], sl: float,
 def hao_buoc(cd: dict, *, rows: list[dict], sl: float) -> tuple[float, float]:
     """Hao của 1 công đoạn ở mức thông lượng `sl`, TÁCH ĐÔI: `(số tờ cố định, tỷ lệ %)`.
 
-    Đi ngược cần hai thứ này riêng vì chúng áp khác nhau: tờ cố định thì CỘNG, còn % thì CHIA
-    (`vào = (ra + tờ) / (1 − %)`). Gộp sẵn thành một số như `bu_hao_cong_doan` là mất phần %.
+    Đi ngược cần hai thứ này riêng vì chúng áp khác nhau: % NHÂN trên số ra, tờ cố định thì CỘNG
+    thẳng (`vào = ra × (1 + %) + tờ`). Gộp sẵn thành một số như `bu_hao_cong_doan` là mất phần %.
     """
     kieu = cd.get("kieu_bu_hao", "khong")
     if kieu == "co_dinh":
@@ -91,7 +91,7 @@ def chuoi_nguoc(cong_doans: list[dict], *, rows: list[dict], to_can: float) -> l
 
     Mỗi bước hỏi đúng một câu "để nhả ra `ra` tờ tốt thì phải nhận vào bao nhiêu?":
 
-        vào = (ra + tờ_cố_định) / (1 − %/100)
+        vào = ra × (1 + %/100) + tờ_cố_định
 
     Bậc bù hao tra theo `ra` — số tờ tốt phải ra khỏi CHÍNH bước đó, đã biết ngay khi xử lý
     bước nên KHÔNG cần lặp hội tụ. Nhờ vậy bước đầu chuỗi (in) rơi vào bậc CAO hơn bước cuối
@@ -122,7 +122,7 @@ def chuoi_nguoc_dv(buoc: list[dict], *, rows: list[dict], to_can: float,
     Mỗi bước hỏi "để nhả ra `ra` (đơn vị RA) thì phải nhận vào bao nhiêu (đơn vị VÀO)?":
 
         ra_quy = ra / hệ_số               # đưa về đơn vị ĐẦU VÀO của bước
-        vào    = (ra_quy + cố_định) / (1 − %/100)
+        vào    = ra_quy × (1 + %/100) + cố_định
 
     Bậc bù hao tra theo `ra` — ĐÚNG đơn vị của bước. Đây là điểm chính: bước đóng gói đếm CON thì
     tra bậc theo số con (5.000), không phải theo số tờ (24) như bản phẳng trước.
@@ -165,11 +165,13 @@ def chuoi_nguoc_dv(buoc: list[dict], *, rows: list[dict], to_can: float,
                 )
         ra_quy = ra / hs
         fixed, pct = hao_buoc(b.get("cd") or {}, rows=rows, sl=ra)
-        pct = min(max(pct, 0.0), 99.0)          # chặn chia cho 0 và hao âm
+        pct = max(pct, 0.0)                     # chặn hao âm
         # `fixed` khai ở ĐƠN VỊ VÀO của bước — bước "Xả giấy" (`to_nguyen → to`) thì hao xả là số
         # TỜ NGUYÊN phí khi pha, cộng thẳng (KHÔNG chia hs). Đừng "sửa" thành fixed/hs: mô hình tách
         # xả giấy khỏi in, In thật là `to → to`. Xem test_chuoi_nguoc_dv_cau_to_nguyen_sang_to_in.
-        vao = (ra_quy + fixed) / (1.0 - pct / 100.0)
+        # `%` đo trên số RA (chốt 06/09/2026): hao 10% để ra 100 thì vào 110 — KHÔNG phải
+        # `ra / (1 − %)` = 111,11. Tờ cố định cộng SAU, không chịu %: tờ canh máy là tờ thật.
+        vao = ra_quy * (1.0 + pct / 100.0) + fixed
         # Trả kèm TRẠM: caller đọc số ra khỏi chuỗi tại một ranh giới (số tờ in, số tờ nguyên) và
         # phải hỏi theo trạm — dò theo mã thì đơn vị riêng của xưởng không khớp, mốc rơi về 0.
         out.append({"vao": vao, "ra": ra, "hao": vao - ra_quy,

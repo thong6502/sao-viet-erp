@@ -32,20 +32,42 @@ def _load_ot_days(raw):
     return {k: {int(d): int(m) for d, m in (v.get(k) or {}).items()} for k in ("lam", "nghi")}
 
 
-def _load_ca_lam(raw: str | None) -> dict[int, list[float]]:
-    """Đọc cột JSON `ca_lam_json` → {ca → [công từng ngày làm ca đó]}.
-
-    Khoá JSON luôn là CHUỖI, phải ép về int — không thì bên Lương tra `work_shifts` bằng "3" thay
-    vì 3 và im lặng ra 0 đồng phụ cấp. Hỏng dữ liệu → {} chứ không nổ, giống `_load_off_days`."""
+def _load_ca_lam(raw) -> dict[int, list[float]]:
+    """{ca → [công/ngày]} từ `ca_lam_json`. Hai đời JSON: cũ = {ca: [...]}; từ 08/09/2026 =
+    {"ca": {...}, "muc": {...}} (kèm mức cơm/phụ cấp ca đóng băng — B6)."""
     if not raw:
         return {}
     try:
-        v = json.loads(raw)
-        if not isinstance(v, dict):
-            return {}
-        return {int(k): [float(x) for x in val] for k, val in v.items() if isinstance(val, list)}
-    except (ValueError, TypeError):
+        data = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    except (TypeError, ValueError):
         return {}
+    if isinstance(data, dict) and "ca" in data and isinstance(data.get("ca"), dict):
+        data = data["ca"]
+    out: dict[int, list[float]] = {}
+    for k, v in (data or {}).items():
+        try:
+            out[int(k)] = [float(x) for x in (v or [])]
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _load_ca_muc(raw) -> dict[int, dict]:
+    """{ca → {"meal", "shift"}} đóng băng lúc chốt công (B6); JSON đời cũ không có ⇒ {} (Lương đọc mức sống)."""
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    except (TypeError, ValueError):
+        return {}
+    muc = data.get("muc") if isinstance(data, dict) else None
+    out: dict[int, dict] = {}
+    for k, v in (muc or {}).items():
+        try:
+            out[int(k)] = {"meal": float((v or {}).get("meal") or 0), "shift": float((v or {}).get("shift") or 0)}
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _load_off_days(raw: str | None) -> list[int]:
@@ -199,6 +221,16 @@ class AttendanceRepository:
                 .order_by(AttendanceLog.checked_at.asc(), AttendanceLog.id.asc())
             ).scalars()
         )
+
+    def list_logs_created_after(self, start, end, moc) -> list[AttendanceLog]:
+        """Các lượt bấm có `checked_at` trong [start, end) được GHI VÀO sau `moc` — service gán NGÀY CÔNG
+        cho từng lượt rồi mới đếm (08/09/2026), thay vì đếm thô theo cửa sổ giờ."""
+        return list(self.db.execute(
+            select(AttendanceLog)
+            .where(AttendanceLog.checked_at >= start, AttendanceLog.checked_at < end,
+                   AttendanceLog.created_at > moc)
+            .order_by(AttendanceLog.checked_at.asc())
+        ).scalars())
 
     def count_logs_created_after(self, start, end, moc) -> int:
         """Số lượt bấm của khoảng [start, end) mà được GHI VÀO sau mốc `moc` (UTC).
@@ -374,6 +406,7 @@ class AttendanceRepository:
                 "ot_restday_minutes": int(getattr(ln, "ot_restday_minutes", 0) or 0),
                 "late_off_days": _load_off_days(getattr(ln, "late_off_days_json", None)),
                 "ca_lam": _load_ca_lam(getattr(ln, "ca_lam_json", None)),
+                "ca_muc": _load_ca_muc(getattr(ln, "ca_lam_json", None)),
                 "ot_days": _load_ot_days(getattr(ln, "ot_days_json", None)),
                 "night_premium_minutes": float(getattr(ln, "night_premium_minutes", 0) or 0),
                 "ot_night_normal_minutes": int(getattr(ln, "ot_night_normal_minutes", 0) or 0),

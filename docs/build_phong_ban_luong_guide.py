@@ -670,7 +670,7 @@ def build_doc() -> Path:
     add_bullet(doc, "Lương cơ bản dùng làm mức đóng bảo hiểm.")
     add_bullet(doc, "Lương trách nhiệm.")
     add_bullet(doc, "Thưởng chuyên cần.")
-    add_bullet(doc, "Phụ cấp thâm niên.")
+    # "Phụ cấp thâm niên" GỠ 07/09/2026 (chủ bỏ ô này; cần thì khai bằng danh mục khoản thu nhập).
     add_bullet(doc, "Phụ cấp khác.")
     add_bullet(doc, "Lương trả 1 lần (đợt 1).")
     add_bullet(doc, "Các khoản cộng hoặc trừ riêng theo từng người.")

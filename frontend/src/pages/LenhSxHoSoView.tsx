@@ -38,9 +38,10 @@ import {
   classHan,
   ngay,
   ngayGio,
+  nhanCachIn,
   num,
 } from "./keHoachSxShared";
-import { nhanDonVi } from "./lsxBuoc";
+import { nhanChang, nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
 
 /** Pill trạng thái lệnh — CÙNG bộ chữ và cùng họ màu với bảng danh sách. Mở hồ sơ ra thấy một
@@ -1335,22 +1336,6 @@ function demRouting(nodes: LenhSxRoutingNode[]): string {
   return `${xong}/${nodes.length} bước xong`;
 }
 
-/** Cách in — bốn giá trị khớp `<select>` ở màn Kế hoạch SX (`LsxDetailView.tsx`). Ảnh chụp thông
- *  số giữ nguyên KHOÁ (`mot_mat`…), và khoá là thứ chỉ máy đọc được: bày thẳng ra màn là bắt
- *  người điều độ tự dịch. Khoá lạ (ảnh chụp của lệnh cũ, hoặc danh mục thêm cách in mới) thì trả
- *  về nguyên văn — thà hiện một chữ khó đọc còn hơn nuốt mất thông số. */
-const CACH_IN: Record<string, string> = {
-  mot_mat: "1 mặt",
-  hai_mat: "2 mặt (AB)",
-  tu_tro: "Tự trở",
-  tro_nhip: "Trở nhíp",
-};
-
-function nhanCachIn(v: string | null): string | null {
-  if (!v) return null;
-  return CACH_IN[v] ?? v;
-}
-
 /** "860 × 650 mm" — hai chiều luôn đi cùng nhau; thiếu một chiều thì cả cặp vô nghĩa nên trả
  *  `null` để ô hiện "—" thay vì "860 × — mm".
  *
@@ -1431,8 +1416,8 @@ function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
       <td className="hslsx-hs__num">{n.hoan_thanh_luc ? ngayGio(n.hoan_thanh_luc) : "—"}</td>
       <td className="hslsx-hs__num">
         {/* Máy chủ ép `None → 0.0`, nên 0 ở đây KHÔNG phân biệt được với "chưa khai". */}
-        {soHoac(n.so_luong_vao)} {nhanDonVi(n.don_vi_vao)} → {soHoac(n.so_luong_ra)}{" "}
-        {nhanDonVi(n.don_vi_ra)}
+        {soHoac(n.so_luong_vao)} {nhanChang(n.don_vi_vao)} → {soHoac(n.so_luong_ra)}{" "}
+        {nhanChang(n.don_vi_ra)}
       </td>
     </tr>
   );

@@ -1,6 +1,6 @@
 // ĐỊNH MỨC ĐẦU VIỆC của một công đoạn: năng suất khoán · định mức nhân lực · vật tư tiêu thụ.
 //
-// `donViVao` vẫn nằm trong props (chỗ gọi truyền vào) nhưng KHÔNG dùng nữa: đơn vị năng suất giờ
+// `donViVao` vẫn nằm trong props (chỗ gọi truyền vào) nhưng KHÔNG dùng nữa: đơn vị năng suất
 // do người khai chọn ở từng dòng, không còn suy theo đơn vị vào của công đoạn.
 import { Fragment, useEffect, useMemo, useState } from "react";
 
@@ -8,6 +8,18 @@ import { useAuth } from "../../../auth/useAuth";
 import { crud } from "../../../api/rebuildCatalog";
 import { TrashIcon } from "../icons";
 import type { DinhMucRow, Row } from "../types";
+import { DonViTocDoField } from "./DonViTocDo";
+import { FormulaField } from "./FormulaField";
+import { FormulaPopover } from "./FormulaPopover";
+
+/** Chip "Đơn giá khoán" ẩn mặc định ở mọi ô công thức (`FormulaField.AN_MOI_O`) vì bộ chip
+ *  `quy_doi` dùng chung cho cả những ô không đứng ở đầu việc nào. Đúng MỘT ô xin bày lại: công
+ *  thức tính tiền công — nơi engine nhân đơn giá vào sau, nên muốn khai khoản TRỌN GÓI phải chia
+ *  lại chính đơn giá ấy (`50000 / don_gia_khoan`) thay vì gõ cứng con số 40 rồi quên sửa.
+ *
+ *  Hằng cấp module chứ không viết thẳng `hien={["don_gia_khoan"]}`: mảng dựng trong JSX đổi danh
+ *  tính mỗi lần vẽ, `useMemo` bên trong ô sẽ tính lại bảng chip liên tục. */
+const HIEN_DON_GIA_KHOAN = ["don_gia_khoan"];
 
 export function DinhMucDauViecField({ value, options, departmentId, onChange }: {
   value: DinhMucRow[]; options: Row[]; departmentId: number | null; donViVao: string;
@@ -30,9 +42,70 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
     return () => { alive = false; };
   }, [token]);
   const vatTuTheoId = useMemo(() => new Map(vatTu.map((v) => [Number(v.id), v])), [vatTu]);
+  // Danh mục Đơn vị & quy đổi cho ô chọn "Đơn vị" của Năng suất khoán. Nạp TẠI ĐÂY chứ không qua
+  // `refData` chung: bộ nạp chung khoá theo MỘT `refPrefix` mỗi field, mà field này đã dùng
+  // `refPrefix` cho danh sách đầu việc.
+  const [donVi, setDonVi] = useState<Row[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    crud("/api/don-vi").list(token, { active: true, size: 200 })
+      .then((r) => { if (alive) setDonVi(r.items); })
+      .catch(() => { if (alive) setDonVi([]); });
+    return () => { alive = false; };
+  }, [token]);
   // Hàng phụ đang mở — mỗi lúc một dòng, mở cái khác thì cái cũ đóng (bảng đã 10 cột, bung hai
   // hàng cùng lúc là mất dấu dòng nào của ai).
   const [moVatTu, setMoVatTu] = useState<number | null>(null);
+  // Dòng vật tư đang mở ô công thức — khoá theo id vật tư nên hai đầu việc cùng gắn một món thì
+  // mở ở đầu việc này cũng bung ở đầu việc kia; chấp nhận được vì mỗi lúc chỉ mở MỘT bảng vật tư.
+  //
+  // `neo` = chính nút vừa bấm, để panel công thức NỔI dán vào đó (07/09/2026 — `FormulaPopover`).
+  //
+  // `banDau` = công thức lúc MỞ panel, để nút ✕ trả ô về đúng chỗ cũ — ô công thức ghi thẳng vào
+  // form theo từng nhịp gõ nên không có nó thì "bỏ sửa" chỉ còn cách đóng drawer rồi mở lại.
+  const [moVtCt, setMoVtCt] =
+    useState<{ id: number; neo: HTMLElement; banDau: string | null } | null>(null);
+  // Panel công thức TIỀN CÔNG của đầu việc — mở độc lập với panel vật tư, vì hai thứ khai ở hai
+  // nhịp khác nhau: tiền công là một ô, vật tư là cả một bảng con.
+  const [moCt, setMoCongThuc] =
+    useState<{ id: number; neo: HTMLElement; banDau: string | null } | null>(null);
+  const batCt = (id: number, neo: HTMLElement, banDau: string | null) =>
+    setMoCongThuc(moCt?.id === id ? null : { id, neo, banDau });
+  const batVtCt = (id: number, neo: HTMLElement, banDau: string | null) =>
+    setMoVtCt(moVtCt?.id === id ? null : { id, neo, banDau });
+  // Panel CÁCH ĐO GIỜ — tách hẳn panel tiền công: hai ô trả lời hai câu khác nhau (bao nhiêu tiền
+  // / bao nhiêu phút), mở lẫn nhau là chỗ gõ nhầm ô.
+  const [moCtGio, setMoCtGio] =
+    useState<{ id: number; neo: HTMLElement; banDau: string | null } | null>(null);
+  const batCtGio = (id: number, neo: HTMLElement, banDau: string | null) =>
+    setMoCtGio(moCtGio?.id === id ? null : { id, neo, banDau });
+  // Panel nằm NGOÀI vòng lặp bảng nên phải tra lại dòng. Dòng vừa bị xoá ⇒ `-1` ⇒ không vẽ panel.
+  const iCt = moCt ? value.findIndex((r) => r.piece_rate_id === moCt.id) : -1;
+  const iCtGio = moCtGio ? value.findIndex((r) => r.piece_rate_id === moCtGio.id) : -1;
+  // Vật tư khoá theo (đầu việc ĐANG mở bảng con, id vật tư) — id vật tư một mình không đủ, cùng
+  // một món gắn ở hai đầu việc là hai công thức khác nhau.
+  const iVt = moVatTu == null ? -1 : value.findIndex((r) => r.piece_rate_id === moVatTu);
+  const kVt = iVt < 0 || !moVtCt ? -1 : (value[iVt].vat_tus ?? []).findIndex((v) => v.vat_tu_id === moVtCt.id);
+  // BỎ SỬA: dùng chung cho nút ✕ trên hàng tên ô và cho phím Esc.
+  const huyKhoan = () => {
+    if (!moCt || iCt < 0) return;
+    patch(iCt, { cong_thuc_khoan: moCt.banDau });
+    setMoCongThuc(null);
+  };
+  const huyGio = () => {
+    if (!moCtGio || iCtGio < 0) return;
+    patch(iCtGio, { cong_thuc_gio: moCtGio.banDau });
+    setMoCtGio(null);
+  };
+  const huyVt = () => {
+    if (!moVtCt || iVt < 0 || kVt < 0) return;
+    patch(iVt, {
+      vat_tus: (value[iVt].vat_tus ?? [])
+        .map((x, m) => (m === kVt ? { ...x, cong_thuc_luong: moVtCt.banDau } : x)),
+    });
+    setMoVtCt(null);
+  };
   return <div className="rc-bands rc-bands--dinh-muc">
     {!departmentId ? <div className="rc-bands__empty">Chọn Tổ phụ trách trước.</div> : <>
       <div className="rc-dinh-muc-wrapper">
@@ -40,8 +113,30 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
           <thead>
             <tr className="rc-dinh-muc-table__group-row">
               <th rowSpan={2} className="rc-col--left">Đầu việc chi tiết</th>
+              {/* Đơn vị + đơn giá KẾ THỪA từ danh mục Công việc khoán, chỉ đọc ở đây (08/09/2026).
+                  Bày ra vì không có nó thì ô "Công thức tiền công" bên phải là câu đố: công thức
+                  ra LƯỢNG rồi hệ nhân đơn giá vào sau, mà người khai không thấy đơn giá ấy tính
+                  theo đơn vị nào — phải mở màn Công việc khoán ở tab khác mới đối chiếu được.
+                  Tông XÁM trung tính, cố ý khác dải cam "Năng suất khoán" và dải xanh "Kíp chuẩn":
+                  hai dải kia là số khai TẠI drawer này, dải này chỉ đọc (cùng lối nói với
+                  `.rc-group--may` ở bảng máy). */}
+              <th colSpan={2} className="rc-col--group rc-group--dg"
+                title="Kế thừa từ danh mục Công việc khoán — sửa ở màn đó, không sửa được tại đây.">Đơn giá khoán</th>
               <th colSpan={4} className="rc-col--group rc-group--ns">Năng suất khoán</th>
-              <th colSpan={3} className="rc-col--group rc-group--nl">Định mức nhân lực (người)</th>
+              {/* MỘT ô người duy nhất (06/09/2026, mg `0270`): hai mốc tối thiểu/tối đa đã gỡ.
+                  Số này điền sẵn vào bước lệnh cho MỌI loại bước — máy · tổ · thuê ngoài. */}
+              <th rowSpan={2} className="rc-col--num rc-group--nl"
+                title="Kíp chuẩn của công đoạn — số người điền sẵn vào bước lệnh, sửa đè được tại từng lệnh.">Kíp chuẩn (người)</th>
+              {/* Tiền công khai THEO CÔNG ĐOẠN chứ không theo bảng đơn giá khoán (06/09/2026):
+                  cùng một đầu việc chạy ở hai công đoạn thì đếm lượng theo hai cách khác nhau. */}
+              <th rowSpan={2} className="rc-col--left"
+                title="Ra LƯỢNG theo đơn vị đơn giá khoán — hệ nhân đơn giá sau.">Công thức tiền công</th>
+              {/* Đối xứng bảng "Máy chạy được công đoạn này": máy có cặp (Cách đo giờ chạy · Cách
+                  tính giá), đầu việc có cặp (Công thức tiền công · Cách đo giờ chạy). Trước
+                  07/09/2026 đầu việc chỉ có MỘT ô và hệ dùng nó cho cả tiền lẫn giờ, nên khai
+                  `so_luot_chay` là nhân đôi cả hai — tiền thì đúng, giờ thì sai. */}
+              <th rowSpan={2} className="rc-col--left"
+                title="Ra LƯỢNG theo đơn vị Năng suất khoán — hệ chia cho năng suất sau.">Cách đo giờ chạy</th>
               {/* Cột "Mặc định" (radio chọn đầu việc điền sẵn) GỠ 12/08/2026 — xem mg 0190. Bế tay
                   hay bế máy là quyết định theo HÀNG, không khai một lần ở danh mục được. */}
               {/* VẬT TƯ đầu việc tiêu thụ (mg 0191) — nền BOM. Chỉ danh sách, KHÔNG có số lượng. */}
@@ -50,21 +145,40 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
               <th rowSpan={2} className="rc-col--center" style={{ width: 36 }} />
             </tr>
             <tr className="rc-dinh-muc-table__sub-row">
-              {/* Thứ tự tối thiểu → trung bình → tối đa: đọc thành một DẢI tăng dần, và khớp luôn
-                  với nhóm "Định mức nhân lực" bên cạnh (tối thiểu · chuẩn · tối đa). */}
+              {/* Hai ô của nhóm "Đơn giá khoán" — phải đứng TRƯỚC bộ Năng suất khoán vì hàng phụ
+                  lấp các cột theo đúng thứ tự nhóm ở hàng trên. */}
+              <th className="rc-col--unit"
+                title="Đơn vị TÍNH TIỀN của đầu việc. KHÁC ô 'Đơn vị' bên Năng suất khoán — ô kia đo GIỜ, hai thứ tách rời cố ý.">Đơn vị tính</th>
+              <th className="rc-col--dg">Đơn giá (đ)</th>
+              {/* Thứ tự tối thiểu → trung bình → tối đa: đọc thành một DẢI tăng dần. */}
               <th className="rc-col--num">Tối thiểu</th>
               <th className="rc-col--num">Trung bình</th>
               <th className="rc-col--num">Tối đa</th>
               <th className="rc-col--unit">Đơn vị</th>
-              <th className="rc-col--num">Tối thiểu</th>
-              <th className="rc-col--num">Chuẩn</th>
-              <th className="rc-col--num">Tối đa</th>
             </tr>
           </thead>
-          <tbody>{value.length === 0 && <tr><td colSpan={10} className="rc-bands__empty">
+          <tbody>{value.length === 0 && <tr><td colSpan={12} className="rc-bands__empty">
             {allowed.length === 0 ? "Tổ này chưa có đầu việc khoán để liên kết." : "Chưa chọn đầu việc định mức."}
-          </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); const vtIds = r.vat_tu_ids ?? []; const mo = moVatTu === r.piece_rate_id; return <Fragment key={r.piece_rate_id}><tr>
-            <td className="rc-col--left rc-dinh-muc-name">{opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}</td>
+          </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); const vts = r.vat_tus ?? []; const mo = moVatTu === r.piece_rate_id; return <Fragment key={r.piece_rate_id}><tr>
+            {/* Bấm tên để bung panel công thức tính tiền công — cùng lối bấm-dòng-mở-panel với
+                bảng máy và bảng vật tư, để ba chỗ khai công thức trong drawer này thao tác giống
+                nhau (06/09/2026). */}
+            <td className="rc-col--left rc-dinh-muc-name">
+              <button type="button" className={`rc-dm-vt__pill ${moCt?.id === r.piece_rate_id ? "is-open" : ""}`}
+                onClick={(e) => batCt(r.piece_rate_id, e.currentTarget, r.cong_thuc_khoan ?? null)}>
+                {opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}
+              </button>
+            </td>
+            {/* Hai ô CHỈ ĐỌC (mực nhạt, không viền — cùng lối `.rc-dinh-muc-unit`) để không ai
+                tưởng là chỗ chờ điền. Đơn vị lấy TÊN, lùi về mã khi mã nằm ngoài danh mục Đơn vị. */}
+            <td className="rc-col--unit rc-dinh-muc-unit"
+              title="Đơn vị tính tiền khoán — khai ở danh mục Công việc khoán.">
+              {opt ? String(opt.don_vi_ten ?? opt.don_vi ?? "—") : "—"}
+            </td>
+            <td className="rc-col--dg rc-dinh-muc-unit"
+              title="Đơn giá khoán trên một đơn vị — khai ở danh mục Công việc khoán.">
+              {Number(opt?.don_gia) ? `${Number(opt?.don_gia).toLocaleString("vi-VN")} đ` : "—"}
+            </td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" placeholder="—"
               value={r.nang_suat_nguoi_gio_min ?? ""}
               onChange={(e) => patch(i, { nang_suat_nguoi_gio_min: e.target.value === "" ? null : Number(e.target.value) })} /></td>
@@ -72,54 +186,132 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" placeholder="—"
               value={r.nang_suat_nguoi_gio_max ?? ""}
               onChange={(e) => patch(i, { nang_suat_nguoi_gio_max: e.target.value === "" ? null : Number(e.target.value) })} /></td>
-            {/* KHOÁ theo đơn vị của ĐƠN GIÁ KHOÁN (chủ chốt 10/08/2026) — chữ, không phải ô chọn.
-                Cùng một đầu việc thì tính tiền và đếm năng suất bằng cùng một thứ; khai ở Lương
-                khoán rồi thì đừng bắt chọn lại. Đổi đơn vị ⇒ sửa ở màn Lương khoán.
-                Hiện TÊN (server gán `don_vi_ten`), chỉ lùi về mã trần khi mã lạ ngoài danh mục. */}
-            <td className="rc-col--unit rc-dinh-muc-unit">{opt?.don_vi_ten ? `${opt.don_vi_ten}/h` : opt?.don_vi ? `${opt.don_vi}/h` : "—"}</td>
-            <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_thieu ?? 1} onChange={(e) => patch(i, { so_nguoi_toi_thieu: Number(e.target.value) })} /></td>
+            {/* CHỌN ĐƯỢC trở lại từ 07/09/2026 (khoá cứng theo đơn giá khoán 10/08/2026 → mở).
+                Hồi đó khoá vì tiền và giờ dùng CHUNG một công thức nên hai đơn vị buộc phải là
+                một; nay ô "Cách đo giờ chạy" bên phải tách hai thứ ra, nên khai được "tiền tính
+                theo kg mực, giờ tính theo tờ". Bỏ trống = lùi về đơn vị của đơn giá khoán. */}
+            <td className="rc-col--unit rc-dinh-muc-unit"
+              title={opt?.don_vi_ten ? `Bỏ trống = ${opt.don_vi_ten}/h (đơn vị đơn giá khoán)` : undefined}>
+              <DonViTocDoField value={String(r.don_vi_nang_suat ?? "")} donViList={donVi}
+                onChange={(v) => patch(i, { don_vi_nang_suat: v || null })} />
+            </td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_tieu_chuan} onChange={(e) => patch(i, { so_nguoi_tieu_chuan: Number(e.target.value) })} /></td>
-            <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_da} onChange={(e) => patch(i, { so_nguoi_toi_da: Number(e.target.value) })} /></td>
+            {/* Bấm thẳng vào ô công thức cũng mở panel, không bắt đi đường vòng qua tên ở cột đầu. */}
+            <td className="rc-col--left rc-dinh-muc-unit">
+              <button type="button" title="Sửa công thức tính tiền công của đầu việc này"
+                className={`rc-ct-cell ${moCt?.id === r.piece_rate_id ? "is-open" : ""} ${r.cong_thuc_khoan ? "" : "is-empty"}`}
+                onClick={(e) => batCt(r.piece_rate_id, e.currentTarget, r.cong_thuc_khoan ?? null)}>
+                {r.cong_thuc_khoan || "—"}
+              </button>
+            </td>
+            <td className="rc-col--left rc-dinh-muc-unit">
+              <button type="button" title="Sửa cách đo giờ chạy của đầu việc này"
+                className={`rc-ct-cell ${moCtGio?.id === r.piece_rate_id ? "is-open" : ""} ${r.cong_thuc_gio ? "" : "is-empty"}`}
+                onClick={(e) => batCtGio(r.piece_rate_id, e.currentTarget, r.cong_thuc_gio ?? null)}>
+                {r.cong_thuc_gio || "—"}
+              </button>
+            </td>
             {/* Bấm để bung HÀNG PHỤ ngay dưới — không mở drawer lồng drawer, người khai vẫn thấy
                 cả bảng để so các dòng với nhau. */}
             <td className="rc-col--center">
-              <button type="button" className={`rc-dm-vt__pill ${mo ? "is-open" : ""} ${vtIds.length ? "" : "is-empty"}`}
+              <button type="button" className={`rc-dm-vt__pill ${mo ? "is-open" : ""} ${vts.length ? "" : "is-empty"}`}
                 title="Vật tư đầu việc này tiêu thụ"
                 onClick={() => setMoVatTu(mo ? null : r.piece_rate_id)}>
-                {vtIds.length ? `${vtIds.length} vật tư` : "＋ gắn"}
+                {vts.length ? `${vts.length} vật tư` : "＋ gắn"}
               </button>
             </td>
             <td className="rc-col--center"><button type="button" className="rc-bands__del" onClick={() => onChange(value.filter((_, j) => j !== i))}><TrashIcon /></button></td>
-          </tr>{mo && <tr className="rc-dm-vt__row"><td colSpan={10}>
+          </tr>{mo && <tr className="rc-dm-vt__row"><td colSpan={12}>
             <div className="rc-dm-vt">
-              {vtIds.length === 0 && <div className="rc-dm-vt__empty">Chưa gắn vật tư nào.</div>}
-              {vtIds.map((vid) => { const vt = vatTuTheoId.get(vid); return (
-                <div className="rc-dm-vt__item" key={vid}>
-                  <span className="rc-dm-vt__ma">{String(vt?.ma ?? `#${vid}`)}</span>
-                  <span className="rc-dm-vt__ten">{String(vt?.ten ?? "(đã gỡ khỏi danh mục)")}</span>
-                  <span className="rc-dm-vt__dv">{String(vt?.don_vi_gia ?? "—")}</span>
-                  <button type="button" className="rc-bands__del" title="Bỏ vật tư khỏi đầu việc"
-                    onClick={() => patch(i, { vat_tu_ids: vtIds.filter((x) => x !== vid) })}>
-                    <TrashIcon />
-                  </button>
-                </div>
-              ); })}
+              {/* BẢNG chứ không phải dãy chip (06/09/2026): mỗi món nay mang ĐỊNH MỨC riêng, mà
+                  công thức là chuỗi dài — xếp chip cạnh nhau thì không còn chỗ đọc công thức. */}
+              <table className="rc-dinh-muc-table">
+                <thead><tr>
+                  <th className="rc-col--left">Mã</th>
+                  <th className="rc-col--left">Tên vật tư</th>
+                  <th className="rc-col--unit">ĐVT</th>
+                  <th className="rc-col--left">Công thức định mức</th>
+                  <th className="rc-col--center" style={{ width: 36 }} />
+                </tr></thead>
+                <tbody>
+                  {vts.length === 0 && <tr><td colSpan={5} className="rc-bands__empty">
+                    Chưa gắn vật tư nào.
+                  </td></tr>}
+                  {vts.map((v, k) => { const vt = vatTuTheoId.get(v.vat_tu_id); return (
+                      <tr key={v.vat_tu_id}>
+                        <td className="rc-col--left">
+                          <button type="button" className={`rc-dm-vt__pill ${moVtCt?.id === v.vat_tu_id ? "is-open" : ""}`}
+                            onClick={(e) => batVtCt(v.vat_tu_id, e.currentTarget, v.cong_thuc_luong ?? null)}>
+                            {String(vt?.ma ?? `#${v.vat_tu_id}`)}
+                          </button>
+                        </td>
+                        <td className="rc-col--left">{String(vt?.ten ?? "(đã gỡ khỏi danh mục)")}</td>
+                        <td className="rc-col--unit">{String(vt?.don_vi_gia ?? "—")}</td>
+                        <td className="rc-col--left rc-dinh-muc-unit">
+                          <button type="button" title="Sửa công thức định mức của món này"
+                            className={`rc-ct-cell ${moVtCt?.id === v.vat_tu_id ? "is-open" : ""} ${v.cong_thuc_luong ? "" : "is-empty"}`}
+                            onClick={(e) => batVtCt(v.vat_tu_id, e.currentTarget, v.cong_thuc_luong ?? null)}>
+                            {v.cong_thuc_luong || "—"}
+                          </button>
+                        </td>
+                        <td className="rc-col--center">
+                          <button type="button" className="rc-bands__del" title="Bỏ vật tư khỏi đầu việc"
+                            onClick={() => patch(i, { vat_tus: vts.filter((_, m) => m !== k) })}>
+                            <TrashIcon />
+                          </button>
+                        </td>
+                      </tr>
+                  ); })}
+                </tbody>
+              </table>
               <select className="rc-dinh-muc-add__select" value=""
-                onChange={(e) => { const id = Number(e.target.value); if (id) patch(i, { vat_tu_ids: [...vtIds, id] }); }}>
+                onChange={(e) => { const id = Number(e.target.value); if (id)
+                  patch(i, { vat_tus: [...vts, { vat_tu_id: id, cong_thuc_luong: null }] }); }}>
                 <option value="">＋ chọn từ danh mục vật tư khác</option>
-                {vatTu.filter((v) => !vtIds.includes(Number(v.id))).map((v) => (
+                {vatTu.filter((v) => !vts.some((x) => x.vat_tu_id === Number(v.id))).map((v) => (
                   <option key={v.id} value={v.id}>{String(v.ma)} · {String(v.ten)} ({String(v.don_vi_gia ?? "—")})</option>
                 ))}
               </select>
               <p className="rc-dm-vt__note">
-                Số lượng tính ở lệnh theo quy cách — chỗ này chỉ khai <b>dùng những gì</b>.
+                Định mức khai <b>theo từng món</b>: mực ăn theo số tờ, dung môi rửa máy ăn theo số màu.
               </p>
             </div>
           </td></tr>}</Fragment>; })}</tbody>
         </table>
       </div>
+      {moCt && iCt >= 0 && <FormulaPopover neo={moCt.neo} nhan="Công thức tính tiền công"
+        onClose={() => setMoCongThuc(null)} onHuy={huyKhoan}>
+        <FormulaField
+          id={`ct-khoan-${moCt.id}`} configPrefix="/api/cong-doan" loaiO="quy_doi"
+          hien={HIEN_DON_GIA_KHOAN}
+          nhanO="Công thức tính tiền công" onDong={huyKhoan}
+          goY="Không dùng chip Đơn giá khoán ⇒ ra LƯỢNG theo đơn vị đơn giá, hệ nhân đơn giá sau (vd in trở 2 lượt: sl_vao * so_luot_chay). CÓ dùng chip ⇒ ra thẳng TIỀN, hệ không nhân nữa (vd 50.000đ mở khuôn + tiền theo nhịp: 50000 + don_gia_khoan * sl_ra). Bỏ trống = hệ tự quy đổi. Lệnh ĐÃ phát giữ cách đo cũ."
+          value={value[iCt].cong_thuc_khoan ?? ""}
+          onChange={(v) => patch(iCt, { cong_thuc_khoan: v })} />
+      </FormulaPopover>}
+      {moCtGio && iCtGio >= 0 && <FormulaPopover neo={moCtGio.neo} nhan="Cách đo giờ chạy"
+        onClose={() => setMoCtGio(null)} onHuy={huyGio}>
+        <FormulaField
+          id={`ct-gio-${moCtGio.id}`} configPrefix="/api/cong-doan" loaiO="quy_doi"
+          nhanO="Cách đo giờ chạy" onDong={huyGio}
+          goY="Ra LƯỢNG theo đơn vị Năng suất khoán, hệ chia cho năng suất sau. Bỏ trống = hệ tự quy đổi. Ở bước tổ hệ KHÔNG tự nhân số lượt — hai lượt in chồng trên cùng một tờ thì cứ để nguyên sl_vao. Lệnh ĐÃ phát giữ cách đo cũ."
+          value={value[iCtGio].cong_thuc_gio ?? ""}
+          onChange={(v) => patch(iCtGio, { cong_thuc_gio: v })} />
+      </FormulaPopover>}
+      {moVtCt && kVt >= 0 && <FormulaPopover neo={moVtCt.neo} nhan="Công thức định mức"
+        onClose={() => setMoVtCt(null)} onHuy={huyVt}>
+        <FormulaField
+          id={`ct-vt-${value[iVt].piece_rate_id}-${moVtCt.id}`}
+          configPrefix="/api/cong-doan" loaiO="quy_doi"
+          nhanO="Công thức định mức" onDong={huyVt}
+          goY="Ra LƯỢNG theo ĐVT của vật tư. vd mực ăn theo số tờ: sl_vao / 40000 · dung môi rửa máy ăn theo số màu: so_mau * 0.3. Bỏ trống = bước lệnh KHÔNG bung dòng này."
+          value={(value[iVt].vat_tus ?? [])[kVt].cong_thuc_luong ?? ""}
+          onChange={(nv) => patch(iVt, {
+            vat_tus: (value[iVt].vat_tus ?? []).map((x, m) => (m === kVt ? { ...x, cong_thuc_luong: nv } : x)),
+          })} />
+      </FormulaPopover>}
       <div className="rc-dinh-muc-add">
-        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, so_nguoi_toi_thieu: 1, so_nguoi_tieu_chuan: 1, so_nguoi_toi_da: 1, vat_tu_ids: [] }]); }}>
+        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, so_nguoi_tieu_chuan: 1, cong_thuc_gio: null, vat_tus: [] }]); }}>
           <option value="">＋ Chọn đầu việc của tổ</option>{allowed.filter((o) => !selected.has(o.id)).map((o) => <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>)}
         </select>
       </div>

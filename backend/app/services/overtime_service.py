@@ -16,6 +16,8 @@ from ..models.overtime import (
     STATUS_REJECTED,
     OvertimeRequest,
 )
+from ..models.role import SCOPE_ALL
+from .bien_che import ly_do_ngoai_bien_che
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.overtime_repo import OvertimeRepository
@@ -182,22 +184,37 @@ class OvertimeService:
         return from_minute, to_minute
 
     def create_request(self, *, actor, work_date: date, from_minute: int, to_minute: int,
-                       reason=None, employee_id=None, auto_approve: bool = False) -> OvertimeRequest:
+                       reason=None, employee_id=None, auto_approve: bool = False,
+                       scope: str | None = None) -> OvertimeRequest:
         """Tạo phiếu. `employee_id` != None = tổ trưởng tạo HỘ; `auto_approve` = duyệt luôn
-        (tổ trưởng tự tạo cho thợ thì không bắt duyệt lại bước nữa)."""
+        (tổ trưởng tự tạo cho thợ thì không bắt duyệt lại bước nữa).
+
+        `scope` (07/09/2026): tạo hộ là SINH phiếu ĐÃ DUYỆT cho người khác — phải cùng hàng rào
+        phạm vi với duyệt, không thì tổ trưởng tổ A gõ mã NV tổ B là có phiếu duyệt sẵn cho họ.
+        None = gọi nội bộ / unit test dựng tay ⇒ giữ hành vi cũ."""
         if employee_id is not None:
             emp = self.employees.get_by_id(employee_id)
             if emp is None:
                 raise OvertimeValidationError("Không tìm thấy nhân viên.")
+            if scope is not None:
+                self._guard_scope(emp.id, scope=scope, actor=actor)
         else:
             emp = self._employee_for_user(actor)
 
+        self._chan_ngoai_bien_che(emp, work_date)
+        # Tháng đã chốt công thì phiếu treo là ngõ cụt (duyệt cũng không được nữa) — chặn ngay lúc gửi
+        # (bản rà liên thông D9, 08/09/2026), không đợi tới lúc duyệt.
+        self._chan_neu_ky_cong_da_chot(work_date, "gửi phiếu tăng ca")
         from_minute, to_minute = self._validate_window(emp.id, work_date, from_minute, to_minute)
 
         approved = bool(auto_approve)
         if approved:
             # Tổ trưởng tạo hộ = DUYỆT LUÔN, không qua `_decide`. Thiếu cửa này thì "tạo hộ"
             # thành đường vòng ghi thẳng phút tăng ca vào tháng đã chốt.
+            # ...và cũng là đường vòng TỰ DUYỆT: gõ mã của chính mình là có phiếu duyệt sẵn
+            # (bản rà liên thông D4/E1, 08/09/2026) ⇒ cùng chốt "không tự ký" như nút Duyệt.
+            if employee_id is not None:
+                self._chan_tu_duyet(emp.id, scope=scope, actor=actor)
             self._chan_neu_ky_cong_da_chot(work_date, "tạo phiếu tăng ca đã duyệt")
         r = self.overtime.create_request(
             employee_id=emp.id, work_date=work_date, from_minute=from_minute,
@@ -271,16 +288,37 @@ class OvertimeService:
         if not self.employees.can_access(employee=emp, scope=scope, actor=actor):
             raise OvertimeForbidden("Nhân viên này ngoài phạm vi quản lý của bạn.")
 
+    def _chan_ngoai_bien_che(self, emp, work_date: date) -> None:
+        """Phiếu cho ngày NGOÀI biên chế (đã nghỉ, chưa vào, nghỉ dài hạn, đình chỉ) ⇒ 400 — trước
+        đó phiếu vẫn tạo/duyệt được, chiếm trần tháng và sinh cảnh báo thiếu cặp giả (D10, 08/09/2026)."""
+        ly_do = ly_do_ngoai_bien_che(emp, self.employees.list_events(emp.id), work_date)
+        if ly_do:
+            raise OvertimeValidationError(ly_do)
+
+    def _chan_tu_duyet(self, employee_id: int, *, scope: str | None, actor) -> None:
+        """Không TỰ duyệt phiếu của mình khi phạm vi chỉ là tổ (07/09/2026). Tổ trưởng cũng là NV
+        trong tổ mình — thiếu chốt này là họ tự cấp tăng ca cho chính mình. Phạm vi toàn công ty
+        (HCNS/GĐ) là cấp duyệt cuối nên vẫn được: chặn họ là không ai duyệt được phiếu của HCNS."""
+        if scope is None or scope == SCOPE_ALL:
+            return
+        me = self.employees.get_by_user_id(actor.id)
+        if me is not None and me.id == employee_id:
+            raise OvertimeForbidden("Không tự duyệt phiếu tăng ca của chính mình — nhờ cấp trên duyệt.")
+
     def _decide(self, *, actor, request_id: int, new_status: str, note,
                 scope: str) -> OvertimeRequest:
         r = self.overtime.get_request(request_id)
         if r is None:
             raise OvertimeNotFound("Không tìm thấy phiếu tăng ca.")
         self._guard_scope(r.employee_id, scope=scope, actor=actor)
+        self._chan_tu_duyet(r.employee_id, scope=scope, actor=actor)
         if r.status != STATUS_PENDING:
             raise OvertimeValidationError("Chỉ duyệt/từ chối được phiếu đang chờ.")
         # Chỉ chặn chiều DUYỆT: phiếu chờ chưa ra phút tăng ca nào, từ chối nó không đổi số.
         if new_status == STATUS_APPROVED:
+            emp = self.employees.get_by_id(r.employee_id)
+            if emp is not None:
+                self._chan_ngoai_bien_che(emp, r.work_date)
             self._chan_neu_ky_cong_da_chot(r.work_date, "duyệt phiếu tăng ca")
         self.overtime.update_request(
             r, status=new_status, decided_by=actor.id,
@@ -344,6 +382,7 @@ class OvertimeService:
             raise OvertimeForbidden("Bạn chỉ sửa được phiếu do mình tạo.")
         if r.status != STATUS_PENDING:
             raise OvertimeValidationError("Chỉ sửa được phiếu đang chờ duyệt.")
+        self._chan_neu_ky_cong_da_chot(work_date, "sửa phiếu tăng ca")
         from_minute, to_minute = self._validate_window(
             r.employee_id, work_date, from_minute, to_minute, exclude_id=r.id
         )
@@ -354,13 +393,18 @@ class OvertimeService:
                           detail=f"{work_date} {hhmm(from_minute)}–{hhmm(to_minute)}")
         return r
 
-    def cancel(self, *, actor, request_id: int, is_manager: bool = False) -> OvertimeRequest:
-        """Hủy phiếu: người TẠO tự hủy, hoặc người có quyền duyệt hủy hộ. Chỉ hủy phiếu chưa quyết."""
+    def cancel(self, *, actor, request_id: int, is_manager: bool = False,
+               scope: str | None = None) -> OvertimeRequest:
+        """Hủy phiếu: người TẠO tự hủy, hoặc người có quyền duyệt hủy hộ TRONG PHẠM VI của họ
+        (`scope`, 07/09/2026 — trước đó tổ trưởng tổ A hủy được phiếu đã duyệt của tổ B chỉ cần
+        biết mã phiếu, tức xoá tiền tăng ca của người khác). Chỉ hủy phiếu chưa quyết/đã duyệt."""
         r = self.overtime.get_request(request_id)
         if r is None:
             raise OvertimeNotFound("Không tìm thấy phiếu tăng ca.")
         if not is_manager and r.created_by != actor.id:
             raise OvertimeForbidden("Bạn chỉ hủy được phiếu do mình tạo.")
+        if is_manager and r.created_by != actor.id and scope is not None:
+            self._guard_scope(r.employee_id, scope=scope, actor=actor)
         if r.status not in (STATUS_PENDING, STATUS_APPROVED):
             raise OvertimeValidationError("Phiếu này không còn để hủy.")
         # Hủy phiếu ĐÃ DUYỆT của tháng đã chốt = rút phút tăng ca đã đóng băng.

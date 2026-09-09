@@ -8,6 +8,10 @@ CÔNG THỨC (§12.2), cho một batch có sản lượng trả lương Q:
   1. Quy đổi bản địa → trả lương bằng ẢNH CHỤP `khoan_json` của công đoạn (đơn giá + đơn vị). Ở đây
      là quy đổi ĐỒNG NHẤT (identity): Q_trả_lương = `batch.tot`, đơn vị = `khoan_json.don_vi` |
      `cv.don_vi_ra`. Luôn GIỮ RIÊNG số bản địa (`q_ban_dia`) và số trả lương (§12.2).
+     Bước khai ô tiền công bằng CÔNG THỨC RA TIỀN (chip `don_gia_khoan`) thì ảnh chụp mang thêm
+     `don_gia_hd` — đơn giá hiệu dụng trên một đơn vị RA, đã gộp trọn công thức — và số đó THẮNG
+     `don_gia`. Nhờ vậy cả tầng này lẫn bảng lương ăn đúng công thức người khai viết mà không bảng
+     nào phải đẻ thêm cột tiền (xem `LsxService.don_gia_hieu_dung`).
   2. Tổng tỷ lệ hỗ trợ đã xác nhận P (cùng công đoạn + cùng ngày batch).
   3. Mỗi người hỗ trợ nhận Q × tỷ lệ_riêng (ghi cho TỔ GỐC, KHÔNG chia theo phút×hệ số).
   4. Phần tổ thực hiện = Q − Σ(phần hỗ trợ đã làm tròn) = "phần còn lại" thực, đảm bảo tổng = Q.
@@ -98,11 +102,20 @@ def _ky_cua(ngay: date) -> tuple[int, int]:
 
 def _don_gia_don_vi(cv: SanXuatCongViec) -> tuple[float, str | None]:
     """Đơn giá + đơn vị trả lương lấy từ ẢNH CHỤP `khoan_json` của công đoạn (đóng băng lúc phát
-    hành). Không có khoan_json ⇒ đơn giá 0 (công đoạn không ăn khoán) + đơn vị bản địa `don_vi_ra`."""
+    hành). Không có khoan_json ⇒ đơn giá 0 (công đoạn không ăn khoán) + đơn vị bản địa `don_vi_ra`.
+
+    `don_gia_hd` THẮNG `don_gia` khi có mặt (08/09/2026): bước ấy khai ô tiền công bằng công thức
+    RA THẲNG TIỀN (chip `don_gia_khoan`), nên `don_gia` gốc chỉ còn là một số liệu bên trong công
+    thức — nhân nó với sản lượng ở đây là bỏ qua cả công thức người ta viết, đúng thứ chủ đã cấm.
+    Số đóng băng lúc phát hành, xem `snapshot._DonGiaHieuDung` và `LsxService.don_gia_hieu_dung`.
+    """
     khoan = cv.khoan_json or {}
-    don_gia = float(khoan.get("don_gia") or 0)
-    don_vi = (khoan.get("don_vi") or cv.don_vi_ra or None)
-    return don_gia, don_vi
+    if (hd := float(khoan.get("don_gia_hd") or 0)) > 0:
+        # Nhãn đơn vị đi THEO đơn giá đang dùng: `don_gia_hd` là đồng trên một đơn vị RA của bước
+        # (thứ mà `batch.tot` đếm), không phải trên đơn vị của đầu việc (`nhịp`, `lượt`…). Giữ nhãn
+        # cũ ở đây là dán "đ/nhịp" lên một con số tính theo tờ.
+        return hd, (cv.don_vi_ra or khoan.get("don_vi") or None)
+    return float(khoan.get("don_gia") or 0), (khoan.get("don_vi") or cv.don_vi_ra or None)
 
 
 class _KetQuaTinh:

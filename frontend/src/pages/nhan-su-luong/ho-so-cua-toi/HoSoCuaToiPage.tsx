@@ -201,7 +201,7 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
   const tl: TimelineEntry[] = events.map((ev) => {
     const tone: TimelineEntry["tone"] | undefined =
       ev.event_type === "hired" ? "rust"
-      : ["confirmed", "promoted", "leave_end", "reinstated"].includes(ev.event_type) ? "moss"
+      : ["confirmed", "promoted", "leave_end", "unsuspended", "reinstated"].includes(ev.event_type) ? "moss"
       : ev.event_type === "transferred" ? "steel"
       : ["resigned", "suspended", "leave_start"].includes(ev.event_type) ? "signal" : undefined;
     return {

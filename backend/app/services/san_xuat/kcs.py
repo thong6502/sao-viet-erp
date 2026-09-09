@@ -19,6 +19,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ...models.cong_doan import NHOM as NHOM_CONG_DOAN
 from ...models.department import Department
 from ...models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG
 from ...models.san_xuat_ly_do import NHOM_LOI
@@ -26,6 +27,7 @@ from ...models.san_xuat_kcs import (
     KCS_DAT,
     KCS_DAT_MOT_PHAN,
     KCS_KHONG_DAT,
+    KCS_LOAI_DIEM_KIEM,
     KCS_LOAI_DOT_XUAT,
     KCS_LOAI_ROUTING,
     TN_CHAP_NHAN,
@@ -42,9 +44,10 @@ from ...models.user import User
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
+from ...repositories.san_xuat_repo import SanXuatRepository
 from ...services.rbac_service import AuthorizationService
 from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi
-from .board import _to_thay_duoc
+from .board import _item_dict, _to_thay_duoc
 from .thuc_thi import _aware, _gate, _moc
 
 # Dung sai làm tròn (cột Numeric(18,3)) — như san_luong.
@@ -86,8 +89,10 @@ def _gate_member(db: Session, user, department_id: int | None) -> None:
 
 def _gate_dieu_chinh(db: Session, user, kcs: SanXuatKcsBatch, cv) -> None:
     """Trưởng tổ KCS mới sửa được kết quả (§4.3) — với routing là tổ đang chạy việc (`cv.department_id`,
-    `_gate`), với đột xuất là tổ đi kiểm (`kcs.kcs_department_id`, `_gate_to`) — KHÁC tổ bị kiểm."""
-    if kcs.loai == KCS_LOAI_DOT_XUAT:
+    `_gate`), với đột xuất VÀ điểm kiểm là tổ đi kiểm (`kcs.kcs_department_id`, `_gate_to`) — KHÁC
+    tổ bị kiểm. So `!= routing` chứ đừng liệt kê từng loại: thêm loại mới mà quên chỗ này là mở
+    cửa cho tổ BỊ kiểm tự sửa kết quả của mình."""
+    if kcs.loai != KCS_LOAI_ROUTING:
         _gate_to(db, user, kcs.kcs_department_id)
     else:
         _gate(db, user, cv)
@@ -273,22 +278,38 @@ def tao_kiem_dot_xuat(
     to_chiu_id: int | None = None,
     cong_doan_ref_id: int | None = None,
     anh: list[dict] | None = None,
+    loai: str = KCS_LOAI_DOT_XUAT,
 ) -> dict:
-    """KCS KIÊM NHIỆM (mg 0250) — một tổ SX KHÁC kiểm ĐỘT XUẤT một công việc đang chạy/tạm dừng,
-    KHÔNG đứng sẵn trong routing (khác `tao_batch_kcs` — cách cũ, cố định trong routing/bài ghép).
+    """KCS trên việc của TỔ KHÁC — hai loại dùng chung một thân, khác nhau ở cửa vào.
 
-    Khác routing ở BA điểm CỐ Ý:
-      · không đòi `la_kcs`/"đã bắt đầu" kiểu routing — chỉ đòi running/tạm dừng (mục 5, 10).
-      · KHÔNG đẻ kèm `san_xuat_batch` sản lượng, KHÔNG đụng `trang_thai`/kho (mục 6, 11) — đây là
-        bản ghi CHẤT LƯỢNG thuần, không phải nền năng suất/tồn kho.
+    `dot_xuat` (mg 0250): kiểm ĐỘT XUẤT, ngoài kế hoạch, chỉ cho việc đang chạy/tạm dừng.
+    `diem_kiem` (08/09/2026, `docs/design-kcs-theo-cong-doan.md`): ĐIỂM KIỂM đứng sẵn — công đoạn
+    có tiêu chí gắn ở danh mục nên thẻ việc mang sẵn `kcs_tieu_chi_json`; cho phép cả việc ĐÃ XONG
+    vì tổ KCS thường đi kiểm sau khi công đoạn chạy xong (tờ ISO của xưởng: "kiểm phẩm tờ in đạt"
+    nằm SAU khâu in).
+
+    Khác `tao_batch_kcs` (bước KCS trong routing) ở BA điểm CỐ Ý — giữ nguyên cho cả hai loại:
+      · không đòi `la_kcs` (thẻ việc thuộc tổ sản xuất, không thuộc tổ KCS).
+      · KHÔNG đẻ kèm `san_xuat_batch` sản lượng, KHÔNG đụng `trang_thai`/kho — bản ghi CHẤT LƯỢNG
+        thuần. Đây cũng là lý do điểm kiểm KHÔNG chặn bước sau (chủ chốt chốt 08/09/2026): nó
+        không đụng vào trạng thái của thẻ việc nên dây chuyền chạy tiếp bình thường.
       · `so_luong_khong_dat > 0` bắt buộc ghi lỗi (nhóm lỗi + ≥1 ảnh) NGAY trong CÙNG lệnh gọi —
-        routing tách hai bước (`tao_batch_kcs` rồi `ghi_loi` riêng); đột xuất gộp một (mục 8)."""
+        routing tách hai bước (`tao_batch_kcs` rồi `ghi_loi` riêng); hai loại này gộp một."""
+    if loai not in (KCS_LOAI_DOT_XUAT, KCS_LOAI_DIEM_KIEM):
+        raise ValueError("Loại kiểm không hợp lệ.")
     repo = SanXuatKcsRepository(db)
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc.")
     _gate_member(db, user, kcs_department_id)
-    if cv.trang_thai not in _TRANG_THAI_DOT_XUAT:
+    if loai == KCS_LOAI_DIEM_KIEM:
+        # Điểm kiểm phải là điểm kiểm THẬT — thẻ việc mang checklist chụp lúc phát hành. Không có
+        # thì công đoạn này chưa ai gắn tiêu chí; ghi vào là đẻ kết quả kiểm không có tiêu chí nào.
+        if not cv.kcs_tieu_chi_json:
+            raise ValueError("Công đoạn này chưa có tiêu chí KCS nào trong danh mục.")
+        if cv.trang_thai not in _TRANG_THAI_GHI_DUOC:
+            raise ValueError("Chỉ ghi điểm kiểm cho công đoạn đã bắt đầu.")
+    elif cv.trang_thai not in _TRANG_THAI_DOT_XUAT:
         raise ValueError("Chỉ kiểm đột xuất cho công việc đang chạy hoặc tạm dừng.")
 
     nhan, dat, khong_dat, co_mau_f = _validate_so_luong(
@@ -330,7 +351,7 @@ def tao_kiem_dot_xuat(
         don_vi=don_vi_kcs,
         ket_luan=_ket_luan(dat, khong_dat),
         ghi_chu=(ghi_chu or "").strip() or None,
-        loai=KCS_LOAI_DOT_XUAT,
+        loai=loai,
         kcs_department_id=int(kcs_department_id),
         checklist_json=checklist_ket_qua,
         created_by=getattr(user, "id", None),
@@ -361,7 +382,11 @@ def tao_kiem_dot_xuat(
 
     AuditLogRepository(db).create(
         actor_user_id=getattr(user, "id", None),
-        action="san_xuat_kcs_dot_xuat",
+        # Tách hành động theo LOẠI: nhật ký lọc theo `action`, gộp điểm kiểm vào chữ "đột xuất" là
+        # báo cáo đọc ra một xưởng toàn kiểm bất thường trong khi đó là lịch kiểm bình thường.
+        action=(
+            "san_xuat_kcs_diem_kiem" if loai == KCS_LOAI_DIEM_KIEM else "san_xuat_kcs_dot_xuat"
+        ),
         target=f"san_xuat_kcs_batch:{kcs.id}",
         detail=(
             f"cong_viec={cv.id} kcs_to={kcs_department_id} nhan={nhan} dat={dat} "
@@ -691,6 +716,52 @@ def _trang_thai_gui_kho(loai: str, requests: list[SanXuatNhapKhoYc]) -> str:
     return "da_nhap"
 
 
+def _batches_ra(
+    db: Session, repo: SanXuatKcsRepository, batches: list[SanXuatKcsBatch]
+) -> dict[int, dict]:
+    """{kcs_batch_id: dict bày ra} cho MỘT tập batch bất kỳ — lỗi/ảnh/tên lý do/người ghi/yêu cầu
+    kho nạp GỘP một lượt. Dùng chung cho `chi_tiet_kcs` (một việc) và bàn điểm kiểm (cả bàn); tách
+    ra để hai mặt đọc không lệch hình dữ liệu khi một bên thêm khoá."""
+    batch_ids = [b.id for b in batches]
+    loi_map = repo.cac_loi_nhieu(batch_ids)
+    all_loi = [l for ls in loi_map.values() for l in ls]
+    anh_map = repo.anh_cua_loi_nhieu([l.id for l in all_loi])
+    ten_loi = repo.nhan_ly_do({l.nhom_loi_id for l in all_loi})
+
+    yc_map = SanXuatKhoRepository(db).cac_yc_cua_nhieu_batch(batch_ids)
+    nguoi_ids = {b.created_by for b in batches if b.created_by}
+    nguoi_ten = (
+        {u.id: u.name for u in db.scalars(select(User).where(User.id.in_(nguoi_ids)))}
+        if nguoi_ids else {}
+    )
+    return {
+        b.id: {
+            "id": b.id,
+            "batch_id": b.batch_id,
+            "nhom_id": b.nhom_id,
+            # Người kiểm GÕ hai mốc này (`KcsBatchIn`) → thang LỊCH như batch sản lượng.
+            "bat_dau": lich_hien_thi(b.bat_dau),
+            "ket_thuc": lich_hien_thi(b.ket_thuc),
+            "so_luong_nhan": float(b.so_luong_nhan or 0),
+            "co_mau": float(b.co_mau) if b.co_mau is not None else None,
+            "so_luong_dat": float(b.so_luong_dat or 0),
+            "so_luong_khong_dat": float(b.so_luong_khong_dat or 0),
+            "don_vi": b.don_vi,
+            "ket_luan": b.ket_luan,
+            "ghi_chu": b.ghi_chu,
+            "version": b.version,
+            "loi": [
+                _loi_ra(l, anh_map.get(l.id, []), ten_loi.get(l.nhom_loi_id))
+                for l in loi_map.get(b.id, [])
+            ],
+            "loai": b.loai,
+            "nguoi_ghi": nguoi_ten.get(b.created_by),
+            "trang_thai_gui_kho": _trang_thai_gui_kho(b.loai, yc_map.get(b.id, [])),
+        }
+        for b in batches
+    }
+
+
 def chi_tiet_kcs(
     db: Session, user, authz: AuthorizationService, cong_viec_id: int
 ) -> dict:
@@ -710,49 +781,64 @@ def chi_tiet_kcs(
         raise PermissionError("Ngoài phạm vi tổ được phép xem.")
 
     batches = repo.cac_kcs_batch(cong_viec_id)
-    batch_ids = [b.id for b in batches]
-    loi_map = repo.cac_loi_nhieu(batch_ids)
-    all_loi = [l for ls in loi_map.values() for l in ls]
-    anh_map = repo.anh_cua_loi_nhieu([l.id for l in all_loi])
-    ten_loi = repo.nhan_ly_do({l.nhom_loi_id for l in all_loi})
-
-    kho_repo = SanXuatKhoRepository(db)
-    yc_map = kho_repo.cac_yc_cua_nhieu_batch(batch_ids)
-    nguoi_ids = {b.created_by for b in batches if b.created_by}
-    nguoi_ten = (
-        {u.id: u.name for u in db.scalars(select(User).where(User.id.in_(nguoi_ids)))}
-        if nguoi_ids else {}
-    )
-
-    out = []
-    for b in batches:
-        loi_list = loi_map.get(b.id, [])
-        out.append({
-            "id": b.id,
-            "batch_id": b.batch_id,
-            "nhom_id": b.nhom_id,
-            # Người kiểm GÕ hai mốc này (`KcsBatchIn`) → thang LỊCH như batch sản lượng.
-            "bat_dau": lich_hien_thi(b.bat_dau),
-            "ket_thuc": lich_hien_thi(b.ket_thuc),
-            "so_luong_nhan": float(b.so_luong_nhan or 0),
-            "co_mau": float(b.co_mau) if b.co_mau is not None else None,
-            "so_luong_dat": float(b.so_luong_dat or 0),
-            "so_luong_khong_dat": float(b.so_luong_khong_dat or 0),
-            "don_vi": b.don_vi,
-            "ket_luan": b.ket_luan,
-            "ghi_chu": b.ghi_chu,
-            "version": b.version,
-            "loi": [_loi_ra(l, anh_map.get(l.id, []), ten_loi.get(l.nhom_loi_id)) for l in loi_list],
-            "loai": b.loai,
-            "nguoi_ghi": nguoi_ten.get(b.created_by),
-            "trang_thai_gui_kho": _trang_thai_gui_kho(b.loai, yc_map.get(b.id, [])),
-        })
+    theo_batch = _batches_ra(db, repo, batches)
+    out = [theo_batch[b.id] for b in batches]
     return {
         "cong_viec_id": cong_viec_id,
         "la_kcs": cv.la_kcs,
         "checklist": cv.kcs_tieu_chi_json or [],
         "da_ban_giao_xac_nhan": repo.tong_ban_giao_xac_nhan(cong_viec_id),
         "batch": out,
+    }
+
+
+def diem_kiem_kcs(db: Session, user, authz: AuthorizationService) -> dict:
+    """Bàn ĐIỂM KIỂM của tổ KCS — ba tầng Giai đoạn → Công đoạn → checklist
+    (docs/design-kcs-theo-cong-doan.md mục 4).
+
+    Phạm vi ĐỌC là MỌI tổ user thấy được (`_to_thay_duoc`), không phải một `team_id`: tổ KCS đi
+    kiểm việc của tổ KHÁC, khoá theo tổ KCS thì bàn rỗng. Gác đọc chứ không gác ghi — cổng ghi
+    (`_gate_member` trong `tao_kiem_dot_xuat`) vẫn đòi người ghi thuộc đúng tổ KCS.
+
+    Giai đoạn xếp theo thứ tự khai ở danh mục (`models/cong_doan.py` `NHOM`); bước không tra được
+    giai đoạn rơi vào nhóm "" đứng CUỐI — không bịa nó thành "Dịch vụ khác". Nhóm rỗng bị bỏ hẳn,
+    không bày tiêu đề giai đoạn trống."""
+    repo = SanXuatRepository(db)
+    kcs_repo = SanXuatKcsRepository(db)
+    tos, ids = _to_thay_duoc(db, user, authz)
+    rows = repo.diem_kiem(ids)
+
+    cv_ids = {cv.id for cv in rows}
+    lsx_map = repo.lsx_nhan({cv.lsx_id for cv in rows if cv.lsx_id})
+    bg_map = repo.bai_ghep_nhan({cv.bai_ghep_id for cv in rows if cv.bai_ghep_id})
+    may_map = repo.may_nhan({cv.may_id for cv in rows if cv.may_id})
+    nhom_map = repo.nhom_nhan({cv.nhom_id for cv in rows if cv.nhom_id})
+    to_ten = {d.id: d.name for d in tos}
+    nguoi_map = repo.nguoi_lam_theo_cong_viec(cv_ids)
+    batch_map = kcs_repo.cac_kcs_batch_nhieu(cv_ids)
+    theo_batch = _batches_ra(
+        db, kcs_repo, [b for ds in batch_map.values() for b in ds]
+    )
+
+    theo_nhom: dict[str, list[dict]] = {}
+    for cv in rows:
+        d = _item_dict(cv, lsx_map, bg_map, may_map, nhom_map)
+        ds_batch = batch_map.get(cv.id, [])
+        d.update({
+            "to_id": cv.department_id,
+            "to_ten": to_ten.get(cv.department_id or 0, ""),
+            "nguoi": nguoi_map.get(cv.id, []),
+            "checklist": cv.kcs_tieu_chi_json or [],
+            "batch": [theo_batch[b.id] for b in ds_batch],
+            "tong_dat": sum(float(b.so_luong_dat or 0) for b in ds_batch),
+            "tong_loi": sum(float(b.so_luong_khong_dat or 0) for b in ds_batch),
+        })
+        theo_nhom.setdefault(cv.nhom_cong_doan or "", []).append(d)
+
+    thu_tu = {ma: i for i, ma in enumerate(NHOM_CONG_DOAN)}
+    khoa = sorted(theo_nhom, key=lambda ma: (thu_tu.get(ma, len(thu_tu)), ma))
+    return {
+        "giai_doan": [{"nhom": ma, "cong_viec": theo_nhom[ma]} for ma in khoa]
     }
 
 

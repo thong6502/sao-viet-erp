@@ -67,7 +67,6 @@ K_MAY_KHONG_KHAM = "may_khong_kham"
 K_QUA_TAI_MAY = "qua_tai_may"
 K_HAN_BAI_GHEP = "han_bai_ghep"
 K_THIEU_VAT_TU = "thieu_vat_tu"              # F: bảng cân đối có dòng đỏ cho lệnh/bài này
-K_THIEU_NGUOI = "thieu_nguoi"                # G: tổ bố trí dưới số người tối thiểu
 K_QUA_TAI_TO = "qua_tai_to"                  # I: Σ người các việc cùng lúc > quân số có mặt của tổ
 K_LECH_THUC_TE = "lech_thuc_te"               # J: tổ chạy lệch mốc kế hoạch (vào muộn / quá giờ)
 K_LICH_DA_QUA = "lich_da_qua"                # K: mốc đã xếp trôi qua mà chưa ai vào việc
@@ -174,7 +173,6 @@ class XepLichVanDeService:
         issues += self._may_khong_kham(rows)
         issues += self._qua_tai_may(rows)
         issues += self._han_som_bai_ghep(rows)
-        issues += self._thieu_nguoi(rows)
         issues += self._qua_tai_to(rows)
         issues += self._thieu_vat_tu(rows)
         issues += self._lech_thuc_te(rows, tt)
@@ -883,33 +881,6 @@ class XepLichVanDeService:
         return {"items": items, "total": len(items)}
 
     # ================= ĐỢT 2 — DETECTOR MỚI =================
-
-    def _thieu_nguoi(self, rows: list[dict]) -> list[dict]:
-        """Bước của TỔ bố trí ít người hơn mức TỐI THIỂU (Chặn) — dưới mức đó không mở máy được.
-
-        `cong_doan_dau_viec.so_nguoi_toi_thieu` trước đây chỉ là khai báo; đây là chỗ nó thành ràng
-        buộc thật. Chỉ so khi ĐÃ khai (> 1): mặc định 1 nghĩa là chưa khai, không phải "cần 1".
-        """
-        out: list[dict] = []
-        for r in rows:
-            toi_thieu = r.get("so_nhan_cong_toi_thieu")
-            bo_tri = r.get("so_nhan_cong")
-            if not toi_thieu or int(toi_thieu) <= 1 or not bo_tri:
-                continue
-            if int(bo_tri) >= int(toi_thieu):
-                continue
-            out.append({
-                "issue_key": f"{K_THIEU_NGUOI}:{r['id']}",
-                "category": CAT_NGUOI, "severity": SEV_CHAN,
-                "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']}: bố trí {bo_tri} người, "
-                          f"tối thiểu {toi_thieu}"),
-                "nguyen_nhan": ("Định mức đầu việc yêu cầu số người tối thiểu — dưới mức đó "
-                                "không vận hành được."),
-                "impacts": self._impact([r]),
-                "delay_phut": None,
-                "group_key": f"lsx:{r['lsx_id']}",
-            })
-        return out
 
     def _qua_tai_to(self, rows: list[dict]) -> list[dict]:
         """Σ số người các việc CHẠY CÙNG LÚC trong một tổ vượt quân số có mặt hôm đó → Chặn (mục I).

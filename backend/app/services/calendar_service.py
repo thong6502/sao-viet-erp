@@ -149,12 +149,35 @@ class CalendarService:
         return n
 
     def standard_working_days(self, year: int, month: int) -> int:
-        """Số ngày làm việc thực của tháng (công chuẩn động — Pha 1 chưa dùng cho Lương,
-        để sẵn cho FE xem trước + Pha 4)."""
+        """Số ngày làm việc thực của tháng (không gồm lễ). Nay CHỈ còn cho hạn mức phép / lịch;
+        LƯƠNG dùng `standard_cong_luong` (gồm lễ hưởng lương) — xem chú thích ở đó."""
         if not (1 <= month <= 12):
             raise CalendarValidationError("Tháng phải trong 1–12.")
         last = _cal.monthrange(year, month)[1]
         return self.working_days_between(date(year, month, 1), date(year, month, last))
+
+    def standard_cong_luong(self, year: int, month: int) -> int:
+        """CÔNG CHUẨN cho LƯƠNG = ngày làm việc + ngày lễ HƯỞNG LƯƠNG rơi vào ngày lẽ ra làm.
+
+        Chủ chốt 07/09/2026 (bản rà liên thông B1) theo bảng lương T05 thật: tháng 5 công chuẩn 26 GỒM
+        1/5. Trước đó mẫu số trừ lễ (25) mà tử số vẫn +1 công lễ ⇒ nghỉ 1 ngày không phép trong tháng
+        có lễ vẫn ra 25/25: đủ lương, đủ chuyên cần — mỗi ngày lễ thành một "vé nghỉ miễn phí", đơn
+        giá giờ tăng ca cũng chia cho 25. Off1x (nghỉ 1×, không lương khi nghỉ) và lễ không lương
+        KHÔNG tính vào chuẩn."""
+        if not (1 <= month <= 12):
+            raise CalendarValidationError("Tháng phải trong 1–12.")
+        last = _cal.monthrange(year, month)[1]
+        n = 0
+        d = date(year, month, 1)
+        while d <= date(year, month, last):
+            sp = self._special_for(d)
+            if (sp is not None and sp.kind == KIND_OFF and bool(getattr(sp, "is_paid", True))
+                    and self._weekday_works(d)):
+                n += 1                       # lễ hưởng lương: nghỉ ở nhà vẫn là 1 công chuẩn
+            elif self.is_working_day(d):
+                n += 1
+            d = d + timedelta(days=1)
+        return n
 
     def special_days_in_range(self, start: date, end: date) -> list[SpecialDay]:
         return self.calendar.list_in_range(start, end)
@@ -270,6 +293,9 @@ class CalendarService:
             days.append({"day": dd, "date": d.isoformat(), "weekday": d.weekday(),
                          "kind": kind, "name": name, "is_working": is_working})
         return {"year": year, "month": month, "working_days": working,
+                # Công chuẩn LƯƠNG (gồm lễ hưởng lương) — tab Lịch xem trước phải nói cùng một số với
+                # Bảng lương (B1 08/09/2026); `working_days` giữ nguyên cho hạn mức phép / tô lịch.
+                "cong_chuan_luong": self.standard_cong_luong(year, month),
                 "paid_holiday_count": self.paid_off_count(year), "days": days, "holidays": holidays}
 
 

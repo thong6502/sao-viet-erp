@@ -72,17 +72,15 @@ class BaiGhepCongDoan(Base):
     # --- Phân công: MỘT lượt chạy thì một tổ, một máy, một kíp ---
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
-    so_nhan_cong: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
+    # Mirror `lsx_cong_doan.so_nhan_cong_tieu_chuan` — bước chung của bài cũng là một bước có kế
+    # hoạch, và cũng là con số nhân lực DUY NHẤT của nó. Hai mốc tối thiểu/tối đa gỡ ở mg `0270`,
+    # ô "số người bố trí" (`so_nhan_cong`) gỡ ở mg `0281` vì luôn là bản sao của cột này.
     so_nhan_cong_tieu_chuan: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )
-    so_nhan_cong_toi_da: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Mirror `lsx_cong_doan.so_nhan_cong_toi_thieu` — bước chung của bài cũng là một bước có kế hoạch.
-    so_nhan_cong_toi_thieu: Mapped[int | None] = mapped_column(Integer, nullable=True)
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    # KCS kiêm nhiệm (mg `0250`): checklist bổ sung của lượt gộp — mirror
-    # `LsxCongDoan.kcs_tieu_chi_bo_sung_json`. Chỉ có nghĩa khi `la_kcs=true`.
-    kcs_tieu_chi_bo_sung_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # `kcs_tieu_chi_bo_sung_json` GỠ ở mg `0283` cùng lượt với `LsxCongDoan` — checklist KCS chỉ
+    # còn MỘT nguồn là danh mục gắn theo công đoạn (`docs/design-kcs-theo-cong-doan.md`).
 
     # --- Số lượng & hao hụt: tính ở ĐƠN VỊ TỜ GHÉP, hao đếm ĐÚNG MỘT LẦN cho cả lượt ---
     so_luong_vao: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)

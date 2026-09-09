@@ -8,7 +8,7 @@
 // cột "Cần xem lại". Không có test thì lần sau ai đó "dọn" cái cờ `tren_dong_giay` là nó lặng lẽ
 // quay lại.
 import { describe, expect, it } from "vitest";
-import { emptyRow, loiDong, type EditRow } from "./lsxBuoc";
+import { boBuoc, chenBuoc, emptyRow, loiDong, mayChonDuoc, toBody, type EditRow } from "./lsxBuoc";
 
 /** Dòng routing tối thiểu. `may_id` đặt sẵn để khỏi dính cảnh báo "chưa gán tổ / máy" — thứ đang
  *  không phải chủ đề của phần lớn test dưới đây. */
@@ -95,5 +95,157 @@ describe("loiDong — các kiểm còn lại giữ nguyên", () => {
   it("trùng bước trước", () => {
     const rows = [dong({ ten: "Cán màng mờ" }), dong({ ten: "Cán màng mờ" })];
     expect(loiDong(rows, 1)).toContain("trùng bước trước");
+  });
+});
+
+// Máy chọn được trong drawer bước — phải khớp ĐÚNG luật `BaiGhepService.may_ngoai_cong_doan` của
+// backend. Không khớp thì kế hoạch gán được một máy mà xếp lịch / bài ghép sẽ từ chối, và người
+// dùng chỉ biết ở khâu sau cùng.
+describe("mayChonDuoc — máy nào được mời cho một bước", () => {
+  // Đúng dữ liệu DB dev: nhóm "Máy in" có 6 máy, "In ngoài" 4 máy, còn công đoạn In offset chỉ
+  // khai 4 máy cụ thể (IN-01, IN-02, IN-03, IN-06).
+  const MAY = [
+    { id: 1, ten: "IN-01", nhom: "Máy in" },
+    { id: 2, ten: "IN-02", nhom: "Máy in" },
+    { id: 3, ten: "IN-03", nhom: "Máy in" },
+    { id: 4, ten: "IN-04", nhom: "Máy in" },
+    { id: 5, ten: "IN-05", nhom: "Máy in" },
+    { id: 6, ten: "IN-06", nhom: "Máy in" },
+    { id: 7, ten: "IN-07", nhom: "In ngoài" },
+    { id: 27, ten: "TB-0001", nhom: "CTP" },
+  ];
+  const ten = (ds: { ten: string }[]) => ds.map((m) => m.ten);
+  const IN_OFFSET = { nhomMayChoPhep: ["In ngoài", "Máy in"], mayChoPhep: [1, 2, 3, 6] };
+
+  it("① bảng máy của công đoạn THẮNG hàng tick nhóm máy", () => {
+    expect(ten(mayChonDuoc(MAY, IN_OFFSET, null)))
+      .toEqual(["IN-01", "IN-02", "IN-03", "IN-06"]);
+  });
+
+  it("② chưa khai máy nào thì lùi về nhóm máy", () => {
+    const cd = { nhomMayChoPhep: ["CTP"], mayChoPhep: [] };
+    expect(ten(mayChonDuoc(MAY, cd, null))).toEqual(["TB-0001"]);
+  });
+
+  it("chưa khai cả hai ⇒ mọi máy", () => {
+    expect(mayChonDuoc(MAY, { nhomMayChoPhep: null, mayChoPhep: null }, null)).toHaveLength(MAY.length);
+    expect(mayChonDuoc(MAY, null, null)).toHaveLength(MAY.length);
+  });
+
+  it("máy ĐANG gán luôn còn trong danh sách dù rớt cả hai tầng", () => {
+    // Lệnh cũ gán IN-07 rồi công đoạn mới siết bảng máy lại. Loại nó đi là ô máy về trống trơn.
+    expect(ten(mayChonDuoc(MAY, IN_OFFSET, 7)))
+      .toEqual(["IN-01", "IN-02", "IN-03", "IN-06", "IN-07"]);
+  });
+
+  it("máy chưa khai nhóm KHÔNG lọt bộ lọc nhóm", () => {
+    const cd = { nhomMayChoPhep: ["Máy in"], mayChoPhep: null };
+    const ds = [...MAY, { id: 99, ten: "MAY-LA", nhom: null }];
+    expect(ten(mayChonDuoc(ds, cd, null))).not.toContain("MAY-LA");
+  });
+});
+
+// --- Chèn / bỏ bước phải NỐI LẠI DÂY (09/09/2026) ------------------------------------------
+//
+// Bối cảnh: sơ đồ DAG vẽ theo `phu_thuoc_step_keys`, còn số lượng bám `thu_tu`. Nút "Chèn
+// trước/sau" trước đây chỉ `splice` một dòng rỗng vào mảng nên số vẫn chảy đúng mà bước mới đứng
+// trơ không dây trên sơ đồ — nhìn thì tưởng chuỗi liền, lưu xuống mới lộ.
+
+/** Chuỗi thẳng A → B → C, dây khai đúng như server tự nối lúc tạo lệnh. */
+function chuoiThang(): EditRow[] {
+  const a = dong({ ten: "A", key: "ka" });
+  const b = dong({ ten: "B", key: "kb", phu_thuoc_step_keys: ["ka"] });
+  const c = dong({ ten: "C", key: "kc", phu_thuoc_step_keys: ["kb"] });
+  return [a, b, c];
+}
+
+/** `[tên, tiền nhiệm...]` cho dễ đọc kỳ vọng — key sinh ra là UUID nên không so thẳng được. */
+function day(rows: EditRow[]): string[][] {
+  const ten = new Map(rows.map((r) => [r.key, r.ten || "MỚI"]));
+  return rows.map((r) => [r.ten || "MỚI", ...r.phu_thuoc_step_keys.map((k) => ten.get(k) ?? k)]);
+}
+
+describe("chenBuoc", () => {
+  it("chèn vào GIỮA thì cắt cạnh cũ và nối A → MỚI → B", () => {
+    expect(day(chenBuoc(chuoiThang(), 1, emptyRow()))).toEqual([
+      ["A"], ["MỚI", "A"], ["B", "MỚI"], ["C", "B"],
+    ]);
+  });
+
+  it("chèn lên ĐẦU chuỗi thì bước cũ đứng đầu nhận bước mới làm tiền nhiệm", () => {
+    expect(day(chenBuoc(chuoiThang(), 0, emptyRow()))).toEqual([
+      ["MỚI"], ["A", "MỚI"], ["B", "A"], ["C", "B"],
+    ]);
+  });
+
+  it("chèn ở CUỐI thì treo vào bước cuối, không còn đứng mồ côi", () => {
+    expect(day(chenBuoc(chuoiThang(), 3, emptyRow()))).toEqual([
+      ["A"], ["B", "A"], ["C", "B"], ["MỚI", "C"],
+    ]);
+  });
+
+  it("bước sau KHÔNG phụ thuộc bước trước thì KHÔNG bịa cạnh mới cho nó", () => {
+    // Hai nhánh rời (B tự đứng đầu một nhánh). Chèn vào giữa chỉ được treo bước mới vào A —
+    // tự nối A → MỚI → B là sửa DAG sau lưng người dùng.
+    const roi = [dong({ ten: "A", key: "ka" }), dong({ ten: "B", key: "kb" })];
+    expect(day(chenBuoc(roi, 1, emptyRow()))).toEqual([["A"], ["MỚI", "A"], ["B"]]);
+  });
+
+  it("giữ nguyên các tiền nhiệm KHÁC của bước sau (nhánh song song / cạnh xuyên LSX)", () => {
+    const rows = [
+      dong({ ten: "A", key: "ka" }),
+      dong({ ten: "B", key: "kb", phu_thuoc_step_keys: ["ka", "ngoai"] }),
+    ];
+    expect(day(chenBuoc(rows, 1, emptyRow()))).toEqual([
+      ["A"], ["MỚI", "A"], ["B", "MỚI", "ngoai"],
+    ]);
+  });
+
+  it("chuỗi RỖNG thì bước đầu tiên không có tiền nhiệm", () => {
+    expect(day(chenBuoc([], 0, emptyRow()))).toEqual([["MỚI"]]);
+  });
+});
+
+describe("boBuoc", () => {
+  it("bỏ bước GIỮA thì bắc cầu A → C, không để lại key mồ côi", () => {
+    expect(day(boBuoc(chuoiThang(), 1))).toEqual([["A"], ["C", "A"]]);
+  });
+
+  it("bỏ bước ĐẦU thì bước kế tiếp thành đầu chuỗi", () => {
+    expect(day(boBuoc(chuoiThang(), 0))).toEqual([["B"], ["C", "B"]]);
+  });
+
+  it("bắc cầu KHÔNG đẻ tiền nhiệm trùng khi bước sau đã phụ thuộc sẵn", () => {
+    // C phụ thuộc cả B lẫn A; bỏ B thì cầu A của B trùng với A sẵn có.
+    const rows = [
+      dong({ ten: "A", key: "ka" }),
+      dong({ ten: "B", key: "kb", phu_thuoc_step_keys: ["ka"] }),
+      dong({ ten: "C", key: "kc", phu_thuoc_step_keys: ["kb", "ka"] }),
+    ];
+    expect(day(boBuoc(rows, 1))).toEqual([["A"], ["C", "A"]]);
+  });
+
+  it("bắc cầu KHÔNG biến bước thành tự phụ thuộc chính nó", () => {
+    // Ca vòng do người dùng nối tay: B phụ thuộc C, C phụ thuộc B. Bỏ B thì cầu trả về chính C.
+    const rows = [
+      dong({ ten: "B", key: "kb", phu_thuoc_step_keys: ["kc"] }),
+      dong({ ten: "C", key: "kc", phu_thuoc_step_keys: ["kb"] }),
+    ];
+    expect(day(boBuoc(rows, 0))).toEqual([["C"]]);
+  });
+});
+
+describe("toBody — số lượt qua máy", () => {
+  // 08/09/2026, chủ chốt: "loại bước là tổ thì ẩn cái này đi và cho mặc định là 1". Ô đã gỡ khỏi
+  // drawer ở bước tổ, nên số 2 lượt còn sót của bước máy cũ KHÔNG được nằm lại vô hình trong DB —
+  // chip `so_luot_chay` của công thức tiền công đọc thẳng cột này.
+  it("bước TỔ luôn gửi 1 lượt dù dòng còn giữ số cũ", () => {
+    const [body] = toBody([dong({ ten: "Dán hộp", loai_buoc: "to", so_luot_chay: "2" })]);
+    expect(body.so_luot_chay).toBe(1);
+  });
+
+  it("bước MÁY vẫn gửi đúng số đã khai", () => {
+    const [body] = toBody([dong({ ten: "In offset", loai_buoc: "may", so_luot_chay: "2" })]);
+    expect(body.so_luot_chay).toBe(2);
   });
 });

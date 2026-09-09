@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LsxPhuThuocOption } from "../api/client";
 import type { RefRow } from "../pages/LsxRoutingTable";
-import { type EditRow, tenBuoc } from "../pages/lsxBuoc";
+import { boBuoc, type EditRow, tenBuoc } from "../pages/lsxBuoc";
 import { DagNodeCard } from "./DagNodeCard";
 import { Icon } from "./Icons";
 import "../pages/dag-routing.css";
@@ -606,16 +606,10 @@ export function DagRoutingCanvas({
     onUpdateRows(nextRows);
   };
 
-  // Xóa 1 Node công đoạn
+  // Xóa 1 Node công đoạn. `boBuoc` BẮC CẦU thay vì chỉ cắt cạnh: bỏ một bước giữa chuỗi mà chỉ
+  // xoá cạnh trỏ tới nó thì bước sau mất tiền nhiệm và chuỗi đứt làm đôi trên sơ đồ.
   const handleDeleteNode = (index: number) => {
-    const removedKey = rows[index]?.key;
-    const nextRows = rows
-      .filter((_, i) => i !== index)
-      .map((r) => ({
-        ...r,
-        phu_thuoc_step_keys: (r.phu_thuoc_step_keys || []).filter((k) => k !== removedKey),
-      }));
-    onUpdateRows(nextRows);
+    onUpdateRows(boBuoc(rows, index));
   };
 
   // Danh sách dây nối SVG

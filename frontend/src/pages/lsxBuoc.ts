@@ -3,13 +3,25 @@
 // Tách riêng khỏi cả hai để không vòng import, và để chỗ nào cũng nhìn cùng một hình dạng dòng.
 // Mọi ô số giữ dạng CHUỖI: ô trống ("") khác 0 — trống nghĩa là "chưa khai, dùng gợi ý", còn 0 là
 // người dùng cố tình khai bằng 0. Ép sang number quá sớm sẽ xoá mất sự khác nhau đó.
-import { tenDonVi } from "./tenDonVi";
+import { nhanTram, tenDonVi } from "./tenDonVi";
 import type {
   LsxCongDoan,
   LsxCongDoanBody,
   LsxGiaoNhanFields,
   LsxLoaiBuoc,
 } from "../api/client";
+
+/** DANH MỤC chứa món của một dòng vật tư ở bước: `"giay"` = NVL chính (người lập lệnh tự chọn từ
+ *  danh mục Giấy, 08/09/2026), `"vat_tu"` = mực/kẽm/keo/màng. Id chỉ có nghĩa TRONG danh mục của
+ *  nó ⇒ mọi chỗ so trùng/gom phải đi theo CẶP `(hang_loai, vat_tu_id)`. */
+export type HangLoai = "giay" | "vat_tu";
+
+/** Khoá CẶP của một món ở bước. Dùng nó ở MỌI chỗ so trùng / tra gợi ý / làm `key` React — so
+ *  bằng `vat_tu_id` trần thì Giấy #7 và Vật tư #7 lẫn vào nhau, mà id trùng giữa hai danh mục là
+ *  chuyện thường ngày. */
+export function capMon(hang_loai: HangLoai | undefined, vat_tu_id: number): string {
+  return `${hang_loai ?? "vat_tu"}:${vat_tu_id}`;
+}
 
 export interface EditRow {
   key: string;
@@ -20,13 +32,12 @@ export interface EditRow {
   ten: string;
   nhom: string | null;
   loai_buoc: LsxLoaiBuoc;
-  bat_buoc: boolean;
-  /** KCS kiêm nhiệm (mg 0250): bước này có phải KCS không — quyết định khối "Tiêu chí KCS bổ
-   *  sung" có hiện trong drawer hay không. */
+  /* `bat_buoc` GỠ khỏi form 07/09/2026: bước đã nằm trong routing thì PHẢI làm — không còn ô
+     tick, không còn nhãn "tùy chọn", server cũng thôi nhận field này (xem migration 0275). */
+  /** KCS kiêm nhiệm (mg 0250): bước này có thuộc tổ KCS không. Ô "Tiêu chí KCS bổ sung" đã GỠ
+   *  08/09/2026 (mg 0283) — tiêu chí chỉ còn MỘT nguồn là danh mục gắn theo công đoạn, xem
+   *  `docs/design-kcs-theo-cong-doan.md`. */
   la_kcs: boolean;
-  /** Tiêu chí KCS BỔ SUNG riêng cho LỆNH này (không sửa được checklist danh mục ở đây) — sửa qua
-   *  chính helper `set("kcs_tieu_chi_bo_sung_json", …)`, giống khuôn `vat_tus`. */
-  kcs_tieu_chi_bo_sung_json: { ten: string; huong_dan: string | null; bat_buoc: boolean }[];
   department_id: number | null;
   /** Tên tổ phụ trách server RESOLVE lúc đọc (kể cả khi `department_id` null vì lấy tổ mặc định của
    *  công đoạn). CHỈ ĐỌC — tổ khai ở danh mục Công đoạn, drawer chỉ bày lại, không cho đổi. */
@@ -55,7 +66,8 @@ export interface EditRow {
   so_luong_ra: string;
   don_vi_vao: string;
   don_vi_ra: string;
-  /** Bước có nằm trên DÒNG GIẤY không — CHỈ ĐỌC, server quyết theo cờ trạm của danh mục Đơn vị.
+  /** Bước có nằm trên DÒNG GIẤY không — CHỈ ĐỌC, server quyết theo cặp đơn vị của bước (bỏ trống
+   *  cả hai = ngoài dòng giấy).
    *  `false` ⇒ số lượng không tự tính ngược, bù hao không cộng vào số giấy (drawer nói tại chỗ). */
   tren_dong_giay: boolean;
   /** Bước ngoài dòng giấy thiếu cầu quy đổi vào→ra ở module Đơn vị & quy đổi ⇒ câu lỗi (server
@@ -69,20 +81,28 @@ export interface EditRow {
   hao_hut_pct: string;
   so_luot_chay: string;
   // năng suất & thời gian (phút)
-  so_nhan_cong: string;
-  /** Ba mốc định mức nhân lực — KẾ THỪA từ đầu việc khoán nhưng SỬA ĐƯỢC tại bước. */
-  so_nhan_cong_toi_thieu: number | null;
+  /** Kíp chuẩn — con số nhân lực DUY NHẤT của bước (ô "số người bố trí" gỡ ở mg `0281`):
+   *  chia thời lượng bước tổ VÀ là số bàn xếp lịch cân quân số tổ. Kế thừa từ định mức công
+   *  đoạn nhưng SỬA ĐƯỢC tại bước, cho mọi loại bước. */
   so_nhan_cong_tieu_chuan: number;
-  so_nhan_cong_toi_da: number | null;
   nang_suat: string;
   don_vi_nang_suat: string;
   /** Ô DUY NHẤT còn gõ được ở tab Thời gian ("Thời gian khác"). `setup_phut`/`chay_phut` kế thừa
    *  từ máy — số hiển thị lấy từ `thoi_luong_dien_giai` (server tính), không ô nào ghi ngược. */
   phat_sinh_phut: string;
   thoi_luong_dien_giai: Record<string, unknown>;
+  /** TIỀN CÔNG của đúng bộ số đang sửa — server tính lại mỗi khi loại bước / đầu việc / số lượt
+   *  đổi (`xem-truoc-buoc`). READ-ONLY, không gửi lên. null = đang hỏi lại, hoặc bước chưa lưu nên
+   *  server không có `step_key` để tra; drawer lùi về số của dropdown đầu việc. */
+  khoan_xem_truoc: {
+    khoan_tien: number | null;
+    khoan_dien_giai: string | null;
+    khoan_ly_do: string | null;
+  } | null;
   /** Lượng tính sẵn cho mọi vật tư (server tính theo bước) — READ-ONLY, không gửi lên.
    *  `so_luong: null` = chưa tính được, `ly_do` nói vì sao và chỉ chỗ khai công thức. */
   vat_tu_goi_y: {
+    hang_loai?: HangLoai;
     vat_tu_id: number;
     so_luong: number | null;
     dien_giai: string | null;
@@ -94,8 +114,8 @@ export interface EditRow {
   phu_thuoc_step_keys: string[];
   /** `tu_dong` = dòng MÁY bung khi chọn công việc khoán ⇒ lần bung sau thay được. Người tự thêm
    *  hoặc đã sửa số thì về `false` và máy chừa ra — không thì đổi công việc khoán là mất số vừa gõ. */
-  vat_tus: { vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string; don_vi: string;
-             so_luong: string; tu_dong: boolean }[];
+  vat_tus: { hang_loai: HangLoai; vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string;
+             don_vi: string; so_luong: string; tu_dong: boolean }[];
   // gia công ngoài (§8)
   nha_cung_cap: string;
   sl_gui: string;
@@ -130,10 +150,8 @@ export interface KhoanChon {
   /** Dải năng suất của định mức — chỉ để hiện khoảng nhanh–chậm, null = chưa khai. */
   nang_suat_nguoi_gio_min?: number | null;
   nang_suat_nguoi_gio_max?: number | null;
-  /** Khai báo, chưa vào công thức — xem `cong_doan_dau_viec.so_nguoi_toi_thieu`. */
-  so_nguoi_toi_thieu?: number;
+  /** Kíp chuẩn của công đoạn — MỘT số duy nhất về nhân lực (mg `0270`). */
   so_nguoi_tieu_chuan?: number;
-  so_nguoi_toi_da?: number;
   don_vi_nang_suat?: string | null;
   /** VẬT TƯ đầu việc này tiêu thụ, ĐÃ tính số cho đúng bước đang mở (nền BOM, mg 0191). Server
    *  quy đổi từ số lượng vào của bước sang đơn vị của vật tư — client chỉ việc bung ra. */
@@ -181,9 +199,7 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     ten: cd.ten,
     nhom: cd.nhom,
     loai_buoc: cd.loai_buoc,
-    bat_buoc: cd.bat_buoc,
     la_kcs: !!cd.la_kcs,
-    kcs_tieu_chi_bo_sung_json: cd.kcs_tieu_chi_bo_sung_json ?? [],
     department_id: cd.department_id,
     department_ten: cd.department_ten ?? null,
     may_id: cd.may_id,
@@ -200,8 +216,11 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     khuon_lech: cd.khuon_lech ?? null,
     so_luong_vao: s(cd.so_luong_vao),
     so_luong_ra: s(cd.so_luong_ra),
-    don_vi_vao: cd.don_vi_vao || "to",
-    don_vi_ra: cd.don_vi_ra || cd.don_vi_vao || "to",
+    // ĐỂ TRỐNG là một CÂU TRẢ LỜI ("bước ngoài dòng giấy" — ghi kẽm, đóng thùng), không phải
+    // "server chưa gửi": lấp bằng `"to"` là dán chữ "tờ" lên bước đếm bản kẽm. Chỉ nối vế RA theo
+    // vế VÀO khi vế vào CÓ giá trị — bước không đổi cách đếm thì hai vế bằng nhau.
+    don_vi_vao: cd.don_vi_vao || "",
+    don_vi_ra: cd.don_vi_ra || cd.don_vi_vao || "",
     // Server cũ chưa gửi cờ ⇒ coi như TRÊN dòng giấy: im lặng đúng với hành vi trước đây, hơn là
     // đột nhiên dán chú giải "ngoài dòng giấy" lên mọi bước.
     tren_dong_giay: cd.tren_dong_giay !== false,
@@ -211,20 +230,19 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     hao_hut: s(cd.hao_hut),
     hao_hut_pct: s(cd.hao_hut_pct),
     so_luot_chay: s(cd.so_luot_chay),
-    so_nhan_cong: s(cd.so_nhan_cong),
-    so_nhan_cong_toi_thieu: cd.so_nhan_cong_toi_thieu ?? null,
     so_nhan_cong_tieu_chuan: cd.so_nhan_cong_tieu_chuan ?? 1,
-    so_nhan_cong_toi_da: cd.so_nhan_cong_toi_da,
     nang_suat: s(cd.nang_suat),
     don_vi_nang_suat: cd.don_vi_nang_suat ?? "",
     phat_sinh_phut: s(cd.phat_sinh_phut),
     thoi_luong_dien_giai: cd.thoi_luong_dien_giai ?? {},
+    khoan_xem_truoc: null,
     vat_tu_goi_y: cd.vat_tu_goi_y ?? [],
     so_luong_vao_moi: cd.so_luong_vao_moi ?? null,
     so_luong_ra_moi: cd.so_luong_ra_moi ?? null,
     phu_thuoc_step_keys: cd.phu_thuoc_step_keys ?? [],
     vat_tus: (cd.vat_tus ?? []).map((v) => ({
-      ...v, so_luong: String(v.so_luong), tu_dong: Boolean(v.tu_dong),
+      ...v, hang_loai: v.hang_loai ?? "vat_tu",
+      so_luong: String(v.so_luong), tu_dong: Boolean(v.tu_dong),
     })),
     nha_cung_cap: cd.nha_cung_cap ?? "",
     sl_gui: s(cd.sl_gui),
@@ -260,8 +278,9 @@ export function toEdit(cd: LsxCongDoan): EditRow {
 }
 
 /** Tên HIỂN THỊ của một bước. Ưu tiên tên CÔNG ĐOẠN đang gắn (`cong_doan_id` → danh mục) rồi mới
- *  tới ô chữ tự do `ten`. Lý do: bước chèn tay để trống tên bị `toBody` đóng đinh literal "Công
- *  đoạn"; nếu sau đó gắn công đoạn (vd "Ghi kẽm CTP") mà `ten` không được đồng bộ thì nhãn trơ
+ *  tới ô chữ tự do `ten`. Lý do: `ten` có thể còn giữ nhãn tạm "Công đoạn" của bước chèn tay để
+ *  trống tên (client cũ đóng đinh literal đó; mg `0267` đã nắn dữ liệu cũ, `toBody` nay gửi
+ *  trống); nếu `ten` không đồng bộ với công đoạn đang gắn (vd "Ghi kẽm CTP") thì nhãn trơ
  *  "Công đoạn" trong khi ô công đoạn đã đúng — tiêu đề/pill/bảng/DAG cùng gọi hàm này để không lệch.
  *  Công đoạn bị xoá khỏi danh mục (không tìm thấy ref) → lùi về `ten` như dropdown đang làm. */
 export function tenBuoc(
@@ -276,21 +295,50 @@ export function tenBuoc(
   return r.ten;
 }
 
+/** MÁY chọn được cho một bước — cùng MỘT luật với `BaiGhepService.may_ngoai_cong_doan` ở backend,
+ *  nơi bài ghép và engine xếp lịch (`_may_lam_duoc`) phán quyết. HAI TẦNG, tầng dưới chỉ chạy khi
+ *  tầng trên im:
+ *    ① công đoạn đã khai bảng "Máy chạy được công đoạn này" ⇒ CHỈ những máy đó. Bảng ấy cũng là
+ *       chỗ khai công thức giờ/giá của từng cặp (công đoạn, máy), nên máy ngoài nó không có công
+ *       thức nào để chạy;
+ *    ② chưa khai máy nào ⇒ lùi về hàng tick NHÓM máy (`nhomMayChoPhep`);
+ *    chưa khai cả hai ⇒ mọi máy, đúng lối "chưa khai = không chặn" của cả hệ.
+ *
+ *  Trước 07/09/2026 drawer bước chỉ có tầng ②: công đoạn In offset khai đúng 4 máy trong bảng mà
+ *  dropdown vẫn mời cả 10 máy của hai nhóm "Máy in" + "In ngoài" — người lên kế hoạch gán được
+ *  máy rồi xếp lịch mới từ chối, hai màn nói hai kiểu về cùng một ràng buộc.
+ *
+ *  Máy ĐANG gán luôn giữ lại dù rớt bộ lọc (dữ liệu cũ, hoặc công đoạn siết danh sách sau khi lệnh
+ *  đã gán) — không thì mở lệnh cũ ra là ô máy trống trơn, người xếp lịch tưởng chưa ai gán. */
+export function mayChonDuoc<T extends { id: number; nhom?: string | null }>(
+  mayRefs: T[],
+  cd: { nhomMayChoPhep?: string[] | null; mayChoPhep?: number[] | null } | null | undefined,
+  mayDangGan: number | null | undefined,
+): T[] {
+  const ds = cd?.mayChoPhep ?? null;
+  if (ds && ds.length > 0) {
+    return mayRefs.filter((m) => ds.includes(m.id) || m.id === mayDangGan);
+  }
+  const nhom = cd?.nhomMayChoPhep ?? null;
+  if (!nhom || nhom.length === 0) return mayRefs;
+  return mayRefs.filter((m) => (m.nhom != null && nhom.includes(m.nhom)) || m.id === mayDangGan);
+}
+
 export function emptyRow(): EditRow {
   return {
     key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
-    bat_buoc: true,
-    la_kcs: false, kcs_tieu_chi_bo_sung_json: [],
+    la_kcs: false,
     department_id: null, department_ten: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
     khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
     khuon_nguon: null, khuon_phi: 0, khuon_lech: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to",
     tren_dong_giay: true, loi_quy_doi: null, san_luong_dien_giai: null, he_so_quy_doi: "",
-    hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
+    hao_hut: "", hao_hut_pct: "", so_luot_chay: "",
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
-    so_nhan_cong_toi_thieu: null, so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,
+    so_nhan_cong_tieu_chuan: 1,
     thoi_luong_dien_giai: {},
+    khoan_xem_truoc: null,
     vat_tu_goi_y: [], so_luong_vao_moi: null, so_luong_ra_moi: null,
     phu_thuoc_step_keys: [], vat_tus: [],
     nha_cung_cap: "", sl_gui: "", ngay_gui_dk: "", van_chuyen_ngay: "", gia_cong_ngay: "",
@@ -302,6 +350,66 @@ export function emptyRow(): EditRow {
     khoan_rate_id: null, khoan_chon_duoc: [], khoan_dien_giai: null, khoan_ly_do: null,
     khoan_rate_id_luc_tai: null,
   };
+}
+
+/** Chèn `moi` vào vị trí `chen` của chuỗi bước và NỐI LẠI DÂY quanh chỗ chèn.
+ *
+ *  Vì sao phải có hàm này: sơ đồ DAG vẽ theo `phu_thuoc_step_keys`, còn số lượng/số hiệu bám
+ *  `thu_tu` (thứ tự mảng) — hai thứ độc lập. Trước 09/09/2026 nút "Chèn trước/sau" chỉ `splice`
+ *  một dòng rỗng vào mảng, nên số vẫn chảy đúng mà trên sơ đồ bước mới đứng trơ không dây, và cạnh
+ *  cũ `trước → sau` vẫn nguyên. Server cũng không cứu được: nó chỉ tự nối chuỗi tuyến tính MỘT lần
+ *  lúc tạo lệnh, còn `PUT /routing` ghi y nguyên cạnh client gửi.
+ *
+ *  Luật nối, cố ý KHÔNG bịa cạnh:
+ *   · bước mới nhận bước liền trước làm tiền nhiệm (chèn lên đầu chuỗi thì không có tiền nhiệm);
+ *   · bước liền sau ĐANG phụ thuộc bước liền trước thì cạnh đó đổi hướng qua bước mới — đúng nghĩa
+ *     "nhét vào giữa"; các tiền nhiệm khác của nó (nhánh song song, cạnh xuyên LSX) giữ nguyên;
+ *   · bước liền sau KHÔNG phụ thuộc bước liền trước (hai nhánh rời) thì để yên, bước mới chỉ treo
+ *     vào bước trước. Tự nối đại một cạnh chưa từng có là sửa DAG sau lưng người dùng;
+ *   · chèn lên ĐẦU chuỗi thì bước cũ đứng đầu nhận bước mới làm tiền nhiệm.
+ */
+export function chenBuoc(rows: EditRow[], chen: number, moi: EditRow): EditRow[] {
+  const at = Math.max(0, Math.min(chen, rows.length));
+  const truoc = at > 0 ? rows[at - 1] : null;
+  const sau = at < rows.length ? rows[at] : null;
+  const buocMoi: EditRow = { ...moi, phu_thuoc_step_keys: truoc ? [truoc.key] : [] };
+  const next = rows.map((r) => {
+    if (!sau || r.key !== sau.key) return r;
+    if (!truoc) {
+      return { ...r, phu_thuoc_step_keys: [buocMoi.key, ...r.phu_thuoc_step_keys] };
+    }
+    if (!r.phu_thuoc_step_keys.includes(truoc.key)) return r;
+    return {
+      ...r,
+      phu_thuoc_step_keys: r.phu_thuoc_step_keys.map(
+        (k) => (k === truoc.key ? buocMoi.key : k)),
+    };
+  });
+  next.splice(at, 0, buocMoi);
+  return next;
+}
+
+/** Bỏ bước ở vị trí `idx` và BẮC CẦU qua chỗ trống: ai đang phụ thuộc nó thì nhận thẳng các tiền
+ *  nhiệm của nó.
+ *
+ *  Bắt buộc phải đi cùng `chenBuoc`: từ khi chèn có nối dây thật, xoá mà chỉ lọc dòng khỏi mảng sẽ
+ *  để lại `step_key` mồ côi trong `phu_thuoc_step_keys` của bước sau — bấm Lưu là server bắn
+ *  "Không tìm thấy công đoạn tiền nhiệm" (bước mới chưa từng có trong DB) hoặc "Không thể xóa bước
+ *  đang được … phụ thuộc" (bước đã lưu, cạnh còn trong DB).
+ */
+export function boBuoc(rows: EditRow[], idx: number): EditRow[] {
+  const bo = rows[idx];
+  if (!bo) return rows;
+  return rows
+    .filter((_, i) => i !== idx)
+    .map((r) => {
+      if (!r.phu_thuoc_step_keys.includes(bo.key)) return r;
+      const noi = r.phu_thuoc_step_keys.flatMap(
+        (k) => (k === bo.key ? bo.phu_thuoc_step_keys : [k]));
+      // `Set` khử trùng khi bước sau đã phụ thuộc SẴN một tiền nhiệm của bước bị bỏ; lọc `r.key`
+      // chặn ca bắc cầu thành tự-phụ-thuộc (server coi đó là lỗi).
+      return { ...r, phu_thuoc_step_keys: [...new Set(noi)].filter((k) => k !== r.key) };
+    });
 }
 
 export function n(v: string): number {
@@ -325,14 +433,17 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       thu_tu: i,
       step_key: r.key.startsWith("r") ? undefined : r.key,
       cong_doan_id: r.cong_doan_id,
-      ten: r.ten || "Công đoạn",
+      // Tên TRỐNG thì gửi trống, ĐỪNG tự điền literal "Công đoạn": server có sẵn đường lùi
+      // `ten or cd_obj.ten` (lấy tên danh mục của công đoạn đang gắn), điền literal ở đây làm
+      // đường lùi đó không bao giờ chạy và đóng đinh chữ "Công đoạn" vào `lsx_cong_doan.ten` —
+      // mọi màn đọc thẳng cột đó (sơ đồ bài ghép, chip phụ thuộc) sẽ trơ chữ này mãi.
+      ten: r.ten.trim(),
       nhom: r.nhom,
       loai_buoc: r.loai_buoc,
-      bat_buoc: r.bat_buoc,
-      // Tiêu chí KCS BỔ SUNG riêng của lệnh — KHÔNG gửi `la_kcs` ở đây: Task 3 chưa có ô sửa cờ
-      // này trên drawer (kế thừa nguyên từ danh mục Công đoạn lúc bung routing), gửi lại giá trị
-      // cũ vô nghĩa mà thêm rủi ro ghi nhầm nếu sau này FE thêm ô sửa mà quên đồng bộ đây.
-      kcs_tieu_chi_bo_sung_json: r.kcs_tieu_chi_bo_sung_json,
+      // KHÔNG gửi `bat_buoc` (07/09/2026): mọi bước trong routing đều bắt buộc, cột để server tự
+      // giữ TRUE. Gửi lại chỉ mở đường ghi nhầm `false` trong khi drawer không còn ô sửa.
+      // KHÔNG gửi `la_kcs`: drawer không có ô sửa cờ này (kế thừa nguyên từ danh mục Công đoạn
+      // lúc bung routing), gửi lại giá trị cũ vô nghĩa mà thêm rủi ro ghi nhầm.
       // Để TRỐNG tổ → server tự lấy tổ mặc định của công đoạn (không ép khai lại).
       department_id: r.department_id,
       may_id: r.may_id,
@@ -344,22 +455,18 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       he_so_quy_doi: on(r.he_so_quy_doi),
       hao_hut: on(r.hao_hut),
       hao_hut_pct: on(r.hao_hut_pct),
-      so_luot_chay: on(r.so_luot_chay),
-      so_nhan_cong: on(r.so_nhan_cong),
-      // Ba mốc định mức: gửi lên để số người kế hoạch sửa tay không bị server kéo lại theo
-      // danh mục. Bước Máy/Thuê ngoài không có định mức tổ nên bỏ qua.
-      ...(r.loai_buoc === "to"
-        ? {
-            so_nhan_cong_toi_thieu: r.so_nhan_cong_toi_thieu ?? undefined,
-            so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan || undefined,
-            so_nhan_cong_toi_da: r.so_nhan_cong_toi_da ?? undefined,
-          }
-        : {}),
+      // Bước TỔ luôn 1 lượt (08/09/2026): ô đã gỡ khỏi drawer ở loại bước này, nên số cũ
+      // khác 1 không được nằm lại vô hình. Server ghi đè 1 lần nữa ở `_ap_routing`.
+      so_luot_chay: r.loai_buoc === "to" ? 1 : on(r.so_luot_chay),
+      // Kíp chuẩn gửi lên để số sửa tay không bị server kéo lại theo danh mục. Gửi cho MỌI loại
+      // bước (mg `0270`): kíp nay bám công đoạn chứ không còn bám máy.
+      so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan || undefined,
       // Ô trống = để máy tính từ năng suất (KHÔNG phải 0 phút).
       phat_sinh_phut: on(r.phat_sinh_phut),
       phu_thuoc_step_keys: r.phu_thuoc_step_keys,
       vat_tus: r.vat_tus.map((v) => ({
-        vat_tu_id: v.vat_tu_id, so_luong: n(v.so_luong), tu_dong: v.tu_dong,
+        hang_loai: v.hang_loai, vat_tu_id: v.vat_tu_id,
+        so_luong: n(v.so_luong), tu_dong: v.tu_dong,
       })),
       // Khối gia công ngoài chỉ gửi khi bước ĐANG là thuê ngoài — đổi loại bước rồi thì
       // không kéo theo dữ liệu NCC cũ làm checklist hiểu nhầm.
@@ -394,8 +501,8 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
  * Cảnh báo giả nguy hiểm hơn là không có cảnh báo: nó dạy người dùng bỏ qua cả cột, nên lúc đứt
  * thật cũng chẳng ai nhìn.
  *
- * Nay lọc bằng CỜ `tren_dong_giay` — server suy từ `don_vi_do.tram_dong_giay`, FE không tự đoán từ
- * mã. Bước ngoài dòng giấy đo khối lượng việc của RIÊNG nó (kẽm đếm bản, đóng thùng đếm thùng);
+ * Nay lọc bằng CỜ `tren_dong_giay` — server chấm sẵn, FE không tự đoán từ mã. Bước ngoài dòng giấy
+ * đo khối lượng việc của RIÊNG nó (kẽm đếm bản, đóng thùng đếm thùng);
  * đem thước đó so với thước dòng giấy là so hai thứ không liên quan.
  *
  * Vẫn so bằng MÃ đơn vị chứ không bằng trạm: giữa hai bước liền nhau trên dòng giấy, giấy không
@@ -446,15 +553,18 @@ export type ThoiLuongInput = Pick<
   EditRow,
   | "loai_buoc"
   | "so_luot_chay"
-  | "so_nhan_cong"
-  | "so_nhan_cong_toi_da"
   | "so_nhan_cong_tieu_chuan"
   | "nang_suat"
   | "phat_sinh_phut"
   | "thoi_luong_dien_giai"
   | "don_vi_vao"
   | "so_luong_vao"
->;
+> & {
+  /** Có để phân biệt "chưa gán máy" với "quy đổi tịt" trong câu cảnh báo — hai lỗi khác chỗ khai.
+   *  Optional để bước chung của bài ghép (dựng object bằng tay) không phải khai thêm; vắng thì câu
+   *  cảnh báo giữ nguyên như cũ. */
+  may_id?: number | null;
+};
 
 export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Record<string, unknown> {
   const f = (v: string | number | null | undefined): number => {
@@ -468,8 +578,7 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
   // phép quy đổi: công thức thì được phép có hai bản, bảng quy đổi thì không.
   const daQuyDoi = dgServer.phuong_phap !== "chua_quy_doi" && dgServer.so_luong_vao != null;
   const vao = daQuyDoi ? Number(dgServer.so_luong_vao) || 0 : 0;
-  const luot = Math.max(Math.trunc(f(r.so_luot_chay)) || 1, 1);
-  const nguoiKeHoach = Math.max(Math.trunc(f(r.so_nhan_cong)) || 1, 1);
+  const luot = r.loai_buoc === "to" ? 1 : Math.max(Math.trunc(f(r.so_luot_chay)) || 1, 1);
   const canhBao: string[] = [];
 
   // Số của MÁY ĐANG CHỌN trên form (`may`) — KHÔNG đợi server. Đổi máy trong drawer là chuẩn bị
@@ -531,9 +640,17 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
   if (!daQuyDoi) {
     phuongPhap = "chua_quy_doi";
     chay = chayNhanh = chayCham = 0;
+    // CHƯA GÁN MÁY nói câu khác: bước máy trống máy thì server không có ĐÍCH nào để quy về — cách
+    // đo giờ chạy lẫn tốc độ đều treo ở cặp (công đoạn × máy). Câu "chưa quy đổi" ở ca này chỉ
+    // người ta sang Đơn vị & quy đổi, khai xong cũng không cứu được gì. Mã `phuong_phap` vẫn giữ
+    // `chua_quy_doi` — xếp lịch phân nhánh theo mã đó, chỉ CÂU cần đổi. `may_id === undefined`
+    // (bài ghép không truyền) coi như không biết ⇒ giữ câu cũ.
     canhBao.push(
-      "Chưa quy đổi được số lượng vào sang đơn vị của tốc độ nên không tính được thời gian chạy. " +
-      "Khai cầu quy đổi (hoặc công thức cho đơn vị đó) ở Cấu hình danh mục → Đơn vị & quy đổi."
+      theoMay && r.may_id === null
+        ? "Bước chưa gán máy nên chưa biết chạy trên máy nào — chọn máy ở tab Phân công & Thiết bị. "
+          + "Cách đo giờ chạy và tốc độ đều khai theo cặp (công đoạn × máy)."
+        : "Chưa quy đổi được số lượng vào sang đơn vị của tốc độ nên không tính được thời gian chạy. "
+          + "Khai cầu quy đổi (hoặc công thức cho đơn vị đó) ở Cấu hình danh mục → Đơn vị & quy đổi."
     );
   } else if (phuongPhap === "thieu_nang_suat") {
     canhBao.push("Máy đang gán chưa khai tốc độ (hoặc bước chưa gán máy) nên không tính được thời gian chạy.");
@@ -552,10 +669,10 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : "may",
     nang_suat_co_so: nangSuatCoSo > 0 ? tron(nangSuatCoSo) : null,
     nang_suat_hieu_dung: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
-    so_luot_chay: r.loai_buoc === "to" ? null : luot,
-    so_nhan_cong_ke_hoach: nguoiKeHoach,
+    // Bước tổ vẫn BÁO số lượt — chip `so_luot_chay` của công thức tiền công cần số thật — nhưng
+    // từ 08/09/2026 số đó luôn là 1: ô nhập chỉ còn ở bước máy/thuê ngoài.
+    so_luot_chay: luot,
     so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan,
-    so_nhan_cong_toi_da: r.loai_buoc === "to" ? r.so_nhan_cong_toi_da : null,
     // Bước TỔ nhân kíp chuẩn vào công thức (chốt 20/08/2026) ⇒ "số người tính" = số người tiêu chuẩn.
     so_nhan_cong_tinh: nguoiTinh,
     setup_phut: tron(setup),
@@ -607,10 +724,26 @@ export function phut(v: number): string {
   return du ? `${gio} giờ ${du} phút` : `${gio} giờ`;
 }
 
-/** Mã đơn vị → TÊN trong danh mục (`to` → "tờ"). Chưa nạp xong / mã lạ ⇒ trả mã trần.
- *  Không còn bảng nhãn cứng — xem `tenDonVi.ts`. */
+/** Mã đơn vị → TÊN trong danh mục (`kg` → "kg", `thung` → "thùng"). Chưa nạp xong / mã lạ ⇒ trả mã
+ *  trần. Không còn bảng nhãn cứng — xem `tenDonVi.ts`.
+ *
+ *  Dùng cho ĐƠN VỊ THẬT: vật tư, kho, ĐVT sản phẩm, đơn giá khoán. Cột `don_vi_vao`/`don_vi_ra`
+ *  của công đoạn / bước / công việc tổ KHÔNG đi qua đây — chúng giữ mã CHẶNG, dùng `nhanChang`. */
 export function nhanDonVi(dv: string | null | undefined): string {
   return dv ? tenDonVi(dv) ?? dv : "";
+}
+
+/** Mã CHẶNG dòng giấy → nhãn ("to" → "tờ in", "cai" → "thành phẩm"). Cho mọi cột kế thừa
+ *  `cong_doan.don_vi_vao/ra`: bước lệnh · bước bài ghép · công việc tổ · chuỗi bù hao phiếu tính giá.
+ *
+ *  Vì sao KHÔNG gộp thẳng vào `nhanDonVi`: `to · con · tay · cai` cũng là mã đơn vị THẬT trong danh
+ *  mục (đơn giá khoán đ/tờ, vật tư bán theo cái). Đổi nhãn ở đó thì "70 đ/cái" hoá "70 đ/thành phẩm".
+ *  Hai từ vựng trùng chuỗi mã, phải tách ở nơi gọi — xem `tenDonVi.ts`.
+ *
+ *  Mã không phải chặng thì RƠI VỀ danh mục đơn vị: bước ngoài dòng giấy (ghi kẽm, đóng thùng) và
+ *  dữ liệu trước 06/09/2026 vẫn giữ mã đơn vị thật ở hai cột này. */
+export function nhanChang(dv: string | null | undefined): string {
+  return dv ? nhanTram(dv) ?? nhanDonVi(dv) : "";
 }
 
 export interface DonViChuoi {
@@ -647,12 +780,12 @@ export interface MaDonViChuoi {
  *  đã nói CHẶNG ("Vào máy" · "Giấy nguyên") nên rỗng cũng không mất nghĩa.
  */
 export function donViChuoi(src: MaDonViChuoi, dvSanPham?: string | null): DonViChuoi {
-  const to = nhanDonVi(src.don_vi_to);
+  const to = nhanChang(src.don_vi_to);
   return {
     to,
-    tp: nhanDonVi(src.don_vi_tp) || dvSanPham || "",
-    tay: nhanDonVi(src.don_vi_tay),
-    toNguyen: nhanDonVi(src.don_vi_to_nguyen) || to,
+    tp: nhanChang(src.don_vi_tp) || dvSanPham || "",
+    tay: nhanChang(src.don_vi_tay),
+    toNguyen: nhanChang(src.don_vi_to_nguyen) || to,
   };
 }
 
@@ -671,6 +804,6 @@ export function heSoChu(
   if (!dvVao || !dvRa || dvVao === dvRa || !Number.isFinite(hs) || hs === 1 || hs <= 0) return null;
   const so = (v: number) => v.toLocaleString("vi-VN", { maximumFractionDigits: 4 });
   return hs < 1
-    ? `${so(1 / hs)} ${nhanDonVi(dvVao)} = 1 ${nhanDonVi(dvRa)}`
-    : `1 ${nhanDonVi(dvVao)} = ${so(hs)} ${nhanDonVi(dvRa)}`;
+    ? `${so(1 / hs)} ${nhanChang(dvVao)} = 1 ${nhanChang(dvRa)}`
+    : `1 ${nhanChang(dvVao)} = ${so(hs)} ${nhanChang(dvRa)}`;
 }

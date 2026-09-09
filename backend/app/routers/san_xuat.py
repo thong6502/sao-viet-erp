@@ -44,6 +44,7 @@ from ..schemas.san_xuat import (
     BatDauIn,
     BuTruIn,
     BuTruKetQuaOut,
+    DiemKiemOut,
     DoiMayIn,
     DongNhomDieuKienOut,
     DongNhomKetQuaOut,
@@ -901,6 +902,18 @@ def chi_tiet_kcs(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
+@router.get("/kcs/diem-kiem", response_model=DiemKiemOut)
+def diem_kiem_kcs(
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    """Bàn ĐIỂM KIỂM của tổ KCS: mọi bước ĐÃ KHỞI ĐỘNG có checklist, gom theo giai đoạn
+    (docs/design-kcs-theo-cong-doan.md mục 4). KHÔNG nhận `team_id` — tổ KCS kiểm việc của tổ
+    KHÁC, phạm vi là mọi tổ user được xem."""
+    return kcs.diem_kiem_kcs(db, user, authz)
+
+
 @router.get("/kcs/hop-thu", response_model=KcsHopThuOut)
 def hop_thu_loi(
     db: Annotated[Session, Depends(get_db)],
@@ -966,12 +979,13 @@ def ghi_loi_kcs(
     return res
 
 
-@router.post("/kcs/dot-xuat", response_model=KcsDotXuatKetQuaOut, status_code=status.HTTP_201_CREATED)
-def tao_kiem_dot_xuat(
+@router.post("/kcs/kiem", response_model=KcsDotXuatKetQuaOut, status_code=status.HTTP_201_CREATED)
+def tao_kiem_ngoai_routing(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
     cong_viec_id: int = Form(...),
     kcs_department_id: int = Form(...),
+    loai: str = Form(...),
     bat_dau: datetime = Form(...),
     ket_thuc: datetime = Form(...),
     so_luong_nhan: float = Form(...),
@@ -987,8 +1001,14 @@ def tao_kiem_dot_xuat(
     cong_doan_ref_id: int | None = Form(default=None),
     files: list[UploadFile] | None = File(default=None),
 ) -> dict:
-    """KCS KIÊM NHIỆM (mg 0250): tổ SX khác kiểm đột xuất một việc đang chạy/tạm dừng, không đứng
-    sẵn trong routing. Multipart vì có thể kèm ảnh lỗi NGAY một lượt (khác routing tách hai bước)."""
+    """Ghi MỘT lượt kiểm NGOÀI routing — cửa chung của hai `loai` (docs/design-kcs-theo-cong-doan.md):
+
+    · `dot_xuat` — KCS kiêm nhiệm (mg 0250): tổ khác kiểm đột xuất một việc đang chạy/tạm dừng.
+    · `diem_kiem` — điểm kiểm theo công đoạn: bước có checklist trong danh mục, tổ KCS đi kiểm.
+
+    Cả hai KHÔNG đẻ batch sản lượng, KHÔNG đụng trạng thái việc, KHÔNG mở cửa kho ⇒ kiểm "không
+    đạt" ở giữa chuỗi KHÔNG chặn bước sau (chốt 08/09/2026). Multipart vì có thể kèm ảnh lỗi NGAY
+    một lượt (khác routing tách hai bước)."""
     try:
         checklist_ket_qua = json.loads(checklist_ket_qua_json) if checklist_ket_qua_json else None
     except (ValueError, TypeError):
@@ -1001,7 +1021,7 @@ def tao_kiem_dot_xuat(
             so_luong_dat=so_luong_dat, so_luong_khong_dat=so_luong_khong_dat, co_mau=co_mau,
             don_vi=don_vi, ghi_chu=ghi_chu, checklist_ket_qua=checklist_ket_qua,
             nhom_loi_id=nhom_loi_id, loi_mo_ta=loi_mo_ta, to_chiu_id=to_chiu_id,
-            cong_doan_ref_id=cong_doan_ref_id, anh=anh,
+            cong_doan_ref_id=cong_doan_ref_id, anh=anh, loai=loai,
         )
     except PermissionError as exc:
         _don_anh(keys)

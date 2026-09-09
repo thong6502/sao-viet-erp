@@ -74,7 +74,6 @@ class PreviewLine(BaseModel):
     don_vi_tay: str | None = None
     routing: list[PreviewRouting] = Field(default_factory=list)
     quy_cach: dict | None = None
-    thieu: list[str] = Field(default_factory=list)
     # SL lúc tính giá khác SL đơn → cảnh báo mềm (vẫn lấy số của đơn).
     sl_ptg: int | None = None
     # Đã tạo lệnh rồi → khoá dòng.
@@ -91,7 +90,6 @@ class PreviewOut(BaseModel):
     is_rush: bool = False
     production_note: str | None = None
     lines: list[PreviewLine]
-    warnings: list[str] = Field(default_factory=list)
 
 
 class TaoLsxIn(BaseModel):
@@ -110,6 +108,10 @@ class LeadTimeOut(BaseModel):
 
 
 class LsxBuocVatTuIn(BaseModel):
+    # DANH MỤC nào chứa món — `"giay"` (NVL chính, người lập lệnh tự chọn) hay `"vat_tu"`
+    # (mực/keo/màng, bung từ đầu việc). Mặc định `"vat_tu"`: client cũ không gửi thì hiểu y như
+    # trước khi bước chọn được NVL chính (08/09/2026).
+    hang_loai: Literal["giay", "vat_tu"] = "vat_tu"
     vat_tu_id: int
     so_luong: float = Field(gt=0)
     # True = dòng MÁY bung khi chọn công việc khoán ⇒ lần bung sau thay được. False = người tự thêm
@@ -119,6 +121,7 @@ class LsxBuocVatTuIn(BaseModel):
 
 class LsxBuocVatTuOut(BaseModel):
     id: int
+    hang_loai: str = "vat_tu"
     vat_tu_id: int
     vat_tu_ma: str
     vat_tu_ten: str
@@ -154,10 +157,11 @@ class LsxCongDoanIn(BaseModel):
     ten: str | None = None
     nhom: str | None = None
     loai_buoc: str | None = None
-    bat_buoc: bool | None = None
-    # Tiêu chí KCS BỔ SUNG riêng cho lệnh này (Task 3) — không sửa được checklist danh mục ở đây,
-    # chỉ thêm/bớt vài dòng chỉ áp cho lệnh này. `[]` để XOÁ SẠCH (không gửi field = giữ nguyên).
-    kcs_tieu_chi_bo_sung_json: list | None = None
+    # `bat_buoc` GỠ khỏi bộ nhận 07/09/2026: bước đã nằm trong routing thì PHẢI làm. Cột vẫn còn
+    # ở `lsx_cong_doan` nhưng do server giữ TRUE (migration 0275 backfill dòng cũ) — client không
+    # còn ô sửa nên nhận field này chỉ mở đường ghi nhầm `false` mà không ai gỡ lại được.
+    # `kcs_tieu_chi_bo_sung_json` GỠ 08/09/2026 (mg `0283`): tiêu chí KCS chỉ còn MỘT nguồn là
+    # danh mục Tiêu chí KCS gắn theo công đoạn — xem `docs/design-kcs-theo-cong-doan.md` mục 5.
     department_id: int | None = None
     may_id: int | None = None
     #: Con dao của bước (`khuon_be.id`). Gửi null = bỏ gán.
@@ -176,12 +180,9 @@ class LsxCongDoanIn(BaseModel):
     hao_hut_pct: float | None = Field(default=None, ge=0)
     so_luot_chay: int | None = Field(default=None, ge=1)
     # Năng suất & thời gian (phút)
-    so_nhan_cong: int | None = Field(default=None, ge=1)
-    # Ba mốc nhân lực KẾ THỪA từ định mức đầu việc nhưng SỬA ĐƯỢC tại bước — mỗi lệnh một hoàn
-    # cảnh (tổ mượn người, việc gấp). Không gửi = giữ số đang có / để server điền từ định mức.
-    so_nhan_cong_toi_thieu: int | None = Field(default=None, ge=1)
+    # Kíp chuẩn KẾ THỪA từ định mức công đoạn nhưng SỬA ĐƯỢC tại bước — mỗi lệnh một hoàn cảnh
+    # (tổ mượn người, việc gấp). Không gửi = giữ số đang có / để server điền từ định mức.
     so_nhan_cong_tieu_chuan: int | None = Field(default=None, ge=1)
-    so_nhan_cong_toi_da: int | None = Field(default=None, ge=1)
     # Hai ô gõ được ở tab Thời gian. `setup_phut` · `nang_suat` · `chay_phut` · `di_chuyen_phut`
     # vẫn BỎ khỏi input: chuẩn bị + tốc độ kế thừa SỐNG từ module Máy, người kế hoạch không sửa
     # tại bước.
@@ -216,13 +217,11 @@ class LsxCongDoanOut(BaseModel):
     loai_buoc: str
     bat_buoc: bool = True
     # KCS kiêm nhiệm — suy TỰ ĐỘNG (không còn khai tay): bước này có phải bước cuối của routing +
-    # tổ thực hiện có `Department.is_kcs=true` không (xem `lsx_service._cong_doan_dict`). FE dùng
-    # để ẩn/hiện khối "Tiêu chí KCS bổ sung" trong drawer bước. ⚠️ Thêm field vào schema THÔI CHƯA
-    # ĐỦ — `LsxCongDoanOut` được dựng bằng dict thủ công ở `lsx_service._cong_doan_dict()`, không
-    # phải `from_attributes` tự động; PHẢI copy hai khoá này vào dict đó (đúng bẫy "Pydantic nuốt
-    # field im lặng").
+    # tổ thực hiện có `Department.is_kcs=true` không (xem `lsx_service._cong_doan_dict`). ⚠️ Thêm
+    # field vào schema THÔI CHƯA ĐỦ — `LsxCongDoanOut` được dựng bằng dict thủ công ở
+    # `lsx_service._cong_doan_dict()`, không phải `from_attributes` tự động; PHẢI copy khoá vào
+    # dict đó (đúng bẫy "Pydantic nuốt field im lặng").
     la_kcs: bool = False
-    kcs_tieu_chi_bo_sung_json: list | None = None
     department_id: int | None = None
     department_ten: str | None = None
     may_id: int | None = None
@@ -265,10 +264,7 @@ class LsxCongDoanOut(BaseModel):
     ty_le_hao_hut: float = 0      # derived = hao_hut / so_luong_vao
     so_luot_chay: int = 1
 
-    so_nhan_cong: int = 1
-    so_nhan_cong_toi_thieu: int | None = None
     so_nhan_cong_tieu_chuan: int = 1
-    so_nhan_cong_toi_da: int | None = None
     # `setup_phut` KẾ THỪA từ máy (read-only trên UI); `phat_sinh_phut` là ô người gõ.
     setup_phut: float = 0
     phat_sinh_phut: float = 0
@@ -397,6 +393,60 @@ class BoDauViecOut(BaseModel):
     dau_viec: str        # tên đầu việc đã bị gỡ
 
 
+class DanhMucDoiTruong(BaseModel):
+    """Một Ô của ảnh chụp khoán bị lệch. `cu`/`moi` đã là chuỗi bày được (công thức đã dịch sang
+    chữ); `None` = ô đang bỏ trống."""
+
+    truong: str
+    nhan: str
+    cu: str | None = None
+    moi: str | None = None
+
+
+class DanhMucDoiVatTu(BaseModel):
+    """Một dòng vật tư lệch giữa bước và danh mục. `so_luong_cu`/`so_luong_moi` để trống một bên
+    tuỳ rổ: rổ THÊM chưa có số cũ, rổ BỎ không còn số mới."""
+
+    hang_loai: str = "vat_tu"
+    vat_tu_id: int
+    ma: str | None = None
+    ten: str | None = None
+    don_vi: str | None = None
+    so_luong_cu: float | None = None
+    so_luong_moi: float | None = None
+
+
+class DanhMucDoiBuoc(BaseModel):
+    buoc_id: int
+    step_key: str | None = None
+    thu_tu: int = 0
+    ten: str = ""
+    khoan: list[DanhMucDoiTruong] = Field(default_factory=list)
+    # Bước chưa chọn đầu việc mà danh mục khớp ĐÚNG MỘT cái — tên cái đó. Cập nhật là điền vào.
+    khoan_chua_chon: str | None = None
+    # Đầu việc đã ghim nay không còn thuộc (công đoạn ∩ tổ) — người kế hoạch phải chọn lại tay,
+    # nút cập nhật KHÔNG đoán hộ.
+    khoan_mo_coi: str | None = None
+    vat_tu_them: list[DanhMucDoiVatTu] = Field(default_factory=list)
+    # Bước đang có mà danh mục không còn bung. CHỈ BÁO — nút cập nhật không xoá dòng nào.
+    vat_tu_bo: list[DanhMucDoiVatTu] = Field(default_factory=list)
+    vat_tu_lech: list[DanhMucDoiVatTu] = Field(default_factory=list)
+    may_canh_bao: str | None = None
+
+
+class DanhMucDoiOut(BaseModel):
+    """Danh mục Công đoạn đã đổi sau lúc lệnh chụp ảnh — `None` ở `LsxOut` khi còn khớp hết.
+
+    Xem `services.lsx_danh_muc_doi` để biết vì sao so NỘI DUNG chứ không so `updated_at` như băng
+    cùng loại ở phiếu tính giá.
+    """
+
+    so_buoc: int
+    co_the_cap_nhat: bool
+    ly_do_khoa: str | None = None
+    buocs: list[DanhMucDoiBuoc] = Field(default_factory=list)
+
+
 class LsxOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -469,9 +519,18 @@ class LsxOut(BaseModel):
     # Lệnh đang ghép chung tờ với ai. None = in riêng. Khi có, THÔNG SỐ TỜ (máy in, giấy, khổ tờ
     # in, số con) đọc theo bài — sửa ở màn lệnh không có tác dụng.
     bai_ghep: LsxBaiGhepOut | None = None
+    # Lệnh đang GIỮ CHỖ vật tư. `_chan_dang_giu_cho` chặn sửa số lượng / quy cách / routing và xoá
+    # lệnh — chặn CẢ bản xem trước (`xem_truoc_routing`), cố ý. Cờ này ra tới client để màn lệnh
+    # khoá bảng routing và nói ngay đường lùi ("nhả chỗ ở Kế hoạch vật tư"): thiếu nó thì người
+    # kế hoạch sửa xong cả routing mới ăn 409 lúc bấm Lưu, mà mỗi lần đổi công đoạn thì xem-trước
+    # 409 im lặng nên số trên bảng đứng im không ai giải thích.
+    giu_cho_bat: bool = False
     # Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing này (rỗng ở mọi cửa đọc khác). Non-blocking:
     # lưu vẫn thành công, FE bày lưu ý để người kế hoạch mở đúng bước chọn lại đầu việc.
     bo_dau_viec: list[BoDauViecOut] = Field(default_factory=list)
+    # Danh mục Công đoạn đã đổi sau lúc lệnh chụp ảnh (None = còn khớp). Lệnh KHÔNG tự lấy số mới;
+    # băng trên màn lệnh nói lệch chỗ nào rồi để người lập kế hoạch bấm "Cập nhật theo danh mục".
+    danh_muc_doi: DanhMucDoiOut | None = None
 
 
 class BuocBiDeOut(BaseModel):
@@ -619,26 +678,34 @@ class BuocMacDinhOut(BaseModel):
 
     KHÔNG có số lượng vào/ra: chúng thuộc CHUỖI chứ không thuộc công đoạn, nên giữ nguyên số người
     kế hoạch đang cân (lệch thì đã có cảnh báo `dut_chuyen` + nút "Tính ngược").
+
+    KHÔNG có `loai_buoc`/`may_id`/`nang_suat`/`don_vi_nang_suat`/`so_nhan_cong*`: loại Máy-Tổ-Thuê
+    ngoài, máy cụ thể và nguồn năng suất thuộc chính bước KHSX, đổi công đoạn không được đụng tới.
+    Khai lại ở đây là schema tự đòi thứ service cố ý không trả — `loai_buoc` bắt buộc mà thiếu làm
+    endpoint 500 mọi lần gọi, còn mấy trường kia lặng lẽ đẩy 0/null vô nghĩa xuống client.
     """
 
     cong_doan_id: int
     ten: str
     nhom: str | None = None
-    loai_buoc: str
     department_id: int | None = None
-    may_id: int | None = None
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
     he_so_quy_doi: float
     #: Cặp đơn vị trên có nằm trên DÒNG GIẤY không. Đi kèm hai ô trên vì client áp cả cụm một lượt;
     #: thiếu nó thì dòng vừa đổi sang ghi kẽm (`m² → bài in`) vẫn đeo cờ của công đoạn cũ.
     tren_dong_giay: bool = True
+    #: Bước có phải mượn dụng cụ trong kho Khuôn & khung không, và LOẠI nào (`khuon_be` ·
+    #: `khuon_ep` · `khung_lua`). Đi kèm vì ô chọn dao lọc theo đúng hai cờ này — thiếu chúng thì
+    #: bước vừa đổi sang công đoạn cần khung lụa vẫn bày kho dao BẾ cho tới lúc lưu và nạp lại.
+    requires_tooling: bool = False
+    tooling_type: str | None = None
     setup_phut: float
-    nang_suat: float | None = None
-    don_vi_nang_suat: str | None = None
-    so_nhan_cong: int = 1
-    so_nhan_cong_tieu_chuan: int = 1
-    so_nhan_cong_toi_da: int | None = None
+    #: GỢI Ý máy cho công đoạn mới — chỉ có số khi công đoạn khai ĐÚNG MỘT máy còn dùng. Không mâu
+    #: thuẫn với đoạn "KHÔNG có `may_id`" ở trên: chỗ đó cấm GHI ĐÈ máy người ta đã chọn, còn đây
+    #: là số để client điền vào ô đang TRỐNG. Cần vì cách đo giờ chạy và tốc độ đều treo ở cặp
+    #: (công đoạn × máy) — bước trống máy thì bảng thời gian không bao giờ ra số.
+    may_id_goi_y: int | None = None
 
 
 class TrangThaiIn(BaseModel):
@@ -670,11 +737,17 @@ class DenItem(BaseModel):
 
 
 class LsxDenOut(BaseModel):
-    """Ba thứ bảng lệnh CHƯA nói. Hạn và Định mức cố ý KHÔNG có đèn — cột `Hạn` đã tô màu và cột
-    `CĐ` đã đỏ khi lệnh chưa có công đoạn; đèn thứ tư chỉ nói lại chuyện cột bên cạnh vừa nói."""
+    """Bốn thứ bảng lệnh CHƯA nói. Hạn vẫn cố ý KHÔNG có đèn — cột `Hạn` đã tô màu, và cột `CĐ` đã
+    đỏ khi lệnh chưa có công đoạn; đèn nói lại chuyện cột bên cạnh vừa nói chỉ làm loãng.
+
+    `danh_muc` thêm 07/09/2026: KHÔNG có cột nào nói hộ nó. Ảnh chụp khoán + dòng vật tư của bước
+    đóng băng từ lúc bung lệnh, xưởng sửa công thức ở danh mục Công đoạn thì lệnh đã tạo im lặng
+    giữ số cũ — không có chấm này thì người lập kế hoạch phải mở từng lệnh mới biết cái nào lệch.
+    """
     vat_tu: DenItem
     may_gio: DenItem
     nguoi: DenItem
+    danh_muc: DenItem
 
 
 class LsxTongQuanItem(BaseModel):
