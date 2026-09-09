@@ -231,6 +231,7 @@ NHAN: dict[str, str] = {
     # (`rebuildCatalogConfigs`), để đọc nhật ký xong tìm ra đúng cái ô đó trên form.
     "huong_dan": "Hướng dẫn",
     "bat_buoc": "Bắt buộc",
+    "cong_doan_id": "Công đoạn",
 }
 
 # Hậu tố đơn vị cho vài trường số — để "100 → 120" không trần trụi.
