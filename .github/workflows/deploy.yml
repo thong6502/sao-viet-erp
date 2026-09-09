@@ -10,6 +10,11 @@ on:
   push:
     branches: [main, dev]
   workflow_dispatch:
+    inputs:
+      bo_qua_test:
+        description: "Bỏ cổng build-test, deploy thẳng (chỉ khi đã tự chạy test)"
+        type: boolean
+        default: false
 
 # Không cho 2 lần deploy chồng nhau TRÊN CÙNG môi trường; không hủy lần đang chạy (deploy dở
 # nguy hiểm). Tách theo nhánh để deploy staging không phải xếp hàng sau production.
@@ -24,6 +29,9 @@ jobs:
   #    đây: hai bản rời nhau thì PR và deploy sẽ kiểm hai thứ khác nhau mà không ai biết.
   # ---------------------------------------------------------------
   build-test:
+    # Chạy TAY có thể tắt cổng này khi đã tự chạy test ở máy. Kích bằng `push` thì `inputs` rỗng
+    # ⇒ điều kiện luôn đúng ⇒ push vẫn phải qua cổng như cũ.
+    if: inputs.bo_qua_test != true
     uses: ./.github/workflows/build-test.yml
 
   # ---------------------------------------------------------------
@@ -33,6 +41,9 @@ jobs:
   deploy:
     name: Deploy to VPS
     needs: build-test
+    # `always()` để job vẫn được xét khi cổng bị bỏ (kết quả `skipped`); vế sau mới là chỗ quyết:
+    # cổng xanh, HOẶC người chạy tay chủ động bỏ cổng.
+    if: always() && (needs.build-test.result == 'success' || inputs.bo_qua_test == true)
     runs-on: ubuntu-latest
     steps:
       - name: SSH → git pull + docker compose up
