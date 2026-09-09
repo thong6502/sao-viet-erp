@@ -100,10 +100,10 @@ def test_khuon_file_va_cot_tang_ca():
     assert "Công chuẩn tháng: 26" in ws.cell(row=2, column=1).value
     assert "ô trống = không đi làm" in ws.cell(row=3, column=1).value
 
-    # 4 cột thông tin + 30 cột ngày + 4 cột tổng
+    # 4 cột thông tin + 30 cột ngày + 5 cột tổng
     assert [ws.cell(row=5, column=i).value for i in range(1, 5)] == ["Mã", "Họ tên", "Phòng/Tổ", "Ca"]
-    assert [ws.cell(row=5, column=i).value for i in (35, 36, 37, 38)] == \
-        ["Số công", "Công CN/Lễ", "Tăng ca (giờ)", "Tổng giờ"]
+    assert [ws.cell(row=5, column=i).value for i in (35, 36, 37, 38, 39)] == \
+        ["Công thường", "Công CN/Lễ", "Tăng ca (giờ)", "Tổng công", "Tổng giờ"]
     assert ws.cell(row=6, column=5).value == 1 and ws.cell(row=6, column=34).value == 30
     assert ws.cell(row=5, column=5).value == "T3"   # 01/09/2026 là thứ Ba
 
@@ -112,13 +112,15 @@ def test_khuon_file_va_cot_tang_ca():
     assert ws.cell(row=7, column=6).value == "1 +2h"    # ngày 2 có tăng ca
     assert ws.cell(row=7, column=7).value is None       # ngày 3 xếp ca mà chưa tới ⇒ TRỐNG
     assert ws.cell(row=7, column=9).value == "P"        # ngày 5 nghỉ phép
-    assert ws.cell(row=7, column=35).value == 2.0     # số công
+    assert ws.cell(row=7, column=35).value == 2.0     # công thường
     assert ws.cell(row=7, column=36).value == 0.0     # công CN/Lễ
     assert ws.cell(row=7, column=37).value == 2.0     # tăng ca (giờ)
-    assert ws.cell(row=7, column=38).value == 21.0    # tổng giờ
+    assert ws.cell(row=7, column=38).value == 2.0     # TỔNG công
+    assert ws.cell(row=7, column=39).value == 21.0    # tổng giờ
 
     assert ws.cell(row=8, column=1).value == "TỔNG"
-    assert [ws.cell(row=8, column=i).value for i in (35, 36, 37, 38)] == [2.0, 0.0, 2.0, 21.0]
+    assert [ws.cell(row=8, column=i).value for i in (35, 36, 37, 38, 39)] == \
+        [2.0, 0.0, 2.0, 2.0, 21.0]
 
 
 def test_ngay_le_giu_chu_thu_va_goi_ten_le_o_dau_file():
@@ -151,6 +153,17 @@ def test_cot_cong_cn_le_cong_ba_loai_ngay():
     """1 công lễ + 0.94 công Chủ nhật ⇒ cột CN/Lễ nói 1.94 (chủ 09/09/2026)."""
     ws = _wb([_row({}, holiday_cong=1.0, restday_cong=0.94, plain_cong=0.0)])
     assert ws.cell(row=7, column=36).value == 1.94
+
+
+def test_ba_cot_cong_cong_lai_dung_tong_cong():
+    """⭐ Công thường + CN/Lễ + phép = TỔNG công (chủ 09/09/2026: *"họ không biết chỗ nào công
+    ngày thường chỗ nào công lễ"*). Trước đó file chỉ có cột TỔNG đứng cạnh cột CN/Lễ nên bị đọc
+    thành hai rổ rời nhau."""
+    ws = _wb([_row({}, total_cong=26.0, holiday_cong=1.0, restday_cong=0.94, plain_cong=0.0,
+                   paid_leave_days=2.0)])
+    thuong, cn_le, tong = (ws.cell(row=7, column=c).value for c in (35, 36, 38))
+    assert (thuong, cn_le, tong) == (22.06, 1.94, 26.0)
+    assert round(thuong + cn_le + 2.0, 2) == tong
 
 
 # --- ô tìm tên / mã NV ------------------------------------------------------

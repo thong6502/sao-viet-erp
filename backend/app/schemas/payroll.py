@@ -399,6 +399,13 @@ class LineOut(BaseModel):
     # trách nhiệm). ĐỪNG cộng thêm vào tổng: đã nằm trong `luong_cong` (cùng kiểu `phu_cap_tham_nien`).
     luong_ngay_phep: float = 0
     paid_leave_cong: float = 0     # số công phép có lương thực được trả
+    #: Công NGÀY LỄ + NGHỈ TUẦN có đi làm (⊂ `actual_cong`) — bảng lương của kế toán tách riêng cột
+    #: này, và nó là gốc của hệ số Đ98.1.b/c. Cột DB có từ lâu nhưng API KHÔNG phơi ⇒ file xuất đọc
+    #: ra 0 trong khi dòng lương có số thật (chủ bắt được 09/09/2026 ở Cao Minh Quân: 1,94 công).
+    special_cong: float = 0
+    #: TRONG ĐÓ của `ot_pay` — tiền ngày `off1x` (công ty cho nghỉ mà vẫn đi làm, trả 1× phẳng).
+    #: ĐỪNG cộng vào tổng lần nữa.
+    off1x_pay: float = 0
     excused_cong: float = 0        # công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ) — giải trình chuyên cần
     chuyen_can: float
     allowance: float               # TỔNG phụ cấp tháng (đã gồm 3 dòng dưới)

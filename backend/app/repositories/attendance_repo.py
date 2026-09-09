@@ -193,6 +193,13 @@ class AttendanceRepository:
             ).scalars()
         )
 
+    def update_log(self, log: AttendanceLog, **fields) -> AttendanceLog:
+        for k, v in fields.items():
+            setattr(log, k, v)
+        self.db.commit()
+        self.db.refresh(log)
+        return log
+
     def get_log(self, log_id: int) -> AttendanceLog | None:
         return self.db.get(AttendanceLog, log_id)
 

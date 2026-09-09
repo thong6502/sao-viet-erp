@@ -124,6 +124,21 @@ class PayrollComponentRepository:
             .where(EmployeeSalaryComponent.employee_id == employee_id)
         ).scalars())
 
+    def employee_rows_map(self, employee_ids) -> dict[int, list[EmployeeSalaryComponent]]:
+        """Khoản theo hồ sơ của NHIỀU người trong MỘT truy vấn — cắt N+1 cho vòng tính lương cả kỳ
+        (trước 09/09/2026 mỗi người 2 lần `employee_rows`, chưa kể lần đọc lại cả danh mục)."""
+        ids = sorted({int(i) for i in (employee_ids or [])})
+        out: dict[int, list[EmployeeSalaryComponent]] = {i: [] for i in ids}
+        if not ids:
+            return out
+        for r in self.db.execute(
+            select(EmployeeSalaryComponent)
+            .where(EmployeeSalaryComponent.employee_id.in_(ids))
+            .order_by(EmployeeSalaryComponent.employee_id, EmployeeSalaryComponent.id)
+        ).scalars():
+            out.setdefault(r.employee_id, []).append(r)
+        return out
+
     def set_employee_value(self, *, employee_id: int, component_id: int, amount: float,
                            note: str | None = None) -> None:
         row = self.db.execute(

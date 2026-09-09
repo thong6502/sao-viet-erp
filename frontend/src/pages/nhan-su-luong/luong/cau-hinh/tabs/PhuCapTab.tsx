@@ -35,7 +35,12 @@ export function PhuCapTab({
 
   /** 4 bậc mẫu (20k ≤15′ · 40k ≤30′ · 100k ≤60′ · 150k >60′) — chỉ điền sẵn, HCNS sửa rồi Lưu. */
   function addPenaltyMau() {
-    const mau: [number | null, number][] = [[15, 20000], [30, 40000], [60, 100000], [null, 150000]];
+    const mau: [number | null, number][] = [
+      [15, 20000],
+      [30, 40000],
+      [60, 100000],
+      [null, 150000],
+    ];
     setPenalties(() =>
       mau.map(([upTo, amount], i) => ({
         key: `mau${i}-${Math.random().toString(36).slice(2, 7)}`,
@@ -136,9 +141,9 @@ export function PhuCapTab({
             </tbody>
           </table>
           <p className="cl-hint-inline">
-            Tỷ lệ phía công ty không khai ở đây (bỏ 07/09/2026 — không dùng tới).
-            Chỉ giữ TNLĐ-BNN bên dưới cho trường hợp nhân viên đóng bảo hiểm ở nơi
-            khác.
+            Tỷ lệ phía công ty không khai ở đây (bỏ 07/09/2026 — không dùng
+            tới). Chỉ giữ TNLĐ-BNN bên dưới cho trường hợp nhân viên đóng bảo
+            hiểm ở nơi khác.
           </p>
           <p className="cl-hint-inline">
             Nhân viên thử việc chưa đóng bảo hiểm.
@@ -165,9 +170,13 @@ export function PhuCapTab({
                 value={p.bhtn_base_cap}
                 onChange={(v) => setP("bhtn_base_cap", v)}
               />
+              {/* ⚠️ Câu chỉ dẫn phải khớp `payroll_service._auto_pit`: từ 12/08/2026 đoàn phí NẰM
+                  TRONG khối giảm trừ khi tính thuế (cố ý khác TT 111/2013 Đ9, theo đúng cách bảng
+                  lương công ty hạch toán). Câu cũ "KHÔNG giảm thu nhập chịu thuế TNCN" bị đọc thành
+                  "đoàn phí không ảnh hưởng thuế", trong khi đóng đoàn phí thì thuế GIẢM. */}
               <ParamField
                 label="Đoàn phí công đoàn (NV đóng)"
-                hint="Trừ vào thực nhận, KHÔNG giảm thu nhập chịu thuế TNCN."
+                hint="Trừ vào thực nhận. Nằm trong khối giảm trừ khi tính thuế TNCN không giảm thu nhập chịu thuế."
                 suffix="%"
                 step={0.5}
                 min={0}
@@ -511,8 +520,9 @@ export function PhuCapTab({
           )}
           {penalties.length === 0 && (
             <p className="cl-note">
-              Bảng đang <strong>trống = không phạt</strong> đi trễ / về sớm (máy không tự đặt bậc). Muốn
-              phạt thì thêm bậc, hoặc lấy 4 bậc mẫu 20k/40k/100k/150k rồi sửa.
+              Bảng đang <strong>trống = không phạt</strong> đi trễ / về sớm (máy
+              không tự đặt bậc). Muốn phạt thì thêm bậc, hoặc lấy 4 bậc mẫu
+              20k/40k/100k/150k rồi sửa.
             </p>
           )}
           {!readOnly && (

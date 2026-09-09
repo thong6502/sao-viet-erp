@@ -358,6 +358,38 @@ def pair_sessions(entries: list) -> list:
     return sessions
 
 
+def luot_bi_de(punches: list, check_type: str, khi: datetime):
+    """Lượt bấm mà một lượt CHỈNH CÔNG sẽ ĐÈ LÊN — `None` nghĩa là lượt mới.
+
+    Một ngày công chỉ có HAI cặp bấm: cặp ca chính và cặp tăng ca (chủ chốt 09/09/2026). Chỉnh
+    công là SỬA một lượt đã có, KHÔNG phải thêm lượt thứ ba: thợ bấm RA 15:30, HCNS (hoặc duyệt
+    đơn của thợ) chỉnh RA 17:00 thì 15:30 bị đè. Trước đó mọi lượt bù đều ghi THÊM nên ngày ra
+    VÀO 15:48 · RA 15:49 · RA 17:00 — `pair_sessions` chỉ ghép được cặp đầu, CÔNG rơi về 0 mà ô
+    lịch vẫn in 15:48–17:00: mất công mà không ai thấy.
+
+    `punches` = list[(giờ VN, log)] của ngày công, đã sort. Luật:
+    · RA  → đè lượt RA đang đóng phiên của lượt VÀO gần nhất TRƯỚC `khi` (phiên còn mở ⇒ lượt mới);
+    · VÀO → đè lượt VÀO của phiên mà `khi` rơi vào (phiên có RA muộn hơn, hoặc phiên đang mở).
+    Không phiên nào nhận ⇒ lượt mới — đó là lúc MỞ cặp tăng ca, đừng nhầm với chỉnh công.
+    """
+    if check_type == CHECK_OUT:
+        truoc = [i for i, (lc, lg) in enumerate(punches)
+                 if lg.check_type == CHECK_IN and lc <= khi]
+        if not truoc:
+            return None                       # chưa có lượt VÀO nào trước giờ này ⇒ lượt mới
+        for _, lg in punches[truoc[-1] + 1:]:
+            if lg.check_type == CHECK_OUT:
+                return lg                     # phiên đó ĐÃ đóng ⇒ đè lượt RA cũ
+        return None                           # phiên đang mở ⇒ lượt RA này đóng phiên (chấm bù)
+    for i, (_, lg) in enumerate(punches):
+        if lg.check_type != CHECK_IN:
+            continue
+        ra = next((l2 for l2, g2 in punches[i + 1:] if g2.check_type == CHECK_OUT), None)
+        if ra is None or ra > khi:
+            return lg
+    return None
+
+
 def _gop_khoang(
     manh: list[tuple[datetime, datetime]], lo: datetime, hi: datetime,
 ) -> list[tuple[datetime, datetime]]:
@@ -457,6 +489,24 @@ class AttendanceService:
         if shift_id is None:
             return None
         return shifts.get(shift_id) if shifts is not None else self.attendance.get_shift(shift_id)
+
+    def gieo_ca_nen(self, employee, mocs, start: date, end: date) -> None:
+        """Điền cache ca cho MỌI ngày trong [start, end] bằng mốc ca nền ĐÃ NẠP SẴN.
+
+        Ô nào `prefetch_shift_days` đã gieo từ lưới phân ca thì GIỮ NGUYÊN — lớp lưới vẫn thắng,
+        đúng thứ tự của `shift_id_on`. Ô còn lại trước 09/09/2026 rơi xuống `shift_id_on` ⇒ HAI
+        truy vấn cho MỖI (người × ngày): bảng công 300 người × 26 ngày ≈ 15.600 truy vấn một lần
+        mở màn. Mốc ca nền thì chỉ có vài dòng mỗi người, nạp một lượt rồi giải trong bộ nhớ.
+        """
+        if mocs is None:
+            return
+        d = start
+        while d <= end:
+            key = (employee.id, d)
+            if key not in self._shift_id_cache:
+                self._shift_id_cache[key] = self.employees.base_shift_id_on(
+                    employee, d, assignments=mocs)
+            d += timedelta(days=1)
 
     def prefetch_shift_days(self, employee_ids: set[int] | None, start: date, end: date) -> dict:
         """Nạp sẵn ca-khai-theo-ngày vào cache — cắt N+1 cho lưới NV × ngày. Trả luôn
@@ -1307,6 +1357,23 @@ class AttendanceService:
             date(year, month, 1) - timedelta(days=2),
             date(year, month, days_in_month) + timedelta(days=2),
         )
+        # Mốc CA NỀN của cả mẻ — 1 truy vấn, để `_shift_for_day` khỏi hỏi DB từng (người × ngày).
+        moc_ca = self.employees.shift_assignments_map(allowed)
+        bien_dau = date(year, month, 1) - timedelta(days=2)
+        bien_cuoi = date(year, month, days_in_month) + timedelta(days=2)
+
+        def _moc_cua(emp_id: int) -> list:
+            """Mốc ca nền của một NV, ưu tiên bản đã nạp.
+
+            `allowed is None` = đã nạp CẢ BẢNG ⇒ vắng khoá nghĩa là NV chưa có mốc nào (dữ liệu
+            cũ chỉ có `default_shift_id`), trả [] chứ ĐỪNG hỏi lại DB — nếu không thì đúng nhóm
+            nhân viên cũ lại rơi về N+1. Có `allowed` mà vắng khoá thì là NV ngoài phạm vi lọt
+            vào theo dấu vết (lượt bấm / đơn phép): hỏi một lần rồi nhớ."""
+            hist = moc_ca.get(emp_id)
+            if hist is None:
+                hist = [] if allowed is None else self.employees.list_shift_assignments(emp_id)
+                moc_ca[emp_id] = hist
+            return hist
         # Ngày NGHỈ theo lịch xoay ca (khai tay trên lưới) — chỉ để bảng công phân biệt
         # "nghỉ có kế hoạch" với "vắng". KHÔNG ra tiền, KHÔNG đụng công.
         planned_off_by_emp: dict[int, set[int]] = {}
@@ -1352,6 +1419,8 @@ class AttendanceService:
             emp0 = self.employees.get_by_id(emp_id)
             if emp0 is None:
                 continue
+            # Ghép lượt bấm cũng hỏi ca của ngày ĐÓ và ngày HÔM TRƯỚC ⇒ gieo cache trước.
+            self.gieo_ca_nen(emp0, _moc_cua(emp_id), bien_dau, bien_cuoi)
             for local, lg, wd in self._gan_ngay_cong(emp0, logs_emp, shifts, ot_theo_ngay):
                 if wd.year != year or wd.month != month:
                     continue  # lượt thuộc tháng khác (vd RA rạng sáng ngày 1 → thuộc tháng trước)
@@ -1517,7 +1586,8 @@ class AttendanceService:
             #   · Ngày đã có dòng phân ca (shift/off) để nhánh `scheduled`/`planned_off` lo.
             # `hist` = mốc ca nền của NV, nạp MỘT LẦN/NV (giống `shift_plan`) rồi resolve trong bộ
             # nhớ — đừng gọi `base_shift_id_on` mỗi ngày, kẻo lưới N NV × 31 ngày nổ hàng ngàn query.
-            hist = self.employees.list_shift_assignments(emp_id)   # mốc giảm dần theo effective_from
+            hist = _moc_cua(emp_id)               # mốc giảm dần theo effective_from
+            self.gieo_ca_nen(emp, hist, bien_dau, bien_cuoi)
             xem_truoc: set[int] = set()
             for dd in range(1, days_in_month + 1):
                 the_d = date(year, month, dd)
@@ -2572,7 +2642,7 @@ class AttendanceService:
                 self._create_manual_punch(
                     actor=actor, emp=emp, the_day=the_day, check_type=ct,
                     time_hhmm=min_to_hhmm(m % 1440), reason=ly_do, fault_party=FAULT_DUYET,
-                    next_day=m >= 1440,
+                    next_day=m >= 1440, de_luot_cu=goi_y["kieu"] != "tach_phien",
                 )
                 ghi.append({"time": min_to_hhmm(m % 1440), "check_type": ct, "next_day": m >= 1440})
             done.append({"employee_id": eid, "employee_name": c["employee_name"],
@@ -2646,8 +2716,10 @@ class AttendanceService:
 
     def _create_manual_punch(self, *, actor, emp, the_day: date, check_type: str,
                              time_hhmm: str, reason: str, fault_party: str | None,
-                             next_day: bool = False):
-        """Tạo 1 punch điều chỉnh tay (dùng chung cho chấm bù trực tiếp & duyệt YC & xác nhận TC).
+                             next_day: bool = False, de_luot_cu: bool = True):
+        """Ghi 1 punch điều chỉnh tay (dùng chung cho chấm bù trực tiếp & duyệt YC & xác nhận TC).
+        `de_luot_cu` = chỉnh công thì ĐÈ lượt cũ (xem `luot_bi_de`); chỉ đường "tách phiên" của
+        xác nhận TC theo phiếu tắt cờ này vì nó cố ý CHÈN lượt vào giữa một phiên dài.
         `next_day` = giờ rơi SANG HÔM SAU (ca đêm quên RA 06:00; tăng ca vắt nửa đêm) — 07/09/2026.
         Trước đó punch bù luôn dính ngày công ⇒ RA 06:00 của ca 22:00–06:00 bị gom về HÔM TRƯỚC,
         ngày treo vẫn treo, và không có cách nào chấm bù đúng cho ca đêm."""
@@ -2655,7 +2727,7 @@ class AttendanceService:
         if ly_do_bc:
             raise AttendanceValidationError(ly_do_bc)          # chấm bù / duyệt YC ngày ngoài biên chế (A5)
         self._require_period_open(the_day, "chấm bù")
-        self._require_shift_on_day(emp, the_day)
+        shift = self._require_shift_on_day(emp, the_day)
         if check_type not in CHECK_TYPES:
             raise AttendanceValidationError("Loại chấm phải là VÀO hoặc RA.")
         reason = (reason or "").strip()
@@ -2667,16 +2739,34 @@ class AttendanceService:
         ngay_that = the_day + timedelta(days=1) if next_day else the_day
         when_utc = datetime(ngay_that.year, ngay_that.month, ngay_that.day, hh, mm,
                             tzinfo=VN_TZ).astimezone(timezone.utc)
-        log = self.attendance.create_log(
-            employee_id=emp.id, work_location_id=None, check_type=check_type,
-            checked_at=when_utc, within_range=True, is_manual=True,
-            adjust_reason=reason, fault_party=fault_party, created_by_user_id=actor.id,
-        )
+        punches = self._day_punches(emp, shift, the_day)
+        cu = (luot_bi_de(punches, check_type, when_utc.astimezone(VN_TZ))
+              if de_luot_cu else None)
+        if cu is None and len(punches) >= 4:
+            # 2 cặp là hết (ca chính + tăng ca) — lượt thứ 5 chỉ đẻ ra lượt lẻ, mà lượt lẻ thì
+            # `pair_sessions` bỏ im lặng ⇒ mất công. Bắt HCNS dọn lượt thừa trước.
+            raise AttendanceValidationError(
+                "Ngày này đã đủ 2 cặp bấm (ca chính + tăng ca). Xoá bớt lượt bấm rồi chỉnh lại."
+            )
+        if cu is not None:
+            gio_cu = _as_utc(cu.checked_at).astimezone(VN_TZ).strftime("%H:%M")
+            log = self.attendance.update_log(
+                cu, checked_at=when_utc, within_range=True, is_manual=True,
+                adjust_reason=reason, fault_party=fault_party, created_by_user_id=actor.id,
+            )
+        else:
+            gio_cu = None
+            log = self.attendance.create_log(
+                employee_id=emp.id, work_location_id=None, check_type=check_type,
+                checked_at=when_utc, within_range=True, is_manual=True,
+                adjust_reason=reason, fault_party=fault_party, created_by_user_id=actor.id,
+            )
         self.audit.create(
             actor_user_id=actor.id, action="adjust_attendance",
             target=f"attendance_log:{log.id}",
             detail=(f"{emp.code} {the_day.isoformat()} {time_hhmm}{' (+1)' if next_day else ''} "
-                    f"{check_type} ({fault_party or '-'}): {reason}"),
+                    f"{check_type}{f' (đè {gio_cu})' if gio_cu else ''} "
+                    f"({fault_party or '-'}): {reason}"),
         )
         return log
 
