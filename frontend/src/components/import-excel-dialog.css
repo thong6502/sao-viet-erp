@@ -1,0 +1,59 @@
+/* Dialog "Nhập Excel" — dùng chung cho 13 màn Cấu hình danh mục và màn Hồ sơ nhân sự.
+ *
+ * Vì sao có file CSS riêng thay vì dùng lại `.rc__*` của `rebuild-catalog.css`: dialog nay mở
+ * được từ màn NGOÀI khối danh mục, mà `rebuild-catalog.css` là bảng kiểu của cả một họ màn —
+ * kéo trọn nó vào màn Nhân sự chỉ để lấy ba rule là mở đường cho kiểu của màn này đè kiểu màn kia.
+ * Bảng lỗi ở đây luôn 4 cột chữ ngắn nên không cần bộ rule bảng đầy đủ của màn danh mục. */
+
+.imx__hint {
+  font-size: 12.5px;
+  color: var(--ash);
+  line-height: 1.5;
+}
+
+.imx__wrap {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  overflow: auto;
+  max-height: 40vh;
+}
+
+.imx__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.imx__table thead th {
+  text-align: left;
+  padding: var(--sp-4) var(--sp-4);
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ash);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+  white-space: normal;
+  line-height: 1.3;
+  /* Ghim tiêu đề khi cuộn: bảng lỗi dài vài chục dòng là thường. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.imx__table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 13px;
+  color: var(--ink);
+  vertical-align: top;
+  word-break: break-word;
+}
+.imx__table tbody tr:last-child td {
+  border-bottom: none;
+}
+.imx__num {
+  font-family: var(--ff-num);
+  white-space: nowrap;
+}

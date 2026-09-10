@@ -86,7 +86,6 @@ def _hang_kcs_theo_scope(
     tu_khoa: str | None = None,
     cong_doan_id: int | None = None,
     loai: str | None = None,
-    nhom_loi_id: int | None = None,
 ) -> list[tuple[SanXuatKcsBatch, SanXuatCongViec]]:
     """Danh sách (batch, công việc) đã lọc filter + scope — NGUỒN DUY NHẤT cho cả `bao_cao_kcs`
     và `xuat_excel_kcs` (§9 mục 10: hai đầu ra phải cùng tổng)."""
@@ -109,12 +108,6 @@ def _hang_kcs_theo_scope(
         cd = db.get(CongDoan, cong_doan_id)
         ten_cd = cd.ten if cd is not None else "\0__khong_khop__"
         stmt = stmt.where(SanXuatCongViec.ten_cong_doan == ten_cd)
-    if nhom_loi_id:
-        stmt = stmt.where(
-            SanXuatKcsBatch.id.in_(
-                select(SanXuatKcsLoi.kcs_batch_id).where(SanXuatKcsLoi.nhom_loi_id == nhom_loi_id)
-            )
-        )
     if tu_khoa:
         kw = f"%{tu_khoa.strip()}%"
         stmt = stmt.where(
@@ -168,15 +161,17 @@ def _checklist_rows_cho_batch(kcs: SanXuatKcsBatch, cv: SanXuatCongViec) -> list
 
 
 def _xep_hang_loi(db: Session, batch_ids: list[int]) -> dict:
-    """Bảng xếp hạng nhóm lỗi / công đoạn / tổ — SUM(so_luong) giảm dần (mục 2 dùng TỔNG số
-    lượng chứ không phải trung bình tỷ lệ; mục 3 áp cùng nguyên tắc TỔNG cho xếp hạng). Tổ: LOẠI
-    HẲN các dòng `to_chiu_id IS NULL` (mục 4 — không gán bừa vào "chưa xác định")."""
+    """Bảng xếp hạng công đoạn / tổ — SUM(so_luong) giảm dần (mục 2 dùng TỔNG số lượng chứ không
+    phải trung bình tỷ lệ; mục 3 áp cùng nguyên tắc TỔNG cho xếp hạng). Tổ: LOẠI HẲN các dòng
+    `to_chiu_id IS NULL` (mục 4 — không gán bừa vào "chưa xác định").
+
+    Xếp hạng theo NHÓM LỖI đã gỡ cùng danh mục Lý do & lỗi SX — lỗi nay chỉ có mô tả tự do, gom
+    nhóm theo chuỗi tự do là thống kê nói dối."""
     if not batch_ids:
-        return {"nhom_loi": [], "cong_doan": [], "to": []}
+        return {"cong_doan": [], "to": []}
     rows = list(
         db.scalars(select(SanXuatKcsLoi).where(SanXuatKcsLoi.kcs_batch_id.in_(batch_ids)))
     )
-    ten_nhom = SanXuatKcsRepository(db).nhan_ly_do({l.nhom_loi_id for l in rows if l.nhom_loi_id})
     cv_ids = {l.cong_doan_ref_id for l in rows if l.cong_doan_ref_id}
     ten_cong_doan_map = (
         {c.id: c.ten_cong_doan for c in db.scalars(
@@ -190,29 +185,16 @@ def _xep_hang_loi(db: Session, batch_ids: list[int]) -> dict:
         if to_ids else {}
     )
 
-    nhom_acc: dict[int | None, float] = {}
     cd_acc: dict[str, float] = {}
     to_acc: dict[int, float] = {}
     for l in rows:
         sl = float(l.so_luong or 0)
-        nhom_acc[l.nhom_loi_id] = nhom_acc.get(l.nhom_loi_id, 0.0) + sl
         if l.cong_doan_ref_id and l.cong_doan_ref_id in ten_cong_doan_map:
             key = ten_cong_doan_map[l.cong_doan_ref_id]
             cd_acc[key] = cd_acc.get(key, 0.0) + sl
         if l.to_chiu_id:  # mục 4: bỏ hẳn khỏi xếp hạng tổ nếu chưa xác định trách nhiệm
             to_acc[l.to_chiu_id] = to_acc.get(l.to_chiu_id, 0.0) + sl
 
-    nhom_loi = sorted(
-        (
-            {
-                "nhom_loi_id": k,
-                "ten": (ten_nhom.get(k) if k else None) or _CHUA_PHAN_LOAI,
-                "tong_so_luong": v,
-            }
-            for k, v in nhom_acc.items()
-        ),
-        key=lambda r: r["tong_so_luong"], reverse=True,
-    )
     cong_doan = sorted(
         ({"ten_cong_doan": k, "tong_so_luong": v} for k, v in cd_acc.items()),
         key=lambda r: r["tong_so_luong"], reverse=True,
@@ -224,15 +206,15 @@ def _xep_hang_loi(db: Session, batch_ids: list[int]) -> dict:
         ),
         key=lambda r: r["tong_so_luong"], reverse=True,
     )
-    return {"nhom_loi": nhom_loi, "cong_doan": cong_doan, "to": to}
+    return {"cong_doan": cong_doan, "to": to}
 
 
 def bao_cao_kcs(
     db: Session, user: User, authz: AuthorizationService, **filters,
 ) -> dict:
     """Tổng hợp cho dashboard (§6.2 KPI + biểu đồ). `**filters` = đúng 7 tham số của
-    `_hang_kcs_theo_scope` (tu/den/kcs_department_id/lsx_id/tu_khoa/cong_doan_id/loai/
-    nhom_loi_id) — router forward nguyên `Query()` params vào đây."""
+    `_hang_kcs_theo_scope` (tu/den/kcs_department_id/lsx_id/tu_khoa/cong_doan_id/loai) — router
+    forward nguyên `Query()` params vào đây."""
     hang = _hang_kcs_theo_scope(db, user, authz, **filters)
     batch_ids = [kcs.id for kcs, _cv in hang]
 
@@ -262,7 +244,6 @@ def bao_cao_kcs(
         "tong_loi": tong_loi,
         "ty_le_dat": ty_le_dat,
         "theo_ngay": theo_ngay_list,
-        "nhom_loi": xep_hang["nhom_loi"],
         "cong_doan": xep_hang["cong_doan"],
         "to": xep_hang["to"],
     }
@@ -305,9 +286,6 @@ def xuat_excel_kcs(
 
     repo = SanXuatKcsRepository(db)
     loi_by_batch = repo.cac_loi_nhieu(batch_ids)
-    ten_nhom = repo.nhan_ly_do(
-        {l.nhom_loi_id for ls in loi_by_batch.values() for l in ls if l.nhom_loi_id}
-    )
     loi_ids_all = [l.id for ls in loi_by_batch.values() for l in ls]
     anh_by_loi = repo.anh_cua_loi_nhieu(loi_ids_all)
 
@@ -317,7 +295,7 @@ def xuat_excel_kcs(
     headers1 = [
         "Mã kết quả", "Thời điểm", "Loại", "Tổ KCS", "Mã LSX", "Công đoạn", "Số nhận",
         "Số đạt", "Số không đạt", "Đơn vị", "Kết luận", "Ghi chú", "Người ghi",
-        "Số lỗi ghi nhận", "Nhóm lỗi", "Tổ chịu trách nhiệm", "URL ảnh",
+        "Số lỗi ghi nhận", "Mô tả lỗi", "Tổ chịu trách nhiệm", "URL ảnh",
     ]
     ws1.append(headers1)
     for cell in ws1[1]:
@@ -325,9 +303,8 @@ def xuat_excel_kcs(
     _COL_SO_LUONG_1 = {7, 8, 9}  # Số nhận / Số đạt / Số không đạt
     for kcs, cv in hang:
         loi_list = loi_by_batch.get(kcs.id, [])
-        nhom_ten_set = sorted({
-            (ten_nhom.get(l.nhom_loi_id) if l.nhom_loi_id else None) or _CHUA_PHAN_LOAI
-            for l in loi_list
+        loi_mo_ta_set = sorted({
+            (l.mo_ta or "").strip() or _CHUA_PHAN_LOAI for l in loi_list
         })
         to_chiu_ten = sorted({
             (to_ten.get(l.to_chiu_id) if l.to_chiu_id else None) or _CHUA_GAN_TO
@@ -342,7 +319,7 @@ def xuat_excel_kcs(
             float(kcs.so_luong_khong_dat), kcs.don_vi,
             _KET_LUAN_LABEL.get(kcs.ket_luan, kcs.ket_luan), kcs.ghi_chu or "",
             nguoi_ten.get(kcs.created_by, ""), len(loi_list),
-            "; ".join(nhom_ten_set), "; ".join(to_chiu_ten) if loi_list else "",
+            "; ".join(loi_mo_ta_set), "; ".join(to_chiu_ten) if loi_list else "",
             "; ".join(anh_urls),
         ])
         r = ws1.max_row

@@ -3,11 +3,12 @@
 // mới): mỗi mặt là một khối gấp/mở với form ghi tại chỗ (panel hẹp, tránh modal chồng).
 //
 // Component KHÔNG tự gọi API: mọi mặt GHI đi qua `exec.*` (controller lo khoá lạc quan + refetch +
-// toast). Lý do/lỗi (§15) nạp từ danh mục `san_xuat_ly_do` qua `loadLyDo(nhom)` — KHÔNG hardcode.
+// toast). Danh mục "Lý do & lỗi SX" ĐÃ GỠ (mg 0288): không khâu nào bắt nêu lý do nữa, chỗ nào cần
+// nói thêm thì có ô mô tả TỰ DO tuỳ chọn.
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
-  SxWorkItemChiTiet, SxBatch, SxBanGiao, SxPhanBo, SxHoTro, SxHoTroUngVien, SxLyDo,
+  SxWorkItemChiTiet, SxBatch, SxBanGiao, SxPhanBo, SxHoTro, SxHoTroUngVien,
   SxBatchIn, SxBanGiaoDeXuatIn, SxBanGiaoSuaIn, SxBanGiaoDieuChinhIn,
   SxHoTroDeXuatIn, SxBuTruIn, SxLoaiTruIn, SxGoLoaiTruIn,
   SxKcsBatchIn, SxNhapKhoYeuCauIn, SxHuyPhanChuaNhanIn, SxPhanLoaiBtpIn, SxDongThieuIn,
@@ -44,7 +45,7 @@ export interface ThsxExec {
   huyHoTro: (hoTroId: number, lyDo: string, version: number) => Promise<boolean>;
   tinhPhanBo: (batchId: number) => Promise<boolean>;
   chotPhanBo: (phanBoId: number, version: number) => Promise<boolean>;
-  moLaiPhanBo: (phanBoId: number, lyDoId: number, version: number) => Promise<boolean>;
+  moLaiPhanBo: (phanBoId: number, version: number) => Promise<boolean>;
   buTru: (batchId: number, body: SxBuTruIn) => Promise<boolean>;
   loaiTru: (batchId: number, body: SxLoaiTruIn) => Promise<boolean>;
   goLoaiTru: (batchId: number, body: SxGoLoaiTruIn) => Promise<boolean>;
@@ -53,7 +54,7 @@ export interface ThsxExec {
   ghiLoiKcs: (
     kcsBatchId: number,
     body: {
-      nhom_loi_id: number; to_chiu_id?: number | null; cong_doan_ref_id?: number | null;
+      to_chiu_id?: number | null; cong_doan_ref_id?: number | null;
       so_luong?: number; mo_ta?: string | null; don_vi?: string | null; files: File[];
     },
   ) => Promise<boolean>;
@@ -70,7 +71,6 @@ interface Props {
   canAssign: boolean;
   busy: boolean;
   hoTroUngVien: SxHoTroUngVien[];
-  loadLyDo: (nhom: string) => Promise<SxLyDo[]>;
   exec: ThsxExec;
 }
 
@@ -165,7 +165,7 @@ export function vtCoLechThucTe(
 }
 
 // ============================ khối chính ====================================
-export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, loadLyDo, exec }: Props) {
+export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, exec }: Props) {
   const sl = chiTiet.san_luong;
   const conLai = Math.max(0, sl.tong_tot - sl.da_giao);
   const pbTheoBatch = new Map<number, SxPhanBo>();
@@ -179,11 +179,11 @@ export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, loadLyD
     <>
       <SanLuongSection
         chiTiet={chiTiet} canAssign={canAssign} busy={busy}
-        loadLyDo={loadLyDo} exec={exec} pbTheoBatch={pbTheoBatch}
+        exec={exec} pbTheoBatch={pbTheoBatch}
         tenNguoi={tenNguoi} hoTroUngVien={hoTroUngVien} />
       <BanGiaoSection
         chiTiet={chiTiet} canAssign={canAssign} busy={busy}
-        conLai={conLai} loadLyDo={loadLyDo} exec={exec} />
+        conLai={conLai} exec={exec} />
       <VatTuSection chiTiet={chiTiet} canAssign={canAssign} busy={busy} exec={exec} tenNguoi={tenNguoi} />
       <HoTroSection
         chiTiet={chiTiet} canAssign={canAssign} busy={busy}
@@ -194,10 +194,10 @@ export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, loadLyD
 
 // ─────────────────────────── SẢN LƯỢNG (§10-11) ───────────────────────────
 function SanLuongSection({
-  chiTiet, canAssign, busy, loadLyDo, exec, pbTheoBatch, tenNguoi, hoTroUngVien,
+  chiTiet, canAssign, busy, exec, pbTheoBatch, tenNguoi, hoTroUngVien,
 }: {
   chiTiet: SxWorkItemChiTiet; canAssign: boolean; busy: boolean;
-  loadLyDo: Props["loadLyDo"]; exec: ThsxExec;
+  exec: ThsxExec;
   pbTheoBatch: Map<number, SxPhanBo>; tenNguoi: Map<number, string>; hoTroUngVien: SxHoTroUngVien[];
 }) {
   const sl = chiTiet.san_luong;
@@ -259,7 +259,7 @@ function SanLuongSection({
       )}
 
       {formOpen && (
-        <BatchForm cv={cv} busy={busy} loadLyDo={loadLyDo}
+        <BatchForm cv={cv} busy={busy}
           onXong={(kq) => { setFormOpen(false); setKetQuaToa(kq.length ? kq : null); }}
           exec={exec} />
       )}
@@ -270,7 +270,7 @@ function SanLuongSection({
         <ul className="thsx-x-list">
           {sl.batches.map((b) => (
             <BatchRow key={b.id} b={b} canAssign={canAssign} busy={busy}
-              pb={pbTheoBatch.get(b.id) ?? null} loadLyDo={loadLyDo}
+              pb={pbTheoBatch.get(b.id) ?? null}
               tenNguoi={tenNguoi} hoTroUngVien={hoTroUngVien} exec={exec} />
           ))}
         </ul>
@@ -280,16 +280,15 @@ function SanLuongSection({
 }
 
 function BatchForm({
-  cv, busy, loadLyDo, onXong, exec,
+  cv, busy, onXong, exec,
 }: {
   cv: SxWorkItemChiTiet["cong_viec"]; busy: boolean;
-  loadLyDo: Props["loadLyDo"]; onXong: (ketQua: SxKetQuaNhanh[]) => void; exec: ThsxExec;
+  onXong: (ketQua: SxKetQuaNhanh[]) => void; exec: ThsxExec;
 }) {
   const [batDau, setBatDau] = useState(toDtLocal(cv.du_kien_bat_dau));
   const [ketThuc, setKetThuc] = useState(toDtLocal(cv.du_kien_ket_thuc));
   const [tong, setTong] = useState("");
   const [tot, setTot] = useState("");
-  const [nhomLoiId, setNhomLoiId] = useState<number | null>(null);
   const [moTaLoi, setMoTaLoi] = useState("");
   const [ghiChu, setGhiChu] = useState("");
   const nTong = toNum(tong);
@@ -300,14 +299,12 @@ function BatchForm({
   // `gioNhapHopLe` chứ không phải `!!`: ô ngày-giờ của trình duyệt nhận cả năm 6 chữ số, gửi lên
   // là backend trả 422 mà tổ chỉ thấy "không ghi được".
   const hopLe = gioNhapHopLe(batDau) && gioNhapHopLe(ketThuc) && ketThuc > batDau
-    && nTong > 0 && nTot >= 0 && nTot <= nTong
-    && (hong === 0 || nhomLoiId != null);
+    && nTong > 0 && nTot >= 0 && nTot <= nTong;
 
   async function luu() {
     const body: SxBatchIn = {
       bat_dau: batDau, ket_thuc: ketThuc, tong: nTong, tot: nTot, hong,
       don_vi: donVi,
-      nhom_loi_id: hong > 0 ? nhomLoiId : null,
       mo_ta_loi: hong > 0 && moTaLoi.trim() ? moTaLoi.trim() : null,
       ghi_chu: ghiChu.trim() || null,
     };
@@ -341,15 +338,10 @@ function BatchForm({
         {nTot > nTong && <span className="thsx-x-err">Tốt không được vượt Tổng</span>}
       </div>
       {hong > 0 && (
-        <>
-          <Field label="Nhóm lỗi (bắt buộc)">
-            <LyDoSelect nhom="loi" loadLyDo={loadLyDo} value={nhomLoiId} onChange={setNhomLoiId} />
-          </Field>
-          <Field label="Mô tả lỗi">
-            <input type="text" className="thsx-x-in" value={moTaLoi} onChange={(e) => setMoTaLoi(e.target.value)}
-              placeholder="Chi tiết (tuỳ chọn)" />
-          </Field>
-        </>
+        <Field label="Mô tả lỗi">
+          <input type="text" className="thsx-x-in" value={moTaLoi} onChange={(e) => setMoTaLoi(e.target.value)}
+            placeholder="Hỏng vì sao? (tuỳ chọn)" />
+        </Field>
       )}
       <Field label="Ghi chú">
         <input type="text" className="thsx-x-in" value={ghiChu} onChange={(e) => setGhiChu(e.target.value)}
@@ -366,10 +358,10 @@ function BatchForm({
 }
 
 function BatchRow({
-  b, canAssign, busy, pb, loadLyDo, tenNguoi, hoTroUngVien, exec,
+  b, canAssign, busy, pb, tenNguoi, hoTroUngVien, exec,
 }: {
   b: SxBatch; canAssign: boolean; busy: boolean; pb: SxPhanBo | null;
-  loadLyDo: Props["loadLyDo"]; tenNguoi: Map<number, string>;
+  tenNguoi: Map<number, string>;
   hoTroUngVien: SxHoTroUngVien[]; exec: ThsxExec;
 }) {
   const [mo, setMo] = useState(false);
@@ -386,9 +378,8 @@ function BatchRow({
         <div className="thsx-x-item__body">
           <div className="thsx-x-kv"><span>Tổng / tốt / hỏng</span>
             <b className="thsx-num">{num(b.tong)} / {num(b.tot)} / {num(b.hong)}{b.don_vi ? ` ${nhanDonVi(b.don_vi)}` : ""}</b></div>
-          {b.nhom_loi_ten && (
-            <div className="thsx-x-kv"><span>Lỗi</span>
-              <b>{b.nhom_loi_ten}{b.mo_ta_loi ? ` · ${b.mo_ta_loi}` : ""}</b></div>
+          {b.mo_ta_loi && (
+            <div className="thsx-x-kv"><span>Lỗi</span><b>{b.mo_ta_loi}</b></div>
           )}
           {b.nguoi_tham_gia.length > 0 && (
             <div className="thsx-x-kv"><span>Người tham gia</span>
@@ -402,7 +393,7 @@ function BatchRow({
 
           {/* Phân bổ lương của chính mẻ này (§12) */}
           <PhanBoBlock b={b} pb={pb} canAssign={canAssign} busy={busy}
-            loadLyDo={loadLyDo} tenNguoi={tenNguoi} hoTroUngVien={hoTroUngVien} exec={exec} />
+            tenNguoi={tenNguoi} hoTroUngVien={hoTroUngVien} exec={exec} />
         </div>
       )}
     </li>
@@ -411,10 +402,10 @@ function BatchRow({
 
 // ─────────────────────────── PHÂN BỔ LƯƠNG theo mẻ (§12) ──────────────────
 function PhanBoBlock({
-  b, pb, canAssign, busy, loadLyDo, tenNguoi, hoTroUngVien, exec,
+  b, pb, canAssign, busy, tenNguoi, hoTroUngVien, exec,
 }: {
   b: SxBatch; pb: SxPhanBo | null; canAssign: boolean; busy: boolean;
-  loadLyDo: Props["loadLyDo"]; tenNguoi: Map<number, string>;
+  tenNguoi: Map<number, string>;
   hoTroUngVien: SxHoTroUngVien[]; exec: ThsxExec;
 }) {
   const [moLaiOpen, setMoLaiOpen] = useState(false);
@@ -576,13 +567,13 @@ function PhanBoBlock({
       )}
 
       {moLaiOpen && (
-        <LyDoForm nhom="mo_lai_phan_bo" busy={busy} loadLyDo={loadLyDo} label="Lý do mở lại"
+        <XacNhanForm busy={busy} hoi="Mở lại phân bổ đã chốt? Kỳ lương gốc phải chưa khoá."
           confirm="Mở lại" onHuy={() => setMoLaiOpen(false)}
-          onXac={async (id) => { if (await exec.moLaiPhanBo(pb.phan_bo_id, id, pb.version)) setMoLaiOpen(false); }} />
+          onXac={async () => { if (await exec.moLaiPhanBo(pb.phan_bo_id, pb.version)) setMoLaiOpen(false); }} />
       )}
       {buTruOpen && (
         <BuTruForm batchId={b.id} dong={pb.dong} hoTroUngVien={hoTroUngVien} busy={busy}
-          loadLyDo={loadLyDo} onHuy={() => setBuTruOpen(false)}
+          onHuy={() => setBuTruOpen(false)}
           onXong={() => setBuTruOpen(false)} exec={exec} />
       )}
     </div>
@@ -590,17 +581,16 @@ function PhanBoBlock({
 }
 
 function BuTruForm({
-  batchId, dong, hoTroUngVien, busy, loadLyDo, onHuy, onXong, exec,
+  batchId, dong, hoTroUngVien, busy, onHuy, onXong, exec,
 }: {
   batchId: number; dong: SxPhanBo["dong"]; hoTroUngVien: SxHoTroUngVien[];
-  busy: boolean; loadLyDo: Props["loadLyDo"]; onHuy: () => void; onXong: () => void; exec: ThsxExec;
+  busy: boolean; onHuy: () => void; onXong: () => void; exec: ThsxExec;
 }) {
   const now = new Date();
   const [empId, setEmpId] = useState<number | null>(dong[0]?.employee_id ?? null);
   const [sl, setSl] = useState("");
   const [nam, setNam] = useState(String(now.getFullYear()));
   const [thang, setThang] = useState(String(now.getMonth() + 1));
-  const [lyDoId, setLyDoId] = useState<number | null>(null);
   const [moTa, setMoTa] = useState("");
 
   // Ứng viên = người trong phân bổ + ứng viên hỗ trợ (phòng trường hợp trả lương người ngoài roster).
@@ -609,13 +599,13 @@ function BuTruForm({
   for (const h of hoTroUngVien) if (!ds.has(h.id)) ds.set(h.id, `${h.full_name}${h.to_ten ? ` · ${h.to_ten}` : ""}`);
 
   const nSl = toNum(sl);
-  const hopLe = empId != null && nSl > 0 && toNum(nam) > 0 && toNum(thang) >= 1 && toNum(thang) <= 12 && lyDoId != null;
+  const hopLe = empId != null && nSl > 0 && toNum(nam) > 0 && toNum(thang) >= 1 && toNum(thang) <= 12;
 
   async function luu() {
     const body: SxBuTruIn = {
       employee_id: empId!, so_luong_tra_luong: nSl,
       ky_bu_nam: toNum(nam), ky_bu_thang: toNum(thang),
-      ly_do_id: lyDoId!, mo_ta: moTa.trim() || null,
+      mo_ta: moTa.trim() || null,
     };
     if (await exec.buTru(batchId, body)) onXong();
   }
@@ -640,11 +630,9 @@ function BuTruForm({
           </div>
         </Field>
       </div>
-      <Field label="Lý do">
-        <LyDoSelect nhom="mo_lai_phan_bo" loadLyDo={loadLyDo} value={lyDoId} onChange={setLyDoId} />
-      </Field>
       <Field label="Mô tả">
-        <input type="text" className="thsx-x-in" value={moTa} onChange={(e) => setMoTa(e.target.value)} placeholder="Tuỳ chọn" />
+        <input type="text" className="thsx-x-in" value={moTa} onChange={(e) => setMoTa(e.target.value)}
+          placeholder="Bù trừ vì sao? (tuỳ chọn)" />
       </Field>
       <div className="thsx-x-act">
         <Button variant="ghost" onClick={onHuy} disabled={busy}>Huỷ</Button>
@@ -658,10 +646,10 @@ function BuTruForm({
 
 // ─────────────────────────── BÀN GIAO (§11.2) ─────────────────────────────
 function BanGiaoSection({
-  chiTiet, canAssign, busy, conLai, loadLyDo, exec,
+  chiTiet, canAssign, busy, conLai, exec,
 }: {
   chiTiet: SxWorkItemChiTiet; canAssign: boolean; busy: boolean; conLai: number;
-  loadLyDo: Props["loadLyDo"]; exec: ThsxExec;
+  exec: ThsxExec;
 }) {
   const [formOpen, setFormOpen] = useState(false);
   const cv = chiTiet.cong_viec;
@@ -689,7 +677,7 @@ function BanGiaoSection({
           <div className="thsx-x-sub">Giao đi</div>
           <ul className="thsx-x-list">
             {di.map((g) => (
-              <BanGiaoRow key={g.id} g={g} phia="di" canAssign={canAssign} busy={busy} loadLyDo={loadLyDo} exec={exec} />
+              <BanGiaoRow key={g.id} g={g} phia="di" canAssign={canAssign} busy={busy} exec={exec} />
             ))}
           </ul>
         </>
@@ -699,7 +687,7 @@ function BanGiaoSection({
           <div className="thsx-x-sub">Nhận về</div>
           <ul className="thsx-x-list">
             {den.map((g) => (
-              <BanGiaoRow key={g.id} g={g} phia="den" canAssign={canAssign} busy={busy} loadLyDo={loadLyDo} exec={exec} />
+              <BanGiaoRow key={g.id} g={g} phia="den" canAssign={canAssign} busy={busy} exec={exec} />
             ))}
           </ul>
         </>
@@ -757,10 +745,10 @@ function BanGiaoForm({
 }
 
 function BanGiaoRow({
-  g, phia, canAssign, busy, loadLyDo, exec,
+  g, phia, canAssign, busy, exec,
 }: {
   g: SxBanGiao; phia: "di" | "den"; canAssign: boolean; busy: boolean;
-  loadLyDo: Props["loadLyDo"]; exec: ThsxExec;
+  exec: ThsxExec;
 }) {
   const [suaOpen, setSuaOpen] = useState(false);
   const [dcOpen, setDcOpen] = useState(false);
@@ -818,7 +806,7 @@ function BanGiaoRow({
         </div>
       )}
       {dcOpen && (
-        <DieuChinhForm g={g} busy={busy} loadLyDo={loadLyDo}
+        <DieuChinhForm g={g} busy={busy}
           onHuy={() => setDcOpen(false)} onXong={() => setDcOpen(false)} exec={exec} />
       )}
     </li>
@@ -826,20 +814,19 @@ function BanGiaoRow({
 }
 
 function DieuChinhForm({
-  g, busy, loadLyDo, onHuy, onXong, exec,
+  g, busy, onHuy, onXong, exec,
 }: {
-  g: SxBanGiao; busy: boolean; loadLyDo: Props["loadLyDo"];
+  g: SxBanGiao; busy: boolean;
   onHuy: () => void; onXong: () => void; exec: ThsxExec;
 }) {
   const [slSau, setSlSau] = useState(String(g.so_luong));
-  const [lyDoId, setLyDoId] = useState<number | null>(null);
   const [moTa, setMoTa] = useState("");
   const nSl = toNum(slSau);
-  const hopLe = nSl > 0 && lyDoId != null;
+  const hopLe = nSl > 0;
 
   async function luu() {
     const body: SxBanGiaoDieuChinhIn = {
-      so_luong_sau: nSl, ly_do_id: lyDoId!, mo_ta: moTa.trim() || null, expected_version: g.version,
+      so_luong_sau: nSl, mo_ta: moTa.trim() || null, expected_version: g.version,
     };
     if (await exec.dieuChinhBanGiao(g.id, body)) onXong();
   }
@@ -849,11 +836,9 @@ function DieuChinhForm({
       <Field label={`Số lượng sau${g.don_vi ? ` (${nhanDonVi(g.don_vi)})` : ""}`}>
         <input type="number" min={0} className="thsx-x-in" value={slSau} onChange={(e) => setSlSau(e.target.value)} inputMode="numeric" />
       </Field>
-      <Field label="Lý do điều chỉnh">
-        <LyDoSelect nhom="dieu_chinh_ban_giao" loadLyDo={loadLyDo} value={lyDoId} onChange={setLyDoId} />
-      </Field>
       <Field label="Mô tả">
-        <input type="text" className="thsx-x-in" value={moTa} onChange={(e) => setMoTa(e.target.value)} placeholder="Tuỳ chọn" />
+        <input type="text" className="thsx-x-in" value={moTa} onChange={(e) => setMoTa(e.target.value)}
+          placeholder="Điều chỉnh vì sao? (tuỳ chọn)" />
       </Field>
       <div className="thsx-x-act">
         <Button variant="ghost" onClick={onHuy} disabled={busy}>Huỷ</Button>
@@ -1692,44 +1677,20 @@ export function Field({ label, children }: { label: ReactNode; children: ReactNo
   );
 }
 
-/** Dropdown lý do/lỗi nạp theo NHÓM từ danh mục `san_xuat_ly_do` (§15). */
-export function LyDoSelect({
-  nhom, loadLyDo, value, onChange,
+/** Dải hỏi-lại một nhịp cho việc nghịch chiều (mở lại phân bổ đã chốt…). Trước đây chỗ này là
+ *  form chọn lý do từ danh mục; danh mục ĐÃ GỠ (mg 0288) nên chỉ còn một nhịp xác nhận — vẫn giữ
+ *  để không bấm nhầm một cú không tự hoàn lại. */
+function XacNhanForm({
+  busy, hoi, confirm, onHuy, onXac,
 }: {
-  nhom: string; loadLyDo: Props["loadLyDo"];
-  value: number | null; onChange: (v: number | null) => void;
+  busy: boolean; hoi: string; confirm: string; onHuy: () => void; onXac: () => void;
 }) {
-  const [opts, setOpts] = useState<SxLyDo[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    void loadLyDo(nhom).then((r) => { if (alive) setOpts(r); });
-    return () => { alive = false; };
-  }, [nhom, loadLyDo]);
-  return (
-    <select className="thsx-x-sel" value={value ?? ""}
-      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}>
-      <option value="">{opts == null ? "Đang tải…" : "— Chọn —"}</option>
-      {(opts ?? []).map((o) => <option key={o.id} value={o.id}>{o.ten}</option>)}
-    </select>
-  );
-}
-
-/** Form 1-dropdown-lý-do dùng cho "mở lại phân bổ" (và các chỗ chỉ cần chọn lý do). */
-function LyDoForm({
-  nhom, busy, loadLyDo, label, confirm, onHuy, onXac,
-}: {
-  nhom: string; busy: boolean; loadLyDo: Props["loadLyDo"];
-  label: string; confirm: string; onHuy: () => void; onXac: (lyDoId: number) => void;
-}) {
-  const [lyDoId, setLyDoId] = useState<number | null>(null);
   return (
     <div className="thsx-x-form thsx-x-form--sub">
-      <Field label={label}>
-        <LyDoSelect nhom={nhom} loadLyDo={loadLyDo} value={lyDoId} onChange={setLyDoId} />
-      </Field>
+      <p className="thsx-note">{hoi}</p>
       <div className="thsx-x-act">
         <Button variant="ghost" onClick={onHuy} disabled={busy}>Huỷ</Button>
-        <Button variant="accent" onClick={() => lyDoId != null && onXac(lyDoId)} disabled={busy || lyDoId == null}>
+        <Button variant="accent" onClick={onXac} disabled={busy}>
           <Icon name="check" size={13} /> {confirm}
         </Button>
       </div>

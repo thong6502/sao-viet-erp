@@ -12,7 +12,6 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from ...models.department import Department
-from ...models.san_xuat_ly_do import NHOM_DIEU_CHINH_BAN_GIAO
 from ...models.san_xuat_san_luong import (
     BG_DE_XUAT,
     BG_DIEU_CHINH,
@@ -211,14 +210,13 @@ def dieu_chinh(
     user,
     ban_giao_id: int,
     so_luong_sau,
-    ly_do_id: int | None = None,
     mo_ta: str | None = None,
     expected_version: int | None = None,
 ) -> dict:
     """Điều chỉnh số lượng đã xác nhận (§11.3): đẻ dòng lịch sử trước/sau, cập nhật bàn giao.
 
     Giảm dưới lượng công đoạn sau ĐÃ DÙNG ⇒ đánh dấu không nhất quán (chặn chốt phân bổ/đóng nhóm).
-    Bắt buộc lý do (nhóm `dieu_chinh_ban_giao`)."""
+    Ghi chú tự do (`mo_ta`) tuỳ chọn — danh mục lý do/lỗi ĐÃ GỠ."""
     repo = SanXuatSanLuongRepository(db)
     bg = repo.ban_giao(ban_giao_id)
     if bg is None:
@@ -229,12 +227,6 @@ def dieu_chinh(
     dich_cv = repo.cong_viec(bg.dich_cong_viec_id) if bg.dich_cong_viec_id else None
     _gate_hai_ben(db, user, nguon_cv, dich_cv)
     _kiem_version(bg, expected_version)
-
-    if not ly_do_id:
-        raise ValueError("Điều chỉnh bàn giao phải kèm lý do.")
-    ld = repo.ly_do(int(ly_do_id))
-    if ld is None or ld.nhom != NHOM_DIEU_CHINH_BAN_GIAO:
-        raise ValueError("Lý do điều chỉnh không hợp lệ.")
 
     sl_sau = _so_khong_am(so_luong_sau, "Số lượng sau điều chỉnh")
     sl_truoc = float(bg.so_luong)
@@ -250,7 +242,6 @@ def dieu_chinh(
             ban_giao_id=bg.id,
             so_luong_truoc=sl_truoc,
             so_luong_sau=sl_sau,
-            ly_do_id=int(ly_do_id),
             mo_ta=(mo_ta or "").strip() or None,
             khong_nhat_quan=khong_nhat_quan,
             created_by=getattr(user, "id", None),

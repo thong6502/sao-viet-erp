@@ -214,6 +214,18 @@ class EmployeeService:
                 "tự đánh dấu hết thử việc khi tới hạn."
             )
 
+    def _validate_code(self, code: str | None) -> str | None:
+        """Mã NV do người khai đưa vào (chỉ đường Nhập Excel). Chuẩn hoá HOA + bỏ khoảng
+        trắng để 'nv007' và 'NV007 ' là MỘT mã, rồi chặn trùng."""
+        code = (code or "").strip().upper()
+        if not code:
+            return None
+        if len(code) > 20:
+            raise EmployeeValidationError("Mã nhân viên tối đa 20 ký tự.")
+        if self.employees.find_by_code(code) is not None:
+            raise EmployeeValidationError(f"Mã {code} đã có người khác dùng.")
+        return code
+
     @staticmethod
     def _validate_dependents(n: int | None) -> int:
         if n is None:
@@ -320,10 +332,16 @@ class EmployeeService:
         hire_date: date | None,
         fields: dict,
         can_edit_salary: bool = True,
+        code: str | None = None,
     ) -> tuple[Employee, Employee | None, Employee | None]:
         """Create an employee, record the first 'hired' event, return
-        (employee, dup_by_CCCD, dup_by_BHXH). A duplicate does NOT block creation."""
+        (employee, dup_by_CCCD, dup_by_BHXH). A duplicate does NOT block creation.
+
+        `code` bỏ trống ⇒ máy tự cấp NV001, NV002… Chỉ lượt NHẬP EXCEL truyền mã vào, để file
+        xuất từ máy này nạp sang máy khác mà mã NV không lệch (xem `services/employee_excel.py`).
+        Mã trùng thì CHẶN — trùng mã là hai người cùng một khoá nghiệp vụ."""
         status = self._validate_status(status)
+        code = self._validate_code(code)
         # N5: thiếu quyền edit_salary → bỏ field lương/BHXH ngay khi tạo (không lưu lén).
         if not can_edit_salary:
             fields = {k: v for k, v in fields.items() if k not in SENSITIVE_FIELDS}
@@ -337,6 +355,7 @@ class EmployeeService:
         )
 
         employee = self.employees.create(
+            code=code,
             department_id=department_id,
             status=status,
             hire_date=hire_date,

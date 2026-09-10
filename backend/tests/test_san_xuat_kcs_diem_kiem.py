@@ -31,7 +31,6 @@ from tests.test_san_xuat_kcs import (  # noqa: F401
     _Authz,
     _anh,
     _cv_production,
-    _ly_do,
     _to_kiem,
     admin,
     customer,
@@ -135,7 +134,6 @@ def test_ghi_diem_kiem_khong_de_san_luong_khong_doi_trang_thai(db, orders, lsx_s
     `trang_thai` của việc, nên không có đường nào để một lượt "không đạt" khoá dây chuyền."""
     _to, cv = _diem_kiem(db, orders, lsx_svc, admin, customer)
     to_kiem, tv = _to_kiem(db)
-    ld = _ly_do(db)
     truoc_batch = db.query(SanXuatBatch).count()
     truoc_tt = cv.trang_thai
 
@@ -144,7 +142,7 @@ def test_ghi_diem_kiem_khong_de_san_luong_khong_doi_trang_thai(db, orders, lsx_s
         bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=4, so_luong_khong_dat=6,
         don_vi="cái", loai=KCS_LOAI_DIEM_KIEM,
         checklist_ket_qua=[{"thu_tu": 1, "dat": False, "ghi_chu": "Lệch 0,5mm"}],
-        nhom_loi_id=ld.id, loi_mo_ta="Chồng màu lệch", anh=_anh(),
+        loi_mo_ta="Chồng màu lệch", anh=_anh(),
     )
     kb = db.get(SanXuatKcsBatch, res["kcs_batch_id"])
     assert kb.loai == KCS_LOAI_DIEM_KIEM and kb.kcs_department_id == to_kiem.id
@@ -192,7 +190,7 @@ def test_ban_tra_kem_ket_qua_da_ghi(db, orders, lsx_svc, admin, customer):
         bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=7, so_luong_khong_dat=3,
         don_vi="cái", loai=KCS_LOAI_DIEM_KIEM,
         checklist_ket_qua=[{"thu_tu": 1, "dat": True, "ghi_chu": None}],
-        nhom_loi_id=_ly_do(db).id, loi_mo_ta="Lem biên", anh=_anh(),
+        loi_mo_ta="Lem biên", anh=_anh(),
     )
 
     dong = _phang(kcs.diem_kiem_kcs(db, admin, _Authz(SCOPE_ALL)))[0]

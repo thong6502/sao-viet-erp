@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError, api,
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon,
-  type SxHoTroUngVien, type SxLyDo,
+  type SxHoTroUngVien,
   type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien, type SxThuongToTruong,
   type SxKhoHopThu, type SxSuCoIn,
 } from "../api/client";
@@ -140,7 +140,6 @@ export function ThucHienSxPage({
   const [candidates, setCandidates] = useState<SxNhanVienChon[]>([]);
   const [hoTroUngVien, setHoTroUngVien] = useState<SxHoTroUngVien[]>([]);
   const [mayOptions, setMayOptions] = useState<MayChon[]>([]);
-  const lyDoCache = useRef<Record<string, SxLyDo[]>>({});
 
   // ---- Giai đoạn 5: KCS §13 · Kho §14 · Đóng nhóm §16 (nạp theo việc/nhóm đang chọn) ----
   const [kcsCt, setKcsCt] = useState<SxKcsChiTiet | null>(null);
@@ -214,18 +213,6 @@ export function ThucHienSxPage({
     kyThuatMay.mayChon(token)
       .then(setMayOptions)
       .catch(() => setMayOptions([]));
-  }, [token]);
-
-  // Danh mục lý do/lỗi (§15) nạp-lười theo nhóm, cache trong phiên (KHÔNG hardcode danh sách ở FE).
-  const loadLyDo = useCallback(async (nhom: string): Promise<SxLyDo[]> => {
-    if (!token) return [];
-    const c = lyDoCache.current[nhom];
-    if (c) return c;
-    try {
-      const r = await api.sanXuat.lyDo(token, nhom);
-      lyDoCache.current[nhom] = r.items;
-      return r.items;
-    } catch { return []; }
   }, [token]);
 
   // Đổi tổ → dọn lựa chọn.
@@ -639,7 +626,7 @@ export function ThucHienSxPage({
       huyHoTro: (id, lyDo, v) => ok(mutate(() => api.sanXuat.huyHoTro(token!, id, { ly_do: lyDo || null, expected_version: v }), "Đã huỷ hỗ trợ.")),
       tinhPhanBo: (batchId) => ok(mutate(() => api.sanXuat.tinhPhanBo(token!, batchId), "Đã tính phân bổ lương.")),
       chotPhanBo: (phanBoId, v) => ok(mutate(() => api.sanXuat.chotPhanBo(token!, phanBoId, { expected_version: v }), "Đã chốt phân bổ.")),
-      moLaiPhanBo: (phanBoId, lyDoId, v) => ok(mutate(() => api.sanXuat.moLaiPhanBo(token!, phanBoId, { ly_do_id: lyDoId, expected_version: v }), "Đã mở lại phân bổ.")),
+      moLaiPhanBo: (phanBoId, v) => ok(mutate(() => api.sanXuat.moLaiPhanBo(token!, phanBoId, { expected_version: v }), "Đã mở lại phân bổ.")),
       buTru: (batchId, b) => ok(mutate(() => api.sanXuat.buTru(token!, batchId, b), "Đã ghi bù trừ.")),
       loaiTru: (batchId, b) => ok(mutate(() => api.sanXuat.loaiTru(token!, batchId, b), "Đã loại khỏi lương batch.")),
       goLoaiTru: (batchId, b) => ok(mutate(() => api.sanXuat.goLoaiTru(token!, batchId, b), "Đã gỡ loại trừ.")),
@@ -830,7 +817,6 @@ export function ThucHienSxPage({
               candidates={candidates}
               hoTroUngVien={hoTroUngVien}
               mayOptions={mayOptions}
-              loadLyDo={loadLyDo}
               exec={exec}
               busy={busy}
               kcsCt={kcsCt}

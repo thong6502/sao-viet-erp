@@ -12,7 +12,7 @@ import { ApiError } from "../../api/client";
 import { crud, type Row } from "../../api/rebuildCatalog";
 import { useNapTenDonVi } from "../tenDonVi";
 import { CatalogDrawer } from "./CatalogDrawer";
-import { ImportExcelDialog } from "./ImportExcelDialog";
+import { ImportExcelDialog } from "../../components/ImportExcelDialog";
 import { OTim } from "./OTim";
 import { XoaDanhMucDialog } from "./XoaDanhMucDialog";
 import { CircleXIcon, DownloadIcon, PlusIcon, TrashIcon, UploadIcon } from "./icons";
@@ -538,9 +538,8 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
 
       {showImport && token && (
         <ImportExcelDialog
-          prefix={config.prefix}
           ten={config.title.toLowerCase()}
-          token={token}
+          chay={(f, mode) => crud(config.prefix).importExcel(token, f, mode)}
           onClose={() => setShowImport(false)}
           onImported={() => { setShowImport(false); lamMoi(); onMutate?.(); }}
         />

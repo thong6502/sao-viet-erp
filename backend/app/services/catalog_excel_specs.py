@@ -35,7 +35,6 @@ from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.khuon_be_repo import KhuonBeRepository
 from ..repositories.loai_san_pham_repo import LoaiSanPhamRepository
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository
-from ..repositories.san_xuat_ly_do_repo import SanXuatLyDoRepository
 from ..repositories.vat_lieu_kho_repo import (
     _ChungLoaiGiayRepo, _GiayRepo, _ThanhPhamRepo, _VatTuRepo,
 )
@@ -238,24 +237,7 @@ LOAI_SAN_PHAM = CatalogExcelSpec(
 
 
 # ======================================================================================
-# 5 · Lý do & lỗi sản xuất
-# ======================================================================================
-
-SAN_XUAT_LY_DO = CatalogExcelSpec(
-    loai="san_xuat_ly_do", tieu_de="Lý do & lỗi SX", repo_cls=SanXuatLyDoRepository,
-    cot=(
-        Cot("Mã", "ma"),
-        Cot("Nhóm", "nhom", rong=16),
-        Cot("Tên", "ten", rong=32),
-        Cot("Mô tả", "mo_ta", rong=40),
-        Cot("Thứ tự hiện", "thu_tu", kieu="nguyen", rong=14),
-        CO_ACTIVE,
-    ),
-)
-
-
-# ======================================================================================
-# 6 · Công việc khoán (`piece_rates`)
+# 5 · Công việc khoán (`piece_rates`)
 # ======================================================================================
 
 CONG_VIEC_KHOAN = CatalogExcelSpec(
@@ -559,6 +541,9 @@ CONG_DOAN = CatalogExcelSpec(
         Cot("Đơn vị vào", "don_vi_vao", rong=14),
         Cot("Đơn vị ra", "don_vi_ra", rong=14),
         Cot("Công thức sản lượng", "cong_thuc_san_luong", rong=36),
+        # Đơn vị của số vừa tính ở cột trên (mg `0289`) — mã ở danh mục Đơn vị & quy đổi (`kem`).
+        # Chỉ có nghĩa với bước NGOÀI dòng giấy (hai ô đơn vị chặng để trống).
+        Cot("Đơn vị sản lượng", "don_vi_san_luong", rong=18),
         Cot("Công thức giá", "cong_thuc_gia", rong=36),
         Cot("Kiểu bù hao", "kieu_bu_hao", rong=16),
         Cot("Mã bù hao", "bu_hao_id", doc=TRA_BU_HAO.doc, ghi=TRA_BU_HAO.ghi),
@@ -822,7 +807,7 @@ MAY_THIET_BI = CatalogExcelSpec(
 
 SPECS: dict[str, CatalogExcelSpec] = {
     s.loai: s for s in (
-        KHO_HANG, BU_HAO, KHUON_BE, LOAI_SAN_PHAM, SAN_XUAT_LY_DO, CONG_VIEC_KHOAN,
+        KHO_HANG, BU_HAO, KHUON_BE, LOAI_SAN_PHAM, CONG_VIEC_KHOAN,
         DON_VI_DO, CHUNG_LOAI_GIAY, GIAY, VAT_TU, THANH_PHAM, CONG_DOAN, MAY_THIET_BI,
     )
 }

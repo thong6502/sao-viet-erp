@@ -12,7 +12,9 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from app.models.cong_doan import CongDoan
 from app.models.employee import Employee
+from app.models.lsx import LsxCongDoan
 from app.models.machine import Machine
 from app.models.order import OrderLine
 from app.models.san_xuat import (
@@ -134,6 +136,50 @@ def test_cap_nhat_tai_chup_may_gio_va_tang_phien_ban(db, orders, lsx_svc, xl_svc
     assert pb2.loai == PB_CAP_NHAT and pb2.ly_do == "Dời lịch do máy bận"
     db.refresh(goi)
     assert goi.version_hien_tai == 2
+
+
+# --- Cập nhật: tái chụp HÀNH LÝ đọc-để-làm ----------------------------------
+def test_cap_nhat_tai_chup_hanh_ly_don_vi_va_dan_do(db, orders, lsx_svc, xl_svc, admin, customer):
+    """Kế hoạch sửa dặn dò + đẩy bước ra NGOÀI dòng giấy sau phát hành → `Phát hành cập nhật`
+    phải chở thông tin MỚI xuống thẻ việc.
+
+    Trước 10/09/2026 hàm chỉ tái chụp máy + giờ, nên bàn tổ đứng yên với đơn vị rỗng và không có
+    dặn dò dù người lập kế hoạch đã sửa và bấm cập nhật — đúng lỗi §8 của
+    `docs/superpowers/specs/2026-09-10-ban-to-du-thong-tin-design.md`. Test cũng ghim RANH GIỚI:
+    số lượng vào là cam kết đã đóng băng, cập nhật KHÔNG được đụng vào.
+    """
+    a, goi = _lsx_da_phat_hanh(db, orders, lsx_svc, xl_svc, admin, customer)
+    target = next(cv for cv in _cvs(db, goi.id) if cv.lsx_cong_doan_id)
+    cd = db.get(LsxCongDoan, target.lsx_cong_doan_id)
+    assert cd.cong_doan_id, "bước seed phải trỏ danh mục công đoạn thì mới có đơn vị sản lượng"
+
+    sl_vao_da_chot = float(target.so_luong_vao or 0)
+    assert target.ghi_chu is None
+    assert (target.dinh_muc_json or {}).get("ngoai_dong") is False
+
+    # Người lập kế hoạch sửa SAU phát hành: thêm dặn dò, gỡ bước khỏi dòng giấy (bỏ trống CẢ HAI
+    # ô đơn vị chặng — đó đúng là định nghĩa "ngoài dòng" từ mg `0273`), đơn vị đo sản lượng khai
+    # ở danh mục Công đoạn (mg `0289`). Đổi luôn số lượng vào để soi phần cố ý KHÔNG chụp lại.
+    cd.ghi_chu = "Kẽm cũ của đợt 1 còn dùng được, chỉ ghi lại tay 3."
+    cd.don_vi_vao = None
+    cd.don_vi_ra = None
+    cd.so_luong_vao = sl_vao_da_chot + 500
+    db.get(CongDoan, cd.cong_doan_id).don_vi_san_luong = "kem"
+    db.commit()
+
+    release_update.phat_hanh_cap_nhat(
+        db, nguon="lsx", id=a.id, ly_do="Bổ sung dặn dò kỹ thuật", actor=admin,
+    )
+    db.commit()
+
+    db.refresh(target)
+    assert target.ghi_chu == "Kẽm cũ của đợt 1 còn dùng được, chỉ ghi lại tay 3."
+    assert target.don_vi_vao == "kem" and target.don_vi_ra == "kem"
+    dm = target.dinh_muc_json or {}
+    assert dm["ngoai_dong"] is True
+    assert "chay_phut_min" in dm and "chay_phut_max" in dm
+    # Cam kết đã đóng băng thì cập nhật không đụng tới (số này chảy xuống lương + kho).
+    assert float(target.so_luong_vao or 0) == sl_vao_da_chot
 
 
 def test_cap_nhat_huy_phan_cong_va_ho_tro(db, orders, lsx_svc, xl_svc, admin, customer):

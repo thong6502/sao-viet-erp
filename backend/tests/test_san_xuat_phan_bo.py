@@ -21,11 +21,6 @@ from app.models.attendance import CHECK_IN, CHECK_OUT, AttendanceLog, WorkShift
 from app.models.department import Department
 from app.models.payroll import PERIOD_LOCKED, PayrollPeriod
 from app.models.san_xuat import CV_DANG_CHAY
-from app.models.san_xuat_ly_do import (
-    NHOM_MO_LAI_PHAN_BO,
-    NHOM_TAM_DUNG,
-    SanXuatLyDo,
-)
 from app.models.san_xuat_phan_bo import SanXuatPhanBo
 from app.models.san_xuat_san_luong import SanXuatBanGiao, SanXuatBatch
 from app.models.san_xuat_thuc_thi import SanXuatKhoangThamGia
@@ -57,13 +52,6 @@ def _user(db, username) -> User:
     db.add(u)
     db.flush()
     return u
-
-
-def _ly_do_mo_lai(db, ma="ML-1", ten="Sửa sai sản lượng") -> SanXuatLyDo:
-    ld = SanXuatLyDo(ma=ma, nhom=NHOM_MO_LAI_PHAN_BO, ten=ten)
-    db.add(ld)
-    db.flush()
-    return ld
 
 
 def _khoang(db, cv, emp, bat_dau, ket_thuc, heso) -> SanXuatKhoangThamGia:
@@ -331,7 +319,7 @@ def test_cong_thuc_ra_tien_thi_luong_an_don_gia_hieu_dung(db, orders, lsx_svc, a
 
     `don_gia` gốc (40 đ/nhịp) chỉ còn là một số liệu BÊN TRONG công thức người ta viết; nhân nó với
     sản lượng ở tầng này là bỏ qua cả công thức — đúng thứ chủ cấm ngày 08/09/2026. Ảnh chụp mang
-    theo `don_gia_hd` (đóng băng lúc phát hành, xem `snapshot._DonGiaHieuDung`) và tầng lương phải
+    theo `don_gia_hd` (đóng băng lúc phát hành, xem `snapshot._SoPhatHanh`) và tầng lương phải
     ăn số đó.
     """
     to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-HD")
@@ -460,16 +448,11 @@ def _chot_mot_phan_bo(db, orders, lsx_svc, admin, customer, ma):
     return to, cv, batch, e, kq["phan_bo_id"]
 
 
-def test_mo_lai_can_ly_do_dung_nhom(db, orders, lsx_svc, admin, customer):
+def test_mo_lai_khong_con_doi_ly_do(db, orders, lsx_svc, admin, customer):
+    """Danh mục Lý do & lỗi SX ĐÃ GỠ (mg 0288) ⇒ mở lại phân bổ đã chốt không còn phải nêu lý do:
+    gọi trần vẫn mở được."""
     to, cv, batch, e, pb_id = _chot_mot_phan_bo(db, orders, lsx_svc, admin, customer, "ML")
-    sai = SanXuatLyDo(ma="TD-X", nhom=NHOM_TAM_DUNG, ten="Chờ mực")
-    db.add(sai)
-    db.flush()
-    with pytest.raises(ValueError):
-        phan_bo.mo_lai_phan_bo(db, user=admin, phan_bo_id=pb_id, ly_do_id=sai.id)
-
-    dung = _ly_do_mo_lai(db)
-    r = phan_bo.mo_lai_phan_bo(db, user=admin, phan_bo_id=pb_id, ly_do_id=dung.id)
+    r = phan_bo.mo_lai_phan_bo(db, user=admin, phan_bo_id=pb_id)
     assert r["trang_thai"] == "reopened"
 
 
@@ -477,20 +460,18 @@ def test_ky_khoa_khong_mo_lai_duoc(db, orders, lsx_svc, admin, customer):
     to, cv, batch, e, pb_id = _chot_mot_phan_bo(db, orders, lsx_svc, admin, customer, "KHOA")
     db.add(PayrollPeriod(year=2026, month=8, status=PERIOD_LOCKED))    # kỳ gốc đã khoá
     db.commit()
-    dung = _ly_do_mo_lai(db)
     with pytest.raises(ValueError):
-        phan_bo.mo_lai_phan_bo(db, user=admin, phan_bo_id=pb_id, ly_do_id=dung.id)
+        phan_bo.mo_lai_phan_bo(db, user=admin, phan_bo_id=pb_id)
 
 
 def test_bu_tru_sau_khoa_ky_feed_ky_bu(db, orders, lsx_svc, admin, customer):
     to, cv, batch, e, pb_id = _chot_mot_phan_bo(db, orders, lsx_svc, admin, customer, "BT")
     db.add(PayrollPeriod(year=2026, month=8, status=PERIOD_LOCKED))    # kỳ gốc khoá, kỳ 9 còn mở
     db.commit()
-    dung = _ly_do_mo_lai(db)
 
     r = phan_bo.bu_tru(
         db, user=admin, batch_id=batch.id, employee_id=e.id,
-        so_luong_tra_luong=-5, ky_bu_nam=2026, ky_bu_thang=9, ly_do_id=dung.id,
+        so_luong_tra_luong=-5, ky_bu_nam=2026, ky_bu_thang=9,
         mo_ta="Trừ do đếm dư",
     )
     assert r["ky_bu"] == [2026, 9] and r["so_luong_tra_luong"] == -5
@@ -501,9 +482,8 @@ def test_bu_tru_sau_khoa_ky_feed_ky_bu(db, orders, lsx_svc, admin, customer):
 
 def test_bu_tru_ky_goc_chua_khoa_bi_chan(db, orders, lsx_svc, admin, customer):
     to, cv, batch, e, pb_id = _chot_mot_phan_bo(db, orders, lsx_svc, admin, customer, "BT2")
-    dung = _ly_do_mo_lai(db)
     with pytest.raises(ValueError):                                    # kỳ gốc chưa khoá ⇒ mở lại
         phan_bo.bu_tru(
             db, user=admin, batch_id=batch.id, employee_id=e.id,
-            so_luong_tra_luong=3, ky_bu_nam=2026, ky_bu_thang=9, ly_do_id=dung.id,
+            so_luong_tra_luong=3, ky_bu_nam=2026, ky_bu_thang=9,
         )

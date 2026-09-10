@@ -10,6 +10,8 @@
 // KHÔNG chép lại. Việc thực hiện chạy theo đồng hồ tường như v2 nên trục tuyến tính là đúng.
 import { Icon, type IconName } from "../components/Icons";
 import type { SxWorkItem } from "../api/client";
+import { num } from "./keHoachSxShared";
+import { nhanChang } from "./lsxBuoc";
 
 // ============================ TRẠNG THÁI CÔNG VIỆC ==========================
 /** 4 trạng thái enum backend (`models/san_xuat.py`): released / running / paused / completed. */
@@ -60,6 +62,33 @@ export function sxNguonIcon(nguonLoai: string): IconName {
   if (nguonLoai === "bai_ghep") return "layers";
   if (nguonLoai === "lsx") return "workflow";
   return "box";
+}
+
+/** Ô khối lượng của một thẻ việc. Bước NGOÀI dòng giấy đo bằng đơn vị của CHÍNH nó (ghi kẽm đếm
+ *  bản, đóng thùng đếm thùng) nên vào = ra — hiện MỘT số "4 bản kẽm", vẽ mũi tên hai đầu giống
+ *  nhau chỉ là nhiễu. Cờ `ngoai_dong` là ảnh chụp của server; đừng suy lại từ mã đơn vị. */
+export function slText(w: SxWorkItem): string {
+  if (w.ngoai_dong) {
+    const dv = nhanChang(w.don_vi_ra || w.don_vi_vao);
+    return `${num(w.so_luong_ra)}${dv ? ` ${dv}` : ""}`;
+  }
+  const vao = `${num(w.so_luong_vao)}${w.don_vi_vao ? ` ${nhanChang(w.don_vi_vao)}` : ""}`;
+  const ra = `${num(w.so_luong_ra)}${w.don_vi_ra ? ` ${nhanChang(w.don_vi_ra)}` : ""}`;
+  return `${vao} → ${ra}`;
+}
+
+/** "13 phút (11 – 15)" — phút CHẠY của thẻ kèm dải theo tốc độ máy (§7). Ba số bằng nhau ⇒ máy
+ *  chưa khai `toc_do_min/max`, bỏ hẳn phần ngoặc thay vì in "(13 – 13)".
+ *
+ *  `null` ⇒ nơi gọi bỏ HẲN dòng, hai ca: lệnh phát hành trước 10/09/2026 (ảnh chụp chưa có khoá),
+ *  và bước không có máy để tính giờ (bước tổ, bước ngoài dòng chưa gán máy) — "0 phút" ở đó là
+ *  con số bịa, thợ đọc xong lại tưởng việc này không mất thời gian. */
+export function phutChayText(w: SxWorkItem): string | null {
+  if (w.chay_phut == null || w.chay_phut <= 0) return null;
+  const giua = Math.round(w.chay_phut);
+  const lo = w.chay_phut_min == null ? giua : Math.round(w.chay_phut_min);
+  const hi = w.chay_phut_max == null ? giua : Math.round(w.chay_phut_max);
+  return lo === giua && hi === giua ? `${giua} phút` : `${giua} phút (${lo} – ${hi})`;
 }
 
 /** Việc có đủ mốc kế hoạch để đặt lên trục thời gian? Thiếu ⇒ vào lane "chưa định giờ" ở cột trái. */

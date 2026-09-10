@@ -442,11 +442,22 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // chủ sở hữu: hai công đoạn cùng đo bằng `kem` có thể ra số khác nhau, mà công thức treo ở đơn
     // vị thì cả hai buộc dùng chung.
     //
-    // Ô "Công thức sản lượng ra" ĐÃ ẨN KHỎI DRAWER (07/09/2026) — chỉ ẩn trên UI, cột
-    // `cong_doan.cong_thuc_san_luong` và engine đọc nó vẫn nguyên. Vì `PUT` chạy
-    // `model_dump(exclude_unset=True)` nên ô không còn trong form ⇒ không nằm trong body ⇒ giá trị
-    // đã khai của các bước ngoài dòng giấy KHÔNG bị ghi rỗng khi lưu lại bản ghi.
-    // Muốn hiện lại thì trả nguyên khối này về, không cần đụng backend.
+    // HIỆN LẠI 10/09/2026 sau ba ngày ẩn (07/09/2026). Ẩn nó là cắt CỬA KHAI DUY NHẤT của số
+    // lượng bước ngoài dòng giấy: engine vẫn đọc cột, nhưng người khai danh mục không còn chỗ nào
+    // gõ ⇒ "Ghi kẽm CTP" đi suốt từ lệnh xuống bàn tổ với `0 → 0` và khối Sản lượng nói "mục tiêu
+    // 0 · đủ mục tiêu". Chỉ hiện với bước NGOÀI dòng giấy — bước trên dòng lấy số từ chuỗi bù hao
+    // và backend bỏ qua cột này, bày ra chỉ mời gõ nhầm.
+    { key: "cong_thuc_san_luong", label: "Công thức sản lượng ra", type: "formula",
+      loaiO: "quy_doi", group: "Đơn vị", nhanTab: "Công thức sản lượng ra",
+      showIf: (f) => !f.don_vi_vao && !f.don_vi_ra,
+      hint: "vd: so_kem — bước RA bao nhiêu; vế VÀO suy ngược qua cầu quy đổi + bù hao." },
+    // CẶP ĐÔI với ô trên: cái kia nói RA BAO NHIÊU, ô này nói RA BẰNG GÌ. Không mượn được đơn vị
+    // nào sẵn có — `don_vi_toc_do` của máy là đơn vị ĐO GIỜ, đơn vị của đầu việc khoán là đơn vị
+    // TÍNH TIỀN, hai thứ cố ý tách rời (mg `0289`). Thiếu nó thì con số 4 xuống tới ô Ghi mẻ của
+    // tổ mà không có chữ nào đi kèm.
+    { key: "don_vi_san_luong", label: "Đơn vị sản lượng", ...F_DON_VI, group: "Đơn vị",
+      showIf: (f) => !f.don_vi_vao && !f.don_vi_ra,
+      hint: "Gõ mã / tên đơn vị để tìm… (vd kem — bản kẽm)" },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
       showIf: (f) => f.kieu_bu_hao === "tra_bang" },
@@ -817,53 +828,6 @@ export const CFG_KHO_HANG: CatalogConfig = {
   renderDeleteDialog: (row, ctx) => <KhoDeleteDialog row={row} {...ctx} />,
 };
 
-// ── Lý do & lỗi SX (§15) — danh mục thứ 12 ──────────────────────────────────────────────────
-// Danh mục CHUẨN HOÁ mọi lý do/lỗi của phân hệ Thực hiện SX: batch hỏng · lỗi KCS · và các lý do
-// vận hành (tạm dừng · bắt đầu trễ · điều chỉnh bàn giao · mở lại phân bổ…). Màn Thực hiện SX
-// KHÔNG hard-code danh sách nào — mọi ô chọn đổ từ đây, lọc theo `nhom`. 8 nhóm khớp
-// `models/san_xuat_ly_do.NHOM_LY_DO` (service chặn giá trị lạ): MENU ĐÓNG thật sự, thêm nhóm mới
-// phải khai cả ở backend nên `facet.values` liệt kê CỨNG chứ không `dynamic`.
-const NHOM_LY_DO: Lbls = {
-  loi: "Lỗi / hỏng",
-  tam_dung: "Tạm dừng",
-  bat_dau_tre: "Bắt đầu trễ",
-  lech_nhan_su: "Lệch nhân sự",
-  thieu_vat_tu: "Thiếu vật tư",
-  dieu_chinh_ban_giao: "Điều chỉnh bàn giao",
-  mo_lai_phan_bo: "Mở lại phân bổ",
-  dong_thieu: "Đóng thiếu TP",
-};
-
-export const CFG_LY_DO_SAN_XUAT: CatalogConfig = {
-  title: "Lý do & lỗi SX",
-  moduleQuyen: "dm_ly_do_san_xuat",
-  enableImport: true,
-  prefix: "/api/san-xuat-ly-do",
-  nhatKyLoai: "san_xuat_ly_do",
-  // Xoá MỀM ở service (`XOA_MEM`): batch/điều chỉnh bàn giao ghim ID thật, ngừng dùng thì lịch sử
-  // vẫn tra ra nhãn. Nút "Xóa" của nền danh mục vì thế rơi về lối an toàn (kiểm-nơi-dùng 404 →
-  // chỉ Ngừng dùng), mà backend cũng chỉ soft nên không sợ làm mồ côi FK.
-  softDelete: true,
-  autoCode: true,          // mã LD-#### sinh ngầm ở backend, ẩn ô nhập mã
-  // Tab lọc = NHÓM (dùng-vào-việc-gì). Số trên mỗi tab do server đếm (`facets`).
-  facet: { key: "nhom", values: mapOpt(NHOM_LY_DO) },
-  columns: [
-    { key: "nhom", label: "Nhóm", render: (r) => lbl(NHOM_LY_DO)(r.nhom) },
-    { key: "ten", label: "Tên lý do / lỗi", render: (r) => (r.ten ? String(r.ten) : "") },
-    { key: "mo_ta", label: "Mô tả", render: (r) => (r.mo_ta ? String(r.mo_ta) : "") },
-  ],
-  fields: [
-    { key: "nhom", label: "Nhóm (dùng vào việc gì)", type: "select", required: true, group: "Thông tin",
-      options: mapOpt(NHOM_LY_DO),
-      hint: "Ô chọn ở màn Thực hiện SX lọc theo nhóm này: batch hỏng chỉ thấy nhóm “Lỗi / hỏng”, ô điều chỉnh bàn giao chỉ thấy nhóm “Điều chỉnh bàn giao”…" },
-    { key: "ten", label: "Tên lý do / lỗi", type: "text", required: true, group: "Thông tin",
-      hint: "vd nhóm Lỗi/hỏng: “Nhăn giấy”, “Lem mực”. Nhóm Tạm dừng: “Chờ mực”." },
-    { key: "mo_ta", label: "Mô tả (tuỳ chọn)", type: "text", group: "Thông tin" },
-    { key: "thu_tu", label: "Thứ tự hiển thị", type: "number", group: "Thông tin", default: 0,
-      hint: "Số nhỏ hiện trước trong ô chọn. Để 0 nếu không cần xếp thứ tự." },
-  ],
-};
-
 // Tình trạng khuôn — record-only (con người phán, máy chỉ ghi nhận).
 // `dang_dat_lam` (mg 0177): dao CHƯA có trong tay — thuê ngoài chưa về, hoặc xưởng đang tự làm.
 // Đi kèm NGÀY CÓ KHUÔN (dự kiến): bước dùng dao ở Lệnh sản xuất hiện ngày đó để người xếp việc
@@ -1036,5 +1000,4 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "vat-tu-in-an": CFG_VAT_TU,
   "thanh-pham": CFG_THANH_PHAM,
   "khuon-be": CFG_KHUON_BE,
-  "ly-do-san-xuat": CFG_LY_DO_SAN_XUAT,
 };

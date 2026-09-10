@@ -193,6 +193,15 @@ def _so_lieu_map(
     return ket
 
 
+def _dm(cv, khoa: str):
+    """Một khoá của `dinh_muc_json` — ảnh chụp CŨ thiếu khoá thêm sau thì trả None, không nổ.
+
+    Không ép kiểu và không lấp 0: khoá vắng nghĩa là "lệnh phát hành trước ngày có khoá này", mà
+    0 phút chạy / kíp 0 người là câu khác hẳn và FE sẽ bày ra như số thật.
+    """
+    return cv.dinh_muc_json.get(khoa) if isinstance(cv.dinh_muc_json, dict) else None
+
+
 def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=None) -> dict:
     """Một dòng công việc trên timeline — nhãn nguồn/nhóm/máy đã resolve theo lô (§18)."""
     if cv.bai_ghep_id and cv.bai_ghep_id in bg_map:
@@ -225,10 +234,20 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=No
         "du_kien_bat_dau": lich_hien_thi(cv.du_kien_bat_dau),
         "du_kien_ket_thuc": lich_hien_thi(cv.du_kien_ket_thuc),
         # Số người dự kiến chốt lúc phát hành (§7.1) — FE so với roster để đòi lý do khi lệch.
-        "du_kien_so_nguoi": (
-            cv.dinh_muc_json.get("so_nhan_cong_tieu_chuan")
-            if isinstance(cv.dinh_muc_json, dict) else None
-        ),
+        "du_kien_so_nguoi": _dm(cv, "so_nhan_cong_tieu_chuan"),
+        # Bước NGOÀI dòng giấy: đo bằng đơn vị của CHÍNH nó (ghi kẽm đếm bản, đóng thùng đếm
+        # thùng) nên `so_luong_vao == so_luong_ra` và cột "SL vào → ra" phải hiện MỘT số. Cờ này
+        # là ảnh chụp lúc phát hành — FE không suy lại được từ mã đơn vị, xem `dinh_muc_json`.
+        "ngoai_dong": bool(_dm(cv, "ngoai_dong")),
+        "sl_dien_giai": _dm(cv, "sl_dien_giai"),
+        # Dải thời lượng chạy: ba số cùng thang, bằng nhau khi máy chưa khai tốc độ min/max.
+        "chay_phut": _dm(cv, "chay_phut"),
+        "chay_phut_min": _dm(cv, "chay_phut_min"),
+        "chay_phut_max": _dm(cv, "chay_phut_max"),
+        # Dặn dò của kế hoạch + thẻ quy cách rút gọn — hai thứ tổ trưởng không có cửa nào tra
+        # ngược (không có quyền `lsx`), nên chúng đi theo thẻ việc từ lúc phát hành.
+        "ghi_chu": cv.ghi_chu,
+        "quy_cach": cv.quy_cach_json or None,
         "so_luong_vao": _num(cv.so_luong_vao),
         "so_luong_ra": _num(cv.so_luong_ra),
         "don_vi_vao": cv.don_vi_vao,
@@ -573,7 +592,6 @@ def chi_tiet_cong_viec(
             "thieu_cham_cong": kq.thieu_cham_cong,
         }
     lot_map = sl.lot_vao_cua_nhieu([b.id for b in batches])
-    ld_ten = sl.nhan_ly_do({b.nhom_loi_id for b in batches if b.nhom_loi_id})
     bg_di = sl.ban_giao_tu_nguon(cv.id)
     bg_den = sl.ban_giao_toi_dich(cv.id)
     doi_tac_ids = {b.dich_cong_viec_id for b in bg_di if b.dich_cong_viec_id} | {
@@ -665,8 +683,6 @@ def chi_tiet_cong_viec(
                     "tot": float(b.tot),
                     "hong": float(b.hong),
                     "don_vi": b.don_vi,
-                    "nhom_loi_id": b.nhom_loi_id,
-                    "nhom_loi_ten": ld_ten.get(b.nhom_loi_id) if b.nhom_loi_id else None,
                     "mo_ta_loi": b.mo_ta_loi,
                     "ghi_chu": b.ghi_chu,
                     "version": b.version,

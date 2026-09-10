@@ -216,7 +216,18 @@ class XepLich2Service:
         Bàn làm việc cần cả mức nặng nhất (`muc`, qua hàm này) lẫn "râu" bóc tách của cùng một
         thanh — hai lượt gọi engine thời lượng cho cùng một dòng, mà engine đó là phần đắt nhất
         (~4 câu SQL mỗi lượt). Truyền vào để chạy MỘT lượt; bỏ trống thì tự tính như cũ.
+
+        PATCH RỖNG = "dòng đang ở đúng chỗ nó đang nằm", một câu hỏi KHÔNG đổi trong suốt một khối
+        `dong_bang` nên được nhớ theo dòng. Panel một lệnh hỏi đúng câu đó hai lượt cho mỗi bước
+        (`kiem_phat_hanh` chấm để chặn phát hành, rồi `_buoc_view` chấm lại để bày ra) — cả bộ luật
+        lẫn engine thời lượng chạy đôi cho cùng một bước. Có patch thì KHÔNG nhớ: mỗi lần kéo-thả
+        là một chỗ đặt khác nhau.
         """
+        if not patch:
+            return self.ctx.nho(("tinh", dong.id), lambda: self._tinh_moi(dong, {}, dur))
+        return self._tinh_moi(dong, patch, dur)
+
+    def _tinh_moi(self, dong: XepLichCongDoan, patch: dict, dur: dict | None) -> dict:
         shadow = self._shadow(dong, patch)
         # TRÒN PHÚT ngay từ đây: `luu` ghi thẳng `t["start"]`/`t["finish"]` nên chuẩn hoá một chỗ
         # là cả xem-trước lẫn bản ghi đều sạch giây (xem `C.tron_phut`).
@@ -504,6 +515,12 @@ class XepLich2Service:
         return anh_huong, max(fins), han_sx, han_giao
 
     def xem_truoc(self, *, dong_id: int, patch: dict) -> dict:
+        """ĐÓNG BĂNG: chấm chỗ đặt rồi soi tiếp ảnh hưởng hạ nguồn là hai lượt đi qua cùng một nền
+        (ca · nghỉ · việc trên máy · hai hạn) trong khi KHÔNG ghi gì — đúng chỗ dùng ảnh chụp."""
+        with self.ctx.dong_bang():
+            return self._xem_truoc(dong_id=dong_id, patch=patch)
+
+    def _xem_truoc(self, *, dong_id: int, patch: dict) -> dict:
         dong = self.core._get_dong(dong_id)
         t = self._tinh(dong, patch)
         # Nhân lực của bước đi kèm xem-trước. Hộp xác nhận vốn chỉ in NGUYÊN VĂN câu vấn đề
@@ -634,12 +651,13 @@ class XepLich2Service:
         Rỗng ⇒ phát hành được. Cửa vật tư là DÙNG CHUNG (`release`) nên màn cũ vấp đúng luật này.
         """
         vd: list[dict] = []
+        phien = self._phien_vat_tu()
         if nguon == NGUON_LSX:
-            sv = release.soat_vat_tu(self.db, lsx_id=id)
+            sv = release.soat_vat_tu(self.db, lsx_id=id, phien=phien)
             rows = self.repo.by_lsx(id)
             han_sx, han_giao = self.ctx.hai_han(SimpleNamespace(lsx_id=id, bai_ghep_id=None))
         else:
-            sv = release.soat_vat_tu(self.db, bai_ghep_id=id)
+            sv = release.soat_vat_tu(self.db, bai_ghep_id=id, phien=phien)
             rows = self.repo.by_bai_ghep(id)
             han_sx, han_giao = self.ctx.hai_han(SimpleNamespace(lsx_id=None, bai_ghep_id=id))
         # Vật tư: rổ CHẶN + rổ CẢNH BÁO (đang về có ngày hứa) — cả hai hiện cho UI, chỉ chan mới khoá.
@@ -914,6 +932,15 @@ class XepLich2Service:
             "buoc": [self._buoc_view(r, nhan) for r in rows],
         }
 
+    def _phien_vat_tu(self) -> release.PhienVatTu:
+        """Phiên cân đối vật tư DÙNG CHUNG trong một khối `dong_bang`.
+
+        Panel hỏi vật tư hai lượt cho cùng một lệnh — thẻ tóm tắt và cửa phát hành — mà bảng cân
+        đối thì như nhau. Ngoài khối đóng băng vẫn là phiên mới mỗi lượt: đường ghi phải nhìn số
+        vừa đổi, không được đọc lại bảng cân đối cũ.
+        """
+        return self.ctx.nho(("phien_vat_tu",), lambda: release.PhienVatTu(self.db))
+
     def _vat_tu_tom_tat(self, nguon: str, id: int) -> dict:
         """Tóm tắt vật tư ở mức SCALAR cho Panel: đủ chưa · mấy món còn thiếu · mấy món đang giữ · ngày
         xếp sớm nhất. Chi tiết đỏ/vàng đã nằm trong `van_de` (cửa dùng chung); đây chỉ là thẻ tóm tắt.
@@ -922,7 +949,7 @@ class XepLich2Service:
         """
         kw = {"lsx_id": id} if nguon == NGUON_LSX else {"bai_ghep_id": id}
         try:
-            tt = release.trang_thai_giu_cho(self.db, **kw)
+            tt = release.trang_thai_giu_cho(self.db, **kw, phien=self._phien_vat_tu())
         except Exception:                                             # noqa: BLE001
             return {"bat": False, "du": False, "khong_ro": True, "so_mon_thieu": None,
                     "so_mon_dang_giu": None, "xep_som_nhat": None, "loi": True}

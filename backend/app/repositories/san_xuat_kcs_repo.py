@@ -17,7 +17,6 @@ from ..models.san_xuat_kcs import (
     SanXuatKcsLoi,
     SanXuatKcsLoiAnh,
 )
-from ..models.san_xuat_ly_do import SanXuatLyDo
 from ..models.san_xuat_san_luong import BG_DIEU_CHINH, BG_XAC_NHAN, SanXuatBanGiao
 
 
@@ -39,16 +38,6 @@ class SanXuatKcsRepository:
     # --- Neo lại (gate/đọc) ------------------------------------------------------------------
     def cong_viec(self, cong_viec_id: int) -> SanXuatCongViec | None:
         return self.db.get(SanXuatCongViec, cong_viec_id)
-
-    def ly_do(self, ly_do_id: int) -> SanXuatLyDo | None:
-        return self.db.get(SanXuatLyDo, ly_do_id)
-
-    def nhan_ly_do(self, ids: set[int]) -> dict[int, str]:
-        ids = {i for i in ids if i}
-        if not ids:
-            return {}
-        rows = self.db.scalars(select(SanXuatLyDo).where(SanXuatLyDo.id.in_(ids)))
-        return {r.id: r.ten for r in rows}
 
     # --- Batch kiểm tra (§13.1) --------------------------------------------------------------
     def kcs_batch(self, kcs_batch_id: int) -> SanXuatKcsBatch | None:

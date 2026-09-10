@@ -66,6 +66,9 @@ export interface EditRow {
   so_luong_ra: string;
   don_vi_vao: string;
   don_vi_ra: string;
+  /** Đơn vị ĐO SẢN LƯỢNG của công đoạn (CHỈ ĐỌC, theo danh mục). Bước NGOÀI dòng giấy để trống cả
+   *  hai ô trên nên đây là chữ DUY NHẤT dán được cạnh số của nó. "" = công đoạn chưa khai. */
+  don_vi_san_luong: string;
   /** Bước có nằm trên DÒNG GIẤY không — CHỈ ĐỌC, server quyết theo cặp đơn vị của bước (bỏ trống
    *  cả hai = ngoài dòng giấy).
    *  `false` ⇒ số lượng không tự tính ngược, bù hao không cộng vào số giấy (drawer nói tại chỗ). */
@@ -221,6 +224,7 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     // vế VÀO khi vế vào CÓ giá trị — bước không đổi cách đếm thì hai vế bằng nhau.
     don_vi_vao: cd.don_vi_vao || "",
     don_vi_ra: cd.don_vi_ra || cd.don_vi_vao || "",
+    don_vi_san_luong: cd.don_vi_san_luong || "",
     // Server cũ chưa gửi cờ ⇒ coi như TRÊN dòng giấy: im lặng đúng với hành vi trước đây, hơn là
     // đột nhiên dán chú giải "ngoài dòng giấy" lên mọi bước.
     tren_dong_giay: cd.tren_dong_giay !== false,
@@ -332,7 +336,7 @@ export function emptyRow(): EditRow {
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
     khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
     khuon_nguon: null, khuon_phi: 0, khuon_lech: null,
-    so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to",
+    so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", don_vi_san_luong: "",
     tren_dong_giay: true, loi_quy_doi: null, san_luong_dien_giai: null, he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "",
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",

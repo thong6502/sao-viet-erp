@@ -1009,6 +1009,26 @@ class LsxService:
             self._ct_gio_cache[khoa] = (ct or "").strip()
         return self._ct_gio_cache[khoa]
 
+    def _dv_san_luong(self, cd) -> str | None:
+        """Đơn vị ĐO SẢN LƯỢNG của công đoạn đứng sau bước — `None` khi chưa khai.
+
+        Chỉ có nghĩa với bước NGOÀI dòng giấy: bước đó bỏ TRỐNG cả hai ô đơn vị chặng (mg `0273`
+        lấy đúng điều đó làm định nghĩa), nên `don_vi_vao` hết nói được "bước này đếm bằng gì" và
+        mọi phép quy đổi mất ĐẦU NGUỒN. Câu trả lời chuyển sang danh mục Công đoạn (mg `0289`).
+
+        Nhớ lại như `_ct_gio_cua_may`: hàm gọi nó chạy cho TỪNG bước trong vòng lặp của bốn
+        service ngoài, hỏi DB mỗi bước là N+1.
+        """
+        cd_id = getattr(cd, "cong_doan_id", None)
+        if not cd_id:
+            return None
+        if not hasattr(self, "_dv_sl_cache"):
+            self._dv_sl_cache: dict[int, str | None] = {}
+        if int(cd_id) not in self._dv_sl_cache:
+            obj = self.db.get(CongDoan, int(cd_id))
+            self._dv_sl_cache[int(cd_id)] = getattr(obj, "don_vi_san_luong", None) or None
+        return self._dv_sl_cache[int(cd_id)]
+
     def sl_tinh_cua_buoc(self, cd, may, quy_cach: dict | None) -> tuple[float, str, str] | None:
         """SL vào của bước quy về đơn vị của TỐC ĐỘ — đầu vào `sl_tinh` của `thoi_luong_buoc`.
 
@@ -1085,7 +1105,12 @@ class LsxService:
             return gt0, ten_dich, f"{chu0} = {dau0}{_so_vn(gt0)} {ten_dich}"
 
         # ① cầu quy đổi. Cùng đơn vị cũng đi lối này (`doi` trả thẳng, hệ số 1).
-        kq = doi_theo_quy_cach(sl, cd.don_vi_vao, ma_dich, quy_cach or {},
+        #
+        # ĐẦU NGUỒN của phép đổi là `don_vi_vao`, mà bước NGOÀI dòng giấy bỏ TRỐNG ô đó (mg `0273`
+        # lấy đúng "trống cả hai" làm định nghĩa) — không lùi về đơn vị sản lượng của công đoạn
+        # (mg `0289`) thì mọi bước ghi kẽm tịt ở đây: `sl_tinh` = None ⇒ 0 phút chạy, xếp lịch bày
+        # "chưa quy đổi được" và chặn đặt lịch, trong khi máy CTP đo tốc độ bằng ĐÚNG bản kẽm.
+        kq = doi_theo_quy_cach(sl, cd.don_vi_vao or self._dv_san_luong(cd), ma_dich, quy_cach or {},
                                self._don_vis(), self._cap_quy_doi())
         if "gia_tri" in kq:
             return float(kq["gia_tri"]), kq["don_vi"], kq["dien_giai"]
@@ -2522,12 +2547,16 @@ class LsxService:
             "buoc_bi_de": de_len,
         }
 
-    def _san_luong_dien_giai(self, cd, cd_obj, quy_cach: dict | None) -> str | None:
+    def san_luong_dien_giai(self, cd, cd_obj, quy_cach: dict | None) -> str | None:
         """Câu diễn giải SỐ RA của bước ngoài dòng: `<công thức chữ> = [<thay số> = ]<kết quả> <đvị>`.
 
         Dùng ĐÚNG công thức + cách làm tròn (ceil) mà `tinh_nguoc_routing` dùng để chốt `so_luong_ra`
         nên số ở đây khớp pill. Danh mục đổi sau khi lưu thì câu này bám số MỚI (giống khối Vật tư);
         pill vẫn là số đã lưu — chênh thì `so_luong_ra_moi` lo phần cảnh báo.
+
+        PUBLIC vì hai service ngoài đọc tới: bài ghép (bước chạy chung cũng là bước ngoài dòng) và
+        `san_xuat/snapshot` (câu này đi theo thẻ việc xuống tổ — xem `dinh_muc_json.sl_dien_giai`).
+        Cùng lý do với `sl_tinh_cua_buoc`: mỗi nơi tự dựng lại câu là mở đường cho ba màn nói ba số.
         """
         if cd_obj is None:
             return None
@@ -2546,13 +2575,17 @@ class LsxService:
         # tra nhầm thì câu này nói "480 tờ" trong khi màn Công đoạn nói "Tờ in", và ai đổi tên đơn
         # vị `to` ở màn Kho là câu này đổi theo. Bước ngoài dòng giấy mới thật sự đếm bằng đơn vị
         # danh mục (`bai`, `kem`) nên vẫn tra tiếp ở đó.
+        # Đơn vị của câu: bước ngoài dòng giấy để TRỐNG `don_vi_ra` (menu công đoạn chỉ còn 5 chặng
+        # từ 06/09/2026), nên đơn vị THẬT của nó nằm ở `cong_doan.don_vi_san_luong` (mg `0289`).
+        # Thiếu vế đó thì câu này từng ra "Số bản kẽm = 4 None" — con số đúng, cái đuôi vô nghĩa.
+        dv_ma = cd.don_vi_ra or getattr(cd_obj, "don_vi_san_luong", None)
         dv_ten = nhan_tram(cd.don_vi_ra, ngan=True) \
-            or (self._don_vis().get((cd.don_vi_ra or "").strip().lower()) or {}).get("ten") \
-            or cd.don_vi_ra
+            or (self._don_vis().get((dv_ma or "").strip().lower()) or {}).get("ten") \
+            or dv_ma or ""
         kq = _so_vn(float(ceil(gt)))
         the_so = cong_thuc_the_so(ct, ctx)
         dau = "" if the_so == kq else f"{the_so} = "
-        return f"{cong_thuc_chu(ct)} = {dau}{kq} {dv_ten}"
+        return f"{cong_thuc_chu(ct)} = {dau}{kq} {dv_ten}".rstrip()
 
     def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,
                         quy_cach: dict | None = None, moi: dict | None = None,
@@ -2569,7 +2602,7 @@ class LsxService:
         # Diễn giải SỐ RA của bước NGOÀI dòng: công thức sản lượng của công đoạn, thay số theo ngữ
         # cảnh lệnh (cùng khuôn "chữ = thay số = kết quả" với khối Vật tư/thời gian). Bước trên dòng
         # giấy suy ngược theo chuỗi nên không có công thức riêng — caption node RA nói thay.
-        _san_luong_dg = None if _tren_dg else self._san_luong_dien_giai(cd, cd_obj, quy_cach)
+        _san_luong_dg = None if _tren_dg else self.san_luong_dien_giai(cd, cd_obj, quy_cach)
         return {
             "id": cd.id, "step_key": cd.step_key, "thu_tu": cd.thu_tu, "cong_doan_id": cd.cong_doan_id,
             "ten": cd.ten, "nhom": cd.nhom, "loai_buoc": cd.loai_buoc, "bat_buoc": bool(cd.bat_buoc),
@@ -2605,6 +2638,11 @@ class LsxService:
                 _f(moi["so_luong_ra"])
                 if moi and _f(moi["so_luong_ra"]) != _f(cd.so_luong_ra) else None),
             "don_vi_vao": cd.don_vi_vao, "don_vi_ra": cd.don_vi_ra,
+            # Đơn vị ĐO SẢN LƯỢNG của bước NGOÀI dòng giấy, đọc từ danh mục Công đoạn. Bước ngoài
+            # dòng bỏ TRỐNG cả hai ô đơn vị chặng (đó đúng là định nghĩa của nó từ mg `0273`) nên
+            # bảng routing không còn chữ nào để dán cạnh số — hiện ra là dấu "—" đúng ở bước cần
+            # đọc số nhất (ghi kẽm: mấy bản). Gửi kèm để màn dán "bản kẽm" vào số đã có.
+            "don_vi_san_luong": getattr(cd_obj, "don_vi_san_luong", None),
             # Bước có nằm trên DÒNG GIẤY không. Bước ngoài dòng đứng ngoài chuỗi bù hao nên số
             # lượng KHÔNG tự tính (đứng im ở 0 nếu không ai điền) và hao của nó không cộng vào số
             # giấy phải mua. Không gửi cờ này thì màn chỉ thấy hai số 0 mà không có lời giải thích
@@ -2982,6 +3020,7 @@ class LsxService:
                     "so_luong_ra": _f(cd.so_luong_ra),
                     "don_vi_vao": cd.don_vi_vao,
                     "don_vi_ra": cd.don_vi_ra,
+                    "don_vi_san_luong": getattr(cd_obj, "don_vi_san_luong", None),
                     "he_so_quy_doi": _f(cd.he_so_quy_doi),
                     "hao_hut": _f(cd.hao_hut),
                     "hao_hut_pct": _f(cd.hao_hut_pct),
@@ -2990,7 +3029,7 @@ class LsxService:
                     # giống hệt `_cong_doan_dict` để pill và caption khớp lúc Lưu.
                     "loi_quy_doi": None if tren else self._he_so_ngoai_dong(
                         cd.don_vi_vao, cd.don_vi_ra)[1],
-                    "san_luong_dien_giai": None if tren else self._san_luong_dien_giai(
+                    "san_luong_dien_giai": None if tren else self.san_luong_dien_giai(
                         cd, cd_obj, qc),
                 })
             return out

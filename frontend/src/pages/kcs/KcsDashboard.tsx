@@ -84,7 +84,7 @@ export function KcsDashboard({
   ];
 
   const theoNgay = data?.theo_ngay ?? [];
-  const nhomLoi = data?.nhom_loi ?? [];
+  const to = data?.to ?? [];
   const congDoan = data?.cong_doan ?? [];
 
   return (
@@ -158,13 +158,16 @@ export function KcsDashboard({
               )}
             </div>
             <div className="kcs-dash__chart">
-              <h3>Nhóm lỗi nhiều nhất</h3>
-              {nhomLoi.length === 0 ? (
+              {/* Trước đây là "Nhóm lỗi nhiều nhất"; danh mục Lý do & lỗi SX ĐÃ GỠ (mg 0288) nên
+                  lỗi chỉ còn mô tả tự do — gom nhóm chuỗi tự do là thống kê nói dối. Ô này chuyển
+                  sang bảng xếp hạng TỔ mà báo cáo vẫn tính nhưng chưa chỗ nào vẽ. */}
+              <h3>Tổ bị ghi lỗi nhiều nhất</h3>
+              {to.length === 0 ? (
                 <p className="rc__empty-text">Chưa có lỗi nào.</p>
               ) : (
                 <MixDonut
-                  slices={nhomLoi.map((r) => ({ label: r.ten, value: r.tong_so_luong }))}
-                  centerTop={num(nhomLoi.reduce((s, r) => s + r.tong_so_luong, 0))}
+                  slices={to.map((r) => ({ label: r.ten, value: r.tong_so_luong }))}
+                  centerTop={num(to.reduce((s, r) => s + r.tong_so_luong, 0))}
                   centerBottom="lỗi"
                   formatValue={(v) => num(v)}
                   height={140}

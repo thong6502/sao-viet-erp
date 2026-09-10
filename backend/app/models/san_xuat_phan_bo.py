@@ -109,8 +109,7 @@ class SanXuatPhanBo(Base):
     (§12.2). `ky_nam`/`ky_thang` = kỳ lương của batch (suy từ ngày batch) để lọc theo kỳ nhanh.
 
     Trạng thái §12.3: draft (chưa chốt, công nhân chưa xem) → finalized (chốt, feed lương) →
-    reopened (mở lại trước khi kỳ khoá, kèm lý do) → finalized lại. `mo_lai_ly_do_id` thuộc nhóm
-    `mo_lai_phan_bo` của danh mục lý do."""
+    reopened (mở lại trước khi kỳ khoá) → finalized lại."""
 
     __tablename__ = "san_xuat_phan_bo"
 
@@ -135,9 +134,6 @@ class SanXuatPhanBo(Base):
     tong_ty_le_ho_tro: Mapped[float] = mapped_column(Numeric(7, 4), nullable=False, default=0)  # % (0..100)
     chot_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     chot_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    mo_lai_ly_do_id: Mapped[int | None] = mapped_column(
-        ForeignKey("san_xuat_ly_do.id", ondelete="SET NULL"), nullable=True
-    )
     mo_lai_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     mo_lai_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -189,7 +185,7 @@ class SanXuatPhanBoBuTru(Base):
     vào kỳ mở tiếp theo (`ky_bu_*`), tham chiếu batch gốc + kỳ gốc. Bảng CHỈ-THÊM (không version).
 
     `so_luong_tra_luong` là DELTA so với phân bổ đã khoá (dương = trả thêm, âm = thu bớt). Seam
-    lương đọc dòng này theo `ky_bu_*`. `ly_do_id` nên thuộc nhóm `mo_lai_phan_bo` của danh mục lý do."""
+    lương đọc dòng này theo `ky_bu_*`; `mo_ta` là ghi chú tự do (danh mục lý do/lỗi ĐÃ GỠ)."""
 
     __tablename__ = "san_xuat_phan_bo_bu_tru"
 
@@ -213,9 +209,6 @@ class SanXuatPhanBoBuTru(Base):
     ngay: Mapped[date] = mapped_column(Date, nullable=False)
     so_luong_tra_luong: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
     don_gia: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
-    ly_do_id: Mapped[int | None] = mapped_column(
-        ForeignKey("san_xuat_ly_do.id", ondelete="SET NULL"), nullable=True
-    )
     mo_ta: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

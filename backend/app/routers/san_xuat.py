@@ -623,12 +623,12 @@ def tao_batch(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
 ) -> dict:
-    """Ghi một batch sản lượng + lot đầu vào (§11.1). Ràng buộc tổng = tốt + hỏng, hỏng cần nhóm lỗi."""
+    """Ghi một batch sản lượng + lot đầu vào (§11.1). Ràng buộc tổng = tốt + hỏng."""
     res = _chay(lambda: san_luong.tao_batch(
         db, user=user, cong_viec_id=cong_viec_id,
         bat_dau=body.bat_dau, ket_thuc=body.ket_thuc,
         tong=body.tong, tot=body.tot, hong=body.hong, don_vi=body.don_vi,
-        nhom_loi_id=body.nhom_loi_id, mo_ta_loi=body.mo_ta_loi, ghi_chu=body.ghi_chu,
+        mo_ta_loi=body.mo_ta_loi, ghi_chu=body.ghi_chu,
         lot_vao=[lot.model_dump() for lot in body.lot_vao],
     ))
     _phat_sse(res)
@@ -711,7 +711,7 @@ def dieu_chinh_ban_giao(
     """Điều chỉnh số lượng đã xác nhận (§11.3): đẻ dòng lịch sử, cờ không nhất quán nếu giảm quá."""
     res = _chay(lambda: ban_giao.dieu_chinh(
         db, user=user, ban_giao_id=ban_giao_id,
-        so_luong_sau=body.so_luong_sau, ly_do_id=body.ly_do_id, mo_ta=body.mo_ta,
+        so_luong_sau=body.so_luong_sau, mo_ta=body.mo_ta,
         expected_version=body.expected_version,
     ))
     _phat_sse_ban_giao(res)
@@ -820,10 +820,9 @@ def mo_lai_phan_bo(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
 ) -> dict:
-    """Mở lại phân bổ đã chốt để sửa (§12.3) — CHỈ khi kỳ lương chưa khoá. Bắt buộc lý do."""
+    """Mở lại phân bổ đã chốt để sửa (§12.3) — CHỈ khi kỳ lương chưa khoá."""
     res = _chay(lambda: phan_bo.mo_lai_phan_bo(
-        db, user=user, phan_bo_id=phan_bo_id,
-        ly_do_id=body.ly_do_id, expected_version=body.expected_version,
+        db, user=user, phan_bo_id=phan_bo_id, expected_version=body.expected_version,
     ))
     _phat_sse_phan_bo(res)
     return res
@@ -840,8 +839,7 @@ def bu_tru(
     res = _chay(lambda: phan_bo.bu_tru(
         db, user=user, batch_id=batch_id, employee_id=body.employee_id,
         so_luong_tra_luong=body.so_luong_tra_luong,
-        ky_bu_nam=body.ky_bu_nam, ky_bu_thang=body.ky_bu_thang,
-        ly_do_id=body.ly_do_id, mo_ta=body.mo_ta,
+        ky_bu_nam=body.ky_bu_nam, ky_bu_thang=body.ky_bu_thang, mo_ta=body.mo_ta,
     ))
     _phat_sse_phan_bo({
         "department_id": res.get("department_id"),
@@ -952,7 +950,6 @@ def ghi_loi_kcs(
     kcs_batch_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
-    nhom_loi_id: int = Form(...),
     to_chiu_id: int | None = Form(default=None),
     cong_doan_ref_id: int | None = Form(default=None),
     so_luong: float = Form(default=0),
@@ -965,7 +962,7 @@ def ghi_loi_kcs(
     anh, keys = _luu_anh_kcs(kcs_batch_id, files)
     try:
         res = kcs.ghi_loi(
-            db, user=user, kcs_batch_id=kcs_batch_id, nhom_loi_id=nhom_loi_id,
+            db, user=user, kcs_batch_id=kcs_batch_id,
             mo_ta=mo_ta, to_chiu_id=to_chiu_id, cong_doan_ref_id=cong_doan_ref_id,
             so_luong=so_luong, don_vi=don_vi, anh=anh,
         )
@@ -995,7 +992,6 @@ def tao_kiem_ngoai_routing(
     don_vi: str | None = Form(default=None),
     ghi_chu: str | None = Form(default=None),
     checklist_ket_qua_json: str | None = Form(default=None),
-    nhom_loi_id: int | None = Form(default=None),
     loi_mo_ta: str | None = Form(default=None),
     to_chiu_id: int | None = Form(default=None),
     cong_doan_ref_id: int | None = Form(default=None),
@@ -1020,7 +1016,7 @@ def tao_kiem_ngoai_routing(
             bat_dau=bat_dau, ket_thuc=ket_thuc, so_luong_nhan=so_luong_nhan,
             so_luong_dat=so_luong_dat, so_luong_khong_dat=so_luong_khong_dat, co_mau=co_mau,
             don_vi=don_vi, ghi_chu=ghi_chu, checklist_ket_qua=checklist_ket_qua,
-            nhom_loi_id=nhom_loi_id, loi_mo_ta=loi_mo_ta, to_chiu_id=to_chiu_id,
+            loi_mo_ta=loi_mo_ta, to_chiu_id=to_chiu_id,
             cong_doan_ref_id=cong_doan_ref_id, anh=anh, loai=loai,
         )
     except PermissionError as exc:
@@ -1129,14 +1125,12 @@ def bao_cao_kcs(
     tu_khoa: str | None = Query(default=None),
     cong_doan_id: int | None = Query(default=None),
     loai: str | None = Query(default=None),
-    nhom_loi_id: int | None = Query(default=None),
 ) -> dict:
     """Tổng hợp KCS theo filter + scope (§5.7, §6.2 KPI/biểu đồ). Đọc quyền `read` — xem báo cáo
     không cần quyền xuất file."""
     return kcs_bao_cao.bao_cao_kcs(
         db, user, authz, tu=tu, den=den, kcs_department_id=kcs_department_id,
         lsx_id=lsx_id, tu_khoa=tu_khoa, cong_doan_id=cong_doan_id, loai=loai,
-        nhom_loi_id=nhom_loi_id,
     )
 
 
@@ -1152,14 +1146,12 @@ def export_bao_cao_kcs(
     tu_khoa: str | None = Query(default=None),
     cong_doan_id: int | None = Query(default=None),
     loai: str | None = Query(default=None),
-    nhom_loi_id: int | None = Query(default=None),
 ) -> Response:
     """Xuất Excel — gác riêng `export` (§4.4), KHÁC `read` của endpoint JSON ở trên. Dùng CHUNG
     hàm lấy dòng với `/kcs/bao-cao` (§9 mục 10: cùng filter phải trả cùng tổng)."""
     content, filename = kcs_bao_cao.xuat_excel_kcs(
         db, user, authz, tu=tu, den=den, kcs_department_id=kcs_department_id,
         lsx_id=lsx_id, tu_khoa=tu_khoa, cong_doan_id=cong_doan_id, loai=loai,
-        nhom_loi_id=nhom_loi_id,
     )
     return _xlsx_response(content, filename)
 
@@ -1325,12 +1317,11 @@ def dong_thieu_nhom(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
 ) -> dict:
-    """Trưởng KCS đóng THIẾU nhóm còn dở (§13.3): bắt buộc lý do nhóm `dong_thieu`, vẫn phải sạch mọi
-    điều kiện toàn vẹn TRỪ hoàn thành. Ranh giới THẬT là tổ-trưởng-KCS ở service (403 nếu không phải).
+    """Trưởng KCS đóng THIẾU nhóm còn dở (§13.3): vẫn phải sạch mọi điều kiện toàn vẹn TRỪ hoàn
+    thành. Ranh giới THẬT là tổ-trưởng-KCS ở service (403 nếu không phải).
     Báo Sale + Kế hoạch SX NGAY."""
     res = _chay(lambda: dong_nhom.dong_thieu(
-        db, user=user, nhom_id=nhom_id, ly_do_id=body.ly_do_id,
-        expected_version=body.expected_version,
+        db, user=user, nhom_id=nhom_id, expected_version=body.expected_version,
     ))
     _phat_sse_dong_nhom(res)
     return res

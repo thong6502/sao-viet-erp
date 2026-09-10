@@ -41,13 +41,45 @@ def _giu_cho_service(db: Session):
     return GiuChoService(db, kh)
 
 
+class PhienVatTu:
+    """MỘT lượt cân đối vật tư, trả lời được NHIỀU câu hỏi trong cùng một request.
+
+    Panel một lệnh hỏi đúng hai câu trên đúng một chủ thể: thẻ tóm tắt (`trang_thai_giu_cho`) và
+    cửa phát hành (`soat_vat_tu`). Cả hai đều bắt đầu bằng `GiuChoService.trang_thai` — dựng cả dây
+    kho/mua/quy-đổi rồi cân đối lại từ đầu, khoảng 24 câu SQL mỗi lượt, tức phần đắt nhất của panel.
+    Hỏi qua một phiên thì cân đối chạy một lần, hai câu trả lời vẫn y nguyên.
+
+    Không truyền phiên vào thì mọi hàm dưới đây tự dựng phiên riêng — hành vi cũ, đúng cho các cửa
+    chỉ hỏi một câu (`van_de_vat_tu` của màn cũ, đường phát hành).
+    """
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+        self._giu = None
+        self._tt: dict[tuple, dict] = {}
+
+    @property
+    def giu(self):
+        if self._giu is None:
+            self._giu = _giu_cho_service(self.db)
+        return self._giu
+
+    def trang_thai(self, *, lsx_id: int | None = None, bai_ghep_id: int | None = None) -> dict:
+        khoa = (lsx_id, bai_ghep_id)
+        if khoa not in self._tt:
+            self._tt[khoa] = self.giu.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        return self._tt[khoa]
+
+
 def trang_thai_giu_cho(db: Session, *, lsx_id: int | None = None,
-                       bai_ghep_id: int | None = None) -> dict:
-    return _giu_cho_service(db).trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+                       bai_ghep_id: int | None = None,
+                       phien: PhienVatTu | None = None) -> dict:
+    return (phien or PhienVatTu(db)).trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
 
 def soat_vat_tu(db: Session, *, lsx_id: int | None = None,
-                bai_ghep_id: int | None = None) -> dict:
+                bai_ghep_id: int | None = None,
+                phien: PhienVatTu | None = None) -> dict:
     """Soi vật tư của MỘT chủ thể, MỘT lần cân đối, tách làm HAI rổ (spec §5, §7.2, §12.6).
 
     · `chan` (chặn phát hành): chưa quy đổi được đơn vị · thiếu hàng CHƯA có phiếu mua
@@ -62,9 +94,10 @@ def soat_vat_tu(db: Session, *, lsx_id: int | None = None,
     Màn CŨ chỉ hỏi rổ `chan` qua `van_de_vat_tu`; `canh_bao` chỉ v2 dùng nên KHÔNG được lọt vào đó
     (`_chan_thieu_vat_tu` của màn cũ chặn trên MỌI vấn đề, cảnh báo lọt sang là chặn oan).
     """
+    ph = phien or PhienVatTu(db)
     try:
-        giu = _giu_cho_service(db)
-        tt = giu.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        tt = ph.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        giu = ph.giu
     except Exception as exc:                                    # noqa: BLE001
         return {"chan": [issue(
             "vat_tu_chua_xac_dinh", MUC_CHAN_PHAT_HANH,

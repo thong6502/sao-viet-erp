@@ -8,10 +8,10 @@
 // Component tự gọi API (trang KCS không có controller `exec` của bàn tổ) và chỉ mượn lại phần
 // hiển thị: `ThsxDongNhomPanel` + `PhanLoaiBtpForm` — hai panel đã được sửa để nhận đúng một mặt
 // ghi thay vì cả object `ThsxExec`.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError, api,
-  type SxDongNhomDieuKien, type SxDongThieuIn, type SxKhoChiTiet, type SxLyDo,
+  type SxDongNhomDieuKien, type SxDongThieuIn, type SxKhoChiTiet,
   type SxPhanLoaiBtpIn, type SxThuongToTruong, type SxWorkItem,
 } from "../../api/client";
 import { useAuth } from "../../auth/useAuth";
@@ -109,7 +109,6 @@ function ChotNhomThan({
   const [busy, setBusy] = useState(false);
   const [plOpen, setPlOpen] = useState(false);
   const [cvId, setCvId] = useState<number>(nhom.viec[0].id);
-  const lyDoCache = useRef<Record<string, SxLyDo[]>>({});
 
   const tai = useCallback(() => {
     if (!token) return;
@@ -125,17 +124,6 @@ function ChotNhomThan({
   }, [token, nhom.nhomId]);
 
   useEffect(() => { tai(); }, [tai, eventTick]);
-
-  const loadLyDo = useCallback(async (n: string): Promise<SxLyDo[]> => {
-    if (!token) return [];
-    const c = lyDoCache.current[n];
-    if (c) return c;
-    try {
-      const r = await api.sanXuat.lyDo(token, n);
-      lyDoCache.current[n] = r.items;
-      return r.items;
-    } catch { return []; }
-  }, [token]);
 
   // Một đường ghi duy nhất cho cả hai mặt: gọi → tải lại điều kiện → báo cho trang làm mới bảng.
   async function ghi(goi: () => Promise<unknown>): Promise<boolean> {
@@ -168,7 +156,7 @@ function ChotNhomThan({
       {loi && <div className="banner banner--error" role="alert"><span>{loi}</span></div>}
 
       <ThsxDongNhomPanel dieuKien={dieuKien} canAssign={canAssign} busy={busy}
-        loadLyDo={loadLyDo} onDongThieu={onDongThieu} />
+        onDongThieu={onDongThieu} />
 
       <ThsxThuongToTruongPanel rows={thuongTT} />
 

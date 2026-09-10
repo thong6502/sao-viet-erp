@@ -355,9 +355,13 @@ def seed_rebuild_catalog(db: Session) -> None:
             # `nhom_may_cho_phep`: nhóm máy (danh mục `nhom_may`) làm được công đoạn — chặn gán máy
             # sai loại ở bước bài ghép. Chế bản chưa có máy seed nên để ["Chế bản"] (mọi máy in/sau-in
             # đều bị coi là sai → khớp vụ CTP gán máy bế).
+            # Bước NGOÀI dòng giấy: hai ô đơn vị chặng để TRỐNG, số lượng tự tính bằng
+            # `cong_thuc_san_luong` (`so_kem` ⇒ 4 bản) và đo bằng `don_vi_san_luong` (mg `0289`).
+            # Thiếu cặp này thì bước đứng im ở 0 → 0 suốt từ lệnh xuống bàn tổ.
             CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=95000, nhom_may_cho_phep=["Chế bản"],
-                     cong_thuc_gia="so_kem * 95000", setup_time=10, kieu_bu_hao="khong"),
+                     cong_thuc_gia="so_kem * 95000", cong_thuc_san_luong="so_kem",
+                     don_vi_san_luong="kem", setup_time=10, kieu_bu_hao="khong"),
             CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=350, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
                      nhom_may_cho_phep=["Máy in", "In ngoài"],

@@ -88,8 +88,10 @@ def test_xuat_nhan_su_ra_file_xlsx_that(client):
     assert resp.content[:2] == b"PK", "phai la file .xlsx (zip), khong phai chuoi CSV"
 
     rows = _doc_xlsx(resp.content)
-    assert rows[0] == ["Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc tay nghề", "Trạng thái",
-                       "Ngày vào", "Tài khoản"]
+    # Tu 10/09/2026 file xuat mang DU o cua ho so (de nap nguoc lai duoc, xem
+    # tests/test_nhan_su_excel.py) — day chi chot 8 cot DAU giu nguyen thu tu cu.
+    assert rows[0][:8] == ["Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc tay nghề", "Trạng thái",
+                           "Ngày vào", "Ngày hết thử việc"]
     ten = [r[1] for r in rows[1:]]
     assert "Nguyen Thi Xuat" in ten
     # Ngay vao phai la chuoi dd/mm/yyyy — de nguyen kieu ngay thi moi may Excel hien mot kieu.

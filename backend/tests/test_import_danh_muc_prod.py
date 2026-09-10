@@ -25,7 +25,6 @@ from app.models.cong_doan import CongDoan
 from app.models.khuon_be import KhuonBe
 from app.models.may_thiet_bi import MayThietBi
 from app.models.piece_work import PieceRate
-from app.models.san_xuat_ly_do import SanXuatLyDo
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from app.services.bien_cong_thuc import BIEN, LOAI_CONG_DOAN, LOAI_QUY_DOI, LOAI_VAT_TU
 from app.services.thanh_phan_engine import kiem_cong_thuc, safe_eval
@@ -56,7 +55,7 @@ _BANG_CONG_THUC = [
 
 # Bảng cần đối chiếu số dòng giữa hai lần chạy (idempotent).
 _BANG_DEM = [ChungLoaiGiay, GiayNguyen, VatTuInAn, MayThietBi, BuHao,
-             CongDoan, KhuonBe, SanXuatLyDo, PieceRate]
+             CongDoan, KhuonBe, PieceRate]
 
 
 @pytest.fixture
@@ -83,7 +82,7 @@ def test_run_idempotent_va_cong_thuc_engine_nuot_duoc(db):
 
     # Có thêm dòng thật ở mọi danh mục đa dạng (không phải no-op).
     for khoa in ("chung_loai_giay", "giay", "vat_tu", "may", "bu_hao",
-                 "cong_doan", "khuon", "ly_do_san_xuat", "cong_viec_khoan"):
+                 "cong_doan", "khuon", "cong_viec_khoan"):
         assert kq1[khoa] > 0, f"{khoa} không thêm dòng nào ở lần chạy đầu"
 
     # --- Lần 2: phải idempotent ---

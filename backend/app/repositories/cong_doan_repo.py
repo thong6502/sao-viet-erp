@@ -17,7 +17,7 @@ ASSIGNABLE = (
     # drop bằng migration — xem `LsxService._he_so_ngoai_dong`.
     "ten", "ten_hien_thi", "don_vi_vao", "don_vi_ra",
     "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "nhom_may_cho_phep", "department_id", "khoan_ghi_theo",
-    "cong_thuc_san_luong",
+    "cong_thuc_san_luong", "don_vi_san_luong",
     "allowed_defect_pct", "allowed_defect_abs",
     "che_do_tinh", "pricing_basis", "setup_cost", "setup_time", "nang_suat",
     "run_rate", "rate_tiers", "size_tiers", "first_unit_floor", "min_charge", "requires_tooling",

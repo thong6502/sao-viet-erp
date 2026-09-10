@@ -10,7 +10,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models.san_xuat import SanXuatCongViec
-from ..models.san_xuat_ly_do import SanXuatLyDo
 from ..models.san_xuat_san_luong import SanXuatBanGiao
 from ..models.san_xuat_phan_bo import (
     HT_XAC_NHAN,
@@ -38,9 +37,6 @@ class SanXuatPhanBoRepository:
     # --- Công việc + lý do (đọc lại để gate/nối) ---------------------------------------------
     def cong_viec(self, cong_viec_id: int) -> SanXuatCongViec | None:
         return self.db.get(SanXuatCongViec, cong_viec_id)
-
-    def ly_do(self, ly_do_id: int) -> SanXuatLyDo | None:
-        return self.db.get(SanXuatLyDo, ly_do_id)
 
     # --- Thỏa thuận hỗ trợ (§9) --------------------------------------------------------------
     def ho_tro(self, ho_tro_id: int) -> SanXuatHoTro | None:

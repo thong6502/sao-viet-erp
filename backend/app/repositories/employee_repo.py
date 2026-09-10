@@ -52,6 +52,13 @@ class EmployeeRepository:
             select(Employee).where(Employee.user_id == user_id)
         ).scalars().first()
 
+    def find_by_code(self, code: str) -> Employee | None:
+        """Tra theo mã NV — khoá nghiệp vụ của lượt Nhập Excel (`services/employee_excel.py`).
+        Không phân biệt hoa/thường: người khai gõ 'nv007' thì vẫn ra NV007."""
+        return self.db.execute(
+            select(Employee).where(func.lower(Employee.code) == code.strip().lower())
+        ).scalars().first()
+
     def count_by_department(self, department_id: int) -> int:
         """Số HỒ SƠ nhân sự thuộc phòng (Đ2: 'số nhân sự' đếm theo hồ sơ, không theo tài
         khoản). Chỉ phòng trực tiếp — cuộn cây do service lo."""
@@ -599,8 +606,12 @@ class EmployeeRepository:
                     continue
         return f"NV{max_n + 1:03d}"
 
-    def create(self, **fields) -> Employee:
-        employee = Employee(code=self._next_code(), **fields)
+    def create(self, *, code: str | None = None, **fields) -> Employee:
+        """Tạo hồ sơ. `code` bỏ trống ⇒ máy tự cấp mã kế tiếp (đường thường: nút "Thêm nhân
+        viên"). Truyền `code` vào là đường của lượt NHẬP EXCEL chuyển dữ liệu sang máy khác:
+        mã NV in trên hợp đồng / thẻ / bảng lương nên phải giữ nguyên, cấp lại là lệch hết.
+        Chống trùng nằm ở service (`create_employee`), không phải ở đây."""
+        employee = Employee(code=code or self._next_code(), **fields)
         self.db.add(employee)
         self.db.commit()
         self.db.refresh(employee)

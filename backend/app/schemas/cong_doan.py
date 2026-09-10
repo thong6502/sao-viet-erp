@@ -71,6 +71,9 @@ class CongDoanIn(BaseModel):
     # chốt cứng cả hai đầu thì hao hết chỗ nhét. Hệ số KHÔNG khai ở đây (bỏ `he_so_ngoai_dong`
     # 20/08/2026: nguồn thứ hai gây sai), lấy thẳng từ `don_vi_quy_doi`. Bước trên dòng bỏ qua cột này.
     cong_thuc_san_luong: str | None = Field(default=None, max_length=200)
+    # ĐƠN VỊ của số vừa tính ở trên (mg `0289`) — mã ở danh mục Đơn vị & quy đổi (`kem`). Bước trên
+    # dòng giấy bỏ qua: đơn vị của chúng là tên chặng ở hai ô ngay trên.
+    don_vi_san_luong: str | None = Field(default=None, max_length=24)
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = Field(default=50, ge=0)
@@ -124,6 +127,8 @@ class CongDoanRow(BaseModel):
     # "Lần trước công thức" (mục 3+7) — router gán từ `cong_thuc_lich_su`, không có trong DB.
     cong_thuc_san_luong_truoc: str | None = None
     cong_thuc_san_luong_sua_luc: datetime | None = None
+    #: ĐƠN VỊ của số sản lượng bước ngoài dòng giấy (mg `0289`) — bàn tổ đọc để nói "4 bản kẽm".
+    don_vi_san_luong: str | None = None
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = 50

@@ -241,6 +241,8 @@ def test_item_dict_gio_khong_lech_khi_db_tra_aware():
         # cột `_item_dict` đọc, không thì thêm cột mới là test rụng vì AttributeError — vốn chẳng
         # liên quan gì tới thứ nó đo (nhãn múi giờ).
         nha_cung_cap=None, khuon_json=None, khuon_nhan_luc=None, khuon_tra_luc=None,
+        # Dặn dò + thẻ quy cách (10/09/2026) — cùng lý do như hai dòng trên.
+        ghi_chu=None, quy_cach_json=None,
     )
     phien = SimpleNamespace(bat_dau=moc_that, ket_thuc=None)
 

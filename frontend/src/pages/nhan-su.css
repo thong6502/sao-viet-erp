@@ -323,7 +323,8 @@ button.ns__kpi {
 
   .ns2__toolbar {
     display: grid;
-    grid-template-columns: 1fr auto;
+    /* Hai cột `auto` ở cuối = hai nút Excel (Xuất + Nhập), mỗi nút một cột. */
+    grid-template-columns: 1fr auto auto;
     grid-template-rows: auto auto;
     gap: 10px 12px;
     width: 100%;
@@ -343,10 +344,12 @@ button.ns__kpi {
     font-size: 13px;
   }
 
-  /* Hàng 1 bên phải: Nút Xuất Excel */
+  /* Hàng 1 bên phải: hai nút Excel (Xuất · Nhập).
+     KHÔNG ghim `grid-column` nữa — ghim thì cả hai nút rơi vào ĐÚNG MỘT ô, chồng khít lên nhau
+     và nút vẽ sau nuốt hết click của nút kia (10/09/2026: bấm "Xuất Excel" ở bề ngang ~1050px
+     là trúng "Nhập Excel"). Để lưới tự xếp thì nút chảy sang ô trống kế tiếp của hàng 1. */
   .ns-btn-excel {
     grid-row: 1;
-    grid-column: 2;
     height: 38px;
     width: auto;
     margin-left: 0;

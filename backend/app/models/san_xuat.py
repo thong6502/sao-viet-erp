@@ -29,7 +29,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, JSON, Numeric, String, UniqueConstraint,
+    DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint,
     false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -263,6 +263,18 @@ class SanXuatCongViec(Base):
     dinh_muc_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     vat_tu_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # DẶN DÒ của người lập kế hoạch — ảnh chụp ô "Ghi chú kỹ thuật cho thợ" của bước
+    # (`lsx_cong_doan.ghi_chu` / `bai_ghep_cong_doan.ghi_chu`), mg `0290`. Trước 10/09/2026 câu này
+    # viết cho thợ nhưng dừng lại ở màn Kế hoạch: snapshot không chụp nên bàn tổ không có gì để bày.
+    ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # THẺ QUY CÁCH rút gọn của lệnh (mg `0290`) — giấy · khổ tờ in · khổ thành phẩm · số mặt/màu ·
+    # số kẽm · con/tờ · SL đặt · ghi chú kỹ thuật của sản phẩm. Dựng từ `quy_cach_bien(lsx)` /
+    # `quy_cach_bien_bai(bai)` lúc phát hành — dict mà snapshot vốn đã dựng để chốt đơn giá.
+    #
+    # CHỤP chứ không tra ngược lệnh, hai lý do đều cứng: tổ trưởng không có quyền `lsx` nên không
+    # mở nổi hồ sơ lệnh, và lệnh còn sửa được sau khi phát hành (§4.2 — thẻ việc phải tự đứng được).
+    # Chụp CHỌN LỌC chứ không bê cả `lsx.quy_cach_json`: thợ cần 8 dòng để đứng máy, không cần 30.
+    quy_cach_json: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     # Nhà gia công — ẢNH CHỤP lúc phát hành, để chip "Ngoài · <nơi làm>" hiện được ở bàn tổ và các
     # màn theo dõi mà không phải tra ngược lệnh. Trước 04/09/2026 các màn xưởng chỉ có `loai_buoc`
     # nên chip thuê ngoài hiện trống trơn, không ai biết hàng đang ở đâu.
