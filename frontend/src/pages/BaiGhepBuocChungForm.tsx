@@ -33,6 +33,9 @@ interface MayRef extends MayTinhGio {
   id: number;
   ten: string;
   loaiMay: string | null;
+  /** Cờ NGỪNG DÙNG của danh mục Máy. Vẫn nạp về để đọc được tên máy bài cũ đang đeo; dropdown
+   *  ở dưới mới là chỗ quyết định có mời máy đó nữa hay không. */
+  active: boolean;
 }
 
 /** Lập kế hoạch cho MỘT lượt chạy chung.
@@ -91,6 +94,7 @@ export function BuocChungForm({
           id: m.id,
           ten: String(m.ten),
           loaiMay: (m as { loai_may?: string | null }).loai_may ?? null,
+          active: m.active !== false,
           tocDo: m.toc_do == null ? null : Number(m.toc_do),
           tocDoMin: m.toc_do_min == null ? null : Number(m.toc_do_min),
           tocDoMax: m.toc_do_max == null ? null : Number(m.toc_do_max),
@@ -495,15 +499,18 @@ export function BuocChungForm({
                       {(mayRefs ?? [])
                         .filter((m) => {
                           // Lọc máy theo NHÓM công đoạn (bước Bế chỉ thấy máy Bế). Chưa khai ràng
-                          // buộc → hiện tất cả. Giữ máy ĐANG CHỌN dù sai loại, để select không rơi
-                          // về trống.
+                          // buộc → hiện tất cả. Giữ máy ĐANG CHỌN dù sai loại (hoặc đã ngừng dùng),
+                          // để select không rơi về trống.
+                          if (m.id === mayId) return true;
+                          if (!m.active) return false;   // ngừng dùng ở danh mục ⇒ thôi mời
                           const allow = g.nhom_may_cho_phep ?? [];
                           if (allow.length === 0) return true;
-                          if (m.id === mayId) return true;
                           return m.loaiMay != null && allow.includes(m.loaiMay);
                         })
                         .map((m) => (
-                          <option key={m.id} value={m.id}>{m.ten}</option>
+                          <option key={m.id} value={m.id}>
+                            {m.active ? m.ten : `${m.ten} (ngừng dùng)`}
+                          </option>
                         ))}
                     </select>
                     {(g.nhom_may_cho_phep?.length ?? 0) > 0 && (

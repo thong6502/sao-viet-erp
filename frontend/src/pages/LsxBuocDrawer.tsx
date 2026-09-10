@@ -793,7 +793,7 @@ export function LsxBuocDrawer({
                                 <optgroup key={g.ten} label={g.ten}>
                                   {g.items.map((m) => (
                                     <option key={m.id} value={m.id}>
-                                      {m.ten}
+                                      {m.active === false ? `${m.ten} (ngừng dùng)` : m.ten}
                                     </option>
                                   ))}
                                 </optgroup>

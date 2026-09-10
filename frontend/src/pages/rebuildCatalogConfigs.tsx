@@ -93,11 +93,11 @@ const KIEU_BU_HAO: Lbls = {
 
 /** Ô ĐVT của mặt hàng gốc: gõ để tìm trong danh mục Đơn vị, lưu MÃ (`kg`, `to`…) chứ không lưu id
  *  — quy đổi làm việc trên mã. Bỏ trống = chưa chọn (bảng hiện badge "Chưa chọn đơn vị").
- *  `active: true` — không lọc thì picker mời cả đơn vị đã ngừng dùng, chọn xong bấm Lưu mới ăn lỗi. */
+ *  Đơn vị đã NGỪNG DÙNG bị `locConDung` (CatalogDrawer) gạt khỏi menu — lọc ở đây bằng
+ *  `active: true` thì hàng cũ đang trỏ vào đơn vị vừa ngừng mở ra thấy TRỐNG, bấm Lưu là mất mã. */
 const F_DON_VI = {
   type: "ref-search-ma" as const,
   refPrefix: "/api/don-vi",
-  refParams: { active: true },
   hint: "Gõ mã / tên đơn vị để tìm…",
 };
 
@@ -268,7 +268,7 @@ export const CFG_MAY: CatalogConfig = {
     { key: "toc_do_min", label: "Tốc độ tối thiểu", type: "number", group: "Tốc độ & Vận hành" },
     { key: "toc_do_max", label: "Tốc độ tối đa", type: "number", group: "Tốc độ & Vận hành" },
     { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "don_vi_toc_do",
-      refPrefix: "/api/don-vi", refParams: { active: true, size: 200 },
+      refPrefix: "/api/don-vi", refParams: { size: 200 },
       group: "Tốc độ & Vận hành", default: "to_gio" },
     // Ô "Cách đo lượng theo đơn vị tốc độ" ĐÃ GỠ (06/09/2026): cách đo nay khai theo CẶP (công
     // đoạn × máy) ở drawer Công đoạn — cùng một máy chạy hai công đoạn thì đo khác nhau.
@@ -407,7 +407,9 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "may_lam_duoc", label: "Máy chạy được công đoạn này", type: "may-cua-cong-doan",
       // `size` phải ≤ 200: khung danh mục chung chặn trần ở `catalog_base.py` (`le=200`). Xin 500
       // thì router trả 422 và ô chọn máy rỗng IM LẶNG — không báo lỗi gì cho người dùng thấy.
-      refPrefix: "/api/may-thiet-bi", refParams: { active: true, size: 200 },
+      // Máy ngừng dùng do `locConDung` gạt, KHÔNG lọc bằng `active: true`: lọc ở query thì máy
+      // ngừng đang nằm sẵn trong bảng dưới mất tên, chỉ còn `#id`.
+      refPrefix: "/api/may-thiet-bi", refParams: { size: 200 },
       group: "Lệnh sản xuất" },
 
     // CHỈ TÍNH THEO CÔNG THỨC: đã bỏ ô 'Cách tính giá' / 'Đơn giá' / 'Bậc kích thước'.

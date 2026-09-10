@@ -25,6 +25,39 @@ import type {
   BacRow, CatalogConfig, ChuanBiKhoanRow, DinhMucRow, FieldDef, LichBaoTriRow, MayCongDoanRow,
 } from "./types";
 
+/** Bỏ mục đã NGỪNG DÙNG khỏi một ô chọn — TRỪ mục bản ghi đang trỏ tới; mục đó ở lại, và mang
+ *  thêm chữ "(ngừng dùng)" nếu ô lưu ID/MÃ.
+ *
+ *  Vì sao không lọc thẳng ở query (`refParams: { active: true }`): bản ghi cũ trỏ vào một mục vừa
+ *  bị ngừng thì mở form ra ô TRỐNG TRƠN — trông y như chưa khai — bấm Lưu là ghi đè mất giá trị
+ *  đang có. Nạp cả rồi lọc ở đây thì ô vẫn hiện đúng thứ nó đang trỏ, chỉ là không mời thêm.
+ *
+ *  `dangChon` nhận cả id (số), MÃ hoặc TÊN (chuỗi — ô nhóm máy lưu tên) và mảng của chúng. Danh
+ *  mục không có cột `active` (phòng ban, khách hàng) thì `r.active` là `undefined` ⇒ giữ nguyên.
+ *
+ *  ⚠️ `nhan=false` cho ô LƯU TÊN (nhóm máy): ở đó `ten` chính là giá trị ghi xuống DB, dán thêm
+ *  chữ vào là chọn một nhát ghi ra `"Máy in (ngừng dùng)"`. Ô lưu id/mã thì `ten` chỉ để nhìn. */
+function locConDung(rows: Row[], dangChon: unknown, nhan = true): Row[] {
+  const ds = Array.isArray(dangChon) ? dangChon : [dangChon];
+  const khoa = new Set(
+    ds
+      // Ô bảng con (máy của công đoạn, định mức đầu việc) giữ giá trị dạng DÒNG chứ không phải id
+      // trần — moi id ra, không thì máy đã ngừng đang nằm trong bảng biến khỏi menu và ô rơi về `#12`.
+      .map((v) => (v && typeof v === "object"
+        ? (v as Record<string, unknown>).may_id ?? (v as Record<string, unknown>).piece_rate_id
+          ?? (v as Record<string, unknown>).id
+        : v))
+      .filter((v) => typeof v === "number" || (typeof v === "string" && v !== ""))
+      .map((v) => String(v).trim().toLowerCase()),
+  );
+  const dangDung = (r: Row) => khoa.has(String(r.id))
+    || khoa.has(String(r.ma ?? "").trim().toLowerCase())
+    || khoa.has(String(r.ten ?? "").trim().toLowerCase());
+  return rows
+    .filter((r) => r.active !== false || dangDung(r))
+    .map((r) => (nhan && r.active === false ? { ...r, ten: `${r.ten} (ngừng dùng)` } : r));
+}
+
 /** Tách đuôi đơn vị khỏi nhãn: "Khổ rộng (cm)" → nhãn "Khổ rộng" + hậu tố "cm" dán trong ô. */
 function parseLabelAndSuffix(label: string): { cleanLabel: string; suffix: string | null } {
   const parenMatch = label.match(/\s*\(([^)]+)\)\s*$/);
@@ -177,6 +210,11 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
   // song song là sớm muộn có lúc cả hai cùng "đang mở".
   const [formulaTab, setFormulaTab] = useState<string>(config.tabsKhai?.[0]?.id ?? "info");
 
+  /** Danh sách chọn của một ô ref, đã bỏ mục ngừng dùng (xem `locConDung`). */
+  const optsRef = (f: FieldDef) =>
+    locConDung(refData[f.refPrefix ?? ""] ?? [], form[f.key],
+               f.type !== "nhom_may" && f.type !== "nhom_may-multi");
+
   const renderField = (f: FieldDef) => {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
     const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
@@ -200,13 +238,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "may-cua-cong-doan" ? (
           <MayCuaCongDoanField value={Array.isArray(form[f.key]) ? form[f.key] as MayCongDoanRow[] : []}
-            options={refData[f.refPrefix ?? ""] ?? []}
+            options={optsRef(f)}
             nhomChoPhep={Array.isArray(form.nhom_may_cho_phep) ? form.nhom_may_cho_phep as string[] : []}
             nhomCongDoan={String(form.nhom ?? "")}
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "dau-viec-dinh-muc" ? (
           <DinhMucDauViecField value={Array.isArray(form[f.key]) ? form[f.key] as DinhMucRow[] : []}
-            options={refData[f.refPrefix ?? ""] ?? []}
+            options={optsRef(f)}
             departmentId={form.department_id ? Number(form.department_id) : null}
             donViVao={String(form.don_vi_vao ?? "")}
             onChange={(v) => set(f.key, v)} />
@@ -228,13 +266,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
           <NhomMayField
             value={String(form[f.key] ?? "")}
             onChange={(v) => set(f.key, v)}
-            options={refData[f.refPrefix ?? ""] ?? []}
+            options={optsRef(f)}
             onCatalogChanged={onRefChanged}
           />
         ) : f.type === "nhom_may-multi" ? (
           <NhomMayMultiField
             value={Array.isArray(form[f.key]) ? (form[f.key] as string[]) : []}
-            options={refData[f.refPrefix ?? ""] ?? []}
+            options={optsRef(f)}
             onChange={(v) => set(f.key, v)}
           />
         ) : f.type === "don_vi_toc_do" ? (
@@ -250,7 +288,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
               {/* Chịu được CẢ HAI cách đặt tên cột: 10 màn danh mục dùng `ma`/`ten`, còn Khách
                   hàng (mà màn Khuôn trỏ tới) dùng `code`/`name`. Không đỡ thì ô chọn ra một dãy
                   "undefined · undefined" — hỏng câm, vì `undefined` vẫn render thành chữ. */}
-              {(refData[f.refPrefix ?? ""] ?? []).map((o) => {
+              {optsRef(f).map((o) => {
                 const ma = o.ma ?? o.code;
                 const ten = o.ten ?? o.name;
                 return (
@@ -262,14 +300,14 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
         ) : f.type === "ref-search" ? (
           <RefSearchField
             value={form[f.key] == null || form[f.key] === "" ? null : Number(form[f.key])}
-            options={refData[f.refPrefix ?? ""] ?? []}
+            options={optsRef(f)}
             placeholder={hint ?? "Gõ mã / tên để tìm…"}
             onChange={(v) => set(f.key, v)}
           />
         ) : f.type === "ref-search-ma" ? (
           <RefSearchField
             value={form[f.key] == null || form[f.key] === "" ? null : String(form[f.key])}
-            options={refData[f.refPrefix ?? ""] ?? []}
+            options={optsRef(f)}
             placeholder={hint ?? "Gõ mã / tên để tìm…"}
             byMa
             onChange={(v) => set(f.key, v)}
@@ -277,13 +315,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
         ) : f.type === "ref-multi" ? (
           <RefMultiField
             value={Array.isArray(form[f.key]) ? (form[f.key] as number[]) : []}
-            options={refData[f.refPrefix ?? ""] ?? []}
+            options={optsRef(f)}
             onChange={(v) => set(f.key, v)}
           />
         ) : f.type === "self-ref-multi" ? (
           <SelfRefMultiField
             value={Array.isArray(form[f.key]) ? (form[f.key] as number[]) : []}
-            options={(refData[f.refPrefix ?? ""] ?? []).filter(
+            options={optsRef(f).filter(
               (o) => !isEdit || Number(o.id) !== Number(existing?.id))}
             onChange={(v) => set(f.key, v)}
           />

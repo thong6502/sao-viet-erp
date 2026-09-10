@@ -314,18 +314,22 @@ export function tenBuoc(
  *
  *  Máy ĐANG gán luôn giữ lại dù rớt bộ lọc (dữ liệu cũ, hoặc công đoạn siết danh sách sau khi lệnh
  *  đã gán) — không thì mở lệnh cũ ra là ô máy trống trơn, người xếp lịch tưởng chưa ai gán. */
-export function mayChonDuoc<T extends { id: number; nhom?: string | null }>(
+export function mayChonDuoc<T extends { id: number; nhom?: string | null; active?: boolean | null }>(
   mayRefs: T[],
   cd: { nhomMayChoPhep?: string[] | null; mayChoPhep?: number[] | null } | null | undefined,
   mayDangGan: number | null | undefined,
 ): T[] {
+  // Máy đã NGỪNG DÙNG ở danh mục thì không mời cho bước nữa — cùng lời hứa của hộp thoại
+  // "Ngừng dùng". Nhưng máy bước ĐANG gán thì giữ nguyên trong danh sách: lọc thẳng ra là ô select
+  // rơi về trống, người dùng tưởng chưa gán rồi lưu đè mất máy cũ.
+  const con = mayRefs.filter((m) => m.active !== false || m.id === mayDangGan);
   const ds = cd?.mayChoPhep ?? null;
   if (ds && ds.length > 0) {
-    return mayRefs.filter((m) => ds.includes(m.id) || m.id === mayDangGan);
+    return con.filter((m) => ds.includes(m.id) || m.id === mayDangGan);
   }
   const nhom = cd?.nhomMayChoPhep ?? null;
-  if (!nhom || nhom.length === 0) return mayRefs;
-  return mayRefs.filter((m) => (m.nhom != null && nhom.includes(m.nhom)) || m.id === mayDangGan);
+  if (!nhom || nhom.length === 0) return con;
+  return con.filter((m) => (m.nhom != null && nhom.includes(m.nhom)) || m.id === mayDangGan);
 }
 
 export function emptyRow(): EditRow {

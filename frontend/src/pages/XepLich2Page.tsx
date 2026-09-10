@@ -2331,7 +2331,13 @@ function DongPanel({
             <span className="xl2-field__lb">Máy</span>
             <select value={draftMay ?? ""} onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setDraftMay(v); if (v != null) setDraftDept(null); }}>
               <option value="">— không gán máy —</option>
-              {mays.map((m) => <option key={m.id} value={m.id}>{m.ma} · {m.ten}</option>)}
+              {/* Máy đã NGỪNG DÙNG ở danh mục thì thôi mời; máy dòng ĐANG gán vẫn giữ (kèm chữ
+                  "ngừng dùng") — lọc thẳng ra là ô rơi về "không gán máy" rồi lưu là mất máy cũ. */}
+              {mays.filter((m) => m.active !== false || m.id === draftMay).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.ma} · {m.ten}{m.active === false ? " (ngừng dùng)" : ""}
+                </option>
+              ))}
             </select>
           </label>
           <label className="xl2-field">

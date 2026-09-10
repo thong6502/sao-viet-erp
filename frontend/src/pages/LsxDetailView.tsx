@@ -365,6 +365,7 @@ export function LsxDetailView({
         ?.chuan_bi_khoan;
       return {
         id: m.id, ten: m.ten, nhom: m.loai_may ? String(m.loai_may) : null,
+        active: m.active !== false,
         tocDo: m.toc_do == null ? null : Number(m.toc_do),
         tocDoMin: m.toc_do_min == null ? null : Number(m.toc_do_min),
         tocDoMax: m.toc_do_max == null ? null : Number(m.toc_do_max),

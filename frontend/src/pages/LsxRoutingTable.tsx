@@ -44,6 +44,9 @@ import "./dag-routing.css";
 export interface RefRow {
   id: number;
   ten: string;
+  /** Cờ NGỪNG DÙNG của danh mục (`active=false`). Ref vẫn nạp cả mục đã ngừng — bước cũ còn đeo
+   *  máy đó thì phải đọc được TÊN nó; việc mời hay không mời là chuyện của `mayChonDuoc`. */
+  active?: boolean | null;
   /** Máy: `loai_may` — để gom nhóm dropdown thay vì đổ 24 dòng phẳng. */
   nhom?: string | null;
   ma?: string;
