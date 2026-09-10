@@ -285,6 +285,17 @@ Không có Alembic — mọi thứ viết vào `backend/app/db_migrations.py`:
 
 Không cột Boolean nào trong bảng mới, nên không dính bẫy `server_default="0"`.
 
+**ĐÃ CHẠY (10/09/2026):**
+
+- `0291_xep_lich_lenh` — tạo bảng `xep_lich_lenh` (`lsx_id` UNIQUE, `bat_dau_at`, vết người/lúc).
+- `0292_xep_lich_3` — tạo dòng `modules('xep_lich_3')` + **chép nguyên** mọi dòng
+  `role_permissions` của `xep_lich_2` sang khoá mới, ép `scope='all'`, giữ nguyên khoá cũ. Kèm
+  khẳng định "không vai nào mất quyền", sai thì `RuntimeError`.
+- Migration **KHÔNG đủ** cho DB trắng: quyền của DB mới sinh ra từ `backend/app/seed.py`, nên
+  `xep_lich_3` còn phải khai trong danh sách module + **cả 9 dòng vai** của file đó. Thiếu một
+  trong hai chỗ là module vô hình ở đúng một loại DB — và bộ test chạy trên SQLite trắng nên nó
+  bắt được vế `seed.py`, KHÔNG bắt được vế migration (và ngược lại).
+
 ---
 
 ## 10. Không làm trong đợt này
@@ -316,3 +327,27 @@ Không cột Boolean nào trong bảng mới, nên không dính bẫy `server_de
 Mở màn Xếp lịch 3 → kéo một lệnh từ hàng chờ thả vào Gantt → đọc ngày kết thúc hiện trên thanh →
 kéo thanh sang thứ Bảy, thấy thanh dài ra và ngày kết thúc đổi → bấm thanh, đối chiếu chuỗi công
 đoạn → bấm Phát hành → mở màn Thực hiện sản xuất, xác nhận bàn tổ thấy đúng việc với đúng giờ.
+
+---
+
+## 12. Đã làm — 10/09/2026
+
+Module chạy thật trên dev. Bốn lỗi CHỈ lộ ra khi thao tác bằng chuột thật, ghi lại để đợt sau khỏi
+dẫm lại:
+
+1. **Bấm một cái là lệnh tự dời giờ.** Tay kéo thanh nhận `mousedown` rồi ghi ở `mouseup`, không có
+   ngưỡng nhả — chuột rung 1px hay trình duyệt chèn thêm `mousemove` là một cú BẤM-để-mở-panel
+   thành một cú dời lịch. Đã thêm `NGUONG_KEO = 4px` (`Xl3Gantt.tsx`): dưới ngưỡng thì không ghi gì.
+2. **`quy_cach_json` trả SỐ ở ô khai `str`.** `so_kem: 4` ⇒ `ResponseValidationError` = 500, mà 500
+   ném ngoài `CORSMiddleware` nên trình duyệt chỉ báo *"blocked by CORS policy"* — nhìn như lỗi hạ
+   tầng, thực ra là lỗi schema. Đã ép chuỗi bằng `_chu()`.
+3. **`Lsx` không có relationship `order`.** `getattr(l, "order")` luôn None nên bốn ô đầu panel
+   (khách · đơn · PO · sale) im lặng hiện "—". Đã đọc thẳng bằng `order_id`, nhớ theo id để hàng
+   chờ và lưới không hoá N+1.
+4. **Bảng công đoạn 6 cột trong panel ~370px** tự chia theo nội dung thì tên máy dài bị bóp còn một
+   chữ mỗi dòng. Đã chuyển `table-layout: fixed` + `colgroup` chia tỷ lệ.
+
+Thu hồi phát hành **chưa chạy hết được đường thành công trên dev**: gói phát hành của LSX26-0003 đã
+có công việc bắt đầu từ đợt thử module 2, nên cửa chung `go_phat_hanh_lsx` (§4.3 của Thực hiện SX)
+từ chối — đúng luật. Màn hiện nguyên câu từ chối ở băng lỗi; phần còn lại của đường thu hồi (thiếu
+lý do ⇒ **400** chứ không phải 409) có test riêng.

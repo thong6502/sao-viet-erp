@@ -1,0 +1,726 @@
+/* ============================================================================
+   XẾP LỊCH 3 — BÀN XẾP LỊCH CẤP LỆNH SẢN XUẤT
+   Mọi rule bọc trong `.xl3` để không rò sang màn khác. Token lấy nguyên từ
+   styles/tokens.css (KHÔNG thêm biến :root, KHÔNG hex thô).
+
+   Bố cục: cột trái HÀNG CHỜ · cột giữa GANTT (chỉ đây cuộn ngang) · cột phải
+   PANEL. Thân trang KHÔNG BAO GIỜ cuộn ngang.
+   ============================================================================ */
+
+.xl3 {
+  --xl3-cho-w: 268px;
+  --xl3-panel-w: 400px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+}
+.xl3 *,
+.xl3 *::before,
+.xl3 *::after {
+  box-sizing: border-box;
+}
+.xl3 button,
+.xl3 input {
+  font-family: inherit;
+}
+
+/* ---------------------------------------------------------------- đầu trang */
+.xl3__dau {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+.xl3__tieu h1 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+}
+.xl3__tieu p {
+  margin: var(--sp-1) 0 0;
+  max-width: 62ch;
+  color: var(--ash);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.xl3__tuan {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: none;
+}
+.xl3__tuan button {
+  min-height: 34px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.xl3__tuan button:hover {
+  border-color: var(--ash-2);
+}
+.xl3__nay {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-medium);
+  min-width: 168px;
+}
+
+/* ---------------------------------------------------------------- băng báo */
+.xl3__bang {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-5);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.xl3__bang button {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+.xl3__bang--loi {
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+}
+.xl3__bang--bao {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+/* ---------------------------------------------------------------- ba cột */
+.xl3__than {
+  display: grid;
+  grid-template-columns: var(--xl3-cho-w) minmax(0, 1fr) var(--xl3-panel-w);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.xl3__luoi {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--canvas);
+  border-left: 1px solid var(--rule-soft);
+  border-right: 1px solid var(--rule-soft);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------------------------------------------------------------- hàng chờ */
+.xl3-cho {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--paper);
+}
+.xl3-cho__dau {
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.xl3-cho__dau h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ash);
+}
+.xl3-cho__dem {
+  padding: 1px var(--sp-2);
+  border-radius: 999px;
+  background: var(--steel-soft);
+  color: var(--steel);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.xl3-cho__tim {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+.xl3-cho__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.xl3-cho__trong,
+.xl3-trong {
+  margin: var(--sp-4);
+  color: var(--ash-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.xl3-cho__trang {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2);
+  border-top: 1px solid var(--rule-soft);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.xl3-cho__trang button {
+  min-width: 28px;
+  min-height: 28px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--canvas);
+  cursor: pointer;
+}
+.xl3-cho__trang button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.xl3-the {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--steel);
+  border-radius: 6px;
+  background: var(--canvas);
+  cursor: grab;
+}
+.xl3-the:hover {
+  border-color: var(--rule);
+  border-left-color: var(--rust);
+}
+.xl3-the--chon {
+  border-left-color: var(--rust);
+  box-shadow: inset 0 0 0 1px var(--rust-soft);
+}
+.xl3-the__dau {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.xl3-the__han {
+  margin-left: auto;
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.xl3-the__ten {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.xl3-the__khach {
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+}
+.xl3-the__so {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-1) var(--sp-2);
+  margin: var(--sp-2) 0 0;
+}
+.xl3-the__so dt {
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+}
+.xl3-the__so dd {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.xl3-gap {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--signal-soft);
+  color: var(--signal);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+}
+
+/* ---------------------------------------------------------------- gantt */
+.xl3-gantt {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: auto;   /* CHỈ chỗ này cuộn ngang */
+  overflow-y: auto;
+}
+.xl3-gantt__head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--rule);
+}
+.xl3-gantt__ngay {
+  flex: none;
+  padding: var(--sp-2) var(--sp-2);
+  border-left: 1px solid var(--rule-hair);
+  font-size: var(--fs-xs);
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.xl3-gantt__ngay--nghi {
+  background: var(--rule-hair);
+}
+.xl3-gantt__ngay--nay {
+  box-shadow: inset 0 -2px 0 var(--rust);
+}
+.xl3-gantt__thu {
+  color: var(--ash-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.xl3-gantt__so {
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+.xl3-gantt__body {
+  width: max-content;
+  min-width: 100%;
+}
+.xl3-gantt__body--nhan {
+  background: var(--rust-soft);
+}
+
+.xl3-hang {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--rule-hair);
+  cursor: pointer;
+}
+.xl3-hang:hover {
+  background: var(--rule-hair);
+}
+.xl3-hang--chon {
+  background: var(--rust-soft);
+}
+.xl3-hang__nhan {
+  flex: none;
+  padding: 0 var(--sp-3);
+  border-right: 1px solid var(--rule-soft);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: inherit;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.xl3-hang__ma {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.xl3-hang__phu {
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.xl3-hang__luoi {
+  position: relative;
+  flex: none;
+  height: 100%;
+}
+.xl3-cot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--rule-hair);
+}
+.xl3-cot--nghi {
+  background: var(--rule-hair);
+}
+.xl3-han {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--signal);
+  opacity: 0.55;
+}
+
+/* Thanh HAI LỚP: nền nhạt = dấu chân trên lịch; khối đậm bên trong = giờ máy chạy thật.
+   Khoảng hở giữa các khối chính là nghỉ giữa ca / ngoài ca — cố ý để hở. */
+.xl3-thanh {
+  position: absolute;
+  top: 7px;
+  height: 34px;
+  border-radius: 5px;
+  background: var(--steel-soft);
+  border: 1px solid var(--rule);
+  cursor: grab;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+.xl3-thanh--keo {
+  cursor: grabbing;
+  opacity: 0.85;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 25%);
+  z-index: 3;
+}
+.xl3-thanh--phat {
+  border-color: var(--moss);
+}
+.xl3-thanh.xl3--tre {
+  border-color: var(--signal);
+  background: var(--signal-soft);
+}
+.xl3-thanh.xl3--sat {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+}
+.xl3-thanh__chu {
+  position: relative;
+  z-index: 1;
+  padding: 0 var(--sp-2);
+  color: var(--ink);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.xl3-thanh__mui {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--ash);
+}
+.xl3-thanh__mui--trai {
+  left: 0;
+}
+.xl3-thanh__mui--phai {
+  right: 0;
+}
+.xl3-khoi {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+/* Sắc độ mã hoá THỨ TỰ bước, không mã hoá loại bước. */
+.xl3-khoi--0 { background: var(--heat-1); }
+.xl3-khoi--1 { background: var(--heat-2); }
+.xl3-khoi--2 { background: var(--heat-3); }
+.xl3-khoi--3 { background: var(--heat-4); }
+
+.xl3-tre-chip {
+  position: absolute;
+  top: 14px;
+  padding: 1px var(--sp-2);
+  border-radius: 3px;
+  background: var(--signal-soft);
+  color: var(--signal);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- panel */
+.xl3-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--canvas);
+}
+.xl3-panel--trong {
+  padding: var(--sp-5);
+  color: var(--ash-2);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+.xl3-panel__dau {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.xl3-panel__ma {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+}
+.xl3-panel__ten {
+  margin-top: 2px;
+  color: var(--ash);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+.xl3-panel__dong {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--ash-2);
+  font-size: var(--fs-xl);
+  line-height: 1;
+  cursor: pointer;
+}
+.xl3-panel__than {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-3) var(--sp-4) var(--sp-5);
+}
+.xl3-panel__chan {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--rule-soft);
+  background: var(--charcoal);
+}
+.xl3-nut {
+  min-height: 34px;
+  padding: 0 var(--sp-4);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.xl3-nut--chinh {
+  margin-left: auto;
+  background: var(--rust);
+  color: var(--paper-contrast);
+}
+.xl3-nut--chinh:hover {
+  background: var(--rust-deep);
+}
+.xl3-nut--phu {
+  background: transparent;
+  border-color: var(--on-charcoal-muted);
+  color: var(--on-charcoal);
+}
+.xl3-nut:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.xl3-tt {
+  padding: 1px var(--sp-2);
+  border-radius: 3px;
+  background: var(--steel-soft);
+  color: var(--steel);
+  font-size: var(--fs-2xs);
+}
+.xl3-tt--da_phat_hanh {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+.xl3-tt--san_sang {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.xl3-khoi-o {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2) var(--sp-3);
+}
+.xl3-o {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.xl3-o__nhan {
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.xl3-o__gt {
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.xl3-luu-y {
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+.xl3-luu-y span {
+  display: block;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.05em;
+}
+
+.xl3-lich {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2) var(--sp-3);
+  margin: var(--sp-4) 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--paper);
+}
+.xl3-lich--tre {
+  border-color: var(--signal);
+  background: var(--signal-soft);
+}
+.xl3-lich__o {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.xl3-lich__o span,
+.xl3-lich__ra span {
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.xl3-lich__o input {
+  min-height: 34px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.xl3-lich__ra {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.xl3-lich__ra strong {
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.xl3-lich__canh {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--signal-deep);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+.xl3-ghi-chu {
+  margin: 0 0 var(--sp-4);
+  padding-left: var(--sp-4);
+  color: var(--ash);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+}
+
+.xl3-bang {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  /* SÁU cột trong một panel ~370px: để trình duyệt tự chia theo nội dung thì cột nào có một từ dài
+     (tên máy "CTP Screen 8600 (Nhật)") bị bóp còn một chữ mỗi dòng, trong khi cột tên công đoạn
+     ngắn lại chiếm chỗ thừa. Chia CỨNG theo tỷ lệ, chữ tự xuống dòng trong phần của mình. */
+  table-layout: fixed;
+}
+.xl3-bang col.xl3-c-stt { width: 6.5%; }
+.xl3-bang col.xl3-c-ten { width: 21%; }
+.xl3-bang col.xl3-c-may { width: 26.5%; }
+.xl3-bang col.xl3-c-sl { width: 18.5%; }
+.xl3-bang col.xl3-c-kip { width: 7.5%; }
+.xl3-bang col.xl3-c-tl { width: 20%; }
+.xl3-bang th {
+  padding: var(--sp-2) var(--sp-1);
+  border-bottom: 1px solid var(--rule);
+  color: var(--ash-2);
+  font-weight: var(--fw-medium);
+  text-align: left;
+  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.xl3-bang td {
+  padding: var(--sp-2) var(--sp-1);
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: top;
+}
+.xl3-bang--so {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Cột `#`: chấm màu + số thứ tự phải nằm CÙNG dòng. Bảng 6 cột trong panel hẹp bẻ dòng ngay sau
+   chấm, số rơi xuống hàng dưới, nhìn như một dòng rỗng. */
+.xl3-bang th:first-child,
+.xl3-bang td:first-child {
+  white-space: nowrap;   /* chấm màu + số thứ tự phải nằm CÙNG dòng */
+}
+/* Ô "Máy / Tổ" là chỗ chật nhất: chữ nhỏ hơn một bậc và cho ngắt giữa từ dài. */
+.xl3-bang td:nth-child(3) {
+  font-size: var(--fs-2xs);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.xl3-cham {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+.xl3-cham--0 { background: var(--heat-1); }
+.xl3-cham--1 { background: var(--heat-2); }
+.xl3-cham--2 { background: var(--heat-3); }
+.xl3-cham--3 { background: var(--heat-4); }
+
+/* Màn hẹp: panel xuống dưới, hàng chờ thu lại. Bàn lịch vẫn là màn desktop nên không đổi bố cục
+   xuống một cột — cuộn ngang trong lưới vẫn giữ. */
+@media (max-width: 1400px) {
+  .xl3 {
+    --xl3-panel-w: 340px;
+    --xl3-cho-w: 232px;
+  }
+}

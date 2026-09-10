@@ -39,6 +39,19 @@ class XepLich3Conflict(XepLich3Error):
 TT_XEP_DUOC = (TT_SAN_SANG, TT_DA_LAP_KE_HOACH)
 
 
+def _chu(v: object) -> str | None:
+    """Ép một ô quy cách về CHUỖI cho `ChiTietOut`.
+
+    `quy_cach_json` là ảnh chụp lúc tạo lệnh, giá trị có thể là SỐ (`so_kem: 4`, `so_mau: 4`) chứ
+    không phải chuỗi. Schema khai `str | None`, trả thẳng số là `ResponseValidationError` — mà lỗi
+    đó ném NGOÀI `CORSMiddleware` nên trình duyệt chỉ thấy "blocked by CORS policy", không thấy 500.
+    """
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
+
 def _ngay_thue_ngoai(cd) -> int | None:
     """Số NGÀY LỊCH một bước gia công ngoài chiếm chỗ. `None` = chưa khai đủ để biết.
 
@@ -80,6 +93,8 @@ class XepLich3Service:
         self.audit = audit
         self._lich = None       # khung giờ làm — dựng LƯỜI, đúng một lần mỗi request
         self._svc_dur = None    # LsxService rút gọn, chỉ để hỏi thời lượng bước
+        self._nho_don: dict[int, object] = {}   # order_id -> Order (nhớ trong MỘT request)
+        self._nho_kh: dict[int, object] = {}    # customer_id -> Customer
 
     # ================= nền tính =================
 
@@ -219,7 +234,7 @@ class XepLich3Service:
         kq = self._trai(l, cds, _naive(m.bat_dau_at)) if m else None
 
         qc = dict(l.quy_cach_json or {})         # ẢNH CHỤP lúc tạo lệnh — khoá có thể trống
-        don = getattr(l, "order", None)
+        don = self._don_cua(l)
         ra = {
             "lsx_id": l.id, "ma": l.ma, "ten": l.ten,
             "trang_thai": l.trang_thai,
@@ -237,10 +252,10 @@ class XepLich3Service:
             "han_giao_khach": l.han_giao_khach,
             "nguoi_phu_trach_ten": self._ten_nguoi(l.nguoi_phu_trach_id),
             "luu_y_gui_xuong": l.ghi_chu,
-            "giay": qc.get("giay_ten") or qc.get("giay") or None,
-            "kho_in": qc.get("kho_in") or qc.get("kho") or None,
-            "so_mau": qc.get("so_mau") or qc.get("mau") or None,
-            "so_kem": qc.get("so_kem") or None,
+            "giay": _chu(qc.get("giay_ten") or qc.get("giay")),
+            "kho_in": _chu(qc.get("kho_in") or qc.get("kho")),
+            "so_mau": _chu(qc.get("so_mau") or qc.get("mau")),
+            "so_kem": _chu(qc.get("so_kem")),
             "kip_chuan": sum(int(c.so_nhan_cong_tieu_chuan or 0) for c in cds),
             "cong_doans": [self._cd_dict(c, i) for i, c in enumerate(cds)],
         }
@@ -463,10 +478,32 @@ class XepLich3Service:
 
     # ================= tra tên =================
 
+    def _don_cua(self, l):
+        """Đơn hàng nguồn của lệnh.
+
+        `Lsx` KHÔNG khai relationship `order` — chỉ có FK `order_id` — nên `getattr(l, "order")`
+        luôn trả None và bốn ô đầu panel (khách · đơn · PO · sale) hiện "—" mà không lỗi gì. Đọc
+        thẳng bằng id, và NHỚ theo id: `_ten_khach` chạy trên từng dòng của hàng chờ lẫn lưới, đọc
+        lại mỗi dòng là hoá N+1.
+        """
+        oid = getattr(l, "order_id", None)
+        if not oid:
+            return None
+        if oid not in self._nho_don:
+            from ...models.order import Order
+
+            self._nho_don[oid] = self.db.get(Order, oid)
+        return self._nho_don[oid]
+
     def _ten_khach(self, l) -> str | None:
-        don = getattr(l, "order", None)
-        kh = getattr(don, "customer", None) if don is not None else None
-        return getattr(kh, "name", None) or getattr(kh, "ten", None)
+        cid = getattr(self._don_cua(l), "customer_id", None)
+        if not cid:
+            return None
+        if cid not in self._nho_kh:
+            from ...models.customer import Customer
+
+            self._nho_kh[cid] = self.db.get(Customer, cid)
+        return getattr(self._nho_kh[cid], "name", None)
 
     def _ten_nguoi(self, user_id: int | None) -> str | None:
         if not user_id:

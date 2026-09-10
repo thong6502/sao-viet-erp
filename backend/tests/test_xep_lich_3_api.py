@@ -30,7 +30,8 @@ def _hd(client) -> dict[str, str]:
 def _lenh(ma: str = "LSX-XL3-01", **kw) -> int:
     db = SessionLocal()
     try:
-        l = Lsx(ma=ma, ten="Lệnh thử Xếp lịch 3", order_id=1, order_line_id=1,
+        kw.setdefault("order_id", 1)
+        l = Lsx(ma=ma, ten="Lệnh thử Xếp lịch 3", order_line_id=1,
                 trang_thai=TT_SAN_SANG, so_luong_dat=1000, so_to_ke_hoach=120, **kw)
         db.add(l)
         db.commit()
@@ -182,3 +183,38 @@ def test_xep_lich_3_khong_co_scope():
     from app.services.role_service import SCOPELESS_MODULES
 
     assert "xep_lich_3" in SCOPELESS_MODULES
+
+
+# ============================================================== payload chi tiết
+def test_chi_tiet_chiu_duoc_quy_cach_so_va_tra_ten_khach(client):
+    """Hai lỗi ĐÃ GẶP trên dev-browser, khoá lại bằng test.
+
+    1. `quy_cach_json` là ảnh chụp lúc tạo lệnh, `so_kem`/`so_mau` có thể là SỐ. Schema khai
+       `str | None` ⇒ FastAPI ném `ResponseValidationError` = 500; mà 500 rơi NGOÀI
+       `CORSMiddleware` nên trình duyệt chỉ báo "blocked by CORS policy", không ai thấy 500.
+    2. `Lsx` không có relationship `order`, nên `getattr(l, "order")` luôn None và bốn ô đầu panel
+       (khách · đơn · PO · sale) im lặng hiện "—".
+    """
+    from app.models.customer import Customer
+    from app.models.order import Order
+
+    db = SessionLocal()
+    try:
+        kh = Customer(code="KH-XL3", name="Công ty Bánh Ngọt")
+        db.add(kh)
+        db.flush()
+        don = Order(order_no="SO-XL3-9", customer_id=kh.id, customer_po_no="PO-77")
+        db.add(don)
+        db.commit()
+        oid, ten_kh = don.id, kh.name
+    finally:
+        db.close()
+
+    lid = _lenh("LSX-XL3-QC", order_id=oid, quy_cach_json={"so_kem": 4, "so_mau": 4, "giay_ten": "Giấy C300"})
+    r = client.get(f"{GOC}/lenh/{lid}", headers=_hd(client))
+    assert r.status_code == 200, r.text
+    b = r.json()
+    assert (b["so_kem"], b["so_mau"], b["giay"]) == ("4", "4", "Giấy C300")
+    assert b["customer_name"] == ten_kh
+    assert b["order_no"] == "SO-XL3-9"
+    assert b["customer_po_no"] == "PO-77"
