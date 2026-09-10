@@ -416,19 +416,38 @@ class PayrollRepository:
             ).scalars().first()
         )
 
-    def create_line(self, **fields) -> PayrollLine:
+    def create_line(self, *, commit: bool = True, **fields) -> PayrollLine:
+        """`commit=False` cho vòng tính cả kỳ — xem chú thích ở `update_line`."""
         ln = PayrollLine(**fields)
         self.db.add(ln)
-        self.db.commit()
-        self.db.refresh(ln)
+        if commit:
+            self.db.commit()
+            self.db.refresh(ln)
+        else:
+            self.db.flush()      # cần `ln.id` ngay để ghi snapshot khoản của dòng
         return ln
 
-    def update_line(self, ln: PayrollLine, **fields) -> PayrollLine:
+    def update_line(self, ln: PayrollLine, *, commit: bool = True, **fields) -> PayrollLine:
+        """Sửa một dòng lương.
+
+        `commit=False` (09/09/2026) để `PayrollService.generate` chốt MỘT lần cho cả kỳ:
+          · commit từng dòng là mỗi người một lần ghi bền — 300 người = 300 lần;
+          · nặng hơn nữa, mỗi commit làm SQLAlchemy HẾT HẠN mọi đối tượng đang giữ, nên vòng sau
+            phải nạp lại thứ đã nạp sẵn (đo được: `employee_events` bị đọc lại 2,2 lần/người);
+          · và nếu đứt giữa chừng thì bảng lương nằm lại NỬA MỚI NỬA CŨ, không dấu vết.
+        Đường sửa một ô (`update_line` của service) vẫn dùng mặc định `commit=True`."""
         for k, v in fields.items():
             setattr(ln, k, v)
-        self.db.commit()
-        self.db.refresh(ln)
+        if commit:
+            self.db.commit()
+            self.db.refresh(ln)
+        else:
+            self.db.flush()
         return ln
+
+    def commit(self) -> None:
+        """Chốt cả mẻ — dùng khi caller tự quyết ranh giới transaction (vòng tính lương cả kỳ)."""
+        self.db.commit()
 
     def delete_lines_for_period(self, period_id: int) -> None:
         for ln in self.list_lines(period_id):

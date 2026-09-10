@@ -792,6 +792,7 @@ def ot_confirm(
             actor=user, scope=_scope_for(authz, user), the_day=the_day,
             employee_ids=body.employee_ids, reason=body.reason,
             to_time=body.to_time, to_next_day=body.to_next_day,
+            cho_phep_ngay_trang=body.cho_phep_ngay_trang,
         )
     except AttendanceError as exc:
         _raise(exc)

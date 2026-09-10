@@ -441,8 +441,9 @@ def test_FILE_XUAT_hoa_hong_co_COT_RIENG_khong_lan_vao_Thuong(client):
         r = client.get("/api/luong/export.xlsx?year=2026&month=8", headers=_h(client))
         assert r.status_code == 200, r.text
         ws = load_workbook(BytesIO(r.content)).active
-        head = [c.value for c in ws[1]]
-        return head, next(x for x in ws.iter_rows(min_row=2, values_only=True) if x[1] == ten_nv)
+        # Khuôn mới 09/09/2026: tiêu đề DÒNG 4, dữ liệu từ dòng 5, cột 3 là Họ và tên.
+        head = [c.value for c in ws[4]]
+        return head, next(x for x in ws.iter_rows(min_row=5, values_only=True) if x[2] == ten_nv)
 
     emp, uid = _sales("file xuat")
     _tinh_luong(client, emp)
@@ -453,7 +454,8 @@ def test_FILE_XUAT_hoa_hong_co_COT_RIENG_khong_lan_vao_Thuong(client):
     _tinh_luong(client, emp)
     _, sau = _xuat("file xuat")
 
-    i_thuong, i_hh, i_tong = (head.index("Thưởng"), head.index("Hoa hồng"), head.index("Tổng"))
+    i_thuong, i_hh, i_tong = (head.index("Thưởng"), head.index("Hoa hồng"),
+                              head.index("TỔNG LƯƠNG"))
     assert sau[i_tong] - truoc[i_tong] == 5_000_000, "Tổng không nhận hoa hồng"
     assert sau[i_hh] - truoc[i_hh] == 5_000_000, (
         "Tổng có thêm 5tr mà cột Hoa hồng không tăng — file xuất cộng lại không khớp")

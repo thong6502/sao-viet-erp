@@ -412,6 +412,9 @@ class OtThieuCapOut(BaseModel):
     date: str                 # "YYYY-MM-DD"
     from_time: str            # "HH:MM"
     to_time: str
+    #: MÃ tình trạng — băng cảnh báo tách "bù được 1 chạm" (`thieu_cap`) với "phải chấm bù ca chính
+    #: trước" (`treo` / `khong_cham`), thay vì bắt giao diện dò chuỗi tiếng Việt (10/09/2026).
+    ma: str = "thieu_cap"
     ly_do: str                # "thiếu cặp bấm tăng ca" | "không có lượt bấm nào trong ngày"
 
 
@@ -574,7 +577,9 @@ class OtConfirmCandidateOut(BaseModel):
     to_next_day: bool = False
     # thieu_cap (xác nhận được) | da_co | treo (thiếu RA ca chính) | khong_cham | chua_gan_ca
     tinh_trang: str
-    kieu: str | None = None   # bu_cap | tach_phien — chỉ khi thieu_cap (xem OtSuggestionOut)
+    #: bu_cap | tach_phien (khi `thieu_cap`, xem OtSuggestionOut) · chi_cap_tc (khi `khong_cham`:
+    #: chỉ sinh cặp TĂNG CA theo phiếu, ngày đó không có công ca chính — phải xác nhận riêng).
+    kieu: str | None = None
     punches: list[OtConfirmPunchOut] = []
 
 
@@ -591,6 +596,9 @@ class OtConfirmIn(BaseModel):
     # phiếu thì trả theo thật. Bỏ trống = lấy giờ kết thúc phiếu.
     to_time: str | None = Field(default=None, max_length=5)
     to_next_day: bool = False
+    #: HCNS đã xác nhận riêng cho người KHÔNG bấm lượt nào cả ngày: chỉ sinh cặp TĂNG CA theo phiếu,
+    #: chấp nhận ngày đó không có công ca chính (10/09/2026). Thiếu cờ thì những người ấy bị bỏ qua.
+    cho_phep_ngay_trang: bool = False
 
 
 class OtConfirmSkippedOut(BaseModel):

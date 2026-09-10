@@ -22,6 +22,8 @@ import {
   Unlock,
   ClipboardCheck,
   Search,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { MonthPicker } from "../../../../components/MonthPicker";
 import { OtConfirmModal } from "../modals/OtConfirmModal";
@@ -35,6 +37,7 @@ import {
   docONgay,
   soCong,
   congDacBiet,
+  congThuong,
   gioTangCa,
   tongCongDacBiet,
   ngayDacBiet,
@@ -219,7 +222,10 @@ function EmployeeCalendarModal({
                   {/* Tên CA của ngày (Phân ca tháng) — hiện DÙ có bấm hay không. Chủ hỏi
                       "điền ca từng ngày vào ô công". Bấm ô để đổi ca ở tab Khai ca. */}
                   {o.caLabel && (
-                    <div className="cc-month-cell__ca" title={`Ca làm: ${o.caLabel}`}>
+                    <div
+                      className="cc-month-cell__ca"
+                      title={`Ca làm: ${o.caLabel}`}
+                    >
                       {o.caLabel}
                     </div>
                   )}
@@ -336,14 +342,26 @@ export function TimesheetTab({
   const [specialFor, setSpecialFor] = useState<TimesheetRow | null>(null);
   // Modal "Xác nhận TC theo phiếu" (07/09/2026) — bù cặp bấm tăng ca hàng loạt cho người quên bấm.
   const [otConfirmOpen, setOtConfirmOpen] = useState(false);
+  const [showOtList, setShowOtList] = useState(false);
+  // Băng "phiếu TC thiếu cặp bấm" tách HAI NHÓM (chủ 10/09/2026): nhóm bấm một nút là xong, và
+  // nhóm ngày đó thiếu lượt bấm ca chính — nhóm sau vào màn Xác nhận TC thì ô tích mờ, không nói
+  // rõ ở đây thì người dùng bấm vào rồi đứng nhìn cái tên không biết làm gì.
+  const otList = period?.ot_thieu_cap_list ?? [];
+  const otBu1Cham = otList.filter((x) => (x.ma ?? "thieu_cap") === "thieu_cap").length;
+  const otPhaiSuaTruoc = otList.length - otBu1Cham;
   const [year, month] = ym.split("-").map(Number);
   // Ngày mặc định của modal: đang xem tháng hiện tại thì lấy HÔM QUA (ngày hay cần bù nhất),
   // tháng cũ thì lấy ngày cuối tháng đó.
   const otDefaultDate = (() => {
     const now = new Date();
-    const cungThang = now.getFullYear() === year && now.getMonth() + 1 === month;
+    const cungThang =
+      now.getFullYear() === year && now.getMonth() + 1 === month;
     const d = cungThang
-      ? new Date(now.getFullYear(), now.getMonth(), Math.max(1, now.getDate() - 1))
+      ? new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          Math.max(1, now.getDate() - 1),
+        )
       : new Date(year, month, 0);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   })();
@@ -446,7 +464,8 @@ export function TimesheetTab({
     if (!q) return rows;
     return rows.filter(
       (r) =>
-        khongDau(r.employee_name).includes(q) || khongDau(r.employee_code).includes(q),
+        khongDau(r.employee_name).includes(q) ||
+        khongDau(r.employee_code).includes(q),
     );
   }, [data, tim]);
 
@@ -456,14 +475,18 @@ export function TimesheetTab({
     if (!period || period.status === "locked") return [];
     const ds: { so: number; ten: string }[] = [];
     if ((period.hanging_days ?? 0) > 0)
-      ds.push({ so: period.hanging_days, ten: "ngày treo (bấm VÀO, thiếu bấm RA)" });
+      ds.push({
+        so: period.hanging_days,
+        ten: "ngày treo (bấm VÀO, thiếu bấm RA)",
+      });
     const cho: [number | undefined, string][] = [
       [period.pending_leaves, "đơn nghỉ phép"],
       [period.pending_late_early, "phiếu đi muộn / về sớm"],
       [period.pending_overtime, "phiếu tăng ca"],
       [period.pending_adjusts, "yêu cầu chỉnh công"],
     ];
-    for (const [so, ten] of cho) if ((so ?? 0) > 0) ds.push({ so: so ?? 0, ten: `${ten} chờ duyệt` });
+    for (const [so, ten] of cho)
+      if ((so ?? 0) > 0) ds.push({ so: so ?? 0, ten: `${ten} chờ duyệt` });
     return ds;
   }, [period]);
 
@@ -530,93 +553,130 @@ export function TimesheetTab({
         </div>
       </div>
 
-      {/* Băng "chưa chốt được": chỉ kể thứ ĐANG CÓ. Bản cũ luôn đọc ra "0 ngày treo và 1 đơn chờ
-          duyệt (nghỉ phép · đi muộn–về sớm · tăng ca · chỉnh công)" — số 0 vẫn hiện, bốn loại vẫn
-          liệt kê đủ, người đọc không biết phải đi duyệt CÁI GÌ. */}
-      {vuongChot.length > 0 && (
-        <div className="banner banner--warn cc-ts-warn-banner">
-          <AlertTriangle size={14} />
-          <span className="cc-ts-warn-banner__head">
-            Chưa chốt được công tháng, còn:
-          </span>
-          {vuongChot.map((v) => (
-            <span key={v.ten} className="cc-ts-warn-chip">
-              <b>{v.so}</b> {v.ten}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* Cụm thông báo trạng thái kỳ công & tăng ca cần xử lý (.cc-ts-alerts-stack) */}
+      {((vuongChot.length > 0) || (period && period.status !== "locked" && (period.ot_thieu_cap ?? 0) > 0)) && (
+        <div className="cc-ts-alerts-stack">
+          {/* Card 1: Vướng mắc chốt công tháng (vuongChot) with Clock icon and styled chips */}
+          {vuongChot.length > 0 && (
+            <div className="cc-ts-alert-card cc-ts-alert-card--pending">
+              <div className="cc-ts-alert-icon">
+                <Clock size={16} />
+              </div>
+              <div className="cc-ts-alert-body">
+                <div className="cc-ts-alert-header-row">
+                  <div className="cc-ts-alert-title-group">
+                    <span className="cc-ts-alert-title">Vướng mắc chốt công tháng</span>
+                    <span className="cc-ts-alert-subtext">
+                      Chưa chốt được công tháng — còn một số vướng mắc cần phê duyệt hoặc xử lý trước khi khóa bảng công.
+                    </span>
+                  </div>
+                </div>
+                <div className="cc-ts-alert-chips">
+                  {vuongChot.map((v) => (
+                    <span key={v.ten} className="cc-ts-alert-chip">
+                      <span className="cc-ts-alert-chip-count">{v.so}</span>
+                      <span>{v.ten}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
-      {/* 1.3 (07/09/2026) — phiếu TC đã duyệt mà KHÔNG có cặp bấm tăng ca: chốt là đóng băng 0 phút
-          TC cho những phiếu này mà không ai hay. Chỉ NHẮC, không chặn chốt (chủ giữ luật 4 lượt bấm). */}
-      {period && period.status !== "locked" && (period.ot_thieu_cap ?? 0) > 0 && (
-        <div
-          className="banner banner--warn cc-ts-warn-banner cc-ts-warn-banner--khoi"
-        >
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
-            <AlertTriangle size={14} style={{ marginTop: 2, flexShrink: 0 }} />
-            <span>
-              <strong>{period.ot_thieu_cap}</strong> phiếu tăng ca đã duyệt nhưng{" "}
-              <strong>chưa có cặp bấm tăng ca</strong> — chốt bây giờ là những phiếu này ra{" "}
-              <strong>0 phút</strong>.
-              {canAdjust ? (
-                <>
-                  {" "}
-                  Bấm{" "}
+          {/* Card 2: Phiếu tăng ca đã duyệt chưa có cặp bấm (ot_thieu_cap) */}
+          {period && period.status !== "locked" && (period.ot_thieu_cap ?? 0) > 0 && (
+            <div className="cc-ts-alert-card cc-ts-alert-card--ot">
+              <div className="cc-ts-alert-icon cc-ts-alert-icon--ot">
+                <AlertTriangle size={16} />
+              </div>
+              <div className="cc-ts-alert-body">
+                <div className="cc-ts-alert-header-row">
+                  <div className="cc-ts-alert-title-group">
+                    <span className="cc-ts-alert-title">
+                      {period.ot_thieu_cap} phiếu tăng ca đã duyệt chưa có cặp bấm
+                    </span>
+                    <span className="cc-ts-alert-subtext">
+                      Nếu chốt kỳ công lúc này, những phiếu này sẽ tính 0 phút tăng ca do thiếu lượt bấm tương ứng.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="cc-ts-alert-details-row">
+                  <div className="cc-ts-alert-breakdown">
+                    {otBu1Cham > 0 && (
+                      <span className="cc-ts-breakdown-tag cc-ts-breakdown-tag--auto">
+                        <b>{otBu1Cham}</b> bù được ngay
+                      </span>
+                    )}
+                    {otPhaiSuaTruoc > 0 && (
+                      <span className="cc-ts-breakdown-tag cc-ts-breakdown-tag--manual">
+                        <b>{otPhaiSuaTruoc}</b> thiếu giờ ca chính
+                      </span>
+                    )}
+                  </div>
                   <button
                     type="button"
-                    className="cc-link-btn"
-                    onClick={() => setOtConfirmOpen(true)}
+                    className="cc-ts-toggle-list-btn"
+                    onClick={() => setShowOtList((prev) => !prev)}
                   >
-                    Xác nhận TC theo phiếu
-                  </button>{" "}
-                  để bù cho cả tổ một lần.
-                </>
-              ) : null}
-            </span>
-          </div>
-          <details style={{ marginTop: 6 }}>
-            <summary style={{ cursor: "pointer", fontSize: 12 }}>Xem danh sách</summary>
-            <ul className="cc-ot-thieu-list">
-              {(period.ot_thieu_cap_list ?? []).map((x) => (
-                <li key={`${x.employee_id}-${x.date}`}>
-                  <b>{x.employee_name}</b> · {x.date} · phiếu {x.from_time}–{x.to_time} ·{" "}
-                  {x.ly_do}
-                </li>
-              ))}
-            </ul>
-          </details>
+                    <span>{showOtList ? "Ẩn danh sách" : "Xem danh sách"}</span>
+                    {showOtList ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  </button>
+                </div>
+
+                {showOtList && (
+                  <div className="cc-ts-alert-list-wrap">
+                    <ul className="cc-ts-alert-list">
+                      {(period.ot_thieu_cap_list ?? []).map((x) => (
+                        <li key={`${x.employee_id}-${x.date}`} className="cc-ts-alert-list-item">
+                          <span className="cc-ts-alert-emp-name">{x.employee_name}</span>
+                          <span className="cc-ts-alert-item-date">{x.date}</span>
+                          <span className="cc-ts-alert-item-time">
+                            {x.from_time}–{x.to_time}
+                          </span>
+                          {x.ly_do && <span className="cc-ts-alert-item-reason">{x.ly_do}</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* L3 — kỳ ĐÃ CHỐT nhưng vẫn có lượt bấm mới. Băng này là thứ DUY NHẤT cho người dùng biết:
           ảnh chụp không có mấy lượt đó, nên Bảng lương cũng không tính. Không chặn thợ bấm giờ —
           chỉ nhắc HCNS chốt lại kỳ. */}
-      {period && period.status === "locked" && (period.phat_sinh_sau_chot ?? 0) > 0 && (
-        <div
-          className="banner banner--warn cc-ts-warn-banner"
-        >
-          <AlertTriangle size={14} />
-          <span>
-            Kỳ công đã chốt nhưng có <strong>{period.phat_sinh_sau_chot}</strong> lượt bấm ghi
-            vào sau đó — <strong>ảnh chụp không có mấy lượt này</strong>, nên Bảng lương cũng
-            không tính. Mở lại kỳ công rồi chốt lại để cập nhật.
-          </span>
-        </div>
-      )}
+      {period &&
+        period.status === "locked" &&
+        (period.phat_sinh_sau_chot ?? 0) > 0 && (
+          <div className="banner banner--warn cc-ts-warn-banner">
+            <AlertTriangle size={14} />
+            <span>
+              Kỳ công đã chốt nhưng có{" "}
+              <strong>{period.phat_sinh_sau_chot}</strong> lượt bấm ghi vào sau
+              đó — <strong>ảnh chụp không có mấy lượt này</strong>, nên Bảng
+              lương cũng không tính. Mở lại kỳ công rồi chốt lại để cập nhật.
+            </span>
+          </div>
+        )}
 
-      {period && period.status === "locked" && (period.doi_ca_nen_sau_chot ?? 0) > 0 && (
-        <div
-          className="banner banner--warn cc-ts-warn-banner"
-        >
-          <AlertTriangle size={14} />
-          <span>
-            Kỳ công đã chốt nhưng có <strong>{period.doi_ca_nen_sau_chot}</strong> lần đổi ca (ca nền /
-            ô lưới) hiệu lực trong tháng ghi sau đó — <strong>ảnh chụp đang tính theo ca cũ</strong>,
-            Bảng lương chưa chốt được. Mở lại kỳ công, chốt lại rồi bấm Tính lại.
-          </span>
-        </div>
-      )}
+      {period &&
+        period.status === "locked" &&
+        (period.doi_ca_nen_sau_chot ?? 0) > 0 && (
+          <div className="banner banner--warn cc-ts-warn-banner">
+            <AlertTriangle size={14} />
+            <span>
+              Kỳ công đã chốt nhưng có{" "}
+              <strong>{period.doi_ca_nen_sau_chot}</strong> lần đổi ca (ca nền /
+              ô lưới) hiệu lực trong tháng ghi sau đó —{" "}
+              <strong>ảnh chụp đang tính theo ca cũ</strong>, Bảng lương chưa
+              chốt được. Mở lại kỳ công, chốt lại rồi bấm Tính lại.
+            </span>
+          </div>
+        )}
 
       {periodMsg && (
         <div
@@ -699,7 +759,9 @@ export function TimesheetTab({
               <ClipboardCheck size={14} />
               <span>
                 Xác nhận TC theo phiếu
-                {(period.ot_thieu_cap ?? 0) > 0 ? ` (${period.ot_thieu_cap})` : ""}
+                {(period.ot_thieu_cap ?? 0) > 0
+                  ? ` (${period.ot_thieu_cap})`
+                  : ""}
               </span>
             </button>
           )}
@@ -757,6 +819,10 @@ export function TimesheetTab({
             reload();
             loadPeriod();
           }}
+          onOpenDay={(employeeId, employeeName, d) => {
+            setOtConfirmOpen(false);
+            setOpenDay({ employeeId, employeeName, date: d });
+          }}
         />
       )}
 
@@ -783,12 +849,16 @@ export function TimesheetTab({
                     </th>
                   );
                 })}
-                <th>Công</th>
+                {/* BA cột công phải CỘNG ĐÚNG ra Tổng công (chủ 09/09/2026): trước đó cột này là
+                    TỔNG mà lại đứng cạnh CN/Lễ nên bị đọc thành hai rổ rời, không ai biết chỗ nào
+                    công thường chỗ nào công lễ. */}
+                <th>Công thường</th>
                 {/* MỘT cột cho cả ba loại công đặc biệt, và là MỘT SỐ TỔNG (chủ 09/09/2026) —
                     bảng này đã 31 cột ngày, tách ba cột là đẩy cột Giờ ra khỏi màn 1440px.
                     Bấm vào số mới bung ra từng ngày + hệ số quy đổi trong ngăn chi tiết. */}
                 <th>CN/Lễ</th>
                 <th>Tăng ca</th>
+                <th>Tổng công</th>
                 <th>Giờ</th>
               </tr>
             </thead>
@@ -810,7 +880,7 @@ export function TimesheetTab({
               ))}
               {rowsHien.length === 0 && (
                 <tr>
-                  <td colSpan={days.length + 7} className="ns__empty">
+                  <td colSpan={days.length + 8} className="ns__empty">
                     {tim.trim()
                       ? `Không có nhân viên nào khớp "${tim.trim()}" trong tháng này.`
                       : "Chưa có dữ liệu chấm công tháng này."}
@@ -947,11 +1017,17 @@ function CongDacBietDrawer({
                   <div className="cc-sp-hist__body">
                     <div className="cc-sp-hist__top">
                       <span className="cc-sp-hist__name">
-                        {WEEKDAY_NAMES_SHORT[getWeekdayIndex(year, month, d.ngay)]}{" "}
+                        {
+                          WEEKDAY_NAMES_SHORT[
+                            getWeekdayIndex(year, month, d.ngay)
+                          ]
+                        }{" "}
                         {String(d.ngay).padStart(2, "0")}/
                         {String(month).padStart(2, "0")} · {d.loai}
                       </span>
-                      <span className={`cc-badge-pill cc-badge-pill--${d.tone}`}>
+                      <span
+                        className={`cc-badge-pill cc-badge-pill--${d.tone}`}
+                      >
                         {d.cong} → {d.quyDoi} công
                       </span>
                     </div>
@@ -1101,8 +1177,11 @@ function TimesheetRowView({
           </td>
         );
       })}
-      <td style={{ fontWeight: "bold", textAlign: "center" }}>
-        {row.total_cong != null ? row.total_cong : row.total_days}
+      <td
+        style={{ fontWeight: "bold", textAlign: "center" }}
+        title="Công ngày thường = tổng công − công CN/lễ − công phép có lương"
+      >
+        {congThuong(row)}
       </td>
       {/* KHÔNG flex trên <td> (layout bảng vỡ ở Safari/Firefox) — bọc trong <button> rồi flex ở đó. */}
       <td style={{ textAlign: "center" }}>
@@ -1115,7 +1194,9 @@ function TimesheetRowView({
             onClick={onSpecialClick}
             title="Tổng công ngày nghỉ tuần + ngày lễ + ngày công ty cho nghỉ — bấm để xem từng ngày và hệ số quy đổi"
           >
-            <span className="cc-badge-pill cc-badge-pill--purple">{congCnLe}</span>
+            <span className="cc-badge-pill cc-badge-pill--purple">
+              {congCnLe}
+            </span>
           </button>
         )}
       </td>
@@ -1125,6 +1206,14 @@ function TimesheetRowView({
         ) : (
           <span style={{ color: "var(--ash-2)", fontWeight: "normal" }}>—</span>
         )}
+      </td>
+      {/* TỔNG CÔNG — con số ra tiền của Bảng lương. Đặt cạnh Tăng ca theo đúng chỗ chủ chỉ. */}
+      <td
+        className="cc-ts-tongcong"
+        style={{ fontWeight: "bold", textAlign: "center" }}
+        title="Tổng công = công thường + công CN/lễ + công phép có lương. Đây là số Bảng lương dùng."
+      >
+        {soCong(row.total_cong ?? row.total_days)}
       </td>
       <td style={{ fontWeight: "bold", textAlign: "center" }}>
         {row.total_hours}h
@@ -1162,7 +1251,7 @@ function DayDetailModal({
   // Chấm bù CẶP tăng ca (1 chạm) khi NV có phiếu TC nhưng thiếu cặp chấm — điền sẵn theo khung phiếu.
   const [otIn, setOtIn] = useState("");
   const [otOut, setOtOut] = useState("");
-  const [otOutNext, setOtOutNext] = useState(false);   // giờ RA tăng ca rơi sang hôm sau
+  const [otOutNext, setOtOutNext] = useState(false); // giờ RA tăng ca rơi sang hôm sau
   const [otBusy, setOtBusy] = useState(false);
   // Chấm bù "sang hôm sau" (07/09/2026): ca đêm quên RA 06:00 sáng, tăng ca vắt nửa đêm. Không có
   // ô này thì lượt 06:00 dính ngày công ⇒ gom về hôm trước, ngày treo vẫn treo.
@@ -1396,10 +1485,11 @@ function DayDetailModal({
                   {detail.ot_suggestion.kieu === "tach_phien" ? (
                     <>
                       <p className="cc-ot-suggest__hint">
-                        NV chỉ bấm 2 lượt, lượt RA đã phủ luôn giờ tăng ca. Máy sẽ thêm{" "}
-                        <b>RA ca chính lúc hết ca</b> và{" "}
-                        <b>VÀO tăng ca {detail.ot_suggestion.from_time}</b>; lượt RA thật cuối
-                        ngày thành RA tăng ca (bấm ra là sự thật, phiếu là trần).
+                        NV chỉ bấm 2 lượt, lượt RA đã phủ luôn giờ tăng ca. Máy
+                        sẽ thêm <b>RA ca chính lúc hết ca</b> và{" "}
+                        <b>VÀO tăng ca {detail.ot_suggestion.from_time}</b>;
+                        lượt RA thật cuối ngày thành RA tăng ca (bấm ra là sự
+                        thật, phiếu là trần).
                       </p>
                       <div className="cc-adjust-action-row">
                         <button
@@ -1435,7 +1525,10 @@ function DayDetailModal({
                             />{" "}
                           </div>
                         </div>
-                        <label className="ns-check" style={{ alignSelf: "end" }}>
+                        <label
+                          className="ns-check"
+                          style={{ alignSelf: "end" }}
+                        >
                           <input
                             type="checkbox"
                             checked={otOutNext}
@@ -1543,7 +1636,7 @@ function DayDetailModal({
                       {busy ? (
                         <RefreshCw className="cc-animate-spin" size={14} />
                       ) : (
-                        "Thêm punch chấm bù"
+                        "Thêm chấm bù"
                       )}
                     </button>
                   </div>

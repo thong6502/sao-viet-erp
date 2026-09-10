@@ -741,7 +741,17 @@ export function BangLuongTab({
                     )}
                   </td>
                   <td>{l.department_name ?? "—"}</td>
-                  <td className="lg-num">{l.actual_cong}</td>
+                  {/* Công ngày LỄ / CHỦ NHẬT là gốc của hệ số Đ98.1.b/c — trước 09/09/2026 màn chỉ
+                      nói tổng công nên không ai thấy trong đó có bao nhiêu công hệ số. Không thêm
+                      cột (bảng đã rất rộng): đeo dấu • và nói rõ ở tooltip, file Excel có cột riêng. */}
+                  <td className="lg-num" title={
+                    (l.special_cong ?? 0) > 0
+                      ? `Tổng ${l.actual_cong} công, trong đó ${l.special_cong} công ngày lễ / nghỉ tuần (ăn hệ số)`
+                      : undefined
+                  }>
+                    {l.actual_cong}
+                    {(l.special_cong ?? 0) > 0 ? <span className="lg-cong-le"> •</span> : null}
+                  </td>
                   <td className="lg-num">{money(l.luong_cong)}</td>
                   <td className="lg-num">{money(l.chuyen_can)}</td>
                   <td className="lg-num">{money(l.allowance)}</td>

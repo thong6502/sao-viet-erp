@@ -5349,6 +5349,10 @@ export interface PayrollLine {
   luong_ngay_phep?: number;
   /** Số công phép CÓ lương đã được trả trong `luong_ngay_phep`. */
   paid_leave_cong?: number;
+  /** Công ngày LỄ + NGHỈ TUẦN có đi làm (⊂ `actual_cong`) — gốc của hệ số Đ98.1.b/c. */
+  special_cong?: number;
+  /** TRONG ĐÓ của `ot_pay`: tiền ngày `off1x` (trả 1× phẳng). Đừng cộng lại vào tổng. */
+  off1x_pay?: number;
   /** Công thiếu nhưng có đơn nghỉ theo giờ đã duyệt (được miễn phạt, giữ chuyên cần). */
   excused_cong?: number;
   chuyen_can: number;
@@ -5865,6 +5869,10 @@ export interface OtThieuCap {
   date: string;              // "YYYY-MM-DD"
   from_time: string;
   to_time: string;
+  /** MÃ tình trạng — băng cảnh báo tách "bù được 1 chạm" với "phải chấm bù ca chính trước"
+   *  (10/09/2026). `thieu_cap` = nút Xác nhận TC làm được; `khong_cham` = ngày trắng lượt bấm,
+   *  bù được nhưng phải xác nhận riêng; `treo` = thiếu RA ca chính, phải chấm bù trước. */
+  ma?: "thieu_cap" | "khong_cham" | "treo";
   ly_do: string;
 }
 
@@ -6007,7 +6015,9 @@ export interface OtConfirmCandidate {
   to_next_day: boolean;
   /** thieu_cap (xác nhận được) | da_co | treo | khong_cham | chua_gan_ca */
   tinh_trang: "thieu_cap" | "da_co" | "treo" | "khong_cham" | "chua_gan_ca";
-  kieu: "bu_cap" | "tach_phien" | null;
+  /** `chi_cap_tc` = ngày trắng lượt bấm: chỉ sinh CẶP TĂNG CA theo phiếu, ngày đó không có công
+   *  ca chính ⇒ phải xác nhận riêng (`cho_phep_ngay_trang`). */
+  kieu: "bu_cap" | "tach_phien" | "chi_cap_tc" | null;
   punches: OtConfirmPunch[];
 }
 export interface OtConfirmCandidates {
@@ -6021,6 +6031,9 @@ export interface OtConfirmInput {
   /** Giờ RA tăng ca thực tế — chỉ có nghĩa khi xác nhận MỘT người kiểu `bu_cap`. */
   to_time?: string | null;
   to_next_day?: boolean;
+  /** HCNS đã xác nhận riêng cho người KHÔNG bấm lượt nào cả ngày: chỉ sinh cặp TĂNG CA theo phiếu,
+   *  chấp nhận ngày đó không có công ca chính. Thiếu cờ thì những người ấy bị bỏ qua. */
+  cho_phep_ngay_trang?: boolean;
 }
 export interface OtConfirmResult {
   done: { employee_id: number; employee_name: string; kieu: string; punches: OtConfirmPunch[] }[];
