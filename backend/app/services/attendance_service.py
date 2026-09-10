@@ -1643,6 +1643,11 @@ class AttendanceService:
                         cell["ot_thieu_cap"] = True
                         ot_thieu_cap.append({
                             "day": d, "from_minute": phieu_tc[0], "to_minute": phieu_tc[1],
+                            # `ma` = mã tình trạng, để băng cảnh báo tách "bù được 1 chạm" với
+                            # "phải chấm bù ca chính trước" (chủ 10/09/2026 — trước đó băng mời bấm
+                            # nút Xác nhận TC cho cả người mà nút KHÔNG bù được, vào tới nơi thì ô
+                            # tích mờ, không ai biết phải làm gì).
+                            "ma": "treo" if not sessions else "thieu_cap",
                             "ly_do": ("thiếu bấm RA ca chính (ngày treo)" if not sessions
                                       else "thiếu cặp bấm tăng ca")})
                     hours = None
@@ -1650,8 +1655,11 @@ class AttendanceService:
                         hours = self._gio_lam(first_in, last_out, shift, date(year, month, d))
                         total_hours += hours
                     total_days += 1
-                    if main_out is None:
-                        hanging += 1  # thiếu chấm RA ca chính → ngày treo (cảnh báo trước khi Chốt)
+                    if main_out is None and not chi_tc:
+                        # NGÀY TREO = có bấm VÀO ca chính mà thiếu bấm RA. Ngày CHỈ CÓ TĂNG CA (thợ
+                        # được gọi riêng buổi tối) không có ca chính để mà treo — đếm nó là treo thì
+                        # kỳ công bị CHẶN CHỐT vì một ngày hoàn toàn bình thường (chủ 10/09/2026).
+                        hanging += 1
                     cell.update(first_in=first_in.strftime("%H:%M"),
                                 last_out=last_out.strftime("%H:%M") if last_out else None,
                                 hours=hours, present=True)
@@ -1806,6 +1814,7 @@ class AttendanceService:
                         cell["ot_thieu_cap"] = True
                         ot_thieu_cap.append({
                             "day": d, "from_minute": phieu_tc[0], "to_minute": phieu_tc[1],
+                            "ma": "khong_cham",
                             "ly_do": "không có lượt bấm nào trong ngày"})
                 elif (self._work_calendar is not None
                       and not self._work_calendar.is_working_day(date(year, month, d))):
@@ -1943,7 +1952,8 @@ class AttendanceService:
                     "employee_id": r["employee_id"], "employee_name": r["employee_name"],
                     "date": date(year, month, int(x["day"])).isoformat(),
                     "from_time": min_to_hhmm(int(x["from_minute"]) % 1440),
-                    "to_time": min_to_hhmm(int(x["to_minute"]) % 1440), "ly_do": x["ly_do"]})
+                    "to_time": min_to_hhmm(int(x["to_minute"]) % 1440),
+                    "ma": x.get("ma") or "thieu_cap", "ly_do": x["ly_do"]})
         payroll_locked = False
         if self._payroll is not None:
             pp = self._payroll.get_period_by_ym(year, month)
@@ -2572,17 +2582,30 @@ class AttendanceService:
             sessions = pair_sessions([(lc, lg.check_type) for lc, lg in punches])
             otw = (int(t.from_minute), int(t.to_minute))
             kieu = None
-            if not punches:
-                tinh_trang = "khong_cham"
-            elif shift is None:
+            if shift is None:
+                # Hỏi CA trước lượt bấm: chưa gán ca thì không sinh punch được (chấm bù đòi ca của
+                # ngày đó), mà nhánh dưới lại mời sinh cặp ⇒ cả mẻ vỡ vì một người. (10/09/2026)
                 tinh_trang = "chua_gan_ca"
+            elif not punches:
+                # Ngày TRẮNG lượt bấm: máy KHÔNG suy được ca chính, nhưng vẫn sinh được cặp TĂNG CA
+                # theo phiếu — đúng ca thợ chỉ bị gọi riêng buổi tối. Ngày đó sẽ không có công ca
+                # chính, nên đường này bắt HCNS xác nhận riêng (`cho_phep_ngay_trang`), 10/09/2026.
+                tinh_trang = "khong_cham"
+                kieu = "chi_cap_tc"
             elif not sessions:
                 tinh_trang = "treo"
-            elif len(sessions) >= 2:
-                tinh_trang = "da_co"
             else:
-                tinh_trang = "thieu_cap"
-                kieu = self._cap_bam_theo_phieu(shift, sessions[0], otw, the_day)["kieu"]
+                # PHIÊN TĂNG CA = phiên sau ca chính, TRỪ ngày chỉ-có-tăng-ca (thợ được gọi riêng
+                # buổi tối) thì chính phiên đầu là tăng ca. Đếm `len(sessions) >= 2` như trước là
+                # sai đúng ngày vừa bù xong bằng nút này: ngày chỉ còn cặp TC 17:30–19:30 lại bị
+                # gọi là "thiếu cặp bấm TC" và mời tách phiên (chủ 10/09/2026). Cùng một luật với
+                # băng cảnh báo ở bảng công tháng.
+                chi_tc = self._phien_chi_tang_ca(shift, sessions, otw, the_day)
+                if sessions if chi_tc else sessions[1:]:
+                    tinh_trang = "da_co"
+                else:
+                    tinh_trang = "thieu_cap"
+                    kieu = self._cap_bam_theo_phieu(shift, sessions[0], otw, the_day)["kieu"]
             out.append({
                 "ticket_id": t.id, "employee_id": emp.id, "employee_code": emp.code,
                 "employee_name": emp.full_name, "department_id": emp.department_id,
@@ -2598,11 +2621,16 @@ class AttendanceService:
         return out
 
     def xac_nhan_tc_theo_phieu(self, *, actor, scope, the_day: date, employee_ids, reason=None,
-                               to_time: str | None = None, to_next_day: bool = False) -> dict:
+                               to_time: str | None = None, to_next_day: bool = False,
+                               cho_phep_ngay_trang: bool = False) -> dict:
         """Sinh cặp bấm tay theo phiếu TC đã duyệt cho các NV THIẾU cặp (1.5 — 07/09/2026). Ai không
-        thiếu (đã có / không đi làm / treo / ngoài phạm vi) thì BỎ QUA có lý do, không vỡ cả mẻ.
-        `to_time` = giờ RA thực tế (chỉ dùng cho kiểu `bu_cap` — thợ về sớm hơn phiếu thì trả theo
-        thật); bỏ trống = cuối phiếu. Mọi lượt sinh ra là punch tay có audit, `fault_party = duyet`."""
+        thiếu (đã có / treo / ngoài phạm vi) thì BỎ QUA có lý do, không vỡ cả mẻ.
+        `to_time` = giờ RA thực tế (chỉ dùng cho kiểu `bu_cap`/`chi_cap_tc` — thợ về sớm hơn phiếu
+        thì trả theo thật); bỏ trống = cuối phiếu.
+        `cho_phep_ngay_trang` = HCNS đã XÁC NHẬN RIÊNG cho ngày trắng lượt bấm: máy chỉ sinh CẶP
+        TĂNG CA theo phiếu, ngày đó KHÔNG có công ca chính (10/09/2026). Không có cờ thì bỏ qua —
+        thợ làm cả ngày mà quên bấm sạch, tự sinh mỗi cặp TC là chôn luôn công ca chính.
+        Mọi lượt sinh ra là punch tay có audit, `fault_party = duyet`."""
         self._require_not_future(the_day, "xác nhận tăng ca theo phiếu")
         self._require_period_open(the_day, "xác nhận tăng ca theo phiếu")
         ra_thuc = None
@@ -2619,18 +2647,26 @@ class AttendanceService:
                 skipped.append({"employee_id": eid, "employee_name": None,
                                 "reason": "không có phiếu tăng ca đã duyệt trong phạm vi của bạn"})
                 continue
-            if c["tinh_trang"] != "thieu_cap":
+            if c["tinh_trang"] not in ("thieu_cap", "khong_cham"):
                 skipped.append({"employee_id": eid, "employee_name": c["employee_name"],
                                 "reason": _LY_DO_TINH_TRANG.get(c["tinh_trang"], c["tinh_trang"])})
+                continue
+            if c["tinh_trang"] == "khong_cham" and not cho_phep_ngay_trang:
+                skipped.append({"employee_id": eid, "employee_name": c["employee_name"],
+                                "reason": "không bấm lượt nào cả ngày — phải xác nhận riêng "
+                                          "(ngày đó sẽ không có công ca chính)"})
                 continue
             emp = self.employees.get_by_id(eid)
             shift = self._shift_for_day(emp, the_day)
             sessions = pair_sessions([(lc, lg.check_type)
                                       for lc, lg in self._day_punches(emp, shift, the_day)])
             otw = (int(c["from_minute"]), int(c["to_minute"]))
-            goi_y = self._cap_bam_theo_phieu(shift, sessions[0], otw, the_day)
+            if not sessions:      # ngày trắng đã được xác nhận riêng ⇒ CHỈ cặp tăng ca theo phiếu
+                goi_y = {"kieu": "chi_cap_tc", "punches": [(CHECK_IN, otw[0]), (CHECK_OUT, otw[1])]}
+            else:
+                goi_y = self._cap_bam_theo_phieu(shift, sessions[0], otw, the_day)
             punches = goi_y["punches"]
-            if goi_y["kieu"] == "bu_cap" and ra_thuc is not None:
+            if goi_y["kieu"] in ("bu_cap", "chi_cap_tc") and ra_thuc is not None:
                 if ra_thuc <= otw[0]:
                     skipped.append({"employee_id": eid, "employee_name": c["employee_name"],
                                     "reason": "giờ ra thực tế phải sau giờ bắt đầu phiếu"})
@@ -2665,8 +2701,14 @@ class AttendanceService:
         first_in = ins[0] if ins else (punches[0][0] if punches else None)
         last_out = outs[-1] if outs else None
         # Ghép phiên: phiên 0 = ca chính (tính công), phiên 1.. = tăng ca (cặp chấm riêng).
+        # TRỪ ngày CHỈ CÓ TĂNG CA (thợ được gọi riêng buổi tối): phiên đầu chính là tăng ca, không có
+        # ca chính nào để mà "vào trễ". Trước 10/09/2026 ô ngày không hỏi luật này nên ngày chỉ-có-TC
+        # hiện "Công 0 · ⚠ Vào trễ quá dung sai" và vẫn mời "Tách phiên theo phiếu" dù đã đủ cặp.
+        otw = self._ot_window_on(emp, the_day)
         sessions = pair_sessions([(lc, lg.check_type) for lc, lg in punches])
-        main_out = sessions[0][1] if sessions else None
+        chi_tc = self._phien_chi_tang_ca(shift, sessions, otw, the_day)
+        phien_tc = sessions if chi_tc else sessions[1:]
+        main_out = None if chi_tc else (sessions[0][1] if sessions else None)
         cong = reason = None
         if shift is not None and first_in is not None:
             info = compute_day_cong(
@@ -2678,13 +2720,16 @@ class AttendanceService:
                 main_out_offset=((main_out.date() - the_day).days if main_out else None),
                 ot_sessions=[(a.hour * 60 + a.minute, b.hour * 60 + b.minute,
                               (a.date() - the_day).days, (b.date() - the_day).days)
-                             for a, b in sessions[1:]] or None,
-                ot_window=self._ot_window_on(emp, the_day),
+                             for a, b in phien_tc] or None,
+                ot_window=otw,
+                main_absent=chi_tc,
                 break_start_min=getattr(shift, "break_start_minute", None),
                 break_end_min=getattr(shift, "break_end_minute", None),
             )
             cong = info["cong"]
-            if info["incomplete"]:
+            if chi_tc:
+                reason = "Ngày chỉ có tăng ca theo phiếu — không có ca chính"
+            elif info["incomplete"]:
                 reason = "Chưa chấm RA ca chính"
             elif info["cong"] < 1.0:
                 reason = ("Vào trễ và về sớm" if info["late"] and info["early"]
@@ -2696,8 +2741,7 @@ class AttendanceService:
         # phiên tăng ca (thiếu cặp chấm) → HCNS bấm 1 nút (`xac_nhan_tc_theo_phieu`). Phiếu vắt nửa
         # đêm cũng gợi ý (07/09/2026): mốc ≥ 1440 đánh dấu `*_next_day`. `kieu` nói máy sẽ thêm gì.
         ot_suggestion = None
-        otw = self._ot_window_on(emp, the_day)
-        if otw is not None and len(sessions) == 1 and shift is not None:
+        if otw is not None and shift is not None and sessions and not phien_tc:
             goi_y = self._cap_bam_theo_phieu(shift, sessions[0], otw, the_day)
             ot_suggestion = {"from_time": min_to_hhmm(otw[0] % 1440),
                              "to_time": min_to_hhmm(otw[1] % 1440),
