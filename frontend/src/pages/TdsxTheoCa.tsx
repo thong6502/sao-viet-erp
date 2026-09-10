@@ -299,7 +299,7 @@ export function TdsxTheoCa({
         // đúng (vòng sửa 1, mục D#1: trước đây xoá ô Ngày thì 6 việc cũ vẫn sáng rõ như thường).
         <div className={`tdsx-tc__list${loading || ngayKhongXemDuoc ? " is-mo" : ""}`}>
           {caList.map((ca) => (
-            <CaSection key={ca.id ?? "ngoai"} ca={ca} onOpenHoSo={onOpenHoSo} onChon={moPicker} />
+            <CaSection key={ca.id ?? "ngoai"} ca={ca} ngayStr={ngay} onOpenHoSo={onOpenHoSo} onChon={moPicker} />
           ))}
         </div>
       )}
@@ -309,32 +309,118 @@ export function TdsxTheoCa({
   );
 }
 
+function checkShiftActive(ca: TdsxCa, ngayStr: string): boolean {
+  if (ngayStr !== homNay()) return false;
+  if (ca.bat_dau_phut == null || ca.ket_thuc_phut == null) return false;
+  const now = new Date();
+  const nowPhut = now.getHours() * 60 + now.getMinutes();
+
+  if (ca.qua_nua_dem) {
+    if (ca.bat_dau_phut <= ca.ket_thuc_phut) {
+      return nowPhut >= ca.bat_dau_phut && nowPhut <= ca.ket_thuc_phut;
+    }
+    return nowPhut >= ca.bat_dau_phut || nowPhut <= ca.ket_thuc_phut;
+  }
+  return nowPhut >= ca.bat_dau_phut && nowPhut <= ca.ket_thuc_phut;
+}
+
+function getShiftProgress(ca: TdsxCa): number | null {
+  if (ca.bat_dau_phut == null || ca.ket_thuc_phut == null) return null;
+  const now = new Date();
+  const nowPhut = now.getHours() * 60 + now.getMinutes();
+
+  let start = ca.bat_dau_phut;
+  let end = ca.ket_thuc_phut;
+  if (ca.qua_nua_dem && end < start) {
+    end += 1440;
+  }
+  let current = nowPhut;
+  if (ca.qua_nua_dem && current < start) {
+    current += 1440;
+  }
+
+  const duration = end - start;
+  if (duration <= 0) return null;
+  const elapsed = current - start;
+  const pct = Math.max(0, Math.min(100, Math.round((elapsed / duration) * 100)));
+  return pct;
+}
+
 function CaSection({
   ca,
+  ngayStr,
   onOpenHoSo,
   onChon,
 }: {
   ca: TdsxCa;
+  ngayStr: string;
   onOpenHoSo: (lsxId: number) => void;
   onChon: (ds: TdsxLsxThamChieu[], x: number, y: number) => void;
 }) {
+  const [expanded, setExpanded] = useState(ca.viec.length > 0);
   const khung = khungGio(ca);
+  const isActive = checkShiftActive(ca, ngayStr);
+  const isNight = ca.qua_nua_dem;
+  const hasViec = ca.viec.length > 0;
+  const progressPct = isActive ? getShiftProgress(ca) : null;
+
   return (
-    <section className="tdsx-tc__ca" aria-label={`Ca ${ca.ten}`}>
-      <header className="tdsx-tc__cahead">
-        <span className="tdsx-tc__caten">{ca.ten}</span>
-        {khung && <span className="tdsx-tc__cakhung">{khung}</span>}
-        <span className="tdsx-tc__can">{num(ca.viec.length)} việc</span>
+    <section
+      className={`tdsx-tc__ca${isActive ? " is-active-shift" : ""}${!hasViec && !expanded ? " is-compact-empty" : ""}`}
+      aria-label={`Ca ${ca.ten}`}
+    >
+      <header
+        className="tdsx-tc__cahead"
+        onClick={() => {
+          if (!hasViec) setExpanded((v) => !v);
+        }}
+        style={{ cursor: !hasViec ? "pointer" : "default" }}
+      >
+        <div className="tdsx-tc__cahead-left">
+          <span className="tdsx-tc__ca-icon">
+            <Icon name={isNight ? "clock" : "calendar"} size={14} />
+          </span>
+          <span className="tdsx-tc__caten">{ca.ten}</span>
+          {khung && <span className="tdsx-tc__cakhung">{khung}</span>}
+          {isActive && (
+            <span className="tdsx-tc__live-badge">
+              <span className="tdsx-live-dot" /> ĐANG DIỄN RA
+              {progressPct != null ? ` (${progressPct}%)` : ""}
+            </span>
+          )}
+        </div>
+        <div className="tdsx-tc__cahead-right">
+          <span className={`tdsx-tc__can${hasViec ? " is-has-viec" : ""}`}>
+            {num(ca.viec.length)} việc
+          </span>
+          {!hasViec && (
+            <span className="tdsx-tc__toggle-icon">
+              <Icon name="chevron" size={14} />
+            </span>
+          )}
+        </div>
       </header>
-      <div className="tdsx-tc__body">
-        {ca.viec.length === 0 ? (
-          <p className="tdsx-tc__rong">Không có việc nào trong ca này.</p>
-        ) : (
-          ca.viec.map((v) => (
-            <ViecRow key={v.cong_viec_id} viec={v} onOpenHoSo={onOpenHoSo} onChon={onChon} />
-          ))
-        )}
-      </div>
+      {isActive && progressPct != null && (
+        <div className="tdsx-tc__progress-track" title={`Tiến độ ca: ${progressPct}%`}>
+          <div className="tdsx-tc__progress-fill" style={{ width: `${progressPct}%` }} />
+        </div>
+      )}
+      {(hasViec || expanded) && (
+        <div className="tdsx-tc__body">
+          {ca.viec.length === 0 ? (
+            <div className="tdsx-tc__empty-slot">
+              <span className="tdsx-tc__empty-icon">
+                <Icon name="calendar" size={14} />
+              </span>
+              <span className="tdsx-tc__empty-text">Không có công việc nào được xếp trong ca này.</span>
+            </div>
+          ) : (
+            ca.viec.map((v) => (
+              <ViecRow key={v.cong_viec_id} viec={v} onOpenHoSo={onOpenHoSo} onChon={onChon} />
+            ))
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -353,8 +439,6 @@ function ViecRow({
   const nhieuLenh = viec.lsx.length >= 2;
   const maChinh = viec.lsx[0]?.ma ?? null;
 
-  // Cùng luật C123 với khối của tab Theo máy: 1 lệnh mở thẳng, ≥2 lệnh BẮT BUỘC hỏi. Việc không
-  // gắn lệnh nào (dữ liệu lỗi) thì dòng vẫn hiện nhưng không bấm được — không bịa một đích đến.
   function bam(e: React.MouseEvent<HTMLButtonElement>) {
     if (viec.lsx.length === 0) return;
     if (viec.lsx.length === 1) {
@@ -368,7 +452,7 @@ function ViecRow({
   return (
     <button
       type="button"
-      className="tdsx-tc__viec"
+      className={`tdsx-tc__viec tdsx-tc__viec--${viec.trang_thai ?? "released"}`}
       onClick={bam}
       disabled={viec.lsx.length === 0}
       title={
@@ -380,7 +464,9 @@ function ViecRow({
       }
     >
       <div className="tdsx-tc__viecrow1">
-        <span className="tdsx-tc__vma">{nhieuLenh ? `${maChinh} +${viec.lsx.length - 1}` : (maChinh ?? "—")}</span>
+        <span className="tdsx-tc__code-pill">
+          <span className="tdsx-tc__vma">{nhieuLenh ? `${maChinh} +${viec.lsx.length - 1}` : (maChinh ?? "—")}</span>
+        </span>
         <span className="tdsx-tc__vten">{viec.ten ?? "—"}</span>
         <span className={`tdsx-tt ${meta.cls}`}>
           <i aria-hidden="true" />
@@ -388,13 +474,22 @@ function ViecRow({
         </span>
       </div>
       <div className="tdsx-tc__viecrow2">
-        <span className="tdsx-tc__vmay" title={viec.may}>
-          {viec.may}
+        {viec.may && (
+          <span className="tdsx-tc__vpill" title={viec.may}>
+            <Icon name="cpu" size={12} />
+            <span>{viec.may}</span>
+          </span>
+        )}
+        <span className="tdsx-tc__vpill" title={nguoi.full}>
+          <Icon name="users" size={12} />
+          <span>{nguoi.text}</span>
         </span>
-        <span aria-hidden="true">·</span>
-        <span title={nguoi.full}>{nguoi.text}</span>
-        <span aria-hidden="true">·</span>
-        <span>Dự kiến {gioTrongNgay(viec.du_kien_bat_dau)}</span>
+        {viec.du_kien_bat_dau && (
+          <span className="tdsx-tc__vpill">
+            <Icon name="clock" size={12} />
+            <span>Dự kiến {gioTrongNgay(viec.du_kien_bat_dau)}</span>
+          </span>
+        )}
         <ChipLoaiBuoc loai_buoc={viec.nhan?.loai_buoc} nha_cung_cap={viec.nhan?.nha_cung_cap} />
         <ChipKhuon can_khuon={!!viec.nhan?.khuon_ma} khuon={nhanKhuon(viec.nhan)} />
       </div>

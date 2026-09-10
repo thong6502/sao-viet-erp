@@ -4,7 +4,6 @@ Mirror test_kho_hang: mã KB-#### sinh ngầm, xóa mềm giữ `ma` (unique) �
 dùng đúng hàng khi mã trùng thay vì 409. Self-contained in-memory DB.
 """
 import pytest
-from datetime import date
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -28,8 +27,7 @@ def _svc():
 
 def test_create_and_validate():
     db, svc = _svc()
-    k = svc.create(dict(ma="KB-0001", ten="Khuôn hộp bánh A", so_ke="Kệ B3",
-                        ngay_ve_du_kien=date(2026, 1, 5)))
+    k = svc.create(dict(ma="KB-0001", ten="Khuôn hộp bánh A", so_ke="Kệ B3"))
     assert k.id and k.ma == "KB-0001" and k.active is True
     assert k.so_ke == "Kệ B3" and k.tinh_trang == "dang_dung"
     with pytest.raises(KhuonBeValidationError):            # thiếu tên
@@ -121,18 +119,19 @@ def test_loc_va_dem_theo_tinh_trang():
 # --- Nối vào bước lệnh sản xuất (mg 0205, 16/08/2026) ---------------------------
 
 
-def test_ngay_ve_du_kien_THUC_SU_duoc_luu():
-    """🔴 Lỗi có sẵn, sửa 16/08/2026: `ngay_ve_du_kien` KHÔNG nằm trong `KhuonBeRepository.fields`
-    — danh sách cột client được phép ghi. Form có ô, service BẮT BUỘC khai khi chọn "đang đặt
-    làm", người dùng gõ vào, validate qua… rồi `_gan` bỏ qua và lưu ra NULL. Hỏng câm, không lỗi.
+def test_dang_dat_lam_KHONG_con_doi_ngay():
+    """🔴 mg `0293` (10/09/2026): ô "Ngày có khuôn (dự kiến)" GỠ HẲN, kèm luôn ràng buộc cứng
+    "đang đặt làm thì phải khai ngày" ở `_validate`.
 
-    Mất cột này là mất luôn thứ duy nhất đáng hỏi ở nhánh "làm dao mới": chờ tới bao giờ.
+    Ngày đó không cắm vào phép tính nào (cửa sẵn-sàng-lập-kế-hoạch chỉ soi bước đã CHỌN dao chưa,
+    xếp lịch/phát hành không đọc), nên nó chỉ bắt người lập lệnh bịa một con số rồi để đó lạc hậu.
+    Bài này canh đúng chỗ đó: lưu "đang đặt làm" mà không ngày nào phải ĐI QUA, không ném lỗi.
     """
     db, svc = _svc()
-    k = svc.create(dict(ten="Khuôn hộp mới", tinh_trang="dang_dat_lam",
-                        ngay_ve_du_kien=date(2026, 8, 20)))
+    k = svc.create(dict(ten="Khuôn hộp mới", tinh_trang="dang_dat_lam"))
     db.expire_all()                                   # đọc lại từ DB, không lấy bản trong bộ nhớ
-    assert svc.get(k.id).ngay_ve_du_kien == date(2026, 8, 20)
+    assert svc.get(k.id).tinh_trang == "dang_dat_lam"
+    assert not hasattr(svc.get(k.id), "ngay_ve_du_kien")
 
 
 def test_khach_va_loai_duoc_luu_va_loc_duoc():

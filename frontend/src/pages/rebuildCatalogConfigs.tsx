@@ -849,13 +849,6 @@ export const TINH_TRANG_KHUON: Lbls = {
   thanh_ly: "Thanh lý",
 };
 
-// Ngày ISO (yyyy-mm-dd) → dd/mm/yyyy để đọc; rỗng → để trống.
-const fmtDate = (v: unknown): string => {
-  const s = String(v ?? "").slice(0, 10);
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
-};
-
 // Khai báo KHUÔN BẾ — master data NHẸ, khai TAY. Mỗi khuôn làm riêng cho hình bế của 1
 // ấn phẩm; đơn lặp lại thì lôi khuôn cũ ra dùng. Chỉ đủ để TÌM LẠI: số kệ (vị trí lưu) +
 // tình trạng. Ref ấn phẩm/khách hàng đấu sau. Mã KB-#### tự sinh; xóa mềm giữ dấu vết.
@@ -878,13 +871,9 @@ export const CFG_KHUON_BE: CatalogConfig = {
       render: (r) => (r.khach_hang_ten ? String(r.khach_hang_ten) : "") },
     { key: "loai", label: "Loại", render: (r) => (r.loai ? lbl(LOAI_KHUON)(r.loai) : "") },
     { key: "so_ke", label: "Số kệ", render: (r) => (r.so_ke ? String(r.so_ke) : "") },
-    // MỘT ngày duy nhất từ mg `0207` (gộp `ngay_lam_khuon` vào đây) — dao đã có thì là ngày nó
-    // về / làm xong, dao đang làm thì là ngày dự kiến. Thêm chữ "dự kiến" cho ca sau để không ai
-    // đọc nhầm một con số tương lai thành chuyện đã rồi.
-    { key: "ngay_ve_du_kien", label: "Ngày có khuôn",
-      render: (r) => (r.tinh_trang === "dang_dat_lam"
-        ? `dự kiến ${fmtDate(r.ngay_ve_du_kien)}`
-        : fmtDate(r.ngay_ve_du_kien)) },
+    // 🔴 Cột "Ngày có khuôn" ĐÃ GỠ (mg `0293`, 10/09/2026) — kho khuôn nay KHÔNG còn ô ngày nào.
+    // Ngày dự kiến không cắm vào phép tính nào (xem `docs/DB_SCHEMA.md` mục `khuon_be`), chỉ bắt
+    // người khai bịa một con số rồi để đó lạc hậu. "Đang đặt làm" ở cột Tình trạng là đủ.
     { key: "tinh_trang", label: "Tình trạng", render: (r) => lbl(TINH_TRANG_KHUON)(r.tinh_trang) },
   ],
   fields: [
@@ -900,12 +889,11 @@ export const CFG_KHUON_BE: CatalogConfig = {
       hint: "Bước “Ép nhũ” chỉ thấy dao ép, bước “Bế” chỉ thấy dao bế, bước lụa chỉ thấy khung lụa." },
     { key: "so_ke", label: "Số kệ / vị trí lưu", type: "text", group: "Lưu trữ",
       hint: "Nơi cất khuôn, vd: Kệ B3 — xưởng sau in. Thợ đọc đúng ô này để đi lấy." },
+    // Ô ngày đi kèm ĐÃ GỠ cùng mg `0293`: tình trạng là thứ DUY NHẤT kho khuôn nói về "dao đã có
+    // trong tay chưa", và nó có người chịu trách nhiệm cập nhật — khác hẳn một ngày khai một lần.
     { key: "tinh_trang", label: "Tình trạng", type: "select", group: "Lưu trữ",
-      options: mapOpt(TINH_TRANG_KHUON), default: "dang_dung" },
-    // "Ngày có khuôn" chứ không phải "ngày về": chữ "về" ngầm giả định thuê ngoài, mà xưởng tự làm
-    // dao thì không "về" đâu cả — nó làm xong. Một ô, hai đường, một tên trung tính.
-    { key: "ngay_ve_du_kien", label: "Ngày có khuôn (dự kiến)", type: "date", group: "Lưu trữ",
-      hint: "Thuê ngoài thì là ngày về; xưởng tự làm thì là ngày làm xong. Bắt buộc khi tình trạng là “Đang đặt làm” — bước dùng khuôn ở Lệnh sản xuất hiện ngày này để biết chờ tới bao giờ." },
+      options: mapOpt(TINH_TRANG_KHUON), default: "dang_dung",
+      hint: "“Đang đặt làm” = dao chưa nằm trong tay xưởng; bước dùng dao ở Lệnh sản xuất đọc đúng chữ này để biết chưa chạy được. Lấy được dao rồi thì đổi sang “Đang dùng”." },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Lưu trữ" },
   ],
 };

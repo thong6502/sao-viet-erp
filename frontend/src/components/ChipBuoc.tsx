@@ -40,16 +40,8 @@ export interface KhuonChip {
   ten?: string | null;
   so_ke?: string | null;
   tinh_trang?: string | null;
-  /** ISO `yyyy-mm-dd`. Mọi nguồn backend `.isoformat()` trước khi trả. */
-  ngay_ve_du_kien?: string | null;
   /** Tổ đã tích "đã nhận khuôn" — chỉ có nghĩa ở các màn xưởng. */
   da_nhan?: boolean;
-}
-
-/** `yyyy-mm-dd` → `dd/mm`. Rỗng / sai định dạng → chuỗi rỗng, KHÔNG bịa ngày. */
-function ngayNgan(v?: string | null): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v ?? ""));
-  return m ? `${m[3]}/${m[2]}` : "";
 }
 
 export function ChipKhuon({
@@ -73,9 +65,9 @@ export function ChipKhuon({
     cls = "nhan";
     chu = `${khuon.ma} · đã nhận`;
   } else if (khuon.tinh_trang === "dang_dat_lam") {
-    const ng = ngayNgan(khuon.ngay_ve_du_kien);
+    // Không còn ngày dự kiến (mg `0293` gỡ cột): chip nói ĐÚNG cái hệ biết — dao chưa trong tay.
     cls = "cho";
-    chu = ng ? `${khuon.ma} · dự kiến ${ng}` : `${khuon.ma} · chưa có ngày`;
+    chu = `${khuon.ma} · đang đặt làm`;
   } else {
     const ke = (khuon.so_ke ?? "").trim();
     chu = ke ? `${khuon.ma} · ${ke}` : String(khuon.ma);
@@ -95,7 +87,6 @@ export interface NhanBuoc {
   khuon_ma?: string | null;
   khuon_so_ke?: string | null;
   khuon_tinh_trang?: string | null;
-  khuon_ngay_ve?: string | null;
   khuon_da_nhan?: boolean;
 }
 
@@ -106,7 +97,6 @@ export function nhanKhuon(n?: NhanBuoc | null): KhuonChip {
     ma: n?.khuon_ma ?? null,
     so_ke: n?.khuon_so_ke ?? null,
     tinh_trang: n?.khuon_tinh_trang ?? null,
-    ngay_ve_du_kien: n?.khuon_ngay_ve ?? null,
     da_nhan: n?.khuon_da_nhan ?? false,
   };
 }
@@ -120,12 +110,11 @@ export function nhanTomTat(n?: NhanBuoc | null): string {
     ra.push(cu ? `Ngoài · ${cu}` : "Thuê ngoài");
   }
   if (n?.khuon_ma) {
-    const ng = ngayNgan(n.khuon_ngay_ve);
     ra.push(
       n.khuon_da_nhan
         ? `${n.khuon_ma} · đã nhận`
         : n.khuon_tinh_trang === "dang_dat_lam"
-          ? `${n.khuon_ma} · ${ng ? `dự kiến ${ng}` : "chưa có ngày"}`
+          ? `${n.khuon_ma} · đang đặt làm`
           : `${n.khuon_ma}${(n.khuon_so_ke ?? "").trim() ? ` · ${n.khuon_so_ke}` : ""}`,
     );
   }

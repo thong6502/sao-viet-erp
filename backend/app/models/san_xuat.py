@@ -29,7 +29,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint,
+    DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint,
     false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -188,8 +188,18 @@ class SanXuatCongViec(Base):
     thời gian/ca dự kiến, định mức + đơn vị + `khoan_json`, dữ liệu vật tư. Neo công đoạn nguồn
     bằng `step_key` + id LỎNG (không FK — replace_routing tái sinh id; xem docstring module).
 
-    `phien_ban_so` cho biết snapshot thuộc phiên bản nào — cập nhật lịch đẻ dòng mới ở phiên bản
-    mới, KHÔNG sửa đè dòng cũ (giữ lịch sử)."""
+    `phien_ban_so` cho biết snapshot thuộc phiên bản nào. CẨN THẬN — dòng này KHÔNG được đẻ mới
+    theo phiên bản: `release_update.phat_hanh_cap_nhat` SỬA ĐÈ tại chỗ rồi nâng `phien_ban_so`.
+    (Docstring cũ hứa ngược lại, sai từ đầu; sửa 10/09/2026.) Đè tại chỗ là CỐ Ý: `cong_viec.id`
+    đang bị `san_xuat_phu_thuoc`, phân công, hỗ trợ, batch, bàn giao, KCS trỏ tới, đẻ dòng mới là
+    phải trỏ lại hết VÀ mọi đường đọc phải mọc thêm bộ lọc `phien_ban_so`.
+
+    Hệ quả: bản CŨ của lịch không còn trong dòng này. Nó được chép sang `SanXuatCongViecLichSu`
+    NGAY TRƯỚC lúc đè — đó là chỗ duy nhất còn lịch sử, và chỉ có tác dụng từ 10/09/2026 trở đi.
+
+    Chỉ việc CHƯA BẮT ĐẦU mới bị tái chụp, nên việc đã chạy ở lại `phien_ban_so` cũ: đừng lọc
+    `phien_ban_so = version_hien_tai` để lấy "các việc đang hiệu lực" — lọc thế là mất sạch việc
+    đang chạy. Lọc theo `goi_id`."""
 
     __tablename__ = "san_xuat_cong_viec"
 
@@ -281,11 +291,13 @@ class SanXuatCongViec(Base):
     nha_cung_cap: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # KHUÔN/KHUNG của bước — ảnh chụp cùng kiểu với `vat_tu_json`. CHỤP chứ không tra sống: tổ phải
     # thấy đúng con dao đã chốt lúc phát hành, kể cả khi kế hoạch đổi dao sau đó.
-    # {"id","ma","ten","loai","so_ke","tinh_trang","ngay_ve_du_kien"} · NULL = bước không trỏ dao.
+    # {"id","ma","ten","loai","so_ke","tinh_trang"} · NULL = bước không trỏ dao. (`ngay_ve_du_kien`
+    # đã gỡ ở mg `0293`; ảnh chụp CŨ còn khoá đó, không ai đọc nữa.)
     khuon_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Tổ tích "đã nhận khuôn" — ĐIỂM CHẶN DUY NHẤT của luật "bế phải có khuôn mới làm được". Không
-    # chặn ở xếp lịch: ngày dự kiến có khuôn không đủ tin để chặn ai (chốt 04/09/2026), còn ở đây
-    # thì người đứng máy đang cầm con dao trong tay nên cái tích là sự thật.
+    # chặn ở xếp lịch: không mốc nào ở kho khuôn đủ tin để chặn ai (chốt 04/09/2026 — và tới
+    # 10/09/2026 thì ngày dự kiến bị gỡ hẳn), còn ở đây thì người đứng máy đang cầm con dao trong
+    # tay nên cái tích là sự thật.
     khuon_nhan_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     khuon_nhan_by_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Trả dao về kệ — KHÔNG chặn gì, chỉ để hệ thống không mất dấu con dao sau khi nó rời kệ.
@@ -305,6 +317,53 @@ class SanXuatCongViec(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
+
+
+class SanXuatCongViecLichSu(Base):
+    """Ảnh chụp LỊCH CŨ của một công việc, ghi NGAY TRƯỚC khi `phat_hanh_cap_nhat` đè lên.
+
+    Vì sao có bảng này: `SanXuatCongViec` sửa đè tại chỗ (xem docstring ở đó), nên sau lần cập nhật
+    thứ hai không ai còn trả lời được "v3 hứa Cắt tờ chạy lúc mấy giờ". Người điều độ đổi lịch rồi
+    bị hỏi lại thì không có gì để đối chiếu ngoài trí nhớ.
+
+    CHỈ chép ba thứ ĐỔI ĐƯỢC qua một lần cập nhật lịch: máy + hai mốc. Phần hành lý còn lại (đơn
+    vị · định mức · quy cách · dặn dò) cũng bị tái chụp nhưng KHÔNG vào đây — bảng này sinh ra cho
+    câu hỏi "lịch đã đổi thế nào", chép cả snapshot là dựng bản sao thứ hai của một bảng 40 cột và
+    lệch ngay lần đầu ai đó thêm cột.
+
+    `phien_ban_so` là số của bản CŨ (bản đang bị đè), KHÔNG phải số mới. Diff v_n → v_n+1 vì vậy là
+    một truy vấn: lấy dòng `phien_ban_so = n` rồi ghép `cong_viec_id` với dòng sống (hoặc với dòng
+    `phien_ban_so = n+1` nếu đã có thêm lần cập nhật nữa).
+
+    KHÔNG dựng lại được các phiên bản có TRƯỚC 10/09/2026: dữ liệu cũ đã bị đè mất.
+
+    `cong_viec_id` là FK CASCADE — công việc bị xoá thì lịch sử của nó cũng hết nghĩa.
+    """
+
+    __tablename__ = "san_xuat_cong_viec_lich_su"
+    __table_args__ = (
+        Index("ix_sx_cv_lich_su_goi_ver", "goi_id", "phien_ban_so"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    goi_id: Mapped[int] = mapped_column(
+        ForeignKey("san_xuat_goi_phat_hanh.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Số phiên bản của bản CŨ vừa bị đè.
+    phien_ban_so: Mapped[int] = mapped_column(Integer, nullable=False)
+    cong_viec_id: Mapped[int] = mapped_column(
+        ForeignKey("san_xuat_cong_viec.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Khoá MỀM → `may_thiet_bi.id`, cùng quy ước với `san_xuat_cong_viec.may_id`.
+    may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Thang LỊCH (giờ tường dán nhãn UTC), y như cột nguồn — xem `services/gio_xuong.py`.
+    du_kien_bat_dau: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    du_kien_ket_thuc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class SanXuatPhuThuoc(Base):

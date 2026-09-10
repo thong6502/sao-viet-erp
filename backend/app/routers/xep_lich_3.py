@@ -23,7 +23,14 @@ from ..models.user import User
 from ..realtime import hub
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.xep_lich_lenh_repo import XepLichLenhRepository
-from ..schemas.xep_lich_3 import ChiTietOut, DatMocIn, DongLichOut, HangChoOut, LichOut
+from ..schemas.xep_lich_3 import (
+    ChiTietOut,
+    DatMocIn,
+    DongLichOut,
+    HangChoOut,
+    LichOut,
+    PhatHanhCapNhatIn,
+)
 from ..services.xep_lich_3 import (
     XepLich3Conflict,
     XepLich3Error,
@@ -102,6 +109,25 @@ def chi_tiet(
         raise _map(exc)
 
 
+@router.get("/lenh/{lsx_id}/so-sanh", response_model=None)
+def so_sanh_phien_ban(
+    lsx_id: int,
+    a: int,
+    b: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    """So hai phiên bản lịch đã phát hành, từng bước một. Chỉ đọc.
+
+    `response_model=None` cùng lý do với `/phat-hanh/{lsx_id}/goi`: dict đi thẳng, khỏi cảnh
+    Pydantic nuốt im lặng khoá chưa khai ở schema.
+    """
+    try:
+        return _svc(db).so_sanh_phien_ban(lsx_id, a, b)
+    except Exception as exc:
+        raise _map(exc)
+
+
 # --- Ghi ---------------------------------------------------------------------
 @router.put("/lenh/{lsx_id}", response_model=DongLichOut)
 def dat_moc(
@@ -150,6 +176,42 @@ def phat_hanh(
     hub.broadcast({"type": "xep_lich_3_changed", "lsx_id": lsx_id})
     hub.broadcast({"type": "lsx_changed"})
     return {"ok": True}
+
+
+@router.get("/phat-hanh/{lsx_id}/goi", response_model=None)
+def goi_phat_hanh(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    """Trạng thái gói đã thả xuống xưởng (số việc đã/chưa bắt đầu + phiên bản) — panel hỏi câu này
+    để biết còn thu hồi được không, hay chỉ còn đường phát hành cập nhật. Chỉ đọc.
+
+    `response_model=None` CỐ Ý: dict đi thẳng ra, khỏi cảnh Pydantic nuốt im lặng khoá nào chưa
+    khai ở schema. Cùng dáng với `/api/xep-lich-2/goi-phat-hanh`.
+    """
+    try:
+        return _svc(db).goi_phat_hanh(lsx_id)
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.post("/phat-hanh-cap-nhat/{lsx_id}", response_model=None)
+def phat_hanh_cap_nhat(
+    lsx_id: int,
+    payload: PhatHanhCapNhatIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+) -> dict:
+    """Đẩy lịch mới xuống xưởng cho phần CHƯA bắt đầu (§4.3), giữ nguyên việc đã chạy."""
+    try:
+        kq = _svc(db).phat_hanh_cap_nhat(lsx_id, actor=user, ly_do=payload.ly_do)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_3_changed", "lsx_id": lsx_id})
+    hub.broadcast({"type": "lsx_changed"})
+    hub.broadcast({"type": "san_xuat_changed"})
+    return kq
 
 
 @router.delete("/phat-hanh/{lsx_id}", response_model=None)

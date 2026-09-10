@@ -48,14 +48,9 @@ class KhuonBeService(CatalogService):
         loai = data.get("loai")
         if loai and loai not in LOAI_KHUON:
             raise KhuonBeValidationError("Loại khuôn không hợp lệ.")
-        # `dang_dat_lam` = dao chưa có trong tay (thuê ngoài chưa về, hoặc xưởng đang tự làm).
-        # Không khai ngày thì bước dùng dao ở lệnh sản xuất chỉ hiện "đang làm" trống trơn — người
-        # xếp việc không biết chờ tới bao giờ, mà đó đúng là câu duy nhất họ cần.
-        if tt == "dang_dat_lam" and not data.get("ngay_ve_du_kien"):
-            raise KhuonBeValidationError(
-                "Khuôn đang đặt làm phải khai NGÀY CÓ KHUÔN (dự kiến) — bước dùng khuôn ở lệnh "
-                "sản xuất hiện ngày này để biết chờ tới bao giờ."
-            )
+        # 🔴 KHÔNG còn ràng buộc "đặt làm phải khai ngày" — mg `0293` gỡ hẳn `ngay_ve_du_kien`
+        # (10/09/2026). `dang_dat_lam` một mình đã đủ chặn bước ở lệnh; ngày dự kiến chỉ là con số
+        # người khai gõ một lần rồi không ai cập nhật, mà không phép tính nào đọc tới.
 
     def dem_theo_tinh_trang(self, **kw) -> dict[str, int]:
         """Số khuôn theo tình trạng — cho tab lọc của màn Khuôn bế (xem repo)."""

@@ -199,7 +199,14 @@ class QuoteItem(Base):
     # lưu PTG nên không đọc-sống được). Chỉ là lớp TRÌNH BÀY — dữ liệu vẫn 1 dòng/thành phần.
     nhom: Mapped[str | None] = mapped_column(String(120), nullable=True)
     product_spec_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    
+    # Ảnh minh họa IN RA BẢN GỬI KHÁCH (cột "Hình ảnh minh họa" — thay chỗ cột "Thành tiền" cũ).
+    # URL đọc qua `/api/files/bao-gia/...`. Ảnh thuộc về CỤM IN chứ không phải dòng dữ liệu: bản in
+    # gộp các dòng cùng nhãn `nhom` rồi gộp tiếp các cụm cùng tên thành MỘT dòng, nên mọi dòng
+    # trong cụm mang cùng một URL — đặt/xóa ảnh ở dòng nào cũng ghi cho cả cụm (xem
+    # `quotation_service.set_item_image`). Lặp giá trị là cố ý: dòng vẫn là đơn vị dữ liệu, còn
+    # cụm chỉ có ở lớp trình bày (`utils/gop-nhom.ts`), không đẻ bảng riêng cho một cột.
+    anh_minh_hoa: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     # 30 ký tự cho khớp `phieu_thanh_phan.don_vi_tinh` — ĐVT chảy từ đó sang (mig 0260). Để 16
     # thì tên đơn vị dài trong danh mục ("bộ 100 tờ"…) làm Postgres ném lỗi ngay lúc tạo báo giá.

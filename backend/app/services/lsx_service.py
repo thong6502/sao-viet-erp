@@ -128,6 +128,27 @@ def _don_vi_theo_buoc(cd_obj, *, con: int = 1, xa: int = 1,
     return dv_vao, dv_ra, 1.0
 
 
+def tu_khai_don_vi(buoc, cd_obj) -> bool:
+    """Bước NGOÀI dòng giấy mà người kế hoạch TỰ KHAI đơn vị ngay tại lệnh (10/09/2026).
+
+    Ghi kẽm là ca điển hình: số bản kẽm đổi theo số màu / số mặt / số bài của TỪNG đơn, mà công
+    đoạn thì dùng chung cho mọi lệnh — không công thức chung nào nói hộ được. Nên drawer mở hai ô
+    đơn vị + hai ô số, và bước nào đã khai thì danh mục thôi kéo lại (đơn vị lẫn số).
+
+    Dấu hiệu DẪN XUẤT từ chính cặp đơn vị — bước có, danh mục để trống — nên KHÔNG cần cột cờ:
+    xoá một trong hai ô đơn vị ở drawer là bước trả ngay về cho danh mục. Danh mục có khai đơn vị
+    thì bước vẫn kế thừa như cũ; đây chỉ mở đúng chỗ danh mục im lặng.
+
+    Đòi ĐỦ CẢ HAI ô mới tính là khai tay. Nửa cặp không phải một lời khai mà là ô còn dở: bước tự
+    thêm giữa chuỗi vốn chỉ mang `don_vi_vao` rồi để LƯỢT 2 của `_ap_chuoi_nguoc` nối vế RA theo
+    bước trước — nhận nửa cặp là bước ấy đứng lại ngoài dòng giấy và hao của nó biến mất khỏi số
+    giấy phải mua, im lặng.
+    """
+    if not (getattr(buoc, "don_vi_vao", None) and getattr(buoc, "don_vi_ra", None)):
+        return False
+    return _don_vi_theo_buoc(cd_obj)[:2] == (None, None)
+
+
 def _dinh_muc_snapshot(dm) -> dict:
     """Ảnh chụp ĐỊNH MỨC của một đầu việc (`cong_doan_dau_viec`) để ghim vào bước Tổ.
 
@@ -1367,11 +1388,11 @@ class LsxService:
             # `loai` phải trả về: màn lọc tiếp theo loại của TỪNG BƯỚC trên danh sách đã rút gọn
             # này (một lệnh có thể vừa có bước bế vừa có bước ép nhũ), nên nạp một lần dùng chung.
             {"id": k.id, "ma": k.ma, "ten": k.ten, "loai": k.loai, "so_ke": k.so_ke,
-             "tinh_trang": k.tinh_trang, "ngay_ve_du_kien": k.ngay_ve_du_kien}
+             "tinh_trang": k.tinh_trang}
             for k in rows
         ]
 
-    def tao_khuon_cho_lenh(self, lsx: Lsx, *, ten: str, loai: str | None, ngay_ve, actor) -> dict:
+    def tao_khuon_cho_lenh(self, lsx: Lsx, *, ten: str, loai: str | None, actor) -> dict:
         """Nhánh "làm dao mới": đẻ một dòng trong danh mục Khuôn ở tình trạng `dang_dat_lam`.
 
         KHÁCH lấy từ chính lệnh, LOẠI lấy từ cờ của bước — không hỏi lại người dùng thứ hệ thống
@@ -1379,8 +1400,10 @@ class LsxService:
         rồi quay lại chọn: ba lần chuyển màn cho một việc là ba lần người ta bỏ dở.
 
         Dựng qua `KhuonBeService` chứ không `db.add` thẳng: service giữ luật riêng của danh mục
-        (sinh mã KB-####, bắt buộc ngày về khi `dang_dat_lam`) và ghi nhật ký — bỏ qua nó là dao
-        mới lọt vào kho không mã, không vết.
+        (sinh mã KB-####) và ghi nhật ký — bỏ qua nó là dao mới lọt vào kho không mã, không vết.
+
+        KHÔNG hỏi ngày dự kiến có dao (mg `0293` gỡ `ngay_ve_du_kien`): ô đó chỉ bắt người lập lệnh
+        đoán một ngày mà không phép tính nào đọc. `dang_dat_lam` đã chặn bước.
         """
         from ..repositories.khuon_be_repo import KhuonBeRepository
         from ..services.khuon_be_service import KhuonBeService
@@ -1393,18 +1416,17 @@ class LsxService:
                 "loai": loai,
                 "khach_hang_id": getattr(order, "customer_id", None) if order else None,
                 "tinh_trang": "dang_dat_lam",
-                "ngay_ve_du_kien": ngay_ve,
             },
             getattr(actor, "id", None),
         )
         return {"id": k.id, "ma": k.ma, "ten": k.ten, "loai": k.loai, "so_ke": k.so_ke,
-                "tinh_trang": k.tinh_trang, "ngay_ve_du_kien": k.ngay_ve_du_kien}
+                "tinh_trang": k.tinh_trang}
 
     def _khuon_map(self, ids: set[int]) -> dict[int, dict]:
         """Dao của các bước — nạp LÔ, không tra từng bước (routing 10 bước = 10 query thừa).
 
         Trả đủ thứ bước cần bày cho thợ: mã · tên ấn phẩm · SỐ KỆ (thứ thợ thật sự cần để đi lấy)
-        · tình trạng · ngày về nếu đang đặt làm.
+        · tình trạng.
         """
         from ..models.khuon_be import KhuonBe
 
@@ -1418,7 +1440,6 @@ class LsxService:
                 "khuon_be_ten": k.ten,
                 "khuon_be_so_ke": k.so_ke,
                 "khuon_be_tinh_trang": k.tinh_trang,
-                "khuon_be_ngay_ve": k.ngay_ve_du_kien,
             }
             for k in rows
         }
@@ -2100,6 +2121,11 @@ class LsxService:
         # CÔNG THỨC SẢN LƯỢNG của CHÍNH CÔNG ĐOẠN (mg `0214`, không phải của đơn vị RA — đã gỡ mg
         # `0215`): hai công đoạn cùng đo bằng `kem` vẫn ra số khác nhau được.
         cd_obj = self.db.get(CongDoan, buoc.cong_doan_id) if buoc.cong_doan_id else None
+        # Người kế hoạch đã tự khai đơn vị cho bước tại lệnh ⇒ SỐ cũng là của họ. Trả None = "không
+        # tính, giữ nguyên số đang có" — cùng lối với nhánh thiếu công thức ngay dưới, nên `_ap_chuoi
+        # _nguoc` không phải biết thêm luật nào và mọi nơi gọi (routing, xem trước, bài ghép) tự khớp.
+        if tu_khai_don_vi(buoc, cd_obj):
+            return None
         ct = (getattr(cd_obj, "cong_thuc_san_luong", None) or "").strip()
         if not ct:
             return None
@@ -2328,10 +2354,20 @@ class LsxService:
         tram = self._tram()
         # LƯỢT 1 — kế thừa lại đơn vị từ DANH MỤC. Phải xong hết lượt này rồi mới đọc được "chặng
         # tờ in của lệnh": chính lượt này là nơi đơn vị được ghi, đọc trước là đọc trạng thái cũ.
+        # `khai_tay` = bước ngoài dòng giấy có đơn vị do người kế hoạch khai TẠI LỆNH (xem
+        # `tu_khai_don_vi`). Cả hai lượt dưới đều phải chừa nó ra, nếu không thì gõ xong bấm Lưu
+        # phát nữa là bay sạch — đó đúng là lý do ô ghi kẽm đứng im ở `0 –` bấy lâu.
+        # Chọn nhầm hai mã CHẶNG (`to → cai`) thì bước nhập hẳn vào dòng giấy: lúc ấy không còn là
+        # khai tay nữa mà là một bước trên chuỗi, để chuỗi ngược tính như mọi bước khác.
         tu_danh_muc: dict[int, bool] = {}
+        khai_tay: dict[int, bool] = {}
         for i, cd in enumerate(buoc):
             obj = self.db.get(CongDoan, cd.cong_doan_id) if cd.cong_doan_id else None
             tu_danh_muc[i] = obj is not None or cd.nhom == "prepress"
+            khai_tay[i] = (tu_khai_don_vi(cd, obj)
+                           and not tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, tram))
+            if khai_tay[i]:
+                continue
             if obj is not None:
                 cd.don_vi_vao, cd.don_vi_ra, _hs = _don_vi_theo_buoc(obj)
             elif cd.nhom == "prepress":
@@ -2345,6 +2381,12 @@ class LsxService:
         # LƯỢT 2 — bước kế hoạch TỰ THÊM nối tiếp đơn vị bước liền trước, không đổi cách đếm.
         truoc_ra: str | None = None
         for i, cd in enumerate(buoc):
+            if khai_tay[i]:
+                # Đơn vị khai tay KHÔNG được làm mốc nối cho bước sau: `kem` chảy sang bước tự thêm
+                # đứng kế là bước ấy rơi khỏi dòng giấy, hao của nó biến mất khỏi số giấy phải mua.
+                # Bước ngoài dòng kế thừa danh mục vốn để trống nên `or truoc_ra` tự giữ mốc cũ —
+                # đây chỉ giữ đúng hành vi ấy khi hai ô đã có chữ.
+                continue
             if not tu_danh_muc[i]:
                 cd.don_vi_vao = cd.don_vi_ra = truoc_ra or dv_to_lenh
             truoc_ra = cd.don_vi_ra or truoc_ra
@@ -2354,6 +2396,14 @@ class LsxService:
         for i, cd in enumerate(buoc):
             r = rows.get(i)
             if r is None:            # bước ngoài dòng giấy (chế bản) — giữ nguyên số kẽm
+                if khai_tay[i]:
+                    # Hai đầu đều là số người ta gõ ⇒ không còn phép suy nào để hao hay hệ số quy
+                    # đổi tham gia. Bỏ qua thì ba cột này nằm lại ở giá trị của lần danh mục tính
+                    # cuối, rồi drawer đọc thành "Số vào = 1 bài in = 6 bản kẽm + 2 bài in hao" —
+                    # sai số học; `ty_le_hao_hut` và cảnh báo vượt định mức hao cũng đo trên số cũ.
+                    cd.hao_hut = 0.0
+                    cd.hao_hut_pct = 0.0
+                    cd.he_so_quy_doi = 0.0
                 continue
             cd.so_luong_vao = r["so_luong_vao"]
             cd.so_luong_ra = r["so_luong_ra"]
@@ -2560,6 +2610,10 @@ class LsxService:
         """
         if cd_obj is None:
             return None
+        # Bước khai tay: số RA là số người kế hoạch gõ, không phải kết quả công thức. Bày câu diễn
+        # giải ở đây là nói "Số bản kẽm = 4 bản kẽm" ngay dưới cái pill đang ghi 6 — hai số cãi nhau.
+        if tu_khai_don_vi(cd, cd_obj):
+            return None
         ct = (getattr(cd_obj, "cong_thuc_san_luong", None) or "").strip()
         if not ct:
             return None
@@ -2598,7 +2652,12 @@ class LsxService:
         _tren_dg = tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, self._tram())
         # Bước NGOÀI dòng đổi VÀO←RA qua cầu Đơn vị & quy đổi; chưa khai cầu thì đây là câu lỗi cho
         # drawer bày (đỏ) + chặn phát hành. Bước trên dòng không dùng cầu này nên không xét.
-        _loi_qd = None if _tren_dg else self._he_so_ngoai_dong(cd.don_vi_vao, cd.don_vi_ra)[1]
+        # Bước KHAI TAY cũng không xét: hai đầu đều là số người ta gõ nên chẳng có phép đổi nào phải
+        # bắc cầu. Bày đỏ ở đó là dựng một cửa chặn phát hành cho việc máy không hề cần làm — mà cầu
+        # `bài → kẽm` vốn không cố định (đổi theo số màu từng đơn) nên khai vào còn sai cho lệnh khác.
+        _khai_tay = tu_khai_don_vi(cd, cd_obj)
+        _loi_qd = None if (_tren_dg or _khai_tay) else self._he_so_ngoai_dong(
+            cd.don_vi_vao, cd.don_vi_ra)[1]
         # Diễn giải SỐ RA của bước NGOÀI dòng: công thức sản lượng của công đoạn, thay số theo ngữ
         # cảnh lệnh (cùng khuôn "chữ = thay số = kết quả" với khối Vật tư/thời gian). Bước trên dòng
         # giấy suy ngược theo chuỗi nên không có công thức riêng — caption node RA nói thay.
@@ -3027,8 +3086,8 @@ class LsxService:
                     "tren_dong_giay": tren,
                     # Bước ngoài dòng giấy: câu lỗi cầu quy đổi + diễn giải công thức SỐ RA —
                     # giống hệt `_cong_doan_dict` để pill và caption khớp lúc Lưu.
-                    "loi_quy_doi": None if tren else self._he_so_ngoai_dong(
-                        cd.don_vi_vao, cd.don_vi_ra)[1],
+                    "loi_quy_doi": None if (tren or tu_khai_don_vi(cd, cd_obj))
+                    else self._he_so_ngoai_dong(cd.don_vi_vao, cd.don_vi_ra)[1],
                     "san_luong_dien_giai": None if tren else self.san_luong_dien_giai(
                         cd, cd_obj, qc),
                 })
@@ -3357,8 +3416,6 @@ class LsxService:
                     ten = ten or cd_obj.ten
                     nhom = nhom if nhom is not None else cd_obj.nhom
                     dept = dept if dept is not None else cd_obj.department_id
-            # Đơn vị + số lượng KHÔNG nhận từ client: đơn vị kế thừa từ danh mục công đoạn, số
-            # lượng là dẫn xuất của chuỗi ngược. `_ap_chuoi_nguoc` ở cuối hàm ghi cả bốn.
             key = (d.get("step_key") or "").strip()
             row = old_by_key.get(key) if key else None
             old_cd_id = row.cong_doan_id if row is not None else None
@@ -3379,6 +3436,18 @@ class LsxService:
             for f in self._ROUTING_FIELD_THUAN:
                 if f in d and (d.get(f) is not None or f in self._ROUTING_FIELD_NULLABLE):
                     setattr(row, f, d[f])
+            # ĐƠN VỊ + SỐ LƯỢNG (10/09/2026): nhận từ client cho bước NGOÀI dòng giấy — ghi kẽm đếm
+            # bản kẽm theo số màu của TỪNG đơn, không có công thức chung nào ở danh mục nói hộ.
+            # Bước TRÊN dòng giấy gửi lên cũng vô hại: `_ap_chuoi_nguoc` ở cuối hàm ghi đè cả bốn ô
+            # bằng số của chuỗi ngược — nó vẫn là nơi DUY NHẤT quyết ai được giữ số của mình.
+            # Chuỗi rỗng phải về None, đừng lưu `""`: "chưa khai" và "khai bằng đơn vị tên rỗng" mà
+            # lẫn nhau thì `tu_khai_don_vi` bật lên cho mọi bước và danh mục hết đường kéo lại.
+            for f in ("don_vi_vao", "don_vi_ra"):
+                if f in d:
+                    setattr(row, f, (d[f] or "").strip() or None)
+            for f in ("so_luong_vao", "so_luong_ra"):
+                if d.get(f) is not None:
+                    setattr(row, f, float(d[f]))
             # Bước TỔ làm bằng tay theo tổ, KHÔNG chiếm máy. Gỡ máy ở SERVER chứ không chỉ ẩn ô
             # trên form: máy còn dính lại thì bước vẫn chiếm một lane Gantt của máy đó.
             if row.loai_buoc == LB_TO:

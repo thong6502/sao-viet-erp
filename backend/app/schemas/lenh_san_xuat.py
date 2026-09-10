@@ -222,7 +222,6 @@ class RoutingNodeOut(BaseModel):
     khuon_be_ten: str | None = None
     khuon_be_so_ke: str | None = None
     khuon_be_tinh_trang: str | None = None
-    khuon_be_ngay_ve: date | None = None
 
 
 class RoutingOut(BaseModel):

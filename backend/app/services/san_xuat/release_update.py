@@ -40,6 +40,7 @@ from ...models.san_xuat import (
     GOI_DANG_PHAT_HANH,
     PB_CAP_NHAT,
     SanXuatCongViec,
+    SanXuatCongViecLichSu,
     SanXuatGoiPhatHanh,
     SanXuatPhienBan,
 )
@@ -262,6 +263,14 @@ def phat_hanh_cap_nhat(db: Session, *, nguon: str, id: int, ly_do: str, actor) -
             continue
         may_id, start, finish = moc
         _tai_chup_hanh_ly(db, cv, so, tram)
+        # CHỤP BẢN CŨ TRƯỚC KHI ĐÈ. Ba dòng dưới sửa đè tại chỗ (cố ý — `cv.id` bị phụ thuộc,
+        # phân công, hỗ trợ, batch, bàn giao, KCS trỏ tới), nên không chụp ở đây là bản cũ biến
+        # mất vĩnh viễn và không ai trả lời được "v3 hứa bước này chạy lúc mấy giờ".
+        db.add(SanXuatCongViecLichSu(
+            goi_id=goi.id, phien_ban_so=cv.phien_ban_so, cong_viec_id=cv.id,
+            may_id=cv.may_id, du_kien_bat_dau=cv.du_kien_bat_dau,
+            du_kien_ket_thuc=cv.du_kien_ket_thuc,
+        ))
         if may_id is not None:          # giữ máy cũ nếu lịch mới chưa gán (bước tổ/thuê ngoài)
             cv.may_id = may_id
         cv.du_kien_bat_dau = start

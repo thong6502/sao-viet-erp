@@ -10,24 +10,18 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from app.db import SessionLocal, init_db
+from tests.conftest import phien_da_seed
+
 from app.models.refresh_token import RefreshToken
 from app.repositories.refresh_token_repo import RefreshTokenRepository
 from app.repositories.user_repo import UserRepository
 from app.security import hash_refresh_token
-from app.seed import seed_all
 from app.services.refresh_service import RefreshError, RefreshTokenService
 
 
 @pytest.fixture
 def db():
-    init_db()
-    session = SessionLocal()
-    try:
-        seed_all(session)
-        yield session
-    finally:
-        session.close()
+    yield from phien_da_seed()
 
 
 def _service(session) -> RefreshTokenService:

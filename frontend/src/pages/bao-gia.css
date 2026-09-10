@@ -1162,45 +1162,19 @@ select.input {
 /* Nhãn: chữ hoa + cỡ nhỏ + đậm — phân cấp bằng kiểu chữ, không bằng giãn chữ. */
 .qpdf .q-lbl,
 .qpdf .q-sub,
-.qpdf table.q-tbl tfoot .q-sub-lbl,
 .qpdf .q-signs .q-role {
   text-transform: uppercase; font-size: var(--q-fs-micro); font-weight: 700;
 }
 .qpdf * { box-sizing: border-box; }
 .qpdf h1 { margin: 0; }
 
-/* letterhead: tên công ty (đỏ, đậm) trên cùng · logo + khối thông tin liên hệ dưới · chốt bằng
-   viền kép xanh rêu — hai màu điểm nhấn NGOÀI cặp đen/trắng, mượn theo letterhead giấy thật của
-   công ty (logo + tên đã có màu sẵn) chứ không phá triết lý "hai mực" của phần nội dung bên dưới. */
-.qpdf .q-mh {
-  padding-bottom: var(--q-sp-3); border-bottom: 4px double var(--moss);
-}
-.qpdf .q-brand {
-  text-align: center; color: var(--rust); font-size: var(--q-fs-lead); font-weight: 700;
-  text-transform: uppercase; margin-bottom: var(--q-sp-3);
-}
-.qpdf .q-brand-row { display: flex; align-items: center; gap: var(--q-sp-4); }
-.qpdf .q-logo { width: 96px; flex: none; }
-.qpdf .q-logo img { display: block; width: 100%; height: auto; }
-.qpdf .q-brand-info {
-  flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--q-sp-1) var(--q-sp-4);
-  font-size: var(--q-fs-small);
-}
-.qpdf .q-brand-info .full { grid-column: 1 / -1; }
-.qpdf .q-brand-info > div { display: flex; gap: var(--q-sp-1); }
-.qpdf .q-blbl { font-weight: 700; }
-.qpdf .q-blbl::after { content: ":"; margin-right: var(--q-sp-1); }
-/* Huy hiệu chứng nhận (FSC/SMETA-Sedex/ISO) — giữ màu gốc như letterhead giấy thật, KHÔNG ép về
-   đen/trắng: đây là phần mở rộng của đúng ngoại lệ "logo+tên đã có màu sẵn" ở trên, không phải
-   một ngoại lệ mới. Xếp lưới 2×2 (FSC/SMETA hàng trên, 2 ISO hàng dưới) cạnh khối thông tin liên hệ. */
-.qpdf .q-badges {
-  flex: none; display: grid; grid-template-columns: repeat(2, auto); gap: var(--q-sp-2) var(--q-sp-3);
-  align-items: center; justify-items: center;
-}
-/* Ép chung một khung 56×40 + object-fit: contain — 4 ảnh gốc tỉ lệ khung hình khác hẳn nhau
-   (SMETA/Sedex nằm ngang, FSC/ISO gần vuông); nếu chỉ khoá height thì SMETA/Sedex kéo rộng ra
-   trông "to" hẳn so với 3 cái kia. Khoá cả khung mới đều nhau. */
-.qpdf .q-badges img { width: 56px; height: 40px; object-fit: contain; }
+/* letterhead: NGUYÊN tấm ảnh letterhead giấy của công ty (tên đỏ + logo + thông tin liên hệ +
+   4 huy hiệu chứng nhận + viền kép xanh đã có sẵn TRONG ảnh). Trước đây khối này dựng bằng HTML
+   từ 5 ảnh rời; nay chủ xưởng đưa thẳng file letterhead nên không dựng lại nữa — đổi mẫu giấy
+   chỉ cần thay `assets/letterhead-sao-viet-nhat.jpg`, không đụng code. KHÔNG thêm viền/nền ở
+   đây: cái gì cần đã nằm trong ảnh, kẻ thêm là ra hai vạch chồng nhau. */
+.qpdf .q-mh { padding: 0; }
+.qpdf .q-mh-img { display: block; width: 100%; height: auto; }
 
 .qpdf .q-date-line { text-align: right; font-style: italic; font-size: var(--q-fs-small); margin: var(--q-sp-3) 0 0; }
 
@@ -1262,34 +1236,14 @@ select.input {
 .qpdf table.q-tbl .q-dg { margin: var(--q-sp-1) 0 0; padding-left: var(--q-sp-3); list-style: none; }
 .qpdf table.q-tbl .q-dg li { position: relative; font-size: var(--q-fs-small); line-height: 1.3; }
 .qpdf table.q-tbl .q-dg li::before { content: "–"; position: absolute; left: calc(var(--q-sp-3) * -1); }
-/* Bảng dài tràn qua trang 2 (>1 sản phẩm) thì trình duyệt mặc định LẶP LẠI tfoot ở cuối MỖI
-   trang in (giống thead) — ra 2 lần "Cộng tiền hàng/Thuế/Tổng thanh toán", còn khối lặp giữa
-   trang bị đóng khung viền bảng đầy đủ trên+dưới nên trông dày hẳn lên so với 1 dòng bình
-   thường. Ép về table-row-group để trình duyệt coi như hàng thân bảng, chỉ hiện ĐÚNG 1 lần ở
-   cuối bảng thật sự. */
-.qpdf table.q-tbl tfoot { display: table-row-group; }
-/* Dòng cộng: trắng, nét kẻ dày gánh việc phân tách. */
-.qpdf table.q-tbl tfoot td { font-weight: 700; border-top: 1px solid var(--q-ink); }
-.qpdf table.q-tbl tfoot .q-sub-lbl { text-align: right; }
-.qpdf table.q-tbl tfoot .q-sub-lbl .q-en { font-weight: 400; }
-
-/* TỔNG THANH TOÁN — gộp làm DÒNG CUỐI của chính bảng chi tiết (trước đây tách khung riêng bên
-   dưới, còn tự đổi sang font mono JetBrains lạc tông giữa một tờ toàn Times). Giờ nổi bật bằng
-   viền dày hơn (không dùng "double" — border-collapse làm nó hở thành khe trắng giữa 2 nét) +
-   cỡ chữ lớn hơn 2 dòng cộng phía trên, vẫn cùng font Times với cả tờ. */
-.qpdf table.q-tbl tfoot tr.q-grand-row td {
-  border-top: 2px solid var(--q-ink); padding-top: var(--q-sp-3); padding-bottom: var(--q-sp-3);
+/* Ô ẢNH MINH HỌA — cột cuối, thay chỗ cột "Thành tiền" đã bỏ (10/09/2026). Ảnh của khách gửi
+   lên đủ mọi tỉ lệ (hộp đứng, tờ rơi ngang, ảnh điện thoại 4000px), nên KHÓA CHIỀU CAO ô và để
+   `object-fit: contain`: mọi dòng cao đều nhau, ảnh không méo, ảnh to không kéo bảng dài ra
+   trang thứ ba. `max-width: 100%` giữ ảnh trong lòng ô khi cột hẹp lại lúc in. */
+.qpdf table.q-tbl td.q-anh { padding: var(--q-sp-2); vertical-align: middle; }
+.qpdf table.q-tbl td.q-anh img {
+  display: block; margin: 0 auto; max-width: 100%; height: 26mm; object-fit: contain;
 }
-.qpdf table.q-tbl tfoot tr.q-grand-row .q-sub-lbl { font-size: var(--q-fs-lead); }
-.qpdf table.q-tbl tfoot tr.q-grand-row .q-gt-sub {
-  display: block; font-size: var(--q-fs-micro); font-weight: 400; text-transform: none; margin-top: 2px;
-}
-/* Cột "Thành tiền" chỉ rộng 16% trang (~96px lúc in) — cỡ chữ lớn (title/lead) làm số bị TRÀN
-   RA NGOÀI viền ô với tổng tiền lớn (test đo tay: 16pt tràn 22px, 12pt vẫn tràn ~6-34px tuỳ số).
-   Giữ ĐÚNG cỡ thân bài như mọi số tiền khác trong bảng — cột này đã ổn định ở cỡ đó, không tràn
-   dù tổng cả tỷ đồng. Nổi bật bằng đậm + viền đôi trên là đủ, khỏi cần chữ to. */
-.qpdf table.q-tbl tfoot tr.q-grand-row td.r { font-size: var(--q-fs-body); white-space: normal; }
-.qpdf table.q-tbl tfoot tr.q-grand-row td.r .q-u { font-size: var(--q-fs-small); font-weight: 700; margin-left: 3px; }
 
 /* điều khoản */
 .qpdf ol.q-notes { margin: 0; padding-left: var(--q-sp-4); font-size: var(--q-fs-body); }
@@ -1346,9 +1300,11 @@ select.input {
   /* Khi in, @page đã cầm khổ và lề → tờ phải nhả bề ngang/lề của bản xem trước, không thì cộng
      dồn thành lề đôi và tràn sang trang thứ hai. */
   body:has(.qpdf) .qpdf { max-height: none !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; width: auto !important; margin: 0 !important; }
+  /* Letterhead + ảnh minh họa là ảnh MÀU: máy in/PDF nào cũng phải in đúng màu, không được
+     "tiết kiệm mực" bỏ nền. */
   body:has(.qpdf) .qpdf .q-mh,
-  body:has(.qpdf) .qpdf table.q-tbl thead th,
-  body:has(.qpdf) .qpdf table.q-tbl tfoot td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body:has(.qpdf) .qpdf table.q-tbl td.q-anh,
+  body:has(.qpdf) .qpdf table.q-tbl thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body:has(.qpdf) .qpdf table.q-tbl tr,
   body:has(.qpdf) .qpdf .q-signs { page-break-inside: avoid; }
 
@@ -2000,6 +1956,30 @@ select.input {
   resize: vertical;
 }
 .rdx-quote .dg-ta:focus-visible { outline: 2px solid var(--rust); outline-offset: -1px; }
+
+/* ---- Ảnh minh họa in cho khách (một ảnh cho cả cụm cùng tên) ------------------
+   Đặt trong ô Sản phẩm, ngay dưới diễn giải. Đúng MỘT chỗ cho mỗi dòng sẽ in ra khách: cụm
+   ruột+bìa treo ở dải nhóm, món đứng riêng treo ở chính dòng đó. Thumbnail nhỏ (48px) vì bảng
+   này là bàn tính tiền, không phải trang duyệt ảnh — soi kỹ thì bấm mở ô xem lớn. */
+.rdx-quote .qanh { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.rdx-quote .qanh__thumb {
+  padding: 0; border: 1px solid var(--rule); border-radius: var(--r-3); background: var(--canvas);
+  cursor: zoom-in; line-height: 0; flex: none;
+}
+.rdx-quote .qanh__thumb img { width: 48px; height: 48px; object-fit: cover; border-radius: var(--r-3); }
+.rdx-quote .qanh__thumb:hover { border-color: var(--rust); }
+/* Nút chữ: cùng cỡ/màu với "Sửa diễn giải" ngay trên nó — hai việc phụ của cùng một ô. */
+.rdx-quote .qanh__go,
+.rdx-quote .qanh__them {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none;
+  cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; color: var(--rust);
+}
+.rdx-quote .qanh__go:hover,
+.rdx-quote .qanh__them:hover { text-decoration: underline; }
+.rdx-quote .qanh__go:disabled { color: var(--ash); cursor: default; text-decoration: none; }
+.rdx-quote .qanh__them.is-busy { color: var(--ash); cursor: default; }
+/* Ô chọn tệp thật nằm trong <label> — ẩn đi, cả nhãn là vùng bấm. */
+.rdx-quote .qanh__them input[type="file"] { display: none; }
 
 /* ---- Picker "Khách chốt — chọn sản phẩm" ----------------------------------- */
 .rdx-quote .accept-pick-head {

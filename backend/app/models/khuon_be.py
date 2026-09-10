@@ -1,7 +1,7 @@
 """Danh mục KHUÔN & KHUNG — kho dụng cụ dùng chung của xưởng (master data nhẹ).
 
 Mỗi con dao làm riêng cho hình của 1 ấn phẩm; đơn lặp lại thì lôi dao cũ ra dùng. Khai để TÌM LẠI:
-mã / tên ấn phẩm / khách / loại / số kệ / ngày làm / tình trạng / ghi chú.
+mã / tên ấn phẩm / khách / loại / số kệ / tình trạng / ghi chú.
 
 Từ 16/08/2026 (mg 0205) danh mục này ĐƯỢC NỐI: bước của lệnh sản xuất trỏ vào đây qua
 `lsx_cong_doan.khuon_be_id`. Người cấu hình lệnh chọn "dùng dao có sẵn" (lọc theo khách + loại) hoặc
@@ -14,16 +14,16 @@ tên bảng/quyền là mọi vai mất sạch quyền màn này. Chỉ nhan đ�
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, true as sa_true
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, true as sa_true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 
 # Tình trạng khuôn — record-only (con người phán, máy chỉ ghi nhận).
-# `dang_dat_lam` (mg 0177): khuôn CHƯA có trong tay, đang đặt thợ làm. Đi kèm `ngay_ve_du_kien` —
-# ngày đó hiện ngay tại bước dùng khuôn ở lệnh sản xuất, để người xếp việc biết chưa chạy được.
+# `dang_dat_lam` (mg 0177): khuôn CHƯA có trong tay, đang đặt thợ làm. Bước dùng dao ở lệnh sản
+# xuất đọc đúng chữ này để biết chưa chạy được — KHÔNG kèm ngày nào (mg 0293 gỡ `ngay_ve_du_kien`).
 TINH_TRANG = ("dang_dung", "dang_dat_lam", "hong", "thanh_ly")
 
 # Loại dụng cụ (mg 0205; thêm `khung_lua` 04/09/2026 — khung lụa cũng lưu kho dùng lại như khuôn
@@ -57,13 +57,12 @@ class KhuonBe(Base):
     tinh_trang: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="dang_dung", default="dang_dung"
     )  # dang_dung|dang_dat_lam|hong|thanh_ly
-    # NGÀY CÓ KHUÔN (dự kiến) — ngày dao nằm trong tay xưởng, BẤT KỂ đường nào: thuê ngoài thì là
-    # ngày về, xưởng tự làm thì là ngày làm xong. Chỉ có nghĩa với `tinh_trang='dang_dat_lam'`.
-    #
-    # Tên cột giữ nguyên `ngay_ve_du_kien` (mg 0177) dù nhãn trên màn là "Ngày có khuôn": đổi tên
-    # cột là một migration + rà mọi nơi đọc, đổi lấy một chuỗi người dùng không bao giờ nhìn thấy.
-    # ⚠️ ĐỪNG đọc chữ "về" ở đây thành "chỉ dành cho hàng thuê ngoài" — xưởng tự làm dùng chung ô.
-    ngay_ve_du_kien: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # 🔴 `ngay_ve_du_kien` ("Ngày có khuôn (dự kiến)") ĐÃ GỠ — mg `0293`, 10/09/2026, chủ xưởng
+    # yêu cầu. Ngày đó không cắm vào phép tính nào: cửa "sẵn sàng lập kế hoạch" chỉ soi bước ĐÃ
+    # chọn dao hay chưa, xếp lịch/phát hành không đọc, không đâu trừ lùi lead-time. Nó chỉ là một
+    # dòng chữ bắt người khai gõ (service CHẶN lưu khi `dang_dat_lam` mà bỏ trống) rồi để đó lạc
+    # hậu. Chữ `dang_dat_lam` đủ nói "chưa có trong tay, bước chưa chạy được"; bao giờ có thì
+    # người giữ kho đổi tình trạng, đó mới là tin cậy được.
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # `lazy="joined"` chứ KHÔNG tra tên khách trong property: màn danh mục trả 20 dòng/trang, tra

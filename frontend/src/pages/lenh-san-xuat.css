@@ -984,24 +984,55 @@
 .hslsx-hs__tile {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   grid-column: span 1;
-  padding: var(--sp-3);
+  padding: 14px 16px;
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
+  border-radius: var(--r-5);
   background: var(--canvas);
   min-width: 0;
+  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.04);
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+}
+.hslsx-hs__tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.08);
+  border-color: var(--rule);
 }
 .hslsx-hs__tile--wide {
   grid-column: span 2;
 }
 
+.hslsx-hs__tile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.hslsx-hs__tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-2);
+  background: var(--heat-0);
+  color: var(--ash-2);
+  flex: none;
+}
+
+.hslsx-hs__tile--progress .hslsx-hs__tile-icon { background: #ecfdf5; color: #059669; }
+.hslsx-hs__tile--step .hslsx-hs__tile-icon { background: #eff6ff; color: #2563eb; }
+.hslsx-hs__tile--yield .hslsx-hs__tile-icon { background: #eef2ff; color: #4f46e5; }
+.hslsx-hs__tile--hours .hslsx-hs__tile-icon { background: #ecfeff; color: #0891b2; }
+.hslsx-hs__tile--deadline .hslsx-hs__tile-icon { background: #fffbeb; color: #d97706; }
+
 .hslsx-hs__tile-lb {
   color: var(--ash-2);
   font-size: var(--fs-2xs);
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  /* Nhãn cho xuống dòng thoải mái — không `nowrap`, không ellipsis (khuôn lỗi (d)). */
   overflow-wrap: anywhere;
 }
 
@@ -1012,8 +1043,6 @@
   color: var(--ink);
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
-  /* Một nấc DƯỚI mã lệnh (`--fs-xl`): mã là định danh của cả màn, để hai thứ bằng nhau thì chúng
-     tranh nhau vị trí "to nhất" và mắt không biết bám vào đâu trước. */
   font-size: var(--fs-lg);
   font-weight: var(--fw-bold);
   line-height: 1.2;
@@ -1023,7 +1052,6 @@
   font-weight: var(--fw-regular);
   color: var(--ash-2);
 }
-/* Ô chứa CHỮ (tên bước, ngày) chứ không phải số — chữ ở cỡ số thì tràn ngay. */
 .hslsx-hs__tile-val--chu {
   display: block;
   font-family: var(--ff-sans);
@@ -1038,24 +1066,24 @@
   overflow-wrap: anywhere;
 }
 
-/* Thanh tiến độ mượn của bảng, nhưng ở đây cha là flex CỘT nên `flex:1` của nó sẽ kéo dãn CHIỀU
-   CAO. Ghim lại và cho chiếm trọn bề ngang ô. */
 .hslsx-hs__tile .hslsx__bar {
   flex: 0 0 auto;
   width: 100%;
   margin: var(--sp-1) 0;
 }
 
-/* ---------- Khối ---------- */
+/* ---------- Khối Section Card ---------- */
 .hslsx-hs__khoi {
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
   background: var(--canvas);
-  min-width: 0;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  margin-top: var(--sp-4);
+  box-shadow: 0 2px 10px -4px rgba(15, 23, 42, 0.04);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 /* Tô KHI VÀ CHỈ KHI bên trong có thứ phải xử. Tô hết thì màu hết mang tin. */
 .hslsx-hs__khoi.is-canhbao {
-  border-left: 3px solid var(--signal);
+  border-left: 3.5px solid var(--signal);
 }
 
 .hslsx-hs__khoi-h {
@@ -1068,9 +1096,12 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-4);
+  padding: 12px 16px;
   color: var(--ink);
-  border-bottom: 1px solid var(--rule-hair);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-soft);
+  border-top-left-radius: var(--r-5);
+  border-top-right-radius: var(--r-5);
 }
 
 .hslsx-hs__khoi-btn {
@@ -1078,10 +1109,12 @@
   align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  padding: var(--sp-3) var(--sp-4);
+  padding: 12px 16px;
   border: 0;
-  border-radius: var(--r-3);
-  background: transparent;
+  border-top-left-radius: var(--r-5);
+  border-top-right-radius: var(--r-5);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-soft);
   color: var(--ink);
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
@@ -1119,7 +1152,7 @@
 }
 
 .hslsx-hs__khoi-b {
-  padding: 0 var(--sp-4) var(--sp-4);
+  padding: 16px;
   min-width: 0;
 }
 /* `hidden` phải THẮNG mọi khai báo `display` — thiếu dòng này thì khối gập vẫn hiện nguyên. */
@@ -1127,31 +1160,43 @@
   display: none;
 }
 .hslsx-hs__khoi-h--tinh + .hslsx-hs__khoi-b {
-  padding-top: var(--sp-3);
+  padding-top: 16px;
 }
 
 /* ---------- Lưới nhãn — giá trị ---------- */
 .hslsx-hs__kvs {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: var(--sp-2) var(--sp-4);
-  margin: var(--sp-2) 0;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px 14px;
+  margin: 4px 0;
 }
 
 .hslsx-hs__kv {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 4px;
   min-width: 0;
+  padding: 10px 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.hslsx-hs__kv:hover {
+  border-color: var(--rule);
+  box-shadow: 0 2px 6px -2px rgba(15, 23, 42, 0.06);
 }
 .hslsx-hs__kv-k {
   color: var(--ash-2);
-  font-size: var(--fs-2xs);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .hslsx-hs__kv-v {
   color: var(--ink);
-  font-size: var(--fs-sm);
-  /* Số và ngày chiếm phần lớn ô này; `tabular-nums` cho cột thẳng khi mắt quét dọc. */
+  font-size: 13.5px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }

@@ -165,41 +165,70 @@ export function TheoDoiSanXuatPage({
   const moHoSo = useCallback((id: number) => setHoSoId(id), []);
   const dongHoSo = useCallback(() => setHoSoId(null), []);
 
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    function globalKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", globalKey);
+    return () => window.removeEventListener("keydown", globalKey);
+  }, []);
+
   return (
     <main className="tdsx hslsx">
-      <header className="hslsx__head">
-        <div className="hslsx__headrow">
+      <header className="hslsx__head tdsx-head-compact">
+        <div className="tdsx-head-compact__left">
+          <div className="tdsx-breadcrumb">
+            <span>Sản xuất</span>
+            <Icon name="arrowRight" size={10} />
+            <span className="is-active">Theo dõi sản xuất</span>
+          </div>
           <h1 className="hslsx__title">Theo dõi sản xuất</h1>
-          <span className="hslsx__ro" title="Màn tra cứu — không có thao tác ghi nào">
-            Chỉ xem
-          </span>
-          <div className="hslsx__spacer" />
+          <div className="tdsx-badges-group">
+            <span className="tdsx-live-badge" title="Tự động cập nhật tức thì qua Real-time SSE">
+              <span className="tdsx-live-dot" /> Real-time
+            </span>
+          </div>
         </div>
-        <p className="hslsx__sub">
-          Toàn xưởng theo thời gian thực — việc nào đang tắc, máy nào đang trống, lệnh nào sắp trễ.
-          Tra một lệnh theo mã thì dùng màn Hồ sơ lệnh sản xuất.
-        </p>
+
+        <div className="tdsx-head-compact__right">
+          <button
+            type="button"
+            className="tdsx-reload-btn"
+            title="Làm mới bảng theo dõi"
+            onClick={() => window.location.reload()}
+          >
+            <Icon name="refresh" size={13} />
+            <span>Làm mới</span>
+          </button>
+        </div>
       </header>
 
-      <section className="hslsx__filters">
+      <section className="hslsx__filters tdsx-filter-card">
         <div className="hslsx__search">
           <Icon name="search" size={15} />
           <input
+            ref={searchRef}
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             maxLength={120}
-            placeholder="Tìm mã lệnh, tên sản phẩm, khách hàng"
+            placeholder="Tìm mã lệnh, tên sản phẩm, khách hàng (Ctrl+K)"
             aria-label="Tìm mã lệnh, tên sản phẩm, khách hàng"
           />
-          {q !== "" && (
+          {q === "" ? (
+            <kbd className="hslsx__kbd">⌘K</kbd>
+          ) : (
             <button type="button" className="hslsx__clearq" onClick={() => setQ("")} aria-label="Xóa ô tìm">
               <Icon name="x" size={14} />
             </button>
           )}
         </div>
 
-        <label className="hslsx__field">
+        <label className={`hslsx__field${nhomCd !== "" ? " is-active" : ""}`}>
           <span className="hslsx__field-lb">Nhóm CĐ</span>
           <select value={nhomCd} onChange={(e) => setNhomCd(e.target.value)}>
             <option value="">Tất cả</option>
@@ -211,11 +240,8 @@ export function TheoDoiSanXuatPage({
           </select>
         </label>
 
-        {/* Ô Máy chỉ mọc khi `/bo-loc` thật sự trả được danh sách — khuôn `dsMay` của
-            `LenhSanXuatPage`. Máy đã ngừng dùng vẫn liệt (có nhãn riêng) vì lane của nó vẫn tồn tại
-            ở tab Theo máy. */}
         {boLoc && boLoc.may.length > 0 && (
-          <label className="hslsx__field">
+          <label className={`hslsx__field${mayId !== "" ? " is-active" : ""}`}>
             <span className="hslsx__field-lb">Máy</span>
             <select value={mayId} onChange={(e) => setMayId(e.target.value)}>
               <option value="">Tất cả</option>
@@ -229,7 +255,7 @@ export function TheoDoiSanXuatPage({
           </label>
         )}
 
-        <label className="hslsx__field">
+        <label className={`hslsx__field${trangThaiViec !== "" ? " is-active" : ""}`}>
           <span className="hslsx__field-lb">Trạng thái</span>
           <select value={trangThaiViec} onChange={(e) => setTrangThaiViec(e.target.value)}>
             <option value="">Tất cả</option>
@@ -241,7 +267,7 @@ export function TheoDoiSanXuatPage({
           </select>
         </label>
 
-        <label className="hslsx__field">
+        <label className={`hslsx__field${uuTien !== "" ? " is-active" : ""}`}>
           <span className="hslsx__field-lb">Ưu tiên</span>
           <select value={uuTien} onChange={(e) => setUuTien(e.target.value)}>
             <option value="">Tất cả</option>
@@ -250,14 +276,11 @@ export function TheoDoiSanXuatPage({
           </select>
         </label>
 
-        {/* "Thêm bộ lọc" — popover Công nhân/Khách hàng. Design gốc có thêm ô "Ca" ở đây, nhưng
-            C130 (task-17b-brief.md) chốt ẨN HẲN cho tới khi tab Theo ca (18b) tồn tại: `/kanban` và
-            `/theo-may` không nhận `ca_id`, bày ô ra mà không dùng được là hứa suông. */}
         {coThemLoc && (
           <div className="tdsx-themloc" ref={themLocRef}>
             <button
               type="button"
-              className="hslsx__linkbtn"
+              className={`hslsx__linkbtn tdsx-more-filter-btn${congNhanId !== "" || khachHangId !== "" ? " is-active" : ""}`}
               aria-expanded={themLocMo}
               onClick={() => setThemLocMo((v) => !v)}
             >
@@ -266,7 +289,7 @@ export function TheoDoiSanXuatPage({
             {themLocMo && (
               <div className="tdsx-themloc__pop" role="dialog" aria-label="Thêm bộ lọc">
                 {boLoc && boLoc.cong_nhan.length > 0 && (
-                  <label className="hslsx__field">
+                  <label className={`hslsx__field${congNhanId !== "" ? " is-active" : ""}`}>
                     <span className="hslsx__field-lb">Công nhân</span>
                     <select value={congNhanId} onChange={(e) => setCongNhanId(e.target.value)}>
                       <option value="">Tất cả</option>
@@ -279,7 +302,7 @@ export function TheoDoiSanXuatPage({
                   </label>
                 )}
                 {boLoc && boLoc.khach_hang.length > 0 && (
-                  <label className="hslsx__field">
+                  <label className={`hslsx__field${khachHangId !== "" ? " is-active" : ""}`}>
                     <span className="hslsx__field-lb">Khách hàng</span>
                     <select value={khachHangId} onChange={(e) => setKhachHangId(e.target.value)}>
                       <option value="">Tất cả</option>
@@ -297,11 +320,74 @@ export function TheoDoiSanXuatPage({
         )}
 
         {dangLoc && (
-          <button type="button" className="hslsx__linkbtn" onClick={xoaLoc}>
+          <button type="button" className="hslsx__linkbtn tdsx-clear-btn" onClick={xoaLoc}>
             Xóa bộ lọc
           </button>
         )}
       </section>
+
+      {/* Active Filter Chips Bar */}
+      {dangLoc && (
+        <div className="tdsx-active-chips-bar">
+          <span className="tdsx-active-label">Đang lọc:</span>
+          {qTre.trim() !== "" && (
+            <span className="tdsx-active-chip">
+              <span>Mã/tên: "{qTre.trim()}"</span>
+              <button type="button" onClick={() => setQ("")} aria-label="Bỏ từ khóa">
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {nhomCd !== "" && (
+            <span className="tdsx-active-chip">
+              <span>Nhóm: {NHOM_CONG_DOAN[nhomCd as keyof typeof NHOM_CONG_DOAN] ?? nhomCd}</span>
+              <button type="button" onClick={() => setNhomCd("")} aria-label="Bỏ nhóm CĐ">
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {mayId !== "" && (
+            <span className="tdsx-active-chip">
+              <span>Máy: {boLoc?.may.find((m) => String(m.id) === mayId)?.ten ?? mayId}</span>
+              <button type="button" onClick={() => setMayId("")} aria-label="Bỏ chọn máy">
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {trangThaiViec !== "" && (
+            <span className="tdsx-active-chip">
+              <span>Trạng thái: {TDSX_TT_META[trangThaiViec as keyof typeof TDSX_TT_META]?.label ?? trangThaiViec}</span>
+              <button type="button" onClick={() => setTrangThaiViec("")} aria-label="Bỏ chọn trạng thái">
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {uuTien !== "" && (
+            <span className="tdsx-active-chip">
+              <span>Ưu tiên: {uuTien === "gap" ? "Gấp" : "Bình thường"}</span>
+              <button type="button" onClick={() => setUuTien("")} aria-label="Bỏ chọn ưu tiên">
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {congNhanId !== "" && (
+            <span className="tdsx-active-chip">
+              <span>Công nhân: {boLoc?.cong_nhan.find((c) => String(c.id) === congNhanId)?.ten ?? congNhanId}</span>
+              <button type="button" onClick={() => setCongNhanId("")} aria-label="Bỏ chọn công nhân">
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+          {khachHangId !== "" && (
+            <span className="tdsx-active-chip">
+              <span>Khách hàng: {boLoc?.khach_hang.find((k) => String(k.id) === khachHangId)?.ten ?? khachHangId}</span>
+              <button type="button" onClick={() => setKhachHangId("")} aria-label="Bỏ chọn khách hàng">
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="hslsx__tabs" role="tablist" aria-label="Chọn góc nhìn">
         {TABS.map((t, i) => (

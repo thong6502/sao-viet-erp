@@ -198,9 +198,8 @@ NHAN: dict[str, str] = {
     "version_no": "Phiên bản giá",
     # Khuôn bế — `khach_hang` là CHỮ tự do (khác `khach_hang_id` phía trên của bảng khác).
     "khach_hang": "Khách hàng",
-    # Nhãn NGƯỜI DÙNG ĐỌC trong Nhật ký — phải khớp nhãn ô trên màn Khuôn, không thì cùng một thay
-    # đổi mà hai chỗ gọi hai tên. "Có khuôn" chứ không "về": xưởng tự làm dao thì không về đâu cả.
-    "ngay_ve_du_kien": "Ngày có khuôn (dự kiến)",
+    # `ngay_ve_du_kien` ĐÃ GỠ (mg `0293`) — nhật ký CŨ còn dòng đổi ô đó, nhưng nền nhật ký rơi về
+    # chính tên khoá khi không tra được nhãn, nên không cần giữ mục chết ở đây.
     # Máy & thiết bị — tên cột thật của bảng `may_thiet_bi` (khác hẳn bộ khoá tiếng Anh phía trên,
     # bộ đó là của bảng `machines` đời cũ).
     "hang_san_xuat": "Hãng sản xuất",

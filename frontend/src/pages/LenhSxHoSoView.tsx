@@ -599,8 +599,11 @@ export function LenhSxHoSoView({
 
               {/* ---------- Dải tổng quan: ba câu hỏi đầu tiên của người mở hồ sơ ---------- */}
               <section className="hslsx-hs__sum" aria-label="Tổng quan lệnh">
-                <div className="hslsx-hs__tile hslsx-hs__tile--wide">
-                  <span className="hslsx-hs__tile-lb">Tiến độ</span>
+                <div className="hslsx-hs__tile hslsx-hs__tile--progress hslsx-hs__tile--wide">
+                  <div className="hslsx-hs__tile-head">
+                    <span className="hslsx-hs__tile-icon"><Icon name="activity" size={14} /></span>
+                    <span className="hslsx-hs__tile-lb">Tiến độ</span>
+                  </div>
                   <span className="hslsx-hs__tile-val">
                     {td.uoc_tinh ? "~" : ""}
                     {pct}%
@@ -620,8 +623,6 @@ export function LenhSxHoSoView({
                       style={{ width: `${pct}%` }}
                     />
                   </span>
-                  {/* Cờ ước tính phải ra tới MẶT MÀN, không giấu trong tooltip: 40% "đo được" và
-                      40% "ước tính" là hai mức tin cậy khác hẳn nhau. */}
                   <span className="hslsx-hs__tile-phu">
                     {td.uoc_tinh
                       ? "Ước tính theo thời lượng kế hoạch — bước chưa khai sản lượng"
@@ -629,8 +630,11 @@ export function LenhSxHoSoView({
                   </span>
                 </div>
 
-                <div className="hslsx-hs__tile">
-                  <span className="hslsx-hs__tile-lb">Bước hiện tại</span>
+                <div className="hslsx-hs__tile hslsx-hs__tile--step">
+                  <div className="hslsx-hs__tile-head">
+                    <span className="hslsx-hs__tile-icon"><Icon name="cpu" size={14} /></span>
+                    <span className="hslsx-hs__tile-lb">Bước hiện tại</span>
+                  </div>
                   <span className="hslsx-hs__tile-val hslsx-hs__tile-val--chu">
                     {td.buoc_hien_tai ?? "—"}
                   </span>
@@ -640,10 +644,11 @@ export function LenhSxHoSoView({
                   </span>
                 </div>
 
-                {/* Tổng sản lượng chỉ có nghĩa khi cả lệnh ghi bằng MỘT thang đo — xem `donViLo`.
-                    Trộn thang thì im cả con số lẫn dòng phụ, đừng bày một nửa. */}
-                <div className="hslsx-hs__tile">
-                  <span className="hslsx-hs__tile-lb">Sản lượng tốt</span>
+                <div className="hslsx-hs__tile hslsx-hs__tile--yield">
+                  <div className="hslsx-hs__tile-head">
+                    <span className="hslsx-hs__tile-icon"><Icon name="box" size={14} /></span>
+                    <span className="hslsx-hs__tile-lb">Sản lượng tốt</span>
+                  </div>
                   {dvSanLuong.so >= 2 ? (
                     <>
                       <span className="hslsx-hs__tile-val hslsx-hs__tile-val--chu">
@@ -666,21 +671,25 @@ export function LenhSxHoSoView({
                   )}
                 </div>
 
-                <div className="hslsx-hs__tile">
-                  <span className="hslsx-hs__tile-lb">Giờ máy đã chạy</span>
+                <div className="hslsx-hs__tile hslsx-hs__tile--hours">
+                  <div className="hslsx-hs__tile-head">
+                    <span className="hslsx-hs__tile-icon"><Icon name="clock" size={14} /></span>
+                    <span className="hslsx-hs__tile-lb">Giờ máy đã chạy</span>
+                  </div>
                   <span className="hslsx-hs__tile-val">
                     {so(Math.round(td.gio_may * 10) / 10)}
                     <small>giờ</small>
                   </span>
-                  {/* Một lượt in ghép 3 lệnh được đếm ĐỦ cho cả 3 — số này không cộng qua nhiều
-                      lệnh được, và nói ra tại chỗ rẻ hơn sửa một báo cáo đã sai. */}
                   <span className="hslsx-hs__tile-phu">
                     Ca in ghép tính đủ cho mọi lệnh trên tờ — đừng cộng qua nhiều lệnh
                   </span>
                 </div>
 
-                <div className="hslsx-hs__tile">
-                  <span className="hslsx-hs__tile-lb">Hạn SX nội bộ</span>
+                <div className="hslsx-hs__tile hslsx-hs__tile--deadline">
+                  <div className="hslsx-hs__tile-head">
+                    <span className="hslsx-hs__tile-icon"><Icon name="calendar" size={14} /></span>
+                    <span className="hslsx-hs__tile-lb">Hạn SX nội bộ</span>
+                  </div>
                   <span
                     className={`hslsx-hs__tile-val hslsx-hs__tile-val--chu hslsx__han ${classHan(
                       tt.han_hoan_thanh_sx,
@@ -688,8 +697,6 @@ export function LenhSxHoSoView({
                   >
                     {ngay(tt.han_hoan_thanh_sx)}
                   </span>
-                  {/* `null` ⇒ "Chưa đủ dữ liệu", KHÔNG "—": máy chủ cố ý im khi có bước thiếu thời
-                      lượng, thà im còn hơn bịa một mốc mà điều độ đem đi hứa với khách. */}
                   <span className="hslsx-hs__tile-phu">
                     Dự kiến xong: {td.du_kien_xong ? ngayGio(td.du_kien_xong) : "chưa đủ dữ liệu"}
                   </span>
@@ -767,10 +774,14 @@ export function LenhSxHoSoView({
                           <tbody key={lop}>
                             <tr className="hslsx-hs__loprow">
                               <td colSpan={7}>
-                                Lớp {lop + 1}
-                                {nodes.length > 1
-                                  ? ` · ${nodes.length} bước chạy song song`
-                                  : ""}
+                                <div className="hslsx-hs__loprow-inner">
+                                  <span className="hslsx-hs__lop-badge">Lớp {lop + 1}</span>
+                                  {nodes.length > 1 && (
+                                    <span className="hslsx-hs__lop-parallel">
+                                      <Icon name="workflow" size={13} /> {nodes.length} bước chạy song song
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                             {nodes.map((n) => (
@@ -1353,7 +1364,10 @@ function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
   return (
     <tr className={n.la_buoc_hien_tai ? "is-buoc-hien-tai" : undefined}>
       <td>
-        <span className="hslsx-hs__buocten">{n.ten ?? "—"}</span>
+        <span className="hslsx-hs__buocten">
+          {n.la_buoc_hien_tai && <span className="hslsx-pulse-dot" title="Bước đang được thực hiện" />}
+          {n.ten ?? "—"}
+        </span>
         <span className="hslsx-hs__chips">
           {nhomLb && <span className="hslsx-hs__chip">{nhomLb}</span>}
           {lb && (
@@ -1381,7 +1395,6 @@ function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
               ma: n.khuon_be_ma,
               so_ke: n.khuon_be_so_ke,
               tinh_trang: n.khuon_be_tinh_trang,
-              ngay_ve_du_kien: n.khuon_be_ngay_ve,
               da_nhan: n.khuon_da_nhan,
             }}
           />
@@ -1415,9 +1428,15 @@ function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
       </td>
       <td className="hslsx-hs__num">{n.hoan_thanh_luc ? ngayGio(n.hoan_thanh_luc) : "—"}</td>
       <td className="hslsx-hs__num">
-        {/* Máy chủ ép `None → 0.0`, nên 0 ở đây KHÔNG phân biệt được với "chưa khai". */}
-        {soHoac(n.so_luong_vao)} {nhanChang(n.don_vi_vao)} → {soHoac(n.so_luong_ra)}{" "}
-        {nhanChang(n.don_vi_ra)}
+        <span className="hslsx-hs__yield-badge">
+          <span className="hslsx-hs__yield-val">
+            {soHoac(n.so_luong_vao)} {nhanChang(n.don_vi_vao)}
+          </span>
+          <span className="hslsx-hs__yield-arrow">→</span>
+          <span className="hslsx-hs__yield-val">
+            {soHoac(n.so_luong_ra)} {nhanChang(n.don_vi_ra)}
+          </span>
+        </span>
       </td>
     </tr>
   );

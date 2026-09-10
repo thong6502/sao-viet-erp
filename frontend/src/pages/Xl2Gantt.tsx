@@ -12,7 +12,7 @@ import type { IconName } from "../components/Icons";
 import type {
   Xl2Ca, Xl2CaNhan, Xl2Dong, Xl2KhoaMay, Xl2Muc, Xl2NgayLe, Xl2Nghi, Xl2QRow, Xl2TaiMay, Xl2TaiTo,
 } from "../api/client";
-import { ngay, ngayGio, num, thoiLuong, thoiLuongNgan } from "./keHoachSxShared";
+import { ngayGio, num, thoiLuong, thoiLuongNgan } from "./keHoachSxShared";
 import {
   BAR_H, CLUSTER_HEAD_H, LANE_H, LABEL_W, STACK_H, buildLinearScale, demViecLanes, dongHue, dongEntityKey, dongNhanParts,
   dongSerial, ngayToWall, wallToNaive, type Xl2Zoom,
@@ -917,15 +917,15 @@ export function Xl2Gantt({
                       // giữa đường. Dòng bài ghép không mang `loai_buoc` thì vẫn lùi về vị trí lane.
                       const isNcc = dong.loai_buoc === "thue_ngoai"
                         || (dong.loai_buoc == null && lane.cluster === "ncc");
-                      // Dao của bước: thiếu (cần mà chưa chốt) hoặc chưa về ⇒ tô cảnh báo. Ngày dao
-                      // về KHÔNG chặn xếp lịch, chỗ này chỉ để điều độ nhìn thấy trước khi kéo.
+                      // Dao của bước: thiếu (cần mà chưa chốt) hoặc chưa về ⇒ tô cảnh báo. Tình
+                      // trạng dao KHÔNG chặn xếp lịch, chỗ này chỉ để điều độ nhìn thấy trước khi kéo.
                       const daoThieu = dong.requires_tooling && !dong.khuon_ma;
                       const daoChuaVe = dong.khuon_tinh_trang === "dang_dat_lam";
                       const daoTitle = daoThieu
                         ? " · chưa chốt khuôn/khung"
                         : dong.khuon_ma
                           ? ` · ${dong.khuon_ma}${daoChuaVe
-                              ? `, chưa về${dong.khuon_ngay_ve ? ` (dự kiến ${ngay(dong.khuon_ngay_ve)})` : ""}`
+                              ? ", chưa về"
                               : dong.khuon_so_ke ? `, ${dong.khuon_so_ke}` : ""}`
                           : "";
                       // Tầng của thanh trong lane (0 khi lane không có thanh nào trùng giờ). Đẩy

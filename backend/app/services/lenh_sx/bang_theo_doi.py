@@ -712,7 +712,6 @@ def _nhan(cv: SanXuatCongViec) -> dict:
         "khuon_ma": k.get("ma"),
         "khuon_so_ke": k.get("so_ke"),
         "khuon_tinh_trang": k.get("tinh_trang"),
-        "khuon_ngay_ve": k.get("ngay_ve_du_kien"),
         "khuon_da_nhan": cv.khuon_nhan_luc is not None,
     }
 

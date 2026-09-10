@@ -277,8 +277,6 @@ def _khuon(db, cd) -> dict | None:
     return {
         "id": k.id, "ma": k.ma, "ten": k.ten, "loai": k.loai, "so_ke": k.so_ke,
         "tinh_trang": k.tinh_trang,
-        # ISO chứ không phải object date: JSON column phải serialize được, và FE đọc `yyyy-mm-dd`.
-        "ngay_ve_du_kien": k.ngay_ve_du_kien.isoformat() if k.ngay_ve_du_kien else None,
     }
 
 

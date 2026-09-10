@@ -7,20 +7,15 @@ from __future__ import annotations
 
 import pytest
 
-from app.db import SessionLocal, init_db
+from tests.conftest import phien_da_seed
+
 from app.repositories.rbac_repo import DepartmentRepository
 from app.seed import seed_all
 
 
 @pytest.fixture
 def db():
-    init_db()
-    session = SessionLocal()
-    try:
-        seed_all(session)
-        yield session
-    finally:
-        session.close()
+    yield from phien_da_seed()
 
 
 def _repo(session) -> DepartmentRepository:

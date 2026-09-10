@@ -73,6 +73,16 @@ def test_lich_cua_so_nguoc_thi_400(client):
     assert r.status_code == 400
 
 
+def test_lich_tra_kem_ngay_nghi_cua_dung_cua_so(client):
+    """`ngay_nghi` phải ĐI QUA được `response_model` — `LichOut` không khai thì Pydantic nuốt im
+    lặng và FE lại quay về đoán "T7 + CN" (xưởng này làm thứ 7)."""
+    body = client.get(f"{GOC}/lich?tu=2026-09-12&den=2026-09-20", headers=_hd(client)).json()
+    assert "2026-09-13" in body["ngay_nghi"]      # chủ nhật
+    assert "2026-09-12" not in body["ngay_nghi"]  # thứ 7 vẫn làm
+    # Không rò ngày ngoài cửa sổ: bàn tô nền theo đúng danh sách này.
+    assert all("2026-09-12" <= n <= "2026-09-20" for n in body["ngay_nghi"])
+
+
 def test_lenh_khong_ton_tai_thi_404(client):
     assert client.get(f"{GOC}/lenh/999999", headers=_hd(client)).status_code == 404
 
@@ -137,6 +147,25 @@ def test_phat_hanh_bam_la_di_khong_hoi_gi(client):
     assert client.post(f"{GOC}/phat-hanh/{lid}", headers=h).status_code == 409   # bấm hai lần
 
 
+def test_goi_phat_hanh_mo_bang_quyen_READ_va_404_khi_khong_co_lenh(client):
+    """Panel hỏi câu này TRƯỚC khi bày nút. Ở đây chỉ soi cửa vào — số liệu thật cần routing nên
+    nằm ở `test_xep_lich_3_service.py`; lệnh dựng thẳng bằng ORM không có bước nào, phát hành
+    không đẻ gói, đúng nghĩa `co_goi=False`."""
+    lid, h = _lenh(), _hd(client)
+    r = client.get(f"{GOC}/phat-hanh/{lid}/goi", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["co_goi"] is False
+    assert client.get(f"{GOC}/phat-hanh/999999/goi", headers=h).status_code == 404
+
+
+def test_phat_hanh_cap_nhat_thieu_ly_do_thi_400(client):
+    lid, h = _lenh(), _hd(client)
+    client.put(f"{GOC}/lenh/{lid}", json={"bat_dau_at": "2026-09-11T08:00:00"}, headers=h)
+    client.post(f"{GOC}/phat-hanh/{lid}", headers=h)
+    r = client.post(f"{GOC}/phat-hanh-cap-nhat/{lid}", json={"ly_do": "ff"}, headers=h)
+    assert r.status_code == 400, r.text
+
+
 def test_thu_hoi_thieu_ly_do_thi_400_chu_khong_phai_500(client):
     """Lý do thu hồi là cái VẾT, không phải cửa gác xếp lịch — nhưng lỗi phải ra 400 đọc được."""
     lid, h = _lenh(), _hd(client)
@@ -154,7 +183,7 @@ def test_moi_duong_GHI_deu_day_SSE():
     from app.routers import xep_lich_3 as r
 
     cay = ast.parse(_inspect.getsource(r))
-    ghi = {"dat_moc", "xoa_moc", "phat_hanh", "thu_hoi"}
+    ghi = {"dat_moc", "xoa_moc", "phat_hanh", "thu_hoi", "phat_hanh_cap_nhat"}
     thay = {
         n.name for n in ast.walk(cay)
         if isinstance(n, ast.FunctionDef) and n.name in ghi

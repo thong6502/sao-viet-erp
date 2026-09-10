@@ -13,8 +13,8 @@ from datetime import date, timedelta
 import pytest
 from pydantic import ValidationError
 
-from app.db import Base, SessionLocal, engine
-from app.db_migrations import run_migrations
+from tests.conftest import phien_da_seed
+
 from app.models.customer import Customer
 from app.models.quotation import STATUS_ACCEPTED, Quote, QuoteItem, QuoteVersion
 from app.models.user import User
@@ -30,7 +30,6 @@ from app.schemas.order import (
     OrderDepositReceiptIn,
     OrderUpdate,
 )
-from app.seed import seed_all
 from app.services.accounting_service import AccountingService
 from app.services.order_service import (
     OrderConflict,
@@ -43,13 +42,7 @@ from app.services.sequence_service import SequenceService
 
 @pytest.fixture
 def db():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    s = SessionLocal()
-    run_migrations(s)
-    seed_all(s)
-    yield s
-    s.close()
+    yield from phien_da_seed()
 
 
 @pytest.fixture

@@ -328,8 +328,7 @@ def test_theo_may_va_theo_ca_mang_nhan_buoc(client, seed_credentials, sess, viec
     cv = sess.get(SanXuatCongViec, viec_chua_xep_may)
     cv.loai_buoc = "thue_ngoai"
     cv.nha_cung_cap = "Cơ sở Minh Phát"
-    cv.khuon_json = {"ma": "KB-0001", "so_ke": "Kệ A3", "tinh_trang": "dang_dat_lam",
-                     "ngay_ve_du_kien": "2026-09-20"}
+    cv.khuon_json = {"ma": "KB-0001", "so_ke": "Kệ A3", "tinh_trang": "dang_dat_lam"}
     sess.commit()
 
     h = _h(_tok(client, seed_credentials))
@@ -338,7 +337,6 @@ def test_theo_may_va_theo_ca_mang_nhan_buoc(client, seed_credentials, sess, viec
     block = next(b for b in chua["blocks"] if b["cong_viec_id"] == viec_chua_xep_may)
     assert block["nhan"]["khuon_ma"] == "KB-0001"
     assert block["nhan"]["khuon_tinh_trang"] == "dang_dat_lam"
-    assert block["nhan"]["khuon_ngay_ve"] == "2026-09-20"
     assert block["nhan"]["loai_buoc"] == "thue_ngoai"
 
 

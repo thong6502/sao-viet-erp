@@ -29,6 +29,9 @@ class BuocVao:
     # Bước thuê ngoài: số NGÀY LỊCH chiếm chỗ. `None` = chưa khai đủ để biết (vẫn không chặn).
     thue_ngoai_ngay: int | None = None
     la_thue_ngoai: bool = False
+    # Vì sao bước này KHÔNG tính được giờ (chưa gán máy · chưa quy đổi được đơn vị…). Có câu này
+    # mà `chay_phut == 0` nghĩa là ngày kết thúc đang bị TÍNH THIẾU — thanh phải nói ra.
+    canh_bao: str | None = None
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,13 @@ def trai_lich(moc: datetime, buoc: list[BuocVao], lich) -> KetQuaTrai:
             doan.extend(_cat_doan(b_dau, b.chay_phut, i, lich))
             con = _cong_gio_lam(con, b.chay_phut, lich)
             tong_chay += b.chay_phut
+        elif b.canh_bao:
+            # Bước chiếm 0 phút vì THIẾU DỮ KIỆN, không vì nó nhanh: lệnh sẽ xong muộn hơn ngày
+            # màn đang bày. Trước 10/09/2026 chỗ này im lặng — bước Dán chưa gán máy lọt qua
+            # không một dòng nào, lịch nhảy thẳng từ Bế sang Đóng gói.
+            cau = f"Bước {b.thu_tu} chưa tính được giờ nên lệnh có thể xong muộn hơn. {b.canh_bao}"
+            if cau not in ghi_chu:
+                ghi_chu.append(cau)
         moc_buoc.append(MocBuoc(
             lsx_cong_doan_id=b.lsx_cong_doan_id, thu_tu=b.thu_tu,
             bat_dau=_naive(b_dau), ket_thuc=_naive(con), chay_phut=b.chay_phut,

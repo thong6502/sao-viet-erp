@@ -1,34 +1,256 @@
-/* Màn "Theo dõi sản xuất" (Task 17b: Kanban + Theo máy; Task 18b: Theo ca + Gantt tổng thể).
- *
- * Dùng NGUYÊN hệ token đang chạy (`styles/tokens.css`), KHÔNG đẻ bảng màu/font riêng. Phần lớn
- * khung (đầu trang, thanh lọc, dải tab) mượn thẳng các lớp `.hslsx__*` đã có ở `lenh-san-xuat.css`
- * — root `<main>` của trang mang CẢ HAI class `tdsx hslsx` (không lồng nhau) nên các rule flat của
- * `.hslsx__*` áp thẳng, không cần chép lại ở đây. File này chỉ định nghĩa phần RIÊNG của màn: board
- * Kanban, mini-Gantt Theo máy, bảng Theo ca, Gantt tổng thể, chip/khối trạng thái, và ba popover
- * (Thêm bộ lọc · chọn lệnh).
- *
- * Bốn màu trạng thái công việc (`.tdsx-tt--*` / `.tdsx-tm__block--*` / `.tdsx-lg__item--*`) LẤY
- * NGUYÊN giá trị đã chạy thật ở `.thsx-lg` của Thực hiện SX (`thuc-hien-sx.css:1487-1497`) — cố
- * tình KHÔNG import file đó (nó bọc trong `.thsx` và có reset riêng cho trục thời gian dùng chung
- * `xl2Shared`, kéo theo là rủi ro rò CSS sang một màn không có ancestor đó); giữ đúng token, đổi
- * tên lớp cho gọn trong phạm vi màn này.
- *
- * Ruling C138 (task-18b-brief.md): tab Gantt tổng thể TÁI DÙNG nguyên các lớp trục thời gian của
- * Theo máy (`.tdsx-tm__scroll/__grid/__corner/__axis/__tick`) — cả hai đọc CÙNG module tính toán
- * `tdsxTimeline.ts`, nên cùng luôn CSS vẽ trục là hợp lý, dù tiền tố còn ghi "tm" (giữ tên cũ để
- * đỡ phải sửa lại `TdsxTheoMay.tsx` đã qua rà soát). Riêng phần LABEL/TRACK của từng dòng thì mỗi
- * tab có lớp riêng (`.tdsx-tm__label/__track` cho Theo máy, `.tdsx-gt__label/__track` cho Gantt)
- * vì nội dung một dòng khác hẳn nhau (tên máy đơn dòng so với mã+khách+hạn ba dòng).
- */
+/* --- Header Compact Linear Style ------------------------------------------------------------- */
+.tdsx-head-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-3);
+  padding: 2px 0;
+}
+.tdsx-head-compact__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tdsx-head-compact .tdsx-breadcrumb {
+  margin-bottom: 0;
+  margin-right: 4px;
+}
+.tdsx-head-compact .hslsx__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  margin: 0;
+  line-height: 1.2;
+}
+.tdsx-badges-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tdsx-head-compact__right {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.tdsx-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.tdsx-breadcrumb .is-active {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.tdsx-reload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  color: var(--ash);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 180ms ease;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+.tdsx-reload-btn:hover {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border-color: rgba(197, 64, 10, 0.3);
+  transform: translateY(-1px);
+}
+
+/* --- Live Indicator & Kbd Hint ------------------------------------------------------------- */
+.tdsx-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tdsx-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--moss);
+  box-shadow: 0 0 0 0 rgba(47, 93, 58, 0.4);
+  animation: tdsx-pulse 1.8s infinite;
+}
+@keyframes tdsx-pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(47, 93, 58, 0.5); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(47, 93, 58, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(47, 93, 58, 0); }
+}
+
+.hslsx__kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-family: var(--ff-num);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ash-2);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+}
+
+/* Elevated Filter Suite Card */
+.tdsx .hslsx__filters.tdsx-filter-card {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: 16px 20px;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px rgba(15, 23, 42, 0.03);
+}
+.tdsx .hslsx__search {
+  height: 40px;
+  border-radius: var(--r-5);
+  border-color: var(--rule-soft);
+  transition: border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
+}
+.tdsx .hslsx__search:focus-within {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.15);
+}
+.tdsx .hslsx__field select {
+  height: 40px;
+  border-radius: 8px;
+  border-color: var(--rule-soft);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  transition: border-color var(--duration-fast) ease, background 180ms ease;
+}
+.tdsx .hslsx__field.is-active select {
+  border-color: var(--charcoal);
+  background: var(--heat-0);
+  font-weight: 600;
+  color: var(--ink);
+}
+.tdsx .hslsx__field select:focus {
+  border-color: var(--rust);
+}
+
+.tdsx-more-filter-btn {
+  height: 40px;
+  padding: 0 14px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--rule-soft) !important;
+  background: var(--paper) !important;
+  text-decoration: none !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+.tdsx-more-filter-btn.is-active {
+  border-color: var(--charcoal) !important;
+  background: var(--charcoal) !important;
+  color: var(--on-charcoal) !important;
+}
+
+/* Active Filter Chips Bar */
+.tdsx-active-chips-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  margin-top: -6px;
+  margin-bottom: var(--sp-3);
+}
+.tdsx-active-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ash-2);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.tdsx-active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.tdsx-active-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--heat-0);
+  color: var(--ash);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.tdsx-active-chip button:hover {
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+}
+
+/* Nâng cấp Segmented Tab Bar */
+.tdsx .hslsx__tabs {
+  background: var(--heat-0);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 4px 6px;
+  display: inline-flex;
+  width: auto;
+  gap: 4px;
+}
+.tdsx .hslsx__tab {
+  padding: 6px 18px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.tdsx .hslsx__tab:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.6);
+}
+.tdsx .hslsx__tab.is-active {
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
+}
 
 /* --- "Thêm bộ lọc" — popover nhỏ neo dưới nút, khuôn `.xl2-verhist__pop` --------------------- */
 .tdsx-themloc { position: relative; display: inline-flex; }
 .tdsx-themloc__pop {
   position: absolute;
   top: calc(100% + 6px);
-  /* Neo mép PHẢI: nút "Thêm bộ lọc" luôn đứng cuối thanh lọc, `left: 0` đẩy popover tràn ra ngoài
-   * màn — đo ở 1440px ra x 1310→1530, thừa 90px, hai ô Công nhân/Khách hàng bị cắt mất nửa phải và
-   * không thanh cuộn nào với tới được. */
   right: 0;
   z-index: 30;
   display: flex;
@@ -38,8 +260,8 @@
   padding: var(--sp-3);
   background: var(--canvas);
   border: 1px solid var(--rule);
-  border-radius: var(--r-3);
-  box-shadow: var(--shadow-4);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-lg);
 }
 
 /* --- trạng thái công việc: chip nhỏ (Kanban) + legend (Theo máy) ----------------------------- */
@@ -52,8 +274,6 @@
   white-space: nowrap;
 }
 .tdsx-tt i { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1px solid var(--rule); }
-/* Chữ của chip co được và cắt bằng "…" thay vì tràn ra rồi bị thẻ cha xén ngang chữ. `min-width: 0`
- * bắt buộc: mặc định flex item không co dưới kích thước nội dung. */
 .tdsx-tt__chu { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tdsx-tt--released i { border-color: var(--steel-soft); background: var(--canvas); }
 .tdsx-tt--running i { border-color: var(--moss); background: var(--moss); }
@@ -87,32 +307,105 @@
 .tdsx-kb__loi { padding: var(--sp-6) 0; }
 .tdsx-kb__loi--full { display: flex; justify-content: center; }
 
-/* Băng "đang ẩn N công đoạn trống": đứng NGOÀI vùng cuộn ngang của board, nếu để bên trong thì kéo
- * sang phải một cái là câu chữ lẫn nút mở lại trôi mất. */
-.tdsx-kb__cotloc { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
-.tdsx-kb__cotloc-chu { font-size: var(--fs-xs); color: var(--ash); }
+/* Board Control Bar */
+.tdsx-kb__control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 8px 14px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  margin-bottom: var(--sp-3);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+}
 
-/* Cả dải cột cuộn NGANG; mỗi cột tự cuộn DỌC bên trong (thân `.tdsx-kb__body`, không phải cả
- * `.tdsx-kb__col`) — đầu cột (`colhead`) đứng NGOÀI phần cuộn nên số đếm luôn thấy được. */
+.tdsx-kb__control-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.tdsx-kb__stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  color: var(--ash);
+}
+.tdsx-kb__stat-pill--active {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  font-weight: 500;
+}
+.tdsx-kb__stat-pill--empty {
+  background: var(--heat-0);
+  color: var(--ash);
+}
+.tdsx-stat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--moss);
+}
+
+.tdsx-kb__toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+.tdsx-kb__toggle-btn:hover {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border-color: rgba(197, 64, 10, 0.3);
+}
+
 .tdsx-kb__board {
   display: flex;
   align-items: flex-start;
   gap: var(--sp-3);
   overflow-x: auto;
-  padding-bottom: var(--sp-2);
+  padding-bottom: var(--sp-3);
   transition: opacity 150ms ease;
 }
+.tdsx-kb__board::-webkit-scrollbar {
+  height: 8px;
+}
+.tdsx-kb__board::-webkit-scrollbar-track {
+  background: transparent;
+}
+.tdsx-kb__board::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 999px;
+}
+.tdsx-kb__board::-webkit-scrollbar-thumb:hover {
+  background: var(--ash-2);
+}
+
 .tdsx-kb__board.is-mo { opacity: 0.55; }
 .tdsx-kb__col {
   display: flex;
   flex-direction: column;
-  flex: 0 0 270px;
-  max-width: 270px;
-  max-height: calc(100vh - 320px);
-  min-height: 160px;
+  flex: 0 0 290px;
+  max-width: 290px;
+  max-height: calc(100vh - 310px);
+  min-height: 180px;
   background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.05);
   overflow: hidden;
 }
 .tdsx-kb__colhead {
@@ -120,111 +413,517 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-3) var(--sp-2);
-  border-bottom: 1px solid var(--rule-soft);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1.5px solid var(--rule-soft);
   background: var(--canvas);
 }
-.tdsx-kb__colten { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--ink); }
-.tdsx-kb__coln {
-  font-family: var(--ff-num);
-  font-size: var(--fs-xs);
-  color: var(--ash);
-  background: var(--rule-hair);
-  border-radius: var(--r-pill);
-  padding: 1px 8px;
+
+/* Header Column Icon & Zero vs Active Badge */
+.tdsx-kb__colhead-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+.tdsx-kb__colhead-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-3);
+  background: var(--heat-0);
+  color: var(--ash);
+}
+.tdsx-kb__col.is-empty .tdsx-kb__colhead-icon {
+  background: var(--paper-warm, var(--heat-0));
+  color: var(--ash-2);
+}
+
+.tdsx-kb__colten { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--ink); }
+
+.tdsx-kb__coln--active {
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+}
+.tdsx-kb__coln--zero {
+  background: var(--paper);
+  color: var(--ash-2);
+  border: 1px solid var(--rule-soft);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+}
+
 .tdsx-kb__body {
   flex: 1 1 auto;
   overflow-y: auto;
   padding: var(--sp-3);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: 12px;
 }
-.tdsx-kb__colrong { font-size: var(--fs-xs); color: var(--ash); text-align: center; margin: var(--sp-4) 0; }
 
+/* Dashed Empty Workstation Slot Placeholder */
+.tdsx-kb__empty-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 16px;
+  border: 1.5px dashed var(--rule);
+  border-radius: var(--r-5);
+  background: rgba(255, 255, 255, 0.5);
+  margin: var(--sp-1) 0;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+.tdsx-kb__empty-slot:hover {
+  border-color: var(--moss);
+  background: var(--canvas);
+}
+.tdsx-kb__empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  margin-bottom: 8px;
+}
+.tdsx-kb__empty-title {
+  margin: 0 0 2px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.tdsx-kb__empty-sub {
+  margin: 0 0 8px;
+  font-size: var(--fs-2xs);
+  color: var(--ash-2);
+}
+.tdsx-kb__empty-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+}
+
+/* Modern WOW Card Design */
 .tdsx-kb__card {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 10px;
   width: 100%;
   text-align: left;
-  padding: var(--sp-3);
+  padding: 14px 16px;
   background: var(--canvas);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  border-left: 4px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: 0 2px 8px -1px rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
   cursor: pointer;
   font: inherit;
   color: inherit;
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms ease;
 }
-.tdsx-kb__card:hover { border-color: var(--steel); box-shadow: var(--shadow-1); }
-.tdsx-kb__card:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
-.tdsx-kb__row1 { display: flex; align-items: center; gap: var(--sp-2); }
-.tdsx-kb__ma { font-family: var(--ff-num); font-weight: var(--fw-bold); font-size: var(--fs-sm); color: var(--ink); }
-.tdsx-kb__row2 {
+
+.tdsx-kb__card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(197, 64, 10, 0.3);
+  box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.08);
+}
+.tdsx-kb__card:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+
+/* Status accent borders */
+.tdsx-kb__card--rush { border-left-color: var(--rust) !important; }
+.tdsx-kb__card--late { border-left-color: var(--signal) !important; }
+.tdsx-kb__card--running { border-left-color: var(--moss) !important; }
+.tdsx-kb__card--paused { border-left-color: var(--amber) !important; }
+
+/* Header row of card: Code + Rush/Step Pill */
+.tdsx-kb__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tdsx-kb__code-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--r-2);
+  background: var(--heat-0);
+  color: var(--ink);
+}
+.tdsx-kb__ma {
+  font-family: var(--ff-num);
+  font-weight: 700;
   font-size: var(--fs-xs);
+  letter-spacing: -0.01em;
+}
+.tdsx-kb__rush-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border: 1px solid rgba(197, 64, 10, 0.25);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.tdsx-kb__step-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--heat-0);
   color: var(--ash);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Info section: Product title & Customer */
+.tdsx-kb__info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tdsx-kb__ten-sp {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tdsx-kb__khach-hang {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ash-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tdsx-kb__row3 { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-.tdsx-kb__sl { font-family: var(--ff-num); font-size: var(--fs-xs); color: var(--ink); }
-.tdsx-kb__han { display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-2xs); color: var(--ash); }
-.tdsx-kb__row4 { font-size: var(--fs-2xs); color: var(--ash); }
-.tdsx-kb__chips { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; margin-top: var(--sp-1); }
-.tdsx-kb__chipthem { font-size: var(--fs-2xs); color: var(--steel); }
+.tdsx-kb__khach-hang svg { flex: none; color: var(--ash); }
+
+/* Meta Bar: Quantity & Due Date */
+.tdsx-kb__meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-hair);
+}
+.tdsx-kb__sl-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--r-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  font-size: 12px;
+  color: var(--ash);
+}
+.tdsx-kb__sl-pill svg { color: var(--ash-2); }
+.tdsx-kb__sl-pill strong {
+  font-family: var(--ff-num);
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.tdsx-kb__sl-pill small {
+  font-size: 10.5px;
+  color: var(--ash-2);
+}
+
+.tdsx-kb__han-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  font-size: 11px;
+  color: var(--ash);
+}
+.tdsx-kb__han-pill.is-late {
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+  border-color: rgba(138, 31, 31, 0.2);
+  font-weight: 600;
+}
+.tdsx-kb__han-pill.is-late svg { color: var(--signal); }
+
+.tdsx-kb__chips {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule-soft);
+}
+.tdsx-kb__chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tdsx-kb__chipthem { font-size: var(--fs-2xs); color: var(--steel); font-weight: var(--fw-medium); }
 
 /* =============================== TAB THEO MÁY (mini-Gantt) =================================== */
 .tdsx-tm { margin-top: var(--sp-3); }
-.tdsx-tm__note {
+/* Nâng cấp Note Card Theo Máy */
+.tdsx-tm__note-card {
   display: flex;
   align-items: flex-start;
   gap: var(--sp-2);
   font-size: var(--fs-xs);
   color: var(--ash);
-  background: var(--rule-hair);
-  border-radius: var(--r-2);
-  padding: var(--sp-2) var(--sp-3);
-  margin: 0 0 var(--sp-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: 10px 14px;
+  margin-bottom: var(--sp-3);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
 }
-.tdsx-tm__note svg { flex: none; margin-top: 1px; color: var(--steel); }
+.tdsx-tm__note-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  flex: none;
+}
+
+.tdsx-tm__unassigned-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border: 1px solid rgba(197, 64, 10, 0.25);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.tdsx-tm__label.is-chua-xep {
+  background: rgba(244, 226, 214, 0.4);
+}
+.tdsx-tm__track.is-chua-xep {
+  background: rgba(244, 226, 214, 0.15);
+}
+
+.tdsx-tm__label-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--heat-0);
+  color: var(--ash);
+  flex: none;
+}
+
+.tdsx-tm__trongchu--idle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  border: 1px solid rgba(47, 93, 58, 0.2);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+
 .tdsx-tm__rong { display: flex; justify-content: center; padding: var(--sp-6) 0; }
 
 /* Hai trục sticky giao nhau: khung ngoài CUỘN CẢ HAI CHIỀU, lưới trong dùng CSS Grid 2 cột (nhãn +
  * track) — mỗi lane góp đúng 2 ô grid liên tiếp (label, track) nên số HÀNG grid tự bằng số lane. */
+/* Gantt Control Bar Suite */
+.tdsx-tm__control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 8px 16px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  margin-bottom: var(--sp-3);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+}
+.tdsx-tm__control-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tdsx-tm__control-left .tdsx-lg {
+  margin: 0;
+}
+.tdsx-tm__control-center {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tdsx-tm__control-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  font-family: var(--ff-num);
+}
+.tdsx-tm__control-range svg { color: var(--ash-2); }
+.tdsx-tm__today-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border: 1px solid rgba(197, 64, 10, 0.3);
+  border-radius: var(--r-pill);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+.tdsx-tm__today-btn:hover {
+  background: var(--rust);
+  color: #ffffff;
+}
+.tdsx-tm__control-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tdsx-tm__note-tooltip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  font-size: 11.5px;
+  color: var(--ash);
+  cursor: help;
+}
+.tdsx-tm__density-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--heat-0);
+  border: 1px solid var(--rule-soft);
+  font-size: 11.5px;
+  color: var(--ash-2);
+  font-weight: 500;
+}
+
 .tdsx-tm__scroll {
   overflow: auto;
   max-height: calc(100vh - 360px);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.05);
 }
-/* `min-width: max-content` KHÔNG phải trang trí — thiếu nó là cột nhãn sticky TRÔI MẤT khi cuộn tới
- * cuối. Lưới là block-level nên `width: auto` = bề rộng khung cuộn (vd 1146px) trong khi các track
- * grid cộng lại rộng hơn nhiều (vd 2148px); một item `position: sticky` chỉ trôi được tối đa
- * `hộp-nội-dung-cha − bề-rộng-chính-nó`, nên quá ngưỡng đó nhãn bị kéo đi theo track. Đo thật:
- * 1440px/Gantt dính tới scrollLeft 907 rồi lệch 95px; 1024px/Theo máy lệch 279px (nhãn rộng 176px
- * ⇒ MẤT HẲN); 390px/Gantt hỏng từ scrollLeft 236 trên quãng cuộn 1683px. `min-width` (không phải
- * `width`) để khi track NGẮN hơn khung thì lưới vẫn giãn kín khung, không co lại thành dải hẹp. */
-.tdsx-tm__grid { display: grid; min-width: max-content; transition: opacity 150ms ease; background: var(--canvas); }
+.tdsx-tm__grid { position: relative; display: grid; min-width: max-content; transition: opacity 150ms ease; background: var(--canvas); }
 .tdsx-tm__grid.is-mo { opacity: 0.55; }
 
+/* 2-Tier Sticky Header */
 .tdsx-tm__corner {
   position: sticky;
   top: 0;
   left: 0;
-  z-index: 5;
+  z-index: 6;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
   background: var(--paper);
-  border-right: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
+  border-right: 1.5px solid var(--rule-soft);
+  border-bottom: 1.5px solid var(--rule-soft);
 }
+.tdsx-tm__corner-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ash-2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .tdsx-tm__axis {
   position: sticky;
   top: 0;
-  z-index: 3;
-  height: 30px;
+  z-index: 4;
+  height: 54px;
+  display: flex;
+  flex-direction: column;
   background: var(--paper);
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1.5px solid var(--rule-soft);
+}
+.tdsx-tm__axis-top {
+  position: relative;
+  height: 26px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: rgba(248, 250, 252, 0.95);
+}
+.tdsx-tm__month-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--charcoal);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-left: 1.5px solid var(--rule);
+  background: rgba(226, 232, 240, 0.35);
+}
+.tdsx-tm__axis-bot {
+  position: relative;
+  height: 28px;
 }
 .tdsx-tm__tick {
   position: absolute;
@@ -232,13 +931,54 @@
   bottom: 0;
   display: flex;
   align-items: center;
-  padding-left: 4px;
+  padding-left: 8px;
   font-family: var(--ff-num);
-  font-size: var(--fs-2xs);
-  color: var(--ash);
-  border-left: 1px solid var(--rule-soft);
+  font-size: 11px;
+  color: var(--ash-2);
+  border-left: 1px dashed var(--rule-soft);
+  transition: color 150ms ease;
 }
-.tdsx-tm__tick.is-dam { color: var(--ink); border-left-color: var(--rule); }
+.tdsx-tm__tick.is-dam {
+  color: var(--ink);
+  font-weight: 700;
+  border-left: 1.5px solid var(--rule);
+}
+.tdsx-tm__tick.is-today {
+  color: var(--rust-deep);
+  font-weight: 700;
+  border-left: 2px solid var(--rust);
+  background: linear-gradient(180deg, rgba(197, 64, 10, 0.08) 0%, transparent 100%);
+}
+
+/* Real-Time NOW Red Line Overlay */
+.tdsx-tm__now-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #ef4444;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.7);
+}
+.tdsx-tm__now-badge {
+  position: absolute;
+  top: 29px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+  white-space: nowrap;
+}
 
 .tdsx-tm__label {
   position: sticky;
@@ -246,17 +986,22 @@
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 0 var(--sp-3);
   min-height: 56px;
   background: var(--canvas);
-  border-right: 1px solid var(--rule);
+  border-right: 1px solid var(--rule-soft);
   border-bottom: 1px solid var(--rule-soft);
   font-size: var(--fs-sm);
   color: var(--ink);
+  font-weight: 600;
+  transition: background 150ms ease;
+}
+.tdsx-tm__label:hover {
+  background: var(--paper);
 }
 .tdsx-tm__label.is-ngung { background: var(--rule-hair); color: var(--ash); }
-.tdsx-tm__labelten { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tdsx-tm__labelten { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .tdsx-tm__labeltag {
   font-size: var(--fs-2xs);
   color: var(--ash);
@@ -270,6 +1015,9 @@
   position: relative;
   min-height: 56px;
   border-bottom: 1px solid var(--rule-soft);
+  background-color: var(--canvas);
+  background-image: linear-gradient(90deg, var(--rule-hair) 1px, transparent 1px);
+  background-size: 100px 100%;
 }
 .tdsx-tm__track.is-ngung { background: var(--rule-hair); }
 .tdsx-tm__trongchu {
@@ -278,62 +1026,82 @@
   top: 50%;
   transform: translateY(-50%);
   font-size: var(--fs-xs);
-  color: var(--ash);
+  color: var(--ash-2);
   white-space: nowrap;
 }
 
-/* Khối: viền ngoài = 100% khung KẾ HOẠCH (C124). `.tdsx-tm__inner` trừ 4px hai mép làm vùng lõi —
- * Task 17b để TRỐNG (chỉ nền phẳng qua chính khối cha); khi có vế thực tế chỉ cần thêm một
- * `<span>` con bên trong `.tdsx-tm__inner` tô dải `--moss` từ trái, KHÔNG phải sửa layout này. */
+/* Modern Studio Gantt Task Blocks */
 .tdsx-tm__block {
   position: absolute;
-  top: 10px;
-  height: 36px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-pill);
-  background: var(--canvas);
+  top: 9px;
+  height: 38px;
+  border-radius: 8px;
   cursor: pointer;
   padding: 0;
   overflow: hidden;
   font: inherit;
+  border: 1px solid transparent;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06);
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms ease;
+}
+.tdsx-tm__block:hover {
+  transform: translateY(-2px) scale(1.008);
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.18), 0 3px 8px -2px rgba(15, 23, 42, 0.12);
+  z-index: 12;
 }
 .tdsx-tm__block:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
-/* Bốn màu trạng thái phải khớp ĐÚNG lớp mà `TdsxTheoMay.tsx` phát ra: nó lấy `meta.cls` từ
- * `TDSX_TT_META` (`TdsxKanban.tsx`) nên gắn `tdsx-tt--*`, KHÔNG phải `tdsx-tm__block--*`. Trước
- * đây viết theo tên `--*` nên không quy tắc nào khớp: đo computed style cả 17 thanh đều ra
- * `background rgb(255,255,255)` / `border rgb(203,213,225)` — "Chờ làm", "Đang chạy", "Tạm dừng"
- * giống hệt nhau, trong khi chú giải ngay trên đầu vẫn bày đủ 4 màu. Giữ `.tdsx-tt--*` (dùng
- * chung với chip) và siết bằng `.tdsx-tm__block` để không rò sang chip ở tab khác. */
-.tdsx-tm__block.tdsx-tt--released { border-color: var(--steel-soft); background: var(--canvas); }
-.tdsx-tm__block.tdsx-tt--running { border-color: var(--moss); background: var(--moss-soft); }
+
+/* Status themes with vibrant gradients and subtle glow */
+.tdsx-tm__block.tdsx-tt--released {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #ffffff;
+  box-shadow: 0 3px 10px rgba(99, 102, 241, 0.22);
+}
+.tdsx-tm__block.tdsx-tt--running {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  box-shadow: 0 3px 12px rgba(16, 185, 129, 0.25), 0 1px 3px rgba(16, 185, 129, 0.15);
+}
 .tdsx-tm__block.tdsx-tt--paused {
-  border-color: var(--amber);
+  border-color: rgba(245, 158, 11, 0.5);
   background:
     repeating-linear-gradient(-45deg,
-      color-mix(in srgb, var(--amber) 22%, transparent) 0 3px,
-      transparent 3px 6px),
-    var(--amber-soft);
+      rgba(255, 255, 255, 0.15) 0 6px,
+      transparent 6px 12px),
+    linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #ffffff;
+  box-shadow: 0 3px 12px rgba(245, 158, 11, 0.25);
 }
-.tdsx-tm__block.tdsx-tt--completed { border-color: var(--rule); background: var(--rule-hair); }
+.tdsx-tm__block.tdsx-tt--completed {
+  border-color: rgba(148, 163, 184, 0.4);
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(148, 163, 184, 0.2);
+}
 .tdsx-tm__block--khoa {
   border-color: var(--rule);
   background: repeating-linear-gradient(-45deg, var(--rule-soft) 0 4px, var(--rule-hair) 4px 8px);
+  color: var(--ash-2);
   cursor: not-allowed;
 }
+
 .tdsx-tm__inner {
   display: flex;
   align-items: center;
   height: 100%;
-  margin: 0 4px;
+  margin: 0 8px;
   overflow: hidden;
 }
 .tdsx-tm__nhan {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: var(--fs-2xs);
+  gap: 5px;
+  font-size: 11.5px;
   font-family: var(--ff-num);
-  color: var(--ink);
+  font-weight: 600;
+  color: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -393,11 +1161,13 @@
   flex-wrap: wrap;
   gap: var(--sp-4);
   margin-bottom: var(--sp-3);
+  padding: 14px 18px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
 }
-/* Hai nút lùi/tới ngày TÁI DÙNG icon `chevron` (chỉ có bản trỏ xuống) — xoay 90°/-90° bằng
- * transform thay vì thêm hai icon left/right mới vào bộ `Icons.tsx`. Cao/bo GIỐNG HỆT ô ngày/select/
- * "Mã ca khác" cạnh bên (34px / --r-3) — trước đây 28px/--r-2 lệch hẳn trong cùng một hàng công cụ
- * (vòng sửa 1, mục C: styleseed chấm Coherence −3 vì đo `getComputedStyle` ra hai chiều cao khác). */
+
 .tdsx-tc__daybtn {
   display: inline-flex;
   align-items: center;
@@ -414,9 +1184,7 @@
 .tdsx-tc__daybtn:hover { border-color: var(--steel); color: var(--ink); }
 .tdsx-tc__daybtn svg { transform: rotate(90deg); }
 .tdsx-tc__daybtn--sau svg { transform: rotate(-90deg); }
-/* Ô số trần — `.hslsx__field select`/`.hslsx__daterow input` (lenh-san-xuat.css) chỉ bắt hai lớp
- * đích danh đó, không bắt input số này, nên phải tự khai đủ khung viền/bo góc/chiều cao ở đây kẻo
- * lòi ra input mặc định của trình duyệt (bo góc 0, viền inset xám) giữa dải ô đã đồng bộ. */
+
 .tdsx-tc__macakhac input {
   width: 110px;
   height: 34px;
@@ -433,83 +1201,231 @@
 .tdsx-tc__list { display: flex; flex-direction: column; gap: var(--sp-3); transition: opacity 150ms ease; }
 .tdsx-tc__list.is-mo { opacity: 0.55; }
 
+/* Shift Operations Studio Styling */
 .tdsx-tc__ca {
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
   overflow: hidden;
+  box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.05);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
 }
+.tdsx-tc__ca.is-active-shift {
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 4px 20px -2px rgba(16, 185, 129, 0.12);
+}
+
 .tdsx-tc__cahead {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--sp-3);
-  padding: var(--sp-3);
+  padding: 12px 18px;
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule-soft);
+}
+.tdsx-tc__cahead-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tdsx-tc__ca-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   background: var(--canvas);
-  border-bottom: 1px solid var(--rule-soft);
-}
-.tdsx-tc__caten { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--ink); }
-.tdsx-tc__cakhung { font-family: var(--ff-num); font-size: var(--fs-xs); color: var(--ash); }
-.tdsx-tc__can {
-  margin-left: auto;
-  font-family: var(--ff-num);
-  font-size: var(--fs-xs);
+  border: 1px solid var(--rule-soft);
   color: var(--ash);
-  background: var(--rule-hair);
-  border-radius: var(--r-pill);
-  padding: var(--sp-1) var(--sp-2);
 }
-.tdsx-tc__body { display: flex; flex-direction: column; }
-.tdsx-tc__rong { font-size: var(--fs-xs); color: var(--ash); text-align: center; margin: var(--sp-4) 0; }
+.tdsx-tc__caten {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.tdsx-tc__cakhung {
+  font-family: var(--ff-num);
+  font-size: 12px;
+  color: var(--ash-2);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+}
 
-/* Dòng việc là NÚT (bấm mở hồ sơ lệnh, C123) — reset đúng các thuộc tính mà <button> tự đặt, giữ
- * nguyên hình dạng dòng đã có. `disabled` chỉ xảy ra với việc không gắn lệnh nào. */
-.tdsx-tc__viec {
-  display: block;
+.tdsx-tc__ca.is-compact-empty .tdsx-tc__cahead {
+  border-bottom: 0;
+}
+.tdsx-tc__cahead-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tdsx-tc__toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--ash-2);
+  transition: transform 180ms ease;
+}
+.tdsx-tc__ca.is-compact-empty .tdsx-tc__toggle-icon {
+  transform: rotate(-90deg);
+}
+
+.tdsx-tc__progress-track {
+  height: 3px;
+  background: rgba(16, 185, 129, 0.15);
   width: 100%;
+  overflow: hidden;
+}
+.tdsx-tc__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  transition: width 300ms ease;
+}
+
+.tdsx-tc__live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.tdsx-tc__can {
+  font-family: var(--ff-num);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ash-2);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
+}
+.tdsx-tc__can.is-has-viec {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  border-color: rgba(47, 93, 58, 0.2);
+  font-weight: 700;
+}
+
+.tdsx-tc__body {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 8px;
+}
+
+.tdsx-tc__empty-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 16px;
+  border: 1.5px dashed var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--paper);
+  color: var(--ash-2);
+  font-size: 12.5px;
+}
+.tdsx-tc__empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--canvas);
+  color: var(--ash-2);
+}
+
+/* ViecRow Studio Task Card */
+.tdsx-tc__viec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-left: 4px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
   text-align: left;
   font: inherit;
   color: inherit;
-  background: none;
-  border: 0;
-  border-bottom: 1px solid var(--rule-hair);
-  padding: var(--sp-2) var(--sp-3);
-  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
-.tdsx-tc__viec:last-child { border-bottom: 0; }
-.tdsx-tc__viec:hover:not(:disabled) { background: var(--rule-hair); }
-.tdsx-tc__viec:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
-.tdsx-tc__viec:disabled { cursor: default; }
+.tdsx-tc__viec:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+}
+.tdsx-tc__viec:disabled { cursor: default; opacity: 0.6; }
+
+.tdsx-tc__viec--running { border-left-color: var(--moss) !important; }
+.tdsx-tc__viec--paused { border-left-color: var(--amber) !important; }
+.tdsx-tc__viec--released { border-left-color: #6366f1 !important; }
+.tdsx-tc__viec--completed { border-left-color: var(--rule) !important; }
+
 .tdsx-tc__viecrow1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-2);
+  gap: 10px;
+}
+.tdsx-tc__code-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: var(--r-2);
+  background: var(--heat-0);
 }
 .tdsx-tc__vma {
-  flex: none;
   font-family: var(--ff-num);
-  font-weight: var(--fw-bold);
-  font-size: var(--fs-sm);
+  font-weight: 700;
+  font-size: 12px;
   color: var(--ink);
 }
 .tdsx-tc__vten {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: var(--fs-sm);
-  color: var(--ash);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .tdsx-tc__viecrow2 {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
-  margin-top: 2px;
-  font-size: var(--fs-2xs);
-  color: var(--ash);
+  gap: 6px;
   flex-wrap: wrap;
 }
+.tdsx-tc__vpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--r-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  font-size: 11.5px;
+  color: var(--ash);
+}
+.tdsx-tc__vpill svg { color: var(--ash-2); }
 .tdsx-tc__vmay { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 
 /* =============================== TAB GANTT TỔNG THỂ =========================================== */

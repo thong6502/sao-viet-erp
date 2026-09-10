@@ -55,28 +55,76 @@ export function tinhDomain(mocs: TdsxTimelineMoc[]): { start: number; end: numbe
 export function tinhLuoiGio(
   domain: { start: number; end: number },
   spanGio: number,
-): { t: number; nhan: string; dam: boolean }[] {
-  const out: { t: number; nhan: string; dam: boolean }[] = [];
+): { t: number; nhan: string; dam: boolean; isToday: boolean }[] {
+  const out: { t: number; nhan: string; dam: boolean; isToday: boolean }[] = [];
+  const THU = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+  const now = new Date();
+  const todayY = now.getFullYear();
+  const todayM = now.getMonth();
+  const todayD = now.getDate();
+
   if (spanGio <= NGUONG_DAI_GIO) {
     const start = new Date(domain.start);
     start.setMinutes(0, 0, 0);
     for (let t = start.getTime(); t <= domain.end; t += 3_600_000) {
       const d = new Date(t);
-      out.push({ t, nhan: `${String(d.getHours()).padStart(2, "0")}:00`, dam: d.getHours() % 2 === 0 });
+      const isToday = d.getFullYear() === todayY && d.getMonth() === todayM && d.getDate() === todayD;
+      out.push({ t, nhan: `${String(d.getHours()).padStart(2, "0")}:00`, dam: d.getHours() % 2 === 0, isToday });
     }
   } else {
     const start = new Date(domain.start);
     start.setHours(0, 0, 0, 0);
     for (let t = start.getTime(); t <= domain.end; t += 24 * 3_600_000) {
       const d = new Date(t);
+      const thu = THU[d.getDay()];
+      const ngay = String(d.getDate()).padStart(2, "0");
+      const thang = String(d.getMonth() + 1).padStart(2, "0");
+      const isToday = d.getFullYear() === todayY && d.getMonth() === todayM && d.getDate() === todayD;
       out.push({
         t,
-        nhan: `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`,
+        nhan: `${thu} ${ngay}/${thang}`,
         dam: true,
+        isToday,
       });
     }
   }
   return out;
+}
+
+export interface TdsxMonthGroup {
+  label: string;
+  left: number;
+  width: number;
+}
+
+export function tinhMonthGroups(
+  domain: { start: number; end: number },
+  pxPerGio: number,
+): TdsxMonthGroup[] {
+  const groups: TdsxMonthGroup[] = [];
+  let curr = new Date(domain.start);
+  curr.setHours(0, 0, 0, 0);
+
+  while (curr.getTime() <= domain.end) {
+    const y = curr.getFullYear();
+    const m = curr.getMonth();
+    const monthStart = new Date(y, m, 1).getTime();
+    const nextMonth = new Date(y, m + 1, 1).getTime();
+
+    const segStart = Math.max(domain.start, monthStart);
+    const segEnd = Math.min(domain.end, nextMonth);
+
+    const left = ((segStart - domain.start) / 3_600_000) * pxPerGio;
+    const width = Math.max(0, ((segEnd - segStart) / 3_600_000) * pxPerGio);
+
+    if (width > 0) {
+      const monthLabel = `THÁNG ${String(m + 1).padStart(2, "0")} / ${y}`;
+      groups.push({ label: monthLabel, left, width });
+    }
+
+    curr = new Date(nextMonth);
+  }
+  return groups;
 }
 
 /** Bó trọn domain + lưới + hệ số px/giờ + `xOf` (ISO → toạ độ x px) — cả hai tab mini-Gantt (Theo
@@ -88,9 +136,19 @@ export function useTdsxTimeline(mocs: TdsxTimelineMoc[]) {
   const pxPerGio = spanGio <= NGUONG_DAI_GIO ? PX_PER_GIO_NGAN : PX_PER_GIO_DAI;
   const trackWidth = Math.max(1, Math.round(spanGio * pxPerGio));
   const ticks = useMemo(() => tinhLuoiGio(domain, spanGio), [domain, spanGio]);
+  const monthGroups = useMemo(() => tinhMonthGroups(domain, pxPerGio), [domain, pxPerGio]);
   const xOf = useCallback(
     (iso: string) => ((new Date(iso).getTime() - domain.start) / 3_600_000) * pxPerGio,
     [domain, pxPerGio],
   );
-  return { domain, spanGio, pxPerGio, trackWidth, ticks, xOf };
+
+  const nowMs = new Date().getTime();
+  const nowX = ((nowMs - domain.start) / 3_600_000) * pxPerGio;
+  const hasNowLine = nowX >= 0 && nowX <= trackWidth;
+
+  const startDateObj = new Date(domain.start);
+  const endDateObj = new Date(domain.end);
+  const dateRangeLabel = `${String(startDateObj.getDate()).padStart(2, "0")}/${String(startDateObj.getMonth() + 1).padStart(2, "0")}/${startDateObj.getFullYear()} — ${String(endDateObj.getDate()).padStart(2, "0")}/${String(endDateObj.getMonth() + 1).padStart(2, "0")}/${endDateObj.getFullYear()}`;
+
+  return { domain, spanGio, pxPerGio, trackWidth, ticks, monthGroups, xOf, nowX, hasNowLine, dateRangeLabel };
 }

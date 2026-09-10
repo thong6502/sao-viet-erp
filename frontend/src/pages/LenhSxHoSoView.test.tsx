@@ -60,7 +60,7 @@ const HOSO: LenhSxHoSoOut = {
         hoan_thanh_luc: "2026-09-01T03:10:00Z",
         so_luong_vao: 5, so_luong_ra: 5, don_vi_vao: "kem", don_vi_ra: "kem",
         can_khuon: false, khuon_da_nhan: false, khuon_be_ma: null, khuon_be_ten: null,
-        khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
+        khuon_be_so_ke: null, khuon_be_tinh_trang: null,
       },
       {
         id: 902, thu_tu: 2, lop: 1, phu_thuoc: [901], ten: "In", nhom: "in",
@@ -71,7 +71,7 @@ const HOSO: LenhSxHoSoOut = {
         hoan_thanh_luc: null,
         so_luong_vao: 1600, so_luong_ra: 1580, don_vi_vao: "to", don_vi_ra: "to",
         can_khuon: false, khuon_da_nhan: false, khuon_be_ma: null, khuon_be_ten: null,
-        khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
+        khuon_be_so_ke: null, khuon_be_tinh_trang: null,
       },
       {
         id: 903, thu_tu: 3, lop: 2, phu_thuoc: [902], ten: "Đóng gói", nhom: "thanh_pham",
@@ -81,7 +81,7 @@ const HOSO: LenhSxHoSoOut = {
         du_kien_bat_dau: null, du_kien_ket_thuc: null, hoan_thanh_luc: null,
         so_luong_vao: 0, so_luong_ra: 0, don_vi_vao: "cai", don_vi_ra: "cai",
         can_khuon: true, khuon_da_nhan: false, khuon_be_ma: "KB-0007", khuon_be_ten: "Khuôn bế hộp",
-        khuon_be_so_ke: "K-A3", khuon_be_tinh_trang: "san_sang", khuon_be_ngay_ve: null,
+        khuon_be_so_ke: "K-A3", khuon_be_tinh_trang: "san_sang",
       },
     ],
     canh: [[901, 902], [902, 903]],

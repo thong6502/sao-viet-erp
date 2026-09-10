@@ -135,8 +135,7 @@ class KhuonMoiIn(BaseModel):
 
     ten: str = Field(min_length=1, max_length=200)
     loai: str | None = None
-    #: Ngày cần có dao. Service của danh mục Khuôn bắt buộc trường này khi `dang_dat_lam`.
-    ngay_ve_du_kien: date
+    # 🔴 `ngay_ve_du_kien` ĐÃ GỠ (mg `0293`) — dao mới vào kho ở `dang_dat_lam`, không kèm ngày.
 
 
 class PhuThuocOption(BaseModel):
@@ -236,7 +235,6 @@ class LsxCongDoanOut(BaseModel):
     khuon_be_ten: str | None = None
     khuon_be_so_ke: str | None = None
     khuon_be_tinh_trang: str | None = None
-    khuon_be_ngay_ve: date | None = None
     # Ý ĐỊNH của sale chép từ phiếu tính giá + chỗ lệch với con dao kế hoạch đã chốt. `khuon_lech`
     # là câu tiếng Việt server dựng sẵn (hoặc None) — mọi màn nói cùng một câu, FE không suy lại.
     khuon_nguon: str | None = None

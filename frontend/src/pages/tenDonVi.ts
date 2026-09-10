@@ -94,6 +94,17 @@ export function tenDonVi(ma: string | null | undefined): string | undefined {
   return k ? _cache?.get(k) : undefined;
 }
 
+/** Cả danh mục Đơn vị cho Ô CHỌN, theo đúng thứ tự server trả.
+ *
+ *  Dùng ở drawer bước NGOÀI dòng giấy (ghi kẽm, đóng thùng): bước đó không nằm trên chuỗi giấy nên
+ *  không khai bằng CHẶNG được, người kế hoạch chọn thẳng đơn vị thật (`bài in`, `bản kẽm`).
+ *
+ *  Rỗng = CHƯA nạp được, KHÔNG phải "danh mục không có gì" — cùng nghĩa với `tramOptions`, nơi gọi
+ *  phải nói ra điều đó thay vì bày một ô chọn trống trơn. */
+export function donViOptions(): { value: string; label: string }[] {
+  return [..._cache ?? []].map(([value, label]) => ({ value, label }));
+}
+
 /** Gọi MỘT lần ở màn nào cần nhãn đơn vị HOẶC nhãn chặng (Lệnh SX · Kế hoạch · danh mục Công đoạn).
  *  Trả version để component vẽ lại khi bảng vừa về — không có nó thì lần vẽ đầu hiện mã trần rồi
  *  đứng im ở đó.

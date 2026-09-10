@@ -11,11 +11,12 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import Column, Integer, MetaData, Table, insert, select
 
-from app.db import SessionLocal, engine, init_db
+from tests.conftest import phien_da_seed
+
+from app.db import engine
 from app.models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.services.rbac_service import AuthorizationService, apply_scope
-from app.seed import seed_all
 
 # A standalone fixture table (not registered on Base.metadata).
 _meta = MetaData()
@@ -73,13 +74,7 @@ def test_scope_all_returns_everything(demo_table):
 
 @pytest.fixture
 def db():
-    init_db()
-    session = SessionLocal()
-    try:
-        seed_all(session)
-        yield session
-    finally:
-        session.close()
+    yield from phien_da_seed()
 
 
 def test_scope_for_reads_role_permission(db):

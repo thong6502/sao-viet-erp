@@ -331,10 +331,10 @@ export function LsxDetailView({
    *  Khách + loại lấy từ chính lệnh và bước, không hỏi lại: người cấu hình lệnh không nên phải gõ
    *  lại thứ hệ thống đã biết. Nạp lại danh sách ngay để dao vừa tạo có mặt cho các bước khác. */
   const taoKhuon = useCallback(
-    async (input: { ten: string; loai: string | null; ngay_ve: string }) => {
+    async (input: { ten: string; loai: string | null }) => {
       if (!token) throw new Error("Chưa đăng nhập.");
       const row = await api.lsx.taoKhuonChoLenh(token, lsxId, {
-        ten: input.ten, loai: input.loai, ngay_ve_du_kien: input.ngay_ve,
+        ten: input.ten, loai: input.loai,
       });
       // Nhét NGAY dòng vừa tạo vào danh sách, ĐỪNG chỉ đợi `napKhuon()`: nó không await được (chỗ
       // gọi cần `id` trả về ngay để gán vào bước), nên có một khe mà bước đã trỏ vào dao mới trong

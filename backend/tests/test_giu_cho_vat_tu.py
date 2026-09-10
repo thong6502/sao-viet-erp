@@ -17,7 +17,9 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.db import Base, SessionLocal, engine
+from tests.conftest import phien_da_seed
+
+from app.db import SessionLocal, engine
 from app.db_migrations import run_migrations
 from app.models.bai_ghep import BaiGhep, BaiGhepThanhVien
 from app.models.customer import Customer
@@ -43,7 +45,6 @@ from app.repositories.purchase_repo import PurchaseRequestRepository, SupplierRe
 from app.repositories.stock_lot_repo import StockLotRepository
 from app.repositories.stock_request_repo import StockRequestRepository
 from app.repositories.vat_lieu_kho_repo import VatLieuKhoRepository
-from app.seed import seed_all
 from app.services.giu_cho_service import GiuChoService
 from app.services.ke_hoach_vat_tu_service import KeHoachVatTuService
 from app.services.vat_lieu_kho_service import VatLieuKhoService
@@ -54,13 +55,7 @@ MAI = HOM_NAY + timedelta(days=1)
 
 @pytest.fixture
 def db():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    s = SessionLocal()
-    run_migrations(s)
-    seed_all(s)
-    yield s
-    s.close()
+    yield from phien_da_seed()
 
 
 @pytest.fixture

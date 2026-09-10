@@ -15,6 +15,7 @@ import { Button } from "../components/Button";
 import { Select, type SelectOption } from "../components/Select";
 import { dvNhan as dvNhanChung, type RefRow } from "./LsxRoutingTable";
 import { num } from "./keHoachSxShared";
+import { donViOptions, useNapTenDonVi } from "./tenDonVi";
 import {
   type EditRow,
   type HangLoai,
@@ -125,7 +126,7 @@ export function LsxBuocDrawer({
   /** Tên khách của lệnh — để khối Khuôn nói rõ danh sách đang lọc theo ai. */
   tenKhach: string;
   /** Tạo dao mới cho bước — trả id dao vừa tạo để gán luôn. */
-  onTaoKhuon: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
+  onTaoKhuon: (input: { ten: string; loai: string | null }) => Promise<number>;
   vatTuRefs: RefRow[] | null;
   giayRefs: RefRow[] | null;
   phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
@@ -165,14 +166,38 @@ export function LsxBuocDrawer({
   const [slRaCuoi, setSlRaCuoi] = useState(String(soLuongDat ?? 0));
   useEffect(() => setSlRaCuoi(String(soLuongDat ?? 0)), [soLuongDat]);
 
-  const dvNhan = (dv: string | null | undefined) => dvNhanChung(dv, row);
+  // Bảng nhãn đơn vị nạp ở bảng cha rồi, gọi lại ở đây chỉ để drawer TỰ vẽ lại khi bảng về muộn
+  // (hook có cache + danh sách người chờ dùng chung, không đẻ thêm request).
+  const napDv = useNapTenDonVi();
+  // Bước NGOÀI dòng giấy (ghi kẽm, đóng thùng): số không suy được từ chuỗi giấy, cũng không công
+  // thức chung nào ở danh mục nói hộ — số bản kẽm đổi theo số màu/số mặt/số bài của TỪNG đơn. Nên
+  // đây là chỗ DUY NHẤT khai được, và khai xong thì danh mục thôi kéo lại (`tu_khai_don_vi` ở BE).
+  const laNgoaiDong = row.tren_dong_giay === false;
+  const khaiTay = laNgoaiDong && canUpdate;
+  // ĐÃ khai (khác "được phép khai"): đủ CẢ HAI ô đơn vị — cùng điều kiện `tu_khai_don_vi` ở BE.
+  const daKhaiDonVi = laNgoaiDong && !!row.don_vi_vao && !!row.don_vi_ra;
+  const dvOpts = useMemo<SelectOption<string>[]>(() => {
+    const ds = donViOptions();
+    return [
+      { value: "", label: ds.length ? "— chưa khai —" : "Đang nạp danh mục Đơn vị…" },
+      ...ds.map((o) => ({ value: o.value, label: o.label, hint: o.value })),
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [napDv]);
+  // Đơn vị để DÁN CẠNH SỐ: bước ngoài dòng bỏ trống cả hai ô chặng nên chữ thật nằm ở đơn vị sản
+  // lượng của danh mục — cùng đường lùi bảng routing đang dùng, thiếu nó thì bảng ghi "bản kẽm"
+  // còn drawer ghi "—" cho cùng một bước.
+  const dvNhan = (dv: string | null | undefined) =>
+    dvNhanChung(dv || row.don_vi_san_luong, row);
   // CÔNG THỨC số VÀO — nói rõ số từ đâu ra thay vì để người dùng đoán (bug cũ: "vào 9 · hao 2 → ra
   // 25" không khớp). CHỈ cho bước NGOÀI dòng giấy: số vào = ceil( ra ÷ hệ số × (1 + hao%) + hao cố
   // định ). Hao % đo trên số RA (chốt 06/09/2026: ra 100 hao 10% ⇒ vào 110), nên thứ tự các vế ở
   // đây phải khớp `LsxService.buoc_ngoai_dong` — đọc lệch một dấu là caption đá với pill.
   // Trên dòng giấy số suy ngược theo chuỗi giấy nên caption ở node RA nói thay.
+  // Khai tay thì KHÔNG có công thức nào để nói: số vào không suy từ số ra nữa, mà hai đơn vị lại
+  // khác nhau nên câu "= " thành sai hẳn ("Số vào = 1 bài in = 6 bản kẽm").
   const flowFormula = useMemo(() => {
-    if (row.loi_quy_doi || row.tren_dong_giay !== false) return null;
+    if (row.loi_quy_doi || row.tren_dong_giay !== false || daKhaiDonVi) return null;
     const ra = Number(row.so_luong_ra || 0);
     const vao = Number(row.so_luong_vao || 0);
     const hs = Number(row.he_so_quy_doi || 1) || 1;
@@ -634,10 +659,42 @@ export function LsxBuocDrawer({
                   <div className="khsx-flow-node khsx-flow-node--in">
                     <span className="khsx-flow-node__kicker">SỐ LƯỢNG VÀO</span>
                     <div className="khsx-flow-node__val-row">
-                      <span className="khsx-flow-node__val">{num(Number(row.so_luong_vao || 0))}</span>
-                      <span className="khsx-unit-pill">{dvNhan(row.don_vi_vao)}</span>
+                      {khaiTay ? (
+                        <div className="khsx-flow-input-wrap">
+                          <input
+                            type="number"
+                            min={0}
+                            className="khsx-flow-editable-input"
+                            aria-label="Số lượng vào của bước"
+                            value={row.so_luong_vao}
+                            onChange={(e) => onPatch({ so_luong_vao: e.target.value })}
+                          />
+                          <Select
+                            options={dvOpts}
+                            value={row.don_vi_vao}
+                            // Chọn MỘT vế thì điền luôn vế kia nếu nó còn trống: bước ngoài dòng
+                            // thường đếm cùng một thứ ở hai đầu (nhận việc ghi 4 bản, giao 4 bản).
+                            // Server chỉ coi là "khai tay" khi ĐỦ CẢ HAI ô, nên để người dùng chọn
+                            // một ô rồi tưởng xong là ô kia im lặng không có tác dụng gì.
+                            onChange={(v) => onPatch({
+                              don_vi_vao: v, ...(row.don_vi_ra ? {} : { don_vi_ra: v }),
+                            })}
+                            ariaLabel="Đơn vị đầu vào của bước"
+                            searchable
+                            portal
+                            className="khsx-flow-dv-select"
+                          />
+                        </div>
+                      ) : (
+                        <>
+                          <span className="khsx-flow-node__val">{num(Number(row.so_luong_vao || 0))}</span>
+                          <span className="khsx-unit-pill">{dvNhan(row.don_vi_vao)}</span>
+                        </>
+                      )}
                     </div>
-                    <span className="khsx-flow-node__hint">Đầu vào công đoạn</span>
+                    <span className="khsx-flow-node__hint">
+                      {khaiTay ? "Bước ngoài dòng giấy — kế hoạch tự khai" : "Đầu vào công đoạn"}
+                    </span>
                   </div>
 
                   {/* Connector Trung gian (Hao hụt & Quy đổi) */}
@@ -697,6 +754,28 @@ export function LsxBuocDrawer({
                           />
                           <span className="khsx-unit-pill">{dvNhan(row.don_vi_ra)}</span>
                         </div>
+                      ) : khaiTay ? (
+                        <div className="khsx-flow-input-wrap">
+                          <input
+                            type="number"
+                            min={0}
+                            className="khsx-flow-editable-input"
+                            aria-label="Số lượng ra của bước"
+                            value={row.so_luong_ra}
+                            onChange={(e) => onPatch({ so_luong_ra: e.target.value })}
+                          />
+                          <Select
+                            options={dvOpts}
+                            value={row.don_vi_ra}
+                            onChange={(v) => onPatch({
+                              don_vi_ra: v, ...(row.don_vi_vao ? {} : { don_vi_vao: v }),
+                            })}
+                            ariaLabel="Đơn vị đầu ra của bước"
+                            searchable
+                            portal
+                            className="khsx-flow-dv-select"
+                          />
+                        </div>
                       ) : (
                         <>
                           <span className="khsx-flow-node__val">{num(Number(row.so_luong_ra || 0))}</span>
@@ -707,9 +786,11 @@ export function LsxBuocDrawer({
                     <span className="khsx-flow-node__hint">
                       {laBuocCuoi
                         ? "Số thành phẩm giao khách"
-                        : row.tren_dong_giay === false
-                          ? "Theo công thức sản lượng của bước"
-                          : "Tự động tính ngược từ bước cuối"}
+                        : khaiTay
+                          ? "Gõ số rồi bấm Lưu công đoạn — số này xuống thẳng thẻ việc của tổ"
+                          : laNgoaiDong
+                            ? "Theo công thức sản lượng của bước"
+                            : "Tự động tính ngược từ bước cuối"}
                     </span>
                   </div>
                 </div>
@@ -1672,14 +1753,13 @@ function nhomTinhTrang(tt: string | null | undefined): "san" | "cho" | "hong" {
 }
 
 /** Một câu trả lời trọn vẹn cho "dao này dùng được chưa, lấy ở đâu". */
-function moTaTinhTrang(dao: { so_ke?: string | null; tinh_trang?: string;
-                              ngay_ve_du_kien?: string | null } | null): string {
+function moTaTinhTrang(dao: { so_ke?: string | null; tinh_trang?: string } | null): string {
   if (!dao) return "Chưa nạp được thông tin khuôn — bấm Làm mới ở đầu màn.";
   switch (dao.tinh_trang) {
     case "dang_dat_lam":
-      return dao.ngay_ve_du_kien
-        ? `Đang làm — dự kiến có ngày ${ngayVN(dao.ngay_ve_du_kien)}. Bước này chưa chạy được.`
-        : "Đang làm — chưa có ngày dự kiến. Bước này chưa chạy được.";
+      // Không kèm ngày dự kiến nữa (mg `0293` gỡ cột): mốc đó chưa ai cập nhật bao giờ. Người theo
+      // dõi dao đổi tình trạng khi cầm được nó — đó mới là tin nói ra được.
+      return "Đang đặt làm — chưa có trong tay. Bước này chưa chạy được.";
     case "hong":
       return "Khuôn HỎNG — không dùng được. Chọn con khác hoặc làm khuôn mới.";
     case "thanh_ly":
@@ -1687,11 +1767,6 @@ function moTaTinhTrang(dao: { so_ke?: string | null; tinh_trang?: string;
     default:
       return dao.so_ke ? `Có sẵn — lấy tại ${dao.so_ke}` : "Có sẵn — chưa khai số kệ";
   }
-}
-
-function ngayVN(s: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
 }
 
 /** Khối KHUÔN của một bước */
@@ -1712,11 +1787,10 @@ function KhuonCuaBuoc({
   khuonRefs: import("../api/client").KhuonChonDuoc[] | null;
   canUpdate: boolean;
   onChon: (id: number | null) => void;
-  onTaoMoi: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
+  onTaoMoi: (input: { ten: string; loai: string | null }) => Promise<number>;
 }) {
   const [moTaoMoi, setMoTaoMoi] = useState(false);
   const [tenMoi, setTenMoi] = useState("");
-  const [ngayVe, setNgayVe] = useState("");
   const [dangTao, setDangTao] = useState(false);
   const [loi, setLoi] = useState<string | null>(null);
 
@@ -1755,7 +1829,6 @@ function KhuonCuaBuoc({
       loai: row.tooling_type,
       so_ke: row.khuon_be_so_ke,
       tinh_trang: row.khuon_be_tinh_trang ?? "",
-      ngay_ve_du_kien: row.khuon_be_ngay_ve,
     };
   }, [row, khuonRefs]);
 
@@ -1763,17 +1836,16 @@ function KhuonCuaBuoc({
 
   async function taoMoi() {
     const ten = tenMoi.trim();
-    if (!ten || !ngayVe) {
-      setLoi("Cần tên khuôn và ngày cần có.");
+    if (!ten) {
+      setLoi("Cần tên khuôn.");
       return;
     }
     setDangTao(true);
     setLoi(null);
     try {
-      onChon(await onTaoMoi({ ten, loai: row.tooling_type, ngay_ve: ngayVe }));
+      onChon(await onTaoMoi({ ten, loai: row.tooling_type }));
       setMoTaoMoi(false);
       setTenMoi("");
-      setNgayVe("");
     } catch (e) {
       setLoi(e instanceof Error ? e.message : "Không tạo được khuôn.");
     } finally {
@@ -1829,18 +1901,6 @@ function KhuonCuaBuoc({
               placeholder="vd: Hộp bánh trung thu 20×20"
               autoFocus
             />
-          </label>
-          <label className="khsx-field">
-            <span className="khsx-field__label">Ngày có khuôn (dự kiến)</span>
-            <input
-              type="date"
-              className="khsx-input-std"
-              value={ngayVe}
-              onChange={(e) => setNgayVe(e.target.value)}
-            />
-            <span className="khsx-field__hint">
-              Thuê ngoài thì là ngày về; xưởng tự làm thì là ngày làm xong.
-            </span>
           </label>
           <div className="khsx-khuon__form-nut">
             <Button variant="primary" onClick={taoMoi} loading={dangTao}>Tạo khuôn</Button>

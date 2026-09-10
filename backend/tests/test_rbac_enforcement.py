@@ -10,12 +10,12 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from app.db import SessionLocal, init_db
+from tests.conftest import phien_da_seed
+
 from app.deps import get_current_user, require_permission
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
-from app.seed import seed_all
 
 
 def _guarded_app() -> FastAPI:
@@ -34,13 +34,7 @@ def _guarded_app() -> FastAPI:
 
 @pytest.fixture
 def db():
-    init_db()
-    session = SessionLocal()
-    try:
-        seed_all(session)
-        yield session
-    finally:
-        session.close()
+    yield from phien_da_seed()
 
 
 def _bearer(user_id: int) -> dict[str, str]:

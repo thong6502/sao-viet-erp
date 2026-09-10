@@ -44,8 +44,6 @@ class NhanBuocOut(BaseModel):
     khuon_ma: str | None = None
     khuon_so_ke: str | None = None
     khuon_tinh_trang: str | None = None
-    #: ISO `yyyy-mm-dd` (snapshot đã `.isoformat()` lúc phát hành).
-    khuon_ngay_ve: str | None = None
     khuon_da_nhan: bool = False
 
 

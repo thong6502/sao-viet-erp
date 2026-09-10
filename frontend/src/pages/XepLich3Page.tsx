@@ -1,24 +1,17 @@
-// XẾP LỊCH 3 — bàn xếp lịch cấp LỆNH SẢN XUẤT (module quyền `xep_lich_3`).
-//
-// MỤC TIÊU DUY NHẤT của màn: người dùng đặt GIỜ BẮT ĐẦU cho một lệnh, hệ trả NGÀY KẾT THÚC. Ngày
-// kết thúc = tổng giờ chạy các bước + nghỉ giữa ca + thời gian ngoài ca. Không gán máy, không gán
-// tổ, không xếp từng công đoạn — đó là màn 2 (đã ẩn theo cờ `XEP_LICH_2_ENABLED`).
-//
-// KHÔNG CHẶN GÌ HẾT: không cửa vật tư, không cửa hạn, phát hành bấm là đi. Lệnh trễ hạn vẫn xếp
-// được, chỉ đổi màu để người điều độ tự quyết. Đây là yêu cầu nghiệp vụ, đừng "sửa lại" thành gate.
-//
-// Ba mảnh: HÀNG CHỜ (trái, kéo thẻ ra lưới) · GANTT 7 ngày (giữa, kéo thanh để dời giờ) · PANEL
-// (phải, thông tin thật của lệnh + bảng công đoạn + nút phát hành). Real-time qua `eventTick` —
-// AppShell bơm vào mỗi lần có SSE, cả ba mảnh tự nạp lại.
+// XẾP LỊCH 3 — BÀN XẾP LỊCH CẤP LỆNH SẢN XUẤT (BOTTOM DOCK STUDIO LAYOUT)
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api, type Xl3ChiTiet as Xl3ChiTietData, type Xl3Dong, type Xl3The } from "../api/client";
+import { Calendar, ChevronLeft, ChevronRight, RotateCcw, Send } from "lucide-react";
+import {
+  ApiError, api,
+  type Xl3ChiTiet as Xl3ChiTietData, type Xl3Dong, type Xl3GoiPhatHanh, type Xl3The,
+} from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { useDebounced } from "../utils/useDebounced";
 import { Xl3ChiTiet } from "./Xl3ChiTiet";
 import { Xl3Gantt } from "./Xl3Gantt";
 import { Xl3HangCho } from "./Xl3HangCho";
-import { SO_NGAY, dauTuan, themNgay } from "./xl3Shared";
+import { dauTuan, themNgay, treHan } from "./xl3Shared";
 import "./xep-lich-3.css";
 
 const MOI_TRANG = 20;
@@ -35,10 +28,14 @@ export function XepLich3Page({
   const suaDuoc = can("xep_lich_3", "update");
   const duyetDuoc = can("xep_lich_3", "approve");
 
+  const [soNgay, setSoNgay] = useState<number>(7);
   const [tu, setTu] = useState<string>(() => dauTuan(new Date()));
-  const den = useMemo(() => themNgay(tu, SO_NGAY - 1), [tu]);
+  const den = useMemo(() => themNgay(tu, soNgay - 1), [tu, soNgay]);
 
   const [dong, setDong] = useState<Xl3Dong[]>([]);
+  // Ngày không làm việc của ĐÚNG cửa sổ đang xem — lễ, làm bù, cấu hình tuần. Đi kèm `/lich` chứ
+  // không hỏi riêng: cùng một lượt, cùng một nguồn với lịch đang vẽ.
+  const [ngayNghi, setNgayNghi] = useState<string[]>([]);
   const [the, setThe] = useState<Xl3The[]>([]);
   const [tongCho, setTongCho] = useState(0);
   const [tim, setTim] = useState("");
@@ -54,12 +51,9 @@ export function XepLich3Page({
   const [loi, setLoi] = useState<string | null>(null);
   const [bao, setBao] = useState<string | null>(null);
   const [keoTuHangCho, setKeoTuHangCho] = useState<number | null>(null);
-  // Nhịp nạp lại NỘI BỘ: mọi lần ghi bump lên một nhịp, ba effect dưới cùng ăn theo. Không gọi
-  // tay ba hàm nạp ở từng chỗ ghi — sót một chỗ là màn hiện số cũ mà không ai biết.
   const [nhip, setNhip] = useState(0);
   const lamMoi = useCallback(() => setNhip((n) => n + 1), []);
 
-  // Thông báo tự tắt — băng đứng mãi thì lần trượt giờ sau người dùng tưởng là thông báo cũ.
   const hetGio = useRef<number | null>(null);
   useEffect(() => {
     if (!bao) return;
@@ -70,13 +64,30 @@ export function XepLich3Page({
     };
   }, [bao]);
 
+  // Màn hẹp mở ra là hàng chờ đã THU GỌN sẵn: ở ≤768px nó là ngăn kéo phủ lên lưới (§78
+  // `responsive.css`), để mở sẵn thì người dùng vào màn Xếp lịch mà không thấy cái lịch nào.
+  // Chỉ lấy lúc dựng — sau đó là quyền của người dùng, đổi bề ngang không giật cánh cửa lại.
+  const [choCollapsed, setChoCollapsed] = useState(
+    () => window.matchMedia("(max-width: 768px)").matches,
+  );
+  // Hộp thoại lý do dùng CHUNG cho hai việc trái chiều nhau — rút gói về (`thu_hoi`) và đẩy lịch
+  // mới xuống (`cap_nhat`). Cùng một ô nhập, cùng một ngưỡng 3 ký tự; khác chữ và khác đích.
+  const [chePrompt, setChePrompt] = useState<"thu_hoi" | "cap_nhat" | null>(null);
+  const [lyDo, setLyDo] = useState("");
+  const [loiLyDo, setLoiLyDo] = useState<string | null>(null);
+  const [goi, setGoi] = useState<Xl3GoiPhatHanh | null>(null);
+
   // ---------------------------------------------------------------- nạp
   useEffect(() => {
     if (!token) return;
     let huy = false;
     api.xepLich3
       .lich(token, { tu, den })
-      .then((r) => !huy && setDong(r.dong))
+      .then((r) => {
+        if (huy) return;
+        setDong(r.dong);
+        setNgayNghi(r.ngay_nghi ?? []);
+      })
       .catch((e) => !huy && setLoi(e instanceof ApiError ? e.message : "Không tải được lịch."));
     return () => {
       huy = true;
@@ -118,7 +129,24 @@ export function XepLich3Page({
     };
   }, [token, chonId, eventTick, nhip]);
 
-  // Đổi từ khoá tìm ⇒ về trang 1, không thì gõ xong đứng ở trang 3 rỗng.
+  // Trạng thái gói đã thả xuống xưởng — hỏi TRƯỚC khi bày nút, không thì màn mời người dùng thu
+  // hồi một gói đã có việc chạy rồi mới ném 409 sau khi họ gõ xong lý do. Câu hỏi PHỤ: hỏng thì
+  // panel vẫn mở bình thường, chỉ mất phần gợi ý (nút quay về dáng cũ).
+  useEffect(() => {
+    if (!token || chonId === null) {
+      setGoi(null);
+      return;
+    }
+    let huy = false;
+    api.xepLich3
+      .goiPhatHanh(token, chonId)
+      .then((r) => !huy && setGoi(r))
+      .catch(() => !huy && setGoi(null));
+    return () => {
+      huy = true;
+    };
+  }, [token, chonId, eventTick, nhip]);
+
   useEffect(() => setTrang(1), [timCho]);
 
   // ---------------------------------------------------------------- ghi
@@ -138,7 +166,6 @@ export function XepLich3Page({
       setLoi(null);
       try {
         const r = await api.xepLich3.datMoc(token, lsxId, batDauAt, expected);
-        // Băng lấy NGUYÊN câu của server: nó biết đã trượt sang mốc nào, màn đoán lại là sai.
         setBao(r.thong_bao ?? null);
         sau(lsxId);
       } catch (e) {
@@ -186,64 +213,181 @@ export function XepLich3Page({
     }
   }, [token, chonId, sau]);
 
-  const thuHoi = useCallback(async () => {
-    if (!token || chonId === null) return;
-    // Lý do là cái VẾT của một quyết định đã thả xuống xưởng — server bắt buộc, hỏi thẳng ở đây
-    // thay vì để người dùng ăn lỗi 400 rồi mới biết.
-    const lyDo = window.prompt("Lý do thu hồi phát hành (ít nhất 3 ký tự):")?.trim();
-    if (!lyDo || lyDo.length < 3) return;
+  const moPrompt = useCallback((che: "thu_hoi" | "cap_nhat") => {
+    setLyDo("");
+    setLoiLyDo(null);
+    setChePrompt(che);
+  }, []);
+
+  const xacNhanPrompt = useCallback(async () => {
+    if (!token || chonId === null || chePrompt === null) return;
+    const ld = lyDo.trim();
+    if (ld.length < 3) {
+      setLoiLyDo(
+        chePrompt === "thu_hoi"
+          ? "Vui lòng nhập lý do thu hồi dài ít nhất 3 ký tự."
+          : "Vui lòng nhập lý do cập nhật dài ít nhất 3 ký tự.",
+      );
+      return;
+    }
     setDangGhi(true);
+    setLoiLyDo(null);
     try {
-      await api.xepLich3.thuHoi(token, chonId, lyDo);
-      setBao("Đã thu hồi phát hành.");
+      if (chePrompt === "thu_hoi") {
+        await api.xepLich3.thuHoi(token, chonId, ld);
+        setBao("Đã thu hồi phát hành.");
+      } else {
+        const r = await api.xepLich3.phatHanhCapNhat(token, chonId, ld);
+        setBao(
+          `Đã đẩy lịch mới xuống xưởng: cập nhật ${r.so_cong_viec_cap_nhat} việc, giữ nguyên ` +
+            `${r.so_giu_nguyen} việc đã bắt đầu.` +
+            // Việc lệch lần chạy KHÔNG được cập nhật — nuốt con số này là xưởng chạy lịch cũ mà
+            // màn báo "xong".
+            (r.so_lech_phan_doan
+              ? ` Còn ${r.so_lech_phan_doan} việc giữ nguyên lịch cũ vì lần chạy đã tách/gộp lại.`
+              : ""),
+        );
+      }
+      setChePrompt(null);
+      setLyDo("");
       sau(chonId);
     } catch (e) {
-      setLoi(e instanceof ApiError ? e.message : "Không thu hồi được.");
+      // Lỗi hiện NGAY TRONG hộp thoại: người dùng đang nhìn vào đây, mà câu server trả về ("gói đã
+      // có việc bắt đầu") là câu trả lời cho đúng nút họ vừa bấm.
+      setLoiLyDo(e instanceof ApiError ? e.message : "Không thực hiện được.");
     } finally {
       setDangGhi(false);
     }
-  }, [token, chonId, sau]);
+  }, [token, chonId, chePrompt, lyDo, sau]);
 
-  // ---------------------------------------------------------------- vẽ
+  const dongPrompt = useCallback(() => {
+    setChePrompt(null);
+    setLyDo("");
+    setLoiLyDo(null);
+  }, []);
+
+  const laThuHoi = chePrompt === "thu_hoi";
+  const maLenh = ct?.ma ?? `LSX #${chonId}`;
+
+  const kpi = useMemo(() => {
+    const tong = dong.length;
+    const daPhatHanh = dong.filter((d) => d.trang_thai === "da_phat_hanh").length;
+    const tre = dong.filter((d) => (treHan(d) ?? 0) > 0).length;
+    return { tong, daPhatHanh, tre, tongCho };
+  }, [dong, tongCho]);
+
   const nhanTuan = `${tu.slice(8)}/${tu.slice(5, 7)} – ${den.slice(8)}/${den.slice(5, 7)}/${den.slice(0, 4)}`;
 
   return (
     <div className="xl3">
       <header className="xl3__dau">
-        <div className="xl3__tieu">
-          <h1>Xếp lịch</h1>
-          <p>
-            Đặt giờ bắt đầu cho một lệnh — hệ tự cộng giờ chạy các bước, nghỉ giữa ca và thời gian
-            ngoài ca để ra ngày kết thúc.
-          </p>
+        <div className="xl3__tieu-cum">
+          <div className="xl3__tieu">
+            <h1>Xếp lịch</h1>
+            <p>Điều độ và lập tiến độ sản xuất lệnh</p>
+          </div>
+
+          <div className="xl3-kpi-bar">
+            <span className="xl3-kpi-pill">
+              Tuần này: <strong>{kpi.tong}</strong>
+            </span>
+            <span className="xl3-kpi-sep" />
+            <span className="xl3-kpi-pill xl3-kpi-pill--moss">
+              Đã phát hành: <strong>{kpi.daPhatHanh}</strong>
+            </span>
+            <span className="xl3-kpi-sep" />
+            <span className="xl3-kpi-pill xl3-kpi-pill--amber">
+              Chờ xếp: <strong>{kpi.tongCho}</strong>
+            </span>
+            {kpi.tre > 0 && (
+              <>
+                <span className="xl3-kpi-sep" />
+                <span className="xl3-kpi-pill xl3-kpi-pill--tre">
+                  Trễ hạn: <strong>{kpi.tre}</strong>
+                </span>
+              </>
+            )}
+          </div>
         </div>
+
         <div className="xl3__tuan">
-          <button type="button" onClick={() => setTu(themNgay(tu, -SO_NGAY))} aria-label="Tuần trước">
-            ‹
+          <div className="xl3-view-switcher">
+            <button
+              type="button"
+              className={`xl3-view-btn${soNgay === 7 ? " xl3-view-btn--active" : ""}`}
+              onClick={() => setSoNgay(7)}
+            >
+              7 Ngày
+            </button>
+            <button
+              type="button"
+              className={`xl3-view-btn${soNgay === 14 ? " xl3-view-btn--active" : ""}`}
+              onClick={() => setSoNgay(14)}
+            >
+              14 Ngày
+            </button>
+            <button
+              type="button"
+              className={`xl3-view-btn${soNgay === 30 ? " xl3-view-btn--active" : ""}`}
+              onClick={() => setSoNgay(30)}
+            >
+              30 Ngày
+            </button>
+          </div>
+
+          <button
+            type="button"
+            className="xl3__nut-nay"
+            onClick={() => setTu(dauTuan(new Date()))}
+          >
+            Hôm nay
           </button>
-          <button type="button" className="xl3__nay" onClick={() => setTu(dauTuan(new Date()))}>
-            {nhanTuan}
-          </button>
-          <button type="button" onClick={() => setTu(themNgay(tu, SO_NGAY))} aria-label="Tuần sau">
-            ›
-          </button>
+          <div className="xl3__tuan-cum">
+            <button
+              type="button"
+              onClick={() => setTu(themNgay(tu, -soNgay))}
+              aria-label="Kỳ trước"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="xl3__tuan-nhan" onClick={() => setTu(dauTuan(new Date()))}>
+              <Calendar size={13} style={{ color: "var(--ash)" }} />
+              {nhanTuan}
+            </span>
+            <button
+              type="button"
+              onClick={() => setTu(themNgay(tu, soNgay))}
+              aria-label="Kỳ sau"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </header>
 
-      {loi && (
-        <div className="xl3__bang xl3__bang--loi" role="alert">
-          {loi}
-          <button type="button" onClick={() => setLoi(null)}>
-            ×
-          </button>
-        </div>
-      )}
-      {bao && (
-        <div className="xl3__bang xl3__bang--bao" role="status">
-          {bao}
+      {/* Băng thông báo NỔI trên mọi lớp phủ. Trước đây nó là khối trong dòng chảy ngay dưới
+          header, mà panel lệnh (z-index 100) và hộp lý do (9999) đều là overlay phủ kín + blur —
+          nên mọi câu báo trong lúc panel mở đều rơi lên đỉnh trang, mờ tịt sau lưng người dùng.
+          Câu báo THÀNH CÔNG chịu đúng lỗi đó và không ai từng thấy nó. */}
+      {(loi || bao) && (
+        <div className="xl3__bangs">
+          {loi && (
+            <div className="xl3__bang xl3__bang--loi" role="alert">
+              {loi}
+              <button type="button" onClick={() => setLoi(null)} aria-label="Đóng thông báo lỗi">
+                ×
+              </button>
+            </div>
+          )}
+          {bao && (
+            <div className="xl3__bang xl3__bang--bao" role="status">
+              {bao}
+            </div>
+          )}
         </div>
       )}
 
+      {/* Thân trang: 2 cột ngang (Hàng chờ + Lưới Gantt full chiều ngang) */}
       <div className="xl3__than">
         <Xl3HangCho
           the={the}
@@ -254,6 +398,8 @@ export function XepLich3Page({
           dangTai={taiCho}
           chonId={chonId}
           keoDuoc={suaDuoc}
+          isCollapsed={choCollapsed}
+          onToggleCollapse={() => setChoCollapsed((c) => !c)}
           onTim={setTim}
           onTrang={setTrang}
           onChon={setChonId}
@@ -263,7 +409,9 @@ export function XepLich3Page({
         <main className="xl3__luoi">
           <Xl3Gantt
             tu={tu}
+            soNgay={soNgay}
             dong={dong}
+            ngayNghi={ngayNghi}
             chonId={chonId}
             suaDuoc={suaDuoc}
             onChon={setChonId}
@@ -271,7 +419,10 @@ export function XepLich3Page({
             keoTuHangCho={keoTuHangCho}
           />
         </main>
+      </div>
 
+      {/* BOTTOM DOCK INSPECTOR — Hiện dưới đáy khi có lệnh được chọn */}
+      {chonId !== null && (
         <Xl3ChiTiet
           ct={ct}
           dangTai={taiCt}
@@ -279,12 +430,96 @@ export function XepLich3Page({
           duyetDuoc={duyetDuoc}
           dangGhi={dangGhi}
           onDoiGio={(g) => chonId !== null && datMoc(chonId, g, ct?.updated_at ?? null)}
+          goi={goi}
           onBoLich={boLich}
           onPhatHanh={phatHanh}
-          onThuHoi={thuHoi}
+          onThuHoi={() => moPrompt("thu_hoi")}
+          onCapNhat={() => moPrompt("cap_nhat")}
           onDong={() => setChonId(null)}
+          onSoSanh={(a, b) => api.xepLich3.soSanhPhienBan(token ?? "", chonId, a, b)}
         />
-      </div>
+      )}
+
+      {/* HỘP THOẠI LÝ DO — dùng chung cho Thu hồi (rút gói về) và Phát hành cập nhật (đẩy lịch
+          mới xuống). Hai việc trái chiều nhau nhưng cùng một hình: một ô lý do, cùng ngưỡng 3 ký
+          tự, cùng chỗ hiện lỗi server. */}
+      {chePrompt !== null && (
+        <div
+          className="xl3-prompt-overlay"
+          onClick={(e) => e.target === e.currentTarget && dongPrompt()}
+        >
+          <div className="xl3-prompt-box" role="dialog" aria-modal="true">
+            <div className="xl3-prompt-head">
+              <div className="xl3-prompt-icon-wrap">
+                {laThuHoi ? <RotateCcw size={20} /> : <Send size={20} />}
+              </div>
+              <div className="xl3-prompt-tieu-wrap">
+                <h3 className="xl3-prompt-tieu">
+                  {laThuHoi ? "Thu hồi phát hành" : "Phát hành cập nhật"}
+                </h3>
+                <p className="xl3-prompt-sub">
+                  {laThuHoi ? (
+                    <>
+                      Thu hồi lệnh <strong>{maLenh}</strong> khỏi danh sách đã phát hành xuống xưởng.
+                    </>
+                  ) : (
+                    <>
+                      Đẩy lịch mới xuống xưởng cho <strong>{goi?.so_chua_bat_dau ?? 0} việc chưa bắt đầu</strong>{" "}
+                      của lệnh <strong>{maLenh}</strong>. {goi?.so_da_bat_dau ?? 0} việc đã chạy giữ nguyên,
+                      tổ nhận việc cập nhật phải xác nhận lại phân công.
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="xl3-prompt-body">
+              <label className="xl3-prompt-label" htmlFor="xl3-ly-do-input">
+                {laThuHoi ? "Lý do thu hồi" : "Lý do cập nhật"} <span style={{ color: "#dc2626" }}>*</span>
+              </label>
+              <textarea
+                id="xl3-ly-do-input"
+                className="xl3-prompt-textarea"
+                placeholder={laThuHoi
+                  ? "Nhập lý do cụ thể (vd: Khách yêu cầu thay đổi thông số tờ in, đổi quy cách...)"
+                  : "Nhập lý do cụ thể (vd: Dời giờ chạy do máy in kẹt, đổi sang máy cán 1500...)"}
+                value={lyDo}
+                onChange={(e) => {
+                  setLyDo(e.target.value);
+                  if (loiLyDo && e.target.value.trim().length >= 3) setLoiLyDo(null);
+                }}
+                autoFocus
+              />
+              {loiLyDo && (
+                <div className="xl3-prompt-err" id="xl3-ly-do-loi" role="alert">
+                  {loiLyDo}
+                </div>
+              )}
+            </div>
+            <div className="xl3-prompt-foot">
+              <button type="button" className="xl3-nut xl3-nut--phu" onClick={dongPrompt} disabled={dangGhi}>
+                Hủy
+              </button>
+              <button
+                type="button"
+                className={`xl3-nut ${laThuHoi ? "xl3-nut--thu-hoi" : "xl3-nut--chinh"}`}
+                onClick={xacNhanPrompt}
+                /* CỐ Ý không khoá theo độ dài lý do: nút xám mà không nói vì sao là màn câm —
+                   câu giải thích nằm trong `xacNhanPrompt`, mà `disabled` thì `onClick` không nổ,
+                   nên người dùng gõ 2 ký tự sẽ kẹt vô hạn. Để nút bấm được, bấm mới hiện lỗi. */
+                disabled={dangGhi}
+                aria-describedby={loiLyDo ? "xl3-ly-do-loi" : undefined}
+              >
+                {laThuHoi ? <RotateCcw size={13} /> : <Send size={13} />}
+                {dangGhi
+                  ? "Đang xử lý..."
+                  : laThuHoi
+                    ? "Xác nhận thu hồi"
+                    : "Đẩy lịch mới xuống xưởng"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

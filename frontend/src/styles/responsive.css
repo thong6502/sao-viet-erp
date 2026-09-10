@@ -5231,15 +5231,261 @@
   }
 }
 
-/* ===== PHỤ LỤC A. 14 KHỐI `@media` CỐ Ý CHẠM TỚI ≥769px (§26–§77) ==========
+/* ===== §78. SẢN XUẤT › XẾP LỊCH (module `xep_lich_3`) ======================
+   Màn "Xếp lịch" mới (10/09/2026, thay chỗ Xếp lịch công đoạn 2 đã ẩn) dựng thẳng cho màn rộng:
+   `xep-lich-3.css` KHÔNG có lấy một `@media (max-width)` nào, và §63 chỉ nói chuyện `.xl2-*` nên
+   không chạm tới đây. Đo tại chỗ ở 375×812 (10/09/2026, LSX26-0003) thấy ba chỗ vỡ, đúng ba
+   khuôn quen của hệ:
+
+     (a) KHUÔN 1 — hàng `space-between` mà một bên `flex: none`. `.xl3__dau` là hàng ngang, cụm
+         phải `.xl3__tuan` khai `flex: none` và đo được **545px** (7/14/30 Ngày + "Hôm nay" +
+         ‹ ngày › ). Ở 375px nó nằm ở x=323 → mép phải 892, tức TOÀN BỘ cụm điều hướng kỳ nằm
+         ngoài màn: không đổi được tuần, không bấm được "Hôm nay", không đọc được đang xem kỳ nào.
+         Mép phải vượt màn bắt đầu từ ~880px chứ không phải 768px, nên khối này chốt ở 900px.
+
+     (b) Hàng chờ 270px CỨNG (`--xl3-cho-w`) đứng cùng hàng với lưới. 375 − 270 = 105px cho
+         `.xl3__luoi`, mà riêng cột nhãn của Gantt đã 260px và nó là cột DÍNH — nghĩa là phần
+         nhìn thấy được của lưới bằng 0. Chữa bằng cách cho hàng chờ thành NGĂN KÉO phủ lên lưới
+         và chừa đúng 52px cho thanh ray thu gọn, còn bề ngang lưới thì không đổi giữa hai trạng
+         thái đóng/mở (`.xl3__than` đệm trái cố định 52px, hàng chờ `position: absolute` ở CẢ hai
+         trạng thái). `XepLich3Page.tsx` mở màn ở ≤768px là thu gọn sẵn — mở sẵn thì vào màn Xếp
+         lịch không thấy cái lịch nào.
+
+     (c) KHUÔN "lưới 2 cột không chịu gập" — `.xl3-modal__than` khai `grid-template-columns:
+         350px 1fr`. Trong hộp rộng 334px, cột trái vẫn giữ nguyên 350px và cột phải (chuỗi công
+         đoạn) bị đẩy sang x=371 còn **48px**: cả phần quy trình coi như mất. Kèm hai chỗ nhỏ cùng
+         hộp: dòng phụ tên-khách-PO (`.xl3-modal__sub-line`, flex không `wrap`) bị bóp thành ba
+         cột chữ rơi dọc, và dải nút chân hộp đẩy "Phát hành cập nhật" thành ba dòng chữ.
+
+   Cột nhãn Gantt KHÔNG chữa được bằng CSS: bề rộng của nó đi vào phép quy đổi px↔giờ của kéo-thả
+   (`Xl3Gantt.tsx` dùng `nhanW` cho `paddingLeft` đầu lưới, mốc "hiện tại" và `xTrongLuoi`), nên
+   ép bằng CSS là nhãn một đằng thanh một nẻo. Chỗ chữa là hàm THUẦN `khungLuoi()` trong
+   `xl3Shared.tsx` — cột nhãn 260px màn rộng / 184px hai nấc hẹp, kèm hạ bề rộng một ngày
+   (168 · 120 · 96px ở lịch 7 ngày) và nâng chiều cao hàng 54 → 72px cho vừa ba dòng của nhãn.
+   NGƯỠNG 768/480 bên đó phải khớp với các `@media` dưới đây.
+
+   Ba khuôn KHÔNG có ở màn này, đã kiểm chứ không đoán: không nút nào `opacity: 0` mở bằng
+   `:hover` (khuôn 3), không `ellipsis` trên mã lệnh (`.xl3-hang__ma-text` không khai — khuôn 4),
+   không dải chia đều n cột (`.xl3-modal__stats` đã là `repeat(2, minmax(0, 1fr))` — khuôn 5). */
+
+/* --- 78.1 · Đầu trang: cụm điều hướng kỳ xuống dòng riêng (khuôn 1) ------- */
+@media screen and (max-width: 900px) {
+  .shell__content .xl3__dau {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+  }
+  /* Hai cụm cùng chiếm trọn dòng. `flex: none` của `.xl3__tuan` là thứ giữ nó 545px, phải gỡ
+     bằng `flex: 1 1 100%` chứ không phải chỉ `flex-wrap` ở cha. */
+  .shell__content .xl3__tieu-cum,
+  .shell__content .xl3__tuan {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .shell__content .xl3__tuan {
+    flex-wrap: wrap;
+  }
+  .shell__content .xl3-view-switcher {
+    margin-right: 0;
+  }
+  /* Cụm ‹ ngày › nở ra hết dòng còn lại: hai nút mũi tên 26px là chỗ bấm chính của màn này. */
+  .shell__content .xl3__tuan-cum {
+    flex: 1 1 200px;
+  }
+  .shell__content .xl3__tuan-nhan {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* --- 78.2 · Hàng chờ thành ngăn kéo phủ lên lưới -------------------------- */
+@media screen and (max-width: 768px) {
+  /* Đệm trái 52px = đúng bề ngang thanh ray thu gọn. Nhờ nó lưới có bề ngang KHÔNG đổi khi đóng
+     hay mở hàng chờ — mở ngăn kéo mà lưới nhảy ngang là mất chỗ đang nhìn. */
+  .shell__content .xl3__than {
+    position: relative;
+    padding-left: 52px;
+  }
+  .shell__content .xl3-cho {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    width: min(300px, 84vw);
+    border-right: 1px solid var(--rule);
+    box-shadow: 6px 0 22px rgba(15, 23, 42, 0.16);
+  }
+  /* Thanh ray: `xep-lich-3.css:783` đã khai `width: 52px !important` nên chỉ cần gỡ bóng đổ. */
+  .shell__content .xl3-cho--collapsed {
+    box-shadow: none;
+  }
+  .shell__content .xl3__luoi {
+    border-left: 0;
+  }
+  /* Cột nhãn đã co xuống 184px (`khungLuoi`), đệm ngang phải co theo thì ba dòng mã · tên · khách
+     mới còn chỗ; hàng vẫn cao đúng 54px như màn rộng. */
+  .shell__content .xl3-hang__nhan {
+    padding: 5px 8px;
+  }
+  /* Dòng đầu của nhãn = mã lệnh + viên trạng thái. Cả hai mặc định `white-space: normal`, mà ở
+     bề ngang này chúng vỡ dòng: đo được mã cao 37px và viên cao 42px → nhãn cao 87px trong hàng
+     cao 54px, chữ đè xuống hàng dưới. Ghim nowrap cho cả hai; viên trạng thái là chỗ chịu cắt
+     đuôi khi hàng có thêm nhãn "GẤP", vì nó còn phân biệt được bằng MÀU, mã lệnh thì không. */
+  .shell__content .xl3-hang__ma {
+    min-width: 0;
+  }
+  .shell__content .xl3-hang__ma-text {
+    white-space: nowrap;
+    flex: none;
+  }
+  .shell__content .xl3-hang .xl3-tt {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    /* 10px đệm ngang là 3px nữa mới đủ cho "Đã phát hành" trong 160px lòng nhãn (mã 71 + khe 6
+       + viên 86). Bớt đệm rẻ hơn nới cả cột nhãn — cột nhãn DÍNH, mỗi pixel là một pixel lưới. */
+    padding: 3px 7px;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  /* Thanh ray hẹp lại 44px: nút 36px + 4px đệm mỗi bên vẫn trên sàn chạm, mà lưới được thêm 8px.
+     Đè `padding: 12px 8px !important` của `xep-lich-3.css:786` nên buộc phải `!important`. */
+  .shell__content .xl3__than {
+    padding-left: 44px;
+  }
+  .shell__content .xl3-cho--collapsed {
+    width: 44px !important;
+    min-width: 44px !important;
+    padding: 12px 4px !important;
+  }
+}
+
+/* --- 78.3 · Hộp chi tiết lệnh: hai cột xuống một, chân hộp xếp chồng ------ */
+@media screen and (max-width: 768px) {
+  .shell__content .xl3-modal__than {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  /* Hai cột vốn tự cuộn riêng. Gộp một cột rồi thì chỗ cuộn phải là CHA, không thì thành hai
+     vùng cuộn lồng nhau và phần dưới không với tới được. */
+  .shell__content .xl3-modal__col-trai,
+  .shell__content .xl3-modal__col-phai {
+    overflow: visible;
+  }
+  .shell__content .xl3-modal__col-trai {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .shell__content .xl3-modal__sub-line {
+    flex-wrap: wrap;
+  }
+  /* Mã lệnh 18px đứng cùng hàng với nút "Mã LSX" và viên trạng thái: trong 250px còn lại nó vỡ
+     thành "LSX26-" / "0003". Mã là thứ người ta ĐỌC ĐỂ TRA — cho nó nowrap, còn hàng thì xuống
+     dòng. */
+  .shell__content .xl3-modal__ma-cum {
+    flex-wrap: wrap;
+  }
+  .shell__content .xl3-modal__ma {
+    white-space: nowrap;
+  }
+  /* Khối "Quy trình sản xuất": một bước là hàng ngang icon · tên+máy · (người, thời lượng). Hai
+     chip bên phải khai `flex: none` (117px) và chip "song song được" cũng vậy (103px), nên phần
+     chữ chỉ còn 90px trong khi tên cần 185 và tên máy cần 231 — cả hai cụt tới mức không đọc
+     được máy nào. Cho hai chip xuống dòng riêng, phần chữ lấy trọn 233px của hàng trên. */
+  .shell__content .xl3-pipe-content {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .shell__content .xl3-pipe-info {
+    flex: 1 1 140px;
+  }
+  .shell__content .xl3-pipe-meta {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+  /* Tên máy vẫn dài hơn 215px ("Máy cắt tờ Kyocera… · chưa khai SL"): thà xuống dòng còn hơn cụt
+     đuôi — đây là chỗ người điều độ đọc để biết bước chạy trên máy nào. */
+  .shell__content .xl3-pipe-sub {
+    white-space: normal;
+  }
+  .shell__content .xl3-modal__chan {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+  }
+  /* Nút "Đóng" xuống cuối: hộp đã có nút × ở góc trên, còn dải nút nghiệp vụ mới là thứ cần nằm
+     ngay dưới câu nhắc giải thích vì sao "Thu hồi" đang xám. */
+  .shell__content .xl3-modal__chan > .xl3-nut--phu {
+    order: 3;
+    flex: 1 1 100%;
+  }
+  .shell__content .xl3-modal__actions {
+    order: 2;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+  .shell__content .xl3-modal__chan-nhac {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .shell__content .xl3-modal__actions .xl3-nut {
+    flex: 1 1 46%;
+  }
+}
+
+/* --- 78.4 · Điện thoại dọc: hộp chi tiết thành tấm gần trọn màn ----------- */
+@media screen and (max-width: 480px) {
+  .shell__content .xl3-modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .shell__content .xl3-modal,
+  .shell__content .xl3-modal--compact {
+    max-width: none;
+    height: 94vh;
+    max-height: 94vh;
+    border-radius: 16px 16px 0 0;
+  }
+  .shell__content .xl3-modal__dau,
+  .shell__content .xl3-modal__dau--compact {
+    padding: 12px 14px;
+  }
+  .shell__content .xl3-modal__col-trai,
+  .shell__content .xl3-modal__col-phai {
+    padding: 14px;
+  }
+  .shell__content .xl3-modal__chan,
+  .shell__content .xl3-modal__chan--compact {
+    padding: 10px 14px;
+  }
+  /* Dải KPI: bốn viên + ba vạch ngăn không đủ chỗ một dòng khi có thêm viên "Trễ hạn". */
+  .shell__content .xl3-kpi-bar {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    border-radius: var(--r-3);
+  }
+  /* Hộp lý do (Thu hồi / Phát hành cập nhật): hai nút chân hộp đủ chỗ cho nhãn dài nhất
+     "Đẩy lịch mới xuống xưởng" mà không vỡ ba dòng. */
+  .shell__content .xl3-prompt-foot {
+    flex-wrap: wrap;
+  }
+  .shell__content .xl3-prompt-foot .xl3-nut {
+    flex: 1 1 100%;
+  }
+}
+
+/* ===== PHỤ LỤC A. 15 KHỐI `@media` CỐ Ý CHẠM TỚI ≥769px (§26–§78) ==========
    Đặt ở CUỐI file chứ không ở đầu để không xê dịch số dòng — trong file có nhiều trích dẫn
    `file:dòng` trỏ ngược vào chính `responsive.css`.
-   Bất biến của kế hoạch là "màn rộng KHÔNG đổi một pixel". Không luật nào của §26–§77 nằm ngoài
+   Bất biến của kế hoạch là "màn rộng KHÔNG đổi một pixel". Không luật nào của §26–§78 nằm ngoài
    `@media` (hai ngoại lệ ĐÚNG `.shell__scrim` và `.purchase__line-lb` đã có chú thích tại chỗ).
-   Nhưng 14 khối dưới đây vẫn khớp ở bề ngang ≥769px — TẤT CẢ đều cố ý, liệt ra đây để lần rà
+   Nhưng 15 khối dưới đây vẫn khớp ở bề ngang ≥769px — TẤT CẢ đều cố ý, liệt ra đây để lần rà
    sau phân biệt được "ngoại lệ đã duyệt" với "rò rỉ mới".
 
-   NHÓM 1 — ngưỡng rộng hơn 768px (8 khối). Lý do chung: chỗ hỏng không phải "điện thoại" mà là
+   NHÓM 1 — ngưỡng rộng hơn 768px (9 khối). Lý do chung: chỗ hỏng không phải "điện thoại" mà là
    "khung hẹp", và ở 769-1024px khung vẫn hẹp thật (máy tính bảng, cửa sổ nửa màn).
      · §29 `@media …1024px` — bảng bị `word-break` bóp cột xuống một ký tự; cột hẹp ở cả 1024px.
      · §30 `@media …1024px` — 9 dải tab, con `flex: 0 0 auto` để tab cuối không bị nuốt.
@@ -5249,6 +5495,8 @@
      · §39 `@media …1024px` — `.cal-grid-top` xuống một cột.
      · §65.3 `@media …900px` — sáu bàn tổ, chế độ xem danh sách.
      · §75 `@media …1024px` — khung cuộn bảng Kế hoạch vật tư.
+     · §78.1 `@media …900px`  — cụm điều hướng kỳ của màn Xếp lịch rộng cứng 545px, mép phải
+       vượt màn từ ~880px chứ không đợi tới 768px.
    Hai chỗ đáng soi nhất nếu sau này thấy lạ ở laptop 1024px: §30 và §39 — chúng đổi HÌNH chứ
    không chỉ đổi cỡ chữ.
 

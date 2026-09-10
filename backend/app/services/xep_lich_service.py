@@ -78,10 +78,10 @@ CB_THIEU_NGUOI = "thieu_nguoi"  # tổ không đủ quân cho các việc chạy
 CB_KHO_MAY = "kho_may"          # khổ / số màu / định lượng vượt khả năng máy
 
 # Dòng KHÔNG dùng khuôn (và mọi lượt chạy chung của bài ghép, vốn không trỏ bước lệnh nào) vẫn
-# phải có đủ 5 khoá: FE đọc `dong.khuon_ma` thẳng, thiếu khoá là `undefined` lẫn với "chưa chốt".
+# phải có đủ 4 khoá: FE đọc `dong.khuon_ma` thẳng, thiếu khoá là `undefined` lẫn với "chưa chốt".
 _KHUON_TRONG = {
     "requires_tooling": False, "khuon_ma": None, "khuon_so_ke": None,
-    "khuon_tinh_trang": None, "khuon_ngay_ve": None,
+    "khuon_tinh_trang": None,
 }
 
 
@@ -1005,7 +1005,6 @@ class XepLichService:
                 "khuon_ma": k.ma if k else None,
                 "khuon_so_ke": k.so_ke if k else None,
                 "khuon_tinh_trang": k.tinh_trang if k else None,
-                "khuon_ngay_ve": k.ngay_ve_du_kien if k else None,
             }
         return ra
 

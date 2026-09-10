@@ -53,7 +53,6 @@ export interface EditRow {
   khuon_be_ten: string | null;
   khuon_be_so_ke: string | null;
   khuon_be_tinh_trang: string | null;
-  khuon_be_ngay_ve: string | null;
   /** Ý ĐỊNH của sale về khuôn, chép từ phiếu tính giá lúc dựng lệnh — CHỈ ĐỌC. Không phải quyết
    *  định cuối (quyết định cuối là `khuon_be_id` do kế hoạch chốt); đứng cạnh nhau để so được. */
   khuon_nguon: "co_san" | "lam_moi" | null;
@@ -213,7 +212,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     khuon_be_ten: cd.khuon_be_ten ?? null,
     khuon_be_so_ke: cd.khuon_be_so_ke ?? null,
     khuon_be_tinh_trang: cd.khuon_be_tinh_trang ?? null,
-    khuon_be_ngay_ve: cd.khuon_be_ngay_ve ?? null,
     khuon_nguon: cd.khuon_nguon ?? null,
     khuon_phi: Number(cd.khuon_phi) || 0,
     khuon_lech: cd.khuon_lech ?? null,
@@ -338,7 +336,7 @@ export function emptyRow(): EditRow {
     la_kcs: false,
     department_id: null, department_ten: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
-    khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
+    khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null,
     khuon_nguon: null, khuon_phi: 0, khuon_lech: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", don_vi_san_luong: "",
     tren_dong_giay: true, loi_quy_doi: null, san_luong_dien_giai: null, he_so_quy_doi: "",

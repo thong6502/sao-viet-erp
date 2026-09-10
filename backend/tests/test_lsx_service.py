@@ -11,7 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db import Base, SessionLocal, engine
+from tests.conftest import phien_da_seed
+
+from app.db import engine
 from app.db_migrations import run_migrations
 from app.models.cong_doan import CongDoan, CongDoanDauViec, CongDoanMay
 from app.models.customer import Customer
@@ -37,7 +39,6 @@ from app.repositories.quotation_repo import QuotationRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.lsx import BuocMacDinhOut, LsxCongDoanIn, LsxUpdateIn
 from app.schemas.order import OrderCreate, OrderDepositReceiptIn, OrderUpdate
-from app.seed import seed_all
 from app.services.accounting_service import AccountingService
 from app.services.lsx_service import (
     LsxConflict,
@@ -51,13 +52,7 @@ from app.services.sequence_service import SequenceService
 
 @pytest.fixture
 def db():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    s = SessionLocal()
-    run_migrations(s)
-    seed_all(s)
-    yield s
-    s.close()
+    yield from phien_da_seed()
 
 
 @pytest.fixture
@@ -663,9 +658,10 @@ def test_sua_routing_khong_dung_phieu_tinh_gia_va_khong_anh_huong_lenh_khac(
     hop2 = lsx_svc.get(hop.id)
     assert [cd.ten for cd in hop2.cong_doans] == ["In offset", "Cán màng", "Bế", "Dán hộp"]
     assert hop2.cong_doans[-1].loai_buoc == "thue_ngoai"
-    # Đơn vị KHÔNG nhận từ client nữa: nó kế thừa từ danh mục công đoạn. Bốn dòng trên đều là
-    # bước tự thêm (không `cong_doan_id`) nên nối tiếp đơn vị bước trước — pass-through "to",
-    # KHÔNG phải "cai" mà client gửi.
+    # Client gửi NỬA cặp đơn vị (chỉ `don_vi_vao`) thì đó chưa phải lời khai: bước vẫn kế thừa
+    # như cũ — bốn dòng trên đều tự thêm (không `cong_doan_id`) nên nối tiếp đơn vị bước trước,
+    # ra pass-through "to", KHÔNG phải "cai" mà client gửi. Khai ĐỦ CẢ HAI ô mới giữ được số của
+    # mình, xem `tests/test_lsx_buoc_khai_tay.py` (10/09/2026).
     assert hop2.cong_doans[-1].don_vi_ra == "to"
     assert [cd.thu_tu for cd in hop2.cong_doans] == [0, 1, 2, 3]
 
@@ -3787,15 +3783,15 @@ def test_khuon_dang_chon_LUON_con_trong_danh_sach(db, orders, lsx_svc, admin, cu
 def test_tao_khuon_moi_lay_khach_TU_LENH_va_vao_kho_o_trang_thai_dang_dat(
     db, orders, lsx_svc, admin, customer,
 ):
-    """Nhánh "làm dao mới": khách + loại KHÔNG hỏi lại người dùng, lấy từ lệnh và từ bước."""
-    from datetime import date as _date
+    """Nhánh "làm dao mới": khách + loại KHÔNG hỏi lại người dùng, lấy từ lệnh và từ bước.
 
+    KHÔNG hỏi ngày dự kiến nữa (mg `0293`) — nhánh này chỉ còn TÊN là thứ người dùng phải gõ.
+    """
     from app.models.khuon_be import KhuonBe
 
     lsx = _lenh_don_gian(db, orders, lsx_svc, admin, customer)
     ra = lsx_svc.tao_khuon_cho_lenh(
-        lsx, ten="Hộp bánh trung thu 20×20", loai="khuon_be",
-        ngay_ve=_date(2026, 8, 20), actor=admin,
+        lsx, ten="Hộp bánh trung thu 20×20", loai="khuon_be", actor=admin,
     )
     assert ra["ma"].startswith("KB-")          # mã do danh mục sinh, không phải tự đặt
     assert ra["tinh_trang"] == "dang_dat_lam"
@@ -3803,7 +3799,6 @@ def test_tao_khuon_moi_lay_khach_TU_LENH_va_vao_kho_o_trang_thai_dang_dat(
     k = db.get(KhuonBe, ra["id"])
     assert k.khach_hang_id == customer.id      # lấy từ lệnh
     assert k.loai == "khuon_be"                # lấy từ cờ của bước
-    assert k.ngay_ve_du_kien == _date(2026, 8, 20)
 
     # Và nó xuất hiện ngay trong danh sách chọn của chính lệnh đó.
     assert ra["id"] in {x["id"] for x in lsx_svc.khuon_chon_duoc(lsx, loai="khuon_be", dang_chon=None)}

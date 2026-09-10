@@ -9,8 +9,7 @@ from .catalog_base import CatalogRepo
 
 class KhuonBeRepository(CatalogRepo):
     model = KhuonBe
-    fields = ("ten", "khach_hang_id", "loai", "so_ke", "tinh_trang",
-              "ngay_ve_du_kien", "ghi_chu", "active")
+    fields = ("ten", "khach_hang_id", "loai", "so_ke", "tinh_trang", "ghi_chu", "active")
     # Tìm theo TÊN ẤN PHẨM và SỐ KỆ: người tìm dao nhớ "dao cái hộp bánh" / "để kệ nào" chứ hiếm
     # khi nhớ mã KB-####. Lọc theo KHÁCH đi đường riêng (`extra_conds`) vì nay là FK, không phải
     # chuỗi để `LIKE` — trước 16/08 nó là chuỗi và nằm trong danh sách này.

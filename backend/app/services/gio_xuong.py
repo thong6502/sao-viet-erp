@@ -39,6 +39,22 @@ def ve_gio_xuong(dt: datetime | None) -> datetime | None:
     return d.astimezone().replace(tzinfo=timezone.utc)
 
 
+def ve_utc_that(dt: datetime | None) -> datetime | None:
+    """NGHỊCH ĐẢO của `ve_gio_xuong()`: mốc thang LỊCH (`du_kien_*`, giờ tường dán nhãn UTC) →
+    UTC THẬT, để trộn chung được với `san_xuat_phien_chay` / `datetime.now(timezone.utc)`.
+
+    Dùng khi cần TRẢ RA một mốc tuyệt đối lấy từ `du_kien_*` mà bên nhận đo bằng thước UTC thật
+    (`tien_do._moc_da_xong` bậc 2 → `du_kien_xong` → `tre_han.astimezone(BUSINESS_TZ)`). Chỉ cần
+    HIỆU hai mốc cùng thang thì đừng gọi hàm này — đưa vế kia sang thang xưởng bằng
+    `ve_gio_xuong()` là đủ và rẻ hơn.
+    """
+    if dt is None:
+        return None
+    # Bỏ nhãn UTC giả rồi để `astimezone()` đọc lại đúng nghĩa "giờ tường máy chủ" (naive
+    # `.astimezone()` = coi như giờ ĐỊA PHƯƠNG). Không hardcode +7, và DST tự đúng.
+    return dt.replace(tzinfo=None).astimezone().astimezone(timezone.utc)
+
+
 def lich_hien_thi(dt: datetime | None) -> datetime | None:
     """Khuôn TRẢ RA cho mốc thang LỊCH (`du_kien_bat_dau/ket_thuc`, `can_luc`…): bỏ tzinfo để
     serialize dạng wall-clock giờ nhà máy — giống `xep_lich_service._naive`.

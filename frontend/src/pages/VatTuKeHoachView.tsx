@@ -927,7 +927,6 @@ function VatTuDetailDrawer({
                 {nhom.khuon_tinh_trang && (
                   <span className="khvt-badge khvt-badge--khongro" style={{ marginLeft: 8 }}>
                     {KHUON_META[nhom.khuon_tinh_trang] ?? nhom.khuon_tinh_trang}
-                    {nhom.khuon_ngay_ve && ` · về ${ngay(nhom.khuon_ngay_ve)}`}
                   </span>
                 )}
               </div>

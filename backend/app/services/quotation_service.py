@@ -818,6 +818,81 @@ class QuotationService:
         )
         return file_url
 
+    # --- Ảnh minh họa của DÒNG báo giá (in ở cột "Hình ảnh minh họa" bản gửi khách) ------------
+
+    def _cum_in(self, quote: Quote, item_id: int) -> tuple[QuoteItem, list[QuoteItem]]:
+        """Trả dòng được trỏ + TẤT CẢ dòng cùng CỤM IN với nó trong version đang hiệu lực.
+
+        Cụm in = đúng cái bản in gom lại thành một dòng (`utils/gop-nhom.ts`): các dòng cùng nhãn
+        `nhom` gộp trước, rồi các cụm cùng TÊN hiển thị gộp tiếp. Nên khóa cụm = nhãn `nhom` nếu
+        có, không thì `product_name` — chuẩn hóa bỏ khoảng trắng thừa + không phân biệt hoa
+        thường, y như `khoaNhan()` bên FE (gõ lệch hoa vẫn cùng cụm).
+        """
+        version = (
+            self.quotations.db.get(QuoteVersion, quote.current_version_id)
+            if quote.current_version_id else None
+        )
+        items = list(version.items) if version else []
+        item = next((i for i in items if i.id == item_id), None)
+        if item is None:
+            raise QuotationNotFound("Không tìm thấy dòng báo giá.")
+        khoa = ((item.nhom or item.product_name) or "").strip().lower()
+        cum = [i for i in items if ((i.nhom or i.product_name) or "").strip().lower() == khoa]
+        return item, (cum or [item])
+
+    def set_item_image(self, *, quotation_id: int, item_id: int, file_url: str, scope: str, actor) -> tuple[list[int], list[str]]:
+        """Gắn ảnh minh họa cho CẢ CỤM chứa dòng `item_id`.
+
+        Trả `(id các dòng đã nhận ảnh, URL ảnh cũ cần dọn)`: URL cũ nào không còn dòng nào trỏ
+        tới thì router xóa khỏi storage — thay ảnh mà giữ file cũ là để rác vĩnh viễn.
+        """
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        if quote.status == STATUS_CANCELLED:
+            raise QuotationLocked("Báo giá đã hủy — không đổi ảnh minh họa được.")
+        item, cum = self._cum_in(quote, item_id)
+        cu = {i.anh_minh_hoa for i in cum if i.anh_minh_hoa and i.anh_minh_hoa != file_url}
+        for i in cum:
+            i.anh_minh_hoa = file_url
+        self.quotations.db.flush()
+        ten = (item.nhom or item.product_name or "").strip()
+        self.audit.create(
+            actor_user_id=actor.id, action="quote_item_image_set", target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: đặt ảnh minh họa cho «{ten}»",
+        )
+        return [i.id for i in cum], sorted(self._url_mo_coi(quote, cu))
+
+    def clear_item_image(self, *, quotation_id: int, item_id: int, scope: str, actor) -> list[str]:
+        """Gỡ ảnh minh họa khỏi cả cụm. Trả URL cần dọn khỏi storage."""
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        if quote.status == STATUS_CANCELLED:
+            raise QuotationLocked("Báo giá đã hủy — không đổi ảnh minh họa được.")
+        item, cum = self._cum_in(quote, item_id)
+        cu = {i.anh_minh_hoa for i in cum if i.anh_minh_hoa}
+        for i in cum:
+            i.anh_minh_hoa = None
+        self.quotations.db.flush()
+        ten = (item.nhom or item.product_name or "").strip()
+        self.audit.create(
+            actor_user_id=actor.id, action="quote_item_image_clear", target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: gỡ ảnh minh họa của «{ten}»",
+        )
+        return sorted(self._url_mo_coi(quote, cu))
+
+    def _url_mo_coi(self, quote: Quote, urls: set[str]) -> set[str]:
+        """Lọc ra các URL KHÔNG còn dòng nào (ở bất kỳ phiên bản nào của phiếu) trỏ tới.
+
+        Phiên bản cũ giữ nguyên ảnh đã gửi khách, nên xóa ở bản mới KHÔNG được dọn file mà bản
+        v1 vẫn đang in.
+        """
+        if not urls:
+            return set()
+        con_dung: set[str] = set()
+        for v in quote.versions:
+            for i in v.items:
+                if i.anh_minh_hoa in urls:
+                    con_dung.add(i.anh_minh_hoa)
+        return urls - con_dung
+
     def update_quotation(
         self,
         *,
@@ -1136,6 +1211,9 @@ class QuotationService:
                     # Nhãn gộp + ĐVT cụm phải theo sang bản mới, không thì v(n+1) in ra rời từng
                     # phần ("Bìa sách" một dòng, "Ruột sách" một dòng) khác hẳn bản khách đã nhận.
                     nhom=item.nhom,
+                    # Ảnh minh họa cũng theo sang: bản v(n+1) in ra mất ảnh thì khách nhận một tờ
+                    # khác hẳn tờ vừa xem.
+                    anh_minh_hoa=item.anh_minh_hoa,
                     quantity=item.quantity,
                     unit=item.unit,
                     dvt_nhom=item.dvt_nhom,

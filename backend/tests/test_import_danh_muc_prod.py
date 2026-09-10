@@ -16,8 +16,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import func, select
 
-from app.db import Base, SessionLocal, engine
-from app.db_migrations import run_migrations
+from tests.conftest import phien_da_seed
+
+from app.db import engine
 from app.import_danh_muc_prod import run
 from app.seed import seed_all
 from app.models.bu_hao import BuHao
@@ -62,13 +63,7 @@ _BANG_DEM = [ChungLoaiGiay, GiayNguyen, VatTuInAn, MayThietBi, BuHao,
 def db():
     """DB test như prod SAU khởi động bình thường: migrations + seed_all (SEED_DEMO=false),
     rồi script `run()` layer danh mục lên trên."""
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    s = SessionLocal()
-    run_migrations(s)
-    seed_all(s)
-    yield s
-    s.close()
+    yield from phien_da_seed()
 
 
 def _dem(db, model) -> int:

@@ -90,8 +90,7 @@ def test_ban_lam_viec_mang_theo_khuon(db, orders, lsx_svc, xl_svc, admin, custom
     cd = db.get(CongDoan, buoc.cong_doan_id)
     cd.requires_tooling = True
     cd.tooling_type = "khuon_be"
-    dao = KhuonBe(ma="KB-0042", ten="Dao ban", loai="khuon_be",
-                  tinh_trang="dang_dat_lam", ngay_ve_du_kien=date(2026, 9, 12))
+    dao = KhuonBe(ma="KB-0042", ten="Dao ban", loai="khuon_be", tinh_trang="dang_dat_lam")
     db.add(dao)
     db.flush()
     buoc.khuon_be_id = dao.id
@@ -107,13 +106,12 @@ def test_ban_lam_viec_mang_theo_khuon(db, orders, lsx_svc, xl_svc, admin, custom
     assert dong["requires_tooling"] is True
     assert dong["khuon_ma"] == "KB-0042"
     assert dong["khuon_tinh_trang"] == "dang_dat_lam"
-    assert dong["khuon_ngay_ve"] == "2026-09-12"
 
     # Lệnh đối chứng dùng CÙNG công đoạn nhưng chưa trỏ dao ⇒ đúng thế "cần dao mà chưa chốt":
     # khoá vẫn phải đủ (thanh đọc thẳng, không được vấp KeyError), chỉ mã dao là rỗng.
     khac = [d for d in ban["dong"] if d["id"] != row_id]
     assert khac and all(d["requires_tooling"] is True and d["khuon_ma"] is None
-                        and d["khuon_ngay_ve"] is None for d in khac)
+                        and d["khuon_tinh_trang"] is None for d in khac)
 
 
 # ---------------------------------------------------------------------------

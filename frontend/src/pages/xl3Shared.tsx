@@ -3,15 +3,34 @@
 // Ở đây KHÔNG gọi API, KHÔNG giữ state: chỉ số học ngày-giờ + hình học thanh + định dạng. Tách ra
 // để lưới và panel không tự tính lệch nhau — cả hai phải quy ra pixel bằng ĐÚNG một công thức, nếu
 // không thanh vẽ một đằng còn chữ nói một nẻo.
-import type { Xl3Doan, Xl3Dong } from "../api/client";
+import type { Xl3Doan, Xl3DoanThucTe, Xl3Dong } from "../api/client";
 
 /** Số ngày MỘT màn hình. Bảy vì tuần làm việc là đơn vị người điều độ nghĩ bằng — "lệnh này chạy
  *  hết tuần" là câu họ nói, không phải "hết 5,5 ngày". */
 export const SO_NGAY = 7;
 /** Bề rộng một ngày (px). Cột nhãn trái + 7 cột này = bề ngang lưới. */
 export const NGAY_W = 168;
-export const NHAN_W = 250;
-export const DONG_H = 52;
+export const NHAN_W = 260;
+export const DONG_H = 66;
+
+/** Hình học lưới theo bề ngang cửa sổ. Cột nhãn là cột DÍNH (`position: sticky`) nên trên màn
+ *  375px nó ăn 260/375 = 70% chỗ, lưới còn hơn trăm pixel — nhìn thấy đúng một mẩu thanh. Hai nấc
+ *  hẹp co nhãn lại và hạ bề rộng một ngày để lưới còn thấy được.
+ *
+ *  HÀM THUẦN, cố ý: mọi phép quy đổi px↔giờ của lưới (`x`, `pxSangGio`, `khungBao`) đều nhận
+ *  `ngayW` truyền vào, nên chỉ cần MỘT nguồn số cho cả vẽ lẫn kéo-thả. Ai gọi tự lo nghe `resize`.
+ *  Bề ngang > 768px trả về ĐÚNG số cũ — màn rộng không đổi một pixel.
+ *  Ngưỡng 768/480 khớp với @media §78 của `styles/responsive.css`; đổi ở đây phải đổi cả bên đó. */
+export function khungLuoi(
+  beNgang: number,
+  soNgay: number,
+): { nhanW: number; ngayW: number; dongH: number } {
+  const ngayRong = (bay: number, muoiBon: number, baMuoi: number) =>
+    soNgay === 30 ? baMuoi : soNgay === 14 ? muoiBon : bay;
+  if (beNgang <= 480) return { nhanW: 184, ngayW: ngayRong(96, 64, 36), dongH: 72 };
+  if (beNgang <= 768) return { nhanW: 184, ngayW: ngayRong(120, 76, 42), dongH: 72 };
+  return { nhanW: NHAN_W, ngayW: ngayRong(NGAY_W, 96, 54), dongH: DONG_H };
+}
 
 // ---------------------------------------------------------------- ngày tháng
 export function ymd(d: Date): string {
@@ -48,15 +67,15 @@ const NGAY_MS = 86_400_000;
 
 /** Vị trí trái (px) của một mốc trong cửa sổ bắt đầu từ `tu`. Cho phép ÂM / vượt phải — nơi gọi
  *  tự kẹp, vì thanh tràn mép phải vẫn phải vẽ được nửa nằm trong. */
-export function x(iso: string | null | undefined, tu: string): number | null {
+export function x(iso: string | null | undefined, tu: string, ngayW = NGAY_W): number | null {
   const t = moc(iso);
-  return t === null ? null : ((t - mocNgay(tu)) / NGAY_MS) * NGAY_W;
+  return t === null ? null : ((t - mocNgay(tu)) / NGAY_MS) * ngayW;
 }
 
 /** Pixel trên lưới → ISO naive, làm tròn về bội số `buoc` phút (mặc định 15).
  *  Làm tròn để kéo-thả ra giờ ĐỌC ĐƯỢC: không ai đặt lệnh chạy lúc 08:07. */
-export function pxSangGio(px: number, tu: string, buoc = 15): string {
-  const ms = mocNgay(tu) + (px / NGAY_W) * NGAY_MS;
+export function pxSangGio(px: number, tu: string, buoc = 15, ngayW = NGAY_W): string {
+  const ms = mocNgay(tu) + (px / ngayW) * NGAY_MS;
   const b = buoc * 60_000;
   const d = new Date(Math.round(ms / b) * b);
   return `${ymd(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:00`;
@@ -71,11 +90,11 @@ export interface Khoi {
 
 /** Khối CHẠY bên trong thanh (lớp đậm). Cắt theo cửa sổ và bỏ khối mảnh hơn 2px — vẽ vạch 0,3px
  *  chỉ tạo nhiễu, người nhìn tưởng lỗi render. */
-export function khoiChay(doan: Xl3Doan[], tu: string, rongLuoi: number): Khoi[] {
+export function khoiChay(doan: Xl3Doan[], tu: string, rongLuoi: number, ngayW = NGAY_W): Khoi[] {
   const ra: Khoi[] = [];
   for (const d of doan) {
-    const a = x(d.tu, tu);
-    const b = x(d.den, tu);
+    const a = x(d.tu, tu, ngayW);
+    const b = x(d.den, tu, ngayW);
     if (a === null || b === null) continue;
     const trai = Math.max(0, a);
     const phai = Math.min(rongLuoi, b);
@@ -84,12 +103,59 @@ export function khoiChay(doan: Xl3Doan[], tu: string, rongLuoi: number): Khoi[] 
   return ra;
 }
 
-/** Khung BAO của cả lệnh (lớp nhạt) đã kẹp vào cửa sổ, kèm cờ tràn hai mép để vẽ mũi nhọn. */
+/** Hai mép của cả lệnh trên bàn. Lệnh ĐÃ CHẠY DỞ bắt đầu ở lúc nó thật sự vào việc, KHÔNG ở mốc:
+ *  mốc lúc đó là "bắt đầu phần còn lại" và nằm ở tương lai, vẽ từ đó thì bàn nói lệnh chưa bắt
+ *  đầu trong khi tổ đã làm xong mấy bước. Mép phải cũng vậy — theo thực tế, không theo kế hoạch. */
+export function veTu(dong: Xl3Dong): string | null {
+  return dong.thuc_bat_dau_lenh ?? dong.bat_dau_at;
+}
+
+export function veDen(dong: Xl3Dong): string | null {
+  return dong.ket_thuc_thuc_te ?? dong.ket_thuc;
+}
+
+/** Đoạn TỪ LÚC VÀO VIỆC tới mốc phần còn lại. Đây là dải "đã vào việc rồi NẰM CHỜ", KHÔNG phải
+ *  "đã chạy": lệnh chạy 13 phút hôm 09/09 rồi chờ tới 06:00 14/09 thì dải này dài 5 ngày. Phần
+ *  máy thật sự quay nằm ở `khoiThucTe`, vẽ đè lên trên. `null` khi lệnh chưa chạy, hoặc khi mốc
+ *  đã bị kéo về TRƯỚC lúc vào việc (không còn đoạn nào để vẽ). */
+export function khungDaVaoViec(
+  dong: Xl3Dong, tu: string, rongLuoi: number, ngayW = NGAY_W,
+): { trai: number; rong: number } | null {
+  if (!dong.thuc_bat_dau_lenh) return null;
+  const a = x(dong.thuc_bat_dau_lenh, tu, ngayW);
+  const b = x(dong.bat_dau_at, tu, ngayW);
+  if (a === null || b === null || b <= a) return null;
+  const trai = Math.max(0, a);
+  const phai = Math.min(rongLuoi, b);
+  if (phai - trai < 2) return null;
+  return { trai, rong: phai - trai };
+}
+
+/** Các quãng CHẠY THẬT bên trong dải chờ, đã kẹp vào cửa sổ. Toạ độ TUYỆT ĐỐI trên lưới —
+ *  người gọi tự trừ đi mép trái của dải nếu vẽ chúng làm con của dải. */
+export function khoiThucTe(
+  doan: Xl3DoanThucTe[], tu: string, rongLuoi: number, ngayW = NGAY_W,
+): { trai: number; rong: number; tu: string; den: string }[] {
+  const ra: { trai: number; rong: number; tu: string; den: string }[] = [];
+  for (const d of doan ?? []) {
+    const a = x(d.tu, tu, ngayW);
+    const b = x(d.den, tu, ngayW);
+    if (a === null || b === null) continue;
+    const trai = Math.max(0, a);
+    const phai = Math.min(rongLuoi, b);
+    // Ở lát 7 ngày, 13 phút chạy ra 1,5px. Vẫn phải THẤY được — đó là bằng chứng lệnh có chạy —
+    // nên kéo lên 3px thay vì bỏ như `khoiChay` làm với vạch nhiễu bên trong thanh.
+    if (phai > trai) ra.push({ trai, rong: Math.max(3, phai - trai), tu: d.tu, den: d.den });
+  }
+  return ra;
+}
+
+/** Khung BAO của PHẦN CÒN LẠI (thanh kéo được) đã kẹp vào cửa sổ, kèm cờ tràn hai mép. */
 export function khungBao(
-  dong: Xl3Dong, tu: string, rongLuoi: number,
+  dong: Xl3Dong, tu: string, rongLuoi: number, ngayW = NGAY_W,
 ): { trai: number; rong: number; tranTrai: boolean; tranPhai: boolean } | null {
-  const a = x(dong.bat_dau_at, tu);
-  const b = x(dong.ket_thuc, tu);
+  const a = x(dong.bat_dau_at, tu, ngayW);
+  const b = x(veDen(dong), tu, ngayW);
   if (a === null || b === null) return null;
   const trai = Math.max(0, a);
   const phai = Math.min(rongLuoi, b);
@@ -138,11 +204,6 @@ export function classHan(dong: { ket_thuc: string | null; han_hoan_thanh_sx: str
   return "";
 }
 
-export function cuoiTuan(d: string): boolean {
-  const [y, mo, dd] = d.split("-").map(Number);
-  const w = new Date(y, mo - 1, dd).getDay();
-  return w === 0 || w === 6;
-}
 
 export const THU = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 

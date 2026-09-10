@@ -134,7 +134,7 @@ export function LsxRoutingTable({
   tenSanPham: string;
   /** Tên khách của lệnh — khối Khuôn của drawer bày ra để nói rõ đang lọc dao theo ai. */
   tenKhach: string;
-  onTaoKhuon: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
+  onTaoKhuon: (input: { ten: string; loai: string | null }) => Promise<number>;
   vatTuRefs: RefRow[] | null;
   /** Danh mục GIẤY — NVL chính chọn tay ở bước (08/09/2026). Đi RIÊNG với `vatTuRefs` vì hai
    *  danh mục đánh số độc lập. */
@@ -368,7 +368,7 @@ export function LsxRoutingTable({
           tooling_type: m.tooling_type ?? null,
           ...((m.tooling_type ?? null) === loaiCu ? {} : {
             khuon_be_id: null, khuon_be_ma: null, khuon_be_ten: null,
-            khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
+            khuon_be_so_ke: null, khuon_be_tinh_trang: null,
           }),
           he_so_quy_doi: m.he_so_quy_doi > 1 ? String(m.he_so_quy_doi) : "",
           // RESET khoán: giữ `khoan_rate_id` cũ thì nó trỏ đầu việc của công đoạn CŨ → lưu thì backend
@@ -793,7 +793,6 @@ export function LsxRoutingTable({
                           ma: r.khuon_be_ma,
                           so_ke: r.khuon_be_so_ke,
                           tinh_trang: r.khuon_be_tinh_trang,
-                          ngay_ve_du_kien: r.khuon_be_ngay_ve,
                         }}
                       />
                     </button>

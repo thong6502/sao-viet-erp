@@ -315,8 +315,7 @@ def test_kanban_chip_mang_nhan_buoc(client, seed_credentials, sess, lenh_hai_nha
     cvs = {cv.ten_cong_doan: cv for cv in _cvs(sess, lenh_hai_nhanh_cung_chay)}
     cvs["Cán"].loai_buoc = "thue_ngoai"
     cvs["Cán"].nha_cung_cap = "Cơ sở Minh Phát"
-    cvs["In"].khuon_json = {"ma": "KB-0001", "so_ke": "Kệ A3", "tinh_trang": "dang_dung",
-                            "ngay_ve_du_kien": None}
+    cvs["In"].khuon_json = {"ma": "KB-0001", "so_ke": "Kệ A3", "tinh_trang": "dang_dung"}
     sess.commit()
 
     h = _h(_tok(client, seed_credentials))

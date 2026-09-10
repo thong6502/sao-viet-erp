@@ -85,7 +85,7 @@ def _muc_worst(van_de: list[dict]) -> str | None:
 #: khối ĐỦ KHOÁ (không phải `{}`) để thanh Gantt luôn đọc được `requires_tooling`/`khuon_ma`.
 KHUON_TRONG = {
     "requires_tooling": False, "khuon_ma": None, "khuon_so_ke": None,
-    "khuon_tinh_trang": None, "khuon_ngay_ve": None,
+    "khuon_tinh_trang": None,
 }
 
 

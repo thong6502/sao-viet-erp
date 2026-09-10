@@ -13388,3 +13388,106 @@ def _migrate_xep_lich_3(db: Session) -> None:
 
 
 MIGRATIONS.append(("0292_xep_lich_3", _migrate_xep_lich_3))
+
+
+def _migrate_go_ngay_ve_du_kien_khuon(db) -> None:
+    """Gỡ "Ngày có khuôn (dự kiến)" khỏi kho khuôn/khung — chủ xưởng yêu cầu 10/09/2026.
+
+    Ngày này KHÔNG cắm vào phép tính nào, đã rà hết đường đọc trước khi xoá:
+      · cửa "Sẵn sàng lập kế hoạch" của lệnh chỉ soi bước cần dao ĐÃ CHỌN dao chưa (`khuon_be_id`),
+        không nhìn ngày;
+      · xếp lịch / phát hành không đọc — không đâu trừ lùi lead-time theo nó như `stock_requests`;
+      · điểm chặn thật của luật "bế phải có khuôn mới làm" là ô tổ tích ĐÃ NHẬN KHUÔN ở bàn tổ
+        (`san_xuat_cong_viec.khuon_nhan_luc`), chốt từ 04/09/2026.
+    Còn lại nó chỉ là chữ bày ra ở ba màn — và là một RÀNG BUỘC CỨNG: service danh mục chặn lưu
+    khi `tinh_trang='dang_dat_lam'` mà bỏ trống, nên ai lập lệnh cũng phải bịa một ngày. Bịa xong
+    thì không ai quay lại sửa; tới lúc người đọc lịch tin vào nó thì nó đã cũ. Tình trạng
+    `dang_dat_lam` GIỮ NGUYÊN — đó mới là câu có người chịu trách nhiệm cập nhật.
+
+    Mất theo (cố ý): cột "Ngày có khuôn" ở màn danh mục + ô trong form, ô ngày ở nhánh "làm dao
+    mới" của bước lệnh, đuôi ", dự kiến dd/mm/yyyy" trên phiếu công nghệ / chip bước / Gantt.
+
+    Chỉ DROP khi cột còn: DB trắng dựng bằng `create_all` theo model đã bỏ cột thì rơi vào nhánh bỏ
+    qua. Migration `0177` (thêm cột) và `0207` (gộp `ngay_lam_khuon` vào đây) GIỮ NGUYÊN — id đã
+    phát hành không sửa; DB trung gian chạy 0177 → 0207 → 0293 là thêm xong xoá, kết quả bằng DB
+    trắng. Ảnh chụp cũ trong `san_xuat_cong_viec.khuon_json` còn khoá `ngay_ve_du_kien`: đó là JSON
+    đóng băng, không phải cột, và không còn code nào đọc.
+    """
+    insp = inspect(db.get_bind())
+    if "khuon_be" not in set(insp.get_table_names()):
+        return
+    if "ngay_ve_du_kien" in _existing_columns(insp, "khuon_be"):
+        db.execute(text("ALTER TABLE khuon_be DROP COLUMN ngay_ve_du_kien"))
+    db.commit()
+
+
+MIGRATIONS.append(("0293_go_ngay_ve_du_kien_khuon", _migrate_go_ngay_ve_du_kien_khuon))
+
+
+def _migrate_san_xuat_cong_viec_lich_su(db) -> None:
+    """Bảng `san_xuat_cong_viec_lich_su` — ảnh chụp LỊCH CŨ trước mỗi lần "Phát hành cập nhật".
+
+    `san_xuat_cong_viec` sửa đè tại chỗ (docstring model nói ngược lại là SAI, đã sửa cùng đợt),
+    nên từ lần cập nhật thứ hai trở đi không ai trả lời được "v3 hứa Cắt tờ chạy lúc mấy giờ".
+    Bảng này ghi bản CŨ ngay trước lúc đè.
+
+    KHÔNG BACKFILL ĐƯỢC. Các phiên bản có trước 10/09/2026 đã bị đè mất — không có nguồn nào dựng
+    lại. Bảng chỉ có tác dụng từ lúc này trở đi; UI so sánh phải chịu được chuyện phiên bản cũ
+    trống rỗng chứ không được hiểu đó là "không đổi gì".
+
+    Idempotent: `CREATE TABLE` sau khi hỏi inspector + `CREATE INDEX IF NOT EXISTS`.
+    """
+    ins = inspect(db.get_bind())
+    if not ins.has_table("san_xuat_cong_viec_lich_su"):
+        pg = db.get_bind().dialect.name == "postgresql"
+        pk = "SERIAL PRIMARY KEY" if pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        ts = "TIMESTAMPTZ" if pg else "DATETIME"
+        db.execute(text(
+            "CREATE TABLE san_xuat_cong_viec_lich_su ("
+            f"  id {pk},"
+            "  goi_id INTEGER NOT NULL"
+            "    REFERENCES san_xuat_goi_phat_hanh(id) ON DELETE CASCADE,"
+            "  phien_ban_so INTEGER NOT NULL,"
+            "  cong_viec_id INTEGER NOT NULL"
+            "    REFERENCES san_xuat_cong_viec(id) ON DELETE CASCADE,"
+            "  may_id INTEGER,"
+            f"  du_kien_bat_dau {ts},"
+            f"  du_kien_ket_thuc {ts},"
+            f"  created_at {ts} NOT NULL"
+            ")"
+        ))
+    for cau in (
+        "CREATE INDEX IF NOT EXISTS ix_san_xuat_cong_viec_lich_su_goi_id"
+        " ON san_xuat_cong_viec_lich_su (goi_id)",
+        "CREATE INDEX IF NOT EXISTS ix_san_xuat_cong_viec_lich_su_cong_viec_id"
+        " ON san_xuat_cong_viec_lich_su (cong_viec_id)",
+        "CREATE INDEX IF NOT EXISTS ix_sx_cv_lich_su_goi_ver"
+        " ON san_xuat_cong_viec_lich_su (goi_id, phien_ban_so)",
+    ):
+        db.execute(text(cau))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0294_san_xuat_cong_viec_lich_su", _migrate_san_xuat_cong_viec_lich_su)
+)
+
+
+def _migrate_quote_item_anh_minh_hoa(db) -> None:
+    """Ảnh minh họa cho dòng báo giá — bản in gửi khách thay cột "Thành tiền" bằng "Hình ảnh
+    minh họa" (chủ xưởng chốt 10/09/2026).
+
+    Chỉ THÊM một cột chứa URL ảnh (`/api/files/bao-gia/...`). Ảnh thuộc CỤM IN — mọi dòng cùng
+    nhãn `nhom` / cùng tên mang chung một URL — nên không cần bảng riêng, cũng không backfill:
+    báo giá cũ để NULL, bản in bỏ trống ô ảnh.
+    """
+    insp = inspect(db.get_bind())
+    if "quote_items" not in set(insp.get_table_names()):
+        return
+    if "anh_minh_hoa" in _existing_columns(insp, "quote_items"):
+        return
+    db.execute(text("ALTER TABLE quote_items ADD COLUMN anh_minh_hoa VARCHAR(500)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0295_quote_item_anh_minh_hoa", _migrate_quote_item_anh_minh_hoa))

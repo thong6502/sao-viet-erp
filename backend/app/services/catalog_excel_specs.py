@@ -198,7 +198,6 @@ KHUON_BE = CatalogExcelSpec(
         Cot("Loại dao", "loai"),
         Cot("Số kệ", "so_ke", rong=14),
         Cot("Tình trạng", "tinh_trang", rong=16),
-        Cot("Ngày về dự kiến", "ngay_ve_du_kien", kieu="ngay", rong=18),
         Cot("Ghi chú", "ghi_chu", rong=32),
         CO_ACTIVE,
     ),

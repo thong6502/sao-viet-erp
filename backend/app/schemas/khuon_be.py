@@ -1,7 +1,7 @@
 """Pydantic schemas — Danh mục Khuôn bế (khai báo nơi lưu trữ)."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -14,9 +14,6 @@ class KhuonBeIn(BaseModel):
     loai: str | None = None
     so_ke: str | None = None
     tinh_trang: str = "dang_dung"
-    #: Chỉ có nghĩa với `tinh_trang='dang_dat_lam'` (mg 0177) — ngày này hiện ngay tại bước dùng
-    #: khuôn ở lệnh sản xuất để người xếp việc biết chưa chạy được.
-    ngay_ve_du_kien: date | None = None
     ghi_chu: str | None = None
     active: bool = True
 
@@ -32,7 +29,6 @@ class KhuonBeRow(BaseModel):
     loai: str | None = None
     so_ke: str | None = None
     tinh_trang: str
-    ngay_ve_du_kien: date | None = None
     ghi_chu: str | None = None
     active: bool
     updated_at: datetime | None = None

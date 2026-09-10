@@ -53,7 +53,6 @@ class KhuonChipOut(BaseModel):
     ten: str | None = None
     so_ke: str | None = None
     tinh_trang: str | None = None
-    ngay_ve_du_kien: str | None = None
 
 
 class WorkItemOut(BaseModel):

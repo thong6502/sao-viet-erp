@@ -41,14 +41,13 @@ describe("ChipKhuon", () => {
     expect(screen.getByText("KB-0123 · Kệ A3")).toBeTruthy();
   });
 
-  it("dao đang đặt làm → mã + ngày dự kiến, tone vàng", () => {
+  it("dao đang đặt làm → mã + 'đang đặt làm', tone vàng", () => {
+    // Không còn ngày dự kiến (mg `0293` gỡ cột `khuon_be.ngay_ve_du_kien`) — chip chỉ nói tình
+    // trạng, thứ duy nhất có người cập nhật.
     const { container } = render(
-      <ChipKhuon
-        can_khuon
-        khuon={{ ma: "KB-0130", tinh_trang: "dang_dat_lam", ngay_ve_du_kien: "2026-09-12" }}
-      />,
+      <ChipKhuon can_khuon khuon={{ ma: "KB-0130", tinh_trang: "dang_dat_lam" }} />,
     );
-    expect(screen.getByText("KB-0130 · dự kiến 12/09")).toBeTruthy();
+    expect(screen.getByText("KB-0130 · đang đặt làm")).toBeTruthy();
     expect(container.querySelector(".chip-khuon--cho")).toBeTruthy();
   });
 

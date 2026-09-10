@@ -245,8 +245,8 @@ class PhieuThanhPham(Base):
     # NULL = chưa chọn (phiếu cũ, hoặc người lập bỏ qua) → engine giữ nguyên lời nhắc như trước.
     #
     # Ô "Dự kiến có khuôn" đi kèm (`khuon_ngay_du_kien`) ĐÃ GỠ 06/09/2026, migration `0269`: nó chỉ
-    # là DỰ TRÙ, không nơi nào đọc — lệnh sản xuất lấy mốc thật từ `khuon_be.ngay_ve_du_kien` của
-    # chính con dao. Giữ lại chỉ tổ bắt sale khai một ngày rồi không ai dùng.
+    # là DỰ TRÙ, không nơi nào đọc. Ngày dự kiến bên kho khuôn (`khuon_be.ngay_ve_du_kien`) sau đó
+    # cũng gỡ nốt (mg `0293`) — không còn mốc "bao giờ có dao" ở đâu trong hệ, chỉ còn tình trạng.
     khuon_nguon: Mapped[str | None] = mapped_column(String(10), nullable=True)  # co_san|lam_moi
     # Kích thước/số lượng KHUÔN dùng ở CHÍNH bước này — CHỈ có nghĩa khi bước dùng công đoạn
     # `tooling_type = "khuon_ep"` (nhãn màn hình "Khuôn ép kim"). BA Ô NÀY TÁCH BIỆT với `phi_khuon` ở

@@ -22,8 +22,6 @@ Công thức bám TỪ ĐIỂN BIẾN `services/bien_cong_thuc.py`:
 """
 from __future__ import annotations
 
-from datetime import date
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -451,11 +449,10 @@ def _import_khoan(db: Session) -> int:
 
 
 # ---------------------------------------------------------------------------------------------
-# 8) Khuôn (thêm 20). loai khuon_be/khuon_ep · tình trạng · số kệ · ngày có khuôn (dự kiến).
+# 8) Khuôn (thêm 20). loai khuon_be/khuon_ep · tình trạng · số kệ.
 # ---------------------------------------------------------------------------------------------
-def _kb(ma, ten, loai, so_ke, tinh_trang, ngay=None, ghi_chu=None):
-    return dict(ma=ma, ten=ten, loai=loai, so_ke=so_ke, tinh_trang=tinh_trang,
-                ngay_ve_du_kien=ngay, ghi_chu=ghi_chu)
+def _kb(ma, ten, loai, so_ke, tinh_trang, ghi_chu=None):
+    return dict(ma=ma, ten=ten, loai=loai, so_ke=so_ke, tinh_trang=tinh_trang, ghi_chu=ghi_chu)
 
 
 _KHUON = [
@@ -472,9 +469,9 @@ _KHUON = [
     _kb("KB-1011", "Khuôn bế thiệp cưới bế biên", "khuon_be", "Kệ D2 — kho khuôn", "dang_dung"),
     _kb("KB-1012", "Khuôn bế lịch để bàn chân gấp", "khuon_be", "Kệ D3 — kho khuôn", "dang_dung"),
     _kb("KB-1013", "Khuôn bế hộp pizza 30cm", "khuon_be", "Kệ C5 — kho khuôn", "dang_dat_lam",
-        ngay=date(2026, 9, 15), ghi_chu="Đặt thợ ngoài làm dao."),
+        ghi_chu="Đặt thợ ngoài làm dao."),
     _kb("KB-1014", "Khuôn bế hộp cơm giấy", "khuon_be", "Kệ C6 — kho khuôn", "dang_dat_lam",
-        ngay=date(2026, 9, 30), ghi_chu="Chờ dao mới cho đơn hàng chuỗi F&B."),
+        ghi_chu="Chờ dao mới cho đơn hàng chuỗi F&B."),
     _kb("KB-1015", "Khuôn ép nhũ logo thương hiệu A", "khuon_ep", "Kệ E1 — kho khuôn", "dang_dung"),
     _kb("KB-1016", "Khuôn ép nhũ tiêu đề thiệp", "khuon_ep", "Kệ E2 — kho khuôn", "dang_dung"),
     _kb("KB-1017", "Khuôn ép chìm (deboss) hộp quà", "khuon_ep", "Kệ E3 — kho khuôn", "dang_dung"),

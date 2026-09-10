@@ -58,6 +58,7 @@ from ..schemas.quotation import (
     QuoteActivityOut,
     QuoteAttachmentOut,
     QuoteAttachmentsOut,
+    QuoteItemImageOut,
     RequoteRequest,
     TransitionRequest,
     VersionRow,
@@ -203,6 +204,7 @@ def _detail(
                     product_spec_text=item.product_spec_text,
                     dien_giai=item.dien_giai,
                     nhom=item.nhom,   # nhãn gộp dòng khi in cho khách
+                    anh_minh_hoa=item.anh_minh_hoa,   # ảnh in ở cột "Hình ảnh minh họa"
                     quantity=item.quantity,
                     unit=item.unit,
                     dvt_nhom=item.dvt_nhom,   # ĐVT cụm khi in gộp — thiếu là bản in mất "cuốn"
@@ -945,3 +947,86 @@ def delete_quote_attachment(
     key = key_from_url(file_url)
     if key:
         get_storage().delete(key)
+
+
+# --- Ảnh minh họa của DÒNG báo giá ------------------------------------------------------------
+# Bản in gửi khách bỏ cột "Thành tiền", thay bằng cột "Hình ảnh minh họa". Ảnh gắn theo CỤM IN
+# (mọi dòng cùng nhãn `nhom` / cùng tên) chứ không theo từng dòng dữ liệu — xem
+# `quotation_service.set_item_image`. Chỉ nhận ẢNH và giới hạn 5MB: tệp này IN RA GIẤY, không
+# phải kho tài liệu nội bộ như `/attachments` (25MB, mọi định dạng).
+_MAX_ANH_BYTES = 5 * 1024 * 1024
+_ANH_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+
+@router.post("/{quotation_id}/items/{item_id}/anh-minh-hoa", response_model=QuoteItemImageOut)
+def set_quote_item_image(
+    quotation_id: int,
+    item_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    file: UploadFile = File(...),
+) -> QuoteItemImageOut:
+    scope = _scope_for(authz, user)
+    # Kiểm quyền + trạng thái TRƯỚC khi ghi file (né file rác cho phiếu ngoài phạm vi / đã hủy).
+    try:
+        quote = svc.get_quotation(quotation_id=quotation_id, scope=scope, actor=user)
+    except (QuotationNotFound, QuotationForbidden):
+        raise _quote_404() from None
+    if quote.status == STATUS_CANCELLED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Báo giá đã hủy — không đổi ảnh minh họa được.")
+
+    data = file.file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Tệp rỗng.")
+    if (file.content_type or "").lower() not in _ANH_CONTENT_TYPES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Ảnh minh họa chỉ nhận tệp ảnh (JPG, PNG, WEBP, GIF).",
+        )
+    if len(data) > _MAX_ANH_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Ảnh vượt quá 5MB.")
+
+    key, _safe = make_key(_BAO_GIA_SUBDIR, quotation_id, file.filename)
+    get_storage().save(key, data, file.content_type)
+    url = url_from_key(key)
+    try:
+        item_ids, don_dep = svc.set_item_image(
+            quotation_id=quotation_id, item_id=item_id, file_url=url, scope=scope, actor=user,
+        )
+    except (QuotationNotFound, QuotationForbidden):
+        get_storage().delete(key)
+        raise _quote_404() from None
+    except QuotationLocked as exc:
+        get_storage().delete(key)
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    _don_anh(don_dep)
+    return QuoteItemImageOut(anh_minh_hoa=url, item_ids=item_ids)
+
+
+@router.delete("/{quotation_id}/items/{item_id}/anh-minh-hoa", status_code=204)
+def clear_quote_item_image(
+    quotation_id: int,
+    item_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        don_dep = svc.clear_item_image(
+            quotation_id=quotation_id, item_id=item_id,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except (QuotationNotFound, QuotationForbidden):
+        raise _quote_404() from None
+    except QuotationLocked as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    _don_anh(don_dep)
+
+
+def _don_anh(urls: list[str]) -> None:
+    """Xóa các object ảnh không còn dòng nào trỏ tới (best-effort — ghi DB mới là việc chính)."""
+    for u in urls:
+        key = key_from_url(u)
+        if key:
+            get_storage().delete(key)
