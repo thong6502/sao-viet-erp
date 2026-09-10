@@ -16,8 +16,16 @@ Luật §4.3 (chốt bởi chủ dự án):
   · Khi BẤT KỲ việc nào trong gói đã bắt đầu ⇒ KHÔNG được thu hồi toàn bộ gói (chỉ chặn thu-hồi,
     không chặn cập-nhật phần còn chưa bắt đầu).
 
-Chỉ TÁI CHỤP thời gian + máy (thứ Xếp lịch 2 đổi được sau phát hành). Định mức/khoán/vật tư/tuyến
-là dữ liệu routing đã KHOÁ (`da_phat_hanh`) nên KHÔNG đọc-sống lại — đúng tinh thần đóng băng §4.2.
+TÁI CHỤP thời gian + máy (thứ Xếp lịch 2 đổi được sau phát hành) VÀ **hành lý đọc-để-làm** của
+thẻ việc (10/09/2026): đơn vị bản địa · cờ + câu diễn giải sản lượng bước ngoài dòng · kíp chuẩn ·
+dải phút chạy · dặn dò của kế hoạch · thẻ quy cách rút gọn. Xem
+`docs/superpowers/specs/2026-09-10-ban-to-du-thong-tin-design.md` §8: lệnh phát hành TRƯỚC ngày có
+mấy khoá ấy lấy đủ thông tin bằng đúng cửa này (migration cố ý không backfill).
+
+Vẫn KHÔNG đụng: số lượng vào/ra · khoán · định mức vật tư · con dao · checklist KCS · tuyến. Đó là
+CAM KẾT đã đóng băng (§4.2) — chúng chảy thẳng vào lương, kho và bàn giao, đọc-sống lại là xê dịch
+việc thợ đang làm dở. Hành lý ở trên thì ngược lại: nó chỉ để ĐỌC, mà giữ bản cũ nghĩa là thợ đọc
+một câu dặn dò đã bị kế hoạch sửa từ lâu.
 
 Hàm ở đây CHỦ GIAO DỊCH cho nhánh cập-nhật (tự commit); còn `thu_hoi_goi` nằm TRONG giao dịch gỡ
 phát hành của `xep_lich_van_de_service` nên KHÔNG commit. Router phát SSE sau khi service trả về.
@@ -39,7 +47,9 @@ from ...models.san_xuat_thuc_thi import PC_DA_RUT
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
 from ...repositories.san_xuat_thuc_thi_repo import SanXuatThucThiRepository
+from ..dong_giay import ban_do_tram
 from . import ho_tro
+from .snapshot import _dinh_muc, _hanh_ly, _SoPhatHanh
 
 _LY_DO_RUT = "Phát hành cập nhật — phân công cần xác nhận lại."
 
@@ -71,7 +81,18 @@ def _lich_nguon(repo: SanXuatRepository, cv: SanXuatCongViec) -> list[tuple]:
     if cv.bai_ghep_cong_doan_id is not None:
         return repo.lich_bg_step(cv.bai_ghep_cong_doan_id)
     if cv.lsx_cong_doan_id is not None:
-        return repo.lich_lsx_step(cv.lsx_cong_doan_id)
+        dong = repo.lich_lsx_step(cv.lsx_cong_doan_id)
+        if dong:
+            return dong
+        # Lệnh xếp ở Xếp lịch 3: không dòng lịch nào, mốc bước là số dẫn xuất. Trả rỗng ở đây thì
+        # "Phát hành cập nhật" coi mọi việc là "lịch đã tách/gộp" và bỏ qua sạch — người điều độ
+        # dời giờ cả lệnh xong bấm cập nhật mà bàn tổ không đổi một phút nào.
+        from ..xep_lich_3.moc import moc_theo_buoc
+
+        moc = moc_theo_buoc(repo.db, [cv.lsx_id]) if cv.lsx_id else {}
+        bd_kt = moc.get(cv.lsx_cong_doan_id)
+        if bd_kt:
+            return [(None, bd_kt[0], bd_kt[1], 1, None)]
     return []
 
 
@@ -94,6 +115,46 @@ def _thoi_gian_nguon(repo: SanXuatRepository, cv: SanXuatCongViec):
         if phan_doan_so == cv.phan_doan_so:
             return (may_id, start, finish)
     return None
+
+
+def _cd_nguon(db: Session, cv: SanXuatCongViec):
+    """Bước KẾ HOẠCH đứng sau công việc (`lsx_cong_doan` / `bai_ghep_cong_doan`) — None nếu mất.
+
+    Snapshot ghim cả hai id nên không phải đọc lại nhãn tiếng Việt để dò ngược.
+    """
+    if cv.bai_ghep_cong_doan_id is not None:
+        from ...models.bai_ghep import BaiGhepCongDoan
+
+        return db.get(BaiGhepCongDoan, cv.bai_ghep_cong_doan_id)
+    if cv.lsx_cong_doan_id is not None:
+        from ...models.lsx import LsxCongDoan
+
+        return db.get(LsxCongDoan, cv.lsx_cong_doan_id)
+    return None
+
+
+def _tai_chup_hanh_ly(db: Session, cv: SanXuatCongViec, so, tram: dict[str, str]) -> bool:
+    """Chụp lại HÀNH LÝ đọc-để-làm của một công việc chưa bắt đầu. Trả True nếu có chụp được.
+
+    Đi qua ĐÚNG `snapshot._hanh_ly` / `snapshot._dinh_muc` mà lần phát hành đầu dùng — chép tay
+    một bản thứ hai ở đây là mở đường cho hai lần phát hành ra hai hình dữ liệu khác nhau.
+
+    `ty_le` (phần sản lượng của phân đoạn) suy lại từ CHÍNH cặp số đã ghim: bước tách hai mẻ thì
+    mỗi thẻ chỉ gánh phần phút chạy của mẻ mình. Số lượng không đụng tới nên tỷ lệ cũ vẫn đúng.
+    """
+    cd = _cd_nguon(db, cv)
+    if cd is None:
+        return False
+    hanh_ly = _hanh_ly(so, cd, lsx_id=cv.lsx_id, bai_ghep_id=cv.bai_ghep_id, tram=tram)
+    vao_buoc = float(cd.so_luong_vao or 0)
+    ty_le = (float(cv.so_luong_vao or 0) / vao_buoc
+             if vao_buoc > 0 and (cv.phan_doan_tong or 1) > 1 else 1.0)
+    cv.don_vi_vao = hanh_ly["don_vi_vao"]
+    cv.don_vi_ra = hanh_ly["don_vi_ra"]
+    cv.dinh_muc_json = _dinh_muc(cd, hanh_ly, ty_le)
+    cv.ghi_chu = hanh_ly["ghi_chu"]
+    cv.quy_cach_json = hanh_ly["quy_cach_json"]
+    return True
 
 
 def _huy_phan_cong_ho_tro(
@@ -157,7 +218,10 @@ def phat_hanh_cap_nhat(db: Session, *, nguon: str, id: int, ly_do: str, actor) -
     """Tái chụp các việc CHƯA bắt đầu theo lịch hiện tại → phiên bản mới (§4.3). Tự commit.
 
     Chặn nếu chưa có gói / gói đã thu hồi / không còn việc nào chưa bắt đầu. Việc đã bắt đầu giữ
-    nguyên; các việc cập nhật bị huỷ phân công + hỗ trợ (buộc tổ xác nhận lại)."""
+    nguyên; các việc cập nhật bị huỷ phân công + hỗ trợ (buộc tổ xác nhận lại).
+
+    "Tái chụp" gồm máy + giờ VÀ hành lý đọc-để-làm (đơn vị · kíp · phút chạy · dặn dò · quy cách) —
+    xem docstring module để biết cái gì cố ý KHÔNG chụp lại."""
     ly_do = (ly_do or "").strip()
     if len(ly_do) < 3:
         raise ValueError("Phát hành cập nhật phải ghi lý do (tối thiểu 3 ký tự).")
@@ -187,12 +251,17 @@ def phat_hanh_cap_nhat(db: Session, *, nguon: str, id: int, ly_do: str, actor) -
 
     so_huy_pc = so_huy_ht = 0
     so_lech_phan_doan = 0
+    # Hộp số dẫn xuất dùng CHUNG cho cả vòng: nó cache quy cách theo lệnh / theo bài, dựng mới mỗi
+    # việc là chạy lại `quy_cach_bien` (bài ghép còn phải `tinh_so_to`) cho từng thẻ.
+    so = _SoPhatHanh(db)
+    tram = ban_do_tram(db)
     for cv in chua:
         moc = _thoi_gian_nguon(repo, cv)
         if moc is None:                 # lịch đã tách thêm/gộp lại — không còn lần chạy này
             so_lech_phan_doan += 1
             continue
         may_id, start, finish = moc
+        _tai_chup_hanh_ly(db, cv, so, tram)
         if may_id is not None:          # giữ máy cũ nếu lịch mới chưa gán (bước tổ/thuê ngoài)
             cv.may_id = may_id
         cv.du_kien_bat_dau = start

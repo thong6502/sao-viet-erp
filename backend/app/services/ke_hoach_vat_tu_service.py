@@ -395,6 +395,11 @@ class KeHoachVatTuService:
                 self._start_buoc[r.lsx_cong_doan_id] = r.start_at
             if r.bai_ghep_cong_doan_id and r.bai_ghep_id in bai_ids:
                 self._start_buoc_bai[r.bai_ghep_cong_doan_id] = r.start_at
+        # Xếp lịch 3: lệnh chỉ có MỘT mốc cho cả lệnh, mốc từng bước là số dẫn xuất. Đè lên sau
+        # cùng — lệnh nào đã xếp ở màn 3 thì màn 3 là nguồn, không phải bảng lịch cũ.
+        from .xep_lich_3.moc import moc_theo_buoc
+        for buoc_id, (bat_dau, _kt) in moc_theo_buoc(self.db, sorted(lsx_ids)).items():
+            self._start_buoc[buoc_id] = bat_dau
 
     # ================== (b) NGÀY CẦN ==================
 

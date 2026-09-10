@@ -13333,3 +13333,58 @@ def _migrate_xep_lich_lenh(db: Session) -> None:
 
 
 MIGRATIONS.append(("0291_xep_lich_lenh", _migrate_xep_lich_lenh))
+
+
+def _migrate_xep_lich_3(db: Session) -> None:
+    """Xếp lịch 3 — bàn xếp lịch cấp LỆNH SẢN XUẤT (10/09/2026), RBAC.
+
+    Bảng lịch riêng (`xep_lich_lenh`, mg `0291`) đã có; migration này CHỈ dọn quyền: tạo khoá module
+    `xep_lich_3` rồi CHÉP nguyên hàng `role_permissions` của `xep_lich_2` sang — kèm cả hai bit
+    `can_approve` (phát hành) + `can_approve_exception`, để không ai phải cấp lại tay.
+
+    KHÔNG xoá `xep_lich_2`: hai màn còn chạy song song cho tới khi nghiệm thu xong. Màn 2 được ẩn ở
+    FE bằng cờ `XEP_LICH_2_ENABLED` — ẩn chứ không gỡ, nên quyền cũ phải còn nguyên để bật lại được.
+
+    ⚠️ BƯỚC CHÉP LÀ BẮT BUỘC (cùng lý do mg `0216`/`0218`): thiếu nó thì lần deploy kế tiếp mọi vai
+    đang xếp lịch mở màn mới ra là 403. `scope` ghi thẳng 'all' — `xep_lich_3` nằm trong
+    SCOPELESS_MODULES, không router nào đọc scope của nó.
+
+    Chốt chặn: mỗi vai từng có `xep_lich_2` PHẢI có `xep_lich_3`. Lệch một dòng là DỪNG. Idempotent.
+    """
+    # Đọc cột THẬT trước mọi lệnh ghi — bảng `role_permissions` còn được migration sau thêm bit.
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+
+    db.execute(
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "xep_lich_3", "l": "Xếp lịch 3"},
+    )
+    chep = [c for c in cols if c not in ("id", "module_key")]
+    chon = ["'all'" if c == "scope" else f"rp.{c}" for c in chep]
+    db.execute(
+        text(
+            f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+            f"SELECT :moi, {', '.join(chon)} FROM role_permissions rp "
+            "WHERE rp.module_key = :cu AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+        ),
+        {"cu": "xep_lich_2", "moi": "xep_lich_3"},
+    )
+
+    thieu = db.execute(text(
+        "SELECT rp.role_id FROM role_permissions rp WHERE rp.module_key = :cu AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+    ), {"cu": "xep_lich_2", "moi": "xep_lich_3"}).scalars().all()
+    if thieu:
+        db.rollback()
+        raise RuntimeError(
+            "mg 0292: chép quyền xep_lich_2 → xep_lich_3 chưa đủ, thiếu role_id "
+            f"{sorted(thieu)}."
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0292_xep_lich_3", _migrate_xep_lich_3))

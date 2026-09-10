@@ -63,6 +63,9 @@ SCOPELESS_MODULES = frozenset(MODULE_KEYS) | {
     # Bàn Xếp lịch công đoạn: `routers/xep_lich_2.py` 0 lần đọc scope — bức tranh chung của cả
     # xưởng, không có "lịch của tôi".
     "xep_lich_2",
+    # Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH SẢN XUẤT, `routers/xep_lich_3.py` 0 lần đọc scope,
+    # cùng lý do khoá trên. Quyền chép nguyên từ `xep_lich_2` ở mg 0292.
+    "xep_lich_3",
     # Phiếu bảo trì tách khỏi `ky_thuat_may` cùng ngày, thừa hưởng đúng lý do của khoá mẹ.
     "phieu_bao_tri",
     # Báo máy hỏng (20/08/2026): router KHÔNG đọc scope. Ai cũng phải THẤY hết yêu cầu đang chờ —
