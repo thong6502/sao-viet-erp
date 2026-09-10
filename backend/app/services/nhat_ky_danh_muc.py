@@ -167,6 +167,7 @@ NHAN: dict[str, str] = {
     # trả lời "một lệnh ăn bao nhiêu", nên gọi cùng một tên: "định mức".
     "cong_thuc_luong": "Công thức tính định mức",
     "cong_thuc_san_luong": "Công thức sản lượng ra",
+    "don_vi_san_luong": "Đơn vị sản lượng",
     # Bốn ô công thức chuyển về màn Công đoạn (06/09/2026) — thiếu nhãn là in tên cột thô ra.
     "cong_thuc_gio": "Công thức giờ chạy",
     "cong_thuc_khoan": "Công thức tính tiền công",
