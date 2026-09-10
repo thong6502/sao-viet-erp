@@ -1231,15 +1231,19 @@
 }
 
 .hslsx-hs__muc {
-  margin-top: var(--sp-3);
+  margin-top: var(--sp-4);
+  padding: 14px 16px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-4);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);
   min-width: 0;
 }
 .hslsx-hs__muc-h {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: var(--sp-2);
-  margin: 0 0 var(--sp-1);
+  margin: 0 0 10px;
   color: var(--ink);
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
@@ -1248,6 +1252,51 @@
   color: var(--ash-2);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-regular);
+}
+.hslsx-hs__muc-count {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.hslsx-hs__vt-ma {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  background: #f8fafc;
+  color: var(--ash);
+  font-family: var(--ff-num);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.hslsx-hs__vt-step {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.hslsx-hs__vt-thieu-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-weight: 700;
+  font-size: 12px;
 }
 
 /* ---------- Bảng trong hồ sơ ---------- */
@@ -1294,17 +1343,84 @@
   border-bottom: 0;
 }
 
-/* Hàng phân LỚP — đây là chỗ nhánh song song hiện ra. Không có nó thì bảy bước xếp dọc trông y
-   hệt một chuỗi tuần tự, và người đọc kết luận sai về việc gì đang chặn việc gì. */
 .hslsx-hs__loprow td {
-  padding: var(--sp-1) var(--sp-3);
-  background: var(--paper);
+  padding: 8px 14px;
+  background: #f8fafc;
+  border-top: 1px solid var(--rule-soft);
   border-bottom: 1px solid var(--rule-soft);
-  color: var(--ash-2);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-medium);
-  letter-spacing: 0.04em;
+}
+.hslsx-hs__loprow-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hslsx-hs__lop-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+.hslsx-hs__lop-parallel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.hslsx-hs__yield-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hslsx-hs__yield-val {
+  color: var(--ink);
+}
+.hslsx-hs__yield-arrow {
+  color: var(--ash-2);
+  font-weight: 700;
+}
+
+.hslsx-pulse-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3b82f6;
+  margin-right: 6px;
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+  animation: hslsx-pulse 1.5s infinite;
+}
+@keyframes hslsx-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
 }
 
 .hslsx-hs__bang tr.is-buoc-hien-tai td {
@@ -1317,8 +1433,11 @@
 }
 
 .hslsx-hs__buocten {
-  display: block;
-  font-weight: var(--fw-medium);
+  display: inline-flex;
+  align-items: center;
+  font-weight: var(--fw-bold);
+  font-size: 13.5px;
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
@@ -1342,6 +1461,64 @@
   border-color: var(--rust);
   background: var(--rust-soft);
   color: var(--rust-deep);
+}
+
+.hslsx-hs__may-name {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.hslsx-hs__to-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hslsx-hs__toten {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.hslsx-hs__nguoilist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.hslsx-hs__nguoi-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  color: var(--ash);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.hslsx-hs__nguoi-more {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.hslsx-hs__time-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
 }
 
 .hslsx-hs__num {

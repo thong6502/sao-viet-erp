@@ -22,5 +22,10 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // Phải RỘNG HƠN `asyncUtilTimeout` (5.000 ms ở `src/test/setup.ts`), không thì bài chết vì hết
+    // giờ TEST trước khi vòng dò kịp báo "không tìm thấy" — cùng một cái đỏ nhưng mất hẳn thông
+    // điệp nói phần tử nào thiếu, mà đó mới là thứ đọc được.
+    testTimeout: 20000,
+    hookTimeout: 20000,
   },
 });

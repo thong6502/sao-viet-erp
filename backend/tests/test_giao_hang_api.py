@@ -431,10 +431,20 @@ def test_09b_du_lieu_cu_nhieu_lan_thu_gop_ve_MOT_dong_lay_ban_moi_nhat(client):
     yc = _tao_yc(client, h, oid, lid, qty=40)
     nv = _tai_xe("Tai xe 09b")
 
+    from sqlalchemy import text
+
     from app.models.delivery import DeliveryTrip
 
     db = SessionLocal()
     try:
+        # Cảnh này có TRƯỚC ràng buộc "một yêu cầu một chuyến" (mg 0229 dựng UNIQUE INDEX
+        # `uq_delivery_trips_request`), nên muốn dựng lại nó thì phải gỡ index đúng như lúc dòng cũ
+        # được ghi — chèn thẳng qua session vẫn đâm vào index. Không tạo lại index sau đó: dữ liệu
+        # vừa chèn vi phạm chính nó, mà mỗi test khởi động lại từ ảnh DB đã seed nên không rò sang
+        # bài sau. Trước 10/09/2026 bài này xanh nhờ một LỖ: `drop_all` không đụng bảng
+        # `schema_migrations` (raw SQL tạo), nên từ test thứ hai trở đi migrations bị bỏ qua và
+        # index không bao giờ tồn tại — lỗ đó đã vá ở `conftest`.
+        db.execute(text("DROP INDEX IF EXISTS uq_delivery_trips_request"))
         db.add(DeliveryTrip(
             request_id=yc["id"], lan_thu=1, employee_id=nv,
             gio_lay_hang=datetime.now(timezone.utc), gio_du_kien_giao=datetime.now(timezone.utc),

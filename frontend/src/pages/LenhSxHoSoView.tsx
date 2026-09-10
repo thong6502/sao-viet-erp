@@ -1361,6 +1361,8 @@ function khoMm(dai: number | null, rong: number | null): string | null {
 function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
   const lb = n.loai_buoc ? LSX_LOAI_BUOC_META[n.loai_buoc as "may" | "to" | "thue_ngoai"] : null;
   const nhomLb = n.nhom ? (NHOM_CONG_DOAN[n.nhom] ?? n.nhom) : null;
+  const maxHienNguoi = 2;
+
   return (
     <tr className={n.la_buoc_hien_tai ? "is-buoc-hien-tai" : undefined}>
       <td>
@@ -1409,19 +1411,34 @@ function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
           <span className="hslsx-hs__mo">Chưa phát hành</span>
         )}
       </td>
-      <td>{n.may ?? "—"}</td>
       <td>
-        {n.to ?? "—"}
-        {n.nguoi.length > 0 && <span className="hslsx-hs__nho">{n.nguoi.join(", ")}</span>}
+        <span className="hslsx-hs__may-name">{n.may ?? "—"}</span>
+      </td>
+      <td>
+        <div className="hslsx-hs__to-cell">
+          <span className="hslsx-hs__toten">{n.to ?? "—"}</span>
+          {n.nguoi.length > 0 && (
+            <div className="hslsx-hs__nguoilist" title={n.nguoi.join(", ")}>
+              {n.nguoi.slice(0, maxHienNguoi).map((p, i) => (
+                <span key={i} className="hslsx-hs__nguoi-chip">
+                  {p}
+                </span>
+              ))}
+              {n.nguoi.length > maxHienNguoi && (
+                <span className="hslsx-hs__nguoi-more">+{n.nguoi.length - maxHienNguoi}</span>
+              )}
+            </div>
+          )}
+        </div>
       </td>
       <td className="hslsx-hs__num">
         {n.du_kien_bat_dau || n.du_kien_ket_thuc ? (
-          <>
-            {n.du_kien_bat_dau ? ngayGio(n.du_kien_bat_dau) : "—"}
+          <div className="hslsx-hs__time-col">
+            <span>{n.du_kien_bat_dau ? ngayGio(n.du_kien_bat_dau) : "—"}</span>
             <span className="hslsx-hs__nho">
               → {n.du_kien_ket_thuc ? ngayGio(n.du_kien_ket_thuc) : "—"}
             </span>
-          </>
+          </div>
         ) : (
           "Chưa xếp lịch"
         )}
@@ -1429,13 +1446,8 @@ function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
       <td className="hslsx-hs__num">{n.hoan_thanh_luc ? ngayGio(n.hoan_thanh_luc) : "—"}</td>
       <td className="hslsx-hs__num">
         <span className="hslsx-hs__yield-badge">
-          <span className="hslsx-hs__yield-val">
-            {soHoac(n.so_luong_vao)} {nhanChang(n.don_vi_vao)}
-          </span>
-          <span className="hslsx-hs__yield-arrow">→</span>
-          <span className="hslsx-hs__yield-val">
-            {soHoac(n.so_luong_ra)} {nhanChang(n.don_vi_ra)}
-          </span>
+          {soHoac(n.so_luong_vao)} {nhanChang(n.don_vi_vao)} → {soHoac(n.so_luong_ra)}{" "}
+          {nhanChang(n.don_vi_ra)}
         </span>
       </td>
     </tr>
@@ -1458,7 +1470,8 @@ function VatTuMuc({
   return (
     <div className="hslsx-hs__muc">
       <h4 className="hslsx-hs__muc-h">
-        {ten} <small>{phu}</small>
+        <span>{ten}</span> <small>{phu}</small>
+        {dong.length > 0 && <span className="hslsx-hs__muc-count">{dong.length} vật tư</span>}
       </h4>
       {dong.length === 0 ? (
         <Trong>{khiRong}</Trong>
@@ -1484,7 +1497,7 @@ function VatTuMuc({
                   <td>
                     <span className="hslsx-hs__buocten">{v.hang_ten ?? v.hang_ma ?? "—"}</span>
                     <span className="hslsx-hs__chips">
-                      {v.hang_ma && <span className="hslsx-hs__chip">{v.hang_ma}</span>}
+                      {v.hang_ma && <span className="hslsx-hs__vt-ma">{v.hang_ma}</span>}
                       {/* Giấy của cả tờ in ghép vẫn là vật tư THẬT của lệnh — nhưng người đi lĩnh
                           phải biết mình đang lĩnh cho ai. */}
                       {v.pham_vi === "bai_ghep" && (
@@ -1494,7 +1507,9 @@ function VatTuMuc({
                       )}
                     </span>
                   </td>
-                  <td>{v.ten_viec ?? "—"}</td>
+                  <td>
+                    <span className="hslsx-hs__vt-step">{v.ten_viec ?? "—"}</span>
+                  </td>
                   <td className="hslsx-hs__num">
                     {/* `nhu_cau_hien_thi` là chuỗi engine đã dựng (kèm quy đổi) — ưu tiên nó, vì
                         con số trần mất mất đơn vị trung gian. */}
@@ -1503,7 +1518,15 @@ function VatTuMuc({
                   <td className="hslsx-hs__num">{so(v.ton)}</td>
                   <td className="hslsx-hs__num">{so(v.da_cap)}</td>
                   <td className="hslsx-hs__num">{so(v.dang_linh)}</td>
-                  <td className="hslsx-hs__num">{soHoac(v.thieu)}</td>
+                  <td className="hslsx-hs__num">
+                    {v.thieu != null && v.thieu > 0 ? (
+                      <span className="hslsx-hs__vt-thieu-alert">
+                        <Icon name="alert" size={11} /> {so(v.thieu)}
+                      </span>
+                    ) : (
+                      soHoac(v.thieu)
+                    )}
+                  </td>
                   <td>
                     <Pill meta={pillMeta(VT_MAU, v.trang_thai)} />
                   </td>
