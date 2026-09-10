@@ -507,70 +507,111 @@ export function EmployeeWizard({
                     hoặc ngay trên phiếu lương.
                   </div> */}
                   <div className="ns-wizard__full">
-                    <div className="ns-field__label">
+                    <div className="ns-field__label" style={{ marginBottom: 4 }}>
                       Khoản thu nhập / phụ cấp
                     </div>
-                    {picked.length === 0 && (
-                      <p className="ns-wizard__hint">
-                        Chưa chọn khoản nào. Chọn từ danh mục bên dưới — mỗi
-                        khoản đã mang sẵn quy tắc chịu thuế TNCN hay không.
-                      </p>
-                    )}
-                    {picked.map((p, i) => {
-                      const c = comps?.find((x) => x.id === p.id);
-                      return (
-                        <div key={p.id} className="ns-comp-row">
-                          <span className="ns-comp-row__name">
-                            {c?.name ?? `#${p.id}`}
-                            <span
-                              className={
-                                c?.is_taxable
-                                  ? "ns-tag ns-tag--tax"
-                                  : "ns-tag ns-tag--free"
-                              }
-                            >
-                              {c?.is_taxable ? "Chịu thuế" : "Miễn thuế"}
-                            </span>
-                          </span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={50000}
-                            value={p.amount}
-                            onChange={(e) =>
-                              setPicked(
-                                picked.map((x, j) =>
-                                  j === i
-                                    ? { ...x, amount: Number(e.target.value) }
-                                    : x,
-                                ),
-                              )
-                            }
-                          />
-                          <input
-                            type="text"
-                            placeholder="Ghi chú (không bắt buộc)"
-                            value={p.note}
-                            onChange={(e) =>
-                              setPicked(
-                                picked.map((x, j) =>
-                                  j === i ? { ...x, note: e.target.value } : x,
-                                ),
-                              )
-                            }
-                          />
-                          <button
-                            type="button"
-                            className="btn btn--ghost"
-                            onClick={() =>
-                              setPicked(picked.filter((_, j) => j !== i))
-                            }
-                          >
-                            Gỡ
-                          </button>
+                    <p className="ns-wizard__hint" style={{ marginTop: 0, marginBottom: 8 }}>
+                      Chọn từ danh mục — mỗi khoản đã mang sẵn quy tắc chịu thuế TNCN hay không.
+                    </p>
+
+                    {picked.length === 0 ? (
+                      <div className="ns-comp-empty">
+                        Chưa chọn khoản phụ cấp nào. Bấm <b>“+ Thêm khoản thu nhập”</b> bên dưới để chọn từ danh mục.
+                      </div>
+                    ) : (
+                      <div className="ns-comp-table">
+                        <div className="ns-comp-table__head">
+                          <span>Khoản thu nhập</span>
+                          <span style={{ textAlign: "right" }}>Số tiền (VNĐ)</span>
+                          <span>Ghi chú</span>
+                          <span></span>
                         </div>
-                      );
-                    })}
+                        <div className="ns-comp-table__body">
+                          {picked.map((p, i) => {
+                            const c = comps?.find((x) => x.id === p.id);
+                            return (
+                              <div key={p.id} className="ns-comp-table__row">
+                                <div className="ns-comp-table__col-name">
+                                  <span className="ns-comp-table__title">
+                                    {c?.name ?? `#${p.id}`}
+                                  </span>
+                                  <span
+                                    className={
+                                      c?.is_taxable
+                                        ? "ns-tag ns-tag--tax"
+                                        : "ns-tag ns-tag--free"
+                                    }
+                                  >
+                                    {c?.is_taxable ? "Chịu thuế" : "Miễn thuế"}
+                                  </span>
+                                </div>
+                                <div className="ns-comp-table__col-amount">
+                                  <div className="ns-comp-input-wrap">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      step={50000}
+                                      value={p.amount === 0 ? "" : p.amount}
+                                      placeholder="0"
+                                      aria-label={`Số tiền ${c?.name ?? ""}`}
+                                      onChange={(e) =>
+                                        setPicked(
+                                          picked.map((x, j) =>
+                                            j === i
+                                              ? {
+                                                  ...x,
+                                                  amount:
+                                                    e.target.value === ""
+                                                      ? 0
+                                                      : Math.max(0, Number(e.target.value)),
+                                                }
+                                              : x,
+                                          ),
+                                        )
+                                      }
+                                    />
+                                    <span className="ns-comp-input-suffix">đ</span>
+                                  </div>
+                                </div>
+                                <div className="ns-comp-table__col-note">
+                                  <input
+                                    type="text"
+                                    placeholder="vd: theo dự án X"
+                                    aria-label={`Ghi chú ${c?.name ?? ""}`}
+                                    value={p.note}
+                                    onChange={(e) =>
+                                      setPicked(
+                                        picked.map((x, j) =>
+                                          j === i ? { ...x, note: e.target.value } : x,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                </div>
+                                <div className="ns-comp-table__col-act">
+                                  <button
+                                    type="button"
+                                    className="ns-comp-del-btn"
+                                    title="Gỡ khoản này"
+                                    onClick={() =>
+                                      setPicked(picked.filter((_, j) => j !== i))
+                                    }
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="ns-comp-table__foot">
+                          <span>Tổng phụ cấp:</span>
+                          <strong>
+                            {money(picked.reduce((sum, p) => sum + (Number(p.amount) || 0), 0))}
+                          </strong>
+                        </div>
+                      </div>
+                    )}
                     <div className="ns-comp-add">
                       <button
                         type="button"
