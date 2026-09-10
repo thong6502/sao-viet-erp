@@ -11,6 +11,7 @@ from app.repositories.attendance_repo import AttendanceRepository
 from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository
 from app.repositories.user_repo import UserRepository
+from app.services.attendance_service import CHECK_OUT_GRACE_HOURS, VN_TZ
 
 ADMIN = {"username": "admin", "password": "admin123"}
 
@@ -78,11 +79,30 @@ def _insert_log(employee_id: int, check_type: str, checked_at: datetime) -> None
         db.close()
 
 
+def _vao_cua_ngay_cong_da_dong(shift_end_minute: int = 1020) -> datetime:
+    """Mốc UTC cho một lượt VÀO thuộc NGÀY CÔNG đã ĐÓNG HẲN cửa sổ nhận-RA.
+
+    `now() - 1 ngày` KHÔNG dựng được cảnh này: cửa sổ nhận RA của ngày công N kéo tới
+    `hết ca + CHECK_OUT_GRACE_HOURS` = 17:00 + 8h = 01:00 ngày N+1 (tăng ca vượt nửa đêm).
+    Chạy bộ test trong khung 00:00–01:00 giờ VN thì lượt "hôm qua" VẪN trong hạn ⇒ máy chủ trả
+    `out` và bài đỏ — đúng như run 34506129364 (khởi 00:06 giờ VN). Đó là bài phụ thuộc đồng hồ
+    thật, không phải sản phẩm sai.
+
+    Nên lùi tới ngày công đầu tiên mà cửa sổ ấy đã đóng, rồi chấm VÀO lúc 08:30 — giờ trong ca,
+    giống lượt thật, thay vì một mốc trôi theo giờ chạy máy."""
+    now_local = datetime.now(timezone.utc).astimezone(VN_TZ)
+    ngay = now_local.date() - timedelta(days=1)
+    while (datetime(ngay.year, ngay.month, ngay.day, tzinfo=VN_TZ)
+           + timedelta(minutes=shift_end_minute, hours=CHECK_OUT_GRACE_HOURS)) >= now_local:
+        ngay -= timedelta(days=1)
+    return datetime(ngay.year, ngay.month, ngay.day, 8, 30, tzinfo=VN_TZ).astimezone(timezone.utc)
+
+
 def test_next_action_resets_next_day(client):
-    """Lượt VÀO hôm qua (quên RA) → hôm nay next_action vẫn là VÀO (reset), không phải RA."""
+    """Lượt VÀO ngày công trước (quên RA) → hôm nay next_action vẫn là VÀO (reset), không phải RA."""
     t = _token(client)
     emp = _emp_linked(client, t)
-    _insert_log(emp["id"], "in", datetime.now(timezone.utc) - timedelta(days=1))
+    _insert_log(emp["id"], "in", _vao_cua_ngay_cong_da_dong())
     st = client.get("/api/attendance/me/status", headers=_h(t)).json()
     assert st["next_action"] == "in"
 
