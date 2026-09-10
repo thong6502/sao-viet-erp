@@ -118,6 +118,7 @@ from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
 from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu
 from .xep_lich import XepLichCongDoan
+from .xep_lich_lenh import XepLichLenh
 from .xep_lich_van_de import XepLichVanDe
 from .machine_unavailable import MachineUnavailablePeriod
 # Bảng MỚI phải import Ở ĐÂY thì `create_all` mới dựng: module không được import thì class không
@@ -140,7 +141,6 @@ from .san_xuat_thuc_thi import (
     SanXuatPhanCong,
     SanXuatPhienChay,
 )
-from .san_xuat_ly_do import SanXuatLyDo
 from .san_xuat_san_luong import (
     SanXuatBanGiao,
     SanXuatBanGiaoDieuChinh,
@@ -301,6 +301,7 @@ __all__ = [
     "BaiGhep",
     "BaiGhepThanhVien",
     "XepLichCongDoan",
+    "XepLichLenh",
     "XepLichVanDe",
     "MachineUnavailablePeriod",
     "SuaChuaMay",
@@ -320,7 +321,6 @@ __all__ = [
     "SanXuatPhanCong",
     "SanXuatPhienChay",
     "SanXuatKhoangThamGia",
-    "SanXuatLyDo",
     "SanXuatBatch",
     "SanXuatBatchLotVao",
     "SanXuatBanGiao",

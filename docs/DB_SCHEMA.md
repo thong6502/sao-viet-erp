@@ -3281,7 +3281,9 @@ dùng cho bình bài.
 
 `spoilage_pct` là cột CŨ, chỉ `routing_engine` của hệ tính giá cũ dùng; không có ô nhập và Lệnh SX KHÔNG đọc — hao hụt đi qua module `bu_hao` (mỗi bậc tự chọn `to`|`pct`).
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `he_so_ngoai_dong`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `nhom_may_cho_phep`, `department_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `cong_thuc_san_luong`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `he_so_ngoai_dong`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `nhom_may_cho_phep`, `department_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `cong_thuc_san_luong`, `don_vi_san_luong`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+`don_vi_san_luong` (VARCHAR(24) nullable, mg `0289`): **ĐƠN VỊ của số mà `cong_thuc_san_luong` tính ra** — trỏ MỀM `don_vi_do.ma` (`kem` ⇒ "bản kẽm"). Cặp đôi với công thức ngay trên: cái kia nói bước RA BAO NHIÊU, cột này nói RA BẰNG GÌ. Trước 10/09/2026 không cột nào trả lời được câu thứ hai — bước ngoài dòng giấy phải để trống cả `don_vi_vao`/`don_vi_ra` (menu đóng 5 chặng từ mg `0273`), nên con số 4 của Ghi kẽm CTP đi suốt từ lệnh xuống bàn tổ mà không mang theo chữ nào: ô Ghi mẻ sản lượng hiện trống đơn vị, câu diễn giải sản lượng cụt đuôi. KHÔNG mượn `may_thiet_bi.don_vi_toc_do` (đơn vị ĐO GIỜ) hay `khoan_json.don_vi` (đơn vị TÍNH TIỀN) — hai thứ cố ý tách rời, và bước TỔ ngoài dòng không có máy nào để mượn. Bước TRÊN dòng giấy bỏ qua cột này. Lúc phát hành, `san_xuat/snapshot` ghi giá trị này vào `san_xuat_cong_viec.don_vi_vao`/`don_vi_ra` — đơn vị bản địa mà ghi mẻ · bàn giao · KCS · yêu cầu kho · phân bổ lương đều đọc.
 
 `nhom_may_cho_phep` (JSON list, nullable, mg 0168): tên nhóm máy (`may_thiet_bi.loai_may`) làm được công đoạn này — chặn gán máy sai loại ở bước bài ghép (vd Ghi kẽm CTP không cho gán máy Bế). NULL/`[]` = chưa khai = không ràng buộc. Trục `loai_may` mịn hơn `nhom(3)` nên phân biệt được Bế với Cán màng.
 
@@ -4305,6 +4307,31 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 
 ---
 
+### `xep_lich_lenh`
+
+**Purpose:** Mốc BẮT ĐẦU do người điều độ đặt cho MỘT lệnh sản xuất (module Xếp lịch 3, RBAC `xep_lich_3`). Một dòng = một lệnh. Ngày kết thúc lệnh, mốc từng công đoạn và các đoạn máy chạy trong ca đều là số DẪN XUẤT — tính lúc đọc ở `services/xep_lich_3`, KHÔNG lưu cột. Bảng mới, có migration `0291`.
+
+| Column       | Type (SQLAlchemy → SQLite / Postgres)                  | Key                     | Null | Default        | Meaning                                                                    |
+| ------------ | ------------------------------------------------------ | ----------------------- | ---- | -------------- | -------------------------------------------------------------------------- |
+| `id`         | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                  | no   | auto           | Surrogate PK.                                                              |
+| `lsx_id`     | `Integer` → `INTEGER`                                  | FK→`lsx.id` (CASCADE), **UNIQUE** | no | —    | Lệnh được xếp. UNIQUE vì màn ở cấp LỆNH: hai mốc cho một lệnh là mâu thuẫn. |
+| `bat_dau_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                       | no   | —              | **Thứ duy nhất người quyết.** Wall-clock naive (giờ nhà máy).              |
+| `created_by` | `Integer` → `INTEGER`                                  | —                       | yes  | —              | Soft → `users.id` — ai đặt mốc lần đầu.                                    |
+| `created_at` | `DateTime(timezone=True)`                              | —                       | no   | now (UTC)      | Khi tạo.                                                                   |
+| `updated_at` | `DateTime(timezone=True)`                              | —                       | no   | now/onupdate   | Chốt chống ghi đè khi hai người cùng kéo (`expected_updated_at` → 409).    |
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign key: `lsx_id` → `lsx.id` (`ondelete=CASCADE`). Index: `ix_xep_lich_lenh_lsx` (`lsx_id`, UNIQUE).
+
+**Relationships**
+
+- KHÔNG liên quan `xep_lich_cong_doan` (module 2): hai bảng độc lập, module 2 chỉ bị ẩn đường vào chứ không gỡ. Bốn chỗ đọc lịch (giữ chỗ vật tư · kế hoạch NVL · bàn tổ · máy đang chạy) ưu tiên bảng NÀY khi lệnh có dòng ở đây, ngược lại giữ đường cũ.
+
+**Tất cả cột:** `id`, `lsx_id`, `bat_dau_at`, `created_by`, `created_at`, `updated_at`.
+
+---
+
 ### `xep_lich_van_de`
 
 **Purpose:** phần CON NGƯỜI XỬ LÝ của 1 vấn đề kế hoạch (xung đột / nguy cơ trễ). Bản thân vấn đề là DẪN XUẤT (service `xep_lich_van_de_service.liet_ke()` tính lúc đọc từ lịch — bám BC Planning Worksheet, KHÔNG lưu). Bảng chỉ neo tiếp nhận/giao/ghi chú/ngoại lệ theo `issue_key` (vân tay ổn định). Lịch sử chuyển trạng thái dùng `audit_log`. Bảng mới → `create_all` tự tạo (không migration).
@@ -4445,12 +4472,14 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `du_kien_ket_thuc` | `DateTime(timezone=True)` | — | yes | — | Thời gian dự kiến kết thúc. |
 | `so_luong_vao` | `Numeric(18,3)` | — | yes | — | Định mức snapshot: lượng vào. |
 | `so_luong_ra` | `Numeric(18,3)` | — | yes | — | Định mức snapshot: lượng ra. |
-| `don_vi_vao` | `String(40)` | — | yes | — | Đơn vị vào. |
-| `don_vi_ra` | `String(40)` | — | yes | — | Đơn vị ra. |
+| `don_vi_vao` | `String(40)` | — | yes | — | Đơn vị BẢN ĐỊA đầu vào của bước — ghi mẻ sản lượng · bàn giao · KCS · yêu cầu kho · phân bổ lương đều đọc cột này. Bước TRÊN dòng giấy chép `lsx_cong_doan.don_vi_vao` (mã chặng); bước NGOÀI dòng giấy để trống cả hai ô chặng nên từ 10/09/2026 snapshot lấp bằng `cong_doan.don_vi_san_luong` (`kem` ⇒ ô Ghi mẻ hiện "Số lượng (bản kẽm)"). KHÔNG dùng cột này để hỏi "bước ở chặng nào" — luật `tren_dong_giay` chỉ chấm được trên bản ghi KẾ HOẠCH, ở đây đọc `dinh_muc_json.ngoai_dong`. |
+| `don_vi_ra` | `String(40)` | — | yes | — | Đơn vị BẢN ĐỊA đầu ra — cùng luật với `don_vi_vao` ngay trên. |
 | `he_so_quy_doi` | `Numeric(18,6)` | — | yes | — | Hệ số quy đổi vào→ra. |
-| `dinh_muc_json` | `JSON` | — | yes | — | Snapshot định mức chi tiết. |
-| `khoan_json` | `JSON` | — | yes | — | Snapshot cấu hình lương khoán (nội bộ bắt buộc hợp lệ — §4.2). Cùng hình dạng `lsx_cong_doan.khoan_json`, THÊM khoá `don_gia_hd` (08/09/2026) khi ô "Công thức tính tiền công" của bước RA THẲNG TIỀN (có chip `don_gia_khoan`): đơn giá **hiệu dụng** = tiền của bước ÷ `so_luong_ra`, tức cả công thức đã gộp vào một đơn giá trên đơn vị RA. Chốt lúc PHÁT HÀNH (`san_xuat/snapshot._DonGiaHieuDung`) vì công thức ăn `sl_vao`/`sl_ra` — hai số còn đổi suốt lúc lập kế hoạch. `don_gia` gốc vẫn giữ nguyên cạnh nó để đối chiếu ảnh chụp; **vắng khoá này = bước khai kiểu cũ**, tầng lương nhân `don_gia`. |
+| `dinh_muc_json` | `JSON` | — | yes | — | Snapshot định mức chi tiết: `{so_nhan_cong_tieu_chuan, setup_phut, nang_suat, don_vi_nang_suat, chay_phut, chay_phut_min, chay_phut_max, phat_sinh_phut, ngoai_dong, sl_dien_giai}`. Bốn khoá cuối thêm 10/09/2026. `chay_phut*` lấy từ engine `thoi_luong_buoc` (dải min/max = tốc độ tối đa/tối thiểu của máy; máy chưa khai dải ⇒ ba số bằng nhau) và **nhân tỉ lệ sản lượng của phân đoạn** — bước tách hai mẻ thì mỗi thẻ mang nửa giờ chạy. Trước ngày đó `chay_phut` đọc cột `lsx_cong_doan.chay_phut` (ô nhập đè, dormant từ 04/08/2026 nên luôn NULL) ⇒ bàn tổ không có con số giờ nào. `ngoai_dong` = bước NGOÀI dòng giấy — chụp cờ vì sau khi `don_vi_vao`/`don_vi_ra` được lấp bằng đơn vị sản lượng thì không màn nào suy ngược được nữa; `sl_dien_giai` = câu "Số bản kẽm = 4 bản kẽm" (NULL với bước trên dòng giấy). |
+| `khoan_json` | `JSON` | — | yes | — | Snapshot cấu hình lương khoán (nội bộ bắt buộc hợp lệ — §4.2). Cùng hình dạng `lsx_cong_doan.khoan_json`, THÊM khoá `don_gia_hd` (08/09/2026) khi ô "Công thức tính tiền công" của bước RA THẲNG TIỀN (có chip `don_gia_khoan`): đơn giá **hiệu dụng** = tiền của bước ÷ `so_luong_ra`, tức cả công thức đã gộp vào một đơn giá trên đơn vị RA. Chốt lúc PHÁT HÀNH (`san_xuat/snapshot._SoPhatHanh.khoan_json`) vì công thức ăn `sl_vao`/`sl_ra` — hai số còn đổi suốt lúc lập kế hoạch. `don_gia` gốc vẫn giữ nguyên cạnh nó để đối chiếu ảnh chụp; **vắng khoá này = bước khai kiểu cũ**, tầng lương nhân `don_gia`. |
 | `vat_tu_json` | `JSON` | — | yes | — | Snapshot dữ liệu vật tư liên quan. |
+| `ghi_chu` | `Text` | — | yes | — | DẶN DÒ của kế hoạch (mg `0290`) — ảnh chụp ô "Ghi chú kỹ thuật cho thợ" của bước (`lsx_cong_doan.ghi_chu` / `bai_ghep_cong_doan.ghi_chu`). Trước 10/09/2026 câu này viết cho thợ nhưng dừng ở màn Kế hoạch vì snapshot không chụp. |
+| `quy_cach_json` | `JSON` | — | yes | — | THẺ QUY CÁCH rút gọn của lệnh (mg `0290`): `{giay, dinh_luong, kho_in, kho_tp, so_mat, so_mau, so_kem, so_con, so_luong, ghi_chu_ky_thuat}`. Dựng từ `quy_cach_bien(lsx)` / `quy_cach_bien_bai(bai)` lúc phát hành. CHỤP chứ không tra ngược lệnh: tổ trưởng không có quyền `lsx` nên không mở nổi hồ sơ lệnh, và lệnh còn sửa được sau khi phát hành (§4.2). Chụp CHỌN LỌC — thợ cần 8 dòng để đứng máy, không cần cả `lsx.quy_cach_json`. NULL = lệnh phát hành trước mg `0290` (không backfill: ảnh chụp phải do "Phát hành cập nhật" dựng lại). |
 | `nha_cung_cap` | `String(255)` → `VARCHAR(255)` | — | yes | — | ẢNH CHỤP nhà gia công lúc phát hành (mg `0259`, chốt 04/09/2026) — để chip "Ngoài · <nơi làm>" hiện được ở bàn tổ và các màn theo dõi mà không phải tra ngược lệnh. Trước đó màn xưởng chỉ có `loai_buoc` nên chip thuê ngoài hiện trống trơn, không ai biết hàng đang ở đâu. |
 | `khuon_json` | `JSON` | — | yes | — | ẢNH CHỤP con dao/khung của bước (mg `0259`): `{id, ma, ten, loai, so_ke, tinh_trang, ngay_ve_du_kien}`. NULL = bước không trỏ dao — **không phải dict rỗng**, rỗng đọc như "có khuôn mà mất thông tin". Chụp chứ không tra sống: tổ phải thấy đúng con dao đã chốt lúc phát hành, kể cả khi kế hoạch đổi dao sau đó. |
 | `khuon_nhan_luc` | `DateTime(tz)` | — | yes | — | Tổ tích **đã nhận khuôn** (mg `0259`) — ĐIỂM CHẶN DUY NHẤT của luật "bế phải có khuôn mới làm được". Không chặn ở xếp lịch: ngày dự kiến có khuôn không đủ tin để chặn ai (chốt 04/09/2026), còn ở đây người đứng máy đang cầm con dao trong tay nên cái tích là sự thật. NULL = chưa nhận ⇒ `thuc_thi.bat_dau` từ chối. |
@@ -4557,29 +4586,9 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 
 ---
 
-### `san_xuat_ly_do`
-
-**Purpose:** danh mục LÝ DO & LỖI sản xuất chuẩn hoá (§15) — dùng chung cho hỏng batch, lỗi KCS, và lý do vận hành (tạm dừng, bắt đầu trễ, lệch nhân sự, thiếu vật tư, điều chỉnh bàn giao, mở lại phân bổ, đóng thiếu). Bảng MỚI (`create_all`). Gộp vào màn Cấu hình danh mục, KHÔNG đẻ màn mới. Ô chọn ở FE lọc theo `nhom`; FE không hard-code danh sách.
-
-| Column | Type | Key | Null | Default | Meaning |
-| --- | --- | --- | --- | --- | --- |
-| `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
-| `ma` | `String(30)` | **U**, **IX** | no | — | Mã ổn định của lý do/lỗi. |
-| `nhom` | `String(24)` | **IX** | no | — | Dùng-vào-việc-gì: `loi` \| `tam_dung` \| `bat_dau_tre` \| `lech_nhan_su` \| `thieu_vat_tu` \| `dieu_chinh_ban_giao` \| `mo_lai_phan_bo` \| `dong_thieu`. Service kiểm hợp lệ. |
-| `ten` | `String(150)` | — | no | — | Tên hiển thị. |
-| `mo_ta` | `String(500)` | — | yes | — | Mô tả bổ sung. |
-| `thu_tu` | `Integer` | — | no | `0` | Thứ tự hiển thị. |
-| `active` | `Boolean` | — | no | `true` | Còn dùng (xoá mềm). |
-| `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
-| `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | onupdate = now. |
-
-**Tất cả cột:** `id`, `ma`, `nhom`, `ten`, `mo_ta`, `thu_tu`, `active`, `created_at`, `updated_at`.
-
----
-
 ### `san_xuat_batch`
 
-**Purpose:** một BATCH sản lượng của một công việc (§11.1). Bảng MỚI (`create_all`). Nhiều batch một phần trong cùng công đoạn. `tong = tot + hong` do service kiểm (dung sai làm tròn, không CHECK). `hong > 0` bắt buộc `nhom_loi_id` (nhóm `loi`). Người tham gia batch SUY LÚC ĐỌC từ khoảng tham gia giao cửa sổ `[bat_dau, ket_thuc]` (§12.1) — không lưu ở đây.
+**Purpose:** một BATCH sản lượng của một công việc (§11.1). Bảng MỚI (`create_all`). Nhiều batch một phần trong cùng công đoạn. `tong = tot + hong` do service kiểm (dung sai làm tròn, không CHECK). Hỏng ghi kèm `mo_ta_loi` tự do, tuỳ chọn (danh mục lý do/lỗi ĐÃ GỠ — mg 0288). Người tham gia batch SUY LÚC ĐỌC từ khoảng tham gia giao cửa sổ `[bat_dau, ket_thuc]` (§12.1) — không lưu ở đây.
 
 | Column | Type | Key | Null | Default | Meaning |
 | --- | --- | --- | --- | --- | --- |
@@ -4591,7 +4600,6 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `tot` | `Numeric(18,3)` | — | no | — | Sản lượng tốt (nền cho trần bàn giao). |
 | `hong` | `Numeric(18,3)` | — | no | `0` | Sản lượng hỏng. |
 | `don_vi` | `String(24)` | — | no | — | Đơn vị (mặc định đơn vị ra của công việc). |
-| `nhom_loi_id` | `Integer` FK→`san_xuat_ly_do.id` (SET NULL) | IX | yes | — | Nhóm lỗi chuẩn hoá khi `hong > 0`. |
 | `mo_ta_loi` | `String(500)` | — | yes | — | Mô tả lỗi bổ sung (không thay danh mục). |
 | `ghi_chu` | `String(500)` | — | yes | — | Ghi chú. |
 | `version` | `Integer` | — | no | `1` | Chống bấm trùng. |
@@ -4599,7 +4607,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | onupdate = now. |
 
-**Tất cả cột:** `id`, `cong_viec_id`, `bat_dau`, `ket_thuc`, `tong`, `tot`, `hong`, `don_vi`, `nhom_loi_id`, `mo_ta_loi`, `ghi_chu`, `version`, `created_by`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `cong_viec_id`, `bat_dau`, `ket_thuc`, `tong`, `tot`, `hong`, `don_vi`, `mo_ta_loi`, `ghi_chu`, `version`, `created_by`, `created_at`, `updated_at`.
 
 ---
 
@@ -4658,13 +4666,12 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `ban_giao_id` | `Integer` FK→`san_xuat_ban_giao.id` (CASCADE) | IX | no | — | Bàn giao được điều chỉnh. |
 | `so_luong_truoc` | `Numeric(18,3)` | — | no | — | Số lượng trước điều chỉnh. |
 | `so_luong_sau` | `Numeric(18,3)` | — | no | — | Số lượng sau điều chỉnh. |
-| `ly_do_id` | `Integer` FK→`san_xuat_ly_do.id` (SET NULL) | IX | yes | — | Lý do (nhóm `dieu_chinh_ban_giao`). |
 | `mo_ta` | `String(500)` | — | yes | — | Mô tả bổ sung. |
 | `khong_nhat_quan` | `Boolean` | — | no | `false` | Cờ giảm dưới lượng đã dùng. |
 | `created_by` | `Integer` FK→`users.id` | — | yes | — | Người điều chỉnh. |
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 
-**Tất cả cột:** `id`, `ban_giao_id`, `so_luong_truoc`, `so_luong_sau`, `ly_do_id`, `mo_ta`, `khong_nhat_quan`, `created_by`, `created_at`.
+**Tất cả cột:** `id`, `ban_giao_id`, `so_luong_truoc`, `so_luong_sau`, `mo_ta`, `khong_nhat_quan`, `created_by`, `created_at`.
 
 ---
 
@@ -4757,14 +4764,13 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `tong_ty_le_ho_tro` | `Numeric(7,4)` | — | no | `0` | Tổng % hỗ trợ đã xác nhận (P) đóng băng lúc chốt. |
 | `chot_by_id` | `Integer` FK→`users.id` | — | yes | — | Tổ trưởng chốt. |
 | `chot_luc` | `DateTime(timezone=True)` | — | yes | — | Mốc chốt. |
-| `mo_lai_ly_do_id` | `Integer` FK→`san_xuat_ly_do.id` (SET NULL) | — | yes | — | Lý do mở lại (nhóm `mo_lai_phan_bo`). |
 | `mo_lai_by_id` | `Integer` FK→`users.id` | — | yes | — | Người mở lại. |
 | `mo_lai_luc` | `DateTime(timezone=True)` | — | yes | — | Mốc mở lại. |
 | `version` | `Integer` | — | no | `1` | Chống bấm trùng. |
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 
-**Tất cả cột:** `id`, `batch_id`, `cong_viec_id`, `ngay`, `ky_nam`, `ky_thang`, `trang_thai`, `q_tra_luong`, `don_vi_tra_luong`, `don_gia`, `q_ban_dia`, `don_vi_ban_dia`, `tong_ty_le_ho_tro`, `chot_by_id`, `chot_luc`, `mo_lai_ly_do_id`, `mo_lai_by_id`, `mo_lai_luc`, `version`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `batch_id`, `cong_viec_id`, `ngay`, `ky_nam`, `ky_thang`, `trang_thai`, `q_tra_luong`, `don_vi_tra_luong`, `don_gia`, `q_ban_dia`, `don_vi_ban_dia`, `tong_ty_le_ho_tro`, `chot_by_id`, `chot_luc`, `mo_lai_by_id`, `mo_lai_luc`, `version`, `created_at`, `updated_at`.
 
 ---
 
@@ -4811,12 +4817,11 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `ngay` | `Date` | — | no | — | Ngày ghi nhận trong kỳ bù. |
 | `so_luong_tra_luong` | `Numeric(18,3)` | — | no | `0` | Delta sản lượng trả lương (dương=trả thêm, âm=thu bớt). |
 | `don_gia` | `Numeric(18,4)` | — | no | `0` | Đơn giá khoán snapshot. |
-| `ly_do_id` | `Integer` FK→`san_xuat_ly_do.id` (SET NULL) | — | yes | — | Lý do bù trừ (nhóm `mo_lai_phan_bo`). |
 | `mo_ta` | `String(500)` | — | yes | — | Diễn giải bù trừ. |
 | `created_by_id` | `Integer` FK→`users.id` | — | yes | — | Người tạo. |
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 
-**Tất cả cột:** `id`, `batch_id`, `phan_bo_id`, `employee_id`, `department_id`, `ky_goc_nam`, `ky_goc_thang`, `ky_bu_nam`, `ky_bu_thang`, `ngay`, `so_luong_tra_luong`, `don_gia`, `ly_do_id`, `mo_ta`, `created_by_id`, `created_at`.
+**Tất cả cột:** `id`, `batch_id`, `phan_bo_id`, `employee_id`, `department_id`, `ky_goc_nam`, `ky_goc_thang`, `ky_bu_nam`, `ky_bu_thang`, `ngay`, `so_luong_tra_luong`, `don_gia`, `mo_ta`, `created_by_id`, `created_at`.
 
 ---
 
@@ -4902,13 +4907,12 @@ DẪN XUẤT + ĐÓNG BĂNG: mọi số vào tiền đều snapshot lúc đóng;
 
 ### `san_xuat_kcs_loi`
 
-**Purpose:** một LỖI phát hiện trong batch KCS (§13.2, Giai đoạn 5). Bảng MỚI (`create_all`), nghiệp vụ (đổi trạng thái nhận-trách-nhiệm) → mang `version`. `nhom_loi_id` trỏ danh mục lỗi chuẩn hoá (nhóm `loi`); `to_chiu_id` là tổ bị yêu cầu nhận trách nhiệm, `cong_doan_ref_id` là công việc liên đới (tuỳ chọn). Hồ sơ kiểu CŨ: tổ trưởng phụ trách CHẤP NHẬN (`accepted`) hoặc TỪ CHỐI (`rejected` + `ly_do_tu_choi`) — chung thẩm; lỗi CHỜ (`pending`) không chặn nhập kho phần đạt nhưng CHẶN đóng đủ nhóm (§16). Lỗi ghi qua KCS KIÊM NHIỆM (mg 0250, §2.3 kế hoạch `2026-08-31-kcs-kiem-nhiem`) có `trang_thai="recorded"` ngay khi tạo — MỘT CHIỀU, không tạo `pending`, không chờ phản hồi, KHÔNG chặn đóng nhóm.
+**Purpose:** một LỖI phát hiện trong batch KCS (§13.2, Giai đoạn 5). Bảng MỚI (`create_all`), nghiệp vụ (đổi trạng thái nhận-trách-nhiệm) → mang `version`. Lỗi tả bằng `mo_ta` tự do (danh mục lý do/lỗi ĐÃ GỠ — mg 0288); `to_chiu_id` là tổ bị yêu cầu nhận trách nhiệm, `cong_doan_ref_id` là công việc liên đới (tuỳ chọn). Hồ sơ kiểu CŨ: tổ trưởng phụ trách CHẤP NHẬN (`accepted`) hoặc TỪ CHỐI (`rejected` + `ly_do_tu_choi`) — chung thẩm; lỗi CHỜ (`pending`) không chặn nhập kho phần đạt nhưng CHẶN đóng đủ nhóm (§16). Lỗi ghi qua KCS KIÊM NHIỆM (mg 0250, §2.3 kế hoạch `2026-08-31-kcs-kiem-nhiem`) có `trang_thai="recorded"` ngay khi tạo — MỘT CHIỀU, không tạo `pending`, không chờ phản hồi, KHÔNG chặn đóng nhóm.
 
 | Column | Type | Key | Null | Default | Meaning |
 | --- | --- | --- | --- | --- | --- |
 | `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
 | `kcs_batch_id` | `Integer` FK→`san_xuat_kcs_batch.id` (CASCADE) | IX | no | — | Batch KCS phát hiện lỗi. |
-| `nhom_loi_id` | `Integer` FK→`san_xuat_ly_do.id` (SET NULL) | IX | yes | — | Nhóm lỗi chuẩn hoá (nhóm `loi`). |
 | `mo_ta` | `String(500)` | — | yes | — | Mô tả lỗi bổ sung. |
 | `to_chiu_id` | `Integer` FK→`departments.id` (SET NULL) | IX | yes | — | Tổ bị yêu cầu nhận trách nhiệm. |
 | `cong_doan_ref_id` | `Integer` FK→`san_xuat_cong_viec.id` (SET NULL) | IX | yes | — | Công việc/công đoạn liên đới. |
@@ -4923,7 +4927,7 @@ DẪN XUẤT + ĐÓNG BĂNG: mọi số vào tiền đều snapshot lúc đóng;
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | onupdate = now. |
 
-**Tất cả cột:** `id`, `kcs_batch_id`, `nhom_loi_id`, `mo_ta`, `to_chiu_id`, `cong_doan_ref_id`, `so_luong`, `don_vi`, `trang_thai`, `phan_hoi_by_id`, `phan_hoi_luc`, `ly_do_tu_choi`, `version`, `created_by`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `kcs_batch_id`, `mo_ta`, `to_chiu_id`, `cong_doan_ref_id`, `so_luong`, `don_vi`, `trang_thai`, `phan_hoi_by_id`, `phan_hoi_luc`, `ly_do_tu_choi`, `version`, `created_by`, `created_at`, `updated_at`.
 
 ---
 

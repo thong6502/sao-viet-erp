@@ -1,0 +1,519 @@
+<title>Bàn xếp lịch lệnh</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#f8fafc; --canvas:#ffffff; --ink:#0f172a; --ash:#475569; --mute:#94a3b8;
+  --rule:#cbd5e1; --rule-soft:#e2e8f0; --rule-hair:#f1f5f9;
+  --rust:#c5400a; --rust-deep:#8a2d07; --rust-soft:#f4e2d6;
+  --signal:#8a1f1f; --signal-soft:#f6e0e0; --signal-line:#c96b6b;
+  --moss:#2f5d3a; --moss-soft:#dbe7dd;
+  --amber:#9c7714; --amber-soft:#efe4c4;
+  --steel:#4a5560;
+  --run-1:#0f172a; --run-2:#334155; --run-3:#4a5560; --run-4:#64748b;
+  --off:#eef2f7; --span:#e5eaf1;
+  --ff:"Be Vietnam Pro",ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --num:"JetBrains Mono",ui-monospace,"SF Mono",monospace;
+  --lw:264px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#0b1220; --canvas:#111a2b; --ink:#e6edf6; --ash:#a3b1c4; --mute:#6b7d93;
+  --rule:#2b3a51; --rule-soft:#223044; --rule-hair:#1a2537;
+  --rust:#e2703a; --rust-deep:#f0a077; --rust-soft:#3a2318;
+  --signal:#e08585; --signal-soft:#3d1e1e; --signal-line:#a85a5a;
+  --moss:#8fc09b; --moss-soft:#1e3324;
+  --amber:#d9b45c; --amber-soft:#33290f;
+  --steel:#8fa0b4;
+  --run-1:#93aacb; --run-2:#7b95b8; --run-3:#6580a4; --run-4:#546b8b;
+  --off:#16202f; --span:#1b2739;
+}}
+:root[data-theme="dark"]{
+  --paper:#0b1220; --canvas:#111a2b; --ink:#e6edf6; --ash:#a3b1c4; --mute:#6b7d93;
+  --rule:#2b3a51; --rule-soft:#223044; --rule-hair:#1a2537;
+  --rust:#e2703a; --rust-deep:#f0a077; --rust-soft:#3a2318;
+  --signal:#e08585; --signal-soft:#3d1e1e; --signal-line:#a85a5a;
+  --moss:#8fc09b; --moss-soft:#1e3324;
+  --amber:#d9b45c; --amber-soft:#33290f;
+  --steel:#8fa0b4;
+  --run-1:#93aacb; --run-2:#7b95b8; --run-3:#6580a4; --run-4:#546b8b;
+  --off:#16202f; --span:#1b2739;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff);font-size:14px;line-height:1.5}
+.wrap{max-width:1480px;margin:0 auto;padding:22px 18px 40px}
+.lab{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:500}
+.n{font-family:var(--num);font-variant-numeric:tabular-nums}
+
+/* --- Băng đầu màn: tiêu đề trái · mức thu phóng + phân trang cửa sổ bên phải --- */
+.top{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;padding-bottom:11px;border-bottom:1px solid var(--rule)}
+.top h1{margin:0;font-size:19px;font-weight:600;letter-spacing:-.01em}
+.top p{margin:2px 0 0;color:var(--ash);font-size:12.5px}
+.sp{flex:1}
+.rt{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.pager{display:flex;align-items:center;gap:7px}
+.seg{display:flex;border:1px solid var(--rule);border-radius:6px;overflow:hidden;background:var(--canvas)}
+.seg button{appearance:none;border:0;background:transparent;font-family:var(--ff);font-size:12.5px;color:var(--ash);padding:6px 12px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--rule-soft)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.ghost{appearance:none;background:var(--canvas);border:1px solid var(--rule);border-radius:6px;
+  font-family:var(--ff);font-size:12.5px;color:var(--ink);padding:6px 11px;cursor:pointer;white-space:nowrap}
+.ghost:hover{border-color:var(--ink)}
+.ghost.pill{border-radius:99px;padding:6px 14px}
+.dt{font-family:var(--num);font-size:12.5px;color:var(--ink);background:var(--canvas);
+  border:1px solid var(--rule);border-radius:6px;padding:5px 8px}
+.ghost:focus-visible,.dt:focus-visible,.seg button:focus-visible,.btn:focus-visible,.card:focus-visible,.span:focus-visible{outline:2px solid var(--rust);outline-offset:2px}
+/* Dải số liệu VĂN XUÔI (bản người dùng chốt) — đọc thành câu, không phải mã vạch chữ hoa. */
+.stats{display:flex;gap:24px;flex-wrap:wrap;padding:10px 2px 0;font-size:12.5px;color:var(--ash)}
+.stats b{font-family:var(--num);font-weight:500;color:var(--ink)}
+.stats .s b{color:var(--signal)}
+
+.main{display:grid;grid-template-columns:242px minmax(0,1fr);gap:16px;margin-top:14px;align-items:start}
+@media(max-width:900px){.main{grid-template-columns:1fr}}
+
+.queue{background:var(--canvas);border:1px solid var(--rule-soft);border-radius:8px;padding:12px}
+.queue h2{margin:0 0 1px;font-size:13px;font-weight:600}
+.queue .hint{margin:0 0 10px;font-size:11.5px;color:var(--mute)}
+.card{border:1px solid var(--rule-soft);border-left:3px solid var(--steel);border-radius:0 6px 6px 0;padding:8px 10px;margin-bottom:8px;cursor:grab;touch-action:none}
+.card:hover{border-color:var(--rule);background:var(--rule-hair)}
+.card.gap{border-left-color:var(--rust)}
+.card .ma{font-family:var(--num);font-size:12.5px;font-weight:500}
+.card .ten{font-size:12.5px;color:var(--ink);margin:1px 0}
+.card .kh{font-size:11.5px;color:var(--ash)}
+.card .meta{font-size:11.5px;color:var(--mute);margin-top:4px}
+.card .meta b{font-family:var(--num);font-weight:500;color:var(--ash)}
+
+.board{position:relative;background:var(--canvas);border:1px solid var(--rule-soft);border-radius:8px;overflow:hidden}
+.scroll{overflow-x:auto}
+.grid{min-width:1034px}  /* đặt lại theo mức thu phóng: 264 + số ngày × bề rộng ngày tối thiểu */
+
+/* BẪY #1: hàng chỉ có 2 con — nhãn và rãnh. Lưới ngày NẰM TRONG rãnh, không khai ở đây,
+   nếu không rãnh chỉ rộng bằng MỘT cột ngày và mọi thanh %-vị-trí bị bóp thành sợi chỉ. */
+.head{display:grid;grid-template-columns:var(--lw) minmax(0,1fr);border-bottom:1px solid var(--rule)}
+.head .corner{padding:9px 12px;display:flex;align-items:flex-end;border-right:1px solid var(--rule-hair)}
+.days{display:grid}
+.dcell{padding:7px 6px;border-left:1px solid var(--rule-hair);text-align:center}
+.dcell .dow{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.dcell .dd{font-family:var(--num);font-size:13.5px;font-weight:500}
+.dcell.off{background:var(--off)}
+.dcell.off .dow,.dcell.off .dd{color:var(--mute)}
+.dcell.today .dd{color:var(--rust)}
+.dcell.today .dow::after{content:" •";color:var(--rust)}
+
+.row{display:grid;grid-template-columns:var(--lw) minmax(0,1fr);border-bottom:1px solid var(--rule-hair)}
+.row:last-of-type{border-bottom:0}
+.rl{padding:8px 12px;border-right:1px solid var(--rule-hair);min-width:0}
+.rl .l{display:flex;align-items:center;gap:6px;min-width:0}
+.rl .l>.g{flex:1}
+.rl .ma{font-family:var(--num);font-size:12.5px;font-weight:500}
+.rl .may{font-family:var(--num);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.rl .ten{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rl .ten em{font-style:normal;color:var(--mute);font-size:11.5px}
+.rl .kh{font-size:11.5px;color:var(--ash);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rl .sl{font-size:11.5px;color:var(--mute)}
+.rl .sl b{font-family:var(--num);font-weight:500;color:var(--ash)}
+.tag{font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border-radius:3px;background:var(--rust-soft);color:var(--rust-deep);font-weight:500;white-space:nowrap}
+.tag.bad{background:var(--signal-soft);color:var(--signal)}
+
+.track{position:relative;height:80px}
+.cells{position:absolute;inset:0;display:grid}
+.cells div{border-left:1px solid var(--rule-hair)}
+.cells div.off{background:var(--off)}
+
+/* Thanh HAI LỚP: nền nhạt = trọn dấu chân trên lịch; khối đậm bên trong = giờ máy chạy thật.
+   Khoảng nhạt giữa hai khối là nghỉ giữa ca / ngoài ca / ngày nghỉ — là THÔNG TIN, không phải nền. */
+.span{position:absolute;top:24px;height:30px;background:var(--span);border-radius:3px;cursor:grab;
+  touch-action:none;border:1px solid transparent;overflow:hidden}
+.span:hover{border-color:var(--rule)}
+.span.sel{border-color:var(--rust);box-shadow:0 0 0 1px var(--rust)}
+.span.drag{cursor:grabbing}
+.span.late{background:var(--signal-soft)}
+.span.cutL{border-top-left-radius:0;border-bottom-left-radius:0}
+.span.cutR{border-top-right-radius:0;border-bottom-right-radius:0}
+.seg-run{position:absolute;top:3px;bottom:3px;border-radius:2px}
+.s1{background:var(--run-1)} .s2{background:var(--run-2)} .s3{background:var(--run-3)} .s4{background:var(--run-4)}
+.span.late .seg-run{background:var(--signal)}
+.arr{position:absolute;top:50%;transform:translateY(-50%);font-family:var(--num);font-size:12px;
+  line-height:1;color:var(--ink);z-index:2;pointer-events:none;
+  background:var(--canvas);border-radius:2px;padding:1px 2px}
+.arr.l{left:1px} .arr.r{right:1px}
+
+.blab{position:absolute;top:31px;font-size:11.5px;white-space:nowrap;color:var(--ash);pointer-events:none;padding-left:7px}
+.blab b{font-family:var(--num);font-weight:500;color:var(--ink)}
+.blab.late,.blab.late b{color:var(--signal)}
+.dl{position:absolute;top:15px;bottom:9px;width:0;border-left:1.5px dashed var(--signal-line)}
+.dl.kh{border-left-style:dotted;border-left-color:var(--mute)}
+.dl em{position:absolute;bottom:-2px;left:4px;font-size:10px;font-style:normal;color:var(--signal);white-space:nowrap}
+.dl.kh em{color:var(--mute)}
+
+.legend{display:flex;gap:15px;flex-wrap:wrap;align-items:center;padding:9px 14px;border-top:1px solid var(--rule-hair);font-size:11.5px;color:var(--ash)}
+.legend i{display:inline-block;width:20px;height:9px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+.legend u{display:inline-block;width:0;height:11px;border-left:1.5px dashed var(--signal-line);vertical-align:-2px;margin-right:8px}
+.legend .ca{color:var(--mute)}
+.legend .ca b{font-family:var(--num);font-weight:500}
+
+.detail{margin-top:16px;background:var(--canvas);border:1px solid var(--rule-soft);border-radius:8px;padding:14px 16px}
+.dhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:11px;border-bottom:1px solid var(--rule-hair)}
+.dhead h3{margin:0;font-size:15.5px;font-weight:600}
+.dhead .ma{font-family:var(--num);font-weight:500}
+.pill{font-size:11.5px;padding:2px 9px;border-radius:99px;background:var(--moss-soft);color:var(--moss)}
+.pill.warn{background:var(--amber-soft);color:var(--amber)}
+.pill.bad{background:var(--signal-soft);color:var(--signal)}
+.btn{appearance:none;border:1px solid var(--rust);background:var(--rust);color:#fff;border-radius:6px;font-family:var(--ff);font-size:13px;padding:7px 15px;cursor:pointer}
+.btn:hover{background:var(--rust-deep);border-color:var(--rust-deep)}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:2px 22px;padding:11px 0}
+.f{padding:5px 0}
+.f .k{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.f .v{font-size:13px;margin-top:1px}
+.f .v .n{font-weight:500}
+.note{border-left:3px solid var(--amber);background:var(--amber-soft);color:var(--amber);border-radius:0 4px 4px 0;padding:7px 11px;font-size:12.5px;margin:2px 0 12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:400;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);padding:0 10px 6px 0}
+td{padding:7px 10px 7px 0;border-top:1px solid var(--rule-hair)}
+td.num{font-family:var(--num);font-variant-numeric:tabular-nums;white-space:nowrap}
+tfoot td{border-top:1px solid var(--rule);font-weight:500}
+.sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:8px}
+.foot{margin-top:9px;font-size:11.5px;color:var(--mute)}
+.toast{position:absolute;left:14px;top:9px;background:var(--ink);color:var(--paper);font-size:12px;padding:5px 10px;border-radius:5px;opacity:0;transition:opacity .18s;pointer-events:none;z-index:5}
+.toast.on{opacity:1}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Xếp lịch lệnh sản xuất</h1>
+      <p>Đặt giờ bắt đầu cho cả lệnh — ngày kết thúc tự ra. Mỗi dòng 1 lệnh, kéo thanh để đổi mốc.</p>
+    </div>
+    <div class="sp"></div>
+    <div class="rt">
+      <div class="pager">
+        <div class="seg" role="group" aria-label="Mức thu phóng">
+          <button data-zoom="7" aria-pressed="true">Tuần</button><button data-zoom="14" aria-pressed="false">2 tuần</button><button data-zoom="30" aria-pressed="false">Tháng</button>
+        </div>
+        <button class="ghost pill" id="today">Hôm nay</button>
+      </div>
+      <div class="pager">
+        <button class="ghost" id="prev">‹ 7 ngày</button>
+        <input type="date" class="dt" id="dt" aria-label="Ngày đầu cửa sổ">
+        <button class="ghost" id="next">7 ngày ›</button>
+      </div>
+    </div>
+  </div>
+  <div class="stats" id="stats"></div>
+
+  <div class="main">
+    <aside class="queue">
+      <h2>Chờ xếp lịch</h2>
+      <p class="hint">Kéo lệnh thả vào lưới bên phải.</p>
+      <div id="queue"></div>
+    </aside>
+
+    <section class="board">
+      <div class="scroll">
+        <div class="grid">
+          <div class="head"><div class="corner"><span class="lab">Lệnh · khách hàng</span></div><div class="days" id="days"></div></div>
+          <div id="rows"></div>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--run-1)"></i>Máy chạy trong ca</span>
+        <span><i style="background:var(--span)"></i>Nghỉ giữa ca · ngoài ca · ngày nghỉ</span>
+        <span><u></u>Hạn hoàn thành SX</span>
+        <span><i style="background:var(--signal)"></i>Trễ hạn SX</span>
+        <span class="ca">‹ › lệnh chạy ra ngoài cửa sổ</span>
+      </div>
+      <div class="toast" id="toast"></div>
+    </section>
+  </div>
+
+  <div class="detail" id="detail"></div>
+</div>
+
+<script>
+const CA=[[360,840],[840,1320]], NGHI=[[660,720],[1080,1110]];
+const PN=1440;
+const ANCHOR=new Date(2026,8,7);          // T2 07/09/2026 — mốc 0 của mọi số phút trong mockup
+const HOM_NAY=3;                          // 10/09/2026
+/* Ba mức thu phóng: số ngày + bề rộng TỐI THIỂU một cột ngày. Cột hẹp dần thì nấc kéo cũng thô
+   dần — 7 ngày ≈ 110px/ngày (15 phút ≈ 1,1px), 30 ngày ≈ 40px/ngày (15 phút ≈ 0,4px). */
+const ZOOM={7:{dmin:110},14:{dmin:72},30:{dmin:40}};
+let NGAY=7, W0=3;                         // W0 = ngày đầu cửa sổ (chỉ số ngày tính từ ANCHOR)
+const TONG=()=>NGAY*PN;
+const DMIN=()=>ZOOM[NGAY].dmin;
+const MAU=["s1","s2","s3","s4"], DOW=["CN","T2","T3","T4","T5","T6","T7"];
+const D=(d,h,m)=>d*PN+h*60+(m||0);
+
+const LENH=[
+ {ma:"LSX26-0087",ten:"Catalogue Vinamilk 24 trang",kh:"Vinamilk — CN Bình Dương",po:"VNM-2609/11",don:"DH26-0402",sale:"Trần Văn An",
+  may:"SM102",sl:"5.000 quyển",to:"7.500 tờ",con:1,giay:"Couche 150 gsm",kho:"79 × 109 cm",mau:"4 màu + phủ mờ",kem:8,
+  hanSX:6,hanKH:9,gap:false,vt:{tt:"du",txt:"Giữ đủ 100%"},pt:"Nguyễn Thị Dung",
+  luuY:"",batDau:D(2,7,0),buoc:[
+   {ten:"In offset 4 màu (ruột)",may:"Heidelberg SM102",vao:"6.000 tờ",kip:3,phut:520},
+   {ten:"In offset 4 màu (bìa)",may:"Heidelberg SM102",vao:"1.500 tờ",kip:3,phut:180},
+   {ten:"Gấp tay sách",may:"Máy gấp Stahl",vao:"6.000 tờ",kip:2,phut:340},
+   {ten:"Đóng ghim · xén ba mặt",may:"Tổ Hoàn thiện",vao:"5.000 quyển",kip:4,phut:460}]},
+ {ma:"LSX26-0089",ten:"Vỏ hộp Tết Kinh Đô",kh:"CTCP Kinh Đô Bình Dương",po:"KD-2609/04",don:"DH26-0412",sale:"Lê Thị Bình",
+  may:"SM74",sl:"12.000 cái",to:"3.240 tờ",con:4,giay:"Ivory 350 gsm",kho:"79 × 109 cm",mau:"4 màu + phủ UV",kem:4,
+  hanSX:8,hanKH:11,gap:false,vt:{tt:"du",txt:"Giữ đủ 100%"},pt:"Nguyễn Thị Dung",
+  luuY:"Khách yêu cầu không lệch màu giữa các lô — in liền một lượt, không chia đợt.",
+  batDau:D(3,8,30),buoc:[
+   {ten:"In offset 4 màu",may:"Heidelberg SM74",vao:"3.240 tờ",kip:2,phut:345},
+   {ten:"Cán màng bóng",may:"Máy cán BOPP 2",vao:"3.240 tờ",kip:1,phut:120},
+   {ten:"Bế hộp",may:"Bế tự động 1050",vao:"3.240 tờ",kip:2,phut:180},
+   {ten:"Dán hộp",may:"Tổ Hoàn thiện",vao:"12.000 cái",kip:4,phut:270}]},
+ {ma:"LSX26-0091",ten:"Túi giấy Aeon",kh:"Aeon Mall Tân Phú",po:"AE-0912",don:"DH26-0418",sale:"Trần Văn An",
+  may:"GTO",sl:"8.000 cái",to:"2.000 tờ",con:4,giay:"Kraft 170 gsm",kho:"65 × 86 cm",mau:"2 màu",kem:2,
+  hanSX:6,hanKH:9,gap:false,vt:{tt:"thieu",txt:"Thiếu 1 mặt hàng · giấy về 12/09"},pt:"Nguyễn Thị Dung",
+  luuY:"",batDau:D(3,6,0),buoc:[
+   {ten:"In offset 2 màu",may:"Heidelberg GTO",vao:"2.000 tờ",kip:2,phut:130},
+   {ten:"Bế quai",may:"Bế tay 800",vao:"2.000 tờ",kip:1,phut:80},
+   {ten:"Dán túi",may:"Tổ Hoàn thiện",vao:"8.000 cái",kip:3,phut:120}]},
+ {ma:"LSX26-0093",ten:"Nhãn dán lọ tinh dầu",kh:"Cty TNHH Mộc An",po:"MA-118",don:"DH26-0421",sale:"Phạm Minh Cường",
+  may:"SM74",sl:"20.000 cái",to:"1.250 tờ",con:16,giay:"Decal PP",kho:"54 × 79 cm",mau:"5 màu",kem:5,
+  hanSX:4,hanKH:5,gap:true,vt:{tt:"du",txt:"Giữ đủ 100%"},pt:"Vũ Đức Em",
+  luuY:"Lệnh gấp — khách lấy tại xưởng chiều 12/09.",
+  batDau:D(7,13,0),buoc:[
+   {ten:"In offset 5 màu",may:"Heidelberg SM74",vao:"1.250 tờ",kip:2,phut:100},
+   {ten:"Cắt xén",may:"Máy xén Polar",vao:"1.250 tờ",kip:1,phut:50}]},
+ {ma:"LSX26-0099",ten:"Lịch tường 2027",kh:"Ngân hàng Đông Á",po:"DAB-7712",don:"DH26-0430",sale:"Lê Thị Bình",
+  may:"SM102",sl:"3.000 bộ",to:"4.200 tờ",con:1,giay:"Couche 200 gsm",kho:"79 × 109 cm",mau:"4 màu",kem:4,
+  hanSX:14,hanKH:17,gap:false,vt:{tt:"chua",txt:"Chưa bật giữ chỗ"},pt:"Vũ Đức Em",
+  luuY:"",batDau:D(11,15,0),buoc:[
+   {ten:"In offset 4 màu",may:"Heidelberg SM102",vao:"4.200 tờ",kip:3,phut:430},
+   {ten:"Cán mờ",may:"Máy cán BOPP 2",vao:"4.200 tờ",kip:1,phut:150},
+   {ten:"Đóng lò xo",may:"Tổ Hoàn thiện",vao:"3.000 bộ",kip:4,phut:320}]}
+];
+const CHO=[
+ {ma:"LSX26-0095",ten:"Hộp bánh trung thu",kh:"Bánh Givral Sài Gòn",po:"GV-4471",don:"DH26-0425",sale:"Lê Thị Bình",
+  may:"SM74",sl:"6.000 cái",to:"1.500 tờ",con:4,giay:"Duplex 300 gsm",kho:"72 × 102 cm",mau:"4 màu",kem:4,
+  hanSX:12,hanKH:15,gap:false,vt:{tt:"chua",txt:"Chưa bật giữ chỗ"},pt:"Nguyễn Thị Dung",luuY:"",
+  buoc:[{ten:"In offset 4 màu",may:"Heidelberg SM74",vao:"1.500 tờ",kip:2,phut:200},
+        {ten:"Cán mờ",may:"Máy cán BOPP 2",vao:"1.500 tờ",kip:1,phut:90},
+        {ten:"Bế + dán",may:"Tổ Hoàn thiện",vao:"6.000 cái",kip:4,phut:190}]},
+ {ma:"LSX26-0097",ten:"Tem chai 500 ml",kh:"Nước mắm Hòn Rớ",po:"HR-0308",don:"DH26-0427",sale:"Phạm Minh Cường",
+  may:"GTO",sl:"30.000 cái",to:"940 tờ",con:32,giay:"Couche 120 gsm",kho:"54 × 79 cm",mau:"3 màu",kem:3,
+  hanSX:9,hanKH:12,gap:true,vt:{tt:"du",txt:"Giữ đủ 100%"},pt:"Vũ Đức Em",luuY:"",
+  buoc:[{ten:"In offset 3 màu",may:"Heidelberg GTO",vao:"940 tờ",kip:2,phut:95},
+        {ten:"Cắt xén",may:"Máy xén Polar",vao:"940 tờ",kip:1,phut:40}]}
+];
+
+/* ---------- lịch xưởng ---------- */
+const ngay=d=>{const x=new Date(ANCHOR);x.setDate(x.getDate()+d);return x};
+const nghiNgay=d=>{const w=ngay(d).getDay();return w===0||w===6};
+const dm=d=>{const x=ngay(d);return String(x.getDate()).padStart(2,"0")+"/"+String(x.getMonth()+1).padStart(2,"0")};
+const iso=d=>{const x=ngay(d);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0")};
+
+function khung(d){
+  if(nghiNgay(d))return[];
+  let iv=CA.map(c=>[c[0],c[1]]);
+  for(const[a,b]of NGHI){const r=[];for(const[s,e]of iv){if(b<=s||a>=e){r.push([s,e]);continue}if(s<a)r.push([s,a]);if(b<e)r.push([b,e])}iv=r}
+  return iv.map(([s,e])=>[d*PN+s,d*PN+e]).sort((p,q)=>p[0]-q[0]);
+}
+function khungTu(t){const d0=Math.max(0,Math.floor(t/PN)),o=[];for(let d=d0;d<d0+45;d++)for(const k of khung(d))if(k[1]>t)o.push(k);return o}
+const vaoGio=t=>{const k=khungTu(t)[0];return k?Math.max(t,k[0]):t};
+/* Trải thời lượng công đoạn lên giờ làm — bỏ qua nghỉ giữa ca / ngoài ca / ngày nghỉ. */
+function trai(start,buoc){
+  let cur=vaoGio(start),segs=[],i=0;
+  for(const b of buoc){let con=b.phut;
+    while(con>.01){const k=khungTu(cur)[0];if(!k){cur+=con;break}
+      const a=Math.max(cur,k[0]),an=Math.min(k[1]-a,con);segs.push({a,b:a+an,i});cur=a+an;con-=an}
+    i++}
+  return{start:vaoGio(start),finish:cur,segs};
+}
+/* pct THÔ (có thể âm / >100) để thanh chạy ra ngoài cửa sổ vẫn tính đúng; kẹp lại lúc vẽ. */
+const pctTho=m=>(m-W0*PN)/TONG()*100;
+const kep=p=>Math.max(0,Math.min(100,p));
+const fmt=m=>{const d=Math.floor(m/PN),r=m-d*PN;return dm(d)+" "+String(Math.floor(r/60)).padStart(2,"0")+":"+String(Math.round(r%60)).padStart(2,"0")};
+const gio=m=>Math.floor(m/60)+"h"+String(Math.round(m%60)).padStart(2,"0");
+const chay=L=>L.buoc.reduce((a,b)=>a+b.phut,0);
+const hanM=L=>L.hanSX*PN+22*60;
+const treHan=L=>trai(L.batDau,L.buoc).finish>hanM(L);
+
+let chon=LENH[1].ma;
+const $=s=>document.querySelector(s), rows=$("#rows");
+const COLS=()=>`repeat(${NGAY},minmax(${DMIN()}px,1fr))`;
+
+function veHead(){
+  const h=$("#days");h.style.gridTemplateColumns=COLS();
+  let s="";
+  for(let i=0;i<NGAY;i++){const d=W0+i;
+    s+=`<div class="dcell${nghiNgay(d)?" off":""}${d===HOM_NAY?" today":""}">
+      <div class="dow">${DOW[ngay(d).getDay()]}</div><div class="dd">${dm(d)}</div></div>`}
+  h.innerHTML=s;
+  $("#dt").value=iso(W0);
+}
+const cellHtml=()=>{let s="";for(let i=0;i<NGAY;i++)s+=`<div class="${nghiNgay(W0+i)?"off":""}"></div>`;return s};
+
+/* Giờ chạy "trong cửa sổ" = tổng phần đoạn chạy GIAO với cửa sổ, không phải tổng cả lệnh —
+   lệnh vắt qua mép chỉ được tính phần thật sự nằm trong khoảng đang xem. */
+function gioTrongCuaSo(){
+  const a=W0*PN, b=a+TONG();let t=0;
+  for(const L of LENH)for(const s of trai(L.batDau,L.buoc).segs)t+=Math.max(0,Math.min(s.b,b)-Math.max(s.a,a));
+  return t;
+}
+/* Lệnh CHẠM cửa sổ đang xem. Máy chủ thật cũng chỉ trả bấy nhiêu (`GET /lich?tu=&den=`) —
+   hàng trống không thanh là hàng vô nghĩa. */
+function trongCuaSo(L){const r=trai(L.batDau,L.buoc);return pctTho(r.finish)>0&&pctTho(r.start)<100}
+function veStats(){
+  const hien=LENH.filter(trongCuaSo), tre=hien.filter(treHan).length;
+  $("#stats").innerHTML=`<span><b>${hien.length}</b> lệnh trong cửa sổ</span><span><b>${CHO.length}</b> chờ xếp</span>
+    <span>Cửa sổ <b>${dm(W0)}→${dm(W0+NGAY-1)}</b></span>
+    <span>Giờ chạy trong cửa sổ <b>${gio(gioTrongCuaSo())}</b></span>
+    <span${tre?' class="s"':""}>Trễ hạn SX <b>${tre}</b></span>
+    <span>Ca sản xuất <b>06:00–22:00</b>, nghỉ <b>11:00–12:00</b> và <b>18:00–18:30</b></span>`;
+}
+
+function ve(){
+  if(!drag)LENH.sort((a,b)=>trai(a.batDau,a.buoc).start-trai(b.batDau,b.buoc).start);
+  rows.innerHTML="";
+  for(const L of LENH){
+    // Lệnh đang bị kéo LUÔN được vẽ, kể cả khi vừa bị đẩy ra ngoài cửa sổ — biến mất dưới con trỏ
+    // là đứt mạch kéo.
+    if(!trongCuaSo(L)&&!(drag&&drag.ma===L.ma))continue;
+    const r=trai(L.batDau,L.buoc), tre=r.finish>hanM(L);
+    const row=document.createElement("div");row.className="row";
+    row.innerHTML=`<div class="rl">
+      <div class="l"><span class="ma">${L.ma}</span>${L.gap?'<span class="tag">gấp</span>':""}
+        <span class="g"></span><span class="may">${L.may}</span></div>
+      <div class="ten">${L.ten} <em>(${L.vt.tt==="du"?"đủ":L.vt.tt==="thieu"?"thiếu VT":"chưa giữ"})</em></div>
+      <div class="l"><span class="kh">${L.kh}</span><span class="g"></span>${tre?'<span class="tag bad">trễ hạn</span>':""}</div>
+      <div class="sl"><b>${L.sl}</b> · <b>${L.to}</b> · ${L.con} con/tờ</div></div>`;
+    const tr=document.createElement("div");tr.className="track";
+    const cl=document.createElement("div");cl.className="cells";
+    cl.style.gridTemplateColumns=COLS();cl.innerHTML=cellHtml();tr.appendChild(cl);
+
+    const veDl=(m,cls,txt)=>{const p=pctTho(m);if(p<0||p>100)return;
+      const e=document.createElement("div");e.className="dl"+cls;e.style.left=p+"%";e.innerHTML=`<em>${txt}</em>`;tr.appendChild(e)};
+    veDl(L.hanKH*PN+22*60," kh","giao khách");
+    veDl(hanM(L),"","hạn SX");
+
+    const p0=pctTho(r.start), p1=pctTho(r.finish);
+    if(p1>0&&p0<100){
+      const l=kep(p0), w=kep(p1)-l;
+      const sp=document.createElement("div");
+      sp.className="span"+(L.ma===chon?" sel":"")+(tre?" late":"")+(p0<0?" cutL":"")+(p1>100?" cutR":"");
+      sp.style.left=l+"%";sp.style.width=Math.max(.3,w)+"%";
+      sp.dataset.ma=L.ma;sp.tabIndex=0;sp.setAttribute("role","button");
+      sp.setAttribute("aria-label",`${L.ma} bắt đầu ${fmt(r.start)}, xong ${fmt(r.finish)}${tre?", trễ hạn sản xuất":""}`);
+      /* Khối chạy đặt theo pct CỬA SỔ rồi quy về pct thanh — thanh bị cắt vẫn khớp trục ngày. */
+      for(const s of r.segs){const a=(pctTho(s.a)-l)/w*100, b=(pctTho(s.b)-l)/w*100;
+        if(b<0||a>100)continue;
+        const e=document.createElement("div");e.className="seg-run "+MAU[s.i%4];
+        e.style.left=a+"%";e.style.width=Math.max(.4,b-a)+"%";sp.appendChild(e)}
+      if(p0<0)sp.insertAdjacentHTML("beforeend",'<span class="arr l" title="bắt đầu trước cửa sổ">‹</span>');
+      if(p1>100)sp.insertAdjacentHTML("beforeend",'<span class="arr r" title="còn chạy sau cửa sổ">›</span>');
+      tr.appendChild(sp);
+      if(p1<=100){
+        const lb=document.createElement("div");lb.className="blab"+(tre?" late":"");lb.style.left=kep(p1)+"%";
+        lb.innerHTML=(tre?"⚠ trễ hạn · ":"")+`xong <b>${fmt(r.finish)}</b>`;tr.appendChild(lb)}
+    }
+    row.appendChild(tr);rows.appendChild(row);
+  }
+  veStats();chiTiet();
+}
+
+function chiTiet(){
+  const L=[...LENH,...CHO].find(x=>x.ma===chon), d=$("#detail");
+  if(!L){d.innerHTML='<p class="foot">Chọn một lệnh trên lưới.</p>';return}
+  const daXep=LENH.includes(L), r=daXep?trai(L.batDau,L.buoc):null, tre=daXep&&r.finish>hanM(L);
+  const vtCls=L.vt.tt==="du"?"":L.vt.tt==="thieu"?" warn":" bad";
+  const tongKip=L.buoc.reduce((a,b)=>a+b.kip,0);
+  let body="";
+  L.buoc.forEach((b,i)=>{body+=`<tr><td><span class="sw" style="background:var(--run-${i%4+1})"></span>${b.ten}</td>
+    <td>${b.may}</td><td class="num">${b.vao}</td><td class="num">${b.kip} người</td><td class="num">${gio(b.phut)}</td></tr>`});
+  d.innerHTML=`<div class="dhead"><h3><span class="ma">${L.ma}</span> · ${L.ten}</h3>
+      ${L.gap?'<span class="pill bad">Lệnh gấp</span>':""}
+      <span class="pill${tre?" bad":""}">${daXep?(tre?"Trễ hạn SX":"Trong hạn"):"Chưa xếp lịch"}</span>
+      <span class="pill${vtCls}">${L.vt.txt}</span>
+      <div class="sp"></div><button class="btn">Phát hành xuống xưởng</button></div>
+    <div class="facts">
+      <div class="f"><div class="k">Khách hàng</div><div class="v">${L.kh}</div></div>
+      <div class="f"><div class="k">Đơn · PO khách</div><div class="v"><span class="n">${L.don}</span> · <span class="n">${L.po}</span></div></div>
+      <div class="f"><div class="k">Kinh doanh</div><div class="v">${L.sale}</div></div>
+      <div class="f"><div class="k">Sản lượng</div><div class="v"><span class="n">${L.sl}</span> · <span class="n">${L.to}</span> · ${L.con} con/tờ</div></div>
+      <div class="f"><div class="k">Giấy · khổ in</div><div class="v">${L.giay} · <span class="n">${L.kho}</span></div></div>
+      <div class="f"><div class="k">Màu · kẽm</div><div class="v">${L.mau} · <span class="n">${L.kem}</span> kẽm</div></div>
+      <div class="f"><div class="k">Hạn hoàn thành SX</div><div class="v"><span class="n">${dm(L.hanSX)}</span></div></div>
+      <div class="f"><div class="k">Hạn giao khách</div><div class="v"><span class="n">${dm(L.hanKH)}</span></div></div>
+      <div class="f"><div class="k">Phụ trách kế hoạch</div><div class="v">${L.pt}</div></div>
+      <div class="f"><div class="k">Lịch</div><div class="v">${daXep?`<span class="n">${fmt(r.start)}</span> → <span class="n">${fmt(r.finish)}</span>`:"—"}</div></div>
+      <div class="f"><div class="k">Giờ chạy</div><div class="v"><span class="n">${gio(chay(L))}</span>${daXep?` <span style="color:var(--mute)">+ ${gio(r.finish-r.start-chay(L))} nghỉ và ngoài ca</span>`:""}</div></div>
+      <div class="f"><div class="k">Kíp chuẩn cả lệnh</div><div class="v"><span class="n">${tongKip}</span> lượt người</div></div>
+    </div>
+    ${L.luuY?`<div class="note">Lưu ý gửi xưởng — ${L.luuY}</div>`:""}
+    <table><thead><tr><th>Công đoạn</th><th>Máy · tổ</th><th>Số lượng vào</th><th>Kíp chuẩn</th><th>Giờ chạy</th></tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr><td>${L.buoc.length} công đoạn</td><td></td><td></td><td class="num">${tongKip} người</td><td class="num">${gio(chay(L))}</td></tr></tfoot></table>
+    <p class="foot">Chuỗi công đoạn và giờ chạy lấy từ routing của lệnh — màn này không sửa được.</p>`;
+}
+
+const veQueue=()=>{$("#queue").innerHTML=CHO.map(c=>`<div class="card${c.gap?" gap":""}" data-ma="${c.ma}" tabindex="0">
+  <div class="ma">${c.ma}</div><div class="ten">${c.ten}</div><div class="kh">${c.kh}</div>
+  <div class="meta">Hạn SX <b>${dm(c.hanSX)}</b> · <b>${gio(chay(c))}</b> chạy · <b>${c.to}</b></div></div>`).join("")};
+
+let tT;const toast=t=>{const e=$("#toast");e.textContent=t;e.classList.add("on");clearTimeout(tT);tT=setTimeout(()=>e.classList.remove("on"),2400)};
+const phutTai=x=>{const t=rows.querySelector(".track");if(!t)return W0*PN;const b=t.getBoundingClientRect();
+  return Math.round((W0*PN+(x-b.left)/b.width*TONG())/15)*15};
+
+/* ---------- lái cửa sổ ---------- */
+function doiCuaSo(w){W0=Math.max(0,w);veHead();ve()}
+function doiZoom(n){
+  if(!ZOOM[n])return;
+  const giua=W0+NGAY/2;                    // giữ TÂM cửa sổ khi đổi mức — đỡ mất phương hướng
+  NGAY=n;W0=Math.max(0,Math.round(giua-n/2));
+  document.querySelectorAll(".seg button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.zoom==String(n)));
+  $("#prev").textContent=`‹ ${n} ngày`;$("#next").textContent=`${n} ngày ›`;
+  $(".grid").style.minWidth=(264+n*ZOOM[n].dmin)+"px";
+  veHead();ve();
+}
+$("#prev").onclick=()=>doiCuaSo(W0-NGAY);
+$("#next").onclick=()=>doiCuaSo(W0+NGAY);
+$("#today").onclick=()=>doiCuaSo(HOM_NAY);
+document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>doiZoom(+b.dataset.zoom));
+$("#dt").onchange=e=>{const v=e.target.value;if(!v)return;
+  const t=new Date(v+"T00:00:00");doiCuaSo(Math.round((t-ANCHOR)/86400000))};
+
+/* ---------- kéo thả ---------- */
+let drag=null;
+document.addEventListener("pointerdown",e=>{
+  const sp=e.target.closest(".span");
+  if(sp){const L=LENH.find(x=>x.ma===sp.dataset.ma);chon=L.ma;drag={ma:L.ma,x0:e.clientX,goc:L.batDau};ve();
+    document.querySelector(".span.sel")?.classList.add("drag");return}
+  const c=e.target.closest(".card");
+  if(c){chon=c.dataset.ma;drag={them:c.dataset.ma};chiTiet()}
+});
+document.addEventListener("pointermove",e=>{
+  if(!drag||drag.them)return;
+  const t=rows.querySelector(".track");if(!t)return;
+  const b=t.getBoundingClientRect(), dp=Math.round((e.clientX-drag.x0)/b.width*TONG()/15)*15;
+  const L=LENH.find(x=>x.ma===drag.ma);L.batDau=Math.max(0,drag.goc+dp);ve();
+  document.querySelector(".span.sel")?.classList.add("drag");
+});
+document.addEventListener("pointerup",e=>{
+  if(!drag)return;
+  if(drag.them){
+    const t=rows.querySelector(".track");
+    if(t){const b=t.getBoundingClientRect();
+      if(e.clientX>b.left&&e.clientX<b.right&&e.clientY>b.top-320){
+        const i=CHO.findIndex(x=>x.ma===drag.them),c=CHO.splice(i,1)[0];
+        c.batDau=Math.max(0,phutTai(e.clientX));LENH.push(c);chon=c.ma;
+        const r=trai(c.batDau,c.buoc);
+        if(r.start!==c.batDau)toast("Ngoài giờ chạy — đã dời sang "+fmt(r.start));
+        veQueue();drag=null;ve();return;
+      }}
+  }else{
+    const L=LENH.find(x=>x.ma===drag.ma),r=trai(L.batDau,L.buoc);
+    if(r.start!==L.batDau){L.batDau=r.start;toast("Ngoài giờ chạy — đã dời sang "+fmt(r.start))}
+  }
+  drag=null;ve();
+});
+document.addEventListener("keydown",e=>{
+  const L=LENH.find(x=>x.ma===chon);if(!L)return;
+  const b=e.key==="ArrowLeft"?-1:e.key==="ArrowRight"?1:0;if(!b)return;
+  e.preventDefault();
+  L.batDau=Math.max(0,L.batDau+b*(e.shiftKey?480:15));
+  const r=trai(L.batDau,L.buoc);L.batDau=r.start;ve();
+});
+
+doiZoom(7);veQueue();ve();
+</script>
