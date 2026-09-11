@@ -75,6 +75,7 @@ from ..services.ky_thuat_may_service import (
     KyThuatMayNotFound,
     KyThuatMayService,
     KyThuatMayThieuAnh,
+    KyThuatMayTrungKy,
     KyThuatMayValidationError,
     hom_nay_vn,
 )
@@ -531,6 +532,9 @@ def create_bao_tri(payload: BaoTriIn, svc: Service, user: BtCreator) -> BaoTriRo
         data["hang_muc"] = [dict(h) for h in data["hang_muc"]]
     try:
         phieu = svc.tao_bao_tri(data, actor_id=user.id)
+    except KyThuatMayTrungKy as e:
+        # 409 chứ không 422: dữ liệu gửi lên hợp lệ, chỉ là kỳ đó đã có phiếu rồi.
+        raise _409(e) from None
     except KyThuatMayValidationError as e:
         raise _400(e) from None
     return _row_bao_tri(svc, phieu, svc.may_map([phieu.may_id]), {})

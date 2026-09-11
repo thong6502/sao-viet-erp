@@ -222,7 +222,11 @@ function KhungPhieu({ chuyen, may, loiMay, onCanMay, moId, onDaMo }: {
     kyThuatMay.getSuaChua(token, moId).then(setMo).catch(() => {}).finally(onDaMo);
   }, [token, moId]);
 
-  useEffect(() => { if (mo === "new") onCanMay(); }, [mo, onCanMay]);
+  // Mở ngăn NÀO cũng cần danh sách máy, không riêng form tạo mới: ô "Máy" của phiếu đã có phải
+  // tra được `may_id` ra tên máy để hiện. Trước đây chỉ nạp khi `mo === "new"` ⇒ mở phiếu cũ là
+  // danh sách rỗng, `<select>` không có option nào khớp `may_id` nên trình duyệt vẽ ra
+  // "— Chọn máy —" cho một phiếu đã có máy hẳn hoi (nhìn như phiếu mất máy, và mời chọn lại).
+  useEffect(() => { if (mo !== null) onCanMay(); }, [mo, onCanMay]);
 
   // `rows` là trang server trả về — không lọc lại ở đây.
   const hien = rows;
@@ -782,7 +786,8 @@ function KhungYeuCau({
   }, [token, qTre, tab, cuaToi, page, eventTick]);
 
   useEffect(load, [load]);
-  useEffect(() => { if (mo === "new") onCanMay(); }, [mo, onCanMay]);
+  // Cùng lý do như bên khung Phiếu: mở một yêu cầu đã gửi cũng phải tra được tên máy.
+  useEffect(() => { if (mo !== null) onCanMay(); }, [mo, onCanMay]);
 
   const soCho = dem.cho_tiep_nhan ?? 0;
   const tongTatCa = soCho + (dem.da_tao_phieu ?? 0) + (dem.tu_choi ?? 0);
