@@ -2687,10 +2687,6 @@ td.khsx-num > .khsx-unit {
   border: 1px solid var(--amber, #d97706);
   font-family: inherit;
 }
-/* Tổng công thợ dự kiến ở panel phải — số dẫn xuất, không phải số đã chốt. */
-.khsx-aside__khoan { color: var(--ink); }
-.khsx-aside__khoan small { display: block; color: var(--ash-2); font-size: 11px; margin-top: 2px; }
-
 /* ==========================================================================
    REDESIGN EXECUTIVE & SANG TRỌNG CHO LSX BUOC DRAWER (TABBED DESIGN)
    ========================================================================== */

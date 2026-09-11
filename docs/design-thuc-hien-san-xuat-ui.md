@@ -9,6 +9,19 @@
 > 1. **Node lá tổ** trong Khối "Sản xuất" của navbar (badge = số việc chờ, bấm mở bàn lọc theo tổ).
 > 2. **Bàn làm việc** (một khung dùng chung mọi tổ): timeline theo thời gian + drawer một công việc.
 
+> **Cập nhật 11/09/2026 — đọc trước khi dựa vào tài liệu này.** Hai điều đã đổi so với bản chốt:
+> 1. **Bản ghi của bàn tổ là LỆNH SX / BÀI GHÉP**, không phải công đoạn rời. Đơn vị việc vẫn là
+>    CÔNG ĐOẠN (vẫn Bắt đầu / Ghi sản lượng trên nó); lệnh chỉ là tầng nhãn bọc ngoài, và **phân
+>    trang đếm theo LỆNH** nên một lệnh không bao giờ bị xé đôi. View Lịch/Gantt giữ mảng bước
+>    phẳng (`nhom="phang"`).
+> 2. **Sản xuất thôi giữ TIỀN.** Không còn đơn giá khoán / tiền khoán / thưởng tổ trưởng ở bất kỳ
+>    mặt đọc nào của module; tổ chỉ ghi SỐ LƯỢNG, quy ra tiền là việc của kế toán lương. Kế hoạch
+>    **vẫn chọn đầu việc chi tiết** — sản xuất chỉ mang TÊN đầu việc theo mẻ.
+>
+> Chi tiết: `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
+> (`la_luong_khoan` trong tài liệu này là CHẾ ĐỘ LƯƠNG của nhân viên bên HR — thứ đó vẫn sống,
+> đừng nhầm với tiền khoán đã gỡ.)
+
 ---
 
 ## 1. Bối cảnh — cái gì đã có, cái gì phải dựng
@@ -157,8 +170,9 @@ Tất cả gọi qua helper `authed<T>(path, token, init?)` sẵn có; thêm nh�
 
 | Hành động UI | Endpoint (đã có ở BE) | Method client dự kiến | Body / trả về (đúng schema) |
 |---|---|---|---|
-| Nạp danh sách tổ + badge | `GET /api/san-xuat/teams` | `api.sanXuat.teams(token)` | `TeamsOut{ teams: TeamOut[] }`, `TeamOut{id,ten,ma,la_kcs,so_viec_cho}` |
-| Nạp timeline 1 tổ | `GET /api/san-xuat/work-items?team_id=` | `api.sanXuat.workItems(token, teamId)` | `WorkItemsOut{team_id, cong_viec: WorkItemOut[]}`; 403 nếu ngoài phạm vi |
+| Nạp danh sách tổ + badge | `GET /api/san-xuat/teams` | `api.sanXuat.teams(token)` | `TeamsOut{ teams: TeamOut[] }`, `TeamOut{id,ten,ma,la_kcs,la_tho,so_viec_cho,so_viec_kcs_cho,co_viec_kcs}` — `la_tho` là vai của NGƯỜI ĐANG XEM ở tổ đó, không phải thuộc tính của tổ |
+| Nạp bàn 1 tổ | `GET /api/san-xuat/work-items?team_id=&nhom=&tim=&trang=&co_trang=` | `api.sanXuat.workItems(token, {teamId, nhom, tim, trang, coTrang})` | `nhom="lenh"` (mặc định) → `{team_id, nhom, trang:{trang,co_trang,tong}, lenh: LenhNhomOut[]}`; `nhom="phang"` → `{team_id, nhom, cong_viec: WorkItemOut[]}` cho Gantt. Tìm kiếm lọc **ở máy chủ** trước khi cắt trang. 403 nếu ngoài phạm vi |
+| Luỹ kế sản lượng tháng của chính mình | `GET /api/san-xuat/toi/san-luong?nam=&thang=` | `api.sanXuat.sanLuongCuaToi(token, nam, thang)` | `{nam, thang, employee_id, theo_don_vi:[{don_vi,tong}], so_me}` — **không nhận `employee_id`**, BE luôn suy từ token |
 | Mở drawer 1 việc | `GET /api/san-xuat/work-items/{id}` | `api.sanXuat.chiTiet(token, id)` | `WorkItemChiTietOut{cong_viec, trang_thai, version, phan_cong[], phien_chay[], khoang_tham_gia[]}` |
 | Danh nhân viên để "Giao người" | `GET /api/san-xuat/teams/{team_id}/nhan-vien` | `api.sanXuat.nhanVienChon(token, teamId)` | `NhanVienChonListOut{team_id, nhan_vien: NhanVienChonOut[]}`, `NhanVienChonOut{id, code, full_name, la_luong_khoan, co_tai_khoan}`; 403 nếu ngoài phạm vi |
 | Giao 1 người | `POST /work-items/{id}/phan-cong` | `api.sanXuat.phanCong(token,id,body)` | `PhanCongIn{employee_id, expected_version?}` → `LenhKetQuaOut{cong_viec_id,department_id,trang_thai,version}` |
