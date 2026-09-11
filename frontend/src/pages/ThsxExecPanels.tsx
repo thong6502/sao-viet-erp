@@ -20,7 +20,7 @@ import { Icon } from "../components/Icons";
 import { MaterialCombobox } from "../components/MaterialCombobox";
 import { useAuth } from "../auth/useAuth";
 import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe } from "../lib/gioNhap";
-import { num, ngayGio, ngay } from "./keHoachSxShared";
+import { num, ngayGio, ngay, gioNgan } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
 
 // ============================ hợp đồng hành động (controller cấp) ============================
@@ -357,7 +357,9 @@ function BatchForm({
   );
 }
 
-function BatchRow({
+/** MỘT MẺ trong danh sách sản lượng. Gấp lại chỉ hiện giờ + số tốt; mở ra là ĐỌC TRỌN mẻ (§5.2):
+ *  máy đã chạy, ca, đầu việc, kíp mấy người, các lần dừng máy, rồi tới bảng chia sản lượng. */
+export function BatchRow({
   b, canAssign, busy, pb, tenNguoi, hoTroUngVien, exec,
 }: {
   b: SxBatch; canAssign: boolean; busy: boolean; pb: SxPhanBo | null;
@@ -369,7 +371,8 @@ function BatchRow({
     <li className="thsx-x-item">
       <button type="button" className="thsx-x-item__h" onClick={() => setMo((o) => !o)} aria-expanded={mo}>
         <Icon name="chevron" size={12} className={mo ? "" : "thsx-rot-90"} />
-        <span className="thsx-x-item__time thsx-num">{ngayGio(b.bat_dau)}</span>
+        <span className="thsx-x-item__time thsx-num">{ngayGio(b.bat_dau)} – {gioNgan(b.ket_thuc)}</span>
+        {b.so_nguoi > 0 && <span className="thsx-x-item__kip thsx-num">{b.so_nguoi} người</span>}
         <span className="thsx-x-item__spacer" />
         <span className="thsx-x-item__q thsx-num">{num(b.tot)}<span className="thsx-x-unit"> tốt</span></span>
         {b.hong > 0 && <span className="thsx-x-item__hong thsx-num">−{num(b.hong)}</span>}
@@ -381,9 +384,20 @@ function BatchRow({
           {b.mo_ta_loi && (
             <div className="thsx-x-kv"><span>Lỗi</span><b>{b.mo_ta_loi}</b></div>
           )}
+          {/* Vắng thì BỎ DÒNG, đừng bịa "—" hay 0: mẻ không có máy (bước chiếm tổ) khác hẳn mẻ
+              chạy máy mà chưa ai ghi máy. */}
+          {b.may_ten && <div className="thsx-x-kv"><span>Máy</span><b>{b.may_ten}</b></div>}
+          {b.ca_ten && <div className="thsx-x-kv"><span>Ca</span><b>{b.ca_ten}</b></div>}
+          {b.dau_viec_ten && (
+            <div className="thsx-x-kv"><span>Đầu việc</span><b>{b.dau_viec_ten}</b></div>
+          )}
+          {b.su_co.length > 0 && (
+            <div className="thsx-x-kv thsx-x-kv--bad"><span>Dừng máy</span>
+              <span>{b.su_co.map((s) => `${gioNgan(s.bat_dau)}–${gioNgan(s.ket_thuc)}: ${s.ly_do ?? ""}`).join(" · ")}</span></div>
+          )}
           {b.nguoi_tham_gia.length > 0 && (
             <div className="thsx-x-kv"><span>Người tham gia</span>
-              <span className="thsx-x-people">{b.nguoi_tham_gia.join(", ")}</span></div>
+              <span className="thsx-x-people">{b.nguoi_tham_gia.map((p) => p.ho_ten).join(", ")}</span></div>
           )}
           {b.lot_vao.length > 0 && (
             <div className="thsx-x-kv"><span>Lô vào</span>
@@ -392,7 +406,7 @@ function BatchRow({
           {b.ghi_chu && <div className="thsx-x-kv"><span>Ghi chú</span><span>{b.ghi_chu}</span></div>}
 
           {/* Chia sản lượng của chính mẻ này (§12) */}
-          <PhanBoBlock b={b} pb={pb} canAssign={canAssign} busy={busy}
+          <PhanBoBlock b={b} pb={pb} chiaNhap={b.chia_du_kien} canAssign={canAssign} busy={busy}
             tenNguoi={tenNguoi} hoTroUngVien={hoTroUngVien} exec={exec} />
         </div>
       )}
@@ -403,10 +417,40 @@ function BatchRow({
 // ─────────────────────────── CHIA SẢN LƯỢNG theo mẻ (§12) ─────────────────
 // Khối này CHỈ chia SỐ LƯỢNG cho từng người theo trọng số (phút chấm công hợp lệ × hệ số bậc).
 // Không có ô tiền nào: quy sản lượng ra tiền là việc của kế toán lương ở màn "Khoán theo kỳ".
+/** Bảng 4 cột của bản chia — dùng CHUNG cho bản nháp (tính lúc đọc) và bản đã lưu, để hai nhánh
+ *  không chép nhau rồi lệch nhau. Không có cột tiền nào: sản xuất ghi số lượng. */
+function BangChia({ dong }: {
+  dong: { employee_id: number; ho_ten: string; so_luong: number;
+          he_so_bac: number | null; phut_thuc_te: number | null; la_ho_tro: boolean;
+          ngay?: string }[];
+}) {
+  if (dong.length === 0) return null;
+  return (
+    <table className="thsx-x-tbl">
+      <thead>
+        <tr><th>Người</th><th className="r">Sản lượng</th><th className="r">Bậc</th><th className="r">Phút</th></tr>
+      </thead>
+      <tbody>
+        {dong.map((d) => (
+          <tr key={`${d.employee_id}-${d.ngay ?? ""}`}>
+            <td>{d.ho_ten}{d.la_ho_tro && <span className="thsx-x-tag-ht">hỗ trợ</span>}</td>
+            <td className="r thsx-num">{num(d.so_luong)}</td>
+            <td className="r thsx-num">{d.he_so_bac != null ? num(d.he_so_bac) : "—"}</td>
+            <td className="r thsx-num">{d.phut_thuc_te != null ? num(d.phut_thuc_te) : "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 export function PhanBoBlock({
-  b, pb, canAssign, busy, tenNguoi, hoTroUngVien, exec,
+  b, pb, chiaNhap, canAssign, busy, tenNguoi, hoTroUngVien, exec,
 }: {
   b: SxBatch; pb: SxPhanBo | null; canAssign: boolean; busy: boolean;
+  /** Bản chia NHÁP server tính lúc đọc, chỉ có khi mẻ CHƯA có bản chia nào. Có nó thì bảng hiện
+   *  NGAY sau khi ghi mẻ — chủ xưởng 11/09/2026: *"hình như thiếu sản lượng"*. */
+  chiaNhap?: SxBatch["chia_du_kien"];
   tenNguoi: Map<number, string>;
   hoTroUngVien: SxHoTroUngVien[]; exec: ThsxExec;
 }) {
@@ -416,6 +460,47 @@ export function PhanBoBlock({
   const [loaiTruLyDo, setLoaiTruLyDo] = useState("");
 
   if (!pb) {
+    // Chưa lưu bản chia nào. Có bản NHÁP từ server ⇒ bày ra luôn: số nháp vẫn là số, còn hơn để
+    // tổ trưởng ghi mẻ xong nhìn vào một ô trống không biết ai được bao nhiêu.
+    if (chiaNhap) {
+      return (
+        <div className="thsx-x-pb">
+          <div className="thsx-x-pb__h">
+            <Icon name="table" size={13} />
+            <span className="thsx-x-pb__ttl">Chia sản lượng</span>
+            <span className="thsx-x-pill thsx-x-pill--wait">nháp</span>
+            <span className="thsx-x-item__spacer" />
+          </div>
+          <div className="thsx-x-pb__sum">
+            <span>Sản lượng chia <b className="thsx-num">{num(chiaNhap.q)}</b>{chiaNhap.don_vi ? ` ${nhanDonVi(chiaNhap.don_vi)}` : ""}</span>
+          </div>
+          <BangChia dong={chiaNhap.dong} />
+          {chiaNhap.canh_bao.length > 0 && (
+            <div className="thsx-x-pbwarn" role="status">
+              <Icon name="alert" size={14} />
+              <div className="thsx-x-pbwarn__body">
+                <b>Số nháp — chưa chốt được</b>
+                <ul>{chiaNhap.canh_bao.map((c, i) => <li key={i}>{c}</li>)}</ul>
+              </div>
+            </div>
+          )}
+          {canAssign && (
+            <div className="thsx-x-act thsx-x-act--wrap">
+              {/* Số đã hiện sẵn ở trên rồi, nên nút ở đây LƯU bản chia (tạo bản nháp thật trong
+                  DB) chứ không phải "tính ra số" — tên nút nói đúng việc nó làm. */}
+              <Button variant="secondary" onClick={() => void exec.tinhPhanBo(b.id)} disabled={busy}
+                title="Lưu bản chia này lại để chốt được">
+                <Icon name="calculator" size={13} /> Lưu bản chia
+              </Button>
+              <Button variant="accent" disabled
+                title="Bấm Lưu bản chia rồi mới chốt được">
+                <Icon name="lock" size={13} /> Chốt
+              </Button>
+            </div>
+          )}
+        </div>
+      );
+    }
     return (
       <div className="thsx-x-pb thsx-x-pb--empty">
         <span className="thsx-x-pb__none">Chưa chia sản lượng cho mẻ này.</span>
@@ -445,23 +530,7 @@ export function PhanBoBlock({
         {pb.tong_ty_le_ho_tro > 0 && <span>hỗ trợ <b className="thsx-num">{num(pb.tong_ty_le_ho_tro)}%</b></span>}
       </div>
 
-      {pb.dong.length > 0 && (
-        <table className="thsx-x-tbl">
-          <thead>
-            <tr><th>Người</th><th className="r">Sản lượng</th><th className="r">Bậc</th><th className="r">Phút</th></tr>
-          </thead>
-          <tbody>
-            {pb.dong.map((d) => (
-              <tr key={`${d.employee_id}-${d.ngay}`}>
-                <td>{d.ho_ten}{d.la_ho_tro && <span className="thsx-x-tag-ht">hỗ trợ</span>}</td>
-                <td className="r thsx-num">{num(d.so_luong_tra_luong)}</td>
-                <td className="r thsx-num">{d.he_so_bac != null ? num(d.he_so_bac) : "—"}</td>
-                <td className="r thsx-num">{d.phut_thuc_te != null ? num(d.phut_thuc_te) : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <BangChia dong={pb.dong.map((d) => ({ ...d, so_luong: d.so_luong_tra_luong }))} />
 
       {!pb.can_chot && pb.canh_bao.length > 0 && (
         <div className="thsx-x-pbwarn" role="status">

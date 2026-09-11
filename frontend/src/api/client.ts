@@ -1855,8 +1855,42 @@ export interface SxBatch {
   mo_ta_loi: string | null;
   ghi_chu: string | null;
   version: number;
-  nguoi_tham_gia: string[];
+  /** Máy ĐÃ CHẠY mẻ này — lấy từ PHIÊN chạy, không phải `may_id` hiện tại của công việc: đổi máy
+   *  giữa chừng thì mỗi mẻ một máy. `null` = bước không dùng máy hoặc phiên chưa ghi máy. */
+  may_ten: string | null;
+  ca_ten: string | null;          // null = mẻ chạy NGOÀI mọi ca đã khai (một câu trả lời thật)
+  dau_viec_ten: string | null;    // đầu việc kế hoạch đã chọn — CHỈ tên, không có giá
+  so_nguoi: number;
+  su_co: SxMeSuCo[];              // các lần dừng máy rơi vào cửa sổ mẻ
+  nguoi_tham_gia: SxNguoiThamGiaBatch[];
+  /** Bản chia sản lượng NHÁP tính lúc đọc, cho mẻ CHƯA có bản chia nào — nhờ nó tổ trưởng ghi mẻ
+   *  xong là thấy ngay ai được bao nhiêu. `null` = mẻ đã có bản chia, đọc ở `phan_bo`. */
+  chia_du_kien: SxChiaDuKien | null;
   lot_vao: SxLotVao[];
+}
+export interface SxNguoiThamGiaBatch {
+  employee_id: number;
+  ho_ten: string;
+}
+export interface SxMeSuCo {
+  bat_dau: string | null;
+  ket_thuc: string | null;
+  ly_do: string | null;
+}
+export interface SxChiaDong {
+  employee_id: number;
+  ho_ten: string;
+  so_luong: number;
+  phut_thuc_te: number | null;
+  he_so_bac: number | null;
+  la_ho_tro: boolean;
+}
+export interface SxChiaDuKien {
+  q: number;
+  don_vi: string | null;
+  can_chot: boolean;
+  canh_bao: string[];
+  dong: SxChiaDong[];
 }
 export interface SxSanLuong {
   tong_tot: number;

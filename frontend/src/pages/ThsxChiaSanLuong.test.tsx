@@ -1,13 +1,16 @@
 // Khối chia sản lượng của một mẻ: KHÔNG được có ô tiền nào (11/09/2026 — sản xuất chỉ ghi số lượng).
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { PhanBoBlock } from "./ThsxExecPanels";
+import { BatchRow, PhanBoBlock } from "./ThsxExecPanels";
 import type { SxBatch, SxPhanBo } from "../api/client";
 
 const batch = {
   id: 1, bat_dau: "2026-09-11T07:00:00", ket_thuc: "2026-09-11T09:00:00",
   tong: 1000, tot: 980, hong: 20, don_vi: "to",
   mo_ta_loi: null, ghi_chu: null, version: 1, nguoi_tham_gia: [], lot_vao: [],
+  may_ten: null, ca_ten: null, dau_viec_ten: null, so_nguoi: 0, su_co: [],
+  chia_du_kien: null,
 } as unknown as SxBatch;
 
 const pb = {
@@ -52,5 +55,38 @@ describe("Chia sản lượng", () => {
     expect(screen.getByRole("columnheader", { name: /Phút/i })).toBeInTheDocument();
     expect(screen.getByText("Lê Văn A")).toBeInTheDocument();
     expect(screen.getByText("520")).toBeInTheDocument();
+  });
+
+  it("mẻ chưa chốt vẫn hiện bảng chia sản lượng, có gắn nhãn nháp", () => {
+    const nhap = {
+      q: 980, don_vi: "to", can_chot: true, canh_bao: [],
+      dong: [
+        { employee_id: 11, ho_ten: "Lê Văn A", so_luong: 520, phut_thuc_te: 120, he_so_bac: 1.3, la_ho_tro: false },
+        { employee_id: 12, ho_ten: "Trần Thị B", so_luong: 460, phut_thuc_te: 120, he_so_bac: 1.15, la_ho_tro: false },
+      ],
+    };
+    render(<PhanBoBlock b={batch} pb={null} chiaNhap={nhap as never} canAssign busy={false}
+      tenNguoi={new Map()} hoTroUngVien={[]} exec={exec} />);
+    expect(screen.getByText("Chia sản lượng")).toBeInTheDocument();
+    expect(screen.getByText("nháp")).toBeInTheDocument();
+    expect(screen.getByText("Lê Văn A")).toBeInTheDocument();
+    expect(screen.getByText("520")).toBeInTheDocument();
+    expect(screen.queryByText(/Chưa chia sản lượng/)).toBeNull();
+  });
+
+  it("thân mẻ hiện máy, ca, giờ kết thúc, đầu việc, kíp và sự cố", async () => {
+    const b = {
+      ...batch,
+      may_ten: "Komori 1050", ca_ten: "Ca 1", dau_viec_ten: "Bế hộp bánh · 1050",
+      so_nguoi: 2,
+      su_co: [{ bat_dau: "2026-09-11T08:00:00", ket_thuc: "2026-09-11T08:20:00", ly_do: "kẹt giấy" }],
+      chia_du_kien: null,
+    } as unknown as SxBatch;
+    render(<BatchRow b={b} canAssign busy={false} pb={pb}
+      tenNguoi={new Map()} hoTroUngVien={[]} exec={exec} />);
+    await userEvent.click(screen.getByRole("button", { expanded: false }));
+    for (const chu of ["Komori 1050", "Ca 1", "Bế hộp bánh · 1050", "kẹt giấy"]) {
+      expect(screen.getByText(new RegExp(chu))).toBeInTheDocument();
+    }
   });
 });

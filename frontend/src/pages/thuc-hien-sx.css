@@ -1430,6 +1430,13 @@
 .thsx-x-kv > span:first-child { flex: none; color: var(--ash); }
 .thsx-x-kv b, .thsx-x-kv > span:last-child { color: var(--ink); text-align: right; }
 .thsx-x-people { color: var(--ink); }
+/* Dòng SỰ CỐ của mẻ (dừng máy) — đỏ nhạt để đọc lướt là thấy, không hét lên như báo lỗi. */
+.thsx-x-kv--bad > span:last-child { color: #b91c1c; }
+/* Kíp mấy người — nằm trên đầu mẻ, cạnh giờ, nên phải nhỏ và không giành chỗ của số sản lượng. */
+.thsx-x-item__kip {
+  flex: none; font-size: var(--fs-xs); color: var(--ash);
+  padding: 1px 6px; border-radius: 9px; background: var(--canvas);
+}
 
 /* --- form ghi tại chỗ --- */
 .thsx-x-form {

@@ -28,6 +28,14 @@ export function ngayGio(v: string | null | undefined): string {
   return `${d.toLocaleDateString("vi-VN")} ${d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+/** Chỉ GIỜ:PHÚT — dùng khi ngày đã rõ từ ngữ cảnh (mốc trong cùng một mẻ, một ca). */
+export function gioNgan(v: string | null | undefined): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+}
+
 /** Số ngày còn lại tới hạn (âm = đã quá hạn). null khi không có hạn. */
 export function conLai(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null;
