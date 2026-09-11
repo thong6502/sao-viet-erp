@@ -47,6 +47,14 @@ _KEYS_ITEM = {
 }
 
 
+def _ban_phang(db, user, authz, **kw):
+    """Bàn tổ ở chế độ PHẲNG — mảng bước, đúng hình mà loạt bài dưới đây soi (và là hình Gantt
+    dùng). Từ 11/09/2026 `work_items` mặc định trả tầng LỆNH có phân trang; tầng đó có bài riêng ở
+    `tests/test_san_xuat_lenh_phan_trang.py`, còn ở đây ta cố định `nhom="phang"`."""
+    kw.setdefault("nhom", "phang")
+    return board.work_items(db, user, authz, **kw)
+
+
 class _FakeAuthz:
     """Ép cứng scope để soi từng nhánh `_to_thay_duoc` mà không phụ thuộc tên role seed."""
 
@@ -146,7 +154,7 @@ def test_work_items_liet_ke_day_du(db, orders, lsx_svc, admin, customer):
     to = _to_moi(db)
     _a, _b, goi = _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
 
-    res = board.work_items(db, admin, _authz(db), team_id=to.id)
+    res = _ban_phang(db, admin, _authz(db), team_id=to.id)
     assert res["team_id"] == to.id
     cv = res["cong_viec"]
     assert len(cv) == db.query(SanXuatCongViec).filter_by(department_id=to.id).count()
@@ -185,7 +193,7 @@ def test_work_items_lop_thuc_te_theo_phien_chay(db, orders, lsx_svc, admin, cust
     ])
     db.commit()
 
-    res = board.work_items(db, admin, _authz(db), team_id=to.id)
+    res = _ban_phang(db, admin, _authz(db), team_id=to.id)
     item = next(w for w in res["cong_viec"] if w["id"] == cvid)
     tt = item["thuc_te"]
     assert len(tt) == 2                       # đúng thứ tự so_thu_tu
@@ -212,7 +220,7 @@ def test_work_items_ten_may_lay_tu_danh_muc_dang_chay(db, orders, lsx_svc, admin
     db.query(SanXuatCongViec).filter_by(id=cvid).update({"may_id": may.id})
     db.commit()
 
-    res = board.work_items(db, admin, _authz(db), team_id=to.id)
+    res = _ban_phang(db, admin, _authz(db), team_id=to.id)
     item = next(w for w in res["cong_viec"] if w["id"] == cvid)
     assert item["may"] == "Máy in offset 4 màu"
 
@@ -282,7 +290,7 @@ def test_work_items_moi_moc_gio_cung_mot_thang(db, orders, lsx_svc, admin, custo
     db.commit()
 
     item = next(
-        w for w in board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"]
+        w for w in _ban_phang(db, admin, _authz(db), team_id=to.id)["cong_viec"]
         if w["id"] == cvid
     )
     assert item["du_kien_bat_dau"].tzinfo is None
@@ -328,7 +336,7 @@ def test_scope_own_them_to_kiem_nhiem(db, orders, lsx_svc, admin, customer):
     ts = board.teams(db, user, _FakeAuthz(SCOPE_OWN))
     assert {t["id"] for t in ts} == {nha.id, kiem.id}
 
-    res = board.work_items(db, user, _FakeAuthz(SCOPE_OWN), team_id=kiem.id)
+    res = _ban_phang(db, user, _FakeAuthz(SCOPE_OWN), team_id=kiem.id)
     assert res["team_id"] == kiem.id and len(res["cong_viec"]) > 0
 
 
@@ -340,15 +348,15 @@ def test_work_items_ngoai_pham_vi_bi_chan(db, orders, lsx_svc, admin, customer):
     # User chỉ thuộc `ngoai` (scope own): xem việc của `to` → chặn; xem tổ mình → được (rỗng).
     user = SimpleNamespace(id=admin.id, department_id=ngoai.id, role_id=admin.role_id)
     with pytest.raises(PermissionError):
-        board.work_items(db, user, _FakeAuthz(SCOPE_OWN), team_id=to.id)
-    res = board.work_items(db, user, _FakeAuthz(SCOPE_OWN), team_id=ngoai.id)
+        _ban_phang(db, user, _FakeAuthz(SCOPE_OWN), team_id=to.id)
+    res = _ban_phang(db, user, _FakeAuthz(SCOPE_OWN), team_id=ngoai.id)
     assert res["team_id"] == ngoai.id and res["cong_viec"] == []
 
 
 def test_work_items_team_khong_hop_le_bi_chan(db, admin):
     # Không phải node lá Khối SX → ngoài tập cho phép → chặn (kể cả scope all).
     with pytest.raises(PermissionError):
-        board.work_items(db, admin, _authz(db), team_id=999_999)
+        _ban_phang(db, admin, _authz(db), team_id=999_999)
 
 
 # --- Task 4: tách board production/KCS + hai badge (§18 mục 6, mg 0250) ---------------------
@@ -356,7 +364,7 @@ def test_mode_production_chi_tra_khong_kcs(db, orders, lsx_svc, admin, customer)
     to = _to_moi(db)
     _phat_hanh_vao_to_co_kcs(db, orders, lsx_svc, admin, customer, to.id)
 
-    res = board.work_items(db, admin, _authz(db), team_id=to.id, mode="production")
+    res = _ban_phang(db, admin, _authz(db), team_id=to.id, mode="production")
     items = res["cong_viec"]
     assert items  # tổ này còn việc sản xuất khác ngoài bước KCS
     assert all(i["la_kcs"] is False for i in items)
@@ -366,7 +374,7 @@ def test_mode_kcs_chi_tra_kcs(db, orders, lsx_svc, admin, customer):
     to = _to_moi(db)
     _phat_hanh_vao_to_co_kcs(db, orders, lsx_svc, admin, customer, to.id)
 
-    res = board.work_items(db, admin, _authz(db), team_id=to.id, mode="kcs")
+    res = _ban_phang(db, admin, _authz(db), team_id=to.id, mode="kcs")
     items = res["cong_viec"]
     assert items  # fixture đảm bảo có ít nhất 1 việc la_kcs=True
     assert all(i["la_kcs"] is True for i in items)
@@ -376,8 +384,8 @@ def test_thieu_mode_mac_dinh_production(db, orders, lsx_svc, admin, customer):
     to = _to_moi(db)
     _phat_hanh_vao_to_co_kcs(db, orders, lsx_svc, admin, customer, to.id)
 
-    mac_dinh = board.work_items(db, admin, _authz(db), team_id=to.id)
-    tuong_minh = board.work_items(db, admin, _authz(db), team_id=to.id, mode="production")
+    mac_dinh = _ban_phang(db, admin, _authz(db), team_id=to.id)
+    tuong_minh = _ban_phang(db, admin, _authz(db), team_id=to.id, mode="production")
     assert mac_dinh == tuong_minh
 
 
@@ -511,14 +519,14 @@ def test_tho_chi_thay_viec_duoc_giao(db, orders, lsx_svc, admin, customer):
     u = _tho_co_tai_khoan(db, to, username="tho_board_1", ma_nv="NV-BOARD-1")
     tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
 
-    ca_ban = board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"]
+    ca_ban = _ban_phang(db, admin, _authz(db), team_id=to.id)["cong_viec"]
     assert len(ca_ban) >= 2, "cần ít nhất 2 việc mới soi được phép lọc"
 
     # Chưa giao gì → không thấy việc nào, KHÔNG rơi về "thấy hết".
-    assert board.work_items(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"] == []
+    assert _ban_phang(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"] == []
 
     _giao(db, ca_ban[0]["id"], _emp_id(db, u.id))
-    thay = board.work_items(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"]
+    thay = _ban_phang(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"]
     assert [w["id"] for w in thay] == [ca_ban[0]["id"]]
 
 
@@ -530,8 +538,8 @@ def test_to_truong_van_thay_ca_ban(db, orders, lsx_svc, admin, customer):
     _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
 
     truong = SimpleNamespace(id=admin.id, department_id=to.id, role_id=admin.role_id)
-    thay = board.work_items(db, truong, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"]
-    assert len(thay) == len(board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"])
+    thay = _ban_phang(db, truong, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"]
+    assert len(thay) == len(_ban_phang(db, admin, _authz(db), team_id=to.id)["cong_viec"])
     assert thay
 
 
@@ -544,11 +552,11 @@ def test_badge_navbar_cua_tho_khop_so_viec_mo_ra(db, orders, lsx_svc, admin, cus
 
     u = _tho_co_tai_khoan(db, to, username="tho_board_2", ma_nv="NV-BOARD-2")
     tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
-    ca_ban = board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"]
+    ca_ban = _ban_phang(db, admin, _authz(db), team_id=to.id)["cong_viec"]
     _giao(db, ca_ban[0]["id"], _emp_id(db, u.id))
 
     badge = {t["id"]: t["so_viec_cho"] for t in board.teams(db, tho, _FakeAuthz(SCOPE_OWN))}
-    so_dong = len(board.work_items(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"])
+    so_dong = len(_ban_phang(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"])
     assert badge[to.id] == so_dong == 1
 
 
@@ -561,7 +569,7 @@ def test_tho_mo_viec_khong_duoc_giao_bi_chan(db, orders, lsx_svc, admin, custome
 
     u = _tho_co_tai_khoan(db, to, username="tho_board_3", ma_nv="NV-BOARD-3")
     tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
-    ca_ban = board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"]
+    ca_ban = _ban_phang(db, admin, _authz(db), team_id=to.id)["cong_viec"]
     _giao(db, ca_ban[0]["id"], _emp_id(db, u.id))
 
     ct = board.chi_tiet_cong_viec(db, tho, _FakeAuthz(SCOPE_OWN), cong_viec_id=ca_ban[0]["id"])
@@ -581,4 +589,4 @@ def test_tai_khoan_chua_noi_ho_so_nhan_vien_thi_khong_thay_gi(db, orders, lsx_sv
     db.add(u)
     db.commit()
     tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
-    assert board.work_items(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"] == []
+    assert _ban_phang(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"] == []

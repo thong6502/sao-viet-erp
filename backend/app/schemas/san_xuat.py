@@ -113,9 +113,37 @@ class WorkItemOut(BaseModel):
     khuon_da_tra: bool = False
 
 
+class TrangOut(BaseModel):
+    """Vị trí trang + tổng số LỆNH (không phải tổng số bước) — đơn vị trang của bàn tổ là LỆNH."""
+    trang: int
+    co_trang: int
+    tong: int
+
+
+class LenhNhomOut(BaseModel):
+    """Một LỆNH SX (hoặc BÀI GHÉP) trên bàn tổ, kèm các công đoạn CỦA TỔ trong lệnh ấy.
+
+    Đơn vị VIỆC vẫn là CÔNG ĐOẠN: `cong_viec` là các bước tổ thực sự bấm Bắt đầu / Ghi sản lượng,
+    giữ nguyên `WorkItemOut`. Lệnh chỉ là ĐẦU MỤC bọc ngoài, để tổ trưởng biết công đoạn đó của
+    lệnh nào. Bài ghép là MỘT dòng, không xẻ theo lệnh thành viên: nó chạy một lần trên một tờ."""
+    nguon_loai: str               # "lsx" | "bai_ghep"
+    nguon_ma: str
+    nguon_ten: str
+    lsx_id: int | None = None
+    bai_ghep_id: int | None = None
+    som_nhat: datetime | None = None   # giờ dự kiến bước SỚM NHẤT của tổ trong lệnh
+    muon_nhat: datetime | None = None
+    so_viec: int
+    digest: dict[str, int]             # released / running / paused / completed
+    cong_viec: list[WorkItemOut]
+
+
 class WorkItemsOut(BaseModel):
     team_id: int
-    cong_viec: list[WorkItemOut]
+    nhom: str = "lenh"                 # "lenh" (mặc định) | "phang" (Gantt)
+    trang: TrangOut | None = None      # chỉ có ở nhom="lenh"
+    lenh: list[LenhNhomOut] = []
+    cong_viec: list[WorkItemOut] = []  # chỉ có ở nhom="phang" — hình CŨ, Gantt không phải sửa
 
 
 class NhanVienChonOut(BaseModel):

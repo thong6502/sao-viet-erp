@@ -83,3 +83,57 @@ def test_work_items_mode_query_param(client):
         headers=_admin_h(client),
     )
     assert resp_bad.status_code == 422
+
+
+# --- Bàn tổ trục LỆNH (spec 2026-09-11) ------------------------------------------------------
+def test_work_items_mac_dinh_tra_nhom_lenh(client):
+    """Hình dạng mới: mặc định gom theo LỆNH và kèm vị trí trang. Tổ rỗng vẫn phải nói rõ
+    `nhom` + `trang`, nếu không FE không biết đang ở chế độ nào để vẽ."""
+    to_id = _to_la_sx(ten="Tổ Lệnh API", ma="TO-LENH-API")
+    r = client.get(
+        "/api/san-xuat/work-items",
+        params={"team_id": to_id, "co_trang": 2},
+        headers=_admin_h(client),
+    )
+    assert r.status_code == 200
+    d = r.json()
+    assert d["nhom"] == "lenh"
+    assert d["trang"] == {"trang": 1, "co_trang": 2, "tong": 0}
+    assert d["lenh"] == []
+
+
+def test_work_items_che_do_phang_giu_hinh_cu_cho_gantt(client):
+    to_id = _to_la_sx(ten="Tổ Phẳng API", ma="TO-PHANG-API")
+    r = client.get(
+        "/api/san-xuat/work-items",
+        params={"team_id": to_id, "nhom": "phang",
+                "tu_ngay": "2026-09-01", "den_ngay": "2026-09-30"},
+        headers=_admin_h(client),
+    )
+    assert r.status_code == 200
+    d = r.json()
+    assert d["nhom"] == "phang"
+    assert isinstance(d["cong_viec"], list)
+    assert d["lenh"] == [] and d["trang"] is None
+
+
+def test_work_items_co_trang_bi_kep_tran_100(client):
+    """Trần phải do schema chặn, không để service tự bóp im lặng: client gửi 9999 phải biết mình
+    gửi sai, chứ không nhận về 100 dòng rồi tưởng đã lấy hết."""
+    to_id = _to_la_sx(ten="Tổ Trần API", ma="TO-TRAN-API")
+    r = client.get(
+        "/api/san-xuat/work-items",
+        params={"team_id": to_id, "co_trang": 9999},
+        headers=_admin_h(client),
+    )
+    assert r.status_code == 422
+
+
+def test_work_items_nhom_la_bi_chan(client):
+    to_id = _to_la_sx(ten="Tổ Nhóm Lạ", ma="TO-NHOM-LA")
+    r = client.get(
+        "/api/san-xuat/work-items",
+        params={"team_id": to_id, "nhom": "abc"},
+        headers=_admin_h(client),
+    )
+    assert r.status_code == 422

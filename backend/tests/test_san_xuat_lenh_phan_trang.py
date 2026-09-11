@@ -179,3 +179,76 @@ def test_loc_theo_nguoi_duoc_giao_chay_o_SQL_truoc_khi_cat_trang(
         {to_id}, employee_id=emp_id, trang=1, co_trang=2)
     assert tong == 1
     assert len(rows) == 1
+
+
+# --- Tầng service: work_items gom theo LỆNH nhưng THẺ VIỆC vẫn là CÔNG ĐOẠN -------------------
+def _authz(db):
+    from app.repositories.rbac_repo import RoleRepository
+    from app.services.rbac_service import AuthorizationService
+
+    return AuthorizationService(RoleRepository(db))
+
+
+def test_work_items_gom_theo_lenh_the_viec_van_la_cong_doan(db, admin, to_co_3_lenh_9_buoc):
+    from app.services.san_xuat import board
+
+    to_id = to_co_3_lenh_9_buoc
+    d = board.work_items(db, admin, _authz(db), team_id=to_id, co_trang=2)
+
+    assert d["nhom"] == "lenh"
+    assert d["trang"] == {"trang": 1, "co_trang": 2, "tong": 3}
+    assert len(d["lenh"]) == 2
+
+    l0 = d["lenh"][0]
+    assert l0["nguon_loai"] in ("lsx", "bai_ghep")
+    assert l0["nguon_ma"], "không có mã lệnh thì tổ trưởng vẫn không biết công đoạn này của lệnh nào"
+    assert l0["so_viec"] == len(l0["cong_viec"])
+    assert set(l0["digest"]) == {"released", "running", "paused", "completed"}
+    assert sum(l0["digest"].values()) == l0["so_viec"]
+    # Thẻ việc bên trong giữ ĐÚNG hình cũ — bốn view đọc chung một hình.
+    assert {"id", "ten_cong_doan", "trang_thai", "du_kien_bat_dau"} <= set(l0["cong_viec"][0])
+
+
+def test_work_items_khong_xe_mot_lenh_qua_hai_trang(db, admin, to_co_3_lenh_9_buoc):
+    from app.services.san_xuat import board
+
+    to_id = to_co_3_lenh_9_buoc
+    az = _authz(db)
+    t1 = board.work_items(db, admin, az, team_id=to_id, trang=1, co_trang=2)
+    t2 = board.work_items(db, admin, az, team_id=to_id, trang=2, co_trang=2)
+    khoa1 = {(x["nguon_loai"], x["lsx_id"], x["bai_ghep_id"]) for x in t1["lenh"]}
+    khoa2 = {(x["nguon_loai"], x["lsx_id"], x["bai_ghep_id"]) for x in t2["lenh"]}
+    assert khoa1 & khoa2 == set()
+    ids1 = {cv["id"] for x in t1["lenh"] for cv in x["cong_viec"]}
+    ids2 = {cv["id"] for x in t2["lenh"] for cv in x["cong_viec"]}
+    assert ids1 & ids2 == set(), "một bước chỉ được thuộc đúng một trang"
+
+
+def test_work_items_che_do_phang_giu_mang_buoc_cho_gantt(db, admin, to_co_3_lenh_9_buoc):
+    from app.services.san_xuat import board
+
+    to_id = to_co_3_lenh_9_buoc
+    d = board.work_items(db, admin, _authz(db), team_id=to_id, nhom="phang")
+    assert d["nhom"] == "phang"
+    assert d["cong_viec"] and "lenh" not in d
+    assert {"id", "ten_cong_doan", "trang_thai"} <= set(d["cong_viec"][0])
+
+
+def test_cua_so_ngay_KHONG_nuot_buoc_chua_xep_gio(db, admin, to_co_3_lenh_9_buoc):
+    """Bước chưa xếp giờ nằm ở khúc "chưa định giờ" của Gantt — cắt nó theo cửa sổ là làm nó biến
+    mất khỏi MỌI khoảng, không màn nào tìm lại được."""
+    from datetime import date
+
+    from app.services.san_xuat import board
+
+    to_id = to_co_3_lenh_9_buoc
+    db.query(SanXuatCongViec).filter(SanXuatCongViec.department_id == to_id).update(
+        {SanXuatCongViec.du_kien_bat_dau: None, SanXuatCongViec.du_kien_ket_thuc: None},
+        synchronize_session=False,
+    )
+    db.commit()
+    d = board.work_items(
+        db, admin, _authz(db), team_id=to_id, nhom="phang",
+        tu_ngay=date(2026, 9, 1), den_ngay=date(2026, 9, 2),
+    )
+    assert d["cong_viec"], "bước chưa xếp giờ phải còn nguyên"

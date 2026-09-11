@@ -10,6 +10,8 @@ Không có "quyền ghi đè cho quản lý cấp cao" (§10) — cấp trên ph
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -275,23 +277,10 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=No
     }
 
 
-def work_items(
-    db: Session, user: User, authz: AuthorizationService, *, team_id: int,
-    mode: str = "production",
-) -> dict:
-    """Công việc đã phát hành của MỘT tổ (timeline), lọc theo `mode` (Task 4, §18 mục 6):
-    - "production" (mặc định) → chỉ việc SẢN XUẤT (`la_kcs=false`).
-    - "kcs" → chỉ việc KCS (`la_kcs=true`).
-    Chặn nếu tổ ngoài phạm vi quyền của user. Router ép kiểu `mode` bằng `Literal` trước khi gọi
-    xuống đây — service nhận `str` thô là đủ."""
-    repo = SanXuatRepository(db)
-    _tos, ids = _to_thay_duoc(db, user, authz)
-    if team_id not in ids:
-        raise PermissionError("Ngoài phạm vi tổ được phép xem.")
-
-    rows = repo.cong_viec_cua_to({team_id}, la_kcs=(mode == "kcs"))
-    if _la_tho(user, authz, next((d for d in _tos if d.id == team_id), None)):
-        rows = _loc_viec_cua_tho(db, user, rows)
+def _dung_items(db: Session, repo: SanXuatRepository, rows: list) -> list[dict]:
+    """Dựng payload thẻ việc cho một tập bước — GỘP mọi truy vấn phụ, không N+1 theo dòng."""
+    if not rows:
+        return []
     lsx_map = repo.lsx_nhan({cv.lsx_id for cv in rows if cv.lsx_id})
     bg_map = repo.bai_ghep_nhan({cv.bai_ghep_id for cv in rows if cv.bai_ghep_id})
     may_map = repo.may_nhan({cv.may_id for cv in rows if cv.may_id})
@@ -302,14 +291,112 @@ def work_items(
     # (một truy vấn/việc) theo từng dòng, bàn tổ có thể có hàng chục công việc.
     sl_repo = SanXuatSanLuongRepository(db)
     cv_ids = {cv.id for cv in rows}
-    tot_map = sl_repo.tong_tot_nhieu(cv_ids)
-    nhan_map = sl_repo.tong_thuc_nhan_nhieu(cv_ids)
-    so_map = _so_lieu_map(rows, tot_map, nhan_map)
-    items = [
+    so_map = _so_lieu_map(rows, sl_repo.tong_tot_nhieu(cv_ids),
+                          sl_repo.tong_thuc_nhan_nhieu(cv_ids))
+    return [
         _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map, so_map)
         for cv in rows
     ]
-    return {"team_id": team_id, "cong_viec": items}
+
+
+def _trong_cua_so(cv, tu_ngay: date | None, den_ngay: date | None) -> bool:
+    """Bước có GIAO với cửa sổ ngày? Bước chưa xếp giờ LUÔN giữ lại — nó nằm ở khúc "chưa định
+    giờ" của cột trái, cắt nó theo cửa sổ là làm nó mất hẳn khỏi mọi trang."""
+    if cv.du_kien_bat_dau is None or cv.du_kien_ket_thuc is None:
+        return True
+    if den_ngay is not None and cv.du_kien_bat_dau.date() > den_ngay:
+        return False
+    if tu_ngay is not None and cv.du_kien_ket_thuc.date() < tu_ngay:
+        return False
+    return True
+
+
+def _digest(rows) -> dict[str, int]:
+    """Đếm bước theo trạng thái cho nhãn của một lệnh — cùng bốn khoá mà FE `sxDigest` dùng."""
+    d = {"released": 0, "running": 0, "paused": 0, "completed": 0}
+    for cv in rows:
+        d[cv.trang_thai if cv.trang_thai in d else "released"] += 1
+    return d
+
+
+def work_items(
+    db: Session, user: User, authz: AuthorizationService, *, team_id: int,
+    mode: str = "production",
+    nhom: str = "lenh",
+    trang: int = 1,
+    co_trang: int = 20,
+    tu_ngay: date | None = None,
+    den_ngay: date | None = None,
+) -> dict:
+    """Việc đã phát hành của MỘT tổ. Hai hình, chọn bằng `nhom`:
+
+    · `"lenh"` (mặc định) — **đầu mục là LỆNH SX / BÀI GHÉP**, mỗi lệnh một dòng, bên trong là các
+      CÔNG ĐOẠN của chính tổ này (thẻ việc giữ nguyên hình cũ — đơn vị việc vẫn là công đoạn).
+      Chủ xưởng chốt 11/09/2026: *"lệnh hoặc bài ghép thôi, chứ không làm sao tôi biết được công
+      đoạn đó cho lệnh nào"*. Gom nhóm + CẮT TRANG ở máy chủ, đơn vị trang là LỆNH.
+    · `"phang"` — mảng bước phẳng như trước, cho view **Gantt** (trục thời gian không có tầng
+      lệnh). Nhận thêm cửa sổ `tu_ngay`/`den_ngay` để Gantt chỉ kéo đúng khoảng đang xem thay vì
+      cả bàn.
+
+    `mode` lọc như cũ (Task 4, §18 mục 6): "production" → `la_kcs=false`, "kcs" → `la_kcs=true`.
+
+    THỢ (scope `own`, không phải tổ trưởng) chỉ thấy việc mình được giao — lọc bằng `employee_id`
+    ĐẨY XUỐNG SQL, trước cả lúc gom lệnh và cắt trang (§6 spec). Router ép kiểu `mode`/`nhom` bằng
+    `Literal` trước khi gọi xuống đây — service nhận `str` thô là đủ."""
+    repo = SanXuatRepository(db)
+    _tos, ids = _to_thay_duoc(db, user, authz)
+    if team_id not in ids:
+        raise PermissionError("Ngoài phạm vi tổ được phép xem.")
+    la_kcs = (mode == "kcs")
+    emp_id: int | None = None
+    if _la_tho(user, authz, next((d for d in _tos if d.id == team_id), None)):
+        nv = SanXuatThucThiRepository(db).nhan_vien_theo_user(user.id)
+        # Tài khoản chưa nối hồ sơ nhân viên ⇒ KHÔNG có việc nào, không rơi về "thấy hết".
+        if nv is None:
+            return ({"team_id": team_id, "nhom": "phang", "cong_viec": []} if nhom == "phang"
+                    else {"team_id": team_id, "nhom": "lenh",
+                          "trang": {"trang": trang, "co_trang": co_trang, "tong": 0}, "lenh": []})
+        emp_id = nv.id
+
+    if nhom == "phang":
+        rows = repo.cong_viec_cua_to({team_id}, la_kcs=la_kcs, employee_id=emp_id)
+        if tu_ngay is not None or den_ngay is not None:
+            rows = [cv for cv in rows if _trong_cua_so(cv, tu_ngay, den_ngay)]
+        return {"team_id": team_id, "nhom": "phang",
+                "cong_viec": _dung_items(db, repo, rows)}
+
+    khoa_trang, tong = repo.lenh_cua_to_phan_trang(
+        {team_id}, la_kcs=la_kcs, employee_id=emp_id, trang=trang, co_trang=co_trang)
+    khoa = [k for k, _, _ in khoa_trang]
+    rows = repo.cong_viec_cua_lenh({team_id}, khoa, la_kcs=la_kcs, employee_id=emp_id)
+    item_theo_id = {it["id"]: it for it in _dung_items(db, repo, rows)}
+    cv_theo_khoa: dict[tuple[str, int | None], list] = {}
+    for cv in rows:
+        k = ("bai_ghep", cv.bai_ghep_id) if cv.bai_ghep_id else ("lsx", cv.lsx_id)
+        cv_theo_khoa.setdefault(k, []).append(cv)
+
+    lsx_map = repo.lsx_nhan({i for loai, i in khoa if loai == "lsx" and i})
+    bg_map = repo.bai_ghep_nhan({i for loai, i in khoa if loai == "bai_ghep" and i})
+    ra: list[dict] = []
+    for (loai, nid), som, muon in khoa_trang:
+        cvs = cv_theo_khoa.get((loai, nid), [])
+        ma, ten = (bg_map if loai == "bai_ghep" else lsx_map).get(nid or 0, ("", ""))
+        ma, ten = ma or "", ten or ""
+        ra.append({
+            "nguon_loai": loai,
+            "nguon_ma": ma,
+            "nguon_ten": ten,
+            "lsx_id": nid if loai == "lsx" else None,
+            "bai_ghep_id": nid if loai == "bai_ghep" else None,
+            "som_nhat": lich_hien_thi(som),
+            "muon_nhat": lich_hien_thi(muon),
+            "so_viec": len(cvs),
+            "digest": _digest(cvs),
+            "cong_viec": [item_theo_id[cv.id] for cv in cvs if cv.id in item_theo_id],
+        })
+    return {"team_id": team_id, "nhom": "lenh",
+            "trang": {"trang": trang, "co_trang": co_trang, "tong": tong},
+            "lenh": ra}
 
 
 def nhan_vien_chon(

@@ -373,12 +373,26 @@ def work_items(
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     team_id: int = Query(..., ge=1),
     mode: Literal["production", "kcs"] = Query("production"),
+    nhom: Literal["lenh", "phang"] = Query("lenh"),
+    trang: int = Query(1, ge=1),
+    co_trang: int = Query(20, ge=1, le=100),
+    tu_ngay: date | None = Query(None),
+    den_ngay: date | None = Query(None),
 ) -> WorkItemsOut:
-    """Công việc đã phát hành của MỘT tổ, lọc theo `mode` (§18 /work-items, Task 4).
+    """Việc đã phát hành của MỘT tổ, lọc theo `mode` (§18 /work-items, Task 4).
+
+    `nhom="lenh"` (mặc định) trả ĐẦU MỤC LỆNH SX / BÀI GHÉP, mỗi lệnh bọc các công đoạn của tổ —
+    đơn vị việc vẫn là CÔNG ĐOẠN, lệnh chỉ là tầng nhãn để tổ trưởng biết công đoạn này của lệnh
+    nào. Cắt trang Ở MÁY CHỦ và đếm trang bằng LỆNH nên một lệnh không bao giờ bị xé đôi;
+    `co_trang` chặn trần ngay tại đây (`le=100`) chứ không bóp im lặng trong service.
+
+    `nhom="phang"` giữ nguyên mảng bước phẳng cho Gantt, thêm cửa sổ `tu_ngay`/`den_ngay`.
+
     403 nếu tổ ngoài phạm vi quyền."""
     try:
         return WorkItemsOut.model_validate(
-            board.work_items(db, user, authz, team_id=team_id, mode=mode)
+            board.work_items(db, user, authz, team_id=team_id, mode=mode, nhom=nhom,
+                             trang=trang, co_trang=co_trang, tu_ngay=tu_ngay, den_ngay=den_ngay)
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
