@@ -15,6 +15,9 @@ class TeamOut(BaseModel):
     ten: str
     ma: str
     la_kcs: bool
+    # Vai của NGƯỜI ĐANG XEM ở tổ này, không phải thuộc tính của tổ: cùng một tổ, tổ trưởng thấy
+    # `false` còn thợ trong tổ thấy `true`. FE dựa vào đây để bật băng "Sản lượng của tôi" (§6).
+    la_tho: bool = False
     so_viec_cho: int
     # Task 4 (mg 0250) — badge/cổng cho board KCS kiêm nhiệm, đọc theo `SanXuatCongViec.la_kcs`
     # (cấp CÔNG VIỆC), KHÁC `la_kcs` phía trên (đó là `Department.is_kcs`, cấp TỔ).

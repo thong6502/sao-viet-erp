@@ -122,7 +122,7 @@ def test_teams_liet_ke_va_badge(db, orders, lsx_svc, admin, customer):
     assert to.id in by_id
     row = by_id[to.id]
     assert set(row) == {
-        "id", "ten", "ma", "la_kcs", "so_viec_cho", "so_viec_kcs_cho", "co_viec_kcs",
+        "id", "ten", "ma", "la_kcs", "la_tho", "so_viec_cho", "so_viec_kcs_cho", "co_viec_kcs",
     }
     assert row["ten"] == "Tổ In Board" and row["ma"] == "TO-BOARD" and row["la_kcs"] is False
 
@@ -590,3 +590,20 @@ def test_tai_khoan_chua_noi_ho_so_nhan_vien_thi_khong_thay_gi(db, orders, lsx_sv
     db.commit()
     tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
     assert _ban_phang(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"] == []
+
+
+def test_teams_noi_ro_vai_tho_de_fe_khong_phai_doan(db, orders, lsx_svc, admin, customer):
+    """FE cần biết "tôi vào tổ này với tư cách THỢ" để bật băng *Sản lượng của tôi* (spec §6).
+
+    Điều đó service đã tính sẵn (`to_tho`) — trả ra chứ đừng để FE tự suy từ scope + tổ trưởng:
+    suy sai một nhánh là thợ mất băng, hoặc tổ trưởng bị gán nhầm vai thợ."""
+    to = _to_moi(db)
+    to.head_user_id = admin.id
+    db.commit()
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+
+    u = _tho_co_tai_khoan(db, to, username="tho_board_vai", ma_nv="NV-BOARD-VAI")
+    tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
+
+    assert {t["id"]: t["la_tho"] for t in board.teams(db, tho, _FakeAuthz(SCOPE_OWN))}[to.id] is True
+    assert {t["id"]: t["la_tho"] for t in board.teams(db, admin, _authz(db))}[to.id] is False

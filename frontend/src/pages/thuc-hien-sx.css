@@ -2446,3 +2446,24 @@
 .thsx-trang__nut:disabled { opacity: 0.45; cursor: default; }
 .thsx-trang__vt { font-size: var(--fs-sm); color: #475569; }
 .thsx-trang__tong { color: #94a3b8; }
+
+/* ---------------- Băng "Sản lượng của tôi" (thợ, spec 2026-09-11 §6) --------
+ * Một dải mảnh ngay dưới top bar: thợ liếc một cái là biết tháng này mình làm được bao nhiêu,
+ * không phải mở màn khác. KHÔNG có ô tiền — sản xuất chỉ ghi số lượng.
+ * Số để CỠ LỚN vì đọc trong xưởng, đứng xa máy, tay còn bẩn mực. */
+.thsx-slt {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-5);
+  border-bottom: 1px solid var(--rule-soft);
+  background: color-mix(in srgb, var(--moss) 8%, var(--paper));
+}
+.thsx-slt__nhan { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--moss-deep); }
+.thsx-slt__so { display: flex; align-items: baseline; gap: var(--sp-4); flex-wrap: wrap; }
+.thsx-slt__dv { font-size: var(--fs-sm); color: var(--ash); }
+.thsx-slt__dv b { font-size: var(--fs-xl); color: var(--ink); }
+.thsx-slt__me { font-size: var(--fs-xs); color: var(--ash-2); }
+.thsx-slt__trong { font-size: var(--fs-xs); color: var(--ash-2); }

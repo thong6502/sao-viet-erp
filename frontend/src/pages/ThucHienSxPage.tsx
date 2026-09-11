@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError, api,
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon, type SxLenhNhom,
-  type SxHoTroUngVien,
+  type SxHoTroUngVien, type SxSanLuongCuaToi,
   type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
   type SxKhoHopThu, type SxSuCoIn,
 } from "../api/client";
@@ -34,6 +34,7 @@ import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { ThsxDrawer } from "./ThsxDrawer";
 import { type ThsxExec } from "./ThsxExecPanels";
 import { ThsxHopThuBar, type Opt } from "./ThsxG5";
+import { ThsxSanLuongCuaToi } from "./ThsxSanLuongCuaToi";
 import {
   buildThsxClusters, sxCoGio, sxDigest, sxNguonIcon, sxSerial, ThsxTrangThaiPill,
 } from "./thsxShared";
@@ -104,6 +105,7 @@ function reasonTitle(r: { kind: ReasonKind; tre: boolean; soNguoi?: unknown }): 
 export function ThucHienSxPage({
   teamId,
   tenTo,
+  laTho = false,
   mode = "production",
   eventTick,
   vatTuDeNghiDem,
@@ -112,6 +114,9 @@ export function ThucHienSxPage({
 }: {
   teamId: number;
   tenTo?: string;
+  /** Người đang xem vào tổ này với tư cách THỢ (cờ `la_tho` của `GET /teams`, do máy chủ tính).
+   *  Bật băng "Sản lượng của tôi" theo cờ này chứ không suy từ scope ở FE. */
+  laTho?: boolean;
   mode?: "production" | "kcs";
   eventTick?: number;
   /** Số lần đề nghị cấp vật tư đổi, ĐẾM THEO công việc (SSE, mắc ở AppShell). CỐ TÌNH không đi qua
@@ -208,6 +213,18 @@ export function ThucHienSxPage({
   // Đổi tổ / đổi từ khoá / đổi chế độ lọc ⇒ trang cũ không còn nghĩa, về trang 1.
   useEffect(() => { setTrang(1); }, [teamId, mode, qd]);
   const soTrang = Math.max(1, Math.ceil(tongLenh / CO_TRANG));
+
+  // Luỹ kế sản lượng tháng của CHÍNH mình — CHỈ nạp khi vào tổ với tư cách THỢ (§6). Tổ trưởng
+  // không có băng này: bảng ai-được-bao-nhiêu của cả tổ đã nằm trong drawer từng mẻ.
+  // Nạp lại theo `eventTick` để vừa chốt một bản chia xong là con số nhích ngay, không phải F5.
+  const [slToi, setSlToi] = useState<SxSanLuongCuaToi | null>(null);
+  useEffect(() => {
+    if (!token || !laTho) { setSlToi(null); return; }
+    const nay = new Date();
+    api.sanXuat.sanLuongCuaToi(token, nay.getFullYear(), nay.getMonth() + 1)
+      .then(setSlToi)
+      .catch(() => setSlToi(null));
+  }, [token, laTho, eventTick]);
 
   // Ứng viên "Giao người" — endpoint riêng module (KHÔNG dùng api.employees vì gác quyền nhan_su).
   useEffect(() => {
@@ -718,6 +735,8 @@ export function ThucHienSxPage({
           </div>
         )}
       </div>
+
+      <ThsxSanLuongCuaToi data={slToi} />
 
       {/* Thanh phụ: tìm + digest */}
       <div className="thsx-subbar">

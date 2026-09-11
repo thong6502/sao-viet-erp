@@ -1302,6 +1302,7 @@ export function AppShell() {
           key={`thsx-${teamId}`}
           teamId={teamId}
           tenTo={t?.ten}
+          laTho={t?.la_tho ?? false}
           mode="production"
           eventTick={quoteTick}
           vatTuDeNghiDem={vatTuDeNghiDem}

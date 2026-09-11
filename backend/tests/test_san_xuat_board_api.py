@@ -41,9 +41,10 @@ def test_teams_admin_thay_to_moi(client):
     row = next((t for t in teams if t["id"] == to_id), None)
     assert row is not None
     assert set(row) == {
-        "id", "ten", "ma", "la_kcs", "so_viec_cho", "so_viec_kcs_cho", "co_viec_kcs",
+        "id", "ten", "ma", "la_kcs", "la_tho", "so_viec_cho", "so_viec_kcs_cho", "co_viec_kcs",
     }
     assert row["ten"] == "Tổ In API" and row["so_viec_cho"] == 0
+    assert row["la_tho"] is False  # admin không phải thợ của tổ nào
     assert row["so_viec_kcs_cho"] == 0 and row["co_viec_kcs"] is False
 
 

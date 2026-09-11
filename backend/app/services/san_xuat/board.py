@@ -111,6 +111,10 @@ def teams(db: Session, user: User, authz: AuthorizationService) -> list[dict]:
             "ten": d.name,
             "ma": d.code,
             "la_kcs": bool(getattr(d, "is_kcs", False)),
+            # FE cần biết "tôi vào tổ này với tư cách THỢ" để bật băng *Sản lượng của tôi* (§6).
+            # Trả ra con số đã tính sẵn ở trên, đừng để FE tự suy từ scope + tổ trưởng — suy sai
+            # một nhánh là thợ mất băng, hoặc tổ trưởng bị gán nhầm vai thợ.
+            "la_tho": d.id in to_tho,
             "so_viec_cho": badge.get(d.id, 0),
             "so_viec_kcs_cho": kcs_badge.get(d.id, 0),
             "co_viec_kcs": d.id in co_kcs,

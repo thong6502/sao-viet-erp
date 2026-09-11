@@ -1631,6 +1631,10 @@ export interface SxTeam {
   ten: string;
   ma: string;
   la_kcs: boolean;
+  /** Vai của NGƯỜI ĐANG XEM ở tổ này, không phải thuộc tính của tổ: cùng một tổ, tổ trưởng nhận
+   *  `false` còn thợ trong tổ nhận `true`. Bật băng "Sản lượng của tôi" theo cờ này, đừng tự suy
+   *  từ scope + tổ trưởng ở FE. */
+  la_tho: boolean;
   so_viec_cho: number;
   // Task 4 (mg 0250) — badge/cổng board KCS kiêm nhiệm, đọc theo `SanXuatCongViec.la_kcs` (cấp
   // CÔNG VIỆC) — KHÁC `la_kcs` phía trên (đó là `Department.is_kcs`, cấp TỔ).
@@ -1639,6 +1643,18 @@ export interface SxTeam {
 }
 export interface SxTeamsOut {
   teams: SxTeam[];
+}
+
+/** Luỹ kế sản lượng tháng của CHÍNH người đăng nhập — KHÔNG có ô tiền (spec 2026-09-11 §6).
+ *
+ *  Gộp theo ĐƠN VỊ chứ không cộng thành một số: tháng nào thợ chạy cả bước đếm tờ lẫn bước đếm
+ *  cái thì cộng chung lại ra một con số vô nghĩa. `employee_id` null = tài khoản chưa nối hồ sơ. */
+export interface SxSanLuongCuaToi {
+  nam: number;
+  thang: number;
+  employee_id: number | null;
+  theo_don_vi: { don_vi: string | null; tong: number }[];
+  so_me: number;
 }
 
 export interface SxWorkItem {
@@ -12146,16 +12162,23 @@ export const api = {
       teamId: number;
       mode?: "production" | "kcs";
       nhom?: "lenh" | "phang";
+      tim?: string;
       trang?: number;
       coTrang?: number;
       tuNgay?: string;
       denNgay?: string;
     }): Promise<SxWorkItemsOut> {
       const suffix = qs({
-        team_id: p.teamId, mode: p.mode, nhom: p.nhom,
+        team_id: p.teamId, mode: p.mode, nhom: p.nhom, tim: p.tim,
         trang: p.trang, co_trang: p.coTrang, tu_ngay: p.tuNgay, den_ngay: p.denNgay,
       });
       return authed<SxWorkItemsOut>(`/api/san-xuat/work-items${suffix}`, token);
+    },
+    /** Luỹ kế sản lượng tháng của CHÍNH mình. KHÔNG truyền `employee_id` — BE luôn suy từ token,
+     *  truyền được là ai cũng xem được sản lượng người khác bằng cách đổi một số trên URL. */
+    sanLuongCuaToi(token: string, nam: number, thang: number): Promise<SxSanLuongCuaToi> {
+      return authed<SxSanLuongCuaToi>(
+        `/api/san-xuat/toi/san-luong${qs({ nam, thang })}`, token);
     },
     /** Drawer một công việc: thanh kế hoạch + roster + phiên chạy + khoảng tham gia. */
     chiTiet(token: string, congViecId: number): Promise<SxWorkItemChiTiet> {
