@@ -13491,3 +13491,56 @@ def _migrate_quote_item_anh_minh_hoa(db) -> None:
 
 
 MIGRATIONS.append(("0295_quote_item_anh_minh_hoa", _migrate_quote_item_anh_minh_hoa))
+
+
+def _migrate_bo_don_gia_phan_bo(db) -> None:
+    """Sản xuất THÔI giữ tiền: bỏ `don_gia` ở 3 bảng phân bổ (chủ xưởng chốt 11/09/2026).
+
+    *"Bên sản xuất với kế hoạch thì không cần liên quan tới lương khoán đâu, đó là việc của kế
+    toán lương, bên sản xuất chỉ ghi nhận số lượng thôi."* Ba cột này là toàn bộ đường tiền ở tầng
+    sản xuất; bỏ chúng thì `khoan_json.don_gia_hd` và `_don_gia_don_vi` mất chỗ chảy về.
+
+    GIỮ `q_tra_luong` / `so_luong_tra_luong` / `q_ban_dia`: đó là SẢN LƯỢNG THEO NGƯỜI — thứ duy
+    nhất kế toán lương cần nhận, và là dữ liệu thật do tổ ghi.
+
+    Best-effort từng câu: SQLite < 3.35 từ chối `DROP COLUMN` → cột mồ côi vô hại vì model không
+    map nữa. Mất số đơn giá đã ghim trong phân bổ đã chốt — chấp nhận được, chính chúng là số sai
+    của cầu quy đổi đồng nhất (`kq.q_pay = kq.q_native`).
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    for bang in ("san_xuat_phan_bo", "san_xuat_phan_bo_dong", "san_xuat_phan_bo_bu_tru"):
+        if bang not in tables or "don_gia" not in _existing_columns(insp, bang):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN don_gia"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0296_bo_don_gia_phan_bo", _migrate_bo_don_gia_phan_bo))
+
+
+def _migrate_bo_bang_thuong_to_truong(db) -> None:
+    """Bỏ bảng `san_xuat_thuong_to_truong` — thưởng/phạt tổ trưởng là việc của KẾ TOÁN LƯƠNG.
+
+    Bảng này là bảng TIỀN thuần (`tien_khoan`, `rate_pct`, `so_tien`) do lúc ĐÓNG NHÓM ghi ra.
+    Đóng nhóm là việc của sản xuất, mà sản xuất nay không ôm tiền nữa.
+
+    GIỮ `payroll_lines.thuong_to_truong` (cột) và `piece_leader_bonus_brackets` (bảng bậc): cả hai
+    thuộc phía bảng lương, màn "Khoán theo kỳ" của kế toán sẽ rót lại vào đúng cột ấy. Cột tạm về 0.
+
+    Mất các dòng thưởng đã ghi. Không khôi phục được.
+    """
+    insp = inspect(db.get_bind())
+    if "san_xuat_thuong_to_truong" not in set(insp.get_table_names()):
+        return
+    try:
+        db.execute(text("DROP TABLE san_xuat_thuong_to_truong"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+MIGRATIONS.append(("0297_bo_bang_thuong_to_truong", _migrate_bo_bang_thuong_to_truong))

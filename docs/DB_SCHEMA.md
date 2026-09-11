@@ -2912,7 +2912,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `phu_cap_tham_nien` | `Numeric(14,2)` | — | no | `0` | **TRONG ĐÓ** của `allowance` — chép từ `employee_salaries.phu_cap_tham_nien`. Như trên: không cộng thêm vào gross. Thêm qua migration 0089. **NGƯNG 07/09/2026**: kỳ mới engine luôn ghi 0, chỉ kỳ cũ còn số (phiếu in dòng riêng "(đã ngưng)"). |
 | `khoan` | `Numeric(14,2)` | — | no | `0` | Lương khoán (nhịp 2, từ sổ khoán). Thêm qua migration 0013. |
 | `khoan_km` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | **Khoán km giao hàng** (mg 0231; cột vá lại ở 0232 cho DB đã chạy 0231 trước khi phần này thêm vào) — tiền theo km chuyến giao trong kỳ, CỘNG THÊM lên lương chấm công (tài xế ăn cả hai). Là **CỘT** chứ không phải khoản danh mục: tiền engine tự tính thì đứng cùng nhà với `khoan`/`ot_pay`/`chuyen_can`. Nhét vào *Danh mục khoản thu nhập* là đặt công tắc hệ thống ngay cạnh nút xoá của HCNS — lỗi đã mắc với hoa hồng, sửa 24/08/2026. KHÔNG sửa tay được; sai km thì sửa ở chuyến giao rồi tính lại. |
-| `thuong_to_truong` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | **Thưởng/PHẠT tổ trưởng theo chất lượng** (mg 0266) — Σ `san_xuat_thuong_to_truong.so_tien` của kỳ, dòng đã ghi sẵn lúc đóng nhóm thành phẩm nên bảng lương chỉ CỘNG LẠI, không tính lại. **CÓ THỂ ÂM** (bậc phạt) — đó là lý do nó không đi nhờ cột `khoan`: `khoan_map` sàn mỗi phiếu ở `max(0, …)` (Điều 102 BLLĐ) nên tiền phạt biến mất im lặng nếu cộng vào đó. CỘNG ĐẠI SỐ vào `gross` cùng chỗ với `khoan` (điều chỉnh thu nhập khoán, chịu TNCN) chứ KHÔNG vào khối `vi_pham` — khối đó là khấu trừ kỷ luật sau thuế, bị kẹp trần 30%. KHÔNG sửa tay được; sai thì sửa ở bậc thưởng/phiếu KCS rồi đóng nhóm lại. |
+| `thuong_to_truong` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | **Thưởng/PHẠT tổ trưởng theo chất lượng** (mg 0266). **TẠM LUÔN 0 từ 11/09/2026**: nguồn cũ là bảng `san_xuat_thuong_to_truong` ghi lúc đóng nhóm, bảng đó đã bỏ (mg 0297) cùng cơ chế tiền khoán ở sản xuất — đóng nhóm là việc sản xuất, còn thưởng/phạt là TIỀN nên thuộc kế toán lương. Màn "Khoán theo kỳ" của kế toán sẽ rót lại vào đúng cột này, dùng bảng bậc `piece_leader_bonus_brackets` (vẫn còn). **CÓ THỂ ÂM** (bậc phạt) — đó là lý do nó không đi nhờ cột `khoan`: `khoan_map` sàn mỗi phiếu ở `max(0, …)` (Điều 102 BLLĐ) nên tiền phạt biến mất im lặng nếu cộng vào đó. CỘNG ĐẠI SỐ vào `gross` cùng chỗ với `khoan` (điều chỉnh thu nhập khoán, chịu TNCN) chứ KHÔNG vào khối `vi_pham` — khối đó là khấu trừ kỷ luật sau thuế, bị kẹp trần 30%. KHÔNG sửa tay được; sai thì sửa ở bậc thưởng/phiếu KCS rồi đóng nhóm lại. |
 | `hoa_hong` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | **Hoa hồng kinh doanh** (mg 0269, 07/09/2026) — hệ tự tính theo hoá đơn bán trong kỳ (`HoaHongService`), % chụp trên đơn lúc chốt. Là CỘT (chủ: "nó là một dạng lương"), KHÔNG còn là dòng khoản danh mục nguồn `auto` (mg 0227): mg 0269 đã chuyển tiền dòng `auto` cũ vào đây rồi xoá dòng, xoá luôn dòng danh mục `hoa_hong_kd` và tàn dư `khoan_km_gh`. CỘNG THÊM vào `gross`, luôn chịu TNCN, không sửa tay (cần thêm/bớt thì dùng khoản "Thu nhập khác"). Cả `generate` lẫn `update_line` đều cộng cột này — trước 07/09 "Sửa 1 ô" bỏ sót nguồn `auto` nên hoa hồng bốc hơi. |
 | `ot_minutes` | `Integer` | — | no | `0` | Tổng phút tăng ca (từ Chấm công). Thêm qua migration 0043. |
 | `ot_pay` | `Numeric(14,2)` | — | no | `0` | Tiền tăng ca (hệ số phẳng). Thêm qua migration 0043. |
@@ -4771,7 +4771,9 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 
 ### `san_xuat_phan_bo`
 
-**Purpose:** HEADER phân bổ sản lượng của MỘT batch (§12.1, Giai đoạn 4). Bảng MỚI (`create_all`). Một batch tối đa một phân bổ (`batch_id` UNIQUE). Đóng băng Q trả lương + đơn giá + tổng tỷ lệ hỗ trợ; giữ RIÊNG sản lượng bản địa (§12.2). Trạng thái: `draft` → `finalized` → `reopened` → `finalized`.
+**Purpose:** HEADER CHIA SẢN LƯỢNG của MỘT batch (§12.1, Giai đoạn 4). Bảng MỚI (`create_all`). Một batch tối đa một bản chia (`batch_id` UNIQUE). Đóng băng Q trả lương + tổng tỷ lệ hỗ trợ; giữ RIÊNG sản lượng bản địa (§12.2). Trạng thái: `draft` → `finalized` → `reopened` → `finalized`.
+
+KHÔNG còn cột TIỀN nào: `don_gia` đã bỏ (mg 0296, 11/09/2026) — sản xuất ghi SỐ LƯỢNG, kế toán lương đổi ra tiền. Tên cột còn chữ "trả lương" vì đây đúng là sản lượng ĐEM ĐI TRẢ LƯƠNG; chỉ phép nhân đơn giá là không còn xảy ra ở tầng này. Xem `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
 
 | Column | Type | Key | Null | Default | Meaning |
 | --- | --- | --- | --- | --- | --- |
@@ -4783,8 +4785,7 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | `ky_thang` | `Integer` | — | no | — | Tháng kỳ lương của batch. |
 | `trang_thai` | `String(16)` | — | no | `draft` | `draft` \| `finalized` \| `reopened`. |
 | `q_tra_luong` | `Numeric(18,3)` | — | no | `0` | Q sản lượng TRẢ LƯƠNG (đã quy đổi từ bản địa). |
-| `don_vi_tra_luong` | `String(24)` | — | yes | — | Đơn vị trả lương (từ `khoan_json.don_vi` \| `cv.don_vi_ra`). Bước dùng `don_gia_hd` thì lấy `cv.don_vi_ra` TRƯỚC — đơn giá hiệu dụng tính trên đơn vị RA, dán nhãn `nhịp` của đầu việc lên nó là sai đơn vị. |
-| `don_gia` | `Numeric(18,4)` | — | no | `0` | Đơn giá khoán snapshot — `khoan_json.don_gia_hd` nếu có, không thì `khoan_json.don_gia` (xem `san_xuat_cong_viec.khoan_json`). Đây là số nhân với sản lượng từng người để ra tiền, và cũng là `unit_price` chảy vào bảng lương qua `production_output_repo`. |
+| `don_vi_tra_luong` | `String(24)` | — | yes | — | Đơn vị của sản lượng đem chia = `cv.don_vi_ra` (thứ mà `batch.tot` đếm). KHÔNG lấy `khoan_json.don_vi` nữa: đó là đơn vị TIỀN của đầu việc (`đ/nhịp`, `đ/m²`), dán nó lên một con số đếm bằng tờ là nói sai đơn vị. |
 | `q_ban_dia` | `Numeric(18,3)` | — | yes | — | Sản lượng BẢN ĐỊA giữ riêng (= `batch.tot`). |
 | `don_vi_ban_dia` | `String(24)` | — | yes | — | Đơn vị bản địa (= `batch.don_vi`). |
 | `tong_ty_le_ho_tro` | `Numeric(7,4)` | — | no | `0` | Tổng % hỗ trợ đã xác nhận (P) đóng băng lúc chốt. |
@@ -4796,7 +4797,7 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 
-**Tất cả cột:** `id`, `batch_id`, `cong_viec_id`, `ngay`, `ky_nam`, `ky_thang`, `trang_thai`, `q_tra_luong`, `don_vi_tra_luong`, `don_gia`, `q_ban_dia`, `don_vi_ban_dia`, `tong_ty_le_ho_tro`, `chot_by_id`, `chot_luc`, `mo_lai_by_id`, `mo_lai_luc`, `version`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `batch_id`, `cong_viec_id`, `ngay`, `ky_nam`, `ky_thang`, `trang_thai`, `q_tra_luong`, `don_vi_tra_luong`, `q_ban_dia`, `don_vi_ban_dia`, `tong_ty_le_ho_tro`, `chot_by_id`, `chot_luc`, `mo_lai_by_id`, `mo_lai_luc`, `version`, `created_at`, `updated_at`.
 
 ---
 
@@ -4818,10 +4819,9 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | `trong_so` | `Numeric(18,6)` | — | yes | — | Trọng số = phút×hệ số (chỉ dòng tổ thực hiện). |
 | `phut_thuc_te` | `Numeric(12,3)` | — | yes | — | Phút thực tế hợp lệ snapshot. |
 | `he_so_bac` | `Numeric(6,3)` | — | yes | — | Hệ số bậc snapshot. |
-| `don_gia` | `Numeric(18,4)` | — | no | `0` | Đơn giá khoán snapshot (tiện cho seam lương). |
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 
-**Tất cả cột:** `id`, `phan_bo_id`, `employee_id`, `department_id`, `la_ho_tro`, `ho_tro_id`, `ngay`, `so_luong_tra_luong`, `so_luong_ban_dia`, `trong_so`, `phut_thuc_te`, `he_so_bac`, `don_gia`, `created_at`.
+**Tất cả cột:** `id`, `phan_bo_id`, `employee_id`, `department_id`, `la_ho_tro`, `ho_tro_id`, `ngay`, `so_luong_tra_luong`, `so_luong_ban_dia`, `trong_so`, `phut_thuc_te`, `he_so_bac`, `created_at`.
 
 ---
 
@@ -4842,12 +4842,11 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | `ky_bu_thang` | `Integer` | **IX** | no | — | Tháng kỳ bù. |
 | `ngay` | `Date` | — | no | — | Ngày ghi nhận trong kỳ bù. |
 | `so_luong_tra_luong` | `Numeric(18,3)` | — | no | `0` | Delta sản lượng trả lương (dương=trả thêm, âm=thu bớt). |
-| `don_gia` | `Numeric(18,4)` | — | no | `0` | Đơn giá khoán snapshot. |
 | `mo_ta` | `String(500)` | — | yes | — | Diễn giải bù trừ. |
 | `created_by_id` | `Integer` FK→`users.id` | — | yes | — | Người tạo. |
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 
-**Tất cả cột:** `id`, `batch_id`, `phan_bo_id`, `employee_id`, `department_id`, `ky_goc_nam`, `ky_goc_thang`, `ky_bu_nam`, `ky_bu_thang`, `ngay`, `so_luong_tra_luong`, `don_gia`, `mo_ta`, `created_by_id`, `created_at`.
+**Tất cả cột:** `id`, `batch_id`, `phan_bo_id`, `employee_id`, `department_id`, `ky_goc_nam`, `ky_goc_thang`, `ky_bu_nam`, `ky_bu_thang`, `ngay`, `so_luong_tra_luong`, `mo_ta`, `created_by_id`, `created_at`.
 
 ---
 
@@ -4865,38 +4864,6 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 
 **Tất cả cột:** `id`, `batch_id`, `employee_id`, `ly_do`, `created_by_id`, `created_at`.
-
----
-
-### `san_xuat_thuong_to_truong`
-
-**Purpose:** THƯỞNG/PHẠT TỔ TRƯỞNG theo chất lượng (§8, chủ chốt 04/09/2026) — một dòng cho MỘT TỔ trong MỘT NHÓM thành phẩm, ghi đúng lúc **đóng nhóm** (`services/san_xuat/dong_nhom.py` → `thuong_to_truong.ghi`). Bảng MỚI (`create_all`, không migration); cột lương đi kèm `payroll_lines.thuong_to_truong` mới cần ALTER (mg 0266).
-
-Neo vào NHÓM chứ không vào LSX vì `lsx.trang_thai` chưa có mốc "đóng" (`dang_san_xuat`/`hoan_thanh`/`da_dong` CHƯA dùng); sự kiện "xong" duy nhất đang chạy là đóng nhóm §16, mà cổng của nó đã đòi đúng thứ phép thưởng cần: mọi việc hoàn thành · phân bổ đã CHỐT · hết lỗi KCS chờ · kho xong.
-
-DẪN XUẤT + ĐÓNG BĂNG: mọi số vào tiền đều snapshot lúc đóng; sửa bậc thưởng hay đổi tổ trưởng sau đó KHÔNG viết lại dòng đã ghi. `ghi()` bỏ qua tổ đã có dòng nên gọi lại bao nhiêu lần cũng ra một kết quả.
-
-| Column | Type | Key | Null | Default | Meaning |
-| --- | --- | --- | --- | --- | --- |
-| `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
-| `nhom_id` | `Integer` FK→`san_xuat_nhom.id` (CASCADE) | **IX** | no | — | Nhóm thành phẩm vừa đóng. UNIQUE cùng `department_id` (`uq_sx_thuong_tt_nhom_to`) — mỗi tổ đúng MỘT dòng/nhóm. |
-| `department_id` | `Integer` (soft-ref `departments.id`) | **IX** | no | — | Tổ được xét. Soft-ref cùng kiểu neo với `piece_leader_bonus_brackets.department_id`. |
-| `head_user_id` | `Integer` | — | yes | — | Tổ trưởng LÚC ĐÓNG (`departments.head_user_id`). Đổi tổ trưởng sau đó không viết lại. |
-| `employee_id` | `Integer` FK→`employees.id` (SET NULL) | **IX** | yes | — | Hồ sơ nhân sự của tổ trưởng. NULL = chưa nối `employees.user_id` ⇒ bảng lương bỏ qua, `ghi_chu` nói rõ. |
-| `ngay` | `Date` | **IX** | no | — | Ngày đóng nhóm. |
-| `ky_nam` | `Integer` | **IX** | no | — | Kỳ lương ăn khoản này. Kỳ của `ngay` đã khoá/đã chi ⇒ ĐẨY sang kỳ mở kế tiếp (lối bù trừ của `phan_bo.bu_tru`), có ghi chú. |
-| `ky_thang` | `Integer` | **IX** | no | — | Xem `ky_nam`. |
-| `san_luong` | `Numeric(18,3)` | — | no | `0` | Σ `san_xuat_phan_bo_dong.so_luong_tra_luong` của tổ trong nhóm (chỉ header ĐÃ CHỐT), gom theo tổ CỦA DÒNG nên phần hỗ trợ chéo về tổ gốc (§9.2). |
-| `tien_khoan` | `Numeric(14,2)` | — | no | `0` | Σ `so_luong_tra_luong × don_gia` tương ứng. Nhân % vào ĐÂY chứ không vào (sản lượng × một đơn giá): một tổ có thể làm nhiều công đoạn khác đơn giá. |
-| `so_luong_loi` | `Numeric(18,3)` | — | no | `0` | Σ `san_xuat_kcs_loi.so_luong` mà KCS chỉ đích danh tổ này chịu (`to_chiu_id`), trạng thái `accepted` hoặc `recorded`. `pending`/`rejected` KHÔNG tính. |
-| `ty_le_loi` | `Numeric(7,4)` | — | no | `0` | `so_luong_loi ÷ san_luong × 100` (%). |
-| `rate_pct` | `Numeric(6,2)` | — | no | `0` | % bậc trúng từ `piece_leader_bonus_brackets` (dương=thưởng, âm=phạt). Tổ chưa khai bậc ⇒ KHÔNG có dòng nào. |
-| `so_tien` | `Numeric(14,2)` | — | no | `0` | `tien_khoan × rate_pct / 100`. CÓ THỂ ÂM. `0` vẫn GHI (đã xét, rơi ô 0%) — khác hẳn "không có dòng" (chưa khai bậc). |
-| `ghi_chu` | `String(255)` | — | yes | — | Vì sao tiền chưa tới người nhận / đã đẩy kỳ. |
-| `created_by_id` | `Integer` FK→`users.id` | — | yes | — | Người thao tác đóng nhóm (auto = None). |
-| `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
-
-**Tất cả cột:** `id`, `nhom_id`, `department_id`, `head_user_id`, `employee_id`, `ngay`, `ky_nam`, `ky_thang`, `san_luong`, `tien_khoan`, `so_luong_loi`, `ty_le_loi`, `rate_pct`, `so_tien`, `ghi_chu`, `created_by_id`, `created_at`.
 
 ---
 

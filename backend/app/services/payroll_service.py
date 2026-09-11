@@ -1422,20 +1422,13 @@ class PayrollService:
                 khoan_km_map = KhoanKmService(self.components.db).theo_ky(year, month)
             except Exception:                                   # noqa: BLE001 — xem ghi chú trên
                 khoan_km_map = {}
-        # Thưởng/phạt tổ trưởng theo chất lượng (mg 0266) — dòng đã GHI SẴN lúc đóng nhóm thành
-        # phẩm (`services/san_xuat/thuong_to_truong.py`), ở đây chỉ CỘNG LẠI theo người, không
-        # tính lại: bậc thưởng hay tổ trưởng đổi sau khi nhóm đóng không được làm lệch số đã chốt.
-        # Cùng khuôn `khoan_km_map`, kể cả khối `try` cho DB tối giản của unit test.
+        # Thưởng/phạt tổ trưởng theo chất lượng (mg 0266) — TẠM LUÔN RỖNG từ 11/09/2026.
+        # Nguồn cũ là bảng `san_xuat_thuong_to_truong` ghi lúc ĐÓNG NHÓM; bảng đó đã bỏ (mg 0297)
+        # cùng cơ chế tiền khoán ở sản xuất: đóng nhóm là việc của sản xuất, còn thưởng/phạt là
+        # TIỀN nên thuộc kế toán lương. Màn "Khoán theo kỳ" của kế toán sẽ rót lại vào cột
+        # `payroll_lines.thuong_to_truong` bằng bảng bậc `piece_leader_bonus_brackets` (vẫn còn).
+        # Giữ `thuong_tt_map` làm chỗ nối sẵn, đừng gỡ: cột và phép cộng đại số vào gross vẫn đúng.
         thuong_tt_map: dict[int, float] = {}
-        if self.components is not None:
-            from ..repositories.thuong_to_truong_repo import ThuongToTruongRepository
-            try:
-                for r in ThuongToTruongRepository(self.components.db).theo_ky(year, month):
-                    thuong_tt_map[r.employee_id] = (
-                        thuong_tt_map.get(r.employee_id, 0.0) + float(r.so_tien or 0)
-                    )
-            except Exception:                                   # noqa: BLE001 — xem ghi chú trên
-                thuong_tt_map = {}
         # Trừ lỗi khoán theo NGƯỜI (Điều 102: gộp vào trần khấu trừ 30%).
         defect_map = self.piece.defect_map(year, month) if self.piece is not None else {}
         brackets = self.get_pit_brackets()

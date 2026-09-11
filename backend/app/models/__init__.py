@@ -156,7 +156,6 @@ from .san_xuat_phan_bo import (
     SanXuatPhanBoDong,
     SanXuatPhanBoLoaiTru,
 )
-from .san_xuat_thuong_to_truong import SanXuatThuongToTruong
 from .san_xuat_kcs import (
     SanXuatKcsBatch,
     SanXuatKcsLoi,
@@ -330,7 +329,6 @@ __all__ = [
     "SanXuatHoTro",
     "SanXuatPhanBo",
     "SanXuatPhanBoDong",
-    "SanXuatThuongToTruong",
     "SanXuatPhanBoBuTru",
     "SanXuatPhanBoLoaiTru",
     "SanXuatKcsBatch",

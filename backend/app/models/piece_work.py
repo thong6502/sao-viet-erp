@@ -105,10 +105,12 @@ class PieceLeaderBonusBracket(Base):
     Tiền = **sản lượng × rate_pct% × đơn giá khoán của đầu việc**, cộng/trừ vào lương của MỘT
     người: tổ trưởng (`departments.head_user_id`). Không chia cho cả tổ.
 
-    ĐÃ NỐI VÀO LUỒNG (04/09/2026): `services/san_xuat/thuong_to_truong.py` tra bảng này lúc ĐÓNG
-    NHÓM thành phẩm rồi ghi một dòng `san_xuat_thuong_to_truong`, từ đó chảy vào cột
-    `payroll_lines.thuong_to_truong`. Sản lượng lấy từ phân bổ ĐÃ CHỐT của tổ trong nhóm, tỷ lệ lỗi
-    lấy từ phiếu KCS (`accepted`/`recorded`). Tổ KHÔNG khai bậc ⇒ không có dòng nào, không lỗi.
+    CHƯA NỐI VÀO LUỒNG NÀO (11/09/2026): đường cũ đi qua `services/san_xuat/thuong_to_truong.py`
+    lúc ĐÓNG NHÓM đã bị xoá cùng cơ chế tiền khoán ở sản xuất — đóng nhóm là việc của sản xuất,
+    còn thưởng/phạt là TIỀN nên thuộc kế toán lương. Bảng bậc này là CẤU HÌNH LƯƠNG và vẫn giữ
+    nguyên: màn "Khoán theo kỳ" của kế toán sẽ dùng lại nó để rót vào `payroll_lines.thuong_to_truong`
+    (sản lượng đọc từ dòng chia ĐÃ CHỐT, tỷ lệ lỗi từ phiếu KCS `accepted`/`recorded`). Xem
+    `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
     """
 
     __tablename__ = "piece_leader_bonus_brackets"

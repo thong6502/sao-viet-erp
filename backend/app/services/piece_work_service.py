@@ -261,11 +261,10 @@ class PieceWorkService:
 
         Nhân trên TỔNG sản lượng làm ra, KHÔNG trừ hàng lỗi (chủ chốt: *"nhân trên 5000 chứ"*).
 
-        Luồng thật KHÔNG gọi hàm này mà gọi `leader_bonus_pct` rồi nhân vào TỔNG TIỀN KHOÁN của tổ
-        trong nhóm (`services/san_xuat/thuong_to_truong.py`): một tổ có thể làm nhiều công đoạn,
-        mỗi công đoạn một đơn giá, nên "một đơn giá" không đủ mô tả. Hai cách ra CÙNG một số khi tổ
-        chỉ làm một công đoạn — hàm này giữ lại vì nó là cách phát biểu gọn nhất công thức chủ nêu,
-        và có test riêng (`test_khoan_api.py`) canh nó không trôi khỏi công thức đó."""
+        HIỆN KHÔNG CÓ LUỒNG NÀO GỌI (11/09/2026): đường cũ `services/san_xuat/thuong_to_truong.py`
+        (nhân % vào TỔNG TIỀN KHOÁN của tổ trong nhóm) đã xoá cùng cơ chế tiền khoán ở sản xuất.
+        Hàm giữ lại vì nó là cách phát biểu gọn nhất công thức chủ nêu, có test riêng
+        (`test_khoan_api.py`) canh nó không trôi, và màn "Khoán theo kỳ" của kế toán sẽ dùng lại."""
         pct = cls.leader_bonus_pct(san_luong, defect_pct, brackets)
         if pct == 0:
             return 0.0
