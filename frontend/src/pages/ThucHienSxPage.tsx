@@ -36,7 +36,8 @@ import { type ThsxExec } from "./ThsxExecPanels";
 import { ThsxHopThuBar, type Opt } from "./ThsxG5";
 import { ThsxSanLuongCuaToi } from "./ThsxSanLuongCuaToi";
 import {
-  buildThsxClusters, sxCoGio, sxDigest, sxNguonIcon, sxSerial, ThsxTrangThaiPill,
+  buildThsxClusters, chonHinhBan, sxCoGio, sxDigest, sxNguonIcon, sxSerial,
+  ThsxTrangThaiPill,
 } from "./thsxShared";
 import "./thuc-hien-sx.css";
 
@@ -197,9 +198,12 @@ export function ThucHienSxPage({
       ...(phang ? { tuNgay: winTu, denNgay: winDen } : { tim: qd.trim() || undefined, trang, coTrang: CO_TRANG }),
     })
       .then((r) => {
-        setItems(r.cong_viec ?? null);
-        setLenh(r.lenh ?? null);
-        setTongLenh(r.trang?.tong ?? 0);
+        // Hình nào là do CỜ `nhom` của máy chủ quyết, không do "có mảng lệnh hay không" —
+        // xem `chonHinhBan`.
+        const h = chonHinhBan(r);
+        setItems(h.cong_viec);
+        setLenh(h.lenh);
+        setTongLenh(h.tongLenh);
         setErr(null);
       })
       .catch((e: unknown) => setErr(e instanceof ApiError

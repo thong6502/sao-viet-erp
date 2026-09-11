@@ -9,7 +9,7 @@
 // TRỤC THỜI GIAN **tái dùng** `xl2Shared.tsx` (buildLinearScale / XL2_PX_PER_MIN / LABEL_W / BAR_H) —
 // KHÔNG chép lại. Việc thực hiện chạy theo đồng hồ tường như v2 nên trục tuyến tính là đúng.
 import { Icon, type IconName } from "../components/Icons";
-import type { SxWorkItem } from "../api/client";
+import type { SxLenhNhom, SxWorkItem, SxWorkItemsOut } from "../api/client";
 import { num } from "./keHoachSxShared";
 import { nhanChang } from "./lsxBuoc";
 
@@ -192,4 +192,24 @@ export function sxDigest(items: SxWorkItem[]): ThsxDigest {
     else d.released += 1;
   }
   return d;
+}
+
+// ============================ HAI HÌNH DỮ LIỆU CỦA BÀN ======================
+/** Tách đáp ứng `/work-items` thành đúng MỘT hình để màn vẽ (11/09/2026).
+ *
+ *  Quyết theo cờ `nhom` mà máy chủ trả về, KHÔNG theo "có mảng lệnh hay không": `WorkItemsOut`
+ *  khai `lenh: list[...] = []` nên khoá đó LUÔN có mặt kể cả ở chế độ phẳng — đọc theo sự hiện
+ *  diện của mảng thì băng KPI cộng trên mảng rỗng và báo 0 việc trong khi Gantt đang vẽ đủ việc.
+ *
+ *  `cong_viec = null` nghĩa là "màn đang ở hình lệnh", khác hẳn `[]` = "hình phẳng, không có việc
+ *  nào" — hai chuyện đó ra hai câu trống khác nhau nên không được gộp. */
+export function chonHinhBan(r: SxWorkItemsOut): {
+  cong_viec: SxWorkItem[] | null;
+  lenh: SxLenhNhom[] | null;
+  tongLenh: number;
+} {
+  if (r.nhom === "phang") {
+    return { cong_viec: r.cong_viec ?? [], lenh: null, tongLenh: 0 };
+  }
+  return { cong_viec: null, lenh: r.lenh ?? [], tongLenh: r.trang?.tong ?? 0 };
 }
