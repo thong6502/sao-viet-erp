@@ -128,7 +128,7 @@ export function BuocChungForm({
   const dvVao = nhanChang(g.don_vi_vao);
   const dvRa = nhanChang(g.don_vi_ra);
 
-  /** Đầu việc đang GHIM có thể không còn trong bảng khoán của tổ (đổi tổ, hoặc dòng bị ngừng) —
+  /** Đầu việc đang GHIM có thể không còn trong bảng đầu việc của tổ (đổi tổ, hoặc dòng bị ngừng) —
    *  vẫn phải bày ra, không thì `<select>` rơi về "— chọn —" và người dùng tưởng chưa ai chọn. */
   const dsKhoan = (() => {
     const ds = [...g.khoan_chon_duoc];
@@ -136,32 +136,13 @@ export function BuocChungForm({
       ds.unshift({
         id: g.khoan_rate_id,
         ten: g.khoan_ten ?? `(đang ghim) đầu việc #${g.khoan_rate_id}`,
-        don_vi: g.khoan_don_vi ?? "",
-        don_gia: g.khoan_don_gia ?? 0,
       });
     }
     return ds;
   })();
 
-  // "Nhảy tiền" khi đổi đầu việc: server đã tính sẵn tiền công của TỪNG lựa chọn cho đúng bước này
-  // (`tien_du_kien`), nên chọn ở dropdown là ra số ngay — khỏi Lưu trước. Chỉ áp khi CHƯA đổi tổ:
-  // đổi tổ thì cả danh sách đầu việc + tiền kèm theo thuộc tổ CŨ, phải Lưu để backend chấm lại.
+  // Đổi tổ thì cả danh sách đầu việc thuộc tổ CŨ, phải Lưu để backend chấm lại.
   const doiTo = f.department_id !== undefined;
-  const selId = val("piece_rate_id", g.khoan_rate_id);
-  const optLive =
-    !doiTo && selId != null
-      ? dsKhoan.find((k) => k.id === selId && "tien_du_kien" in k)
-      : undefined;
-  const tienLive = optLive?.tien_du_kien ?? null;
-  const slLive = optLive?.sl_du_kien ?? null;
-  const dvSlLive = optLive?.don_vi_sl_du_kien ?? null;
-  const dienGiaiLive = optLive?.dien_giai_du_kien ?? null;
-  // Số bày ở dải KPI: ưu tiên bản live; nếu KHÔNG đổi gì thì giữ số server đã lưu; đổi (đổi tổ, hoặc
-  // xoá lựa chọn / ghim dòng đã ngừng) mà chưa có bản live thì ẩn đi — đừng để số cũ đánh lừa.
-  const chuaDoiKhoan = !doiTo && f.piece_rate_id === undefined;
-  const tienHien = optLive ? tienLive : chuaDoiKhoan ? g.khoan_tien : null;
-  const slHien = optLive ? slLive : chuaDoiKhoan ? g.khoan_sl : null;
-  const dvSlHien = optLive ? dvSlLive : g.khoan_don_vi_sl;
 
   // Vật tư sửa theo LÔ: giữ nguyên danh sách hiện có rồi thay cả cụm khi lưu (API là replace-all).
   const vtHienTai = (f.vat_tus ?? g.vat_tus.map((v) => (
@@ -584,12 +565,12 @@ export function BuocChungForm({
             {(g.khoan_chon_duoc.length > 0 || g.khoan_rate_id != null) && (
               <section className="khsx-section-card">
                 <div className="khsx-section-card__head">
-                  <h3 className="khsx-section-card__title">Đầu việc khoán lương thợ</h3>
-                  <span className="khsx-tag-subtle">bảng khoán của tổ</span>
+                  <h3 className="khsx-section-card__title">Đầu việc thợ làm</h3>
+                  <span className="khsx-tag-subtle">bảng đầu việc của tổ</span>
                 </div>
 
                 <div className="khsx-khoan-body">
-                  {/* Ghim theo ID; đơn giá là ảnh chụp do server giữ. */}
+                  {/* Ghim theo ID; tên + định mức là ảnh chụp do server giữ. */}
                   <select
                     className="khsx-select-std"
                     value={val("piece_rate_id", g.khoan_rate_id) ?? ""}
@@ -605,81 +586,25 @@ export function BuocChungForm({
                       });
                     }}
                   >
-                    <option value="">— chọn đầu việc khoán —</option>
+                    <option value="">— chọn đầu việc —</option>
                     {dsKhoan.map((k) => (
-                      <option key={k.id} value={k.id}>
-                        {k.don_vi ? `${k.ten} — ${num(k.don_gia)} đ/${nhanDonVi(k.don_vi)}` : k.ten}
-                      </option>
+                      <option key={k.id} value={k.id}>{k.ten}</option>
                     ))}
                   </select>
 
                   <div className="khsx-khoan-status-row">
-                    {doiTo ? (
+                    {doiTo || f.piece_rate_id !== undefined ? (
                       <span className="khsx-pill-status khsx-pill-status--warn">
-                        Lưu lượt chung để tính lại tiền công
+                        Lưu lượt chung để tính lại định mức giờ
                       </span>
-                    ) : optLive ? (
-                      tienLive != null ? (
-                        <span className="khsx-pill-status khsx-pill-status--ok">
-                          {dienGiaiLive ?? g.khoan_dien_giai}
-                        </span>
-                      ) : (
-                        <span className="khsx-pill-status khsx-pill-status--error">
-                          {dienGiaiLive ?? "Chưa quy đổi được sản lượng sang đơn vị đơn giá."}
-                        </span>
-                      )
-                    ) : f.piece_rate_id !== undefined ? (
-                      <span className="khsx-pill-status khsx-pill-status--warn">
-                        Lưu lượt chung để tính lại tiền công
-                      </span>
-                    ) : g.khoan_dien_giai ? (
-                      <span className="khsx-pill-status khsx-pill-status--ok">{g.khoan_dien_giai}</span>
-                    ) : g.khoan_ly_do ? (
-                      <span className="khsx-pill-status khsx-pill-status--error">{g.khoan_ly_do}</span>
                     ) : g.khoan_chon_duoc.length > 1 ? (
                       <span className="khsx-field__hint">
-                        Tổ có {g.khoan_chon_duoc.length} đầu việc khoán — chọn đúng việc thợ làm để tự
-                        ra tiền công.
+                        Tổ có {g.khoan_chon_duoc.length} đầu việc — chọn đúng việc thợ làm thì máy mới
+                        lấy được năng suất và kíp chuẩn của việc đó.
                       </span>
                     ) : null}
                   </div>
                 </div>
-
-                {g.khoan_thieu.map((c) => (
-                  <div className="khsx-note-banner khsx-note-banner--warn" key={c}>
-                    <span>{c}</span>
-                  </div>
-                ))}
-
-                {(tienHien != null || slHien != null) && (
-                  <div className="khsx-compact-kpi-strip">
-                    <div className="khsx-compact-kpi-cell">
-                      <span className="khsx-compact-kpi-label">Sản lượng tính công</span>
-                      <div className="khsx-compact-kpi-val-group">
-                        <span className="khsx-compact-kpi-val">
-                          {slHien != null ? num(slHien) : "—"}
-                        </span>
-                        {/* Trống có HAI nghĩa khác hẳn nhau, và đoán sai thì người khai đi sửa
-                            nhầm chỗ: công thức tiền công gọi chip Đơn giá khoán thì nó ra THẲNG
-                            tiền, không đi qua sản lượng nào cả (đúng, không phải lỗi); còn trống
-                            vì tịt cầu quy đổi mới là thứ phải sửa. */}
-                        <span className="khsx-compact-kpi-sub">
-                          {nhanDonVi(dvSlHien)
-                            || (tienHien != null ? "công thức ra thẳng tiền" : "chưa quy đổi")}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="khsx-compact-kpi-cell khsx-compact-kpi-cell--rust">
-                      <span className="khsx-compact-kpi-label">Tiền công cả lượt chung</span>
-                      <div className="khsx-compact-kpi-val-group">
-                        <span className="khsx-compact-kpi-val">
-                          {tienHien != null ? `${num(tienHien)} đ` : "—"}
-                        </span>
-                        <span className="khsx-compact-kpi-sub">chia lại cho {g.thanh_vien.length} lệnh</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </section>
             )}
           </div>
@@ -927,7 +852,7 @@ export function BuocChungForm({
               <div className="khsx-thoi-gian-grid">
                 {/* 08/09/2026: ô CHỈ hiện ở bước máy/thuê ngoài, giống drawer bước lệnh —
                     làm tay thì không có "lượt qua máy" nào để đếm. Bước tổ ép 1 lượt ở server
-                    (`lap_ke_hoach_buoc_chung`), chip `so_luot_chay` của công thức tiền công vẫn
+                    (`lap_ke_hoach_buoc_chung`), chip `so_luot_chay` của công thức giờ vẫn
                     có số thật để dùng, chỉ là luôn bằng 1. */}
                 {g.loai_buoc !== "to" && (
                   <div className="khsx-field">

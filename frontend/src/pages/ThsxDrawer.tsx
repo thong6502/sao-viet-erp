@@ -8,14 +8,14 @@
 //     đã trong roster; bước nội bộ `loai_buoc="to"` chỉ nhận thợ LƯƠNG KHOÁN) + nút Rút.
 //  3) PHIÊN CHẠY — Bắt đầu / Tạm dừng / Kết thúc (điều kiện bật ở §8) + danh sách phiên + khoảng
 //     tham gia (bảng phụ gấp/mở).
-//  4) PHA SAU (Giai đoạn 3+4) — sản lượng · bàn giao · vật tư · hỗ trợ chéo · phân bổ lương, dựng ở
+//  4) PHA SAU (Giai đoạn 3+4) — sản lượng · bàn giao · vật tư · hỗ trợ chéo · chia sản lượng, dựng ở
 //     `ThsxExecPanels`; mọi mặt GHI đi qua `exec.*` (controller lo khoá lạc quan + refetch + toast).
 //
 // Component KHÔNG tự gọi API ghi: phát ý định qua callback; controller lo dialog lý do + version lạc quan.
 import { useMemo, useState } from "react";
 import type {
   SxNhanVienChon, SxWorkItemChiTiet, SxHoTroUngVien,
-  SxKcsChiTiet, SxKhoChiTiet, SxDongNhomDieuKien, SxThuongToTruong, SxQuyCachThe,
+  SxKcsChiTiet, SxKhoChiTiet, SxDongNhomDieuKien, SxQuyCachThe,
 } from "../api/client";
 import { NHAN_MUC_DO, type MayChon } from "../api/kyThuatMay";
 import { Button } from "../components/Button";
@@ -25,7 +25,7 @@ import { num, ngayGio } from "./keHoachSxShared";
 import { nhanChang } from "./lsxBuoc";
 import { phutChayText, slText, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 import { ThsxExecPanels, type ThsxExec } from "./ThsxExecPanels";
-import { ThsxKcsPanel, ThsxKhoPanel, ThsxDongNhomPanel, ThsxThuongToTruongPanel, type Opt } from "./ThsxG5";
+import { ThsxKcsPanel, ThsxKhoPanel, ThsxDongNhomPanel, type Opt } from "./ThsxG5";
 
 interface Props {
   chiTiet: SxWorkItemChiTiet | null;
@@ -47,7 +47,6 @@ interface Props {
   dieuKien: SxDongNhomDieuKien | null;
   /** §8 — thưởng/phạt tổ trưởng của nhóm. Nạp cho MỌI bước có `nhom_id`, không riêng KCS cuối:
    *  tổ trưởng tổ In cũng phải xem được điểm chất lượng của tổ mình ngay tại bước của họ. */
-  thuongTT: SxThuongToTruong[] | null;
   /** Danh sách tổ có thể chỉ định "chịu trách nhiệm lỗi" (dẫn xuất từ ứng viên hỗ trợ). */
   toChiuOpts: Opt[];
   /** Công đoạn thượng nguồn có thể gán "liên đới lỗi" (dẫn xuất từ bàn giao đến). */
@@ -99,7 +98,7 @@ const MUC_DO_MAC_DINH =
 
 export function ThsxDrawer({
   chiTiet, loading, canAssign, candidates, hoTroUngVien, mayOptions, exec, busy,
-  kcsCt, khoCt, dieuKien, thuongTT, toChiuOpts, congDoanRefOpts,
+  kcsCt, khoCt, dieuKien, toChiuOpts, congDoanRefOpts,
   onGiao, onRut, onBatDau, onNhanKhuon, onTraKhuon, onTamDung, onKetThuc, onClose,
 }: Props) {
   const [giaoOpen, setGiaoOpen] = useState(false);
@@ -715,7 +714,6 @@ export function ThsxDrawer({
 
             {/* 6 · THƯỞNG/PHẠT TỔ TRƯỞNG §8 — MỌI bước thuộc nhóm, không riêng KCS cuối. Panel tự
                 ẩn khi tổ chưa khai bậc thưởng, nên bước không thuộc chính sách này không thấy gì. */}
-            {cv.nhom_id != null && <ThsxThuongToTruongPanel rows={thuongTT} />}
           </>
         )}
       </div>

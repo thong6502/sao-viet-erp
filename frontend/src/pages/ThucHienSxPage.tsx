@@ -13,7 +13,7 @@ import {
   ApiError, api,
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon,
   type SxHoTroUngVien,
-  type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien, type SxThuongToTruong,
+  type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
   type SxKhoHopThu, type SxSuCoIn,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
@@ -141,7 +141,6 @@ export function ThucHienSxPage({
   const [kcsCt, setKcsCt] = useState<SxKcsChiTiet | null>(null);
   const [khoCt, setKhoCt] = useState<SxKhoChiTiet | null>(null);
   const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
-  const [thuongTT, setThuongTT] = useState<SxThuongToTruong[] | null>(null);
   const [khoHopThu, setKhoHopThu] = useState<SxKhoHopThu | null>(null);
   // Kho ĐÍCH chọn được lúc xác nhận nhập. `null` = CHƯA ĐỌC ĐƯỢC danh mục (đang tải / lỗi mạng /
   // không có quyền đọc); `[]` = đọc được nhưng danh mục RỖNG THẬT. Hai chuyện khác hẳn nhau ⇒ hai
@@ -327,17 +326,7 @@ export function ThucHienSxPage({
     return () => { alive = false; };
   }, [token, selNhom, isKcsCuoi, eventTick, g5Tick]);
 
-  // §8 — thưởng/phạt tổ trưởng của nhóm. Gate CHỈ `selNhom` (không đòi `isKcsCuoi` như checklist
-  // đóng nhóm): tổ trưởng tổ In phải xem được điểm chất lượng của tổ mình ngay tại bước của họ,
-  // chứ không phải đi mượn màn KCS. Panel tự ẩn khi tổ chưa khai bậc.
-  useEffect(() => {
-    if (!token || selNhom == null) { setThuongTT(null); return; }
-    let alive = true;
-    api.sanXuat.thuongToTruongNhom(token, selNhom)
-      .then((r) => { if (alive) setThuongTT(r); })
-      .catch(() => { if (alive) setThuongTT(null); });
-    return () => { alive = false; };
-  }, [token, selNhom, eventTick, g5Tick]);
+  /* Khối "thưởng/phạt tổ trưởng" GỠ 11/09/2026 (mg `0297`) — sản xuất thôi giữ tiền. */
 
   // Hộp thư LỖI KCS đã GỠ khỏi màn production (Task 9 §6.4, mg 0250 kiêm nhiệm) — luồng phản hồi
   // trách nhiệm cũ (pending/accepted/rejected) không còn hiện ở UI mới; hồ sơ cũ vẫn đọc được qua
@@ -620,11 +609,11 @@ export function ThucHienSxPage({
       deXuatHoTro: (b) => ok(mutate(() => api.sanXuat.deXuatHoTro(token!, selectedId!, b), "Đã đề xuất hỗ trợ.")),
       xacNhanHoTro: (id, v) => ok(mutate(() => api.sanXuat.xacNhanHoTro(token!, id, { expected_version: v }), "Đã xác nhận hỗ trợ.")),
       huyHoTro: (id, lyDo, v) => ok(mutate(() => api.sanXuat.huyHoTro(token!, id, { ly_do: lyDo || null, expected_version: v }), "Đã huỷ hỗ trợ.")),
-      tinhPhanBo: (batchId) => ok(mutate(() => api.sanXuat.tinhPhanBo(token!, batchId), "Đã tính phân bổ lương.")),
-      chotPhanBo: (phanBoId, v) => ok(mutate(() => api.sanXuat.chotPhanBo(token!, phanBoId, { expected_version: v }), "Đã chốt phân bổ.")),
-      moLaiPhanBo: (phanBoId, v) => ok(mutate(() => api.sanXuat.moLaiPhanBo(token!, phanBoId, { expected_version: v }), "Đã mở lại phân bổ.")),
+      tinhPhanBo: (batchId) => ok(mutate(() => api.sanXuat.tinhPhanBo(token!, batchId), "Đã chia sản lượng.")),
+      chotPhanBo: (phanBoId, v) => ok(mutate(() => api.sanXuat.chotPhanBo(token!, phanBoId, { expected_version: v }), "Đã chốt bản chia sản lượng.")),
+      moLaiPhanBo: (phanBoId, v) => ok(mutate(() => api.sanXuat.moLaiPhanBo(token!, phanBoId, { expected_version: v }), "Đã mở lại bản chia sản lượng.")),
       buTru: (batchId, b) => ok(mutate(() => api.sanXuat.buTru(token!, batchId, b), "Đã ghi bù trừ.")),
-      loaiTru: (batchId, b) => ok(mutate(() => api.sanXuat.loaiTru(token!, batchId, b), "Đã loại khỏi lương batch.")),
+      loaiTru: (batchId, b) => ok(mutate(() => api.sanXuat.loaiTru(token!, batchId, b), "Đã loại khỏi mẻ.")),
       goLoaiTru: (batchId, b) => ok(mutate(() => api.sanXuat.goLoaiTru(token!, batchId, b), "Đã gỡ loại trừ.")),
       // Giai đoạn 5 — KCS §13 · Kho §14 · Đóng nhóm §16/§13.3 (đi qua `mutateG5`).
       taoBatchKcs: (cvId, b) => mutateG5(() => api.sanXuat.taoBatchKcs(token!, cvId, b), "Đã ghi mẻ kiểm tra KCS."),
@@ -846,7 +835,6 @@ export function ThucHienSxPage({
               kcsCt={kcsCt}
               khoCt={khoCt}
               dieuKien={dieuKien}
-              thuongTT={thuongTT}
               toChiuOpts={toChiuOpts}
               congDoanRefOpts={congDoanRefOpts}
               onGiao={onGiao}

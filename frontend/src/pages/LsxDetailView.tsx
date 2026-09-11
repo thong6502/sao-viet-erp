@@ -214,7 +214,7 @@ export function LsxDetailView({
   const [readyErr, setReadyErr] = useState<string | null>(null);
   const [askDelete, setAskDelete] = useState(false);
   /** Bảng cũ → mới của nút "Cập nhật theo danh mục". KHÔNG ghi thẳng khi bấm: số khoán và định
-   *  mức là tiền công của thợ, đổi lén một phát cả lệnh thì người lập kế hoạch không có cách nào
+   *  mức là thời lượng của bước, đổi lén một phát cả lệnh thì người lập kế hoạch không có cách nào
    *  biết cái gì vừa đổi. Mở bảng ra, đọc, rồi mới đồng ý. */
   const [xemDmDoi, setXemDmDoi] = useState(false);
   const [dongBo, setDongBo] = useState(false);
@@ -483,8 +483,8 @@ export function LsxDetailView({
   );
 
   /** Sửa gì trên drawer → hỏi server luôn: SL vào quy đổi sang đơn vị ĐÍCH của bộ số MỚI ra bao
-   *  nhiêu, và tiền công bằng bao nhiêu. Tốc độ/kíp/chuẩn bị thì form tự tính từ `mayRefs`; riêng
-   *  phép quy đổi và tiền công chỉ backend làm được. */
+   *  nhiêu. Tốc độ/kíp/chuẩn bị thì form tự tính từ `mayRefs`; riêng phép quy đổi chỉ backend
+   *  làm được. */
   const xemTruocBuoc = useCallback(
     async (
       stepKey: string,
@@ -758,7 +758,7 @@ export function LsxDetailView({
             ))}
           </ul>
           <p className="khsx-luuy__foot">
-            Giữ số cũ KHÔNG chặn gì cả — lệnh vẫn xếp lịch và chạy được. Chỉ là tiền công và định
+            Giữ số cũ KHÔNG chặn gì cả — lệnh vẫn xếp lịch và chạy được. Chỉ là định
             mức đang tính theo bản danh mục lúc bung lệnh.
           </p>
         </div>
@@ -931,14 +931,7 @@ export function LsxDetailView({
             </span>
           </div>
 
-          {d.khoan_tien_tong > 0 && (
-            <div className="khsx-kpi-tile khsx-kpi-tile--rust" title="Tổng tiền công thợ dự kiến">
-              <span className="khsx-kpi-tile__label">Công thợ</span>
-              <span className="khsx-kpi-tile__val khsx-kpi-tile__val--rust">
-                {num(d.khoan_tien_tong)} <small>đ</small>
-              </span>
-            </div>
-          )}
+          {/* Ô "Công thợ dự kiến" GỠ 11/09/2026: kế hoạch chọn ĐẦU VIỆC, không chốt TIỀN. */}
         </div>
       </div>
 
@@ -1502,7 +1495,7 @@ export function LsxDetailView({
       />
 
       {/* Bảng CŨ → MỚI. Bấm "Cập nhật theo danh mục" ở băng chỉ MỞ cái này; ghi thật là nút trong
-          đây. Người lập kế hoạch phải nhìn thấy tiền công đổi từ đâu sang đâu trước khi đồng ý. */}
+          đây. Người lập kế hoạch phải nhìn thấy định mức đổi từ đâu sang đâu trước khi đồng ý. */}
       <ConfirmDialog
         open={xemDmDoi && !!dmDoi}
         wide

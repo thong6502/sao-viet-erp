@@ -391,7 +391,7 @@ function BatchRow({
           )}
           {b.ghi_chu && <div className="thsx-x-kv"><span>Ghi chú</span><span>{b.ghi_chu}</span></div>}
 
-          {/* Phân bổ lương của chính mẻ này (§12) */}
+          {/* Chia sản lượng của chính mẻ này (§12) */}
           <PhanBoBlock b={b} pb={pb} canAssign={canAssign} busy={busy}
             tenNguoi={tenNguoi} hoTroUngVien={hoTroUngVien} exec={exec} />
         </div>
@@ -400,8 +400,10 @@ function BatchRow({
   );
 }
 
-// ─────────────────────────── PHÂN BỔ LƯƠNG theo mẻ (§12) ──────────────────
-function PhanBoBlock({
+// ─────────────────────────── CHIA SẢN LƯỢNG theo mẻ (§12) ─────────────────
+// Khối này CHỈ chia SỐ LƯỢNG cho từng người theo trọng số (phút chấm công hợp lệ × hệ số bậc).
+// Không có ô tiền nào: quy sản lượng ra tiền là việc của kế toán lương ở màn "Khoán theo kỳ".
+export function PhanBoBlock({
   b, pb, canAssign, busy, tenNguoi, hoTroUngVien, exec,
 }: {
   b: SxBatch; pb: SxPhanBo | null; canAssign: boolean; busy: boolean;
@@ -410,16 +412,16 @@ function PhanBoBlock({
 }) {
   const [moLaiOpen, setMoLaiOpen] = useState(false);
   const [buTruOpen, setBuTruOpen] = useState(false);
-  const [loaiTruFor, setLoaiTruFor] = useState<number | null>(null);  // id đang mở form loại khỏi lương
+  const [loaiTruFor, setLoaiTruFor] = useState<number | null>(null);  // id đang mở form loại khỏi mẻ
   const [loaiTruLyDo, setLoaiTruLyDo] = useState("");
 
   if (!pb) {
     return (
       <div className="thsx-x-pb thsx-x-pb--empty">
-        <span className="thsx-x-pb__none">Chưa phân bổ lương cho mẻ này.</span>
+        <span className="thsx-x-pb__none">Chưa chia sản lượng cho mẻ này.</span>
         {canAssign && (
           <Button variant="secondary" onClick={() => void exec.tinhPhanBo(b.id)} disabled={busy}>
-            <Icon name="calculator" size={13} /> Tính phân bổ
+            <Icon name="calculator" size={13} /> Chia sản lượng
           </Button>
         )}
       </div>
@@ -433,28 +435,20 @@ function PhanBoBlock({
     <div className="thsx-x-pb">
       <div className="thsx-x-pb__h">
         <Icon name="table" size={13} />
-        <span className="thsx-x-pb__ttl">Phân bổ lương</span>
+        <span className="thsx-x-pb__ttl">Chia sản lượng</span>
         <span className={`thsx-x-pill ${st.cls}`}>{st.txt}</span>
         <span className="thsx-x-item__spacer" />
         <span className="thsx-x-pb__ky thsx-num">kỳ {pb.ky_thang}/{pb.ky_nam}</span>
       </div>
       <div className="thsx-x-pb__sum">
-        <span>Q trả lương <b className="thsx-num">{num(pb.q_tra_luong)}</b>{pb.don_vi_tra_luong ? ` ${nhanDonVi(pb.don_vi_tra_luong)}` : ""}</span>
-        {/* Đơn giá gộp từ công thức thì phải NÓI RA: tổ trưởng đối chiếu với danh mục thấy đầu việc
-            ghi 40 đ/nhịp mà đây hiện 620 đ, không có chú thích thì tưởng hệ tính sai và đi báo lỗi. */}
-        <span title={pb.don_gia_tu_cong_thuc
-          ? "Bước này khai tiền công bằng công thức ra thẳng tiền — cả công thức đã quy về một đơn giá trên mỗi đơn vị ra, không phải đơn giá của đầu việc."
-          : undefined}>
-          đơn giá <b className="thsx-num">{num(pb.don_gia)}</b>
-          {pb.don_gia_tu_cong_thuc && <span className="thsx-x-tag-ht">theo công thức</span>}
-        </span>
+        <span>Sản lượng chia <b className="thsx-num">{num(pb.q_tra_luong)}</b>{pb.don_vi_tra_luong ? ` ${nhanDonVi(pb.don_vi_tra_luong)}` : ""}</span>
         {pb.tong_ty_le_ho_tro > 0 && <span>hỗ trợ <b className="thsx-num">{num(pb.tong_ty_le_ho_tro)}%</b></span>}
       </div>
 
       {pb.dong.length > 0 && (
         <table className="thsx-x-tbl">
           <thead>
-            <tr><th>Người</th><th className="r">SL trả lương</th><th className="r">Bậc</th><th className="r">Đơn giá</th></tr>
+            <tr><th>Người</th><th className="r">Sản lượng</th><th className="r">Bậc</th><th className="r">Phút</th></tr>
           </thead>
           <tbody>
             {pb.dong.map((d) => (
@@ -462,7 +456,7 @@ function PhanBoBlock({
                 <td>{d.ho_ten}{d.la_ho_tro && <span className="thsx-x-tag-ht">hỗ trợ</span>}</td>
                 <td className="r thsx-num">{num(d.so_luong_tra_luong)}</td>
                 <td className="r thsx-num">{d.he_so_bac != null ? num(d.he_so_bac) : "—"}</td>
-                <td className="r thsx-num">{num(d.don_gia)}</td>
+                <td className="r thsx-num">{d.phut_thuc_te != null ? num(d.phut_thuc_te) : "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -487,7 +481,7 @@ function PhanBoBlock({
               <span className="thsx-x-pbcc__ten">{tenNguoi.get(eid) ?? `NV #${eid}`}</span>
               {canGhi && loaiTruFor !== eid && (
                 <Button variant="ghost" onClick={() => { setLoaiTruFor(eid); setLoaiTruLyDo(""); }} disabled={busy}>
-                  <Icon name="ban" size={12} /> Loại khỏi lương
+                  <Icon name="ban" size={12} /> Loại khỏi mẻ
                 </Button>
               )}
               {loaiTruFor === eid && (
@@ -511,7 +505,7 @@ function PhanBoBlock({
 
       {pb.loai_tru.length > 0 && (
         <div className="thsx-x-pblt">
-          <div className="thsx-x-pblt__h"><Icon name="ban" size={12} /> Đã loại khỏi lương batch</div>
+          <div className="thsx-x-pblt__h"><Icon name="ban" size={12} /> Đã loại khỏi mẻ</div>
           {pb.loai_tru.map((lt) => (
             <div key={lt.employee_id} className="thsx-x-pblt__row">
               <span className="thsx-x-pblt__ten">{lt.ho_ten}</span>
@@ -545,7 +539,7 @@ function PhanBoBlock({
           {!isFinal ? (
             <Button variant="accent" onClick={() => void exec.chotPhanBo(pb.phan_bo_id, pb.version)}
               disabled={busy || pb.dong.length === 0 || !pb.can_chot}
-              title={pb.dong.length === 0 ? "Chưa có dòng phân bổ"
+              title={pb.dong.length === 0 ? "Chưa có dòng chia sản lượng"
                 : !pb.can_chot ? "Chưa chốt được — xử lý cảnh báo bên trên" : undefined}>
               <Icon name="lock" size={13} /> Chốt
             </Button>
@@ -567,7 +561,7 @@ function PhanBoBlock({
       )}
 
       {moLaiOpen && (
-        <XacNhanForm busy={busy} hoi="Mở lại phân bổ đã chốt? Kỳ lương gốc phải chưa khoá."
+        <XacNhanForm busy={busy} hoi="Mở lại bản chia sản lượng đã chốt? Kỳ lương gốc phải chưa khoá."
           confirm="Mở lại" onHuy={() => setMoLaiOpen(false)}
           onXac={async () => { if (await exec.moLaiPhanBo(pb.phan_bo_id, pb.version)) setMoLaiOpen(false); }} />
       )}
@@ -593,7 +587,7 @@ function BuTruForm({
   const [thang, setThang] = useState(String(now.getMonth() + 1));
   const [moTa, setMoTa] = useState("");
 
-  // Ứng viên = người trong phân bổ + ứng viên hỗ trợ (phòng trường hợp trả lương người ngoài roster).
+  // Ứng viên = người đã được chia + ứng viên hỗ trợ (phòng trường hợp ghi cho người ngoài roster).
   const ds = new Map<number, string>();
   for (const d of dong) ds.set(d.employee_id, d.ho_ten);
   for (const h of hoTroUngVien) if (!ds.has(h.id)) ds.set(h.id, `${h.full_name}${h.to_ten ? ` · ${h.to_ten}` : ""}`);
@@ -619,7 +613,7 @@ function BuTruForm({
         </select>
       </Field>
       <div className="thsx-x-grid2">
-        <Field label="SL trả lương">
+        <Field label="Sản lượng bù">
           <input type="number" min={0} className="thsx-x-in" value={sl} onChange={(e) => setSl(e.target.value)} inputMode="numeric" />
         </Field>
         <Field label="Kỳ bù (tháng/năm)">

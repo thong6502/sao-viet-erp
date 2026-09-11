@@ -694,22 +694,14 @@ export interface BaiGhepSoDoBuocChung {
    *  cùng một `thoi_luong_buoc()` sinh ra. Có nó thì drawer nói được VÌ SAO ra số phút đó. */
   thoi_luong_dien_giai: Record<string, unknown>;
   so_luot_chay: number;
-  /** Khoán của lượt chung — cùng hợp đồng với bước lệnh: phần GHIM (đầu việc đã chọn) + danh
-   *  sách chọn được của TỔ đang gán + phần DẪN XUẤT (SL quy đổi · tiền · diễn giải). */
+  /** Đầu việc của lượt chung — cùng hợp đồng với bước lệnh: phần GHIM (đầu việc đã chọn) + danh
+   *  sách chọn được của TỔ đang gán. Mọi ô TIỀN đã gỡ 11/09/2026: sản xuất chỉ ghi số lượng, quy
+   *  ra tiền là việc của kế toán lương ở màn "Khoán theo kỳ". */
   khoan_rate_id: number | null;
   khoan_ten: string | null;
-  khoan_don_vi: string | null;
-  khoan_don_gia: number | null;
   /** Định mức (năng suất · số người) chỉ có khi công đoạn đã nối đầu việc đó — nên phần ấy là
    *  TUỲ CHỌN, đừng khai đủ `LsxDauViecOption` rồi đọc bừa. */
-  khoan_chon_duoc: (Pick<LsxDauViecOption, "id" | "ten" | "don_vi" | "don_gia"> &
-    Partial<LsxDauViecOption>)[];
-  khoan_sl: number | null;
-  khoan_don_vi_sl: string | null;
-  khoan_tien: number | null;
-  khoan_dien_giai: string | null;
-  khoan_thieu: string[];
-  khoan_ly_do: string | null;
+  khoan_chon_duoc: (Pick<LsxDauViecOption, "id" | "ten"> & Partial<LsxDauViecOption>)[];
   vat_tus: { vat_tu_id: number; ma: string; ten: string; don_vi: string; so_luong: number;
              nguon_so_luong: string }[];
   /** Lượng TÍNH SẴN cho mọi vật tư theo lượt chung — cùng hợp đồng với bước lệnh. Món chưa tính
@@ -1992,19 +1984,17 @@ export interface SxPhanBoDong {
   trong_so: number | null;
   phut_thuc_te: number | null;
   he_so_bac: number | null;
-  don_gia: number;
 }
 export interface SxBuTruDong {
   id: number;
   employee_id: number;
   ho_ten: string;
   so_luong_tra_luong: number;
-  don_gia: number;
   ky_bu_nam: number;
   ky_bu_thang: number;
   mo_ta: string | null;
 }
-/** Một người bị loại khỏi lương batch (§7.3) — có lý do + audit. */
+/** Một người bị loại khỏi mẻ (§7.3) — có lý do + audit. */
 export interface SxPhanBoLoaiTru {
   employee_id: number;
   ho_ten: string;
@@ -2020,10 +2010,8 @@ export interface SxPhanBo {
   ky_thang: number;
   q_tra_luong: number;
   don_vi_tra_luong: string | null;
-  don_gia: number;
-  /** `don_gia` ở trên là số GỘP TỪ công thức tiền công của bước, không phải đơn giá của đầu việc:
-   *  bước ấy khai công thức RA THẲNG TIỀN nên cả công thức được quy về một đơn giá trên đơn vị ra. */
-  don_gia_tu_cong_thuc: boolean;
+  /* `don_gia` + `don_gia_tu_cong_thuc` GỠ 11/09/2026 (mg `0296`): phân bổ chỉ chia SỐ LƯỢNG.
+     Muốn ra tiền thì kế toán lương tra `piece_rates` tại kỳ tính lương ở màn "Khoán theo kỳ". */
   q_ban_dia: number | null;
   don_vi_ban_dia: string | null;
   tong_ty_le_ho_tro: number;
@@ -2032,7 +2020,7 @@ export interface SxPhanBo {
   can_chot: boolean;               // false ⇒ giữ nháp, chưa chốt được (§7.3/§8/§11.3)
   canh_bao: string[];              // vì sao chưa chốt được
   thieu_cham_cong: number[];       // employee_id tham gia nhưng 0 phút chấm công hợp lệ
-  loai_tru: SxPhanBoLoaiTru[];     // người đã xác nhận loại khỏi lương batch
+  loai_tru: SxPhanBoLoaiTru[];     // người đã xác nhận loại khỏi mẻ
 }
 
 export interface SxWorkItemChiTiet {
@@ -2103,7 +2091,7 @@ export interface SxPhanBoTomTat {
   can_chot: boolean;
   canh_bao: string[];
   thieu_cham_cong: number[];       // employee_id tham gia nhưng 0 phút chấm công hợp lệ (§7.3)
-  loai_tru: number[];              // employee_id đã bị loại khỏi lương batch (§7.3)
+  loai_tru: number[];              // employee_id đã bị loại khỏi mẻ (§7.3)
 }
 /** Kết quả loại/gỡ-loại người khỏi lương batch — kèm bảng chia mới nếu đã có nháp. */
 export interface SxLoaiTruKetQua {
@@ -2523,22 +2511,9 @@ export interface SxDongNhomDieuKien {
   /** max(muc_tieu − da_dat, 0). Không có đơn vị ở mức nhóm (nhiều bước có thể khác đơn vị). */
   con_thieu: number | null;
 }
-/** Một dòng thưởng/PHẠT tổ trưởng của nhóm (§8) — `da_ghi=false` là XEM TRƯỚC (nhóm chưa đóng). */
-export interface SxThuongToTruong {
-  department_id: number;
-  department?: string | null;
-  san_luong: number;
-  tien_khoan: number;
-  so_luong_loi: number;
-  /** % — so_luong_loi ÷ san_luong × 100. */
-  ty_le_loi: number;
-  /** % bậc trúng: dương = thưởng, âm = phạt. */
-  rate_pct: number;
-  /** tien_khoan × rate_pct / 100. CÓ THỂ ÂM. */
-  so_tien: number;
-  ghi_chu?: string | null;
-  da_ghi: boolean;
-}
+/* `SxThuongToTruong` GỠ 11/09/2026 (mg `0297`): bảng `san_xuat_thuong_to_truong` và chuỗi ghi
+   thưởng lúc ĐÓNG NHÓM đã xoá — thưởng/phạt tổ trưởng là TIỀN, mà sản xuất thôi giữ tiền. Bảng bậc
+   `piece_leader_bonus_brackets` vẫn khai được ở Cấu hình lương, chờ màn "Khoán theo kỳ". */
 export interface SxDongThieuIn {
   expected_version?: number | null;
 }
@@ -2713,11 +2688,9 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   vat_tus: { id: number; hang_loai?: "giay" | "vat_tu"; vat_tu_id: number; vat_tu_ma: string;
              vat_tu_ten: string; don_vi: string; so_luong: number; tu_dong?: boolean }[];
   ghi_chu: string | null;
-  // --- Khoán theo đầu việc: phần GHIM (đã chọn) + phần DẪN XUẤT (server tính lúc đọc) ---
+  // --- Đầu việc đã GHIM ở bước. Mọi ô TIỀN gỡ 11/09/2026 (xem `LsxDauViecOption`). ---
   khoan_rate_id: number | null;
   khoan_ten: string | null;
-  khoan_don_vi: string | null;
-  khoan_don_gia: number | null;
   /** Đầu việc chọn được cho bước (theo tổ + công đoạn) — server đã áp luật "ưu tiên dòng khai riêng". */
   khoan_chon_duoc: LsxDauViecOption[];
   /** Lượng TÍNH SẴN cho mọi vật tư theo bước này — chọn món nào ở drawer là điền số ngay.
@@ -2734,13 +2707,6 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
    *  Lệnh là ảnh chụp nên server không tự đè — màn gạch số cũ rồi mời bấm Lưu. */
   so_luong_vao_moi: number | null;
   so_luong_ra_moi: number | null;
-  khoan_sl: number | null;
-  khoan_don_vi_sl: string | null;
-  khoan_tien: number | null;
-  /** Cách tính hiện nguyên văn để người đọc kiểm bằng mắt: "241 tờ × 86 × 65 = … × 150 đ/m²". */
-  khoan_dien_giai: string | null;
-  khoan_thieu: string[];
-  khoan_ly_do: string | null;
 }
 export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   /** Đầu việc khoán: id để ghim · 0/null = bỏ chọn · KHÔNG gửi field = giữ mặc định của server. */
@@ -2802,8 +2768,8 @@ export interface LsxBuocMacDinh {
    *  áp khi dòng đang TRỐNG máy: máy người dùng đã chọn không bị đổi. */
   may_id_goi_y: number | null;
 }
-/** Giờ chạy + tiền công của MỘT bước theo bộ số ĐANG SỬA trên drawer — server tính THỬ rồi vứt,
- *  không ghi DB. */
+/** Giờ chạy của MỘT bước theo bộ số ĐANG SỬA trên drawer — server tính THỬ rồi vứt, không ghi
+ *  DB. Phần tiền công gỡ 11/09/2026. */
 export interface LsxXemTruocBuoc {
   step_key: string;
   may_id: number | null;
@@ -2811,15 +2777,6 @@ export interface LsxXemTruocBuoc {
   so_nhan_cong_tieu_chuan: number;
   chiem_may_phut: number;
   thoi_luong_dien_giai: Record<string, unknown>;
-  /** Tiền công của ĐÚNG bộ số đang sửa (07/09/2026). Số ở dropdown đầu việc chỉ đúng với số lượt
-   *  ĐÃ LƯU, nên bấm "2 lượt" xong phải đọc số này mới thấy tiền nhân đôi. */
-  khoan: {
-    khoan_sl: number | null;
-    khoan_don_vi_sl: string | null;
-    khoan_tien: number | null;
-    khoan_dien_giai: string | null;
-    khoan_ly_do: string | null;
-  };
 }
 /** DÒNG CHẢY của MỘT bước NẾU đổi/chèn công đoạn — server chạy đúng đường Lưu routing rồi
  *  rollback. Khớp `step_key` client gửi lên (kể cả khoá tạm `r{n}` của bước mới chèn). */
@@ -2839,8 +2796,10 @@ export interface LsxXemTruocRoutingRow {
   department_id?: number | null; may_id?: number | null;
 }
 
+/** Một đầu việc chọn được cho bước. `don_vi` + `don_gia` GỠ 11/09/2026: kế hoạch chọn VIỆC GÌ,
+ *  không chọn GIÁ — giá do kế toán lương tra tại kỳ tính lương. */
 export interface LsxDauViecOption {
-  id: number; ten: string; don_vi: string; don_gia: number;
+  id: number; ten: string;
   /** Ba mức năng suất khai ở định mức đầu việc — TB là số chảy vào công thức, min/max chỉ ra
    *  khoảng nhanh–chậm (null = chưa khai dải). */
   nang_suat_nguoi_gio: number;
@@ -2944,9 +2903,7 @@ export interface LsxDetail {
    *  `canh_bao` đã gỡ cả hai đầu 25/08/2026 — không màn nào hiện nó. */
   thieu: string[];
   lead_time: LsxLeadTime | null;
-  /** Công thợ khoán DỰ KIẾN cả lệnh = Σ bước quy đổi được. Là số SÀN: bước chưa chọn đầu việc
-   *  hoặc thiếu số để quy đổi thì không góp vào. */
-  khoan_tien_tong: number;
+  /* `khoan_tien_tong` (Σ "Công thợ dự kiến" của lệnh) GỠ 11/09/2026 — xem `LsxDauViecOption`. */
   /** Chừa tách chiều do server tính (`chua_theo_chieu`) — đừng cộng lại ở FE. */
   chua_dai: number;
   chua_rong: number;
@@ -12476,10 +12433,8 @@ export const api = {
     },
 
     // --- Giai đoạn 5: Đóng nhóm §16 + đóng thiếu §13.3 ------------------------------------
+    /* `thuongToTruongNhom()` GỠ 11/09/2026 cùng route `/kho/nhom/{id}/thuong-to-truong`. */
     /** Checklist điều kiện đóng nhóm thành phẩm (đủ / thiếu). */
-    thuongToTruongNhom(token: string, nhomId: number): Promise<SxThuongToTruong[]> {
-      return authed<SxThuongToTruong[]>(`/api/san-xuat/kho/nhom/${nhomId}/thuong-to-truong`, token);
-    },
     dieuKienDongNhom(token: string, nhomId: number): Promise<SxDongNhomDieuKien> {
       return authed<SxDongNhomDieuKien>(`/api/san-xuat/kho/nhom/${nhomId}/dieu-kien-dong`, token);
     },

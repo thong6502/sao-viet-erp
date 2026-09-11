@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError, api,
   type SxDongNhomDieuKien, type SxDongThieuIn, type SxKhoChiTiet,
-  type SxPhanLoaiBtpIn, type SxThuongToTruong, type SxWorkItem,
+  type SxPhanLoaiBtpIn, type SxWorkItem,
 } from "../../api/client";
 import { useAuth } from "../../auth/useAuth";
 import { Button } from "../../components/Button";
@@ -20,7 +20,7 @@ import { Icon } from "../../components/Icons";
 import { num } from "../keHoachSxShared";
 import { nhanDonVi } from "../lsxBuoc";
 import { useNapTenDonVi } from "../tenDonVi";
-import { ThsxDongNhomPanel, ThsxThuongToTruongPanel, PhanLoaiBtpForm, PL_LABEL } from "../ThsxG5";
+import { ThsxDongNhomPanel, PhanLoaiBtpForm, PL_LABEL } from "../ThsxG5";
 import "../thuc-hien-sx.css";
 
 interface NhomRow {
@@ -104,7 +104,6 @@ function ChotNhomThan({
 }) {
   const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
   const [kho, setKho] = useState<SxKhoChiTiet | null>(null);
-  const [thuongTT, setThuongTT] = useState<SxThuongToTruong[] | null>(null);
   const [loi, setLoi] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [plOpen, setPlOpen] = useState(false);
@@ -115,11 +114,8 @@ function ChotNhomThan({
     Promise.all([
       api.sanXuat.dieuKienDongNhom(token, nhom.nhomId),
       api.sanXuat.khoChiTietNhom(token, nhom.nhomId).catch(() => null),
-      // `catch(() => null)` như khối kho: bảng thưởng là thông tin BÊN LỀ việc chốt nhóm — nó hỏng
-      // thì vẫn phải chốt được, không kéo cả màn về màn báo lỗi.
-      api.sanXuat.thuongToTruongNhom(token, nhom.nhomId).catch(() => null),
     ])
-      .then(([dk, k, tt]) => { setDieuKien(dk); setKho(k); setThuongTT(tt); setLoi(null); })
+      .then(([dk, k]) => { setDieuKien(dk); setKho(k); setLoi(null); })
       .catch((e) => setLoi(e instanceof ApiError ? e.message : "Không đọc được điều kiện đóng nhóm."));
   }, [token, nhom.nhomId]);
 
@@ -157,8 +153,6 @@ function ChotNhomThan({
 
       <ThsxDongNhomPanel dieuKien={dieuKien} canAssign={canAssign} busy={busy}
         onDongThieu={onDongThieu} />
-
-      <ThsxThuongToTruongPanel rows={thuongTT} />
 
       <section className="thsx-psec thsx-x">
         <div className="thsx-psec__h">
