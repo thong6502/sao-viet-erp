@@ -1334,6 +1334,20 @@ class AttendanceService:
             allowed: set[int] | None = {only_employee_id}
         else:
             allowed = self._allowed_employee_ids(scope, actor)
+            # LỌC TỔ ĐI VÀO `allowed` (11/09/2026) — trước đây `department_id` chỉ được dùng ở
+            # bộ lọc CUỐI (`emp.department_id != department_id` bên dưới), nên chọn một tổ 50
+            # người vẫn nạp lượt bấm / lưới ca / đơn phép của CẢ XƯỞNG rồi ghép ngày công cho đủ
+            # 500 người — xong mới vứt 450 người đi. Lọc một tổ tốn đúng bằng xem cả xưởng.
+            #
+            # Lấy MỌI NV đang thuộc tổ, KHÔNG lọc biên chế: bộ lọc cuối chỉ hỏi `department_id`,
+            # nên tập này phải là SIÊU TẬP của những ai có thể lên bảng — thu hẹp hơn là làm biến
+            # mất hàng (người đã nghỉ việc còn lượt bấm sót vẫn phải giữ hàng).
+            #
+            # Bộ lọc cuối GIỮ NGUYÊN, cố ý: `allowed` chỉ quyết định nạp bao nhiêu, còn ai được
+            # lên bảng vẫn do nó chốt. Hai lớp nói cùng một câu ⇒ kết quả không đổi một dòng.
+            if department_id is not None:
+                cua_to = self.employees.ids_by_department(department_id)
+                allowed = cua_to if allowed is None else (allowed & cua_to)
 
         # Mốc tháng theo giờ VN → quy về UTC để truy vấn. Nới +12h cuối để lấy lượt RA rạng sáng
         # ngày đầu tháng sau (thuộc ca VÀO ngày cuối tháng này), và −12h đầu để lấy lượt VÀO của ca
@@ -1404,6 +1418,31 @@ class AttendanceService:
                     date(year, month, days_in_month) + timedelta(days=2)):
                 ot_theo_ngay[(t.employee_id, t.work_date)] = (int(t.from_minute), int(t.to_minute))
 
+        # AI LÊN BẢNG = NV còn biên chế trong tháng **HỢP** NV có dấu vết (lượt bấm / đơn phép /
+        # phiếu giờ).
+        #
+        # HỢP chứ không THAY: người đã nghỉ việc tháng trước mà còn lượt bấm sót vẫn phải giữ hàng.
+        # Đổi thành "chỉ biên chế" là làm BIẾN MẤT hàng đang thấy — thay đổi chỉ được phép thuần
+        # cộng thêm.
+        #
+        # Nhánh dấu vết một mình là đủ cho tới 31/07/2026, và nó bỏ rơi đúng người cần thấy nhất:
+        # ai CẢ THÁNG không chấm buổi nào thì không có hàng nào, nên (1) không tự xem được lịch
+        # công, (2) không bấm được ô ngày để xin chỉnh công, (3) HCNS không soi ra họ, (4) mất
+        # công lễ vì nhánh `emp_holidays` bên dưới không bao giờ chạy tới.
+        #
+        # ⚠️ Nạp Ở ĐÂY, TRƯỚC vòng ghép lượt bấm — không phải ngay trên vòng dựng hàng (11/09/2026).
+        # `_employees_in_month` kéo cả mẻ Employee vào identity map của phiên, nên mọi `get_by_id`
+        # sau đó là đọc bộ nhớ. Đặt sau vòng ghép lượt bấm thì đúng vòng đó lại bắn 1 truy vấn/người:
+        # đo được 519 truy vấn cho 500 NV, tuyến tính theo đầu người. Ghi chú "bảng 100 NV bắn 100
+        # query lẻ" ở vòng dựng hàng bên dưới nói đúng bệnh, chỉ là đứng sai chỗ để chữa.
+        emp_cache: dict[int, object] = {}
+        if only_employee_id is not None:
+            base_ids = {only_employee_id}
+        else:
+            emp_cache = {e.id: e for e in self._employees_in_month(
+                year, month, department_id, scope, actor)}
+            base_ids = set(emp_cache)
+
         logs_by_emp: dict[int, list] = {}
         for lg in logs:
             if allowed is not None and lg.employee_id not in allowed:
@@ -1416,7 +1455,8 @@ class AttendanceService:
         # ⇒ THẮNG phiếu. Thợ quên bấm thì không.
         ra_cham_bu: dict[int, dict[int, set]] = {}
         for emp_id, logs_emp in logs_by_emp.items():
-            emp0 = self.employees.get_by_id(emp_id)
+            # Chỉ id đến từ nhánh "có dấu vết" (không còn biên chế trong tháng) mới phải hỏi DB.
+            emp0 = emp_cache.get(emp_id) or self.employees.get_by_id(emp_id)
             if emp0 is None:
                 continue
             # Ghép lượt bấm cũng hỏi ca của ngày ĐÓ và ngày HÔM TRƯỚC ⇒ gieo cache trước.
@@ -1503,24 +1543,6 @@ class AttendanceService:
                     "restday": False, "plain": False,
                     "planned_off": False}
 
-        # AI LÊN BẢNG = NV còn biên chế trong tháng **HỢP** NV có dấu vết (lượt bấm / đơn phép /
-        # phiếu giờ).
-        #
-        # HỢP chứ không THAY: người đã nghỉ việc tháng trước mà còn lượt bấm sót vẫn phải giữ hàng.
-        # Đổi thành "chỉ biên chế" là làm BIẾN MẤT hàng đang thấy — thay đổi chỉ được phép thuần
-        # cộng thêm.
-        #
-        # Nhánh dấu vết một mình là đủ cho tới 31/07/2026, và nó bỏ rơi đúng người cần thấy nhất:
-        # ai CẢ THÁNG không chấm buổi nào thì không có hàng nào, nên (1) không tự xem được lịch
-        # công, (2) không bấm được ô ngày để xin chỉnh công, (3) HCNS không soi ra họ, (4) mất
-        # công lễ vì nhánh `emp_holidays` bên dưới không bao giờ chạy tới.
-        emp_cache: dict[int, object] = {}
-        if only_employee_id is not None:
-            base_ids = {only_employee_id}
-        else:
-            emp_cache = {e.id: e for e in self._employees_in_month(
-                year, month, department_id, scope, actor)}
-            base_ids = set(emp_cache)
         rows = []
         for emp_id in base_ids | set(by_emp) | set(leave_map) | set(hourly_map):
             # Dùng lại object đã nạp ở trên; chỉ những id đến từ nhánh "có dấu vết" mới phải hỏi
