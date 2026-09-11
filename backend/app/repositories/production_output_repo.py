@@ -1,12 +1,17 @@
-"""Nguồn TIỀN KHOÁN THEO NGƯỜI cho bảng lương (§12, seam của `PieceWorkService`).
+"""Nguồn SẢN LƯỢNG THEO NGƯỜI cho bảng lương (§12, seam của `PieceWorkService`).
 
-`PieceWorkService.khoan_map/defect_map` gọi `list_nguoi_by_period(year, month)` và cộng thẳng
-`unit_price × quantity` vào cột `khoan` của payroll_lines. Repo này biến DÒNG PHÂN BỔ ĐÃ CHỐT
-(§12.2) + DÒNG BÙ TRỪ đã sang kỳ (§12.3) thành các "phiếu sản lượng theo người" mà seam cần.
+`PieceWorkService.khoan_map/defect_map` gọi `list_nguoi_by_period(year, month)` và cộng
+`unit_price × quantity` vào cột `khoan` của payroll_lines. Repo này biến DÒNG CHIA SẢN LƯỢNG ĐÃ
+CHỐT (§12.2) + DÒNG BÙ TRỪ đã sang kỳ (§12.3) thành các "phiếu sản lượng theo người" seam cần.
 
-An toàn cho lương SỐNG: CHỈ đọc dòng thuộc header `finalized` (chưa chốt ⇒ công nhân chưa xem,
-lương chưa tính) + bù trừ có `ky_bu` đúng kỳ. Khi CHƯA có phân bổ nào được chốt, hàm trả rỗng ⇒
-lương giữ nguyên như trước Giai đoạn 4 (feature tự bật khi tổ trưởng bắt đầu chốt).
+**`unit_price` LUÔN 0 từ 11/09/2026** — và đó là chủ ý, không phải thiếu sót. Sản xuất ghi SỐ
+LƯỢNG, kế toán lương đổi ra tiền; ba cột `don_gia` ở tầng sản xuất đã bỏ (mg 0296). Hệ quả phải
+nói trước: cột `payroll_lines.khoan` = 0 cho MỌI người tới khi dựng màn "Khoán theo kỳ" của kế
+toán lương — màn đó đọc chính các dòng sản lượng ở đây rồi tra `piece_rates` theo kỳ. Xem
+`docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
+
+Sản lượng thì vẫn THẬT: đó là số tổ đã ghi và đã chốt. An toàn cho lương SỐNG: CHỈ đọc dòng thuộc
+header `finalized` (chưa chốt ⇒ công nhân chưa xem) + bù trừ có `ky_bu` đúng kỳ.
 
 Hàng trả về là bản ghi THUẦN (`_DongKhoan`) đúng hợp đồng seam: `.employee_id`, `.tinh_khoan`,
 `.unit_price`, `.quantity`, `.defect_deduction`. §12.2: KHÔNG tự trừ lỗi cá nhân ⇒ `defect_deduction`
@@ -68,7 +73,7 @@ class ProductionOutputRepository:
                 _DongKhoan(
                     employee_id=d.employee_id,
                     tinh_khoan=True,
-                    unit_price=float(d.don_gia or 0),
+                    unit_price=0.0,   # sản xuất không định giá — xem docstring module
                     quantity=float(d.so_luong_tra_luong or 0),
                 )
             )
@@ -83,7 +88,7 @@ class ProductionOutputRepository:
                 _DongKhoan(
                     employee_id=b.employee_id,
                     tinh_khoan=True,
-                    unit_price=float(b.don_gia or 0),
+                    unit_price=0.0,   # sản xuất không định giá — xem docstring module
                     quantity=float(b.so_luong_tra_luong or 0),
                 )
             )

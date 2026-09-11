@@ -756,10 +756,6 @@ def chi_tiet_cong_viec(
                 "ky_thang": h.ky_thang,
                 "q_tra_luong": float(h.q_tra_luong or 0),
                 "don_vi_tra_luong": h.don_vi_tra_luong,
-                "don_gia": float(h.don_gia or 0),
-                # Số trên là đơn giá HIỆU DỤNG gộp từ công thức tiền công, hay đơn giá thẳng của
-                # đầu việc? Đọc dấu ngay ở ảnh chụp của công việc — xem `phan_bo._don_gia_don_vi`.
-                "don_gia_tu_cong_thuc": bool((cv.khoan_json or {}).get("don_gia_hd")),
                 "q_ban_dia": float(h.q_ban_dia) if h.q_ban_dia is not None else None,
                 "don_vi_ban_dia": h.don_vi_ban_dia,
                 "tong_ty_le_ho_tro": float(h.tong_ty_le_ho_tro or 0),
@@ -786,7 +782,6 @@ def chi_tiet_cong_viec(
                         "trong_so": float(d.trong_so) if d.trong_so is not None else None,
                         "phut_thuc_te": float(d.phut_thuc_te) if d.phut_thuc_te is not None else None,
                         "he_so_bac": float(d.he_so_bac) if d.he_so_bac is not None else None,
-                        "don_gia": float(d.don_gia or 0),
                     }
                     for d in dong_map.get(h.id, [])
                 ],
@@ -796,7 +791,6 @@ def chi_tiet_cong_viec(
                         "employee_id": bt.employee_id,
                         "ho_ten": _emp_ten(bt.employee_id),
                         "so_luong_tra_luong": float(bt.so_luong_tra_luong or 0),
-                        "don_gia": float(bt.don_gia or 0),
                         "ky_bu_nam": bt.ky_bu_nam,
                         "ky_bu_thang": bt.ky_bu_thang,
                         "mo_ta": bt.mo_ta,

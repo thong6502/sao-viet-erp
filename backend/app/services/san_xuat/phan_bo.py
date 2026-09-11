@@ -1,17 +1,17 @@
-"""Thực hiện sản xuất — PHÂN BỔ SẢN LƯỢNG thành lương khoán theo người (Giai đoạn 4, §12).
+"""Thực hiện sản xuất — CHIA SẢN LƯỢNG của một mẻ cho những người đã làm mẻ đó (§12).
 
-Biến sản lượng MỘT batch (§12.1: chia theo từng batch, không gộp công đoạn) thành các dòng lương
-khoán theo người. Tuân §18: kiểm quyền tại service (đúng tổ trưởng) → transaction → version chống
-bấm trùng → ghi audit → (SSE do router phát sau commit).
+KHÔNG có tiền ở tầng này (11/09/2026). Engine chỉ trả lời một câu: mẻ ra `tot` đơn vị thì mỗi
+người được ghi bao nhiêu. Đổi số lượng ra tiền là việc của KẾ TOÁN LƯƠNG, đọc sản lượng theo người
+ở `repositories/production_output_repo.py`. Xem
+`docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
 
-CÔNG THỨC (§12.2), cho một batch có sản lượng trả lương Q:
-  1. Quy đổi bản địa → trả lương bằng ẢNH CHỤP `khoan_json` của công đoạn (đơn giá + đơn vị). Ở đây
-     là quy đổi ĐỒNG NHẤT (identity): Q_trả_lương = `batch.tot`, đơn vị = `khoan_json.don_vi` |
-     `cv.don_vi_ra`. Luôn GIỮ RIÊNG số bản địa (`q_ban_dia`) và số trả lương (§12.2).
-     Bước khai ô tiền công bằng CÔNG THỨC RA TIỀN (chip `don_gia_khoan`) thì ảnh chụp mang thêm
-     `don_gia_hd` — đơn giá hiệu dụng trên một đơn vị RA, đã gộp trọn công thức — và số đó THẮNG
-     `don_gia`. Nhờ vậy cả tầng này lẫn bảng lương ăn đúng công thức người khai viết mà không bảng
-     nào phải đẻ thêm cột tiền (xem `LsxService.don_gia_hieu_dung`).
+Tuân §18: kiểm quyền tại service (đúng tổ trưởng) → transaction → version chống bấm trùng → ghi
+audit → (SSE do router phát sau commit).
+
+CÔNG THỨC (§12.2), cho một batch có sản lượng chia Q:
+  1. Q = `batch.tot`, đơn vị = `cv.don_vi_ra` (đơn vị RA của bước — thứ mà `batch.tot` đếm). Không
+     quy đổi gì; vẫn GIỮ RIÊNG số bản địa (`q_ban_dia`) và số đem chia (§12.2) vì hai cột ấy là
+     hợp đồng với tầng lương.
   2. Tổng tỷ lệ hỗ trợ đã xác nhận P (cùng công đoạn + cùng ngày batch).
   3. Mỗi người hỗ trợ nhận Q × tỷ lệ_riêng (ghi cho TỔ GỐC, KHÔNG chia theo phút×hệ số).
   4. Phần tổ thực hiện = Q − Σ(phần hỗ trợ đã làm tròn) = "phần còn lại" thực, đảm bảo tổng = Q.
@@ -99,22 +99,15 @@ def _ky_cua(ngay: date) -> tuple[int, int]:
     return ngay.year, ngay.month
 
 
-def _don_gia_don_vi(cv: SanXuatCongViec) -> tuple[float, str | None]:
-    """Đơn giá + đơn vị trả lương lấy từ ẢNH CHỤP `khoan_json` của công đoạn (đóng băng lúc phát
-    hành). Không có khoan_json ⇒ đơn giá 0 (công đoạn không ăn khoán) + đơn vị bản địa `don_vi_ra`.
+def _don_vi_tra_luong(cv: SanXuatCongViec) -> str | None:
+    """Đơn vị của sản lượng đem chia = đơn vị RA của bước (thứ mà `batch.tot` đếm).
 
-    `don_gia_hd` THẮNG `don_gia` khi có mặt (08/09/2026): bước ấy khai ô tiền công bằng công thức
-    RA THẲNG TIỀN (chip `don_gia_khoan`), nên `don_gia` gốc chỉ còn là một số liệu bên trong công
-    thức — nhân nó với sản lượng ở đây là bỏ qua cả công thức người ta viết, đúng thứ chủ đã cấm.
-    Số đóng băng lúc phát hành, xem `snapshot._SoPhatHanh.khoan_json` và `LsxService.don_gia_hieu_dung`.
+    Trước 11/09/2026 chỗ này còn trả kèm ĐƠN GIÁ lấy từ ảnh chụp `khoan_json`, và nhãn đơn vị đi
+    theo đơn giá ấy (`đ/nhịp`, `đ/m²`). Cả hai đã bỏ: sản xuất ghi số lượng, kế toán lương định
+    giá. Đơn vị TIỀN của đầu việc (`khoan_json.don_vi`) vì thế KHÔNG còn là câu trả lời ở đây —
+    dán nó lên một con số đếm bằng tờ là nói sai đơn vị.
     """
-    khoan = cv.khoan_json or {}
-    if (hd := float(khoan.get("don_gia_hd") or 0)) > 0:
-        # Nhãn đơn vị đi THEO đơn giá đang dùng: `don_gia_hd` là đồng trên một đơn vị RA của bước
-        # (thứ mà `batch.tot` đếm), không phải trên đơn vị của đầu việc (`nhịp`, `lượt`…). Giữ nhãn
-        # cũ ở đây là dán "đ/nhịp" lên một con số tính theo tờ.
-        return hd, (cv.don_vi_ra or khoan.get("don_vi") or None)
-    return float(khoan.get("don_gia") or 0), (khoan.get("don_vi") or cv.don_vi_ra or None)
+    return cv.don_vi_ra or None
 
 
 class _KetQuaTinh:
@@ -124,7 +117,6 @@ class _KetQuaTinh:
         self.q_pay: float = 0.0
         self.q_native: float = 0.0
         self.p_percent: float = 0.0
-        self.don_gia: float = 0.0
         self.don_vi_pay: str | None = None
         self.don_vi_native: str | None = None
         self.ngay: date | None = None
@@ -142,8 +134,8 @@ def _tinh_batch(
     kq = _KetQuaTinh()
     kq.q_native = float(batch.tot or 0)
     kq.don_vi_native = batch.don_vi
-    kq.don_gia, kq.don_vi_pay = _don_gia_don_vi(cv)
-    kq.q_pay = kq.q_native  # quy đổi đồng nhất (identity) — xem docstring module
+    kq.don_vi_pay = _don_vi_tra_luong(cv)
+    kq.q_pay = kq.q_native  # sản lượng chia = sản lượng TỐT bản địa, không quy đổi
     ngay = _aware(batch.bat_dau).date()
     kq.ngay = ngay
 
@@ -176,7 +168,6 @@ def _tinh_batch(
             "trong_so": None,
             "phut_thuc_te": None,
             "he_so_bac": None,
-            "don_gia": kq.don_gia,
         })
 
     # (4) Phần còn lại THỰC cho tổ thực hiện = Q − Σ(phần hỗ trợ đã làm tròn).
@@ -279,8 +270,7 @@ def _tinh_batch(
                 "trong_so": ts_theo_nguoi[e],
                 "phut_thuc_te": phut_theo_nguoi.get(e),
                 "he_so_bac": heso_theo_nguoi.get(e),
-                "don_gia": kq.don_gia,
-            })
+                })
 
     return kq
 
@@ -298,7 +288,6 @@ def _ap_header(header: SanXuatPhanBo, kq: _KetQuaTinh) -> None:
     header.ky_nam, header.ky_thang = _ky_cua(kq.ngay)
     header.q_tra_luong = kq.q_pay
     header.don_vi_tra_luong = kq.don_vi_pay
-    header.don_gia = kq.don_gia
     header.q_ban_dia = kq.q_native
     header.don_vi_ban_dia = kq.don_vi_native
     header.tong_ty_le_ho_tro = kq.p_percent
@@ -501,7 +490,6 @@ def bu_tru(
         ky_bu_thang=ky_bu_thang,
         ngay=date(ky_bu_nam, ky_bu_thang, 1),
         so_luong_tra_luong=delta,
-        don_gia=float(header.don_gia or 0),
         mo_ta=(mo_ta or None),
         created_by_id=getattr(user, "id", None),
     )

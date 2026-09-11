@@ -346,7 +346,6 @@ class PhanBoDongOut(BaseModel):
     trong_so: float | None = None
     phut_thuc_te: float | None = None
     he_so_bac: float | None = None
-    don_gia: float
 
 
 class BuTruDongOut(BaseModel):
@@ -354,7 +353,6 @@ class BuTruDongOut(BaseModel):
     employee_id: int
     ho_ten: str
     so_luong_tra_luong: float
-    don_gia: float
     ky_bu_nam: int
     ky_bu_thang: int
     mo_ta: str | None = None
@@ -368,7 +366,9 @@ class LoaiTruDongOut(BaseModel):
 
 
 class PhanBoChiTietOut(BaseModel):
-    """Header phân bổ MỘT batch + bảng chia theo người + dòng bù trừ (§12)."""
+    """Header CHIA SẢN LƯỢNG của MỘT batch + bảng chia theo người + dòng bù trừ (§12).
+
+    KHÔNG có ô tiền nào (11/09/2026): sản xuất ghi số lượng, kế toán lương định giá."""
     phan_bo_id: int
     batch_id: int
     trang_thai: str                      # draft | finalized | reopened
@@ -378,11 +378,6 @@ class PhanBoChiTietOut(BaseModel):
     ky_thang: int
     q_tra_luong: float
     don_vi_tra_luong: str | None = None
-    don_gia: float
-    # Đơn giá ở trên là số GỘP TỪ CÔNG THỨC tiền công của bước (`khoan_json.don_gia_hd`) hay đơn giá
-    # thẳng của đầu việc? Tổ trưởng nhìn "620 đ" trong khi danh mục ghi "40 đ/nhịp" mà không có chú
-    # thích thì tưởng hệ tính sai — con số đúng nhưng không giải thích được cũng là một lỗi.
-    don_gia_tu_cong_thuc: bool = False
     q_ban_dia: float | None = None
     don_vi_ban_dia: str | None = None
     tong_ty_le_ho_tro: float
