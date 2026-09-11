@@ -60,15 +60,21 @@ def dau_viec_khop(rates, *, department_id: int | None) -> list:
 
 
 def khoan_snapshot(rate, dm=None) -> dict:
-    """Ảnh chụp ĐẦU VIỆC để ghim vào bước lệnh — chỉ TÊN VIỆC, không có giá.
+    """Ảnh chụp ĐẦU VIỆC để ghim vào bước lệnh — tên việc + đơn vị, không có giá.
 
     Từ 11/09/2026 sản xuất và kế hoạch không ôm tiền khoán nữa (chủ xưởng chốt: *"bên sản xuất chỉ
-    ghi nhận số lượng thôi"*). Nên ảnh chụp bỏ `don_gia`, `don_vi` (đơn vị TIỀN) và `cong_thuc`
-    (công thức RA TIỀN): ghim giá lúc phát hành là ghim một con số mà máy nào chạy, kíp mấy người,
-    mấy màu mực, khuôn cũ hay mới đều làm nó đổi — những chiều engine không suy được.
+    ghi nhận số lượng thôi"*). Nên ảnh chụp bỏ `don_gia` và `cong_thuc` (công thức RA TIỀN): ghim
+    giá lúc phát hành là ghim một con số mà máy nào chạy, kíp mấy người, mấy màu mực, khuôn cũ hay
+    mới đều làm nó đổi — những chiều engine không suy được.
 
     `rate_id` + `ten` thì GIỮ, và giữ vì lý do ngược lại: đó là CÁI TÊN của việc. Kế toán lương đọc
     tên đó rồi tra bảng giá tại thời điểm tính lương.
+
+    `don_vi` cũng GIỮ, nhưng nay CHỈ còn một việc: làm ĐÍCH quy đổi mặc định khi đo GIỜ bước Tổ —
+    `dich_gio_cua_khoan` lùi về nó khi đầu việc chưa khai `don_vi_nang_suat`. Bỏ nó ra khỏi ảnh chụp
+    thì mọi bước Tổ chưa khai đơn vị năng suất tịt đích, `sl_tinh_cua_buoc` trả None và bước hiện 0
+    phút — xếp lịch chặn đặt lịch mà không nói vì sao. Nó là ĐƠN VỊ, không phải tiền; đi một mình,
+    không còn `don_gia` nào kèm.
 
     `cong_thuc_gio` (cách đo GIỜ, tách hẳn khỏi cách đo tiền) vẫn chụp: thời lượng bước và Xếp lịch
     sống bằng nó. Khoá này CÓ MẶT kể cả khi rỗng — chính SỰ CÓ MẶT của nó là dấu "ảnh chụp biết đầu
@@ -82,6 +88,7 @@ def khoan_snapshot(rate, dm=None) -> dict:
     snap = {
         "rate_id": rate.id,
         "ten": getattr(rate, "ten", getattr(rate, "name", "")),
+        "don_vi": getattr(rate, "unit", None) or None,
     }
     if dm is not None:
         snap["cong_thuc_gio"] = (getattr(dm, "cong_thuc_gio", None) or "").strip()

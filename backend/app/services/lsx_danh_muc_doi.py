@@ -25,12 +25,16 @@ from .don_vi_do_service import cong_thuc_chu
 
 # Ô của ảnh chụp khoán đem ra so, kèm nhãn người đọc. KHÔNG so `rate_id` (số nội bộ — đổi id là
 # đổi hẳn đầu việc, đã có nhánh "mồ côi" lo) và không so các khoá min/max của năng suất (chúng chỉ
-# vẽ râu nhanh–chậm trên Gantt, không vào tiền cũng không vào thời lượng).
+# vẽ râu nhanh–chậm trên Gantt, không vào thời lượng).
+#
+# Ba ô TIỀN (`don_gia` "Đơn giá khoán" · `cong_thuc` "Cách tính tiền công") gỡ 11/09/2026 cùng tiền
+# khoán ở tầng lệnh: ảnh chụp mới không còn hai khoá ấy, để lại thì mọi lệnh cũ báo lệch giả
+# "250 → —" và không cách nào tắt ngoài bấm Cập nhật. `don_vi` thì GIỮ, với nhãn mới: nay nó là
+# ĐÍCH quy đổi mặc định của phép đo GIỜ (xem `khoan_snapshot`), xưởng đổi nó là giờ của lệnh đổi
+# theo — đúng thứ băng này sinh ra để báo.
 KHOAN_TRUONG: tuple[tuple[str, str], ...] = (
     ("ten", "Tên đầu việc"),
-    ("don_vi", "Đơn vị đơn giá"),
-    ("don_gia", "Đơn giá khoán"),
-    ("cong_thuc", "Cách tính tiền công"),
+    ("don_vi", "Đơn vị của đầu việc"),
     ("cong_thuc_gio", "Cách đo giờ chạy"),
     ("nang_suat_nguoi_gio", "Năng suất người-giờ"),
     ("don_vi_nang_suat", "Đơn vị năng suất"),
@@ -39,7 +43,7 @@ KHOAN_TRUONG: tuple[tuple[str, str], ...] = (
 
 # Ô nào là CÔNG THỨC — hiện ra thì dịch sang chữ đọc được ("Dài tờ in × Rộng tờ in") thay vì bày
 # mã biến. Người lập kế hoạch đọc băng này để QUYẾT, không phải để debug.
-CONG_THUC_TRUONG = frozenset({"cong_thuc", "cong_thuc_gio"})
+CONG_THUC_TRUONG = frozenset({"cong_thuc_gio"})
 
 # So số thực: hai đường tính khác nhau (float của DB vs float vừa dựng) lệch nhau ở chữ số cuối là
 # chuyện thường, mà báo "đơn giá 600 → 600" thì băng mất uy tín ngay lần đầu.

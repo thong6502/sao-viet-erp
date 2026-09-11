@@ -332,6 +332,9 @@ def don_vi_dung_duoc(goc: str, dvs: dict[str, dict], cap_rows=None,
     return out
 
 
+# ⚠️ `tien_khoan` HIỆN KHÔNG CÓ LUỒNG NÀO GỌI (11/09/2026): `lsx_service._khoan_tu_kh` — nơi gọi
+# duy nhất — đã xoá cùng tiền khoán ở tầng lệnh/sản xuất. Giữ lại vì nó là phép "sản lượng × đơn giá
+# qua cầu quy đổi" thuần, đúng thứ màn "Khoán theo kỳ" của kế toán lương cần, và nó đã có test.
 def tien_khoan(sl_buoc: float, don_vi_buoc: str, don_vi_gia: str, don_gia: float,
                quy_cach: dict | None, dvs: dict[str, dict], cap_rows=None) -> dict:
     """Tiền khoán DỰ KIẾN của 1 bước = SL bước (đổi sang đơn vị đơn giá) × đơn giá.

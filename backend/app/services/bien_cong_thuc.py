@@ -243,8 +243,10 @@ KHUON_MAC_DINH: dict[str, float] = {
 # công thức lượng của GIẤY ở kế hoạch vật tư. Nơi nào BIẾT bước thì bơm số thật đè lên.
 MAC_DINH_TANG_LENH: dict[str, float] = {
     **KHUON_MAC_DINH, "so_luot_chay": 1.0,
-    # Ngữ cảnh không đứng ở đầu việc khoán nào ⇒ 0. Nơi BIẾT đầu việc
-    # (`lsx_service._ct_rieng`) bơm đơn giá thật đè lên.
+    # LUÔN 0 từ 11/09/2026: tầng lệnh và tầng sản xuất thôi giữ tiền, không nơi nào bơm đơn giá thật
+    # đè lên nữa (`lsx_service._ct_rieng` trước đây làm việc đó). Khoá vẫn phải CÓ vì ô "Cách đo giờ
+    # chạy" dùng chung bộ chip — người khai gõ tay được `don_gia_khoan`, và gõ thì phải ra 0 chứ
+    # không vỡ NameError giữa một lệnh đang xếp lịch.
     "don_gia_khoan": 0.0,
 }
 
@@ -254,6 +256,12 @@ _RE_DON_GIA_KHOAN = re.compile(rf"\b{MA_DON_GIA_KHOAN}\b")
 
 def cong_thuc_ra_tien(ct: str | None) -> bool:
     """Ô "Công thức tính tiền công" này ra thẳng TIỀN hay chỉ ra LƯỢNG?
+
+    ⚠️ HIỆN KHÔNG CÓ LUỒNG NÀO GỌI (11/09/2026). Nơi thi hành duy nhất là
+    `lsx_service._khoan_theo_cong_thuc`, đã xoá cùng tiền khoán ở tầng lệnh/sản xuất. Giữ lại vì ô
+    công thức vẫn khai ở DANH MỤC đầu việc (`cong_doan_dau_viec.cong_thuc_khoan`) và chip
+    `don_gia_khoan` vẫn chọn được ở đó — màn "Khoán theo kỳ" của kế toán lương sẽ là nơi đọc. Xem
+    `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
 
     Ô ấy vốn ra LƯỢNG rồi engine mới nhân đơn giá (`lsx_service._khoan_theo_cong_thuc`). Từ
     08/09/2026 người khai gọi được chính đơn giá vào công thức bằng chip `don_gia_khoan`, và khi

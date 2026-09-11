@@ -1197,8 +1197,9 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
 ):
     """Lượt chung chọn được đầu việc khoán — backend vẫn nhận nhưng form chưa có ô nhập.
 
-    Ghim theo ID và SERVER chụp ảnh đơn giá: cho client gửi `khoan_json` thô là mở cửa cho đơn
-    giá bịa chảy thẳng vào phiếu lương.
+    Ghim theo ID và SERVER tự chụp ảnh: cho client gửi `khoan_json` thô là mở cửa cho dữ liệu bịa
+    chảy thẳng vào kế hoạch. Ảnh chụp không còn mang giá từ 11/09/2026 (bàn bài ghép và drawer lệnh
+    dùng chung một nguồn, cùng bỏ tiền một lượt) nên bài này canh phần ĐỊNH DANH + ĐỊNH MỨC.
     """
     from app.models.cong_doan import CongDoanDauViec
     from app.models.piece_work import PieceRate
@@ -1229,7 +1230,9 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
     )
     sau = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
     assert sau["khoan_rate_id"] == rate.id
-    assert sau["khoan_ten"] == "In tờ rời" and sau["khoan_don_gia"] == 35
+    assert sau["khoan_ten"] == "In tờ rời"
+    for khoa in ("khoan_don_gia", "khoan_tien", "khoan_sl", "khoan_dien_giai"):
+        assert khoa not in sau, khoa
     assert rate.id in {k["id"] for k in sau["khoan_chon_duoc"]}
     # Định mức đi kèm: chọn xong mà năng suất vẫn trống thì thẻ vẫn kêu "Chưa có năng suất".
     assert sau["nang_suat"] == 3000 and sau["so_nhan_cong_tieu_chuan"] == 2

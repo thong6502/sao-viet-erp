@@ -310,13 +310,15 @@ class LsxCongDoanOut(BaseModel):
     qua_han_ngay: int | None = None           # >0 = quá hạn nhận, chỉ khi chưa nhận
     ghi_chu: str | None = None
 
-    # --- Khoán theo đầu việc ---------------------------------------------------
-    # GHIM (snapshot lúc chọn, xưởng lên giá sau không xê dịch lệnh đã phát):
+    # --- Đầu việc đã chọn cho bước --------------------------------------------
+    # GHIM (snapshot lúc chọn) — chỉ ĐỊNH DANH. Không ô tiền nào từ 11/09/2026: kế hoạch vẫn chọn
+    # đầu việc chi tiết (thợ làm VIỆC GÌ, và là khoá kế toán lương tra giá theo kỳ), còn quy ra tiền
+    # là việc của kế toán lương. Trước đó ở đây có `khoan_don_vi`/`khoan_don_gia` + bốn ô dẫn xuất
+    # (`khoan_sl`/`khoan_don_vi_sl`/`khoan_tien`/`khoan_dien_giai`) và `khoan_thieu`/`khoan_ly_do`.
     khoan_rate_id: int | None = None
     khoan_ten: str | None = None
-    khoan_don_vi: str | None = None
-    khoan_don_gia: float | None = None
-    # Các đầu việc CHỌN ĐƯỢC cho bước (theo tổ + công đoạn) — nuôi dropdown ở drawer.
+    # Các đầu việc CHỌN ĐƯỢC cho bước (theo tổ + công đoạn) — nuôi dropdown ở drawer. Mỗi lựa chọn
+    # mang định mức (năng suất · kíp · vật tư) để drawer xem trước giờ và nhân lực, KHÔNG mang giá.
     khoan_chon_duoc: list[dict] = Field(default_factory=list)
     # `[{vat_tu_id, so_luong, dien_giai}]` — lượng tính sẵn cho MỌI vật tư theo bước này. Drawer
     # chọn món nào là điền số ngay, khỏi bắt gõ tay. Món chưa tính ra được thì KHÔNG có ở đây.
@@ -325,14 +327,6 @@ class LsxCongDoanOut(BaseModel):
     # Lệnh là ẢNH CHỤP nên server không tự đè — chỉ phơi ra để màn gạch số cũ + mời "Tính lại".
     so_luong_vao_moi: float | None = None
     so_luong_ra_moi: float | None = None
-    # DẪN XUẤT (tính lúc đọc, không lưu): SL đã quy đổi · tiền dự kiến · diễn giải cách tính.
-    khoan_sl: float | None = None
-    khoan_don_vi_sl: str | None = None
-    khoan_tien: float | None = None
-    khoan_dien_giai: str | None = None
-    # Không quy đổi được thì nói THIẾU GÌ, không đoán số.
-    khoan_thieu: list[str] = Field(default_factory=list)
-    khoan_ly_do: str | None = None
     phu_thuoc_step_keys: list[str] = Field(default_factory=list)
     vat_tus: list[LsxBuocVatTuOut] = Field(default_factory=list)
 
@@ -512,9 +506,8 @@ class LsxOut(BaseModel):
     # 25/08/2026 — server vẫn tính mỗi lần mở lệnh mà không màn nào đọc.
     thieu: list[str] = Field(default_factory=list)
     lead_time: LeadTimeOut | None = None
-    # Công thợ khoán DỰ KIẾN cả lệnh = Σ bước quy đổi được. Là số SÀN: bước chưa chọn đầu việc hoặc
-    # thiếu số để quy đổi thì không góp vào — đừng đọc như tổng chi phí nhân công thật.
-    khoan_tien_tong: float = 0
+    # `khoan_tien_tong` gỡ 11/09/2026 cùng tiền khoán ở tầng lệnh — tổng công thợ là số của kế toán
+    # lương, tính theo bảng giá TẠI KỲ TÍNH LƯƠNG, không phải Σ ảnh chụp lúc bung lệnh.
     # Chừa TÁCH CHIỀU, tính lúc đọc bằng `chua_theo_chieu` — màn lệnh chỉ hiện, không cộng lại.
     chua_dai: float = 0
     chua_rong: float = 0

@@ -709,17 +709,29 @@ công = min(1,00 ; làm tròn 2 chữ số của (số phút làm ÷ cửa_sổ_
 
 # 6. KHOÁN SẢN LƯỢNG
 
-## 6.1. Trạng thái thật — nói thẳng
+## 6.1. Trạng thái thật — nói thẳng (cập nhật 11/09/2026)
 
-> **Cột `khoan` trên bảng lương hiện LUÔN = 0 cho MỌI nhân viên.**
-> Lý do **KHÔNG phải "chờ Lệnh sản xuất"**, mà là **nguồn sản lượng thật đã bị GỠ khỏi hệ**:
+> **Cột `khoan` trên bảng lương vẫn LUÔN = 0 cho MỌI nhân viên — nhưng vì lý do KHÁC HẲN bản trước.**
 >
-> - `deps.py:441-445` — khởi tạo `PieceWorkService(piece)` với tham số nguồn sản lượng **bỏ trống** ⇒ = None. Comment ngay tại đó: *"Nguồn sản lượng đã gỡ → khoán-theo-sản-lượng bỏ."*
-> - `khoan_map` và `defect_map` mở đầu bằng `if nguồn is None: return {}` (`piece_work_service.py:241-242`, `:254-255`) ⇒ **trả rỗng, KHÔNG raise, KHÔNG log**.
-> - Bảng/repo `production_outputs` **không còn model lẫn router**. Chỉ còn dấu vết ở `db_migrations.py:1853-1891` và `backend/scripts/seed_review_luong.py` (script này import module không tồn tại ⇒ **chạy là ImportError**).
+> Nguồn sản lượng nay **CÓ THẬT và đã nối**: `deps.py:449-455` khởi tạo
+> `PieceWorkService(piece, outputs=ProductionOutputRepository(db))`, repo ấy đọc **dòng chia sản
+> lượng ĐÃ CHỐT** (§12.2) + **dòng bù trừ sang kỳ** (§12.3) và trả ra phiếu sản lượng theo người.
+> Số lượng là số THẬT: tổ đã ghi, tổ trưởng đã chốt.
+>
+> Thứ **không còn** là ĐƠN GIÁ. Chủ xưởng chốt 11/09/2026: *"bên sản xuất chỉ ghi nhận số lượng
+> thôi"* ⇒ ba cột `don_gia` ở tầng phân bổ đã bỏ (mg `0296`), ảnh chụp đầu việc thôi ghim giá, và
+> `ProductionOutputRepository` trả **`unit_price = 0`** cho mọi dòng. Seam nhân `đơn_giá × sản_lượng`
+> vẫn nguyên vẹn, chỉ là một vế đang bằng 0.
+>
+> ⇒ Muốn cột `khoan` ra tiền thì phải dựng màn **"Khoán theo kỳ"** của kế toán lương: đọc chính các
+> dòng sản lượng ấy, tra `piece_rates` **tại kỳ tính lương** rồi nhân. Xem
+> `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
+>
+> - `khoan_map` / `defect_map` vẫn mở đầu bằng `if nguồn is None: return {}` — nhánh phòng hờ, hiện
+>   không đi vào vì `outputs` đã có.
 > - `update_line` **không nhận tham số `khoan`** ⇒ HCNS cũng **không gõ tay được**.
 
-**Cái đang chờ Lệnh SX là phần KHÁC**: tiền khoán **DỰ KIẾN** ở bước lệnh đã chạy và ra số thật, nhưng đó là **số kế hoạch, không chảy sang bảng lương**.
+**Neo** — `deps.py:449-455` · `repositories/production_output_repo.py` (toàn file) · `piece_work_service.py` (`khoan_map`/`defect_map`).
 
 ## 6.2. Đơn giá khoán — nơi khai + luật khớp
 
@@ -750,13 +762,18 @@ Tự điền khi lập lệnh:
 2. `unit` lưu **CHỮ hiển thị** ('m²' chứ không phải 'm2'); người dùng gõ đơn vị ngoài danh sách gợi ý vẫn lưu ⇒ hai dòng cùng nghĩa có thể khác chuỗi.
 3. `department_id` cho phép rỗng: đơn giá cũ chưa gắn tổ sẽ **KHÔNG BAO GIỜ khớp** bước nào.
 
-## 6.3. Tiền khoán theo người (khi có nguồn sản lượng)
+## 6.3. Tiền khoán theo người
 
 ```
 tiền_1_phiếu = làm_tròn( max(0, sản_lượng × đơn_giá − trừ_lỗi) )   ← làm tròn TỪNG PHIẾU
 khoán(NV)    = Σ tiền_1_phiếu của NV trong kỳ
 ```
 Chỉ cộng phiếu có cờ **tính khoán** và **có gán nhân viên**.
+
+> ⚠️ **`đơn_giá` = 0 cho MỌI phiếu từ 11/09/2026** (xem 6.1) ⇒ vế phải luôn ra 0. Phiếu vẫn sinh
+> đúng và **sản lượng vẫn là số thật** — chỉ thiếu bước tra giá, và bước ấy là việc của màn "Khoán
+> theo kỳ" chưa dựng. `trừ_lỗi` cũng luôn 0: §12.2 chốt KHÔNG trừ lỗi cá nhân, trừ lỗi nằm ở tầng
+> mẻ/KCS.
 
 **Bẫy** — **Sàn 0 áp TỪNG PHIẾU, không phải cả kỳ**: phiếu lỗ nặng bị kẹp về 0 nhưng phiếu khác vẫn cộng đủ ⇒ tổng kỳ **KHÁC** `max(0, Σ(SL×giá) − Σ trừ lỗi)`.
 
@@ -807,6 +824,12 @@ Bẫy phụ:
 
 ## 6.6. Thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — **ĐÃ CODE, CHƯA NỐI**
 
+> **Cập nhật 11/09/2026:** bảng `san_xuat_thuong_to_truong` và chuỗi ghi thưởng lúc ĐÓNG NHÓM đã
+> **xoá hẳn** (mg `0297`) — thưởng/phạt tổ trưởng là tiền, mà sản xuất thôi giữ tiền. Còn lại:
+> cột `payroll_lines.thuong_to_truong` (luôn 0), bảng bậc `piece_leader_bonus_brackets` (vẫn khai
+> được ở Cấu hình lương), và hàm thuần `leader_bonus_amount` — **không luồng nào gọi**.
+> `payroll_service` giữ `thuong_tt_map = {}` làm chỗ nối sẵn cho màn "Khoán theo kỳ".
+
 ```
 nếu sản_lượng dưới ngưỡng min_output_qty → 0
 ngược lại: tiền = làm_tròn( tổng_khoán_tổ × tỷ_lệ_bậc / 100 )
@@ -818,23 +841,35 @@ Tỷ lệ **DƯƠNG = thưởng, ÂM = phạt**.
 
 **Neo** — `piece_work_service.py:161-218` · `models/piece_work.py:68-147`.
 
-## 6.7. Tiền khoán DỰ KIẾN ở Lệnh sản xuất — KHÔNG chảy vào lương
+## 6.7. Tiền khoán DỰ KIẾN ở Lệnh sản xuất — **ĐÃ GỠ HẲN** (11/09/2026)
 
-```
-khoán_SL   = quy_đổi(số lượng VÀO của bước, đơn vị vào → đơn vị đơn giá, theo quy cách)
-khoán_tiền = làm_tròn(khoán_SL × đơn giá đã ghim)
-tổng lệnh  = Σ khoán_tiền các bước
-```
-*Ví dụ thật:* 241 tờ × 86cm × 65cm = 134,72 m² × 150 đ/m² = **20.208 đ**.
+Mục này trước đây mô tả ô "Công thợ dự kiến" của bước lệnh và tổng `khoan_tien_tong` của lệnh.
+**Cả hai không còn.** Đã xoá khỏi `lsx_service`: `_khoan_tu_kh`, `_khoan_derived`,
+`_khoan_theo_cong_thuc`, `don_gia_hieu_dung`, khoá `khoan_tien_tong`, và các ô
+`khoan_don_vi`/`khoan_don_gia`/`khoan_sl`/`khoan_don_vi_sl`/`khoan_tien`/`khoan_dien_giai`/
+`khoan_thieu`/`khoan_ly_do` ở payload bước. Bài ghép (`_khoan_chung_dict`) bỏ cùng lượt vì dùng
+chung engine ấy.
 
-**Điều kiện tính** — Bước đã chọn đầu việc, ảnh chụp đầu việc có đủ đơn vị + đơn giá, **và** đầu việc phải thuộc whitelist công đoạn + tổ.
+**Cái CÒN LẠI ở tầng lệnh** — kế hoạch **vẫn chọn đầu việc chi tiết**, và đó là chủ ý: đầu việc nói
+lên thợ làm VIỆC GÌ, và là khoá để kế toán lương tra giá theo kỳ. Bước lệnh giữ `khoan_rate_id` +
+`khoan_ten` + `khoan_chon_duoc`; ảnh chụp `khoan_json` giữ `rate_id`, `ten`, `don_vi`,
+`cong_thuc_gio` và bộ định mức (năng suất ±min/max · đơn vị năng suất · kíp chuẩn).
 
-> **Sửa so với bản trích:** ảnh chụp đầu việc (`khoan_json`) **KHÔNG chỉ có 4 khoá** {mã, tên, đơn vị, đơn giá}. Khi công đoạn có dòng định mức, nó còn ghim: năng suất người-giờ (+min/max), đơn vị năng suất, số người tối thiểu/tiêu chuẩn/tối đa. **Ghi đè bằng đúng 4 khoá là XOÁ định mức ⇒ vỡ năng suất/thời lượng của bước.**
-> Cũng sửa: hằng `PRICING_BASIS` **vẫn còn sống** ở `models/cong_doan.py:52` (pricing_basis của công đoạn bên tính giá) — migration 0138 chỉ drop `piece_rates.cong_doan_mas` + `piece_rates.tinh_theo`. **Đừng ghi là đã gỡ.**
+> **`don_vi` ở lại KHÔNG phải vì tiền.** Nó là **đích quy đổi mặc định của phép đo GIỜ**:
+> `dich_gio_cua_khoan` lùi về nó khi đầu việc chưa khai `don_vi_nang_suat`. Bỏ nó ra khỏi ảnh chụp
+> thì mọi bước Tổ chưa khai đơn vị năng suất tịt đích ⇒ `sl_tinh_cua_buoc` = None ⇒ bước hiện 0 phút
+> ⇒ Xếp lịch chặn đặt lịch mà không nói vì sao.
 
-**Bẫy** — Nhìn thấy "Công thợ dự kiến" có số mà bảng lương ra 0 là **ĐÚNG THIẾT KẾ hiện tại**, không phải bug. Ảnh chụp ghim có chủ ý — xưởng lên giá khoán sau **không được xê dịch lệnh đã phát**.
+**Ghi đè `khoan_json` bằng ít khoá hơn là XOÁ định mức** ⇒ vỡ năng suất/thời lượng của bước. Luật
+này không đổi.
 
-**Neo** — `lsx_service.py:670-698`, `:604-621`, `:1751` · `quy_doi_service.py:403-419` · `docs/spec-luong.md:92-107`.
+Hằng `PRICING_BASIS` **vẫn còn sống** ở `models/cong_doan.py:52` (pricing_basis của công đoạn bên
+tính giá) — migration 0138 chỉ drop `piece_rates.cong_doan_mas` + `piece_rates.tinh_theo`.
+**Đừng ghi là đã gỡ.**
+
+**Neo** — `lsx_service.py` (`_dau_viec_option_dicts`, `xem_truoc_buoc`, `dich_gio_cua_khoan`) ·
+`piece_work_service.khoan_snapshot` · `services/lsx_danh_muc_doi.KHOAN_TRUONG` ·
+`docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
 
 ---
 

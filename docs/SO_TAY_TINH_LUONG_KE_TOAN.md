@@ -749,15 +749,15 @@ Phần A không có nếu ca **không** tích chọn “Ca qua đêm”. Cả ha
 
 ## 6.1. Trạng thái thật — nói thẳng
 
-> **Cột “Khoán” trên Bảng lương tháng hiện LUÔN BẰNG 0 cho mọi nhân viên.**
+> **Cột “Khoán” trên Bảng lương tháng vẫn LUÔN BẰNG 0 cho mọi nhân viên — nhưng lý do đã khác hẳn (cập nhật 11/09/2026).**
 >
-> Lý do: **phần khai sản lượng chưa dùng được** — không còn màn nhập sản lượng, không còn số liệu để cộng. Hệ thống **không báo lỗi, không cảnh báo** khi không có số nào để cộng.
+> **Sản lượng nay đã có thật.** Tổ ghi sản lượng ngay tại xưởng, tổ trưởng chia cho từng người rồi chốt; bảng lương đọc đúng những dòng đã chốt ấy. Số lượng là số thật.
+>
+> **Thứ còn thiếu là ĐƠN GIÁ.** Chủ xưởng chốt: *bên sản xuất chỉ ghi nhận số lượng thôi*, nên toàn bộ ô tiền đã gỡ khỏi màn sản xuất. Phép nhân “sản lượng × đơn giá” vẫn nguyên, chỉ là vế đơn giá đang bằng 0 ⇒ ra 0 đồng.
 >
 > Nhân sự cũng **không gõ tay được** tiền khoán trong cửa sổ Sửa lương.
 >
-> **Hệ thống chưa làm phần này. Muốn trả khoán tháng này thì tính tay ngoài hệ thống rồi nhập vào “Khoản phát sinh tháng này”** (nhớ: khoản đó **chịu thuế**, đúng như khoán).
-
-Cái đang chờ Lệnh sản xuất là **phần khác**: tiền khoán **dự kiến** ở bước lệnh sản xuất đã chạy và ra số thật, nhưng đó là **số kế hoạch, không chảy sang bảng lương**.
+> **Muốn trả khoán tháng này thì tính tay ngoài hệ thống rồi nhập vào “Khoản phát sinh tháng này”** (nhớ: khoản đó **chịu thuế**, đúng như khoán). Hệ thống sẽ tự ra số khi màn **“Khoán theo kỳ”** của kế toán lương được dựng — màn đó đọc chính các dòng sản lượng đã chốt rồi tra bảng đơn giá **tại kỳ tính lương**.
 
 ## 6.2. Đơn giá khoán — khai ở đâu và hệ thống chọn đầu việc thế nào
 
@@ -776,13 +776,15 @@ Cái đang chờ Lệnh sản xuất là **phần khác**: tiền khoán **dự 
 2. Đơn giá khoán **chưa gắn tổ** thì **không bao giờ khớp** bước nào.
 3. Ô “Đơn vị” lưu đúng chữ hiển thị. Gõ đơn vị ngoài danh sách gợi ý vẫn lưu ⇒ hai dòng cùng nghĩa mà chữ khác nhau sẽ không gộp được.
 
-## 6.3. Tiền khoán theo người — cách tính khi phần khai sản lượng dùng được trở lại
+## 6.3. Tiền khoán theo người — cách tính khi có đơn giá
 
 > Tiền một phiếu = làm tròn của (Sản lượng × Đơn giá − Trừ lỗi), **chặn sàn 0 từng phiếu**.
 > Khoán của nhân viên = tổng tiền các phiếu của người đó trong kỳ.
 > Chỉ cộng phiếu có đánh dấu tính khoán và **có gán nhân viên**.
 
 **Dễ sai chỗ nào** — Sàn 0 áp **từng phiếu**, không phải cả kỳ: phiếu lỗ nặng bị kẹp về 0 nhưng phiếu khác vẫn cộng đủ ⇒ tổng kỳ **khác** với công thức “tổng doanh thu khoán trừ tổng trừ lỗi”.
+
+> Từ 11/09/2026: **Đơn giá = 0 cho mọi phiếu** (xem 6.1) nên vế phải luôn ra 0 đồng, dù sản lượng là số thật. **Trừ lỗi cũng luôn 0**: khi chốt chia sản lượng, hệ thống **không trừ lỗi vào từng người** — hàng lỗi xử ở tầng mẻ và KCS.
 
 ## 6.4. Khoán vào bảng lương — CỘNG THÊM
 
@@ -800,7 +802,7 @@ Cộng **phẳng và vô điều kiện**: không nhân hệ số thử việc, 
 >
 > Quyết định theo **TỔ** (phòng ban tại thời điểm trả lương), **không** theo từng người và **không** phụ thuộc việc người đó có thực sự có tiền khoán hay không.
 
-> ⚠️ **Tiền tăng ca bị ép về 0 dựa trên công tắc của TỔ, trong khi cột Khoán LUÔN bằng 0 vì phần khai sản lượng chưa dùng được.**
+> ⚠️ **Tiền tăng ca bị ép về 0 dựa trên công tắc của TỔ, trong khi cột Khoán LUÔN bằng 0 vì chưa có đơn giá để nhân (xem 6.1).**
 > ⇒ **Nhân viên tổ đang bật công tắc khoán MẤT tiền tăng ca mà KHÔNG được bù đồng khoán nào.**
 > **Bật công tắc “Lương khoán / sản lượng” cho một tổ ngay lúc này = CẮT TĂNG CA của cả tổ.**
 > **Cách xử lý: TẮT công tắc đó cho tới khi phần khai sản lượng dùng được trở lại.**
@@ -818,12 +820,15 @@ Thẻ **“Thưởng / phạt tổ trưởng theo chất lượng”** ở Cấu
 
 **Khai bậc trên màn hình KHÔNG ra đồng nào trên bảng lương.** Màn khai có băng cảnh báo nói đúng điều này — **đừng gỡ băng cảnh báo đó**.
 
-## 6.7. Tiền khoán dự kiến ở Lệnh sản xuất — không chảy vào lương
+> Cập nhật 11/09/2026: phần **ghi thưởng lúc đóng nhóm ở xưởng đã gỡ hẳn** — thưởng/phạt tổ trưởng là tiền, mà bên sản xuất thôi giữ tiền. Thẻ khai bậc ở Cấu hình lương **vẫn còn** và **vẫn khai được**; nó sẽ được dùng khi màn “Khoán theo kỳ” dựng xong.
 
-Ở bước lệnh sản xuất, hệ thống quy đổi số lượng vào của bước sang đơn vị của đơn giá rồi nhân đơn giá đã ghim, cộng lại thành tổng lệnh.
-*Ví dụ thật:* 241 tờ × 86 cm × 65 cm = 134,72 m² × 150 đ/m² = **20.208 đ**.
+## 6.7. Tiền khoán dự kiến ở Lệnh sản xuất — **ĐÃ BỎ** (11/09/2026)
 
-**Dễ sai chỗ nào** — Nhìn thấy “Công thợ dự kiến” có số mà bảng lương ra 0 là **đúng thiết kế hiện tại**, không phải lỗi. Bản ghim đầu việc là cố ý: xưởng lên giá khoán sau **không được xê dịch lệnh đã phát**. Ghi đè bản ghim mà chỉ điền lại mã, tên, đơn vị, đơn giá là **xoá mất định mức** ⇒ vỡ năng suất và thời lượng của bước.
+Ô **“Công thợ dự kiến”** ở bước lệnh và dòng tổng tiền khoán của lệnh **không còn nữa**. Bài ghép bỏ cùng lượt. Lý do: kế hoạch mà hiện một con số tiền không chảy đi đâu chỉ gây hiểu nhầm, và tiền là việc của kế toán lương.
+
+**Cái còn lại ở lệnh sản xuất** — người lập kế hoạch **vẫn chọn đầu việc chi tiết** cho từng bước (bế máy hay bế tay, dán thủ công hay dán máy). Đó là chủ ý: đầu việc nói lên **thợ làm việc gì**, và chính nó là khoá để kế toán lương tra đơn giá theo kỳ. Bản ghim đầu việc vẫn giữ tên đầu việc, đơn vị và bộ định mức (năng suất người-giờ, đơn vị năng suất, kíp chuẩn) — **chỉ bỏ ô tiền**.
+
+**Dễ sai chỗ nào** — Đơn vị trong bản ghim **không phải để tính tiền**: nó là **đích quy đổi khi hệ thống đo GIỜ CHẠY** của bước. Xoá nó đi thì mọi bước làm tay chưa khai đơn vị năng suất sẽ ra **0 phút** và màn Xếp lịch chặn đặt lịch mà không nói vì sao. Ghi đè bản ghim bằng ít ô hơn là **xoá mất định mức** ⇒ vỡ năng suất và thời lượng của bước.
 
 ---
 
