@@ -137,3 +137,34 @@ def test_work_items_nhom_la_bi_chan(client):
         headers=_admin_h(client),
     )
     assert r.status_code == 422
+
+
+# --- Luỹ kế sản lượng tháng của CHÍNH mình (spec 2026-09-11 §6) -----------------------------
+def test_luy_ke_san_luong_cua_toi_hinh_dang(client):
+    r = client.get("/api/san-xuat/toi/san-luong", params={"nam": 2026, "thang": 9},
+                   headers=_admin_h(client))
+    assert r.status_code == 200
+    d = r.json()
+    assert set(d) == {"nam", "thang", "employee_id", "theo_don_vi", "so_me"}
+    assert d["nam"] == 2026 and d["thang"] == 9
+    assert "tien" not in str(d) and "don_gia" not in str(d)
+
+
+def test_luy_ke_khong_nhan_employee_id_tu_client(client):
+    """Nhận `employee_id` từ URL là mở cửa cho bất kỳ ai xem sản lượng người khác."""
+    r = client.get("/api/san-xuat/toi/san-luong",
+                   params={"nam": 2026, "thang": 9, "employee_id": 999},
+                   headers=_admin_h(client))
+    assert r.status_code in (200, 422)
+    if r.status_code == 200:
+        assert r.json()["employee_id"] != 999
+
+
+def test_luy_ke_can_dang_nhap(client):
+    assert client.get("/api/san-xuat/toi/san-luong?nam=2026&thang=9").status_code == 401
+
+
+def test_luy_ke_thang_ngoai_1_12_bi_chan(client):
+    r = client.get("/api/san-xuat/toi/san-luong", params={"nam": 2026, "thang": 13},
+                   headers=_admin_h(client))
+    assert r.status_code == 422

@@ -286,6 +286,25 @@ class NguoiThamGiaBatchOut(BaseModel):
     ho_ten: str
 
 
+class SanLuongMotDonViOut(BaseModel):
+    don_vi: str | None = None
+    tong: float
+
+
+class SanLuongCuaToiOut(BaseModel):
+    """Luỹ kế sản lượng tháng của CHÍNH người đăng nhập. KHÔNG có ô tiền — spec 2026-09-11.
+
+    Gộp theo ĐƠN VỊ chứ không cộng thành một số: tháng nào thợ chạy cả bước đếm tờ lẫn bước đếm
+    cái thì cộng chung lại ra một con số vô nghĩa. `employee_id` là null khi tài khoản chưa nối
+    hồ sơ nhân sự."""
+
+    nam: int
+    thang: int
+    employee_id: int | None = None
+    theo_don_vi: list[SanLuongMotDonViOut] = []
+    so_me: int = 0
+
+
 class MeSuCoOut(BaseModel):
     """Một lần DỪNG MÁY rơi vào cửa sổ mẻ — suy từ phiên `loai_dong='tam_dung'`, không bảng mới."""
 

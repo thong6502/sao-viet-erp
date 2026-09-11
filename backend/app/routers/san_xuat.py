@@ -88,6 +88,7 @@ from ..schemas.san_xuat import (
     PhanBoTomTatOut,
     PhanBoTrangThaiOut,
     PhanCongIn,
+    SanLuongCuaToiOut,
     SanLuongKetQuaOut,
     SuCoIn,
     SuCoKetQuaOut,
@@ -116,6 +117,7 @@ from ..services.san_xuat import (
     vat_tu_de_nghi,
     vat_tu_nhan,
 )
+from ..services.san_xuat.san_luong_cua_toi import san_luong_cua_toi as san_luong_cua_toi_svc
 from ..services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
 from ..services.stock_request_service import StockRequestError
 
@@ -400,6 +402,24 @@ def work_items(
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+
+@router.get("/toi/san-luong", response_model=SanLuongCuaToiOut)
+def san_luong_cua_toi(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    nam: int = Query(..., ge=2000, le=2200),
+    thang: int = Query(..., ge=1, le=12),
+) -> SanLuongCuaToiOut:
+    """Luỹ kế sản lượng tháng của CHÍNH người đăng nhập (§6): thợ tự trả lời "tháng này tôi làm
+    được bao nhiêu" mà không phải chờ bảng lương.
+
+    KHÔNG nhận `employee_id` — nhân sự luôn suy từ token trong service. Nhận từ URL là biến đây
+    thành cửa xem sản lượng của bất kỳ ai chỉ bằng cách đổi một con số.
+    """
+    return SanLuongCuaToiOut.model_validate(
+        san_luong_cua_toi_svc(db, user, nam=nam, thang=thang)
+    )
 
 
 @router.get("/work-items/{cong_viec_id}", response_model=WorkItemChiTietOut)

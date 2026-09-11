@@ -649,7 +649,8 @@ def chi_tiet_cong_viec(
     _tos, ids = _to_thay_duoc(db, user, authz)
     if cv.department_id not in ids:
         raise PermissionError("Ngoài phạm vi tổ được phép xem.")
-    if _la_tho(user, authz, next((d for d in _tos if d.id == cv.department_id), None))             and not _loc_viec_cua_tho(db, user, [cv]):
+    la_tho = _la_tho(user, authz, next((d for d in _tos if d.id == cv.department_id), None))
+    if la_tho and not _loc_viec_cua_tho(db, user, [cv]):
         raise PermissionError("Chỉ xem được việc đã giao cho mình.")
 
     lsx_map = repo.lsx_nhan({cv.lsx_id} if cv.lsx_id else set())
@@ -748,6 +749,18 @@ def chi_tiet_cong_viec(
     for c in chia_nhap.values():
         for d in c["dong"]:
             d["ho_ten"] = _emp_ten(d["employee_id"])
+
+    # Thợ chỉ thấy PHẦN CỦA MÌNH (spec 2026-09-11 §6): ai-được-bao-nhiêu của cả tổ là bảng của tổ
+    # trưởng, không phải của một người đứng máy. Cắt ở đây — SAU khi mọi con số tổng (`q`, cảnh
+    # báo, can_chot) đã tính trên TOÀN mẻ — để thợ vẫn đọc đúng sản lượng chung của mẻ, chỉ là
+    # không thấy tên và số của người khác. Tổ trưởng và cấp trên phạm vi rộng vẫn thấy trọn bảng.
+    if la_tho:
+        _nv_toi = tt.nhan_vien_theo_user(user.id)
+        _toi = _nv_toi.id if _nv_toi else 0
+        for c in chia_nhap.values():
+            c["dong"] = [d for d in c["dong"] if d["employee_id"] == _toi]
+        dong_map = {k: [d for d in v if d.employee_id == _toi] for k, v in dong_map.items()}
+        bu_tru_map = {k: [b for b in v if b.employee_id == _toi] for k, v in bu_tru_map.items()}
 
     # Máy + ca + sự cố + đầu việc của TỪNG mẻ (§5.2) — mọi số đã có sẵn trong DB, chỉ là chưa ai
     # nối ra mặt đọc. Tập ca lấy đúng nguồn dùng chung của xưởng (`ca_lich_xuong`, cùng tập mà Xếp
