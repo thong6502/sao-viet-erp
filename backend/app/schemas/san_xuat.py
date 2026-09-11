@@ -286,6 +286,14 @@ class NguoiThamGiaBatchOut(BaseModel):
     ho_ten: str
 
 
+class MeSuCoOut(BaseModel):
+    """Một lần DỪNG MÁY rơi vào cửa sổ mẻ — suy từ phiên `loai_dong='tam_dung'`, không bảng mới."""
+
+    bat_dau: datetime | None = None
+    ket_thuc: datetime | None = None
+    ly_do: str | None = None
+
+
 class ChiaDongOut(BaseModel):
     """Một người trong bản CHIA SẢN LƯỢNG của mẻ. KHÔNG có ô tiền nào: sản xuất ghi số lượng, quy
     số lượng ra tiền là việc của kế toán lương (spec 2026-09-11)."""
@@ -321,6 +329,13 @@ class BatchOut(BaseModel):
     mo_ta_loi: str | None = None
     ghi_chu: str | None = None
     version: int
+    # Đọc trọn mẻ (§5.2): máy ĐÃ CHẠY mẻ này (lấy từ PHIÊN, không phải `cv.may_id`), ca, đầu
+    # việc kế hoạch đã chọn, kíp mấy người, và các lần dừng máy rơi vào cửa sổ mẻ.
+    may_ten: str | None = None
+    ca_ten: str | None = None
+    dau_viec_ten: str | None = None
+    so_nguoi: int = 0
+    su_co: list[MeSuCoOut] = []
     nguoi_tham_gia: list[NguoiThamGiaBatchOut]
     chia_du_kien: ChiaDuKienOut | None = None
     lot_vao: list[LotVaoOut]

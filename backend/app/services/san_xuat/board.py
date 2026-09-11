@@ -20,6 +20,7 @@ from ...models.may_thiet_bi import MayThietBi
 from ...models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ...models.san_xuat_phan_bo import PB_DA_CHOT
 from ...models.user import User
+from ...repositories.attendance_repo import AttendanceRepository
 from ...repositories.org_scope import dept_subtree_ids
 from ...repositories.rbac_repo import DepartmentRepository
 from ...repositories.san_xuat_phan_bo_repo import SanXuatPhanBoRepository
@@ -463,6 +464,37 @@ def ho_tro_ung_vien(
     }
 
 
+def _phien_giao_me(phien_rows, b) -> list:
+    """Các phiên chạy GIAO với cửa sổ mẻ. Nền của cả "máy nào chạy mẻ này" lẫn "mẻ này có dừng máy
+    lần nào" (§5.2) — máy đứng trên PHIÊN chứ không trên công việc, nên đọc `cv.may_id` chỉ ra máy
+    HIỆN TẠI, sai cho mẻ chạy trước lúc đổi máy.
+
+    Ép `_aware` vì SQLite trả naive (bẫy naive/aware của module). Phiên đang mở (`ket_thuc` NULL)
+    coi như kéo dài tới hiện tại nên vẫn tính là giao."""
+    bd, kt = _aware(b.bat_dau), _aware(b.ket_thuc)
+    ra = []
+    for p in phien_rows:
+        pbd = _aware(p.bat_dau)
+        pkt = _aware(p.ket_thuc) if p.ket_thuc is not None else None
+        if pbd <= kt and (pkt is None or pkt >= bd):
+            ra.append(p)
+    return ra
+
+
+def _ca_cua(cas, dt) -> str | None:
+    """Tên CA chứa mốc `dt`, hoặc None khi mốc rơi ngoài mọi ca đã khai.
+
+    Dùng lại đúng `_ca_cua_moc` của Theo dõi sản xuất thay vì viết bản so giờ thứ hai: luật ca qua
+    nửa đêm (Ruling C120) chỉ nên có MỘT chỗ, hai bản chép nhau là sớm muộn lệch nhau. "Ngoài ca"
+    là một câu trả lời thật và tổ trưởng cần thấy đúng nó — đừng đoán ca gần nhất."""
+    if dt is None:
+        return None
+    from ..lenh_sx.bang_theo_doi import _ca_cua_moc
+
+    kq = _ca_cua_moc(list(cas), lich_hien_thi(dt))
+    return kq[0].name if kq else None
+
+
 def _nguoi_trong_batch(khoang, ten_map, b) -> list[dict]:
     """§12.1: người có khoảng tham gia GIAO với cửa sổ batch — nền chia phần lương (tính LÚC ĐỌC,
     không lưu thành viên batch). Ép `_aware` vì SQLite trả naive (bẫy naive/aware)."""
@@ -717,6 +749,13 @@ def chi_tiet_cong_viec(
         for d in c["dong"]:
             d["ho_ten"] = _emp_ten(d["employee_id"])
 
+    # Máy + ca + sự cố + đầu việc của TỪNG mẻ (§5.2) — mọi số đã có sẵn trong DB, chỉ là chưa ai
+    # nối ra mặt đọc. Tập ca lấy đúng nguồn dùng chung của xưởng (`ca_lich_xuong`, cùng tập mà Xếp
+    # lịch và Theo dõi sản xuất dùng) để mẻ không bị gán một ca mà hai màn kia không biết tới.
+    ca_list = AttendanceRepository(db).ca_lich_xuong()
+    # Kế hoạch vẫn chọn ĐẦU VIỆC chi tiết; sản xuất chỉ mang TÊN của nó theo mẻ, không mang giá.
+    dau_viec_ten = ((cv.khoan_json or {}).get("ten") or None)
+
     lot_map = sl.lot_vao_cua_nhieu([b.id for b in batches])
     bg_di = sl.ban_giao_tu_nguon(cv.id)
     bg_den = sl.ban_giao_toi_dich(cv.id)
@@ -812,7 +851,20 @@ def chi_tiet_cong_viec(
                     "mo_ta_loi": b.mo_ta_loi,
                     "ghi_chu": b.ghi_chu,
                     "version": b.version,
+                    "may_ten": next(
+                        (phien_may_ten.get(p.may_id or 0) for p in _phien_giao_me(phien_rows, b)
+                         if p.may_id), None),
+                    "ca_ten": _ca_cua(ca_list, b.bat_dau),
+                    "su_co": [
+                        {"bat_dau": thuc_te_hien_thi(p.bat_dau),
+                         "ket_thuc": thuc_te_hien_thi(p.ket_thuc),
+                         "ly_do": p.ly_do}
+                        for p in _phien_giao_me(phien_rows, b)
+                        if p.loai_dong == "tam_dung" and p.ly_do
+                    ],
+                    "dau_viec_ten": dau_viec_ten,
                     "nguoi_tham_gia": _nguoi_trong_batch(khoang, ten_map, b),
+                    "so_nguoi": len(_nguoi_trong_batch(khoang, ten_map, b)),
                     "chia_du_kien": chia_nhap.get(b.id),
                     "lot_vao": [
                         {
