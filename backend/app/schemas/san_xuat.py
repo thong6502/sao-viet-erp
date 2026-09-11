@@ -286,6 +286,30 @@ class NguoiThamGiaBatchOut(BaseModel):
     ho_ten: str
 
 
+class ChiaDongOut(BaseModel):
+    """Một người trong bản CHIA SẢN LƯỢNG của mẻ. KHÔNG có ô tiền nào: sản xuất ghi số lượng, quy
+    số lượng ra tiền là việc của kế toán lương (spec 2026-09-11)."""
+
+    employee_id: int
+    ho_ten: str
+    so_luong: float
+    phut_thuc_te: float | None = None
+    he_so_bac: float | None = None
+    la_ho_tro: bool = False
+
+
+class ChiaDuKienOut(BaseModel):
+    """Bản chia NHÁP tính lúc ĐỌC cho mẻ chưa có bản chia nào (§5.1) — không lưu DB, không phải
+    chốt gì cả. Mẻ đã có bản chia (nháp đã bấm tính hoặc đã chốt) thì khoá này là `null`, số thật
+    đọc ở khối `phan_bo`."""
+
+    q: float
+    don_vi: str | None = None
+    can_chot: bool = True
+    canh_bao: list[str] = []
+    dong: list[ChiaDongOut] = []
+
+
 class BatchOut(BaseModel):
     id: int
     bat_dau: datetime
@@ -298,6 +322,7 @@ class BatchOut(BaseModel):
     ghi_chu: str | None = None
     version: int
     nguoi_tham_gia: list[NguoiThamGiaBatchOut]
+    chia_du_kien: ChiaDuKienOut | None = None
     lot_vao: list[LotVaoOut]
 
 

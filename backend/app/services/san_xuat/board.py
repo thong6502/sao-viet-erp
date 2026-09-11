@@ -681,6 +681,42 @@ def chi_tiet_cong_viec(
             "canh_bao": kq.canh_bao,
             "thieu_cham_cong": kq.thieu_cham_cong,
         }
+    # Chia sản lượng NHÁP cho mẻ CHƯA có bản chia (spec 2026-09-11 §5.1): ghi mẻ xong là tổ
+    # trưởng thấy ngay ai được bao nhiêu, không phải bấm "Chia sản lượng" mới hiện — chủ xưởng
+    # 11/09/2026: *"hình như thiếu sản lượng"*. `_tinh_batch` là HÀM THUẦN (không ghi DB) nên gọi
+    # ở mặt đọc là an toàn, đúng cách khối `pb_flags` ngay trên đang làm cho bản chưa chốt.
+    co_ban_chia = {h.batch_id for h in pb_headers}
+    chia_nhap: dict[int, dict] = {}
+    for b in batches:
+        if b.id in co_ban_chia:
+            continue
+        kq = _tinh_batch(db, cv, b, pb)
+        chia_nhap[b.id] = {
+            "q": float(kq.q_pay or 0),
+            "don_vi": kq.don_vi_pay,
+            "can_chot": kq.can_chot,
+            "canh_bao": kq.canh_bao,
+            "dong": [
+                {
+                    "employee_id": d["employee_id"],
+                    "ho_ten": "",
+                    "so_luong": float(d["so_luong_tra_luong"] or 0),
+                    "phut_thuc_te": d.get("phut_thuc_te"),
+                    "he_so_bac": d.get("he_so_bac"),
+                    "la_ho_tro": bool(d.get("la_ho_tro")),
+                }
+                for d in kq.dong
+            ],
+        }
+    # Người chỉ xuất hiện ở bản nháp (chưa có dòng phân bổ nào đã lưu) thì `ten_map` dựng ở trên
+    # chưa có tên họ — nạp bù MỘT lần cho cả tập, đừng tra từng người.
+    thieu_ten = {d["employee_id"] for c in chia_nhap.values() for d in c["dong"]} - set(ten_map)
+    if thieu_ten:
+        ten_map.update(repo.nhan_vien_nhan(thieu_ten))
+    for c in chia_nhap.values():
+        for d in c["dong"]:
+            d["ho_ten"] = _emp_ten(d["employee_id"])
+
     lot_map = sl.lot_vao_cua_nhieu([b.id for b in batches])
     bg_di = sl.ban_giao_tu_nguon(cv.id)
     bg_den = sl.ban_giao_toi_dich(cv.id)
@@ -777,6 +813,7 @@ def chi_tiet_cong_viec(
                     "ghi_chu": b.ghi_chu,
                     "version": b.version,
                     "nguoi_tham_gia": _nguoi_trong_batch(khoang, ten_map, b),
+                    "chia_du_kien": chia_nhap.get(b.id),
                     "lot_vao": [
                         {
                             "id": lot.id,
