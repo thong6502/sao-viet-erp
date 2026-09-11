@@ -184,10 +184,13 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
     # Vì sao phải là CHIP chứ không để người khai gõ thẳng số 40: ngày xưởng lên giá 40 → 45, con
     # số gõ tay nằm im, tiền công của đầu việc lệch mà không dòng nhật ký nào giải thích.
     #
-    # Giá trị: ảnh chụp `khoan_json["don_gia"]` của CHÍNH bước (ghim lúc chọn đầu việc), nên lệnh
-    # đã phát không xê dịch khi danh mục lên giá. Ngữ cảnh không đứng ở đầu việc nào (công thức của
-    # máy, của đơn vị quy đổi, của Giấy/Vật tư) thì là 0 — chip bị ẩn ở những ô đó (`AN_MOI_O` bên
-    # frontend), y hệt cách ba chip khuôn ép kim chỉ hiện ở bước khai khuôn ép.
+    # Giá trị: đơn giá của ĐẦU VIỆC đang khai — chỉ có số ở ô công thức của DANH MỤC (màn Công
+    # đoạn → định mức đầu việc), nơi người khai có sẵn dòng giá trong tay. Ở tầng LỆNH và tầng SẢN
+    # XUẤT biến này bằng 0: từ 11/09/2026 ảnh chụp `khoan_json` của bước không ghim `don_gia` nữa,
+    # và hai tầng đó không còn nhân đơn giá nào (spec "Sản xuất chỉ ghi số lượng"). Công thức RA
+    # TIỀN vì thế chỉ chạy ở màn của kế toán lương. Ngữ cảnh không đứng ở đầu việc nào (công thức
+    # của máy, của đơn vị quy đổi, của Giấy/Vật tư) cũng là 0 — chip bị ẩn ở những ô đó
+    # (`AN_MOI_O` bên frontend), y hệt cách ba chip khuôn ép kim chỉ hiện ở bước khai khuôn ép.
     ("don_gia_khoan", "Đơn giá khoán",
      "Đơn giá của CHÍNH đầu việc khoán đang khai — dùng chip này thì công thức RA TIỀN, "
      "hệ không nhân đơn giá lần nữa", "đ",

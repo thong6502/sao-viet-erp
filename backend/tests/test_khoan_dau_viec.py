@@ -62,8 +62,45 @@ def test_khong_con_luat_khop_theo_cong_doan():
     assert "cong_doan_ma" not in inspect.signature(dau_viec_khop).parameters
 
 
-def test_snapshot_ghim_du_so_de_khong_doc_song():
-    """Ghim tên + đơn vị + đơn giá: xưởng lên giá về sau không được xê dịch lệnh đã phát. KHÔNG
-    ghim trục tính — không còn hệ số ngầm nào để ghim."""
+def test_snapshot_chi_ghim_TEN_VIEC_khong_ghim_gia():
+    """Ảnh chụp giữ CÁI TÊN của việc, không giữ giá.
+
+    Từ 11/09/2026 kế hoạch và sản xuất không ôm tiền khoán nữa (chủ xưởng: *"bên sản xuất chỉ ghi
+    nhận số lượng thôi"*). Ghim giá lúc phát hành là ghim một con số mà máy nào chạy, kíp mấy
+    người, mấy màu mực, khuôn cũ hay mới đều làm nó đổi — những chiều engine không suy được. Kế
+    toán lương đọc `rate_id`/`ten` rồi tra bảng giá TẠI THỜI ĐIỂM TÍNH LƯƠNG.
+    """
     snap = khoan_snapshot(BE_MAY)
-    assert snap == {"rate_id": 3, "ten": "Bế máy", "don_vi": "tờ", "don_gia": 250.0}
+    assert snap == {"rate_id": 3, "ten": "Bế máy"}
+
+
+def test_snapshot_khong_ghim_don_gia_don_vi_cong_thuc_ra_tien():
+    class _Dm:
+        cong_thuc_khoan = "50000 + don_gia_khoan * sl_ra"
+        cong_thuc_gio = "sl_vao"
+
+    snap = khoan_snapshot(BE_MAY, _Dm())
+
+    assert snap["rate_id"] == 3 and snap["ten"] == "Bế máy"
+    for khoa in ("don_gia", "don_vi", "cong_thuc"):
+        assert khoa not in snap, khoa
+    # Dấu "ảnh chụp MỚI, biết ô đo giờ riêng" phải còn — `dich_gio_cua_khoan` gác luật theo nó.
+    assert snap["cong_thuc_gio"] == "sl_vao"
+
+
+def test_snapshot_phat_hanh_khong_gan_don_gia_hd():
+    """Lúc PHÁT HÀNH cũng không gắn `don_gia_hd` (đơn giá hiệu dụng) vào ảnh chụp nữa.
+
+    Ảnh chụp cũ trong DB còn khoá tiền (không migrate JSON) nên bài này đưa vào một ảnh chụp KIỂU
+    CŨ: hàm phải trả lại đúng nó, không thêm khoá nào.
+    """
+    from app.services.san_xuat.snapshot import _SoPhatHanh
+
+    cu = {"rate_id": 3, "ten": "Bế máy", "don_vi": "tờ", "don_gia": 250.0,
+          "cong_thuc": "50000 + don_gia_khoan * sl_ra"}
+    cd = SimpleNamespace(khoan_json=dict(cu), cong_doan_id=None, department_id=11)
+
+    ra = _SoPhatHanh(None).khoan_json(cd, lsx_id=None)
+
+    assert ra == cu
+    assert "don_gia_hd" not in ra

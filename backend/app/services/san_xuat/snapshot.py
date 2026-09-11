@@ -91,23 +91,16 @@ class _SoPhatHanh:
         return self._quy_cach_lsx(lsx_id) if lsx_id else {}
 
     def khoan_json(self, cd, *, lsx_id: int | None = None, bai_ghep_id: int | None = None):
-        """`khoan_json` đem ghim vào công việc = ảnh chụp của bước, GẮN THÊM `don_gia_hd` nếu có.
+        """`khoan_json` đem ghim vào công việc = ĐÚNG ảnh chụp của bước, không gắn thêm gì.
 
-        Chỉ những bước có ô tiền công RA THẲNG TIỀN (gọi chip `don_gia_khoan`) mới có khoá mới:
-        công thức của chúng ra tổng tiền của bước, mà tầng trả lương thì nhân `đơn giá × phần sản
-        lượng của từng người`, nên phải quy về một đơn giá trên đơn vị TRƯỚC khi đóng băng vào
-        công việc. Xem `LsxService.don_gia_hieu_dung`.
+        Trước 11/09/2026 chỗ này gắn thêm `don_gia_hd` (đơn giá hiệu dụng gộp từ công thức tiền
+        công) cho tầng trả lương. Đã bỏ cùng cả cơ chế tiền khoán ở sản xuất: sản xuất ghi số
+        lượng, kế toán lương định giá. Hai tham số nguồn (`lsx_id`/`bai_ghep_id`) giữ trong chữ ký
+        vì hai chỗ gọi đang truyền, và vì bộ biến quy cách vẫn cần cho các ô GIỜ.
 
-        Khoá mới nằm CẠNH `don_gia` chứ không đè lên: `don_gia` vẫn là đơn giá gốc của đầu việc để
-        đọc lại ảnh chụp và đối chiếu nhật ký, `don_gia_hd` mới là số tầng lương nhân. Đè lên thì
-        không còn cách nào biết bước này ăn công thức hay ăn đơn giá thẳng.
+        Xem `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
         """
-        kh = getattr(cd, "khoan_json", None)
-        if not kh:
-            return kh
-        qc = self.quy_cach(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
-        dg = self._lsx_svc().don_gia_hieu_dung(cd, qc)
-        return kh if dg is None else {**kh, "don_gia_hd": round(dg, 4)}
+        return getattr(cd, "khoan_json", None)
 
     def _cong_doan(self, cd):
         """Dòng DANH MỤC đứng sau bước. `db.get` đi qua identity map nên gọi lặp không sinh query."""
