@@ -107,6 +107,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
       }
     }
     if (config.deriveInitial) Object.assign(init, config.deriveInitial(existing));  // vd suy _method từ pricing_basis
+    // `macDinhTheo` (xem `types.ts`) chạy SAU cả vòng trên: nó đọc form, nên phải thấy đủ mọi ô
+    // chứ không chỉ những ô khai TRƯỚC nó. Chỉ khi TẠO MỚI.
+    if (!existing) {
+      for (const f of config.fields) {
+        if (f.macDinhTheo) init[f.key] = f.macDinhTheo(init) ?? "";
+      }
+    }
     return init;
   });
   const [saving, setSaving] = useState(false);
@@ -162,6 +169,27 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
       .catch(() => {});   // hỏng thì để trống, người khai tự gõ — không chặn việc tạo mới
     return () => { huy = true; };
   }, [isEdit, config.autoCode, config.prefix, token]);
+  /** Giá trị MÁY đã điền cho từng ô `macDinhTheo`. Ô còn khớp con số này ⇒ chưa ai chạm vào, được
+   *  phép tính lại; lệch (kể cả vì bị xoá trắng) ⇒ đó là chữ của người khai, thôi đụng vào. So
+   *  theo mốc RIÊNG chứ không so với `mocBanDau`: ô nguồn đổi thì mốc chung đằng nào cũng lệch. */
+  const macDinhDaDien = useRef<Record<string, unknown>>(
+    Object.fromEntries(config.fields.filter((f) => f.macDinhTheo).map((f) => [f.key, form[f.key]])),
+  );
+  useEffect(() => {
+    if (isEdit) return;
+    const daDien = macDinhDaDien.current;
+    const doi: Record<string, unknown> = {};
+    for (const f of config.fields) {
+      if (!f.macDinhTheo) continue;
+      const moi = f.macDinhTheo(form) ?? "";
+      if (moi === form[f.key]) continue;              // đã đúng rồi, đừng đẻ thêm một vòng render
+      if (form[f.key] !== daDien[f.key]) continue;    // người khai tự sửa ⇒ giữ nguyên chữ của họ
+      daDien[f.key] = moi;
+      doi[f.key] = moi;
+    }
+    if (Object.keys(doi).length) setForm((p) => ({ ...p, ...doi }));
+  }, [form, config.fields, isEdit]);
+
   const setRef = (key: string, value: string) => {
     if (key !== "department_id" || String(form.department_id ?? "") === value) {
       set(key, value);

@@ -25,6 +25,17 @@ function mockViec(p: Partial<SxWorkItem>): SxWorkItem {
   } as SxWorkItem;
 }
 
+/** Bọc MỘT bước vào một lệnh — bàn tổ từ 11/09/2026 nhận `lenh`, thẻ/bảng việc nằm bên trong. */
+function mockLenh(items: SxWorkItem[]) {
+  return [{
+    nguon_loai: "lsx", nguon_ma: items[0]?.nguon_ma ?? "LSX26-0003",
+    nguon_ten: items[0]?.nguon_ten ?? "", lsx_id: 3, bai_ghep_id: null,
+    som_nhat: null, muon_nhat: null, so_viec: items.length,
+    digest: { released: items.length, running: 0, paused: 0, completed: 0 },
+    cong_viec: items,
+  }];
+}
+
 describe("ThsxCards — Workstation Studio Task Cards Grid", () => {
   it("hiển thị đúng mã LSX, tên công đoạn, máy và khối lượng mục tiêu", () => {
     const item = mockViec({ id: 101, ten_cong_doan: "In Offset 4 màu" });
@@ -32,9 +43,7 @@ describe("ThsxCards — Workstation Studio Task Cards Grid", () => {
 
     render(
       <ThsxCards
-        timed={[item]}
-        outWin={[]}
-        untimed={[]}
+        lenh={mockLenh([item])}
         selectedId={null}
         onPick={onPick}
       />
@@ -53,9 +62,7 @@ describe("ThsxCards — Workstation Studio Task Cards Grid", () => {
 
     render(
       <ThsxCards
-        timed={[item]}
-        outWin={[]}
-        untimed={[]}
+        lenh={mockLenh([item])}
         selectedId={null}
         onPick={onPick}
         onBatDau={onBatDau}
@@ -75,9 +82,7 @@ describe("ThsxCards — Workstation Studio Task Cards Grid", () => {
 
     render(
       <ThsxCards
-        timed={[item]}
-        outWin={[]}
-        untimed={[]}
+        lenh={mockLenh([item])}
         selectedId={null}
         onPick={onPick}
       />

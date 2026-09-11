@@ -1,17 +1,17 @@
 // VIEW "DANH SÁCH BẢN GHI" của bàn tổ (Workstation Studio Table View)
 // Thiết kế gọn gàng, hiện đại, tối ưu chiều cao hàng, các thẻ quy cách nằm ngang sắc nét.
 import { useState } from "react";
-import { Icon, type IconName } from "../components/Icons";
-import type { SxVatTuDinhMuc, SxWorkItem, SxQuyCachThe } from "../api/client";
+import { Icon } from "../components/Icons";
+import type { SxLenhNhom, SxVatTuDinhMuc, SxWorkItem, SxQuyCachThe } from "../api/client";
 import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { num, ngayGio } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
+import { ThsxLenhGroups } from "./ThsxLenhGroups";
 import { slText, sxNguonIcon, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 
 interface Props {
-  timed: SxWorkItem[];
-  outWin: SxWorkItem[];
-  untimed: SxWorkItem[];
+  /** MỘT TRANG lệnh/bài ghép (máy chủ đã cắt, đếm theo lệnh); bảng bước nằm trong từng lệnh. */
+  lenh: SxLenhNhom[];
   selectedId: number | null;
   onPick: (w: SxWorkItem) => void;
   onBatDau?: (w: SxWorkItem) => void;
@@ -68,7 +68,7 @@ function phutChayGon(w: SxWorkItem): { main: string; sub?: string } | null {
 }
 
 export function ThsxDanhSach({
-  timed, outWin, untimed, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
+  lenh, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
 }: Props) {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
@@ -84,30 +84,26 @@ export function ThsxDanhSach({
 
   return (
     <div className="thsx-ds__scroll">
-      <DsSection
-        label="Trong cửa sổ" icon="calendar" viec={timed}
-        selectedId={selectedId} expandedIds={expandedIds} onToggleExpand={toggleExpand}
-        onPick={onPick} onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
-      />
-      <DsSection
-        label="Ngoài cửa sổ" icon="history" viec={outWin}
-        selectedId={selectedId} expandedIds={expandedIds} onToggleExpand={toggleExpand}
-        onPick={onPick} onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
-      />
-      <DsSection
-        label="Chưa định giờ" icon="clock" viec={untimed}
-        selectedId={selectedId} expandedIds={expandedIds} onToggleExpand={toggleExpand}
-        onPick={onPick} onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
+      <ThsxLenhGroups
+        lenh={lenh}
+        selectedId={selectedId}
+        render={(viec) => (
+          <DsBang
+            viec={viec}
+            selectedId={selectedId} expandedIds={expandedIds} onToggleExpand={toggleExpand}
+            onPick={onPick} onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
+          />
+        )}
       />
     </div>
   );
 }
 
-function DsSection({
-  label, icon, viec, selectedId, expandedIds, onToggleExpand, onPick, onBatDau, onTamDung, onKetThuc,
+/** Bảng bước CỦA MỘT LỆNH. Nhãn "đang chạy / tạm dừng" của khúc đầu bảng đã dời lên dòng lệnh
+ *  (`LenhDigest`), ở đây chỉ còn bảng — khỏi đếm hai lần trên cùng một màn. */
+function DsBang({
+  viec, selectedId, expandedIds, onToggleExpand, onPick, onBatDau, onTamDung, onKetThuc,
 }: {
-  label: string;
-  icon: IconName;
   viec: SxWorkItem[];
   selectedId: number | null;
   expandedIds: Set<number>;
@@ -119,29 +115,8 @@ function DsSection({
 }) {
   if (viec.length === 0) return null;
 
-  const runningCount = viec.filter((v) => v.trang_thai === "running").length;
-  const pausedCount = viec.filter((v) => v.trang_thai === "paused").length;
-
   return (
     <div className="thsx-ds__sec">
-      <div className="thsx-ds__sech">
-        <div className="thsx-ds__sech-title">
-          <Icon name={icon} size={14} /> <span>{label}</span>
-          <span className="thsx-ds__secn thsx-num">{viec.length}</span>
-        </div>
-        <div className="thsx-ds__sech-meta">
-          {runningCount > 0 && (
-            <span className="thsx-ds__sec-badge thsx-ds__sec-badge--run">
-              <Icon name="play" size={11} /> {runningCount} đang chạy
-            </span>
-          )}
-          {pausedCount > 0 && (
-            <span className="thsx-ds__sec-badge thsx-ds__sec-badge--pause">
-              <Icon name="pause" size={11} /> {pausedCount} tạm dừng
-            </span>
-          )}
-        </div>
-      </div>
       <div className="thsx-ds__tbl-wrap">
         <table className="thsx-ds__tbl">
           <thead>

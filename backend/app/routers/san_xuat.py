@@ -374,6 +374,7 @@ def work_items(
     team_id: int = Query(..., ge=1),
     mode: Literal["production", "kcs"] = Query("production"),
     nhom: Literal["lenh", "phang"] = Query("lenh"),
+    tim: str | None = Query(None, max_length=200),
     trang: int = Query(1, ge=1),
     co_trang: int = Query(20, ge=1, le=100),
     tu_ngay: date | None = Query(None),
@@ -386,12 +387,15 @@ def work_items(
     nào. Cắt trang Ở MÁY CHỦ và đếm trang bằng LỆNH nên một lệnh không bao giờ bị xé đôi;
     `co_trang` chặn trần ngay tại đây (`le=100`) chứ không bóp im lặng trong service.
 
+    `tim` là ô tìm kiếm của bàn — lọc Ở SQL trước khi cắt trang, chứ không lọc bằng JS sau khi
+    trang đã về (lọc sau thì ô tìm kiếm chỉ soi được đúng 20 lệnh đang hiện).
+
     `nhom="phang"` giữ nguyên mảng bước phẳng cho Gantt, thêm cửa sổ `tu_ngay`/`den_ngay`.
 
     403 nếu tổ ngoài phạm vi quyền."""
     try:
         return WorkItemsOut.model_validate(
-            board.work_items(db, user, authz, team_id=team_id, mode=mode, nhom=nhom,
+            board.work_items(db, user, authz, team_id=team_id, mode=mode, nhom=nhom, tim=tim,
                              trang=trang, co_trang=co_trang, tu_ngay=tu_ngay, den_ngay=den_ngay)
         )
     except PermissionError as exc:

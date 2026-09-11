@@ -602,6 +602,21 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
   ],
 };
 
+/** Công thức TIỀN giấy điền sẵn cho mặt hàng mới, theo ĐVT đang chọn.
+ *
+ *  Giấy bán theo CÂN thì tiền = khối lượng × đ/kg, mà khối lượng phải dựng lại từ định lượng ×
+ *  khổ tờ × số tờ. Giấy đếm theo TỜ thì đơn giá đã là tiền một tờ — nhân thêm định lượng và diện
+ *  tích nữa là lệch hàng chục lần, và phiếu vẫn ra một con số trông hợp lý nên không ai soi ra.
+ *
+ *  ĐVT chưa chọn (ô này không có `default`, mở drawer ra là trống) thì đoán theo CÂN: giấy ở đây
+ *  bán theo cân, ô đơn giá ngay trên cũng ghi đ/kg. Chọn ĐVT xong thì công thức tự đổi lại. */
+const congThucGiaGiay = (donViGia: unknown): string => {
+  const dv = String(donViGia ?? "");
+  return !dv || dv === "kg" || dv === "tan"
+    ? "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen * don_gia_giay"
+    : "don_gia_giay * to_nguyen";
+};
+
 export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
   moduleQuyen: "dm_giay",
@@ -626,7 +641,12 @@ export const CFG_GIAY: CatalogConfig = {
     // Đơn giá theo cân — CHỐT CỨNG ở danh mục (engine lấy thẳng, phiếu không sửa).
     { key: "don_gia", label: "Đơn giá (đ/kg)", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn (mặc định đ/kg)" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
-      nhanTab: "Công thức tính giá", an: AN_CHIP_KHUON },
+      nhanTab: "Công thức tính giá", an: AN_CHIP_KHUON,
+      // ĐIỀN SẴN khi thêm mới (11/09/2026), sửa/xoá được. Trước đó ô này để trống và engine âm
+      // thầm chạy đúng hai chuỗi dưới đây làm dự phòng — thứ đang tính tiền giấy mà người khai
+      // không nhìn thấy ở đâu cả. Hai chuỗi phải khớp nhánh dự phòng bên
+      // `thanh_phan_engine.py`: sửa một bên thì sửa cả hai.
+      macDinhTheo: (f) => congThucGiaGiay(f.don_vi_gia) },
     // Ô thứ hai ra LƯỢNG, không ra tiền — MỞ LẠI 07/09/2026 sau khi ẩn một ngày (06/09/2026), và
     // đổi tên thành "Công thức tính định mức": chữ "lượng" đứng cạnh ô "tính giá" không nói được
     // nó trả lời câu gì, còn "định mức" là chữ xưởng vẫn dùng cho "một lệnh ăn bao nhiêu giấy".

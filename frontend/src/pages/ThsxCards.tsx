@@ -1,16 +1,17 @@
 // VIEW "THẺ CÔNG VIỆC" (WORKSTATION TASK CARDS) của Bàn tổ — Chế độ hiển thị rộng rãi,
 // trực quan, giúp thợ & tổ trưởng dễ theo dõi sản lượng, trạng thái và bấm thao tác 1-click.
-import { Icon, type IconName } from "../components/Icons";
-import type { SxVatTuDinhMuc, SxWorkItem } from "../api/client";
+import { Icon } from "../components/Icons";
+import type { SxLenhNhom, SxVatTuDinhMuc, SxWorkItem } from "../api/client";
 import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { num, ngayGio } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
+import { ThsxLenhGroups } from "./ThsxLenhGroups";
 import { phutChayText, slText, sxNguonIcon, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 
 interface Props {
-  timed: SxWorkItem[];
-  outWin: SxWorkItem[];
-  untimed: SxWorkItem[];
+  /** MỘT TRANG lệnh/bài ghép (máy chủ đã cắt, đếm theo lệnh). Thẻ việc nằm trong từng lệnh —
+   *  từ 11/09/2026 bàn tổ không còn chia ba khúc "trong / ngoài cửa sổ / chưa định giờ" nữa. */
+  lenh: SxLenhNhom[];
   selectedId: number | null;
   onPick: (w: SxWorkItem) => void;
   onBatDau?: (w: SxWorkItem) => void;
@@ -30,59 +31,27 @@ function dinhMucText(vt: SxVatTuDinhMuc[]): string {
 }
 
 export function ThsxCards({
-  timed, outWin, untimed, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
+  lenh, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
 }: Props) {
   return (
     <div className="thsx-cards__scroll">
-      <CardSection
-        label="Trong cửa sổ" icon="calendar" viec={timed}
-        selectedId={selectedId} onPick={onPick}
-        onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
+      <ThsxLenhGroups
+        lenh={lenh}
+        selectedId={selectedId}
+        render={(viec) => (
+          <div className="thsx-cards__grid">
+            {viec.map((w) => (
+              <TaskCard
+                key={w.id} w={w} selected={w.id === selectedId}
+                onPick={() => onPick(w)}
+                onBatDau={onBatDau ? () => onBatDau(w) : undefined}
+                onTamDung={onTamDung ? () => onTamDung(w) : undefined}
+                onKetThuc={onKetThuc ? () => onKetThuc(w) : undefined}
+              />
+            ))}
+          </div>
+        )}
       />
-      <CardSection
-        label="Ngoài cửa sổ" icon="history" viec={outWin}
-        selectedId={selectedId} onPick={onPick}
-        onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
-      />
-      <CardSection
-        label="Chưa định giờ" icon="clock" viec={untimed}
-        selectedId={selectedId} onPick={onPick}
-        onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
-      />
-    </div>
-  );
-}
-
-function CardSection({
-  label, icon, viec, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
-}: {
-  label: string;
-  icon: IconName;
-  viec: SxWorkItem[];
-  selectedId: number | null;
-  onPick: (w: SxWorkItem) => void;
-  onBatDau?: (w: SxWorkItem) => void;
-  onTamDung?: (w: SxWorkItem) => void;
-  onKetThuc?: (w: SxWorkItem) => void;
-}) {
-  if (viec.length === 0) return null;
-  return (
-    <div className="thsx-cards__sec">
-      <div className="thsx-cards__sech">
-        <Icon name={icon} size={14} /> <span>{label}</span>
-        <span className="thsx-cards__secn thsx-num">{viec.length}</span>
-      </div>
-      <div className="thsx-cards__grid">
-        {viec.map((w) => (
-          <TaskCard
-            key={w.id} w={w} selected={w.id === selectedId}
-            onPick={() => onPick(w)}
-            onBatDau={onBatDau ? () => onBatDau(w) : undefined}
-            onTamDung={onTamDung ? () => onTamDung(w) : undefined}
-            onKetThuc={onKetThuc ? () => onKetThuc(w) : undefined}
-          />
-        ))}
-      </div>
     </div>
   );
 }

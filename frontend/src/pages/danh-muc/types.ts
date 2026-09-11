@@ -49,6 +49,17 @@ export interface FieldDef {
   group?: string;               // nhóm section trong drawer
   showIf?: (form: Record<string, unknown>) => boolean;  // ẩn/hiện field theo giá trị khác
   default?: unknown;            // prefill khi TẠO MỚI (giá trị thật, không phải placeholder "0")
+  /** Prefill khi TẠO MỚI, TÍNH TỪ form đang gõ — và tính LẠI mỗi khi form đổi, CHỪNG NÀO người
+   *  khai chưa tự sửa ô này (sửa rồi, kể cả xoá trắng, thì máy thôi đụng vào).
+   *
+   *  Khác `default` ở chỗ giá trị đúng phụ thuộc ô khác mà ô đó lại chọn SAU khi drawer đã mở:
+   *  công thức tiền giấy nhân định lượng × diện tích khi ĐVT là kg, nhưng chỉ `đơn giá × số tờ`
+   *  khi bán theo tờ — điền một chuỗi rồi mặc kệ là điền sai cho nửa số mặt hàng, mà sai kiểu đó
+   *  vẫn ra một con số trông hợp lý nên không ai soi ra.
+   *
+   *  KHÔNG chạy khi đang SỬA: bản ghi cũ để trống ô là một quyết định đã có, tự điền vào lúc mở
+   *  ra xem là sửa dữ liệu sau lưng người dùng. */
+  macDinhTheo?: (form: Record<string, unknown>) => unknown;
   jsonKey?: string;             // field lưu LỒNG trong cột JSON này (vd "fields_theo_loai")
 }
 

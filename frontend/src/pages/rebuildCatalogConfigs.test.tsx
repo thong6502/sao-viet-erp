@@ -237,3 +237,35 @@ describe("Thành phẩm — hàng đặt riêng của MỘT khách (docs/prd-tha
     expect(CFG_VAT_TU.moduleQuyen).toBe("dm_vat_tu");
   });
 });
+
+describe("Giấy — ô Công thức tính giá ĐIỀN SẴN khi thêm mới", () => {
+  // Trước 11/09/2026 ô này để trống lúc tạo mới, và engine âm thầm chạy công thức dự phòng
+  // (`thanh_phan_engine._tinh_thanh_phan`) — người khai không nhìn thấy thứ đang tính tiền giấy
+  // của mình. Nay drawer điền sẵn ĐÚNG công thức dự phòng đó để họ thấy, sửa hoặc xoá.
+  const CT_CAN = "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen * don_gia_giay";
+  const CT_TO = "don_gia_giay * to_nguyen";
+
+  it("chưa chọn ĐVT, hoặc ĐVT bán theo CÂN ⇒ định lượng × khổ × số tờ × đơn giá", () => {
+    const f = truong(CFG_GIAY, "cong_thuc_gia");
+    // Ô ĐVT không có `default` ⇒ lúc mở drawer nó TRỐNG. Giấy ở đây bán theo cân (đơn giá danh
+    // mục là đ/kg), nên trống thì đoán theo cân — chọn ĐVT xong vẫn đổi lại được.
+    expect(f.macDinhTheo?.({})).toBe(CT_CAN);
+    expect(f.macDinhTheo?.({ don_vi_gia: "kg" })).toBe(CT_CAN);
+    expect(f.macDinhTheo?.({ don_vi_gia: "tan" })).toBe(CT_CAN);
+  });
+
+  it("ĐVT đếm theo TỜ (tờ · ram · cái) ⇒ chỉ đơn giá × số tờ", () => {
+    // Cùng luật với engine: khai đ/tờ mà vẫn nhân định lượng × diện tích là tiền giấy lệch hàng
+    // chục lần, không ai soi ra vì phiếu vẫn ra một con số trông hợp lý.
+    const f = truong(CFG_GIAY, "cong_thuc_gia");
+    expect(f.macDinhTheo?.({ don_vi_gia: "to" })).toBe(CT_TO);
+    expect(f.macDinhTheo?.({ don_vi_gia: "ram" })).toBe(CT_TO);
+    expect(f.macDinhTheo?.({ don_vi_gia: "cai" })).toBe(CT_TO);
+  });
+
+  it("ô Công thức tính định mức KHÔNG điền sẵn — nó là câu hỏi khác", () => {
+    // Ô định mức ra LƯỢNG (kg phải mua), đã có sẵn dữ liệu seed cho hàng cũ; điền sẵn cả hai ô là
+    // mời người khai bấm Lưu mà chưa đọc ô nào.
+    expect(truong(CFG_GIAY, "cong_thuc_luong").macDinhTheo).toBeUndefined();
+  });
+});

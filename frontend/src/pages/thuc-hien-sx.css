@@ -2352,3 +2352,90 @@
   border-radius: 4px;
   background: #ccfbf1;
 }
+
+/* ═══════════ TẦNG LỆNH của bàn tổ (ThsxLenhGroups) — 11/09/2026 ═══════════
+   Bản ghi của bàn là LỆNH SX / BÀI GHÉP; công đoạn nằm BÊN TRONG dòng lệnh. Dùng chung cho view
+   Thẻ và view Danh sách nên chỉ khai tầng ngoài ở đây, ruột để hai view tự lo. */
+.thsx-lenh__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.thsx-lenh {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.thsx-lenh--mo { border-color: #cbd5e1; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); }
+.thsx-lenh__h {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 9px var(--sp-3);
+  border: 0;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--fs-sm);
+  color: #334155;
+}
+.thsx-lenh__h:hover { background: #f1f5f9; }
+.thsx-lenh--mo > .thsx-lenh__h { background: #eef2f7; }
+.thsx-lenh__ic { color: #64748b; flex: none; }
+.thsx-lenh__ma { font-weight: var(--fw-bold); color: #0f172a; flex: none; }
+/* Tên lệnh dài thì cắt ở ĐÂY chứ đừng bóp mã: mã là thứ tổ đọc để đối chiếu phiếu. */
+.thsx-lenh__ten {
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.thsx-lenh__spacer { flex: 1 1 auto; min-width: var(--sp-2); }
+.thsx-lenh__gio { color: #64748b; flex: none; font-size: var(--fs-xs); }
+.thsx-lenh__n { color: #475569; flex: none; font-weight: var(--fw-bold); }
+.thsx-lenh__dg { display: inline-flex; gap: 4px; flex: none; }
+.thsx-lenh__dg > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  font-family: var(--ff-num);
+}
+.thsx-lenh__dg--run { background: #dcfce7; color: #15803d; }
+.thsx-lenh__dg--pause { background: #fef3c7; color: #b45309; }
+.thsx-lenh__dg--wait { background: #e2e8f0; color: #475569; }
+.thsx-lenh__dg--done { background: #ccfbf1; color: #0f766e; }
+.thsx-lenh__body { padding: var(--sp-3); border-top: 1px solid #e2e8f0; }
+
+/* ───────── Thanh phân trang (đếm theo LỆNH — máy chủ cắt trang) ───────── */
+.thsx-trang {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0 var(--sp-2);
+}
+.thsx-trang__nut {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.thsx-trang__nut:hover:not(:disabled) { background: #f1f5f9; }
+.thsx-trang__nut:disabled { opacity: 0.45; cursor: default; }
+.thsx-trang__vt { font-size: var(--fs-sm); color: #475569; }
+.thsx-trang__tong { color: #94a3b8; }

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError, api,
-  type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon,
+  type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon, type SxLenhNhom,
   type SxHoTroUngVien,
   type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
   type SxKhoHopThu, type SxSuCoIn,
@@ -64,6 +64,7 @@ const ZOOMS: { key: Xl2Zoom; label: string }[] = [
   { key: "ngay", label: "Ngày" },
   { key: "tuan", label: "Tuần" },
 ];
+const CO_TRANG = 20; // lệnh / trang — đơn vị trang của bàn tổ là LỆNH, không phải bước
 const WIN_SPAN = 14; // 2 tuần hiển thị / bàn
 const WIN_STEP = 7;  // ◀▶ dời một tuần
 const ZOOM_KEY = "thsx.zoom";
@@ -131,7 +132,13 @@ export function ThucHienSxPage({
   const canKhoRead = can("kho", "read");     // xem hộp thư kho §14
   const canKhoCreate = can("kho", "create"); // xác nhận nhập/nhận (nhân viên kho)
 
+  // Bàn tổ có HAI hình dữ liệu (11/09/2026): `lenh` = một TRANG lệnh/bài ghép (view Thẻ + Danh
+  // sách, máy chủ đã gom và cắt trang theo LỆNH); `items` = mảng bước phẳng (view Lịch/Gantt —
+  // trục thời gian không có tầng lệnh). Đúng một hình được nạp mỗi lần, tuỳ `view`.
   const [items, setItems] = useState<SxWorkItem[] | null>(null);
+  const [lenh, setLenh] = useState<SxLenhNhom[] | null>(null);
+  const [trang, setTrang] = useState(1);
+  const [tongLenh, setTongLenh] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<SxNhanVienChon[]>([]);
   const [hoTroUngVien, setHoTroUngVien] = useState<SxHoTroUngVien[]>([]);
@@ -176,14 +183,31 @@ export function ThucHienSxPage({
   const loadItems = useCallback(() => {
     if (!token) return;
     setErr(null);
-    api.sanXuat.workItems(token, teamId, mode)
-      .then((r) => { setItems(r.cong_viec); setErr(null); })
+    const phang = view === "lich";
+    api.sanXuat.workItems(token, {
+      teamId, mode,
+      nhom: phang ? "phang" : "lenh",
+      // Tìm kiếm lọc Ở MÁY CHỦ, trước khi cắt trang — lọc bằng JS sau khi trang về thì ô tìm
+      // kiếm chỉ soi được đúng 20 lệnh đang hiện. Chế độ phẳng kéo trọn bàn nên màn tự lọc.
+      ...(phang ? { tuNgay: winTu, denNgay: winDen } : { tim: qd.trim() || undefined, trang, coTrang: CO_TRANG }),
+    })
+      .then((r) => {
+        setItems(r.cong_viec ?? null);
+        setLenh(r.lenh ?? null);
+        setTongLenh(r.trang?.tong ?? 0);
+        setErr(null);
+      })
       .catch((e: unknown) => setErr(e instanceof ApiError
         ? (e.isForbidden ? "Tổ này ngoài phạm vi của bạn." : e.message)
         : String(e)));
-  }, [token, teamId, mode]);
+  }, [token, teamId, mode, view, qd, trang, winTu, winDen]);
 
+  // SSE bump (`eventTick`) nạp lại nhưng GIỮ NGUYÊN `trang` — nhảy về trang 1 giữa lúc tổ đang
+  // thao tác ở trang 3 là cướp chỗ đứng của người ta.
   useEffect(() => { loadItems(); }, [loadItems, eventTick]);
+  // Đổi tổ / đổi từ khoá / đổi chế độ lọc ⇒ trang cũ không còn nghĩa, về trang 1.
+  useEffect(() => { setTrang(1); }, [teamId, mode, qd]);
+  const soTrang = Math.max(1, Math.ceil(tongLenh / CO_TRANG));
 
   // Ứng viên "Giao người" — endpoint riêng module (KHÔNG dùng api.employees vì gác quyền nhan_su).
   useEffect(() => {
@@ -388,7 +412,20 @@ export function ThucHienSxPage({
   }, [items, match, overlaps]);
 
   const clusters = useMemo(() => buildThsxClusters(groups.timed), [groups.timed]);
-  const digest = useMemo(() => sxDigest(items ?? []), [items]);
+  // Băng KPI đọc từ hình đang nạp: chế độ lệnh cộng `digest` của TRANG hiện tại (mỗi lệnh đã có
+  // sẵn bốn con số từ máy chủ), chế độ phẳng đếm thẳng trên mảng bước.
+  const digest = useMemo(() => {
+    if (lenh == null) return sxDigest(items ?? []);
+    const d = { tong: 0, released: 0, running: 0, paused: 0, completed: 0 };
+    for (const l of lenh) {
+      d.tong += l.so_viec;
+      d.released += l.digest.released;
+      d.running += l.digest.running;
+      d.paused += l.digest.paused;
+      d.completed += l.digest.completed;
+    }
+    return d;
+  }, [lenh, items]);
 
   // ---- chọn việc: mở drawer + (nếu ngoài cửa sổ) dời cửa sổ tới tuần của việc ----
   const pickViec = useCallback((w: SxWorkItem) => {
@@ -757,45 +794,47 @@ export function ThucHienSxPage({
         <section className="thsx-center thsx-col--center">
           {err ? (
             <div className="thsx-centerempty"><BangLoi text={err} onRetry={loadItems} /></div>
-          ) : items == null ? (
+          ) : (view === "lich" ? items : lenh) == null ? (
             view === "lich" ? <TimelineSkeleton /> : <ListSkeleton />
           ) : view === "the" ? (
-            groups.tong === 0 ? (
+            (lenh ?? []).length === 0 ? (
               <div className="thsx-centerempty">
                 <EmptyState icon={q ? "search" : "check"}
                   title={q ? "Không khớp tìm kiếm" : "Chưa có việc phát hành"}
                   sub={q ? "Thử đổi từ khoá." : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
               </div>
             ) : (
-              <ThsxCards
-                timed={groups.timed}
-                outWin={groups.outWin}
-                untimed={groups.untimed}
-                selectedId={selectedId}
-                onPick={pickViec}
-                onBatDau={(w) => { pickViec(w); onBatDau(); }}
-                onTamDung={(w) => { pickViec(w); onTamDung(); }}
-                onKetThuc={(w) => { pickViec(w); onKetThuc(); }}
-              />
+              <>
+                <ThsxCards
+                  lenh={lenh ?? []}
+                  selectedId={selectedId}
+                  onPick={pickViec}
+                  onBatDau={(w) => { pickViec(w); onBatDau(); }}
+                  onTamDung={(w) => { pickViec(w); onTamDung(); }}
+                  onKetThuc={(w) => { pickViec(w); onKetThuc(); }}
+                />
+                <ThanhTrang trang={trang} soTrang={soTrang} tong={tongLenh} onDoi={setTrang} />
+              </>
             )
           ) : view === "danh_sach" ? (
-            groups.tong === 0 ? (
+            (lenh ?? []).length === 0 ? (
               <div className="thsx-centerempty">
                 <EmptyState icon={q ? "search" : "check"}
                   title={q ? "Không khớp tìm kiếm" : "Chưa có việc phát hành"}
                   sub={q ? "Thử đổi từ khoá." : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
               </div>
             ) : (
-              <ThsxDanhSach
-                timed={groups.timed}
-                outWin={groups.outWin}
-                untimed={groups.untimed}
-                selectedId={selectedId}
-                onPick={pickViec}
-                onBatDau={(w) => { pickViec(w); onBatDau(); }}
-                onTamDung={(w) => { pickViec(w); onTamDung(); }}
-                onKetThuc={(w) => { pickViec(w); onKetThuc(); }}
-              />
+              <>
+                <ThsxDanhSach
+                  lenh={lenh ?? []}
+                  selectedId={selectedId}
+                  onPick={pickViec}
+                  onBatDau={(w) => { pickViec(w); onBatDau(); }}
+                  onTamDung={(w) => { pickViec(w); onTamDung(); }}
+                  onKetThuc={(w) => { pickViec(w); onKetThuc(); }}
+                />
+                <ThanhTrang trang={trang} soTrang={soTrang} tong={tongLenh} onDoi={setTrang} />
+              </>
             )
           ) : clusters.length === 0 ? (
             <div className="thsx-centerempty">
@@ -985,6 +1024,36 @@ function ListSkeleton() {
   return (
     <div className="thsx-skel-q" role="status" aria-label="Đang tải danh sách việc">
       {[0, 1, 2, 3].map((i) => <div className="thsx-skel__q" key={i} />)}
+    </div>
+  );
+}
+
+// ===================== thanh phân trang (đếm theo LỆNH) =====================
+/** Máy chủ cắt trang, màn chỉ đi tới/lui. Đơn vị đếm là LỆNH nên con số ở đây là "12 lệnh", không
+ *  phải số bước — một lệnh không bao giờ bị xé qua hai trang. */
+function ThanhTrang({
+  trang, soTrang, tong, onDoi,
+}: {
+  trang: number;
+  soTrang: number;
+  tong: number;
+  onDoi: (t: number) => void;
+}) {
+  if (soTrang <= 1) return null;
+  return (
+    <div className="thsx-trang">
+      <button type="button" className="thsx-trang__nut" disabled={trang <= 1}
+        onClick={() => onDoi(Math.max(1, trang - 1))}>
+        <Icon name="chevron" size={14} className="thsx-rot270" /> Trước
+      </button>
+      <span className="thsx-trang__vt">
+        Trang <b className="thsx-num">{trang}</b>/<b className="thsx-num">{soTrang}</b>
+        <span className="thsx-trang__tong"> · <b className="thsx-num">{tong}</b> lệnh</span>
+      </span>
+      <button type="button" className="thsx-trang__nut" disabled={trang >= soTrang}
+        onClick={() => onDoi(Math.min(soTrang, trang + 1))}>
+        Sau <Icon name="chevron" size={14} className="thsx-rot-90" />
+      </button>
     </div>
   );
 }

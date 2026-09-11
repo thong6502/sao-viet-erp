@@ -252,3 +252,29 @@ def test_cua_so_ngay_KHONG_nuot_buoc_chua_xep_gio(db, admin, to_co_3_lenh_9_buoc
         tu_ngay=date(2026, 9, 1), den_ngay=date(2026, 9, 2),
     )
     assert d["cong_viec"], "bước chưa xếp giờ phải còn nguyên"
+
+
+def test_tim_kiem_loc_o_may_chu_truoc_khi_cat_trang(db, admin, to_co_3_lenh_9_buoc):
+    """Ô tìm kiếm của bàn phải lọc Ở SQL: gõ mã một lệnh thì `tong` co lại còn 1, chứ không phải
+    trả về cả ba lệnh rồi để màn tự giấu bớt — giấu ở JS thì từ khoá chỉ soi được đúng trang
+    đang hiện."""
+    from app.models.lsx import Lsx
+    from app.services.san_xuat import board
+
+    to_id = to_co_3_lenh_9_buoc
+    ca_ban = board.work_items(db, admin, _authz(db), team_id=to_id)
+    assert ca_ban["trang"]["tong"] == 3
+    ma = ca_ban["lenh"][0]["nguon_ma"]
+
+    d = board.work_items(db, admin, _authz(db), team_id=to_id, tim=ma)
+    assert d["trang"]["tong"] == 1
+    assert [x["nguon_ma"] for x in d["lenh"]] == [ma]
+    # Khớp theo tên CÔNG ĐOẠN cũng phải ra lệnh chứa bước ấy.
+    ten_cd = d["lenh"][0]["cong_viec"][0]["ten_cong_doan"]
+    assert board.work_items(db, admin, _authz(db), team_id=to_id, tim=ten_cd)["trang"]["tong"] >= 1
+    # Từ khoá không khớp gì ⇒ rỗng hẳn, không rơi về "trả tất".
+    assert board.work_items(db, admin, _authz(db), team_id=to_id,
+                            tim="khong-co-lenh-nao-ten-the-nay")["trang"]["tong"] == 0
+    # Lệnh tra được bằng TÊN chứ không chỉ bằng mã.
+    ten_lsx = db.get(Lsx, d["lenh"][0]["lsx_id"]).ten
+    assert board.work_items(db, admin, _authz(db), team_id=to_id, tim=ten_lsx)["trang"]["tong"] >= 1

@@ -346,3 +346,87 @@ describe("CatalogDrawer — form của màn danh mục dùng chung", () => {
     expect(bodyGhi(goi).body?.so_mau).toBe(4);
   });
 });
+
+// `macDinhTheo` — prefill TÍNH TỪ FORM đang gõ, khác `default` (giá trị tĩnh chốt lúc mở drawer).
+// Sinh ra cho ô "Công thức tính giá" của Giấy: công thức đúng phụ thuộc ĐVT, mà ĐVT thì người khai
+// chọn SAU khi drawer đã mở. Điền một chuỗi rồi mặc kệ là điền sai cho nửa số mặt hàng.
+describe("CatalogDrawer — ô prefill theo form (`macDinhTheo`)", () => {
+  const CFG: CatalogConfig = {
+    ...CO_BAN,
+    fields: [
+      { key: "don_vi_gia", label: "ĐVT", type: "select",
+        options: [{ value: "kg", label: "kg" }, { value: "to", label: "tờ" }] },
+      { key: "cong_thuc", label: "Công thức", type: "text",
+        macDinhTheo: (f) => (f.don_vi_gia === "to" ? "THEO_TO" : "THEO_CAN") },
+    ],
+  };
+
+  it("tạo mới: ô điền sẵn theo form lúc mở, KHÔNG chờ người khai chạm vào", async () => {
+    const user = userEvent.setup();
+    const goi = moMan(CFG);
+    await moDrawerTao(user);
+
+    expect((drawer().getByLabelText(/^Công thức/) as HTMLInputElement).value).toBe("THEO_CAN");
+    await user.type(drawer().getByLabelText(/^Tên/), "Couché 150");
+    await user.click(drawer().getByRole("button", { name: "Tạo mới" }));
+
+    await waitFor(() => expect(soLanGhi(goi)).toBe(1));
+    expect(bodyGhi(goi).body?.cong_thuc).toBe("THEO_CAN");
+  });
+
+  it("đổi ô nguồn ⇒ chuỗi máy điền được tính LẠI", async () => {
+    const user = userEvent.setup();
+    moMan(CFG);
+    await moDrawerTao(user);
+
+    await user.selectOptions(drawer().getByLabelText(/^ĐVT/), "to");
+    await waitFor(() =>
+      expect((drawer().getByLabelText(/^Công thức/) as HTMLInputElement).value).toBe("THEO_TO"));
+  });
+
+  it("người khai đã SỬA ô thì máy không đè, kể cả khi ô nguồn đổi sau đó", async () => {
+    // Đây là cả lý do ô này là "prefill" chứ không phải ô suy ra: gõ xong một công thức riêng rồi
+    // đổi ĐVT mà mất sạch thứ vừa gõ thì lần sau không ai dám chạm vào ô ĐVT nữa.
+    const user = userEvent.setup();
+    moMan(CFG);
+    await moDrawerTao(user);
+
+    const o = drawer().getByLabelText(/^Công thức/) as HTMLInputElement;
+    await user.clear(o);
+    await user.type(o, "cua_toi");
+    await user.selectOptions(drawer().getByLabelText(/^ĐVT/), "to");
+
+    await waitFor(() =>
+      expect((drawer().getByLabelText(/^ĐVT/) as HTMLSelectElement).value).toBe("to"));
+    expect(o.value).toBe("cua_toi");
+  });
+
+  it("XOÁ TRẮNG cũng là một lựa chọn — máy không điền lại", async () => {
+    const user = userEvent.setup();
+    moMan(CFG);
+    await moDrawerTao(user);
+
+    const o = drawer().getByLabelText(/^Công thức/) as HTMLInputElement;
+    await user.clear(o);
+    await user.selectOptions(drawer().getByLabelText(/^ĐVT/), "to");
+    expect(o.value).toBe("");
+  });
+
+  it("SỬA bản ghi cũ: KHÔNG điền, kể cả khi ô đang trống", async () => {
+    // Hàng đã khai từ trước để trống ô này là một quyết định đã có (engine chạy công thức dự
+    // phòng). Mở ra xem rồi bấm Lưu mà tự nhiên có công thức là sửa dữ liệu sau lưng người dùng.
+    const user = userEvent.setup();
+    const rows: Row[] = [{ id: 7, ma: "CD-007", ten: "Couché", don_vi_gia: "kg", cong_thuc: "" }];
+    const goi = moMan(CFG, rows);
+
+    await user.click(await screen.findByText("Couché"));
+    await screen.findByRole("dialog");
+    expect((drawer().getByLabelText(/^Công thức/) as HTMLInputElement).value).toBe("");
+
+    await user.click(drawer().getByRole("button", { name: "Lưu thay đổi" }));
+    await waitFor(() => expect(soLanGhi(goi)).toBe(1));
+    // Ô trống của bản ghi vốn trống thì drawer bỏ hẳn khỏi body (xem `submit`) — cái cần khoá ở
+    // đây là nó KHÔNG mọc ra chuỗi nào, chứ không phải nó gửi lên chuỗi rỗng.
+    expect(bodyGhi(goi).body).not.toHaveProperty("cong_thuc");
+  });
+});

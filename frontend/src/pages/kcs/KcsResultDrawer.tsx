@@ -107,8 +107,10 @@ export function KcsResultDrawer(props: Props) {
   useEffect(() => {
     if (!pickedTeam || !token) { setPickerItems(null); return; }
     let alive = true;
-    api.sanXuat.workItems(token, pickedTeam.id, "production")
-      .then((r) => { if (alive) setPickerItems(r.cong_viec.filter((c) => c.trang_thai === "running" || c.trang_thai === "paused")); })
+    // Ô chọn việc cần MẢNG BƯỚC phẳng, không cần tầng lệnh ⇒ `nhom="phang"` (nó cũng kéo trọn
+    // bàn, không cắt trang — danh sách chọn mà thiếu việc ở trang 2 thì người ta không chọn được).
+    api.sanXuat.workItems(token, { teamId: pickedTeam.id, mode: "production", nhom: "phang" })
+      .then((r) => { if (alive) setPickerItems((r.cong_viec ?? []).filter((c) => c.trang_thai === "running" || c.trang_thai === "paused")); })
       .catch(() => { if (alive) setPickerItems([]); });
     return () => { alive = false; };
   }, [pickedTeam, token]);

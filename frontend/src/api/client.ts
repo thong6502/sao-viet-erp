@@ -1736,9 +1736,36 @@ export interface SxThucTeKhoang {
   bat_dau: string;
   ket_thuc: string | null;
 }
+/** MỘT lệnh SX (hoặc bài ghép) trên bàn tổ — bản ghi của bàn kể từ 11/09/2026.
+ *
+ *  Đơn vị VIỆC vẫn là CÔNG ĐOẠN: `cong_viec` là các bước tổ thật sự bấm Bắt đầu / Ghi sản lượng,
+ *  giữ nguyên `SxWorkItem`. Lệnh chỉ là ĐẦU MỤC bọc ngoài để tổ trưởng biết công đoạn này thuộc
+ *  lệnh nào. Bài ghép là MỘT dòng, không xé theo lệnh thành viên. */
+export interface SxLenhNhom {
+  nguon_loai: string;          // "lsx" | "bai_ghep"
+  nguon_ma: string;
+  nguon_ten: string;
+  lsx_id: number | null;
+  bai_ghep_id: number | null;
+  som_nhat: string | null;     // giờ dự kiến sớm nhất trong các bước CỦA TỔ NÀY; null = chưa xếp
+  muon_nhat: string | null;
+  so_viec: number;
+  digest: { released: number; running: number; paused: number; completed: number };
+  cong_viec: SxWorkItem[];
+}
+/** Vị trí trang + tổng số LỆNH (không phải tổng số bước) — đơn vị trang của bàn tổ là LỆNH, nhờ
+ *  vậy một lệnh không bao giờ bị xé đôi qua hai trang. */
+export interface SxTrang {
+  trang: number;
+  co_trang: number;
+  tong: number;
+}
 export interface SxWorkItemsOut {
   team_id: number;
-  cong_viec: SxWorkItem[];
+  nhom: string;                // "lenh" | "phang"
+  trang?: SxTrang | null;      // chỉ có ở nhom="lenh"
+  lenh?: SxLenhNhom[];         // chỉ có ở nhom="lenh"
+  cong_viec?: SxWorkItem[];    // chỉ có ở nhom="phang" — hình CŨ, Gantt không phải sửa
 }
 
 export interface SxNhanVienChon {
@@ -12075,10 +12102,25 @@ export const api = {
     hoTroUngVien(token: string, teamId: number): Promise<SxHoTroUngVienListOut> {
       return authed<SxHoTroUngVienListOut>(`/api/san-xuat/teams/${teamId}/ho-tro-ung-vien`, token);
     },
-    /** Công việc đã phát hành của MỘT tổ (timeline), lọc theo `mode` (Task 4). 403 nếu tổ ngoài
-     * phạm vi. `mode` omitted ⇒ BE tự mặc định "production" (khớp hành vi cũ). */
-    workItems(token: string, teamId: number, mode?: "production" | "kcs"): Promise<SxWorkItemsOut> {
-      const suffix = qs({ team_id: teamId, mode });
+    /** Việc đã phát hành của MỘT tổ. 403 nếu tổ ngoài phạm vi.
+     *
+     *  `nhom="lenh"` (mặc định của BE) trả ĐẦU MỤC LỆNH/BÀI GHÉP kèm phân trang ĐẾM THEO LỆNH —
+     *  dùng cho view Thẻ và Danh sách. `nhom="phang"` giữ mảng bước phẳng cho Gantt, kèm cửa sổ
+     *  `tuNgay`/`denNgay` để chỉ kéo đúng khoảng đang xem. `mode` bỏ trống ⇒ BE mặc định
+     *  "production". */
+    workItems(token: string, p: {
+      teamId: number;
+      mode?: "production" | "kcs";
+      nhom?: "lenh" | "phang";
+      trang?: number;
+      coTrang?: number;
+      tuNgay?: string;
+      denNgay?: string;
+    }): Promise<SxWorkItemsOut> {
+      const suffix = qs({
+        team_id: p.teamId, mode: p.mode, nhom: p.nhom,
+        trang: p.trang, co_trang: p.coTrang, tu_ngay: p.tuNgay, den_ngay: p.denNgay,
+      });
       return authed<SxWorkItemsOut>(`/api/san-xuat/work-items${suffix}`, token);
     },
     /** Drawer một công việc: thanh kế hoạch + roster + phiên chạy + khoảng tham gia. */

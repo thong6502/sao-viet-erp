@@ -323,6 +323,7 @@ def work_items(
     db: Session, user: User, authz: AuthorizationService, *, team_id: int,
     mode: str = "production",
     nhom: str = "lenh",
+    tim: str | None = None,
     trang: int = 1,
     co_trang: int = 20,
     tu_ngay: date | None = None,
@@ -339,6 +340,8 @@ def work_items(
       cả bàn.
 
     `mode` lọc như cũ (Task 4, §18 mục 6): "production" → `la_kcs=false`, "kcs" → `la_kcs=true`.
+    `tim` (ô tìm kiếm của bàn) lọc Ở SQL, trước khi cắt trang — chỉ có nghĩa với `nhom="lenh"`;
+    chế độ phẳng kéo trọn bàn nên màn tự lọc lấy.
 
     THỢ (scope `own`, không phải tổ trưởng) chỉ thấy việc mình được giao — lọc bằng `employee_id`
     ĐẨY XUỐNG SQL, trước cả lúc gom lệnh và cắt trang (§6 spec). Router ép kiểu `mode`/`nhom` bằng
@@ -366,7 +369,7 @@ def work_items(
                 "cong_viec": _dung_items(db, repo, rows)}
 
     khoa_trang, tong = repo.lenh_cua_to_phan_trang(
-        {team_id}, la_kcs=la_kcs, employee_id=emp_id, trang=trang, co_trang=co_trang)
+        {team_id}, la_kcs=la_kcs, employee_id=emp_id, tim=tim, trang=trang, co_trang=co_trang)
     khoa = [k for k, _, _ in khoa_trang]
     rows = repo.cong_viec_cua_lenh({team_id}, khoa, la_kcs=la_kcs, employee_id=emp_id)
     item_theo_id = {it["id"]: it for it in _dung_items(db, repo, rows)}

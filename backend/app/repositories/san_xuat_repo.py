@@ -444,6 +444,7 @@ class SanXuatRepository:
         *,
         la_kcs: bool | None = None,
         employee_id: int | None = None,
+        tim: str | None = None,
         trang: int = 1,
         co_trang: int = 20,
     ) -> tuple[list[tuple[tuple[str, int | None], datetime | None, datetime | None]], int]:
@@ -457,6 +458,11 @@ class SanXuatRepository:
         trong câu gom — lọc sau khi cắt trang thì trang 1 có thể rỗng trong khi trang 3 đầy việc.
 
         Lệnh chưa xếp giờ dồn CUỐI (`NULLS LAST` viết tay bằng CASE cho chạy cả PG lẫn SQLite).
+
+        `tim` cũng lọc Ở ĐÂY chứ không lọc bằng JS sau khi kéo trang về — lọc sau khi cắt trang
+        thì ô tìm kiếm chỉ soi được đúng 20 lệnh đang hiện. Từ khoá soi mã/tên LỆNH, mã/tên BÀI
+        GHÉP và tên CÔNG ĐOẠN; khớp một bước là cả lệnh hiện ra (bàn tổ đi tìm LỆNH, không đi tìm
+        bước rời).
         """
         if not department_ids:
             return [], 0
@@ -478,9 +484,22 @@ class SanXuatRepository:
             sa_select(loai.label("loai"), nid.label("nid"),
                       som.label("som"), muon.label("muon"))
             .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)
-            .where(*dieu_kien)
-            .group_by(loai, nid)
         )
+        kw = (tim or "").strip()
+        if kw:
+            from sqlalchemy import or_
+
+            mau = f"%{kw}%"
+            nhom = (
+                nhom.outerjoin(Lsx, SanXuatCongViec.lsx_id == Lsx.id)
+                .outerjoin(BaiGhep, SanXuatCongViec.bai_ghep_id == BaiGhep.id)
+            )
+            dieu_kien.append(or_(
+                Lsx.ma.ilike(mau), Lsx.ten.ilike(mau),
+                BaiGhep.ma.ilike(mau), BaiGhep.ten.ilike(mau),
+                SanXuatCongViec.ten_cong_doan.ilike(mau),
+            ))
+        nhom = nhom.where(*dieu_kien).group_by(loai, nid)
         tong = self.db.scalar(sa_select(func.count()).select_from(nhom.subquery())) or 0
 
         co_trang = max(1, min(int(co_trang or 20), 100))

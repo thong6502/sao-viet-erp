@@ -122,11 +122,13 @@ export function ThucHienKcsPage({
     if (!token) return;
     setLoading(true);
     setLoadError(null);
-    api.sanXuat.workItems(token, teamId, "kcs")
+    // Bàn KCS đọc MẢNG BƯỚC phẳng (mỗi bước kéo thêm một `kcsChiTiet`), chưa lên tầng lệnh.
+    api.sanXuat.workItems(token, { teamId, mode: "kcs", nhom: "phang" })
       .then(async (r) => {
+        const cong_viec = r.cong_viec ?? [];
         let failCount = 0;
         const entries = await Promise.all(
-          r.cong_viec.map((cv): Promise<[number, SxKcsChiTiet]> =>
+          cong_viec.map((cv): Promise<[number, SxKcsChiTiet]> =>
             api.sanXuat.kcsChiTiet(token, cv.id)
               .then((ct): [number, SxKcsChiTiet] => [cv.id, ct])
               .catch((): [number, SxKcsChiTiet] => {
@@ -138,7 +140,7 @@ export function ThucHienKcsPage({
               }),
           ),
         );
-        setItems(r.cong_viec);
+        setItems(cong_viec);
         setChiTietMap(Object.fromEntries(entries));
         setChiTietFailCount(failCount);
         setLoading(false);

@@ -1,5 +1,6 @@
 // XẾP LỊCH 3 — LƯỚI GANTT (GỌN GÀNG · TINH TẾ · CHUYÊN NGHIỆP)
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, Layers, Sparkles } from "lucide-react";
 import type { Xl3Dong } from "../api/client";
 import {
   classHan, gio, khoiChay, khoiThucTe, khungBao, khungDaVaoViec, khungLuoi, nhanNgay, ngayNgan,
@@ -215,8 +216,48 @@ export function Xl3Gantt({
         )}
 
         {dong.length === 0 && (
-          <div className="xl3-trong-box">
-            <p>Khung thời gian này chưa có lệnh nào được xếp. Kéo thả một thẻ từ Hàng chờ vào lưới để đặt giờ.</p>
+          <div className="xl3-gantt__empty-container">
+            {/* Hàng lưới rỗng tạo background chuẩn cho khung Gantt */}
+            {Array.from({ length: 6 }).map((_, idx) => (
+              <div key={idx} className="xl3-hang xl3-hang--trong" style={{ height: dongH }}>
+                <div className="xl3-hang__nhan" style={{ width: nhanW }} />
+                <div className="xl3-hang__luoi" style={{ width: rongLuoi }}>
+                  {ngays.map((n, i) => (
+                    <span
+                      key={n}
+                      className={`xl3-cot${nghi.has(n) ? " xl3-cot--nghi" : ""}`}
+                      style={{ left: i * ngayW, width: ngayW }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {/* Box thông báo trống căn chỉnh chuẩn giữa vùng lịch */}
+            <div className="xl3-trong-box-wrap" style={{ paddingLeft: nhanW }}>
+              <div className="xl3-trong-box">
+                <div className="xl3-trong-icon-wrap">
+                  <CalendarDays size={24} />
+                </div>
+                <h3>Khung thời gian chưa có lệnh xếp</h3>
+                <p>
+                  Kéo thả một thẻ từ <strong>Hàng chờ</strong> ở bên trái vào ô thời gian tương ứng trên lưới để đặt giờ sản xuất.
+                </p>
+                <div className={`xl3-trong-hint${keoTuHangCho ? " xl3-trong-hint--active" : ""}`}>
+                  {keoTuHangCho ? (
+                    <>
+                      <Sparkles size={14} />
+                      <span>Thả thẻ vào lưới để đặt mốc xếp lịch</span>
+                    </>
+                  ) : (
+                    <>
+                      <Layers size={14} />
+                      <span>Kéo thẻ từ Hàng chờ vào đây</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
