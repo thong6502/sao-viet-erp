@@ -85,7 +85,7 @@ pytest + SQLite in-memory · React + TypeScript + Vite · vitest + testing-libra
 - Produces: model `SanXuatPhanBo` / `SanXuatPhanBoDong` / `SanXuatPhanBoBuTru` KHÔNG còn thuộc tính
   `don_gia`; tên `SanXuatThuongToTruong` không còn tồn tại trong `app.models`.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Tạo `backend/tests/test_migration_0296_bo_don_gia_phan_bo.py`:
 
@@ -158,12 +158,12 @@ def test_model_thuong_to_truong_da_go():
     assert not hasattr(m, "SanXuatThuongToTruong")
 ```
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_migration_0296_bo_don_gia_phan_bo.py -q`
 Expected: FAIL — `AssertionError: Không thấy migration 0296_ trong MIGRATIONS`.
 
-- [ ] **Step 3: Viết migration**
+- [x] **Step 3: Viết migration**
 
 Nối vào cuối `backend/app/db_migrations.py`:
 
@@ -221,7 +221,7 @@ def _migrate_bo_bang_thuong_to_truong(db) -> None:
 MIGRATIONS.append(("0297_bo_bang_thuong_to_truong", _migrate_bo_bang_thuong_to_truong))
 ```
 
-- [ ] **Step 4: Bỏ cột khỏi model + xoá model thưởng**
+- [x] **Step 4: Bỏ cột khỏi model + xoá model thưởng**
 
 `backend/app/models/san_xuat_phan_bo.py` — xoá **3 dòng** (không đổi gì khác):
 
@@ -253,7 +253,7 @@ Xoá file `backend/app/models/san_xuat_thuong_to_truong.py`. Trong
 `backend/app/models/__init__.py` xoá dòng `from .san_xuat_thuong_to_truong import SanXuatThuongToTruong`
 (`:159`) và `"SanXuatThuongToTruong",` trong `__all__` (`:333`).
 
-- [ ] **Step 5: Cập nhật `docs/DB_SCHEMA.md`**
+- [x] **Step 5: Cập nhật `docs/DB_SCHEMA.md`**
 
 Xoá 3 dòng mô tả cột `don_gia` của `san_xuat_phan_bo`, `san_xuat_phan_bo_dong`,
 `san_xuat_phan_bo_bu_tru`; xoá trọn khối bảng `san_xuat_thuong_to_truong`. Tìm bằng:
@@ -262,20 +262,20 @@ Xoá 3 dòng mô tả cột `don_gia` của `san_xuat_phan_bo`, `san_xuat_phan_b
 grep -n "don_gia" docs/DB_SCHEMA.md | grep -i phan_bo
 ```
 
-- [ ] **Step 6: Xoá test cũ của bảng thưởng**
+- [x] **Step 6: Xoá test cũ của bảng thưởng**
 
 ```bash
 git rm backend/tests/test_migration_0266_thuong_to_truong.py backend/tests/test_thuong_to_truong.py
 ```
 
-- [ ] **Step 7: Chạy test — phải xanh**
+- [x] **Step 7: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_migration_0296_bo_don_gia_phan_bo.py tests/test_db_schema_doc.py -q`
 Expected: PASS cả hai file.
 
 *(Tại bước này `tests/test_san_xuat_phan_bo.py` CÒN ĐỎ vì service vẫn gán `don_gia` — Task 2 chữa.)*
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/app/db_migrations.py backend/app/models/san_xuat_phan_bo.py backend/app/models/__init__.py docs/DB_SCHEMA.md backend/tests/test_migration_0296_bo_don_gia_phan_bo.py
@@ -301,7 +301,7 @@ git commit -m "mg 0296/0297: bỏ cột don_gia của 3 bảng phân bổ + bỏ
   trong_so, phut_thuc_te, he_so_bac}`. Schema `PhanBoDongOut` / `BuTruDongOut` /
   `PhanBoChiTietOut` không còn `don_gia` và `don_gia_tu_cong_thuc`.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Thêm vào `backend/tests/test_san_xuat_phan_bo.py`:
 
@@ -343,12 +343,12 @@ grep -n "don_gia" backend/tests/test_san_xuat_phan_bo.py
 bài kế bên đang dùng để dựng `(cong_viec, batch)` có người tham gia + chấm công hợp lệ; đọc đầu
 file trước khi viết.)*
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_phan_bo.py -q`
 Expected: FAIL — `AttributeError`/`assert not hasattr(phan_bo, "_don_gia_don_vi")`.
 
-- [ ] **Step 3: Sửa `phan_bo.py`**
+- [x] **Step 3: Sửa `phan_bo.py`**
 
 a) Xoá trọn hàm `_don_gia_don_vi` (dòng 102–117) và thay bằng một hàm chỉ trả đơn vị:
 
@@ -396,7 +396,7 @@ milli-đơn-vị nên Σ = Q đúng bằng sản lượng tốt.
 """
 ```
 
-- [ ] **Step 4: Sửa schema + mặt đọc board**
+- [x] **Step 4: Sửa schema + mặt đọc board**
 
 `backend/app/schemas/san_xuat.py`: xoá `don_gia: float` khỏi `PhanBoDongOut` (`:349`) và
 `BuTruDongOut` (`:357`); xoá `don_gia: float` + cả khối chú thích + `don_gia_tu_cong_thuc: bool = False`
@@ -406,12 +406,12 @@ khỏi `PhanBoChiTietOut` (`:381-385`).
 thích + `"don_gia_tu_cong_thuc": ...` (`:759-762`); xoá `"don_gia": float(d.don_gia or 0),`
 (`:789`) và `"don_gia": float(bt.don_gia or 0),` (`:799`).
 
-- [ ] **Step 5: Chạy test — phải xanh**
+- [x] **Step 5: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_phan_bo.py tests/test_san_xuat_board.py tests/test_san_xuat_board_api.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/services/san_xuat/phan_bo.py backend/app/services/san_xuat/board.py backend/app/schemas/san_xuat.py backend/tests/test_san_xuat_phan_bo.py
@@ -434,7 +434,7 @@ git commit -m "phan_bo: engine chia sản lượng, gỡ hết ô đơn giá kh�
   cộng `cong_thuc_gio` (khoá CÓ MẶT khi `dm is not None`, kể cả rỗng — dấu "ảnh chụp biết đầu việc
   có ô đo giờ riêng"). `_SoPhatHanh.khoan_json(cd)` trả thẳng ảnh chụp của bước, không gắn thêm khoá.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Thêm vào `backend/tests/test_khoan_dau_viec.py`:
 
@@ -476,12 +476,12 @@ def test_snapshot_phat_hanh_khong_gan_don_gia_hd():
     assert "don_gia_hd" not in open(sn.__file__, encoding="utf-8").read()
 ```
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_khoan_dau_viec.py -q`
 Expected: FAIL — `assert "don_gia" not in snap`.
 
-- [ ] **Step 3: Sửa `khoan_snapshot`**
+- [x] **Step 3: Sửa `khoan_snapshot`**
 
 Thay thân hàm `backend/app/services/piece_work_service.py:62` bằng:
 
@@ -516,7 +516,7 @@ def khoan_snapshot(rate, dm=None) -> dict:
 *Trước khi sửa, đọc lại nguyên bản dòng 90–95 để bê nguyên phần `cong_thuc_gio` đang có (khoá này
 đã tồn tại từ 07/09/2026) — đừng viết lại từ đầu, chỉ bỏ ba khoá tiền.*
 
-- [ ] **Step 4: Sửa `snapshot.py`**
+- [x] **Step 4: Sửa `snapshot.py`**
 
 Trong `backend/app/services/san_xuat/snapshot.py`, hàm `khoan_json` (dòng 94–110) thu về:
 
@@ -534,7 +534,7 @@ Xoá luôn lớp/hàm trễ `_DonGiaHieuDung` và mọi import chỉ còn nó d�
 nếu không còn nơi nào gọi — kiểm bằng `grep -n "_lsx_svc\|LsxService" backend/app/services/san_xuat/snapshot.py`
 trước khi xoá import).
 
-- [ ] **Step 5: Sửa biến công thức `don_gia_khoan`**
+- [x] **Step 5: Sửa biến công thức `don_gia_khoan`**
 
 `backend/app/services/bien_cong_thuc.py:187` — biến này lấy giá trị từ ảnh chụp
 `khoan_json["don_gia"]` của bước. Ảnh chụp nay không có khoá đó. Sửa chú thích + nguồn để nó chỉ
@@ -548,12 +548,12 @@ lệnh thì là 0:
     # "Sản xuất chỉ ghi số lượng"). Công thức RA TIỀN vì thế chỉ chạy ở màn của kế toán lương.
 ```
 
-- [ ] **Step 6: Chạy test — phải xanh**
+- [x] **Step 6: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_khoan_dau_viec.py tests/test_khoan_api.py tests/test_san_xuat_release.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/services/piece_work_service.py backend/app/services/san_xuat/snapshot.py backend/app/services/bien_cong_thuc.py backend/tests/test_khoan_dau_viec.py
@@ -580,7 +580,7 @@ git commit -m "khoan_snapshot: ảnh chụp đầu việc giữ tên việc, b�
   thoi_luong_dien_giai}` — không còn khoá `khoan`. `LsxService` không còn phương thức
   `don_gia_hieu_dung`.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Thêm vào `backend/tests/test_khoan_api.py`:
 
@@ -623,12 +623,12 @@ def test_lsx_service_khong_con_don_gia_hieu_dung():
 *Tên fixture + đường endpoint `xem-truoc-buoc` phải đọc lại từ đầu `tests/test_khoan_api.py` và
 `backend/app/routers/lsx.py` trước khi viết — dùng đúng tên đang có, đừng đẻ fixture mới.*
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_khoan_api.py -q`
 Expected: FAIL — `assert "khoan_tien_tong" not in d`.
 
-- [ ] **Step 3: Xoá ba hàm tiền khỏi `lsx_service.py`**
+- [x] **Step 3: Xoá ba hàm tiền khỏi `lsx_service.py`**
 
 Xoá trọn:
 - `def _khoan_derived(self, cd, quy_cach)` (dòng ~929, 11 dòng)
@@ -640,7 +640,7 @@ Sau đó `grep -n "_khoan_tu_kh\|_khoan_derived\|don_gia_hieu_dung\|cong_thuc_ra
 và dọn mọi nơi gọi còn lại. `cong_thuc_ra_tien` (`bien_cong_thuc.py:252`) và `tien_khoan` **giữ**
 nếu còn nơi khác dùng (danh mục), xoá nếu không — kiểm bằng grep, đừng đoán.
 
-- [ ] **Step 4: Dọn payload + schema**
+- [x] **Step 4: Dọn payload + schema**
 
 `lsx_service.py:893-898` — bỏ khối `if buoc is not None: item.update({...tien_du_kien...})` trong
 `_dau_viec_option_dicts`, và bỏ hai khoá `"don_vi"` / `"don_gia"` của `item` (dòng ~889-891). Lựa
@@ -666,12 +666,12 @@ chú thích.
 (`:329`), `khoan_don_vi_sl` (`:330`), `khoan_dien_giai` (`:332`), `khoan_thieu` (`:334`),
 `khoan_ly_do` (`:335`), `khoan_tien_tong` (`:517`).
 
-- [ ] **Step 5: Chạy test — phải xanh**
+- [x] **Step 5: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_khoan_api.py tests/test_cong_bo_phieu_va_de_khoan.py tests/test_san_xuat_release.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/services/lsx_service.py backend/app/schemas/lsx.py backend/tests/test_khoan_api.py
@@ -692,7 +692,7 @@ git commit -m "lsx_service: gỡ tiền khoán khỏi tầng lệnh, giữ chọ
 - Consumes: `khoan_snapshot` (Task 3), `_dau_viec_option_dicts` đã dọn (Task 4).
 - Produces: dict bước chung bài ghép còn `khoan_rate_id`, `khoan_ten`, `khoan_chon_duoc`.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Thêm vào file test bước chung bài ghép:
 
@@ -710,12 +710,12 @@ def test_buoc_chung_bai_ghep_khong_con_o_tien(client, bai_ghep_co_buoc_chung):
 
 *Tên fixture + đường endpoint `so-do` phải đọc lại từ file test bài ghép đang có.*
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_bai_ghep_so_do.py -q` *(đổi tên file theo thực tế)*
 Expected: FAIL — khoá tiền vẫn còn.
 
-- [ ] **Step 3: Sửa `bai_ghep_service.py`**
+- [x] **Step 3: Sửa `bai_ghep_service.py`**
 
 Hàm dựng dict bước chung (dòng ~920-932) còn:
 
@@ -746,12 +746,12 @@ Dòng `:899` (`chung.khoan_json = khoan_snapshot(rate, dm) ...`) và `:904`
 `khoan_sl` (`:393`), `khoan_don_vi_sl` (`:394`), `khoan_tien` (`:395`), `khoan_dien_giai` (`:396`),
 `khoan_thieu` (`:397`), `khoan_ly_do` (`:398`).
 
-- [ ] **Step 4: Chạy test — phải xanh**
+- [x] **Step 4: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_bai_ghep_so_do.py tests/test_khoan_dau_viec.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/bai_ghep_service.py backend/app/schemas/bai_ghep.py backend/tests/
@@ -780,7 +780,7 @@ git commit -m "bài ghép: bước chung ghim đầu việc, bỏ ô tiền kho�
   vẫn trả **dòng sản lượng thật** nhưng `unit_price=0.0`; không còn route
   `GET /api/san-xuat/kho/nhom/{id}/thuong-to-truong`.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Thêm vào `backend/tests/test_san_xuat_dong_nhom.py`:
 
@@ -817,12 +817,12 @@ def test_seam_luong_tra_san_luong_nhung_don_gia_0(db, phan_bo_da_chot):
 *Tên fixture `nhom_du_dieu_kien_dong` / `phan_bo_da_chot` phải đọc lại từ chính hai file test đó và
 dùng đúng fixture đang có.*
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_dong_nhom.py -q`
 Expected: FAIL — route thưởng còn trả 200.
 
-- [ ] **Step 3: Xoá chuỗi backend**
+- [x] **Step 3: Xoá chuỗi backend**
 
 ```bash
 git rm backend/app/services/san_xuat/thuong_to_truong.py backend/app/repositories/thuong_to_truong_repo.py
@@ -845,7 +845,7 @@ dòng chú thích nói về nó. Đóng nhóm còn đúng việc đóng nhóm.
     màn "Khoán theo kỳ" của kế toán sẽ dùng lại nó để rót vào `payroll_lines.thuong_to_truong`.
 ```
 
-- [ ] **Step 4: Sửa seam lương**
+- [x] **Step 4: Sửa seam lương**
 
 `backend/app/repositories/production_output_repo.py` — sửa docstring module + hai chỗ tạo
 `_DongKhoan`:
@@ -872,18 +872,18 @@ và trong cả hai vòng lặp:
                     unit_price=0.0,   # sản xuất không định giá — xem docstring module
 ```
 
-- [ ] **Step 5: Sửa doc lương**
+- [x] **Step 5: Sửa doc lương**
 
 `docs/CONG_THUC_TINH_LUONG.md` §6.1 đang nói `khoan` luôn = 0 nhưng nêu LÝ DO đã cũ (repo chưa
 được nối). Giữ kết luận, đổi lý do: nay `deps.py` có nối `ProductionOutputRepository` thật, nhưng
 đơn giá về 0 theo quyết định 11/09/2026; trỏ tới spec.
 
-- [ ] **Step 6: Chạy test — phải xanh**
+- [x] **Step 6: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_dong_nhom.py tests/test_san_xuat_dong_nhom_api.py tests/test_san_xuat_g5_tich_hop.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A backend/app backend/tests docs/CONG_THUC_TINH_LUONG.md
@@ -917,7 +917,7 @@ git commit -m "gỡ chuỗi thưởng tổ trưởng khỏi đóng nhóm; seam l
 - Produces: component `PhanBoBlock` đổi tiêu đề thành `"Chia sản lượng"`; bảng còn 4 cột
   `Người / SL / Bậc / Phút`.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Tạo `frontend/src/pages/ThsxChiaSanLuong.test.tsx`:
 
@@ -982,12 +982,12 @@ describe("Chia sản lượng", () => {
 
 `PhanBoBlock` hiện là hàm nội bộ ⇒ thêm `export` cho nó trong `ThsxExecPanels.tsx`.
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd frontend && npx vitest run src/pages/ThsxChiaSanLuong.test.tsx`
 Expected: FAIL — không import được `PhanBoBlock` / không thấy chữ "Chia sản lượng".
 
-- [ ] **Step 3: Sửa `PhanBoBlock`**
+- [x] **Step 3: Sửa `PhanBoBlock`**
 
 Trong `frontend/src/pages/ThsxExecPanels.tsx`:
 
@@ -1006,7 +1006,7 @@ Trong `frontend/src/pages/ThsxExecPanels.tsx`:
   giữ. `BuTruForm` giữ (bù trừ là bù SẢN LƯỢNG, không phải tiền) — kiểm lại chữ trong form đó và
   bỏ chữ "lương" nếu có.
 
-- [ ] **Step 4: Dọn type + các màn lệnh / bài ghép**
+- [x] **Step 4: Dọn type + các màn lệnh / bài ghép**
 
 Theo danh sách file ở đầu task. Cách làm an toàn: sửa `client.ts` TRƯỚC rồi chạy
 `npx tsc --noEmit` — trình biên dịch sẽ chỉ đúng từng chỗ còn đọc khoá đã bỏ.
@@ -1023,7 +1023,7 @@ Theo danh sách file ở đầu task. Cách làm an toàn: sửa `client.ts` TR�
   xoá state + panel + lời gọi.
 - `test/baiGhepSoDoFixture.ts:102-105`: xoá 4 khoá tiền.
 
-- [ ] **Step 5: Soi chữ tiếng Việt còn sót**
+- [x] **Step 5: Soi chữ tiếng Việt còn sót**
 
 ```bash
 cd frontend && grep -rn "đơn giá\|Đơn giá\|tiền công\|Phân bổ lương\|thưởng tổ trưởng" src/pages/ThsxExecPanels.tsx src/pages/ThsxDrawer.tsx src/pages/ThsxG5.tsx src/pages/LsxBuocDrawer.tsx src/pages/BaiGhepBuocChungForm.tsx
@@ -1031,12 +1031,12 @@ cd frontend && grep -rn "đơn giá\|Đơn giá\|tiền công\|Phân bổ lươn
 
 Kết quả mong đợi: rỗng.
 
-- [ ] **Step 6: Chạy test + biên dịch — phải xanh**
+- [x] **Step 6: Chạy test + biên dịch — phải xanh**
 
 Run: `cd frontend && npx tsc --noEmit && npx vitest run src/pages/ThsxChiaSanLuong.test.tsx src/pages/ThsxCards.test.tsx src/pages/ThsxDanhSach.test.tsx src/pages/lsxBuoc.test.ts src/pages/BaiGhep2Page.test.tsx`
 Expected: `tsc` không lỗi; vitest PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src
@@ -1083,7 +1083,7 @@ git commit -m "FE: gỡ mọi ô tiền khoán khỏi bàn tổ/lệnh/bài ghé
   ) -> list[SanXuatCongViec]
   ```
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Tạo `backend/tests/test_san_xuat_lenh_phan_trang.py`:
 
@@ -1150,12 +1150,12 @@ def test_loc_theo_nguoi_duoc_giao_chay_o_SQL_truoc_khi_cat_trang(db, to_co_3_len
 `tho_chi_lam_lenh_thu_3`) dựng bằng đúng helper phát hành mà `tests/test_san_xuat_board.py` đang
 dùng — đọc file đó trước, tái dùng helper, đừng tự INSERT tay.*
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_lenh_phan_trang.py -q`
 Expected: FAIL — `AttributeError: 'SanXuatRepository' object has no attribute 'lenh_cua_to_phan_trang'`.
 
-- [ ] **Step 3: Viết repo**
+- [x] **Step 3: Viết repo**
 
 Thêm vào `backend/app/repositories/san_xuat_repo.py` ngay sau `cong_viec_cua_to`:
 
@@ -1296,12 +1296,12 @@ Thêm `employee_id` vào `cong_viec_cua_to` (cho chế độ `phang` của Gantt
             q = q.where(giao)
 ```
 
-- [ ] **Step 4: Chạy test — phải xanh**
+- [x] **Step 4: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_lenh_phan_trang.py -q`
 Expected: PASS (6 bài).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app/repositories/san_xuat_repo.py backend/tests/test_san_xuat_lenh_phan_trang.py
@@ -1331,7 +1331,7 @@ git commit -m "san_xuat_repo: gom + phân trang bàn tổ theo lệnh/bài ghép
   `nhom="phang"` → `{"team_id", "nhom": "phang", "cong_viec": [WorkItemOut...]}` (hình CŨ, giữ
   nguyên khoá `cong_viec` để Gantt không phải sửa).
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Thêm vào `backend/tests/test_san_xuat_board_api.py`:
 
@@ -1371,12 +1371,12 @@ def test_work_items_co_trang_bi_kep_tran_100(client_to_truong, to_co_3_lenh_9_bu
     assert r.status_code == 422, "trần phải do schema chặn, không để service tự bóp im lặng"
 ```
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_board_api.py -q`
 Expected: FAIL — `KeyError: 'nhom'`.
 
-- [ ] **Step 3: Viết schema**
+- [x] **Step 3: Viết schema**
 
 `backend/app/schemas/san_xuat.py` — thay `WorkItemsOut` (`:116-118`):
 
@@ -1412,7 +1412,7 @@ class WorkItemsOut(BaseModel):
     cong_viec: list[WorkItemOut] = []  # chỉ có ở nhom="phang" — hình CŨ, Gantt không phải sửa
 ```
 
-- [ ] **Step 4: Viết service**
+- [x] **Step 4: Viết service**
 
 `backend/app/services/san_xuat/board.py` — thay `work_items` (dòng 274 tới hết hàm):
 
@@ -1541,7 +1541,7 @@ Thêm `from datetime import date` vào import của `board.py` nếu chưa có.
 `_loc_viec_cua_tho` (dòng 72) giờ chỉ còn phục vụ `work_item_chi_tiet` (dòng 530) — **giữ**, kèm
 chú thích rằng đường bàn tổ đã chuyển sang lọc ở SQL.
 
-- [ ] **Step 5: Viết router**
+- [x] **Step 5: Viết router**
 
 `backend/app/routers/san_xuat.py:371-386`:
 
@@ -1573,12 +1573,12 @@ def work_items(
 
 Thêm `Query` vào import `fastapi` và `date` vào import `datetime` nếu chưa có.
 
-- [ ] **Step 6: Chạy test — phải xanh**
+- [x] **Step 6: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_board_api.py tests/test_san_xuat_board.py tests/test_san_xuat_lenh_phan_trang.py -q`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/services/san_xuat/board.py backend/app/schemas/san_xuat.py backend/app/routers/san_xuat.py backend/tests/test_san_xuat_board_api.py
@@ -1617,7 +1617,7 @@ git commit -m "work-items: trả nhóm LỆNH/BÀI GHÉP có phân trang máy ch
   }): JSX.Element
   ```
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Tạo `frontend/src/pages/ThsxLenhGroups.test.tsx`:
 
@@ -1684,12 +1684,12 @@ describe("ThsxLenhGroups", () => {
 });
 ```
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd frontend && npx vitest run src/pages/ThsxLenhGroups.test.tsx`
 Expected: FAIL — không resolve được `./ThsxLenhGroups`.
 
-- [ ] **Step 3: Viết component**
+- [x] **Step 3: Viết component**
 
 Tạo `frontend/src/pages/ThsxLenhGroups.tsx`:
 
@@ -1808,7 +1808,7 @@ function LenhDigest({ d }: { d: SxLenhNhom["digest"] }) {
 }
 ```
 
-- [ ] **Step 4: Đấu vào hai view + controller**
+- [x] **Step 4: Đấu vào hai view + controller**
 
 `ThsxCards.tsx` / `ThsxDanhSach.tsx`: thay ba `CardSection`/`DsSection` theo cửa sổ bằng
 `props.lenh` + `ThsxLenhGroups`, phần `render` trả đúng lưới thẻ / bảng đang có. Đổi `interface
@@ -1827,12 +1827,12 @@ nguyên `trang`**, đừng nhảy về trang 1.
 trước khi nghi CSS "không ăn" (`grep -c "\.thsx-lenh__h" src/pages/thuc-hien-sx.css`); `*/` trong
 chú thích có thể nuốt cả khối `@media`.
 
-- [ ] **Step 5: Chạy test + biên dịch**
+- [x] **Step 5: Chạy test + biên dịch**
 
 Run: `cd frontend && npx tsc --noEmit && npx vitest run src/pages/ThsxLenhGroups.test.tsx src/pages/ThsxCards.test.tsx src/pages/ThsxDanhSach.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src
@@ -1857,7 +1857,7 @@ git commit -m "bàn tổ: tầng lệnh/bài ghép cho view thẻ và danh sách
   phut_thuc_te, he_so_bac, la_ho_tro}], can_chot: bool, canh_bao: list[str]} | None`.
   `None` chỉ khi mẻ ĐÃ có bản chia chốt (lúc đó đọc ở `phan_bo`).
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Thêm vào `backend/tests/test_san_xuat_san_luong.py`:
 
@@ -1900,12 +1900,12 @@ def test_me_da_chot_thi_doc_o_ban_chot_khong_tra_nhap(client_to_truong, batch_da
 
 *Đường POST ghi mẻ + tên fixture phải đọc lại từ chính `tests/test_san_xuat_san_luong.py`.*
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_san_luong.py -q`
 Expected: FAIL — `KeyError: 'chia_du_kien'`.
 
-- [ ] **Step 3: Viết service**
+- [x] **Step 3: Viết service**
 
 Trong `backend/app/services/san_xuat/board.py`, khối batch của drawer — thêm ngay sau vòng tính
 `pb_flags`:
@@ -1956,7 +1956,7 @@ Trong dict batch (dòng ~676) thêm khoá:
                     "chia_du_kien": chia_nhap.get(b.id),
 ```
 
-- [ ] **Step 4: Viết schema**
+- [x] **Step 4: Viết schema**
 
 `backend/app/schemas/san_xuat.py` — thêm trước schema batch:
 
@@ -1984,12 +1984,12 @@ và thêm `chia_du_kien: ChiaDuKienOut | None = None` vào schema batch của `s
 biết: Pydantic **nuốt field im lặng** — field không khai ở schema Out thì FE nhận `undefined` mà
 không có lỗi nào. Phải đi hết `dict service → schema → type TS`.)*
 
-- [ ] **Step 5: Chạy test — phải xanh**
+- [x] **Step 5: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_san_luong.py tests/test_san_xuat_board_api.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/services/san_xuat/board.py backend/app/schemas/san_xuat.py backend/tests/test_san_xuat_san_luong.py
@@ -2012,7 +2012,7 @@ git commit -m "mẻ: trả bản chia sản lượng nháp ngay khi ghi, không 
 - Produces: mỗi batch thêm `may_ten: str | None`, `ca_ten: str | None`,
   `su_co: [{bat_dau, ket_thuc, ly_do}]`, `dau_viec_ten: str | None`, `so_nguoi: int`.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Tạo `backend/tests/test_san_xuat_me_chi_tiet.py`:
 
@@ -2050,12 +2050,12 @@ def test_me_mang_ten_dau_viec_ke_hoach_da_chon_nhung_khong_mang_gia(
     assert "don_gia" not in me and "tien" not in me
 ```
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_me_chi_tiet.py -q`
 Expected: FAIL — `KeyError: 'may_ten'`.
 
-- [ ] **Step 3: Viết helper thuần + nối vào dict batch**
+- [x] **Step 3: Viết helper thuần + nối vào dict batch**
 
 Thêm vào `board.py`:
 
@@ -2124,7 +2124,7 @@ và trong dict của mỗi `b`:
 `grep -n "def list_shifts" -B 5 backend/app/services/attendance_service.py` trước khi gọi; nếu
 service đó đòi tham số khởi tạo khác thì dùng repo tương ứng, đừng đổi chữ ký của nó.*
 
-- [ ] **Step 4: Viết schema**
+- [x] **Step 4: Viết schema**
 
 Thêm vào schema batch: `may_ten: str | None = None`, `ca_ten: str | None = None`,
 `dau_viec_ten: str | None = None`, `so_nguoi: int = 0`, và
@@ -2139,12 +2139,12 @@ class MeSuCoOut(BaseModel):
 
 với `su_co: list[MeSuCoOut] = []`.
 
-- [ ] **Step 5: Chạy test — phải xanh**
+- [x] **Step 5: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_me_chi_tiet.py tests/test_san_xuat_board_api.py tests/test_san_xuat_doi_may.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app/services/san_xuat/board.py backend/app/schemas/san_xuat.py backend/tests/test_san_xuat_me_chi_tiet.py
@@ -2167,7 +2167,7 @@ git commit -m "mẻ: trả kèm máy đã chạy, ca, sự cố dừng máy, tê
 - Produces: `BatchRow` hiện đủ 9 dòng thông tin; `PhanBoBlock` nhận thêm prop
   `chiaNhap?: SxBatch["chia_du_kien"]` và vẽ bảng nháp khi `pb == null`.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Thêm vào `frontend/src/pages/ThsxChiaSanLuong.test.tsx`:
 
@@ -2212,12 +2212,12 @@ it("thân mẻ hiện máy, ca, giờ kết thúc, đầu việc, kíp và sự 
 
 `BatchRow` cần `export`.
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd frontend && npx vitest run src/pages/ThsxChiaSanLuong.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 3: Sửa `BatchRow`**
+- [x] **Step 3: Sửa `BatchRow`**
 
 Header mẻ: thêm giờ kết thúc và số người sau giờ bắt đầu —
 `{ngayGio(b.bat_dau)} – {gioNgan(b.ket_thuc)}` + `<span>{b.so_nguoi} người</span>`.
@@ -2239,19 +2239,19 @@ Thân mẻ: thêm các dòng `thsx-x-kv` (chỉ hiện khi có dữ liệu, đú
 
 Truyền `chiaNhap={b.chia_du_kien}` xuống `PhanBoBlock`.
 
-- [ ] **Step 4: Sửa `PhanBoBlock` cho nhánh nháp**
+- [x] **Step 4: Sửa `PhanBoBlock` cho nhánh nháp**
 
 Nhánh `if (!pb)` đổi thành: có `chiaNhap` ⇒ vẽ đúng khối "Chia sản lượng" với pill `nháp` + bảng 4
 cột + băng cảnh báo `chiaNhap.canh_bao` + nút `Chốt` bị khoá kèm `title="Bấm Chia sản lượng để
 lưu bản chia rồi mới chốt được"`; không có `chiaNhap` ⇒ giữ câu "Chưa chia sản lượng cho mẻ này."
 Tách bảng 4 cột thành component nội bộ `BangChia({dong})` để hai nhánh dùng chung, đừng chép.
 
-- [ ] **Step 5: Chạy test + biên dịch**
+- [x] **Step 5: Chạy test + biên dịch**
 
 Run: `cd frontend && npx tsc --noEmit && npx vitest run src/pages/ThsxChiaSanLuong.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src
@@ -2281,7 +2281,7 @@ git commit -m "FE mẻ: hiện máy/ca/đầu việc/kíp/sự cố và bảng c
   ```
   Route `GET /api/san-xuat/toi/san-luong?nam=&thang=` (quyền `san_xuat:read`).
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 Tạo `backend/tests/test_san_xuat_man_tho.py`:
 
@@ -2331,12 +2331,12 @@ def test_luy_ke_khong_nhan_employee_id_tu_client(client_tho_A):
         assert r.json()["employee_id"] != 999
 ```
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_man_tho.py -q`
 Expected: FAIL — thợ vẫn thấy dòng của người khác; route `toi/san-luong` trả 404.
 
-- [ ] **Step 3: Lọc dòng chia theo người trong `work_item_chi_tiet`**
+- [x] **Step 3: Lọc dòng chia theo người trong `work_item_chi_tiet`**
 
 Trong `board.py`, sau khi dựng `chia_nhap` và trước khi `return`, thêm:
 
@@ -2359,7 +2359,7 @@ Trong `board.py`, sau khi dựng `chia_nhap` và trước khi `return`, thêm:
 *Đặt khối này SAU khi `dong_map` / `bu_tru_map` đã nạp và TRƯỚC `return` — đọc lại quanh dòng 540
 để chèn đúng chỗ; `_tos` phải có sẵn trong scope (nếu chưa, lấy từ `_to_thay_duoc`).*
 
-- [ ] **Step 4: Viết service luỹ kế tháng**
+- [x] **Step 4: Viết service luỹ kế tháng**
 
 Tạo `backend/app/services/san_xuat/san_luong_cua_toi.py`:
 
@@ -2450,12 +2450,12 @@ class SanLuongCuaToiOut(BaseModel):
     so_me: int = 0
 ```
 
-- [ ] **Step 5: Chạy test — phải xanh**
+- [x] **Step 5: Chạy test — phải xanh**
 
 Run: `cd backend && python -m pytest tests/test_san_xuat_man_tho.py tests/test_san_xuat_board_api.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app backend/tests/test_san_xuat_man_tho.py
@@ -2475,7 +2475,7 @@ git commit -m "màn thợ: trong mẻ chỉ thấy dòng của mình, thêm lu�
 - Consumes: `GET /api/san-xuat/toi/san-luong` (Task 14).
 - Produces: component `ThsxSanLuongCuaToi({ data }: { data: SxSanLuongCuaToi | null })`.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 ```tsx
 import { render, screen } from "@testing-library/react";
@@ -2503,12 +2503,12 @@ describe("Sản lượng của tôi", () => {
 });
 ```
 
-- [ ] **Step 2: Chạy test để thấy nó đỏ**
+- [x] **Step 2: Chạy test để thấy nó đỏ**
 
 Run: `cd frontend && npx vitest run src/pages/ThsxSanLuongCuaToi.test.tsx`
 Expected: FAIL — không resolve được module.
 
-- [ ] **Step 3: Viết component + đấu vào trang**
+- [x] **Step 3: Viết component + đấu vào trang**
 
 Tạo `frontend/src/pages/ThsxSanLuongCuaToi.tsx` (dùng `num` của `keHoachSxShared` và `nhanDonVi`
 của `lsxBuoc`; nhãn tiếng Việt; không ô tiền). Trong `ThucHienSxPage.tsx`: nạp khi `laTho` và
@@ -2516,12 +2516,12 @@ hiện băng ngay dưới top bar. `laTho` suy từ chính dữ liệu đã có 
 trưởng) — nếu FE chưa biết điều đó thì **không đoán**: thêm `la_tho: bool` vào payload
 `GET /teams` (service `board.teams` đã tính `to_tho` ở dòng ~96, chỉ việc trả ra) và đọc nó.
 
-- [ ] **Step 4: Chạy test + biên dịch**
+- [x] **Step 4: Chạy test + biên dịch**
 
 Run: `cd frontend && npx tsc --noEmit && npx vitest run src/pages/ThsxSanLuongCuaToi.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src backend/app/services/san_xuat/board.py backend/app/schemas/san_xuat.py
@@ -2537,7 +2537,7 @@ git commit -m "FE màn thợ: băng sản lượng của tôi theo tháng"
   `docs/design-thuc-hien-san-xuat-ui.md`
 - Modify: `docs/DB_SCHEMA.md` (rà lại lần cuối)
 
-- [ ] **Step 1: Rà chữ "khoán/đơn giá" còn sót trong doc sản xuất**
+- [x] **Step 1: Rà chữ "khoán/đơn giá" còn sót trong doc sản xuất**
 
 ```bash
 grep -rn "đơn giá khoán\|tiền khoán\|thưởng tổ trưởng" docs/design-thuc-hien-san-xuat-ui.md docs/DATA_CONTRACTS.md
@@ -2546,7 +2546,7 @@ grep -rn "đơn giá khoán\|tiền khoán\|thưởng tổ trưởng" docs/desig
 Sửa từng chỗ để trỏ về spec mới; không xoá lịch sử, thêm câu *"ĐÃ GỠ 11/09/2026 — xem
 `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`"*.
 
-- [ ] **Step 2: Chạy guard test + bộ test của module**
+- [x] **Step 2: Chạy guard test + bộ test của module**
 
 Run: `cd backend && python -m pytest tests/test_db_schema_doc.py tests/test_san_xuat_board.py tests/test_san_xuat_board_api.py tests/test_san_xuat_phan_bo.py tests/test_san_xuat_san_luong.py tests/test_san_xuat_me_chi_tiet.py tests/test_san_xuat_man_tho.py tests/test_san_xuat_lenh_phan_trang.py tests/test_san_xuat_dong_nhom.py tests/test_khoan_api.py tests/test_khoan_dau_viec.py -q`
 Expected: PASS toàn bộ.
@@ -2554,12 +2554,12 @@ Expected: PASS toàn bộ.
 Run: `cd frontend && npx tsc --noEmit && npx vitest run src/pages/`
 Expected: PASS.
 
-- [ ] **Step 3: Chạy migration trên DB dev**
+- [x] **Step 3: Chạy migration trên DB dev**
 
 Restart uvicorn (migration chạy lúc khởi động). Đọc log để chắc `0296` và `0297` đã chạy.
 **Không** dùng `python -c` để kiểm — nó trỏ vào Postgres DEV thật; muốn kiểm thì viết test tạm.
 
-- [ ] **Step 4: XÁC MINH LUỒNG UI THẬT — bắt buộc, không thay bằng API/curl bước nào**
+- [x] **Step 4: XÁC MINH LUỒNG UI THẬT — bắt buộc, không thay bằng API/curl bước nào**
 
 Mở dev-browser (tối đa 5 instance, kill cái cũ trước), đăng nhập `admin` / mật khẩu
 `SEED_ADMIN_PASSWORD`. Thao tác bằng chuột/bàn phím thật, ghi lại **đã bấm gì / gõ gì / thấy gì**
@@ -2584,7 +2584,7 @@ Mở dev-browser (tối đa 5 instance, kill cái cũ trước), đăng nhập `
 
 Kiểm console + network sau mỗi bước: `read_console_messages` không có lỗi, không request 4xx/5xx.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs
