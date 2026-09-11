@@ -8,6 +8,8 @@ Giữ đúng tầng: mọi truy vấn/ghi DB của module gom ở đây; service
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import null, select
 from sqlalchemy.orm import Session
 
@@ -388,11 +390,13 @@ class SanXuatRepository:
         *,
         chi_chua_xong: bool = False,
         la_kcs: bool | None = None,
+        employee_id: int | None = None,
     ) -> list[SanXuatCongViec]:
         """Công việc ĐÃ PHÁT HÀNH mà tổ (`department_id`) phải làm — timeline bàn tổ. Chỉ đọc gói
         đang hiệu lực (bỏ gói đã thu hồi). Sắp theo giờ dự kiến (chưa xếp giờ dồn cuối), rồi id.
 
-        `la_kcs`: lọc theo mode board (Task 4, §18 mục 6) — None = không lọc (giữ hành vi cũ)."""
+        `la_kcs`: lọc theo mode board (Task 4, §18 mục 6) — None = không lọc (giữ hành vi cũ).
+        `employee_id`: THỢ mở bàn thì chỉ thấy việc đang giao cho mình (§7.1) — None = trọn tổ."""
         if not department_ids:
             return []
         q = (
@@ -407,7 +411,139 @@ class SanXuatRepository:
             q = q.where(SanXuatCongViec.trang_thai != CV_HOAN_THANH)
         if la_kcs is not None:
             q = q.where(SanXuatCongViec.la_kcs.is_(la_kcs))
+        if (giao := self._duoc_giao_cho(employee_id)) is not None:
+            q = q.where(giao)
         rows = list(self.db.execute(q).scalars())
+        rows.sort(key=lambda cv: (cv.du_kien_bat_dau is None, cv.du_kien_bat_dau, cv.id))
+        return rows
+
+    # ---- Bàn tổ trục LỆNH (spec 2026-09-11) --------------------------------------------------
+    #
+    # Đơn vị VIỆC vẫn là CÔNG ĐOẠN — `SanXuatCongViec` là một bước của lệnh, và đó vẫn là thứ tổ
+    # bấm Bắt đầu / Ghi sản lượng. Hai hàm dưới chỉ đổi CÁCH BÀY: bọc các bước ấy dưới đầu mục
+    # LỆNH / BÀI GHÉP, và cắt trang theo LỆNH. Cắt theo BƯỚC thì một lệnh bị xé qua hai trang, tổ
+    # trưởng mở trang 2 thấy một công đoạn trơ trọi không biết của lệnh nào.
+
+    @staticmethod
+    def _khoa_lenh_cols():
+        """(cột LOẠI nguồn, cột ID nguồn) suy ngay trong SQL — cùng luật với `board._item_dict`.
+
+        Bài ghép THẮNG lệnh khi bước đeo cả hai: bài ghép chạy MỘT lần trên MỘT tờ, tổ nhìn nó là
+        một việc. Xẻ nó theo từng lệnh thành viên là đẻ ra mấy dòng cho một lần chạy máy.
+        """
+        from sqlalchemy import case, literal
+
+        co_bg = SanXuatCongViec.bai_ghep_id.is_not(None)
+        loai = case((co_bg, literal("bai_ghep")), else_=literal("lsx"))
+        nid = case((co_bg, SanXuatCongViec.bai_ghep_id), else_=SanXuatCongViec.lsx_id)
+        return loai, nid
+
+    def lenh_cua_to_phan_trang(
+        self,
+        department_ids: set[int],
+        *,
+        la_kcs: bool | None = None,
+        employee_id: int | None = None,
+        trang: int = 1,
+        co_trang: int = 20,
+    ) -> tuple[list[tuple[tuple[str, int | None], datetime | None, datetime | None]], int]:
+        """Một TRANG các LỆNH/BÀI GHÉP mà tổ phải làm + tổng số lệnh.
+
+        Mỗi phần tử: `((loai, id), sớm_nhất, muộn_nhất)` — hai mốc là giờ dự kiến của bước SỚM/MUỘN
+        NHẤT **của chính tổ này** trong lệnh đó, không phải mốc của cả lệnh: bàn tổ sắp theo thứ tự
+        việc đến tay TỔ.
+
+        Cắt trang theo LỆNH (không theo bước) và cắt ở SQL. `employee_id` (thợ mở bàn) lọc NGAY
+        trong câu gom — lọc sau khi cắt trang thì trang 1 có thể rỗng trong khi trang 3 đầy việc.
+
+        Lệnh chưa xếp giờ dồn CUỐI (`NULLS LAST` viết tay bằng CASE cho chạy cả PG lẫn SQLite).
+        """
+        if not department_ids:
+            return [], 0
+        from sqlalchemy import case as sa_case, func, select as sa_select
+
+        loai, nid = self._khoa_lenh_cols()
+        som = func.min(SanXuatCongViec.du_kien_bat_dau)
+        muon = func.max(SanXuatCongViec.du_kien_ket_thuc)
+        dieu_kien = [
+            SanXuatCongViec.department_id.in_(department_ids),
+            SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
+        ]
+        if la_kcs is not None:
+            dieu_kien.append(SanXuatCongViec.la_kcs.is_(la_kcs))
+        if (giao := self._duoc_giao_cho(employee_id)) is not None:
+            dieu_kien.append(giao)
+
+        nhom = (
+            sa_select(loai.label("loai"), nid.label("nid"),
+                      som.label("som"), muon.label("muon"))
+            .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)
+            .where(*dieu_kien)
+            .group_by(loai, nid)
+        )
+        tong = self.db.scalar(sa_select(func.count()).select_from(nhom.subquery())) or 0
+
+        co_trang = max(1, min(int(co_trang or 20), 100))
+        trang = max(1, int(trang or 1))
+        rows = self.db.execute(
+            nhom.order_by(sa_case((som.is_(None), 1), else_=0), som, nid)
+            .limit(co_trang)
+            .offset((trang - 1) * co_trang)
+        ).all()
+        return [((r.loai, r.nid), r.som, r.muon) for r in rows], int(tong)
+
+    def cong_viec_cua_lenh(
+        self,
+        department_ids: set[int],
+        khoa: list[tuple[str, int | None]],
+        *,
+        la_kcs: bool | None = None,
+        employee_id: int | None = None,
+    ) -> list[SanXuatCongViec]:
+        """Mọi bước CỦA TỔ thuộc các lệnh/bài ghép trong danh sách khoá — một truy vấn cho cả trang.
+
+        Ghép điều kiện bằng ba nhánh OR đích danh thay vì `IN` trên tuple: `IN ((a,b),…)` không
+        portable giữa Postgres và SQLite, mà phân trang thì bắt buộc chạy đúng trên cả hai.
+        """
+        if not department_ids or not khoa:
+            return []
+        from sqlalchemy import false, or_
+
+        bg_ids = {i for loai, i in khoa if loai == "bai_ghep" and i is not None}
+        lsx_ids = {i for loai, i in khoa if loai == "lsx" and i is not None}
+        co_mo_coi = any(loai == "lsx" and i is None for loai, i in khoa)
+
+        nhanh = []
+        if bg_ids:
+            nhanh.append(SanXuatCongViec.bai_ghep_id.in_(bg_ids))
+        if lsx_ids:
+            nhanh.append(
+                (SanXuatCongViec.bai_ghep_id.is_(None))
+                & (SanXuatCongViec.lsx_id.in_(lsx_ids))
+            )
+        if co_mo_coi:
+            nhanh.append(
+                (SanXuatCongViec.bai_ghep_id.is_(None))
+                & (SanXuatCongViec.lsx_id.is_(None))
+            )
+
+        dieu_kien = [
+            SanXuatCongViec.department_id.in_(department_ids),
+            SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
+            or_(*nhanh) if nhanh else false(),
+        ]
+        if la_kcs is not None:
+            dieu_kien.append(SanXuatCongViec.la_kcs.is_(la_kcs))
+        if (giao := self._duoc_giao_cho(employee_id)) is not None:
+            dieu_kien.append(giao)
+
+        rows = list(
+            self.db.execute(
+                select(SanXuatCongViec)
+                .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)
+                .where(*dieu_kien)
+            ).scalars()
+        )
         rows.sort(key=lambda cv: (cv.du_kien_bat_dau is None, cv.du_kien_bat_dau, cv.id))
         return rows
 
