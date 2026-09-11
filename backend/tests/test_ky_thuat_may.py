@@ -31,6 +31,7 @@ from app.models.may_thiet_bi import MayThietBi
 from app.repositories.ky_thuat_may_repo import KyThuatMayRepository
 from app.services.ky_thuat_may_service import (
     BO_QUA_THIEU_CHU_KY,
+    BO_QUA_THIEU_MA_GOI,
     BO_QUA_THIEU_NGAY_BAT_DAU,
     NGUON_NGAY_BAT_DAU,
     NGUON_PHIEU,
@@ -38,6 +39,7 @@ from app.services.ky_thuat_may_service import (
     KyThuatMayDaXuLy,
     KyThuatMayService,
     KyThuatMayThieuAnh,
+    KyThuatMayTrungKy,
     KyThuatMayValidationError,
     cong_chu_ky,
     hom_nay_vn,
@@ -233,6 +235,34 @@ def test_tu_sinh_KHONG_dung_toi_ky_con_xa_hay_goi_khai_thieu():
     assert svc.sinh_phieu_den_han() == []
 
 
+def test_goi_THIEU_MA_thi_ticker_khong_de_phieu_nao():
+    """Gói không có `id` là cái bẫy nặng nhất của ticker.
+
+    Cửa chống trùng (`if goi_id and mo_map…`) chỉ chạy khi `goi_id` khác rỗng, nên trước khi có chốt
+    này thì gói thiếu id được sinh phiếu MỖI VÒNG QUÉT: 10 phút một cái, 144 phiếu/ngày, không có gì
+    dừng lại. Quét HAI lượt vì một lượt không phân biệt được "chặn đúng" với "chưa tới hạn".
+    """
+    db, svc = _svc()
+    _may(db, ma="IN-01", goi=[_goi(id=None, ngay_bat_dau=str(date.today() - timedelta(days=30)))])
+
+    assert svc.sinh_phieu_den_han() == []
+    assert svc.sinh_phieu_den_han() == []
+    assert db.query(BaoTriMay).count() == 0
+
+
+def test_goi_thieu_ma_NOI_RO_LY_DO_chu_khong_im_lang():
+    """Bỏ qua thì phải nói vì sao — cùng khuôn với `thieu_chu_ky` / `thieu_ngay_bat_dau`. Im lặng
+    rút gói khỏi lịch là người khai ngồi đợi một kỳ bảo trì không bao giờ tới."""
+    db, svc = _svc()
+    may = _may(db, ma="IN-01", goi=[_goi(id="", ngay_bat_dau=str(date.today()))])
+
+    rows = svc.han_cua_may(may.id)
+    assert [r["nguon"] for r in rows] == [BO_QUA_THIEU_MA_GOI]
+    assert rows[0]["han"] is None
+    # Một chốt ở `han_ke_tiep` ⇒ màn Lịch cũng thôi vẽ kỳ dự kiến cho gói không neo được.
+    assert svc.lich(date.today(), date.today() + timedelta(days=60))["du_kien"] == []
+
+
 def test_may_khong_khai_lich_thi_lich_rong_va_khong_no():
     """Cột JSON tự do: máy chưa khai gì / khai sai kiểu vẫn phải chạy được."""
     db, svc = _svc()
@@ -278,6 +308,66 @@ def test_lich_tra_ky_du_kien_theo_chu_ky_va_khong_chong_len_phieu_that():
     assert [d["ngay"] for d in kq2["du_kien"]] == [
         date(2026, 10, 1), date(2026, 11, 1), date(2026, 12, 1),
     ]
+
+
+def test_lich_THOI_ve_cham_du_kien_o_ngay_DA_CO_phieu_that():
+    """Cái bẫy đã dính thật trên dev: PBT-0002/0003/0004 — cùng máy, cùng gói, cùng ngày 18/09.
+
+    Chuỗi kỳ dự kiến neo theo phiếu mở SỚM NHẤT. Kỳ 11/09 còn dở mà tạo thêm phiếu cho kỳ 18/09 thì
+    mốc neo VẪN là 11/09 ⇒ lịch vẫn vẽ chấm dự kiến ở 18/09, nằm ngay cạnh phiếu vừa tạo. Bấm chấm
+    đó là ra phiếu thứ hai, rồi thứ ba — màn hình tự mời làm sai.
+    """
+    db, svc = _svc()
+    may = _may(db, goi=[_goi(so=1, don_vi="tuan", ngay_bat_dau="2026-09-11")])
+
+    svc.tao_bao_tri({"may_id": may.id, "goi_id": "hm-abc",      # kỳ đầu, CÒN DỞ
+                     "ngay_ke_hoach": date(2026, 9, 11)})
+    svc.tao_bao_tri({"may_id": may.id, "goi_id": "hm-abc",      # tạo trước kỳ sau — hợp lệ
+                     "ngay_ke_hoach": date(2026, 9, 18)})
+
+    ngay = [d["ngay"] for d in svc.lich(date(2026, 9, 1), date(2026, 9, 30))["du_kien"]]
+    assert date(2026, 9, 18) not in ngay      # đã có phiếu thật ⇒ thôi mời bấm
+    assert date(2026, 9, 25) in ngay          # kỳ chưa có phiếu thì vẫn vẽ bình thường
+
+
+def test_khong_tao_duoc_PHIEU_THU_HAI_cho_cung_mot_ky():
+    """MỘT KỲ = MỘT PHIẾU. Cửa phải ở service: bấm đúp / hai người cùng bấm / gọi thẳng API đều
+    không đi qua màn hình."""
+    db, svc = _svc()
+    may = _may(db, goi=[_goi()])
+    p1 = svc.tao_bao_tri({"may_id": may.id, "goi_id": "hm-abc",
+                          "ngay_ke_hoach": date(2026, 9, 18)})
+    with pytest.raises(KyThuatMayTrungKy) as e:
+        svc.tao_bao_tri({"may_id": may.id, "goi_id": "hm-abc",
+                         "ngay_ke_hoach": date(2026, 9, 18)})
+    assert p1.ma in str(e.value)               # câu báo lỗi phải TRỎ VÀO phiếu đã có
+    assert db.query(BaoTriMay).count() == 1
+
+
+def test_ky_da_HOAN_THANH_hay_DA_HUY_cung_khong_tao_lai_duoc():
+    """"Kỳ này xử lý rồi" gồm cả hoàn thành lẫn hủy. Hủy nhầm thì MỞ LẠI phiếu cũ, không đẻ cái mới
+    — mở lại đã có sẵn đường (`doi_trang_thai_bao_tri` nhả `ly_do_huy`)."""
+    db, svc = _svc()
+    may = _may(db, goi=[_goi()])
+    p = svc.tao_bao_tri({"may_id": may.id, "goi_id": "hm-abc",
+                         "ngay_ke_hoach": date(2026, 9, 18)})
+    svc.huy_bao_tri(p.id, "kỳ này bỏ, máy đang tháo ra sửa")
+
+    with pytest.raises(KyThuatMayTrungKy):
+        svc.tao_bao_tri({"may_id": may.id, "goi_id": "hm-abc",
+                         "ngay_ke_hoach": date(2026, 9, 18)})
+    assert db.query(BaoTriMay).count() == 1
+
+
+def test_phieu_DOT_XUAT_van_lap_duoc_nhieu_cai_trong_mot_ngay():
+    """Chốt chống trùng CHỈ áp cho phiếu theo gói. Phiếu đột xuất không thuộc kỳ nào — một máy hỏng
+    hai việc trong cùng một ngày là chuyện thường, chặn là chặn nhầm."""
+    db, svc = _svc()
+    may = _may(db, ma="IN-01")
+    for _ in range(2):
+        svc.tao_bao_tri({"may_id": may.id, "loai": "dot_xuat",
+                         "ngay_ke_hoach": date(2026, 9, 18)})
+    assert db.query(BaoTriMay).count() == 2
 
 
 def test_lich_van_ve_phieu_da_huy_nhung_ky_du_kien_nhay_qua():
@@ -540,6 +630,20 @@ def test_api_dong_phieu_thieu_anh_tra_409(client):
     dong = client.post(f"/api/ky-thuat-may/sua-chua/{phieu['id']}/trang-thai",
                        json={"trang_thai": "da_sua_xong"}, headers=h)
     assert dong.status_code == 409, dong.text
+
+
+def test_api_tao_trung_ky_bao_tri_tra_409(client):
+    """409 chứ không 422: thân request hợp lệ, chỉ là kỳ đó đã có phiếu. Và câu trả về phải nêu
+    ĐÚNG mã phiếu đang chắn chỗ, để người dùng mở nó ra thay vì bấm lại."""
+    h = _headers(client)
+    may = client.post("/api/may-thiet-bi", json={"ma": "BE-09", "ten": "Bế 09",
+                                                "loai_may": "Bế"}, headers=h).json()
+    than = {"may_id": may["id"], "goi_id": "hm-abc", "ngay_ke_hoach": "2026-09-18"}
+
+    assert client.post("/api/ky-thuat-may/bao-tri", json=than, headers=h).status_code == 201
+    lan2 = client.post("/api/ky-thuat-may/bao-tri", json=than, headers=h)
+    assert lan2.status_code == 409, lan2.text
+    assert "PBT-" in lan2.json()["detail"]
 
 
 def test_api_khong_dang_nhap_bi_chan(client):

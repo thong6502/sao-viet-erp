@@ -229,6 +229,7 @@ class CustomerRepository:
         contact_name: str | None,
         credit_limit: int,
         sale_user_id: int | None,
+        commit: bool = True,
         **extra,
     ) -> Customer:
         """`extra` = các cột phụ đã được service validate (customer_kind, điều khoản thanh
@@ -247,16 +248,31 @@ class CustomerRepository:
             **extra,
         )
         self.db.add(customer)
-        self.db.commit()
-        self.db.refresh(customer)
+        # `commit=False` cho người gọi đang gom NHIỀU dòng vào MỘT giao dịch (nhập Excel: cả file
+        # cùng sống hoặc cùng chết, và "xem trước" là chạy thật rồi rollback). `flush()` đủ để có
+        # `id` + `code` dùng ngay, và các dòng sau trong cùng giao dịch VẪN thấy hàng vừa flush —
+        # nhờ đó `_next_code()` cấp mã nối tiếp đúng, `find_duplicates()` bắt được trùng NGAY TRONG
+        # một file. Mặc định vẫn `True` nên mọi người gọi cũ không đổi hành vi.
+        if commit:
+            self.db.commit()
+            self.db.refresh(customer)
+        else:
+            self.db.flush()
         return customer
 
-    def update(self, customer: Customer, **fields) -> Customer:
-        """Assign the given attributes (code is never among them) and persist."""
+    def update(self, customer: Customer, *, commit: bool = True, **fields) -> Customer:
+        """Assign the given attributes (code is never among them) and persist.
+
+        `commit=False`: xem ghi chú ở `create()`. Keyword-only để không bị `**fields` nuốt mất —
+        bảng `customers` không có cột nào tên `commit`.
+        """
         for key, value in fields.items():
             setattr(customer, key, value)
-        self.db.commit()
-        self.db.refresh(customer)
+        if commit:
+            self.db.commit()
+            self.db.refresh(customer)
+        else:
+            self.db.flush()
         return customer
 
     def reassign_sale(

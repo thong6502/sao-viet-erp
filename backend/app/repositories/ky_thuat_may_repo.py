@@ -432,6 +432,24 @@ class KyThuatMayRepository:
             ).order_by(BaoTriMay.ngay_ke_hoach.asc(), BaoTriMay.id.asc())
         ).scalars().first()
 
+    def phieu_cua_ky(self, may_id: int, goi_id: str, ngay: date) -> BaoTriMay | None:
+        """Phiếu ĐÃ CÓ của đúng một kỳ — khoá là (máy, gói, ngày kế hoạch).
+
+        KHÔNG lọc theo trạng thái, cố ý: kỳ đã hoàn thành hay đã hủy đều là "kỳ này xử lý rồi",
+        tạo thêm một phiếu nữa cho cùng ngày chỉ là đẻ bản sao. Hủy nhầm thì **mở lại** phiếu cũ
+        (`doi_trang_thai_bao_tri` nhả `ly_do_huy`), không phải tạo cái mới.
+
+        `order_by(id)` để hàng đã lỡ trùng từ trước luôn trả về CÙNG một phiếu — câu báo lỗi trỏ
+        vào đâu thì lần sau vẫn trỏ vào đó.
+        """
+        return self.db.execute(
+            select(BaoTriMay).where(
+                BaoTriMay.may_id == may_id,
+                BaoTriMay.goi_id == goi_id,
+                BaoTriMay.ngay_ke_hoach == ngay,
+            ).order_by(BaoTriMay.id.asc())
+        ).scalars().first()
+
     # ---- Hai bảng tra NẠP SẴN cho màn Lịch & ticker -------------------------------------------
     # Cả hai màn đều duyệt MỌI máy × MỌI gói. Hỏi lẻ từng gói (2 query/gói) là 40 máy × 3 gói ≈ 240
     # query cho một lần mở lịch — mà Lịch là view mặc định. Nạp trước thành dict, tra trong RAM.

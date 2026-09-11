@@ -3659,22 +3659,35 @@ export interface FollowupRow {
   assignee_name: string | null;
 }
 
-/** Kết quả import CSV (#23): dry_run=true → chỉ xem trước, chưa ghi. */
-export interface ImportRowResult {
-  row: number;
-  status: "created" | "warning" | "error";
-  message: string | null;
-  code: string | null;
-  name: string | null;
+/** Một dòng KHÔNG ghi được. Còn một dòng lỗi thì CẢ FILE không ghi gì.
+ *
+ *  `dong` là số dòng THẬT trên sheet Excel (tính cả dòng tiêu đề) — người dùng đang nhìn file
+ *  trong Excel, nói "dòng 7" thì họ bấm Ctrl+G tới đúng dòng 7. */
+export interface NhapExcelLoi {
+  dong: number;
+  cot: string;
+  ly_do: string;
 }
 
-export interface ImportResultOut {
-  dry_run: boolean;
-  total: number;
-  created: number;
-  warnings: number;
-  errors: number;
-  rows: ImportRowResult[];
+/** Cảnh báo MỀM — VẪN ghi. Hiện chỉ có trùng MST / tên / email (§34: không chặn). */
+export interface NhapExcelCanhBao {
+  dong: number;
+  ly_do: string;
+}
+
+/** Kết quả một lượt nhập Excel (#23; thay đường CSV cũ 11/09/2026).
+ *
+ *  `preview` và `commit` trả CÙNG hình dạng — khác đúng ở `da_ghi`. Xem trước chạy y hệt lượt ghi
+ *  rồi rollback, nên con số ở đây là con số THẬT. */
+export interface NhapExcelOut {
+  hop_le: boolean;
+  tong_dong: number;
+  tao_moi: number;
+  da_ghi: boolean;
+  /** File có cột tài chính nhưng người nhập không có quyền ⇒ đã bỏ qua đúng mấy cột đó. */
+  bo_qua_tai_chinh: boolean;
+  loi: NhapExcelLoi[];
+  canh_bao: NhapExcelCanhBao[];
 }
 
 /** The read-only Công nợ card. available=false + message → "Chưa có phân hệ Công nợ". */
@@ -10288,7 +10301,7 @@ export const api = {
     /** Xuất danh bạ CSV (blob URL, bearer-aware — mirror orderCsvBlobUrl). */
     async exportCsvBlobUrl(token: string): Promise<string> {
       const doFetch = (bearer: string) =>
-        fetch(`${BASE_URL}/api/customers/export.csv`, {
+        fetch(`${BASE_URL}/api/customers/xuat-excel`, {
           credentials: "include",
           cache: "no-store",
           headers: authHeader(bearer),
@@ -10301,10 +10314,13 @@ export const api = {
       if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
       return URL.createObjectURL(await resp.blob());
     },
-    /** File mẫu import (blob URL). */
-    async importTemplateBlobUrl(token: string): Promise<string> {
+    /** File mẫu .xlsx (blob URL) — RỖNG, chỉ dòng tiêu đề.
+     *
+     *  Mẫu do CHÍNH hệ xuất ra nên cột luôn khớp; đổi cấu hình thì tải lại mẫu là có cột mới.
+     *  Sáu cột chính sách tài chính chỉ có mặt với người có quyền `set_credit_terms`. */
+    async mauExcelBlobUrl(token: string): Promise<string> {
       const doFetch = (bearer: string) =>
-        fetch(`${BASE_URL}/api/customers/import-template.csv`, {
+        fetch(`${BASE_URL}/api/customers/mau-excel`, {
           credentials: "include",
           cache: "no-store",
           headers: authHeader(bearer),
@@ -10317,12 +10333,14 @@ export const api = {
       if (!resp.ok) throw new ApiError(`Download failed (${resp.status}).`, resp.status);
       return URL.createObjectURL(await resp.blob());
     },
-    /** Import CSV — dryRun=true chỉ xem trước; false mới ghi. */
-    importCsv(token: string, file: File, dryRun: boolean): Promise<ImportResultOut> {
+    /** Nhập .xlsx — mỗi dòng một khách MỚI, CẢ FILE là một giao dịch.
+     *
+     *  `mode="preview"` chạy y hệt `commit` rồi rollback, nên con số xem trước là con số THẬT —
+     *  không phải một bản kiểm sơ bộ dễ dãi hơn, thứ khiến người dùng bấm Xác nhận rồi mới ăn lỗi. */
+    importExcel(token: string, file: File, mode: "preview" | "commit"): Promise<NhapExcelOut> {
       const form = new FormData();
       form.append("file", file);
-      form.append("dry_run", dryRun ? "true" : "false");
-      return authed<ImportResultOut>("/api/customers/import", token, {
+      return authed<NhapExcelOut>(`/api/customers/import-excel?mode=${mode}`, token, {
         method: "POST",
         body: form,
       });
