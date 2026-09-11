@@ -1635,7 +1635,7 @@ class BaiGhepService:
                 # bám đúng drawer lệnh, để người xem thấy 5 kẽm chứ không phải "0 tờ".
                 "san_luong_dien_giai": (
                     None if tren_giay
-                    else self._lsx_svc()._san_luong_dien_giai(c, cd_obj, qc_bien)
+                    else self._lsx_svc().san_luong_dien_giai(c, cd_obj, qc_bien)
                 ),
                 "loi_quy_doi": None if tren_giay else (ngoai or {}).get("loi_quy_doi"),
                 # Đơn vị lấy từ KHAI BÁO của công đoạn, không đóng đinh.

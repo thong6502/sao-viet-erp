@@ -73,6 +73,10 @@ MODULES: list[tuple[str, str]] = [
     # Khoá `xep_lich` (màn cũ) gỡ 19/08/2026 — mg `0219` chép quyền sang `xep_lich_2` rồi xoá.
     # Khoá giữ hậu tố "_2" để khỏi đổi khoá trong DB; NHÃN là "Xếp lịch công đoạn", màn duy nhất.
     ("xep_lich_2", "Xếp lịch công đoạn"),
+    # Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH SẢN XUẤT. Khoá RIÊNG chứ không tick thêm bit vào
+    # `xep_lich_2`: hai màn còn chạy song song tới lúc nghiệm thu, tách khoá thì tắt/bật từng màn
+    # theo vai được. mg `0292` chép quyền cho DB đã có dữ liệu; ở đây là đường của DB TRẮNG.
+    ("xep_lich_3", "Xếp lịch 3"),
     # HAI MÀN CHỈ ĐỌC (31/08/2026). Phạm vi của chúng bám `orders.sale_user_id` — phạm vi của
     # người BÁN — khác hẳn `san_xuat` vốn bám `lsx.nguoi_phu_trach_id` (người LÀM). Đó là lý do
     # phải là hai khoá riêng chứ không tick thêm bit vào `san_xuat`: sửa nghĩa scope của
@@ -462,6 +466,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # khi phát hành) — trưởng điều độ cầm cả hai. Chỉ `routers/xep_lich_2.py` hỏi tới hai bit
             # này (trước 17/08/2026 chúng treo nhầm trên khoá `san_xuat`).
             "xep_lich_2": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
+            # Màn 3 thừa hưởng ĐÚNG quyền của màn 2 (xem mg `0292`) — ai đang xếp
+            # lịch thì mở màn mới ra là dùng được, không phải cấp lại tay.
+            "xep_lich_3": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
             # Điều độ XEM phiếu kỹ thuật để biết máy nào sắp/đang nằm mà né khi xếp lịch.
             "ky_thuat_may": _read(SCOPE_ALL),
             "phieu_bao_tri": _read(SCOPE_ALL),
@@ -503,6 +510,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
             "xep_lich_2": _read(SCOPE_ALL),
+            "xep_lich_3": _read(SCOPE_ALL),
             # Tổ trưởng vẫn cần ĐỌC danh mục máy (đổ danh sách máy ở màn của tổ), không sửa.
             "dm_thiet_bi": _read(SCOPE_ALL),
             # Báo máy hỏng thay cả tổ + sửa lại lời báo của thợ cho rõ trước khi tổ kỹ thuật đọc.
@@ -552,6 +560,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
          "ke_hoach_vat_tu": _read(SCOPE_ALL), "bai_ghep_2": _read(SCOPE_ALL),
          "xep_lich_2": _read(SCOPE_ALL),
+         "xep_lich_3": _read(SCOPE_ALL),
          # Thợ đứng máy là người ĐẦU TIÊN biết máy hỏng: cho gửi yêu cầu + sửa lại yêu cầu của
          # mình (khi chưa ai tiếp nhận). `read` để trống mắt thấy người khác đã báo cùng cái máy
          # đó chưa — không có nó thì mỗi ca lại đẻ một yêu cầu trùng.
@@ -568,6 +577,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
          "lenh_san_xuat": _read(SCOPE_ALL), "theo_doi_san_xuat": _read(SCOPE_ALL),
          "ke_hoach_vat_tu": _read(SCOPE_ALL), "bai_ghep_2": _read(SCOPE_ALL),
          "xep_lich_2": _read(SCOPE_ALL),
+         "xep_lich_3": _read(SCOPE_ALL),
          "yeu_cau_sua_chua": _rcu(SCOPE_ALL),  # soi ra máy chạy sai thì báo ngay tại chỗ
          "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self(),
          "cham_cong": _cham_cong_self()},
@@ -662,6 +672,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
             "xep_lich_2": _read(SCOPE_ALL),
+            "xep_lich_3": _read(SCOPE_ALL),
             # Kho là nơi phát hiện tồn chạm ngưỡng ⇒ nơi đề nghị mua bù.
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
@@ -685,6 +696,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
             "xep_lich_2": _read(SCOPE_ALL),
+            "xep_lich_3": _read(SCOPE_ALL),
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
     ),
@@ -777,6 +789,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "ke_hoach_vat_tu": _rcu(SCOPE_ALL),
             "bai_ghep_2": _rcu(SCOPE_ALL),
             "xep_lich_2": _rcu(SCOPE_ALL),
+            "xep_lich_3": _rcu(SCOPE_ALL),
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_OWN),
         },
     ),
@@ -796,6 +809,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "ke_hoach_vat_tu": _full(SCOPE_ALL),
             "bai_ghep_2": _full(SCOPE_ALL),
             "xep_lich_2": _full(SCOPE_ALL),
+            "xep_lich_3": _full(SCOPE_ALL),
             # Quản lý XEM được phiếu sửa chữa / bảo trì (máy nào đang nằm, ai đang sửa) nhưng KHÔNG
             # nhập hộ — nhập hộ là mở đường cho phiếu ghi sai người làm.
             "ky_thuat_may": _read(SCOPE_ALL),

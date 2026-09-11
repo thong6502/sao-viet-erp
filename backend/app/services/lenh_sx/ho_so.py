@@ -74,6 +74,7 @@ from ...models.san_xuat_thuc_thi import (
 )
 from ...models.user import User
 from ...repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
+from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi
 from . import boi_canh, danh_sach, pham_vi, tien_do, trang_thai
 from .boi_canh import BoiCanh
 
@@ -262,7 +263,6 @@ def _khuon_buoc(db: Session, buocs: list[LsxCongDoan]) -> dict[int, dict]:
             "khuon_be_ten": k.ten,
             "khuon_be_so_ke": k.so_ke,
             "khuon_be_tinh_trang": k.tinh_trang,
-            "khuon_be_ngay_ve": k.ngay_ve_du_kien,
         }
         for k in rows
     }
@@ -338,9 +338,13 @@ def _routing(bc: BoiCanh, lsx_id: int, buocs: list[LsxCongDoan], ten_to: dict[in
             "may": may.ten if may is not None else None,
             "to": ten_to.get(to_id) if to_id else None,
             "nguoi": bc.nguoi_cua(cv.id) if cv is not None else [],
-            "du_kien_bat_dau": cv.du_kien_bat_dau if cv is not None else None,
-            "du_kien_ket_thuc": cv.du_kien_ket_thuc if cv is not None else None,
-            "hoan_thanh_luc": cv.hoan_thanh_luc if cv is not None else None,
+            # HAI THANG GIỜ, hai khuôn trả ra khác nhau (`services/gio_xuong.py`): `du_kien_*` là
+            # giờ tường dán nhãn UTC ⇒ `lich_hien_thi` bỏ nhãn, không thì FE cộng thêm 7 tiếng và
+            # cột "Kế hoạch" của Hồ sơ lệnh in 20:13 cho bước xếp lúc 13:13. `hoan_thanh_luc` do
+            # `thuc_thi._moc()` ghi bằng UTC THẬT ⇒ phải quy về giờ xưởng TRƯỚC khi bỏ nhãn.
+            "du_kien_bat_dau": lich_hien_thi(cv.du_kien_bat_dau) if cv is not None else None,
+            "du_kien_ket_thuc": lich_hien_thi(cv.du_kien_ket_thuc) if cv is not None else None,
+            "hoan_thanh_luc": thuc_te_hien_thi(cv.hoan_thanh_luc) if cv is not None else None,
             "so_luong_vao": _f(b.so_luong_vao),
             "so_luong_ra": _f(b.so_luong_ra),
             "don_vi_vao": b.don_vi_vao,

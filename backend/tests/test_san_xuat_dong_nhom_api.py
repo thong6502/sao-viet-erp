@@ -31,7 +31,7 @@ def test_dieu_kien_dong_admin_nhom_khong_ton_tai_400(client):
 
 def test_dong_thieu_can_dang_nhap(client):
     assert (
-        client.post("/api/san-xuat/kho/nhom/1/dong-thieu", json={"ly_do_id": 1}).status_code
+        client.post("/api/san-xuat/kho/nhom/1/dong-thieu", json={}).status_code
         == 401
     )
 
@@ -39,7 +39,7 @@ def test_dong_thieu_can_dang_nhap(client):
 def test_dong_thieu_admin_thieu_bit_assign_work_403(client):
     resp = client.post(
         "/api/san-xuat/kho/nhom/999999/dong-thieu",
-        json={"ly_do_id": 1},
+        json={},
         headers=_admin_h(client),
     )
     assert resp.status_code == 403

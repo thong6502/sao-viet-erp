@@ -23,10 +23,6 @@ from app.models.san_xuat import (
 )
 from app.models.san_xuat_kcs import SanXuatKcsBatch, SanXuatKcsLoi, TN_CHO
 from app.models.san_xuat_kho import PL_NHAP_BTP
-from app.models.san_xuat_ly_do import (
-    NHOM_DONG_THIEU as LY_DO_DONG_THIEU,
-    SanXuatLyDo,
-)
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.schemas.san_xuat import DongNhomDieuKienOut, DongNhomKetQuaOut
 from app.services.san_xuat import dong_nhom, kcs, kho
@@ -53,13 +49,6 @@ def _hoan_thanh_het(db, nhom_id):
     for cv in _cvs_nhom(db, nhom_id):
         cv.trang_thai = CV_HOAN_THANH
     db.commit()
-
-
-def _ly_do_dt(db, ma="DT-1", ten="Khách chốt nhận thiếu"):
-    ld = SanXuatLyDo(ma=ma, nhom=LY_DO_DONG_THIEU, ten=ten)
-    db.add(ld)
-    db.flush()
-    return ld
 
 
 # --- Cổng đóng ĐỦ (§16) ---------------------------------------------------------------------
@@ -109,11 +98,8 @@ def test_loi_ghi_qua_kcs_kiem_nhiem_khong_chan_dong_du(db, orders, lsx_svc, admi
     tái hiện đúng bug đã báo cáo: trước bản vá, dòng `assert loi["dat"] is True` bên dưới FAIL vì
     `ghi_loi()` từng hardcode `trang_thai=TN_CHO`."""
     _to, cv, res = _batch(db, orders, lsx_svc, admin, customer)
-    ld = SanXuatLyDo(ma="LOI-FIX-115", nhom="loi", ten="Lem mực")
-    db.add(ld)
-    db.flush()
     kcs.ghi_loi(
-        db, user=admin, kcs_batch_id=res["kcs_batch_id"], nhom_loi_id=ld.id,
+        db, user=admin, kcs_batch_id=res["kcs_batch_id"], mo_ta="Lem mực",
         so_luong=3, anh=[{"file_name": "loi.jpg",
                           "file_url": "/api/files/san-xuat/kcs-loi/1/x.jpg",
                           "file_type": "image/jpeg"}],
@@ -172,49 +158,34 @@ def test_dong_du_idempotent(db, orders, lsx_svc, admin, customer):
 def test_dong_thieu_khi_con_do_nhung_toan_ven_sach(db, orders, lsx_svc, admin, customer):
     _to, cv, _res = _batch(db, orders, lsx_svc, admin, customer)
     # KHÔNG hoàn thành hết (còn dở) nhưng các điều kiện toàn vẹn khác đều sạch.
-    ld = _ly_do_dt(db)
-
-    ket = dong_nhom.dong_thieu(db, user=admin, nhom_id=cv.nhom_id, ly_do_id=ld.id)
+    ket = dong_nhom.dong_thieu(db, user=admin, nhom_id=cv.nhom_id)
     assert ket["kieu"] == "thieu" and ket["trang_thai"] == NHOM_DONG_THIEU
-    assert ket["ly_do_id"] == ld.id
     assert SanXuatRepository(db).nhom(cv.nhom_id).trang_thai == NHOM_DONG_THIEU
-    assert DongNhomKetQuaOut.model_validate(ket).ly_do_id == ld.id
+    assert DongNhomKetQuaOut.model_validate(ket).trang_thai == NHOM_DONG_THIEU
 
 
 def test_dong_thieu_van_chan_khi_con_loi_kcs(db, orders, lsx_svc, admin, customer):
     _to, cv, res = _batch(db, orders, lsx_svc, admin, customer)
     db.add(SanXuatKcsLoi(kcs_batch_id=res["kcs_batch_id"], trang_thai=TN_CHO, so_luong=1))
-    ld = _ly_do_dt(db)
     db.commit()
 
     with pytest.raises(ValueError, match="đóng thiếu"):
-        dong_nhom.dong_thieu(db, user=admin, nhom_id=cv.nhom_id, ly_do_id=ld.id)
-
-
-def test_dong_thieu_ly_do_sai_nhom_bi_chan(db, orders, lsx_svc, admin, customer):
-    _to, cv, _res = _batch(db, orders, lsx_svc, admin, customer)
-    sai = SanXuatLyDo(ma="TD-X", nhom="tam_dung", ten="Chờ mực")
-    db.add(sai)
-    db.flush()
-    with pytest.raises(ValueError, match="Lý do"):
-        dong_nhom.dong_thieu(db, user=admin, nhom_id=cv.nhom_id, ly_do_id=sai.id)
+        dong_nhom.dong_thieu(db, user=admin, nhom_id=cv.nhom_id)
 
 
 def test_dong_thieu_gate_chi_truong_kcs(db, orders, lsx_svc, admin, customer):
     _to, cv, _res = _batch(db, orders, lsx_svc, admin, customer)
-    ld = _ly_do_dt(db)
     nguoi_la = SimpleNamespace(id=admin.id + 99_999)
     with pytest.raises(PermissionError):
-        dong_nhom.dong_thieu(db, user=nguoi_la, nhom_id=cv.nhom_id, ly_do_id=ld.id)
+        dong_nhom.dong_thieu(db, user=nguoi_la, nhom_id=cv.nhom_id)
 
 
 def test_dong_thieu_version_lech_bi_chan(db, orders, lsx_svc, admin, customer):
     _to, cv, _res = _batch(db, orders, lsx_svc, admin, customer)
-    ld = _ly_do_dt(db)
     v = SanXuatRepository(db).nhom(cv.nhom_id).version
     with pytest.raises(ValueError, match="cập nhật"):
         dong_nhom.dong_thieu(
-            db, user=admin, nhom_id=cv.nhom_id, ly_do_id=ld.id, expected_version=v + 5
+            db, user=admin, nhom_id=cv.nhom_id, expected_version=v + 5
         )
 
 
@@ -222,9 +193,8 @@ def test_khong_the_dong_thieu_nhom_da_dong(db, orders, lsx_svc, admin, customer)
     _to, cv, _res = _batch(db, orders, lsx_svc, admin, customer)
     _hoan_thanh_het(db, cv.nhom_id)
     dong_nhom.tu_dong_dong_neu_du(db, nhom_id=cv.nhom_id, actor=admin)
-    ld = _ly_do_dt(db)
     with pytest.raises(ValueError, match="đã đóng"):
-        dong_nhom.dong_thieu(db, user=admin, nhom_id=cv.nhom_id, ly_do_id=ld.id)
+        dong_nhom.dong_thieu(db, user=admin, nhom_id=cv.nhom_id)
 
 
 def test_dieu_kien_shape_va_du_dong_thieu(db, orders, lsx_svc, admin, customer):

@@ -133,7 +133,6 @@ export function DagNodeCard({
             ma: row.khuon_be_ma,
             so_ke: row.khuon_be_so_ke,
             tinh_trang: row.khuon_be_tinh_trang,
-            ngay_ve_du_kien: row.khuon_be_ngay_ve,
           }}
         />
 

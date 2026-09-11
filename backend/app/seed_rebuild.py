@@ -5,8 +5,6 @@ Direct model instantiation — đơn giản, đủ để UI có dữ liệu + en
 """
 from __future__ import annotations
 
-from datetime import date
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -355,9 +353,13 @@ def seed_rebuild_catalog(db: Session) -> None:
             # `nhom_may_cho_phep`: nhóm máy (danh mục `nhom_may`) làm được công đoạn — chặn gán máy
             # sai loại ở bước bài ghép. Chế bản chưa có máy seed nên để ["Chế bản"] (mọi máy in/sau-in
             # đều bị coi là sai → khớp vụ CTP gán máy bế).
+            # Bước NGOÀI dòng giấy: hai ô đơn vị chặng để TRỐNG, số lượng tự tính bằng
+            # `cong_thuc_san_luong` (`so_kem` ⇒ 4 bản) và đo bằng `don_vi_san_luong` (mg `0289`).
+            # Thiếu cặp này thì bước đứng im ở 0 → 0 suốt từ lệnh xuống bàn tổ.
             CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=95000, nhom_may_cho_phep=["Chế bản"],
-                     cong_thuc_gia="so_kem * 95000", setup_time=10, kieu_bu_hao="khong"),
+                     cong_thuc_gia="so_kem * 95000", cong_thuc_san_luong="so_kem",
+                     don_vi_san_luong="kem", setup_time=10, kieu_bu_hao="khong"),
             CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=350, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
                      nhom_may_cho_phep=["Máy in", "In ngoài"],
@@ -439,22 +441,22 @@ def seed_rebuild_catalog(db: Session) -> None:
         ])
         db.commit()
 
-    # --- Kho khuôn — khai TAY: tên ấn phẩm · loại · số kệ · ngày CÓ khuôn · tình trạng.
+    # --- Kho khuôn — khai TAY: tên ấn phẩm · loại · số kệ · tình trạng.
     # `loai` khai sẵn: thiếu nó thì ô chọn dao ở bước lệnh không lọc được, bước Ép nhũ thấy cả dao
-    # bế. `ngay_ve_du_kien` là ngày dao NẰM TRONG TAY (mg 0207 gộp `ngay_lam_khuon` vào đây).
+    # bế. (Ngày dự kiến có dao đã gỡ ở mg `0293`.)
     if _empty(db, KhuonBe):
         db.add_all([
             KhuonBe(ma="KB-0001", ten="Khuôn bế hộp bánh Trung thu", loai="khuon_be",
-                    so_ke="Kệ A1 — xưởng sau in", ngay_ve_du_kien=date(2025, 8, 12), tinh_trang="dang_dung"),
+                    so_ke="Kệ A1 — xưởng sau in", tinh_trang="dang_dung"),
             KhuonBe(ma="KB-0002", ten="Khuôn bế hộp Ivory 12×8×5", loai="khuon_be",
-                    so_ke="Kệ A2 — xưởng sau in", ngay_ve_du_kien=date(2026, 1, 15), tinh_trang="dang_dung"),
+                    so_ke="Kệ A2 — xưởng sau in", tinh_trang="dang_dung"),
             KhuonBe(ma="KB-0003", ten="Khuôn bế tem decal tròn Ø40", loai="khuon_be",
-                    so_ke="Kệ B1 — kho khuôn", ngay_ve_du_kien=date(2025, 11, 3), tinh_trang="dang_dung"),
+                    so_ke="Kệ B1 — kho khuôn", tinh_trang="dang_dung"),
             KhuonBe(ma="KB-0004", ten="Khuôn bế thùng carton sóng B 40×30×25", loai="khuon_be",
-                    so_ke="Kệ C3 — kho khuôn", ngay_ve_du_kien=date(2024, 6, 20), tinh_trang="hong",
+                    so_ke="Kệ C3 — kho khuôn", tinh_trang="hong",
                     ghi_chu="Dao mòn góc, cần mài lại trước khi tái dùng"),
             KhuonBe(ma="KB-0005", ten="Khuôn bế túi giấy quai xách", loai="khuon_be",
-                    so_ke="Kệ B4 — kho khuôn", ngay_ve_du_kien=date(2025, 3, 10), tinh_trang="thanh_ly",
+                    so_ke="Kệ B4 — kho khuôn", tinh_trang="thanh_ly",
                     ghi_chu="Mẫu cũ, khách đã đổi thiết kế"),
         ])
         db.commit()

@@ -13,6 +13,7 @@ import {
   type SxTeam,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
+import { BAI_GHEP_ENABLED, XEP_LICH_2_ENABLED } from "../constants/features";
 import { useAuth } from "../auth/useAuth";
 import {
   buildCapabilities,
@@ -29,6 +30,7 @@ import { TheoDoiSanXuatPage } from "../pages/TheoDoiSanXuatPage";
 import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
 import { XepLich2Page } from "../pages/XepLich2Page";
+import { XepLich3Page } from "../pages/XepLich3Page";
 import { ThucHienSxPage } from "../pages/ThucHienSxPage";
 import { ThucHienKcsPage } from "../pages/kcs/ThucHienKcsPage";
 import { SuaChuaMayPage } from "../pages/SuaChuaMayPage";
@@ -489,15 +491,23 @@ export function AppShell() {
         .then((r) => setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total })))
         .catch(() => {});
     }
-    // Badge Bài ghép = số LSX sẵn sàng đang chờ ghép (pool).
-    if (readable.has("bai_ghep_2")) {
+    // Badge Bài ghép = số LSX sẵn sàng đang chờ ghép (pool). Màn ĐANG ẨN (`BAI_GHEP_ENABLED`) ⇒
+    // không gọi API: badge treo ở một mục menu không còn hiện, gọi cũng chỉ tốn một lượt mạng.
+    if (BAI_GHEP_ENABLED && readable.has("bai_ghep_2")) {
       api.baiGhep2
         .hangCho(token)
         .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep-2": r.total })))
         .catch(() => {});
     }
+    // Badge Xếp lịch 3 = số thẻ CHỜ XẾP (`tong` là sau lọc ở máy chủ, không phải số dòng trả về).
+    if (readable.has("xep_lich_3")) {
+      api.xepLich3
+        .hangCho(token, { moi_trang: 1 })
+        .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-3": r.tong })))
+        .catch(() => {});
+    }
     // Badge Xếp lịch = tổng hai rổ hàng chờ (v2 KHÔNG có `total`, tự cộng xep_duoc + bi_chan).
-    if (readable.has("xep_lich_2")) {
+    if (XEP_LICH_2_ENABLED && readable.has("xep_lich_2")) {
       api.xepLich2
         .hangCho(token)
         .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan-2": r.xep_duoc.length + r.bi_chan.length })))
@@ -773,7 +783,10 @@ export function AppShell() {
         e.type === "order_ordered" ||
         e.type === "lsx_changed" ||
         e.type === "bai_ghep_changed" ||
-        e.type === "xep_lich_changed"
+        e.type === "xep_lich_changed" ||
+        // Xếp lịch 3 đẩy kênh RIÊNG: đặt/dời/bỏ mốc không đụng `xep_lich_cong_doan` nên không có
+        // `xep_lich_changed` nào bắn ra. Thiếu dòng này thì badge Xếp lịch của người khác đứng im.
+        e.type === "xep_lich_3_changed"
       ) {
         // Sale "Chuyển xuống sản xuất" → hàng chờ Kế hoạch nhảy (badge + toast); Kế hoạch/ghép bài/
         // xếp lịch đổi → 3 badge khối Sản xuất co giãn NGAY. Nội dung màn tự refetch qua `quoteTick`.
@@ -791,13 +804,19 @@ export function AppShell() {
             })
             .catch(() => {});
         }
-        if (readable.has("bai_ghep_2")) {
+        if (BAI_GHEP_ENABLED && readable.has("bai_ghep_2")) {
           api.baiGhep2
             .hangCho(token)
             .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep-2": r.total })))
             .catch(() => {});
         }
-        if (readable.has("xep_lich_2")) {
+        if (readable.has("xep_lich_3")) {
+          api.xepLich3
+            .hangCho(token, { moi_trang: 1 })
+            .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-3": r.tong })))
+            .catch(() => {});
+        }
+        if (XEP_LICH_2_ENABLED && readable.has("xep_lich_2")) {
           api.xepLich2
             .hangCho(token)
             .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan-2": r.xep_duoc.length + r.bi_chan.length })))
@@ -1414,8 +1433,16 @@ export function AppShell() {
             focusLsxMa={navParams?.focusLsxMa ?? null}
           />
         );
+      // GIỮ NGUYÊN dù màn đang ẩn (`BAI_GHEP_ENABLED = false`): route này hiện không tới được —
+      // mục menu bị ẩn nên `MODULES_BY_NAV_ID` không có id `bai-ghep-2` và cổng `allowed` chặn
+      // trước khi tới đây. Bỏ `case` đi thì bật cờ lại phải sửa hai chỗ thay vì một.
       case "bai-ghep-2":
         return <BaiGhep2Page navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+      case "xep-lich-3":
+        return <XepLich3Page eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+      // GIỮ NGUYÊN dù màn đang ẩn (`XEP_LICH_2_ENABLED = false`), cùng lý do như `bai-ghep-2`
+      // ở trên: mục menu bị ẩn nên `MODULES_BY_NAV_ID` không có id này và cổng `allowed` chặn
+      // trước khi tới đây. Bỏ `case` đi thì bật cờ lại phải sửa hai chỗ thay vì một.
       case "xep-lich-cong-doan-2":
         return (
           <XepLich2Page

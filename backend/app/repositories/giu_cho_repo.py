@@ -98,9 +98,13 @@ class GiuChoRepository:
         việc của nó. Lọc thêm `da_xep` sẽ đếm nhầm lệnh đang chờ gán máy thành "giữ mà chưa chạy".
         """
         from ..models.xep_lich import XepLichCongDoan
+        from ..services.xep_lich_3.moc import lsx_da_xep
 
         lsx = set(self.db.execute(
             select(XepLichCongDoan.lsx_id).where(XepLichCongDoan.lsx_id.isnot(None))).scalars())
+        # Lệnh xếp ở màn 3 KHÔNG đẻ dòng `xep_lich_cong_doan` nào — thiếu dòng dưới đây thì mọi
+        # lệnh của màn mới bị coi là "chưa qua cửa kế hoạch" và chỗ giữ vật tư của nó bị nhả.
+        lsx |= lsx_da_xep(self.db)
         bai = set(self.db.execute(
             select(XepLichCongDoan.bai_ghep_id)
             .where(XepLichCongDoan.bai_ghep_id.isnot(None))).scalars())

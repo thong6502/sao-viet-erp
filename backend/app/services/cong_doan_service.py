@@ -166,6 +166,22 @@ class CongDoanService(CatalogService):
         dv_vao = (data.get("don_vi_vao") or "").strip() or None
         dv_ra = (data.get("don_vi_ra") or "").strip() or None
         data["don_vi_vao"], data["don_vi_ra"] = dv_vao, dv_ra
+        # ĐƠN VỊ SẢN LƯỢNG (mg `0289`) — chỉ có nghĩa với bước NGOÀI dòng giấy, nơi hai ô chặng
+        # để trống. Bước trên dòng giấy đã có đơn vị là tên chặng: khai thêm ở đây là hai nguồn
+        # trả lời một câu, nên ép về None thay vì bắt lỗi (cùng cách xử lý với `spoilage_pct` của
+        # nhóm In ngay dưới) — người khai đổi một bước ngoài dòng thành bước trên dòng thì ô cũ tự
+        # dọn, không phải quay lại xoá tay.
+        if "don_vi_san_luong" in data:
+            dv_sl = (data.get("don_vi_san_luong") or "").strip() or None
+            if dv_sl and dv_vao is not None:
+                dv_sl = None
+            # Mã phải CÓ THẬT trong danh mục Đơn vị & quy đổi: đây là soft-ref, không FK gác hộ,
+            # mà mã gõ bậy thì bàn tổ hiện "4 kem_" — sai lộ ra tận màn của thợ.
+            if dv_sl and dv_sl.strip().lower() not in self.repo.don_vi_ten():
+                raise CongDoanValidationError(
+                    f"Đơn vị sản lượng {dv_sl} không có trong danh mục Đơn vị & quy đổi. "
+                    f"[E-CD-DVSL]")
+            data["don_vi_san_luong"] = dv_sl
         if (dv_vao is None) != (dv_ra is None):
             raise CongDoanValidationError(
                 "Đơn vị đầu vào và đầu ra phải cùng khai, hoặc cùng để trống. [E-CD-DONVI]")

@@ -323,7 +323,8 @@ button.ns__kpi {
 
   .ns2__toolbar {
     display: grid;
-    grid-template-columns: 1fr auto;
+    /* Hai cột `auto` ở cuối = hai nút Excel (Xuất + Nhập), mỗi nút một cột. */
+    grid-template-columns: 1fr auto auto;
     grid-template-rows: auto auto;
     gap: 10px 12px;
     width: 100%;
@@ -343,10 +344,12 @@ button.ns__kpi {
     font-size: 13px;
   }
 
-  /* Hàng 1 bên phải: Nút Xuất Excel */
+  /* Hàng 1 bên phải: hai nút Excel (Xuất · Nhập).
+     KHÔNG ghim `grid-column` nữa — ghim thì cả hai nút rơi vào ĐÚNG MỘT ô, chồng khít lên nhau
+     và nút vẽ sau nuốt hết click của nút kia (10/09/2026: bấm "Xuất Excel" ở bề ngang ~1050px
+     là trúng "Nhập Excel"). Để lưới tự xếp thì nút chảy sang ô trống kế tiếp của hàng 1. */
   .ns-btn-excel {
     grid-row: 1;
-    grid-column: 2;
     height: 38px;
     width: auto;
     margin-left: 0;
@@ -2182,21 +2185,189 @@ button.ns__kpi {
 
 /* --- Chọn khoản thu nhập từ DANH MỤC trong wizard tạo hồ sơ (chủ 27/07/2026) ---
    Thay ô "phụ cấp gộp một cục": gộp thì engine không biết khoản nào miễn thuế TNCN. */
-.ns-comp-row {
+.ns-comp-empty {
+  padding: 14px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--ash);
+  background: var(--paper-contrast);
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+  margin-top: 4px;
+}
+
+.ns-comp-table {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+  background: var(--canvas);
+  margin-top: 6px;
+}
+
+.ns-comp-table__head {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) 130px minmax(140px, 1fr) auto;
+  grid-template-columns: minmax(160px, 1.4fr) 140px minmax(130px, 1fr) 36px;
   gap: var(--sp-2);
   align-items: center;
-  padding: 6px 0;
+  padding: 6px 12px;
+  background: var(--paper-contrast);
   border-bottom: 1px solid var(--rule-soft);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ash);
 }
-.ns-comp-row__name {
+
+.ns-comp-table__row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.4fr) 140px minmax(130px, 1fr) 36px;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rule-hair);
+  background: #fff;
+  transition: background 0.15s ease;
+}
+
+.ns-comp-table__row:last-child {
+  border-bottom: none;
+}
+
+.ns-comp-table__row:hover {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.ns-comp-table__col-name {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
   min-width: 0;
 }
+
+.ns-comp-table__title {
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Input group số tiền */
+.ns-comp-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.ns-comp-input-wrap input {
+  width: 100%;
+  padding: 6px 26px 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  font-family: var(--ff-num);
+  font-size: 13px;
+  color: var(--ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  transition: all 0.2s ease;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.ns-comp-input-wrap input::-webkit-outer-spin-button,
+.ns-comp-input-wrap input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.ns-comp-input-wrap input:focus {
+  border-color: var(--rust);
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.08);
+}
+
+.ns-comp-input-suffix {
+  position: absolute;
+  right: 8px;
+  font-size: 11.5px;
+  color: var(--ash);
+  pointer-events: none;
+  font-weight: var(--fw-medium);
+}
+
+/* Input ghi chú */
+.ns-comp-table__col-note input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  transition: all 0.2s ease;
+}
+
+.ns-comp-table__col-note input:focus {
+  border-color: var(--rust);
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.08);
+}
+
+/* Nút xóa / gỡ */
+.ns-comp-table__col-act {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.ns-comp-del-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ns-comp-del-btn:hover {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+}
+
+/* Footer tổng phụ cấp */
+.ns-comp-table__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: 8px 14px;
+  background: var(--paper-contrast);
+  border-top: 1px solid var(--rule-soft);
+  font-size: 12.5px;
+  color: var(--ash);
+}
+
+.ns-comp-table__foot strong {
+  font-family: var(--ff-num);
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
 .ns-tag {
   border-radius: var(--r-pill);
   padding: 1px 8px;

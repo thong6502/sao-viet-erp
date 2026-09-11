@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ApiError, api,
   type SxDiemKiemItem, type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxHoTroUngVien,
-  type SxLyDo, type SxTeam, type SxWorkItem,
+  type SxTeam, type SxWorkItem,
 } from "../../api/client";
 import { ChipKhuon, ChipLoaiBuoc } from "../../components/ChipBuoc";
 import { useAuth } from "../../auth/useAuth";
@@ -153,19 +153,12 @@ export function KcsResultDrawer(props: Props) {
   const [ghiChuTc, setGhiChuTc] = useState<Record<number, string>>({});
 
   // ---- Khối 4: lỗi (chỉ hiện khi soLoi > 0) ----
-  const [nhomLoiOpts, setNhomLoiOpts] = useState<SxLyDo[] | null>(null);
-  const [nhomLoiId, setNhomLoiId] = useState<number | null>(null);
   const [moTaLoi, setMoTaLoi] = useState("");
   // `to_chiu_id` là ID PHÒNG BAN (không phải người) — gom từ ứng viên hỗ trợ chéo, dedupe theo
   // `to_id`, ĐÚNG cách `toChiuOpts` của ThucHienSxPage.tsx đang làm (đọc lại làm tham khảo).
   const [hoTroUngVien, setHoTroUngVien] = useState<SxHoTroUngVien[]>([]);
   const [toChiuId, setToChiuId] = useState<number | null>(null);
   const [files, setFiles] = useState<File[]>([]);
-
-  useEffect(() => {
-    if (nSoLoi <= 0 || nhomLoiOpts != null || !token) return;
-    api.sanXuat.lyDo(token, "loi").then((r) => setNhomLoiOpts(r.items)).catch(() => setNhomLoiOpts([]));
-  }, [nSoLoi, nhomLoiOpts, token]);
 
   useEffect(() => {
     if (nSoLoi <= 0 || !token) return;
@@ -210,7 +203,6 @@ export function KcsResultDrawer(props: Props) {
           so_luong_nhan: nSoDat + nSoLoi, so_luong_dat: nSoDat, so_luong_khong_dat: nSoLoi,
           don_vi: donVi,
           checklist_ket_qua: checklistKetQua.length ? checklistKetQua : null,
-          nhom_loi_id: nSoLoi > 0 ? nhomLoiId : null,
           loi_mo_ta: nSoLoi > 0 ? moTaLoi.trim() || null : null,
           to_chiu_id: nSoLoi > 0 ? toChiuId : null,
           files: nSoLoi > 0 ? files : [],
@@ -231,7 +223,6 @@ export function KcsResultDrawer(props: Props) {
         });
         if (nSoLoi > 0) {
           await api.sanXuat.ghiLoiKcs(token, r.kcs_batch_id, {
-            nhom_loi_id: nhomLoiId!,
             to_chiu_id: toChiuId,
             so_luong: nSoLoi,
             mo_ta: moTaLoi.trim() || null,
@@ -300,9 +291,8 @@ export function KcsResultDrawer(props: Props) {
               <h3>Lỗi đã ghi</h3>
               {b.loi.map((l) => (
                 <div key={l.id} className="kcs-drawer__loi" style={{ marginBottom: 8 }}>
-                  <strong>{l.nhom_loi_ten ?? "Lỗi"}</strong>
+                  <strong>{l.mo_ta || "Lỗi"}</strong>
                   {l.so_luong > 0 && <span> — {num(l.so_luong)} {nhanDonVi(l.don_vi)}</span>}
-                  {l.mo_ta && <p style={{ margin: "4px 0" }}>{l.mo_ta}</p>}
                   {l.anh.length > 0 && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
                       {l.anh.map((a) => (
@@ -459,15 +449,6 @@ export function KcsResultDrawer(props: Props) {
 
             {nSoLoi > 0 && (
               <div className="kcs-drawer__block kcs-drawer__loi">
-                <div className="kcs-drawer__field">
-                  <label>Nhóm lỗi *</label>
-                  <Select
-                    value={nhomLoiId}
-                    options={(nhomLoiOpts ?? []).map((o): SelectOption<number | null> => ({ value: o.id, label: o.ten }))}
-                    onChange={setNhomLoiId}
-                    placeholder={nhomLoiOpts == null ? "Đang tải…" : "— Chọn nhóm lỗi —"}
-                  />
-                </div>
                 <div className="kcs-drawer__field">
                   <label>Mô tả lỗi</label>
                   <textarea value={moTaLoi} onChange={(e) => setMoTaLoi(e.target.value)} placeholder="Mô tả ngắn (tuỳ chọn)" />

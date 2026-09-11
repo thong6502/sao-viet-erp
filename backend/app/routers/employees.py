@@ -25,6 +25,7 @@ from fastapi import (
 from ..deps import (
     get_current_user,
     CurrentUser,
+    require_all_permissions,
     get_audit_repository,
     get_authorization_service,
     get_department_repository,
@@ -36,6 +37,10 @@ from ..deps import (
     require_permission,
 )
 from ..models.profile_request import REQUEST_STATUSES
+# `ImportExcelOut` / `ImportExcelLoi` ở `catalog_base` là hình dạng CHUNG của mọi lượt nhập Excel
+# (13 màn danh mục đang dùng). Nhập ở đây trả cùng hình dạng ⇒ dialog "Nhập Excel" của giao diện
+# dùng lại được y nguyên, khỏi đẻ một kiểu kết quả thứ hai chỉ khác cái tên.
+from .catalog_base import ImportExcelLoi, ImportExcelOut
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
@@ -79,6 +84,8 @@ from ..schemas.employee import (
     UpdateRequestsOut,
     UserOption,
 )
+from ..services import employee_excel as excel_nhan_su
+from ..services.catalog_excel import ExcelSaiMan
 from ..services.employee_service import (
     EmployeeError,
     EmployeeForbidden,
@@ -271,30 +278,32 @@ def _can_apply_transition(authz: AuthorizationService, user: User, kind: str) ->
 # --- list + meta ------------------------------------------------------------
 
 
-#: Nhãn trạng thái trong file xuất — phải khớp nhãn trên màn, nếu không kế toán đối chiếu là lệch.
-_NHAN_TRANG_THAI = {
-    "probation": "Thử việc",
-    "active": "Chính thức",
-    "on_leave": "Nghỉ dài hạn",
-    "suspended": "Đình chỉ",
-    "resigned": "Đã nghỉ",
-}
+def _rows_theo_bo_loc(svc: EmployeeService, *, scope: str, user: User, q, department_id,
+                      status_filter, has_account, sort) -> list:
+    """Lấy TRỌN danh sách theo đúng bộ lọc + phạm vi quyền của người bấm.
 
-#: Nhãn cột file xuất — GIỮ ĐÚNG 8 cột đang hiện trên màn. Đổi cột là việc khác, đừng nhét vào đây.
-_COT_XUAT = ("Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc tay nghề", "Trạng thái",
-             "Ngày vào", "Tài khoản")
-
-#: Lấy theo mẻ khi xuất. KHÔNG phải trần kết quả — vòng lặp chạy tới khi đủ `total`.
-_ME_XUAT = 200
+    KHÔNG dùng trần `size` của endpoint danh sách (`le=200`): lặp theo mẻ tới khi đủ `total`, nên
+    thêm người không phải sửa lại số nào. Trước 08/08/2026 bản cũ lấy 200 người đầu rồi im lặng —
+    ai đứng thứ 201 trở đi biến mất khỏi file mà không một dòng cảnh báo.
+    """
+    rows: list = []
+    page = 1
+    while True:
+        batch, total = svc.list_employees(
+            scope=scope, actor=user, q=q, department_id=department_id, status=status_filter,
+            has_account=has_account, sort=sort, page=page, size=excel_nhan_su.ME_XUAT,
+        )
+        rows.extend(batch)
+        if len(rows) >= total or not batch:
+            break
+        page += 1
+    return rows
 
 
 @router.get("/export.xlsx")
 def export_employees_xlsx(
     svc: Service,
     authz: Authz,
-    users: Users,
-    depts: Depts,
-    roles: Roles,
     # Ô "Xuất Excel danh sách" (`nhan_su:export`) — trước 11/08/2026 endpoint chỉ đòi `read`, và
     # giao diện cũng KHÔNG hỏi ô nào cả, nên ô đó chưa bao giờ có tác dụng: ai xem được hồ sơ là
     # tải được cả danh sách nhân sự ra file. Xuất file là mang dữ liệu RA KHỎI hệ thống — phải là
@@ -306,74 +315,80 @@ def export_employees_xlsx(
     has_account: bool | None = Query(default=None),
     sort: str = Query(default="code"),
 ) -> Response:
-    """Xuất danh sách nhân sự ra .xlsx THẬT (chủ chốt 08/08/2026).
+    """Xuất hồ sơ nhân sự ra .xlsx — ĐỦ MỌI Ô của hồ sơ, không phải 8 cột danh sách.
 
-    Trước đây giao diện tự nối chuỗi CSV rồi đặt tên nút là "Xuất Excel" — nhãn nói dối, và tệ hơn
-    là nó chỉ lấy **200 người đầu** rồi im lặng, ai đứng thứ 201 trở đi biến mất khỏi file.
+    Mở rộng 10/09/2026: file này giờ là file NẠP NGƯỢC LẠI ĐƯỢC (`POST /import-excel`), nên nó
+    phải mang đủ ô, nếu không sửa hàng loạt trên Excel rồi đổ vào là xoá sạch phần không có mặt.
+    Hợp đồng cột nằm ở `services/employee_excel.COT`, đừng khai lại ở đây.
 
-    Hai ràng buộc BẮT BUỘC, đừng tối giản đi:
+    Ba ràng buộc BẮT BUỘC, đừng tối giản đi:
 
-    1. **Cùng phạm vi quyền và cùng bộ lọc với màn danh sách.** Dùng lại `_scope_for` và đúng các
-       tham số của `list_employees`. Bỏ qua là người có phạm vi `own` tải được cả công ty — rò dữ
-       liệu nhân sự, không phải lỗi giao diện.
-    2. **Không dùng trần `size` của endpoint danh sách** (`le=200`). Ở đây lặp theo mẻ tới khi đủ
-       `total`, nên thêm người không phải sửa lại số nào.
+    1. **Cùng phạm vi quyền và cùng bộ lọc với màn danh sách.** Bỏ qua là người có phạm vi `own`
+       tải được cả công ty — rò dữ liệu nhân sự, không phải lỗi giao diện.
+    2. **Không dùng trần `size` của endpoint danh sách** (`le=200`) — xem `_rows_theo_bo_loc`.
+    3. **Ô lương/BHXH/ngân hàng che theo `view_salary`.** Cửa `/employees/{id}` đã che khi đọc;
+       không che ở đây thì `view_salary` chỉ còn là tấm rèm trên giao diện.
     """
-    from io import BytesIO
-
-    from openpyxl import Workbook  # lazy import: thiếu dep chỉ hỏng endpoint này, không sập app
-    from openpyxl.styles import Font
-
     scope = _scope_for(authz, user)
-    rows: list = []
-    page = 1
-    while True:
-        batch, total = svc.list_employees(
-            scope=scope, actor=user, q=q, department_id=department_id, status=status_filter,
-            has_account=has_account, sort=sort, page=page, size=_ME_XUAT,
-        )
-        rows.extend(batch)
-        if len(rows) >= total or not batch:
-            break
-        page += 1
-
-    dept_ids = {e.department_id for e in rows if e.department_id is not None}
-    user_ids = {e.user_id for e in rows if e.user_id is not None}
-    names = _dept_names(depts, dept_ids)
-    unames = _user_names(users, user_ids)
-    rnames = _role_names(users, roles, user_ids)
-    gnames = {g.id: g.name for g in svc.list_job_grades()}
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Nhan su"
-    ws.append(list(_COT_XUAT))
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-    for e in rows:
-        r = _row(e, names, unames, rnames, gnames)
-        ws.append([
-            r.code or "",
-            r.full_name or "",
-            r.department_name or "",
-            r.role_name or r.position or "",
-            r.job_grade_name or "",
-            _NHAN_TRANG_THAI.get(r.status, r.status or ""),
-            # Ngày vào ghi dạng chuỗi dd/mm/yyyy: để nguyên kiểu ngày thì Excel mỗi máy hiện một
-            # định dạng theo vùng, kế toán đối chiếu là lệch.
-            r.hire_date.strftime("%d/%m/%Y") if r.hire_date else "",
-            r.account_username or "",
-        ])
-    for idx, width in enumerate((14, 26, 22, 22, 16, 14, 12, 18), start=1):
-        ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = width
-    ws.freeze_panes = "A2"
-
-    buf = BytesIO()
-    wb.save(buf)
+    rows = _rows_theo_bo_loc(svc, scope=scope, user=user, q=q, department_id=department_id,
+                             status_filter=status_filter, has_account=has_account, sort=sort)
     return Response(
-        content=buf.getvalue(),
+        content=excel_nhan_su.xuat_excel(
+            rows, excel_nhan_su.dung_ngu_canh(svc),
+            co_xem_luong=authz.can(user, MODULE, "view_salary"),
+        ),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="danh-sach-nhan-vien.xlsx"'},
+        headers={"Content-Disposition": 'attachment; filename="ho-so-nhan-su.xlsx"'},
+    )
+
+
+@router.get("/mau-nhap.xlsx")
+def mau_nhap_xlsx(
+    svc: Service,
+    # Ai NHẬP được thì tải được mẫu — không đòi thêm `export`: mẫu không mang dữ liệu của ai.
+    user: Annotated[User, Depends(require_all_permissions((MODULE, "create"), (MODULE, "update")))],
+) -> Response:
+    """File mẫu: đúng tiêu đề của file xuất, không kèm ai, cộng sheet Hướng dẫn liệt kê giá trị
+    hợp lệ (tên phòng/tổ · bậc · ca · trạng thái) — người khai không phải đoán gõ gì vào ô."""
+    return Response(
+        content=excel_nhan_su.mau_nhap(excel_nhan_su.dung_ngu_canh(svc)),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="mau-nhap-nhan-su.xlsx"'},
+    )
+
+
+@router.post("/import-excel", response_model=ImportExcelOut)
+def import_employees_xlsx(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_all_permissions((MODULE, "create"), (MODULE, "update")))],
+    file: UploadFile = File(...),
+    mode: str = Query(default="preview", pattern="^(preview|commit)$"),
+) -> ImportExcelOut:
+    """Nhập hồ sơ từ Excel — UPSERT theo mã, CẢ FILE là một giao dịch.
+
+    `mode=preview` chạy y hệt `commit` rồi rollback, nên con số xem trước là con số THẬT (kể cả
+    lỗi chỉ lộ ra lúc service validate) chứ không phải một bản kiểm sơ bộ dễ dãi hơn — thứ khiến
+    người dùng bấm Xác nhận rồi mới ăn lỗi.
+
+    Gác bằng `create` + `update` (cùng luật với Excel danh mục): một lượt nhập vừa tạo người mới
+    vừa sửa người cũ, có đúng một trong hai ô là không đủ.
+    """
+    try:
+        kq = excel_nhan_su.nhap_excel(
+            file.file.read(), svc=svc, nc=excel_nhan_su.dung_ngu_canh(svc), actor=user,
+            scope=_scope_for(authz, user),
+            co_sua_luong=authz.can(user, MODULE, "edit_salary"),
+            co_dieu_chuyen=authz.can(user, MODULE, "transfer"),
+            ghi=(mode == "commit"),
+        )
+    except ExcelSaiMan as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    return ImportExcelOut(
+        hop_le=kq.hop_le, tong_dong=kq.tong_dong, tao_moi=kq.tao_moi, cap_nhat=kq.cap_nhat,
+        khong_doi=kq.khong_doi, da_ghi=kq.da_ghi,
+        loi=[ImportExcelLoi(sheet=x.sheet, dong=x.dong, cot=x.cot, ly_do=x.ly_do)
+             for x in kq.loi],
     )
 
 

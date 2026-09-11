@@ -1,7 +1,9 @@
 // DRAWER một công việc của bàn THỰC HIỆN SẢN XUẤT (`/work-items/{id}` detail).
 //
 // Các khối (§3):
-//  1) THANH KẾ HOẠCH — dự kiến bắt đầu→kết thúc · máy · SL vào/ra + đơn vị (chỉ ĐỌC, số kế hoạch).
+//  1) THANH KẾ HOẠCH — dự kiến bắt đầu→kết thúc · máy · dải phút chạy · khối lượng + đơn vị bản
+//     địa · kíp chuẩn/đang có (chỉ ĐỌC, số kế hoạch), kèm DẶN DÒ của kế hoạch và thẻ QUY CÁCH
+//     gấp/mở — thẻ việc phải TỰ ĐỦ để làm: tổ trưởng không có quyền `lsx` để tra ngược hồ sơ lệnh.
 //  2) TỔ THỰC HIỆN (roster) — người `active`; ô "Giao người" (combobox từ `nhanVienChon`, loại người
 //     đã trong roster; bước nội bộ `loai_buoc="to"` chỉ nhận thợ LƯƠNG KHOÁN) + nút Rút.
 //  3) PHIÊN CHẠY — Bắt đầu / Tạm dừng / Kết thúc (điều kiện bật ở §8) + danh sách phiên + khoảng
@@ -12,8 +14,8 @@
 // Component KHÔNG tự gọi API ghi: phát ý định qua callback; controller lo dialog lý do + version lạc quan.
 import { useMemo, useState } from "react";
 import type {
-  SxNhanVienChon, SxWorkItemChiTiet, SxHoTroUngVien, SxLyDo,
-  SxKcsChiTiet, SxKhoChiTiet, SxDongNhomDieuKien, SxThuongToTruong,
+  SxNhanVienChon, SxWorkItemChiTiet, SxHoTroUngVien,
+  SxKcsChiTiet, SxKhoChiTiet, SxDongNhomDieuKien, SxThuongToTruong, SxQuyCachThe,
 } from "../api/client";
 import { NHAN_MUC_DO, type MayChon } from "../api/kyThuatMay";
 import { Button } from "../components/Button";
@@ -21,7 +23,7 @@ import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { Icon } from "../components/Icons";
 import { num, ngayGio } from "./keHoachSxShared";
 import { nhanChang } from "./lsxBuoc";
-import { sxSerial, ThsxTrangThaiPill } from "./thsxShared";
+import { phutChayText, slText, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 import { ThsxExecPanels, type ThsxExec } from "./ThsxExecPanels";
 import { ThsxKcsPanel, ThsxKhoPanel, ThsxDongNhomPanel, ThsxThuongToTruongPanel, type Opt } from "./ThsxG5";
 
@@ -35,8 +37,6 @@ interface Props {
   hoTroUngVien: SxHoTroUngVien[];
   /** Máy chọn được cho ô "Đổi máy" (`may-chon` — không đòi quyền `dm_thiet_bi` như thợ đứng máy). */
   mayOptions: MayChon[];
-  /** Nạp danh mục lý do/lỗi (§15) theo nhóm — có cache ở controller. */
-  loadLyDo: (nhom: string) => Promise<SxLyDo[]>;
   /** Hợp đồng các mặt GHI của Giai đoạn 3+4+5. */
   exec: ThsxExec;
   /** Giai đoạn 5 — KCS §13: mẻ kiểm tra + lỗi + ảnh (chỉ nạp khi bước `la_kcs`). */
@@ -79,17 +79,33 @@ const DONG_LABEL: Record<string, string> = {
 const MUC_DO_OPTS = Object.entries(NHAN_MUC_DO);
 // Mặc định trùng `MUC_DO_TRUNG_BINH` bên BE; nếu ai đổi danh mục thì lùi về mức đầu tiên còn lại
 // thay vì gửi lên một chuỗi không còn hợp lệ.
+// THẺ QUY CÁCH (§6) — thứ tự đọc của người đứng máy: giấy → khổ → mặt/màu/kẽm → con/tờ → SL đặt.
+// Server BỎ HẲN khoá không có số, nên bảng này chỉ là NHÃN + đuôi đơn vị; hàng nào thiếu thì
+// không vẽ. Khoá `ghi_chu_ky_thuat` là chữ nên tách ra khỏi bảng (vẽ thành đoạn riêng bên dưới).
+const QUY_CACH_DONG: [keyof SxQuyCachThe, string, string][] = [
+  ["giay", "Giấy", ""],
+  ["dinh_luong", "Định lượng", " gsm"],
+  ["kho_in", "Khổ tờ in", " mm"],
+  ["kho_tp", "Khổ thành phẩm", " mm"],
+  ["so_mat", "Số mặt", ""],
+  ["so_mau", "Số màu", ""],
+  ["so_kem", "Số kẽm", " bản"],
+  ["so_con", "Con / tờ", ""],
+  ["so_luong", "SL đặt của đơn", ""],
+];
+
 const MUC_DO_MAC_DINH =
   "trung_binh" in NHAN_MUC_DO ? "trung_binh" : (MUC_DO_OPTS[0]?.[0] ?? "trung_binh");
 
 export function ThsxDrawer({
-  chiTiet, loading, canAssign, candidates, hoTroUngVien, mayOptions, loadLyDo, exec, busy,
+  chiTiet, loading, canAssign, candidates, hoTroUngVien, mayOptions, exec, busy,
   kcsCt, khoCt, dieuKien, thuongTT, toChiuOpts, congDoanRefOpts,
   onGiao, onRut, onBatDau, onNhanKhuon, onTraKhuon, onTamDung, onKetThuc, onClose,
 }: Props) {
   const [giaoOpen, setGiaoOpen] = useState(false);
   const [q, setQ] = useState("");
   const [moKhoang, setMoKhoang] = useState(false);
+  const [moQuyCach, setMoQuyCach] = useState(false);
   const [doiMayOpen, setDoiMayOpen] = useState(false);
   const [mayChonId, setMayChonId] = useState<number | "">("");
   const [lyDoMay, setLyDoMay] = useState("");
@@ -127,6 +143,17 @@ export function ThsxDrawer({
     () => mayOptions.filter((m) => m.id !== cv?.may_id),
     [mayOptions, cv?.may_id],
   );
+  // Kíp: `du_kien_so_nguoi` là ảnh chụp lúc phát hành, roster là người ĐANG có. Lệch theo cả hai
+  // chiều đều phải hỏi lý do lúc Bắt đầu (khớp `ThucHienSxPage.onBatDau`), nên chấm bằng `!==`.
+  const lechKip = cv?.du_kien_so_nguoi != null && rosterActive.length !== cv.du_kien_so_nguoi;
+  // Ba số phút của thẻ gộp thành một câu; `null` ⇒ ảnh chụp cũ chưa có khoá, bỏ hẳn dòng.
+  const phutChay = cv ? phutChayText(cv) : null;
+  // Dòng quy cách CÓ SỐ — server đã bỏ khoá rỗng, đây chỉ lọc lần nữa cho chắc + giữ THỨ TỰ đọc.
+  const quyCachDong = useMemo(
+    () => (cv?.quy_cach ? QUY_CACH_DONG.filter(([k]) => cv.quy_cach![k] != null) : []),
+    [cv?.quy_cach],
+  );
+  const soDongQuyCach = quyCachDong.length + (cv?.quy_cach?.ghi_chu_ky_thuat ? 1 : 0);
   const hasKhoan = rosterActive.some((p) => p.la_luong_khoan);
   const done = tt === "completed";
   // Bước có khuôn/khung mà chưa ai tích "đã nhận" thì KHÔNG bắt đầu được (BE cũng chặn ở
@@ -225,21 +252,75 @@ export function ThsxDrawer({
                 <div className="thsx-kv"><span className="thsx-kv__k">Máy</span>
                   <span className="thsx-kv__v">{cv.may}</span></div>
               )}
-              <div className="thsx-kv"><span className="thsx-kv__k">SL vào</span>
+              {phutChay && (
+                <div className="thsx-kv"><span className="thsx-kv__k">Chạy máy</span>
+                  <span className="thsx-kv__v thsx-kv__v--num">{phutChay}</span></div>
+              )}
+              {/* KHỐI LƯỢNG — một dòng thay cho cặp SL vào / SL ra (§3.4). Bước ngoài dòng giấy
+                  vào = ra nên `slText` chỉ in một số; câu VÌ SAO ra số ấy đứng ngay dưới, cỡ nhỏ,
+                  để tổ không phải hỏi ngược kế hoạch. */}
+              <div className="thsx-kv"><span className="thsx-kv__k">Khối lượng</span>
                 <span className="thsx-kv__v thsx-kv__v--num">
-                  {cv.so_luong_vao != null ? `${num(cv.so_luong_vao)}${cv.don_vi_vao ? ` ${nhanChang(cv.don_vi_vao)}` : ""}` : "—"}
+                  {slText(cv)}
+                  {cv.sl_dien_giai && <span className="thsx-kv__sub">{cv.sl_dien_giai}</span>}
                 </span>
               </div>
-              <div className="thsx-kv"><span className="thsx-kv__k">SL ra</span>
-                <span className="thsx-kv__v thsx-kv__v--num">
-                  {cv.so_luong_ra != null ? `${num(cv.so_luong_ra)}${cv.don_vi_ra ? ` ${nhanChang(cv.don_vi_ra)}` : ""}` : "—"}
-                </span>
-              </div>
+              {/* KÍP (§5) — chỉ hiển thị, không chặn gì. Lệch thì nói TRƯỚC rằng Bắt đầu sẽ hỏi
+                  lý do, thay vì để hộp lý do nhảy ra bất ngờ giữa tay đang bận. */}
+              {cv.du_kien_so_nguoi != null && (
+                <div className="thsx-kv"><span className="thsx-kv__k">Kíp</span>
+                  <span className={`thsx-kv__v thsx-kv__v--num${lechKip ? " thsx-kv__v--thieu" : ""}`}>
+                    chuẩn {num(cv.du_kien_so_nguoi)} người · đang có {num(rosterActive.length)}
+                  </span>
+                </div>
+              )}
               <div className="thsx-kv"><span className="thsx-kv__k">Nguồn</span>
                 <span className="thsx-kv__v">{cv.nguon_ma}{cv.nguon_ten ? ` · ${cv.nguon_ten}` : ""}</span></div>
+              {lechKip && !done && (
+                <p className="thsx-note thsx-note--warn">
+                  <Icon name="alert" size={13} />
+                  Kíp lệch so với kế hoạch — bấm Bắt đầu sẽ phải chọn lý do.
+                </p>
+              )}
             </section>
 
-            {/* 1a · KHUÔN / KHUNG — chỉ hiện ở bước thực sự cần dụng cụ (`khuon` được chụp lúc
+            {/* 1a · DẶN DÒ CỦA KẾ HOẠCH (§4) — ô "Ghi chú kỹ thuật cho thợ" của bước, chụp lúc
+                phát hành. Không có chữ thì không có khối: một khối rỗng đứng đó chỉ dạy người ta
+                thói quen lướt qua nó. */}
+            {cv.ghi_chu && cv.ghi_chu.trim() && (
+              <section className="thsx-psec">
+                <div className="thsx-psec__h"><span className="thsx-psec__title">Dặn dò của kế hoạch</span></div>
+                <p className="thsx-dando">{cv.ghi_chu}</p>
+              </section>
+            )}
+
+            {/* 1b · QUY CÁCH (§6) — thẻ rút gọn đi theo thẻ việc, vì tổ trưởng KHÔNG có quyền
+                `lsx` để mở hồ sơ lệnh. Mặc định GẤP: người đứng máy phần lớn thời gian chỉ cần
+                khối lượng và giờ; quy cách là thứ tra khi bắt đầu chạy hoặc khi nghi ngờ. */}
+            {soDongQuyCach > 0 && (
+              <section className="thsx-psec">
+                <div className="thsx-psec__h"><span className="thsx-psec__title">Quy cách</span></div>
+                <button type="button" className="thsx-fold" onClick={() => setMoQuyCach((o) => !o)}
+                  aria-expanded={moQuyCach}>
+                  <Icon name="chevron" size={13} />
+                  {moQuyCach ? "Thu gọn" : `Xem quy cách in (${soDongQuyCach} dòng)`}
+                </button>
+                {moQuyCach && (
+                  <div className="thsx-qc">
+                    {quyCachDong.map(([k, nhan, duoi]) => (
+                      <div key={k} className="thsx-kv"><span className="thsx-kv__k">{nhan}</span>
+                        <span className="thsx-kv__v thsx-kv__v--num">{`${cv.quy_cach![k]}${duoi}`}</span>
+                      </div>
+                    ))}
+                    {cv.quy_cach?.ghi_chu_ky_thuat && (
+                      <p className="thsx-dando">{cv.quy_cach.ghi_chu_ky_thuat}</p>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* 1c · KHUÔN / KHUNG — chỉ hiện ở bước thực sự cần dụng cụ (`khuon` được chụp lúc
                 phát hành). Chip nói dao nào, lấy ở kệ nào; nút tích là cổng mở Bắt đầu. */}
             {cv.khuon && (
               <section className="thsx-psec">
@@ -267,7 +348,7 @@ export function ThsxDrawer({
               </section>
             )}
 
-            {/* 1b · THỰC TẾ — ba số của CHÍNH tổ này. Hai dòng SL vào/SL ra ở trên vẫn là kế
+            {/* 1d · THỰC TẾ — ba số của CHÍNH tổ này. Hai dòng SL vào/SL ra ở trên vẫn là kế
                 hoạch nguyên vẹn; "Còn thiếu" chấm theo lượng THỰC NHẬN, nên tổ trước giao thiếu
                 thì tổ này không bị đổ oan. */}
             <section className="thsx-psec">
@@ -594,7 +675,6 @@ export function ThsxDrawer({
               canAssign={canAssign}
               busy={busy}
               hoTroUngVien={hoTroUngVien}
-              loadLyDo={loadLyDo}
               exec={exec}
             />
 
@@ -605,7 +685,6 @@ export function ThsxDrawer({
                 ct={kcsCt}
                 canAssign={canAssign}
                 busy={busy}
-                loadLyDo={loadLyDo}
                 toChiuOpts={toChiuOpts}
                 congDoanRefOpts={congDoanRefOpts}
                 exec={exec}
@@ -630,7 +709,6 @@ export function ThsxDrawer({
                 dieuKien={dieuKien}
                 canAssign={canAssign}
                 busy={busy}
-                loadLyDo={loadLyDo}
                 onDongThieu={exec.dongThieu}
               />
             )}

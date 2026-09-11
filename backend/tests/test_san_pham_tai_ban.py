@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.db import Base, SessionLocal, engine
-from app.db_migrations import run_migrations
+from tests.conftest import phien_da_seed
+
 from app.models.customer import Customer
 from app.models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia, PhieuVatTu, SanPhamTaiBan
 from app.models.quotation import STATUS_ACCEPTED, Quote, QuoteItem, QuoteVersion
@@ -21,7 +21,6 @@ from app.repositories.purchase_repo import PurchaseRequestRepository, SupplierRe
 from app.repositories.quotation_repo import QuotationRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.order import OrderCreate, OrderDepositReceiptIn, OrderUpdate
-from app.seed import seed_all
 from app.services import san_pham_tai_ban_service
 from app.services.accounting_service import AccountingService
 from app.services.order_service import OrderService, OrderValidationError
@@ -31,13 +30,7 @@ from datetime import date
 
 @pytest.fixture
 def db():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    s = SessionLocal()
-    run_migrations(s)
-    seed_all(s)
-    yield s
-    s.close()
+    yield from phien_da_seed()
 
 
 @pytest.fixture

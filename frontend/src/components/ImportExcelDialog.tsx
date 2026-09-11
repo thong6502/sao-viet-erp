@@ -5,22 +5,30 @@
 // không có gì để "ghi thẳng" nữa — người khai phải thấy trước file của mình đụng vào bao nhiêu
 // dòng rồi mới quyết. `preview` và `commit` chạy y hệt nhau ở backend (preview rollback ở cuối),
 // nên con số ở bước xem trước là con số THẬT chứ không phải ước lượng.
+//
+// Chuyển từ `pages/danh-muc/` ra đây 10/09/2026: màn Hồ sơ nhân sự dùng chung dialog này. Nơi gọi
+// tự đưa hàm `chay` (gọi endpoint của chính màn mình) — dialog không biết gì về đường dẫn API.
 import { useState } from "react";
-import { Button } from "../../components/Button";
-import { DetailModal } from "../../components/DetailModal";
-import { ApiError } from "../../api/client";
-import { crud, type ImportExcelOut } from "../../api/rebuildCatalog";
+import { Button } from "./Button";
+import { DetailModal } from "./DetailModal";
+import { ApiError } from "../api/client";
+import type { ImportExcelOut } from "../api/rebuildCatalog";
+import "./import-excel-dialog.css";
 
 export function ImportExcelDialog({
-  prefix, ten, token, onClose, onImported,
+  ten, chay: chayNgoai, onClose, onImported, taiMau, luat,
 }: {
-  prefix: string;
-  /** Tên danh mục số ít, viết thường — vd "công đoạn", "giấy". */
+  /** Tên thứ đang nhập, số ít viết thường — vd "công đoạn", "giấy", "hồ sơ nhân sự". */
   ten: string;
-  token: string;
+  /** Gọi endpoint nhập của màn. `preview` không được ghi gì; `commit` mới chốt. */
+  chay: (file: File, mode: "preview" | "commit") => Promise<ImportExcelOut>;
   onClose: () => void;
   /** Đã ghi xong — nơi gọi tải lại bảng rồi mới đóng. */
   onImported: () => void;
+  /** Có thì hiện nút "Tải file mẫu" ngay trong dialog (màn nào có endpoint mẫu riêng). */
+  taiMau?: () => void | Promise<void>;
+  /** Câu mô tả luật nhập của màn — thay dòng mặc định (vốn viết cho danh mục). */
+  luat?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +40,7 @@ export function ImportExcelDialog({
     setBusy(true);
     setError(null);
     try {
-      const kq = await crud(prefix).importExcel(token, f, mode);
+      const kq = await chayNgoai(f, mode);
       if (mode === "commit" && kq.da_ghi) setXong(kq);
       else setXem(kq);
     } catch (err) {
@@ -78,16 +86,25 @@ export function ImportExcelDialog({
     >
       {!xong && (
         <>
-          <p className="rc__import-hint">
-            Bấm "Xuất Excel" cạnh nút này để lấy file đúng định dạng đang chạy (có sẵn dữ liệu hiện
-            có; danh mục rỗng thì thành file mẫu), sửa trên chính file đó rồi chọn lại ở đây. Mã đã
-            có sẽ CẬP NHẬT — ô để trống ở một cột CÓ trong file sẽ xoá giá trị cột đó, còn cột không
-            có trong file thì giữ nguyên. Mã chưa có sẽ TẠO MỚI. Dòng không có trong file được giữ
-            nguyên, không bị xoá. Cả file là MỘT lượt: còn một dòng lỗi thì không ghi gì cả.
+          <p className="imx__hint">
+            {luat ??
+              `Bấm "Xuất Excel" cạnh nút này để lấy file đúng định dạng đang chạy (có sẵn dữ liệu
+               hiện có; danh mục rỗng thì thành file mẫu), sửa trên chính file đó rồi chọn lại ở
+               đây. Mã đã có sẽ CẬP NHẬT — ô để trống ở một cột CÓ trong file sẽ xoá giá trị cột
+               đó, còn cột không có trong file thì giữ nguyên. Mã chưa có sẽ TẠO MỚI. Dòng không
+               có trong file được giữ nguyên, không bị xoá. Cả file là MỘT lượt: còn một dòng lỗi
+               thì không ghi gì cả.`}
           </p>
+          {taiMau && (
+            <p>
+              <Button variant="ghost" onClick={() => void taiMau()} disabled={busy}>
+                Tải file mẫu
+              </Button>
+            </p>
+          )}
           <input type="file" accept=".xlsx" disabled={busy}
             onChange={(e) => { chonFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
-          {busy && <p className="rc__import-hint">Đang kiểm file…</p>}
+          {busy && <p className="imx__hint">Đang kiểm file…</p>}
         </>
       )}
 
@@ -110,13 +127,13 @@ export function ImportExcelDialog({
           </div>
 
           {kq.loi.length > 0 && (
-            <div className="rc__tablewrap" style={{ maxHeight: "40vh" }}>
-              <table className="rc__table">
+            <div className="imx__wrap">
+              <table className="imx__table">
                 <thead>
                   <tr>
-                    <th style={{ width: "26%" }}>Sheet</th>
-                    <th style={{ width: "12%" }}>Dòng</th>
-                    <th style={{ width: "24%" }}>Cột</th>
+                    <th style={{ width: "22%" }}>Sheet</th>
+                    <th style={{ width: "10%" }}>Dòng</th>
+                    <th style={{ width: "22%" }}>Cột</th>
                     <th>Lý do</th>
                   </tr>
                 </thead>
@@ -124,7 +141,7 @@ export function ImportExcelDialog({
                   {kq.loi.map((l, i) => (
                     <tr key={i}>
                       <td>{l.sheet}</td>
-                      <td className="rc__mono rc__nowrap">{l.dong}</td>
+                      <td className="imx__num">{l.dong}</td>
                       <td>{l.cot}</td>
                       <td>{l.ly_do}</td>
                     </tr>

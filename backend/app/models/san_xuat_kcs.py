@@ -138,7 +138,7 @@ class SanXuatKcsLoi(Base):
     """Một LỖI phát hiện trong batch KCS (§13.2). Bảng nghiệp vụ (đổi trạng thái nhận-trách-nhiệm)
     → mang `version`.
 
-    `nhom_loi_id` trỏ danh mục lỗi chuẩn hoá (nhóm `loi`); `mo_ta` chỉ bổ sung. `to_chiu_id` là tổ
+    Lỗi tả bằng `mo_ta` tự do (danh mục lý do/lỗi ĐÃ GỠ). `to_chiu_id` là tổ
     bị yêu cầu nhận trách nhiệm, `cong_doan_ref_id` là công việc/công đoạn liên đới (tuỳ chọn).
     Tổ trưởng phụ trách CHẤP NHẬN (`accepted`) hoặc TỪ CHỐI (`rejected` + `ly_do_tu_choi`); quyết
     định chung thẩm. Lỗi CHỜ không chặn nhập kho phần đạt nhưng CHẶN đóng đủ nhóm (§13.2, §16)."""
@@ -148,9 +148,6 @@ class SanXuatKcsLoi(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     kcs_batch_id: Mapped[int] = mapped_column(
         ForeignKey("san_xuat_kcs_batch.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    nhom_loi_id: Mapped[int | None] = mapped_column(
-        ForeignKey("san_xuat_ly_do.id", ondelete="SET NULL"), nullable=True, index=True
     )
     mo_ta: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Tổ bị yêu cầu nhận trách nhiệm + công đoạn liên đới (snapshot công việc). SET NULL giữ lịch sử.

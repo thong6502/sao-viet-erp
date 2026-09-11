@@ -36,6 +36,7 @@ from ..models.payroll import (
     ADV_CANCELLED,
     ADV_KIND_LUONG_DOT_1,
     ADV_KIND_TAM_UNG,
+    ADV_PAID,
     ADV_PENDING,
     ADV_REJECTED,
     AMOUNT_DEPT_ROW,
@@ -567,15 +568,14 @@ class PayrollService:
         ln.pit = pit
         ln.pit_taxable = tx
 
-    def _components_for(self, employee) -> list[dict]:
-        """Khoản danh mục ĐANG DÙNG của 1 NV = mặc định nhóm lương, đè bởi mức riêng của người.
+    @staticmethod
+    def _component_dicts(rows, by_id) -> list[dict]:
+        """Dòng khoản (hồ sơ) → dạng dict engine ăn được.
 
-        Cùng một hàm nuôi cả engine lẫn màn hồ sơ ⇒ số trên màn và số ra tiền không lệch nhau."""
-        if self.components is None:
-            return []
-        by_id = {c.id: c for c in self.components.list_components()}
+        MỘT chỗ dựng cho cả bản lẻ (`_components_for`) lẫn bản cả mẻ (`_components_map`): hai
+        đường mà chép tay hai lần thì sớm muộn trôi khác nhau, và trôi ở đây là lệch TIỀN."""
         out: list[dict] = []
-        for row in self.components.employee_rows(employee.id):
+        for row in rows:
             c = by_id.get(row.component_id)
             # KHÔNG lọc `is_active`: khoản đã ngừng áp dụng mà NV còn giữ thì VẪN TRẢ (chốt của
             # chủ 27/07) — chỉ cảnh báo trên màn, không tự ý cắt lương ai.
@@ -586,8 +586,31 @@ class PayrollService:
                         "note": row.note})
         return out
 
-    def _hoa_hong_tien(self, employee_id: int, year: int, month: int) -> float:
-        """Tiền HOA HỒNG KD của kỳ — hệ TỰ TÍNH theo hoá đơn bán, không ai gõ.
+    def _components_for(self, employee) -> list[dict]:
+        """Khoản danh mục ĐANG DÙNG của 1 NV = mặc định nhóm lương, đè bởi mức riêng của người.
+
+        Cùng một hàm nuôi cả engine lẫn màn hồ sơ ⇒ số trên màn và số ra tiền không lệch nhau."""
+        if self.components is None:
+            return []
+        by_id = {c.id: c for c in self.components.list_components()}
+        return self._component_dicts(self.components.employee_rows(employee.id), by_id)
+
+    def _components_map(self, employee_ids) -> dict[int, list[dict]]:
+        """Khoản hồ sơ của CẢ MẺ — 2 truy vấn, thay cho 2 truy vấn NHÂN số người.
+
+        Vòng `generate` trước 09/09/2026 gọi `_components_for(emp)` HAI lần mỗi người (một cho
+        engine, một cho snapshot), mỗi lần lại đọc lại TOÀN BỘ danh mục khoản."""
+        if self.components is None:
+            return {}
+        by_id = {c.id: c for c in self.components.list_components()}
+        return {eid: self._component_dicts(rows, by_id)
+                for eid, rows in self.components.employee_rows_map(employee_ids).items()}
+
+    def _hoa_hong_map(self, year: int, month: int) -> dict[int, float]:
+        """Tiền HOA HỒNG KD của kỳ cho CẢ MẺ — hệ TỰ TÍNH theo hoá đơn bán, không ai gõ.
+
+        Gom một lượt (09/09/2026): bản cũ gọi cho TỪNG người nên mỗi người một lần quét
+        `sales_invoices`. Công thức không đổi — xem `HoaHongService.hoa_hong_ky_map`.
 
         Từ 07/09/2026 là CỘT `payroll_lines.hoa_hong` (chủ: "nó là một dạng lương"), không còn là
         dòng khoản danh mục nguồn `auto`: cách cũ bắt engine tra danh mục theo mã để lấy cờ chịu
@@ -597,17 +620,15 @@ class PayrollService:
         cần cờ. Cần trả thêm/bớt cho ai thì dùng khoản "Thu nhập khác" trên dòng lương.
         """
         if self.components is None:
-            return 0.0
+            return {}
         from calendar import monthrange
 
         from .hoa_hong_service import HoaHongService
 
-        tien = HoaHongService(self.components.db).hoa_hong_ky(
-            employee_id,
+        return HoaHongService(self.components.db).hoa_hong_ky_map(
             tu_ngay=date(int(year), int(month), 1),
             den_ngay=date(int(year), int(month), monthrange(int(year), int(month))[1]),
         )
-        return float(tien) if tien > 0 else 0.0
 
     def _line_extra_components(self, line_id: int | None) -> list[dict]:
         """Khoản PHÁT SINH thêm tay cho riêng kỳ này (thưởng nóng) — Tầng 3.
@@ -616,10 +637,16 @@ class PayrollService:
         kỳ sau."""
         if self.components is None or not line_id:
             return []
+        return self._line_extra_dicts(
+            self.components.line_components(line_id, source=COMPONENT_SOURCE_LINE))
+
+    @staticmethod
+    def _line_extra_dicts(rows) -> list[dict]:
+        """Cùng phép đổi dict với `_line_extra_components`, nhưng ăn dòng đã nạp sẵn theo mẻ."""
         return [
             {"component_id": r.component_id, "code": r.code, "name": r.name, "kind": r.kind,
              "is_taxable": bool(r.is_taxable), "amount": float(r.amount), "note": r.note}
-            for r in self.components.line_components(line_id, source=COMPONENT_SOURCE_LINE)
+            for r in rows if r.source == COMPONENT_SOURCE_LINE
         ]
 
     def _employment_context_on(self, employee, on: date) -> tuple[str, int | None]:
@@ -1421,16 +1448,26 @@ class PayrollService:
                          "tra_dong_phuc", "dieu_chinh_luong", "di_tre", "dt_vuot_troi",
                          "phat_bien_ban", "phat_5s_dong_phuc")
         employees = self.employees.list_scoped_all(scope=scope, actor=actor)
-        su_kien = self.employees.events_map([e.id for e in employees])
+        emp_ids = [e.id for e in employees]
+        su_kien = self.employees.events_map(emp_ids)
+        # NẠP MỘT LƯỢT CHO CẢ KỲ (09/09/2026). Trước đó mỗi vòng người bắn thêm ~8 truy vấn lẻ:
+        # dòng lương, khoản hồ sơ (2 lần), khoản trên dòng (2 lần), hoa hồng. Đo trên 300 người:
+        # 7.281 truy vấn, 20,7 giây. Xem `docs/plan-toi-uu-tinh-luong.md`.
+        dong_theo_nv = {ln.employee_id: ln for ln in self.payroll.list_lines(period.id)}
+        comp_ho_so = self._components_map(emp_ids)
+        lc_map = (self.components.line_components_map([ln.id for ln in dong_theo_nv.values()])
+                  if self.components is not None else {})
+        hoa_hong_map = self._hoa_hong_map(period.year, period.month)
         for emp in employees:
             employment_status, employment_department_id = trang_thai_tren_ngay(
                 emp, su_kien.get(emp.id, []), pay_on)
-            existing = self.payroll.get_line_by_pe(period.id, emp.id)
+            existing = dong_theo_nv.get(emp.id)
             m = metrics_map.get(emp.id) or {}   # NV không chấm công → rỗng (KHÔNG KeyError)
             # Hoa hồng tính TRƯỚC cổng dưới: NV kinh doanh nghỉ việc tháng trước, tháng này
             # mới xuất hoá đơn của đơn họ chốt ⇒ vẫn còn tiền phải trả. Bỏ ra khỏi `has_work` là
             # họ không có dòng lương nào, tiền bốc hơi mà không một dòng cảnh báo.
-            hoa_hong_tien = self._hoa_hong_tien(emp.id, period.year, period.month)
+            hoa_hong_tien = float(hoa_hong_map.get(emp.id, 0.0))
+            hoa_hong_tien = hoa_hong_tien if hoa_hong_tien > 0 else 0.0
             # Khoán km cũng phải nằm TRƯỚC cổng: tài xế nghỉ việc giữa kỳ vẫn còn tiền các
             # chuyến đã chạy. Bỏ ra khỏi `has_work` là họ không có dòng lương nào — cùng bẫy đã
             # cắn với hoa hồng.
@@ -1478,10 +1515,11 @@ class PayrollService:
                 khoan_defect=float(defect_map.get(emp.id, 0.0)),
                 # HAI danh sách RIÊNG, đừng nối lại: khoản hồ sơ vào `allowance`, khoản phát sinh
                 # thì không (nếu không "Tính lại" rồi sửa một ô là cộng đôi — xem `_compute`).
-                components=self._components_for(emp),
+                components=comp_ho_so.get(emp.id, []),
                 # Khoản thêm tay (Tầng 3). Hoa hồng KD KHÔNG còn đi qua đây từ 07/09/2026 — nó là
                 # cột riêng (`hoa_hong=` ở trên).
-                line_components=self._line_extra_components(existing.id if existing else None),
+                line_components=(self._line_extra_dicts(lc_map.get(existing.id, []))
+                                 if existing is not None else []),
                 ot_minutes=ot_minutes, night_days=night_days,
                 holiday_cong=float(m.get("holiday_cong", 0.0)),
                 restday_cong=float(m.get("restday_cong", 0.0)),
@@ -1549,18 +1587,21 @@ class PayrollService:
                 updated_at=datetime.now(timezone.utc),
             )
             if existing:
-                self.payroll.update_line(existing, **fields)
+                self.payroll.update_line(existing, commit=False, **fields)
                 line = existing
             else:
-                line = self.payroll.create_line(period_id=period.id, employee_id=emp.id, **fields)
+                line = self.payroll.create_line(period_id=period.id, employee_id=emp.id,
+                                                commit=False, **fields)
             # SNAPSHOT từng khoản lên dòng lương: phiếu lương in được từng dòng, và đổi cờ
             # "Chịu thuế" ở danh mục về sau KHÔNG sửa số của kỳ này.
             if self.components is not None:
-                comp_rows = self._components_for(emp)
+                comp_rows = comp_ho_so.get(emp.id, [])
                 # ⚠️ BỎ QUA khoản đã có dòng ĐÈ TAY trên dòng lương này. `replace_...` đã chừa
                 # dòng đè ra khi xoá, nên nếu ở đây vẫn ghi lại khoản đó thì mỗi lần "Tính lại"
                 # sinh THÊM MỘT DÒNG NỮA và NV ăn tiền hai lần. Hai vế phải đi cùng nhau.
-                da_de = {int(r.component_id) for r in self.components.line_components(line.id)
+                # Dòng đè đọc từ `lc_map` (nạp trước vòng lặp) — trong một lượt chạy không ai
+                # sửa chúng, nên đọc trước hay đọc tại chỗ đều ra cùng một tập.
+                da_de = {int(r.component_id) for r in lc_map.get(line.id, [])
                          if getattr(r, "da_de_tay", False)}
                 self.components.replace_employee_line_components(line.id, [
                     {"component_id": c["component_id"], "code": c["code"], "name": c["name"],
@@ -1568,7 +1609,11 @@ class PayrollService:
                      "note": c.get("note")}
                     for c in comp_rows if int(c["component_id"]) not in da_de
                 ])
-                self.components.commit()
+        # MỘT lần ghi bền cho CẢ KỲ (09/09/2026): tính lương thành được-ăn-cả-hoặc-không-đổi-gì.
+        # Commit từng dòng như trước là (1) mỗi người một lần fsync, (2) mỗi commit làm hết hạn
+        # mọi đối tượng đang giữ nên vòng sau phải nạp lại, và (3) đứt giữa chừng thì bảng lương
+        # nằm lại NỬA MỚI NỬA CŨ mà không dấu vết nào.
+        self.payroll.commit()
         # Đóng dấu "engine vừa chạy xong" — cột này là thứ DUY NHẤT phân biệt "đã tính lại" với
         # "có người sửa tay một ô thưởng" (xem chú thích ở `PayrollPeriod.generated_at`).
         # Đặt Ở CUỐI, sau khi mọi dòng đã ghi: đặt ở đầu mà giữa chừng vỡ là dấu nói dối.
@@ -1589,6 +1634,13 @@ class PayrollService:
         if scope is None or scope == SCOPE_ALL:
             return None
         return {e.id for e in self.employees.list_scoped_all(scope=scope, actor=actor)}
+
+    def tam_ung_da_chi(self, year: int, month: int) -> list:
+        """Phiếu tạm ứng / lương đợt 1 ĐÃ CHI của kỳ — nguồn sheet "Tạm ứng" của file xuất.
+
+        CÙNG bộ lọc với `approved_advance_map` (chỉ `paid` mới trừ vào lương), để bảng chi tiết
+        theo ngày cộng lại đúng bằng cột "Tạm ứng" trên bảng lương."""
+        return self.payroll.list_advances(year=year, month=month, status=ADV_PAID)
 
     def get_table(self, *, year, month, scope=None, actor=None):
         """Kỳ lương + các dòng (kèm thông tin NV) cho FE. None nếu chưa tạo.

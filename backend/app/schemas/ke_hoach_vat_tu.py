@@ -115,9 +115,8 @@ class CanDoiNhom(BaseModel):
     #: Số dòng ĐÃ MUA nhưng hàng về SAU ngày cần. Bộ lọc "chỉ thứ đang thiếu" cũng GIỮ LẠI — lệnh
     #: vẫn đứng máy, chỉ khác là việc phải lo là dời lịch chứ không phải chạy đi mua.
     so_dong_ve_muon: int = 0
-    #: Chỉ nhóm công cụ mới có — tình trạng khuôn + ngày về dự kiến.
+    #: Chỉ nhóm công cụ mới có — tình trạng khuôn.
     khuon_tinh_trang: str | None = None
-    khuon_ngay_ve: date | None = None
     #: Phiếu đang chạy của mặt hàng, xếp CHẮC → LỎNG (đã duyệt có ngày về đứng đầu). Treo ở nhóm
     #: chứ không ở dòng: phiếu mua không biết lệnh nào, nó chỉ biết mua món gì.
     phieu_mua: list[PhieuMuaTom] = Field(default_factory=list)

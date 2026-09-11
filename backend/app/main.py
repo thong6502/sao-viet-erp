@@ -60,10 +60,10 @@ from .routers import (
     lsx,
     bai_ghep_2,
     xep_lich_2,
+    xep_lich_3,
     ke_hoach_vat_tu,
     ky_thuat_may,
     san_xuat,
-    san_xuat_ly_do,
     san_xuat_kcs_tieu_chi,
     cong_doan_tag,
     lenh_san_xuat,
@@ -173,7 +173,6 @@ app.include_router(may_thiet_bi.nhom_may_router)   # danh mục Nhóm máy (cùn
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(cong_viec_khoan.router)     # đơn giá khoán theo tổ (trước ở tab của màn Lương)
-app.include_router(san_xuat_ly_do.router)      # danh mục Lý do & lỗi SX (module quyền `dm_ly_do_san_xuat`)
 app.include_router(san_xuat_kcs_tieu_chi.router)   # danh mục Tiêu chí KCS (module quyền `dm_kcs_tieu_chi`)
 app.include_router(bu_hao.router)
 app.include_router(don_vi_do.router)
@@ -205,6 +204,7 @@ app.include_router(lsx.router)
 # là code chết: router này chạy trên đó.
 app.include_router(bai_ghep_2.router)
 app.include_router(xep_lich_2.router)        # Bàn Xếp lịch công đoạn (module quyền `xep_lich_2`; màn cũ `xep_lich` gỡ 19/08/2026)
+app.include_router(xep_lich_3.router)        # Xếp lịch 3 — bàn cấp LỆNH (module quyền `xep_lich_3`; mg 0292 chép quyền từ `xep_lich_2`)
 app.include_router(ke_hoach_vat_tu.router)   # bảng cân đối vật tư (cùng module quyền `san_xuat`)
 app.include_router(ky_thuat_may.router)      # sửa chữa + phiếu bảo trì (module quyền `ky_thuat_may`)
 app.include_router(san_xuat.router)          # bàn Thực hiện sản xuất tại tổ (cùng module quyền `san_xuat`)

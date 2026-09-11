@@ -135,6 +135,9 @@ class QuoteItemOut(BaseModel):
     product_spec_text: str | None
     dien_giai: str | None = None   # diễn giải quy cách in dưới tên SP (bung từ tính giá, sửa được)
     nhom: str | None = None        # nhãn gộp dòng khi IN cho khách (ruột + bìa → 1 dòng)
+    # Ảnh minh họa in ở cột "Hình ảnh minh họa" của bản gửi khách. Một ảnh dùng chung cho cả CỤM
+    # cùng tên (mọi dòng trong cụm mang cùng URL) — xem models.quotation.QuoteItem.anh_minh_hoa.
+    anh_minh_hoa: str | None = None
     quantity: int
     unit: str                      # ĐVT thật của phần này ("cái" cho tấm bìa)
     dvt_nhom: str | None = None    # ĐVT của cụm khi bản in gộp ruột + bìa ("cuốn")
@@ -264,6 +267,13 @@ class QuoteAttachmentsOut(BaseModel):
     items: list[QuoteAttachmentOut]
 
 
+class QuoteItemImageOut(BaseModel):
+    """Kết quả đặt ảnh minh họa: URL vừa gắn + các dòng đã nhận nó (cả CỤM cùng tên, không chỉ
+    dòng người dùng bấm) — FE dựa vào `item_ids` để biết cụm nào vừa đổi."""
+    anh_minh_hoa: str
+    item_ids: list[int]
+
+
 class EnumOption(BaseModel):
     value: str
     label: str
@@ -285,6 +295,7 @@ __all__ = [
     "QuotationDetailOut",
     "QuoteAttachmentOut",
     "QuoteAttachmentsOut",
+    "QuoteItemImageOut",
     "EnumOption",
     "QuotationEnumsOut",
 ]

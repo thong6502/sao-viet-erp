@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError, api,
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon,
-  type SxHoTroUngVien, type SxLyDo,
+  type SxHoTroUngVien,
   type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien, type SxThuongToTruong,
   type SxKhoHopThu, type SxSuCoIn,
 } from "../api/client";
@@ -29,6 +29,7 @@ import { ngayToWall, type Xl2Zoom } from "./xl2Shared";
 import { wallMinutes, nowWall } from "./gantt-time";
 import { ThsxTimeline } from "./ThsxTimeline";
 import { ThsxDanhSach } from "./ThsxDanhSach";
+import { ThsxCards } from "./ThsxCards";
 import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { ThsxDrawer } from "./ThsxDrawer";
 import { type ThsxExec } from "./ThsxExecPanels";
@@ -72,19 +73,14 @@ function readZoom(): Xl2Zoom {
   return s === "gio" || s === "ca" || s === "ngay" || s === "tuan" ? s : "ca";
 }
 
-// Kiểu view cột giữa: "lich" (Gantt, mặc định) hay "danh_sach" (bảng — đọc/lọc nhanh nhiều việc).
-type ThsxView = "lich" | "danh_sach";
+// Kiểu view bàn tổ: "the" (Thẻ công việc - Workstation Studio), "danh_sach" (bảng tràn màn) hay "lich" (Gantt).
+type ThsxView = "the" | "danh_sach" | "lich";
 const VIEW_KEY = "thsx.view";
 
 function readView(): ThsxView {
   const s = typeof localStorage !== "undefined" ? localStorage.getItem(VIEW_KEY) : null;
-  if (s === "danh_sach" || s === "lich") return s;
-  // Chưa từng chọn: trên màn hẹp mặc định là BẢNG, không phải Gantt. Ở 375px cột nhãn của
-  // timeline đã ăn 240px, phần vẽ thanh còn ~105px trên một trục dài hơn 11.000px — mở ra là
-  // một dải trống, phải lướt ngang rất lâu mới thấy việc. Cùng ngưỡng 820px với chỗ CSS xếp
-  // chồng hai cột. Người dùng bấm sang "Lịch" một lần là nhớ, không ép lại.
-  if (typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches) return "danh_sach";
-  return "lich";
+  if (s === "the" || s === "danh_sach" || s === "lich") return s;
+  return "the";
 }
 
 type ReasonKind = "bat_dau" | "tam_dung" | "ket_thuc";
@@ -140,7 +136,6 @@ export function ThucHienSxPage({
   const [candidates, setCandidates] = useState<SxNhanVienChon[]>([]);
   const [hoTroUngVien, setHoTroUngVien] = useState<SxHoTroUngVien[]>([]);
   const [mayOptions, setMayOptions] = useState<MayChon[]>([]);
-  const lyDoCache = useRef<Record<string, SxLyDo[]>>({});
 
   // ---- Giai đoạn 5: KCS §13 · Kho §14 · Đóng nhóm §16 (nạp theo việc/nhóm đang chọn) ----
   const [kcsCt, setKcsCt] = useState<SxKcsChiTiet | null>(null);
@@ -214,18 +209,6 @@ export function ThucHienSxPage({
     kyThuatMay.mayChon(token)
       .then(setMayOptions)
       .catch(() => setMayOptions([]));
-  }, [token]);
-
-  // Danh mục lý do/lỗi (§15) nạp-lười theo nhóm, cache trong phiên (KHÔNG hardcode danh sách ở FE).
-  const loadLyDo = useCallback(async (nhom: string): Promise<SxLyDo[]> => {
-    if (!token) return [];
-    const c = lyDoCache.current[nhom];
-    if (c) return c;
-    try {
-      const r = await api.sanXuat.lyDo(token, nhom);
-      lyDoCache.current[nhom] = r.items;
-      return r.items;
-    } catch { return []; }
   }, [token]);
 
   // Đổi tổ → dọn lựa chọn.
@@ -639,7 +622,7 @@ export function ThucHienSxPage({
       huyHoTro: (id, lyDo, v) => ok(mutate(() => api.sanXuat.huyHoTro(token!, id, { ly_do: lyDo || null, expected_version: v }), "Đã huỷ hỗ trợ.")),
       tinhPhanBo: (batchId) => ok(mutate(() => api.sanXuat.tinhPhanBo(token!, batchId), "Đã tính phân bổ lương.")),
       chotPhanBo: (phanBoId, v) => ok(mutate(() => api.sanXuat.chotPhanBo(token!, phanBoId, { expected_version: v }), "Đã chốt phân bổ.")),
-      moLaiPhanBo: (phanBoId, lyDoId, v) => ok(mutate(() => api.sanXuat.moLaiPhanBo(token!, phanBoId, { ly_do_id: lyDoId, expected_version: v }), "Đã mở lại phân bổ.")),
+      moLaiPhanBo: (phanBoId, v) => ok(mutate(() => api.sanXuat.moLaiPhanBo(token!, phanBoId, { expected_version: v }), "Đã mở lại phân bổ.")),
       buTru: (batchId, b) => ok(mutate(() => api.sanXuat.buTru(token!, batchId, b), "Đã ghi bù trừ.")),
       loaiTru: (batchId, b) => ok(mutate(() => api.sanXuat.loaiTru(token!, batchId, b), "Đã loại khỏi lương batch.")),
       goLoaiTru: (batchId, b) => ok(mutate(() => api.sanXuat.goLoaiTru(token!, batchId, b), "Đã gỡ loại trừ.")),
@@ -685,13 +668,17 @@ export function ThucHienSxPage({
           </button>
         </div>
         <div className="thsx-seg" role="group" aria-label="Kiểu xem">
+          <button type="button" className="thsx-seg__btn" title="Xem dạng Thẻ công việc (Workstation Studio)"
+            aria-pressed={view === "the"} onClick={() => setView("the")}>
+            <Icon name="box" size={13} /> Thẻ
+          </button>
+          <button type="button" className="thsx-seg__btn" title="Xem danh sách bản ghi (Bảng)"
+            aria-pressed={view === "danh_sach"} onClick={() => setView("danh_sach")}>
+            <Icon name="table" size={13} /> Bảng
+          </button>
           <button type="button" className="thsx-seg__btn" title="Xem theo lịch (Gantt)"
             aria-pressed={view === "lich"} onClick={() => setView("lich")}>
             <Icon name="layout" size={13} /> Lịch
-          </button>
-          <button type="button" className="thsx-seg__btn" title="Xem danh sách bản ghi"
-            aria-pressed={view === "danh_sach"} onClick={() => setView("danh_sach")}>
-            <Icon name="table" size={13} /> Danh sách
           </button>
         </div>
         {view === "lich" && (
@@ -721,10 +708,10 @@ export function ThucHienSxPage({
         </div>
         <div className="thsx-subbar__spacer" />
         <div className="thsx-digest" aria-label="Tổng quan việc của tổ">
-          <span className="thsx-digest__chip"><Icon name="clipboard" size={12} /> <b className="thsx-num">{digest.tong}</b> việc</span>
+          <span className="thsx-digest__chip thsx-digest__chip--tong"><Icon name="clipboard" size={12} /> <b className="thsx-num">{digest.tong}</b> việc</span>
           <span className="thsx-digest__chip thsx-digest__chip--run"><Icon name="play" size={12} /> <b className="thsx-num">{digest.running}</b> đang chạy</span>
           <span className="thsx-digest__chip thsx-digest__chip--pause"><Icon name="pause" size={12} /> <b className="thsx-num">{digest.paused}</b> tạm dừng</span>
-          <span className="thsx-digest__chip"><Icon name="clock" size={12} /> <b className="thsx-num">{digest.released}</b> chờ làm</span>
+          <span className="thsx-digest__chip thsx-digest__chip--released"><Icon name="clock" size={12} /> <b className="thsx-num">{digest.released}</b> chờ làm</span>
           <span className="thsx-digest__chip thsx-digest__chip--done"><Icon name="check" size={12} /> <b className="thsx-num">{digest.completed}</b> xong</span>
         </div>
       </div>
@@ -744,43 +731,64 @@ export function ThucHienSxPage({
         onKhoXacNhanBtp={onKhoXacNhanBtp}
       />
 
-      {/* Lưới 3 cột */}
-      <div className={`thsx-grid${panelOpen ? " is-panel" : ""}`}>
-        {/* CỘT TRÁI — danh sách việc của tổ */}
-        <aside className="thsx-list">
-          <div className="thsx-list__head">
-            <Icon name="clipboard" size={16} />
-            <h2>Việc của tổ</h2>
-            <span className="thsx-list__count thsx-num">{groups.tong}</span>
-          </div>
-          <div className="thsx-list__body">
-            {err ? (
-              <div className="thsx-list__pad"><BangLoi text={err} onRetry={loadItems} /></div>
-            ) : items == null ? (
-              <ListSkeleton />
-            ) : groups.tong === 0 ? (
-              <EmptyState icon={q ? "search" : "check"}
-                title={q ? "Không khớp tìm kiếm" : "Chưa có việc phát hành"}
-                sub={q ? "Thử đổi từ khoá." : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
-            ) : (
-              <>
-                <ListSection label="Trong cửa sổ" icon="calendar" viec={groups.timed}
-                  selectedId={selectedId} onPick={pickViec} />
-                <ListSection label="Ngoài cửa sổ" icon="history" viec={groups.outWin}
-                  selectedId={selectedId} onPick={pickViec} />
-                <ListSection label="Chưa định giờ" icon="clock" viec={groups.untimed}
-                  selectedId={selectedId} onPick={pickViec} />
-              </>
-            )}
-          </div>
-        </aside>
+      {/* Lưới 3 cột — Tự ẩn sidebar trái khi ở chế độ Thẻ hoặc Bảng để tràn 100% không gian */}
+      <div className={`thsx-grid${panelOpen ? " is-panel" : ""}${view !== "lich" ? " thsx-grid--full" : ""}`}>
+        {/* CỘT TRÁI — CHỈ hiện ở chế độ Lịch (Gantt) để kéo việc vào timeline, tránh trùng lặp */}
+        {view === "lich" && (
+          <aside className="thsx-list">
+            <div className="thsx-list__head">
+              <Icon name="clipboard" size={16} />
+              <h2>Việc của tổ</h2>
+              <span className="thsx-list__count thsx-num">{groups.tong}</span>
+            </div>
+            <div className="thsx-list__body">
+              {err ? (
+                <div className="thsx-list__pad"><BangLoi text={err} onRetry={loadItems} /></div>
+              ) : items == null ? (
+                <ListSkeleton />
+              ) : groups.tong === 0 ? (
+                <EmptyState icon={q ? "search" : "check"}
+                  title={q ? "Không khớp tìm kiếm" : "Chưa có việc phát hành"}
+                  sub={q ? "Thử đổi từ khoá." : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
+              ) : (
+                <>
+                  <ListSection label="Trong cửa sổ" icon="calendar" viec={groups.timed}
+                    selectedId={selectedId} onPick={pickViec} />
+                  <ListSection label="Ngoài cửa sổ" icon="history" viec={groups.outWin}
+                    selectedId={selectedId} onPick={pickViec} />
+                  <ListSection label="Chưa định giờ" icon="clock" viec={groups.untimed}
+                    selectedId={selectedId} onPick={pickViec} />
+                </>
+              )}
+            </div>
+          </aside>
+        )}
 
-        {/* CỘT GIỮA — timeline (Gantt) hoặc bảng (Danh sách) */}
+        {/* CỘT GIỮA — Thẻ công việc (Card View), bảng (Danh sách) hoặc timeline (Gantt) */}
         <section className="thsx-center thsx-col--center">
           {err ? (
             <div className="thsx-centerempty"><BangLoi text={err} onRetry={loadItems} /></div>
           ) : items == null ? (
-            view === "danh_sach" ? <ListSkeleton /> : <TimelineSkeleton />
+            view === "lich" ? <TimelineSkeleton /> : <ListSkeleton />
+          ) : view === "the" ? (
+            groups.tong === 0 ? (
+              <div className="thsx-centerempty">
+                <EmptyState icon={q ? "search" : "check"}
+                  title={q ? "Không khớp tìm kiếm" : "Chưa có việc phát hành"}
+                  sub={q ? "Thử đổi từ khoá." : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
+              </div>
+            ) : (
+              <ThsxCards
+                timed={groups.timed}
+                outWin={groups.outWin}
+                untimed={groups.untimed}
+                selectedId={selectedId}
+                onPick={pickViec}
+                onBatDau={(w) => { pickViec(w); onBatDau(); }}
+                onTamDung={(w) => { pickViec(w); onTamDung(); }}
+                onKetThuc={(w) => { pickViec(w); onKetThuc(); }}
+              />
+            )
           ) : view === "danh_sach" ? (
             groups.tong === 0 ? (
               <div className="thsx-centerempty">
@@ -795,6 +803,9 @@ export function ThucHienSxPage({
                 untimed={groups.untimed}
                 selectedId={selectedId}
                 onPick={pickViec}
+                onBatDau={(w) => { pickViec(w); onBatDau(); }}
+                onTamDung={(w) => { pickViec(w); onTamDung(); }}
+                onKetThuc={(w) => { pickViec(w); onKetThuc(); }}
               />
             )
           ) : clusters.length === 0 ? (
@@ -830,7 +841,6 @@ export function ThucHienSxPage({
               candidates={candidates}
               hoTroUngVien={hoTroUngVien}
               mayOptions={mayOptions}
-              loadLyDo={loadLyDo}
               exec={exec}
               busy={busy}
               kcsCt={kcsCt}

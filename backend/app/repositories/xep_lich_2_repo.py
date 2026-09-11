@@ -158,7 +158,7 @@ class XepLich2Repository(XepLichRepository):
         q = (
             select(
                 LsxCongDoan.id, CongDoan.requires_tooling, KhuonBe.ma, KhuonBe.so_ke,
-                KhuonBe.tinh_trang, KhuonBe.ngay_ve_du_kien,
+                KhuonBe.tinh_trang,
             )
             .outerjoin(CongDoan, CongDoan.id == LsxCongDoan.cong_doan_id)
             .outerjoin(KhuonBe, KhuonBe.id == LsxCongDoan.khuon_be_id)
@@ -170,9 +170,8 @@ class XepLich2Repository(XepLichRepository):
                 "khuon_ma": ma,
                 "khuon_so_ke": so_ke,
                 "khuon_tinh_trang": tt,
-                "khuon_ngay_ve": ngay.isoformat() if ngay else None,
             }
-            for row_id, rt, ma, so_ke, tt, ngay in self.db.execute(q)
+            for row_id, rt, ma, so_ke, tt in self.db.execute(q)
         }
 
     def bai_ghep_cong_doan_nhan_map(self, ids: Iterable[int | None]) -> dict[int, tuple[str, float]]:

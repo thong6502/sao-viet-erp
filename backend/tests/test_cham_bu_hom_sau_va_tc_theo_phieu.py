@@ -300,7 +300,7 @@ def test_xac_nhan_hang_loat_bu_cap_va_bo_qua_co_ly_do(client):
     assert out["done"][0]["punches"] == [{"time": "17:30", "check_type": "in", "next_day": False},
                                          {"time": "20:30", "check_type": "out", "next_day": False}]
     skipped = {s["employee_id"]: s["reason"] for s in out["skipped"]}
-    assert "không có lượt bấm" in skipped[e_khong]
+    assert "xác nhận riêng" in skipped[e_khong]     # ngày trắng: bù được, nhưng phải xác nhận riêng
     assert "treo" in skipped[e_treo]
     assert "đã có" in skipped[e_du]
     assert "phạm vi" in skipped[e_khong_phieu]
@@ -445,3 +445,124 @@ def test_khe_giua_phien_tren_bang_cong(client):
     _bam(eid, 1, 19, 0, "in"); _bam(eid, 1, 21, 30, "out")
     assert _row(client, h, eid)["days"]["1"]["ot_minutes"] == 210
     assert _day(client, h, eid)["ot_suggestion"] is None
+
+
+def test_ngay_trang_luot_bam_bu_duoc_nhung_phai_xac_nhan_rieng(client):
+    """⭐ Chủ 10/09/2026: *"ngày làm đó nó chưa có lượt... bấm vào Xác nhận TC theo phiếu vẫn thấy
+    tên nhân viên đó nhưng không cho bấm, mà như vậy cũng khó hiểu lắm."*
+
+    Ngày TRẮNG lượt bấm thì máy không suy được ca chính, nhưng cặp TĂNG CA theo phiếu thì sinh
+    được — đúng ca thợ chỉ bị gọi riêng buổi tối. Đổi lại ngày đó KHÔNG có công ca chính, nên
+    phải có cờ xác nhận riêng; thiếu cờ thì vẫn bỏ qua (thợ làm cả ngày mà quên bấm sạch, tự sinh
+    mỗi cặp TC là chôn luôn công ca chính)."""
+    h = _h(client)
+    ca = _ca_ngay(client, h)
+    eid = _nv(client, h, ca, ten="Trắng lượt gọi tối")
+    _phieu(client, h, eid, tu=1050, den=1230)          # 17:30–20:30
+
+    # Màn ứng viên nói được MÁY SẼ LÀM GÌ, không còn để trống
+    ung = {x["employee_id"]: x
+           for x in client.get("/api/attendance/ot-confirm", params={"date": D1},
+                               headers=h).json()["items"]}
+    assert ung[eid]["tinh_trang"] == "khong_cham" and ung[eid]["kieu"] == "chi_cap_tc"
+
+    # Không có cờ ⇒ vẫn bỏ qua, nhưng lý do nói rõ phải làm gì
+    r = client.post("/api/attendance/ot-confirm",
+                    json={"date": D1, "employee_ids": [eid]}, headers=h).json()
+    assert r["done"] == []
+    assert "xác nhận riêng" in r["skipped"][0]["reason"]
+
+    # Có cờ ⇒ sinh ĐÚNG cặp tăng ca theo phiếu
+    r2 = client.post("/api/attendance/ot-confirm",
+                     json={"date": D1, "employee_ids": [eid], "cho_phep_ngay_trang": True,
+                           "reason": "gọi riêng buổi tối"}, headers=h)
+    assert r2.status_code == 200, r2.text
+    done = r2.json()["done"][0]
+    assert done["kieu"] == "chi_cap_tc"
+    assert done["punches"] == [{"time": "17:30", "check_type": "in", "next_day": False},
+                               {"time": "20:30", "check_type": "out", "next_day": False}]
+
+    o = _row(client, h, eid)["days"]["1"]
+    assert o["ot_minutes"] == 180, "tiền tăng ca theo phiếu phải ra"
+    assert not o["cong"], "ngày trắng chỉ có cặp TC ⇒ KHÔNG có công ca chính"
+    assert o["ot_thieu_cap"] is False, "hết cảnh báo cho người này"
+
+    # Bù xong thì màn phải nói ĐÃ CÓ CẶP BẤM. Đếm "≥ 2 phiên" như trước là ngày chỉ-có-tăng-ca
+    # vừa bù xong lại bị gọi là "thiếu cặp bấm TC" và mời tách phiên — vòng luẩn quẩn.
+    lai = {x["employee_id"]: x
+           for x in client.get("/api/attendance/ot-confirm", params={"date": D1},
+                               headers=h).json()["items"]}
+    assert lai[eid]["tinh_trang"] == "da_co"
+
+
+def test_ngay_trang_gio_ra_thuc_te_som_hon_phieu_thi_tra_theo_that(client):
+    """Thợ được gọi buổi tối nhưng về sớm hơn phiếu: xác nhận kèm giờ RA thật ⇒ trả theo thật."""
+    h = _h(client)
+    ca = _ca_ngay(client, h)
+    eid = _nv(client, h, ca, ten="Trắng lượt về sớm")
+    _phieu(client, h, eid, tu=1050, den=1230)          # phiếu 17:30–20:30
+
+    r = client.post("/api/attendance/ot-confirm",
+                    json={"date": D1, "employee_ids": [eid], "cho_phep_ngay_trang": True,
+                          "to_time": "19:30"}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["done"][0]["punches"][1] == {"time": "19:30", "check_type": "out",
+                                                 "next_day": False}
+    assert _row(client, h, eid)["days"]["1"]["ot_minutes"] == 120
+
+
+def test_bang_canh_bao_noi_ro_loai_tinh_trang_de_tach_hai_nhom(client):
+    """Băng trước khi chốt phải nói được ai bù 1 chạm, ai phải chấm bù ca chính trước —
+    giao diện đọc `ma`, không dò chuỗi tiếng Việt."""
+    h = _h(client)
+    ca = _ca_ngay(client, h)
+    e_thieu = _nv(client, h, ca, ten="Ma thiếu cặp")
+    e_trang = _nv(client, h, ca, ten="Ma trắng lượt")
+    e_treo = _nv(client, h, ca, ten="Ma treo")
+    for e in (e_thieu, e_trang, e_treo):
+        _phieu(client, h, e, tu=1050, den=1230)
+    _bam(e_thieu, 1, 8, 0, "in"); _bam(e_thieu, 1, 17, 0, "out")
+    _bam(e_treo, 1, 8, 0, "in")
+
+    ma = {x["employee_id"]: x["ma"] for x in _period(client, h)["ot_thieu_cap_list"]}
+    assert ma[e_thieu] == "thieu_cap"
+    assert ma[e_trang] == "khong_cham"
+    assert ma[e_treo] == "treo"
+
+
+def test_ngay_chi_co_tang_ca_khong_bi_dem_la_ngay_treo(client):
+    """Ngày CHỈ CÓ TĂNG CA (thợ được gọi riêng buổi tối) không có ca chính để mà treo. Đếm nó là
+    "ngày treo" là CHẶN CHỐT kỳ công vì một ngày hoàn toàn bình thường (chủ 10/09/2026)."""
+    h = _h(client)
+    ca = _ca_ngay(client, h)
+    eid = _nv(client, h, ca, ten="Chỉ tăng ca tối")
+    _phieu(client, h, eid, tu=1050, den=1230)
+    _bam(eid, 1, 17, 30, "in"); _bam(eid, 1, 19, 30, "out")
+
+    o = _row(client, h, eid)["days"]["1"]
+    assert o["ot_minutes"] == 120 and not o["cong"]
+    assert _period(client, h)["hanging_days"] == 0, "ngày chỉ-có-tăng-ca KHÔNG phải ngày treo"
+
+
+def test_o_ngay_chi_co_tang_ca_khong_bao_tre_va_khong_moi_tach_phien(client):
+    """⭐ Chủ 10/09/2026: *"đã có cặp bấm tăng ca rồi thì hiện cái này làm gì"*.
+
+    Ngày chỉ có cặp TĂNG CA (17:30–19:30 theo phiếu): ô ngày từng in "Công 0 · Vào trễ quá dung
+    sai" và VẪN mời "Tách phiên theo phiếu" — bấm vào thì lỗi "đã có cặp bấm tăng ca". Ô ngày phải
+    hỏi cùng một luật với bảng công: ngày này không có ca chính để mà trễ, và đã đủ cặp TC."""
+    h = _h(client)
+    ca = _ca_ngay(client, h)
+    eid = _nv(client, h, ca, ten="Ô ngày chỉ TC")
+    _phieu(client, h, eid, tu=1050, den=1230)
+    _bam(eid, 1, 17, 30, "in"); _bam(eid, 1, 19, 30, "out")
+
+    d = _day(client, h, eid)
+    assert d["ot_suggestion"] is None, "đã có cặp tăng ca thì đừng mời tách phiên nữa"
+    assert not d["cong"]
+    assert "chỉ có tăng ca" in (d["reason"] or ""), d["reason"]
+
+    # Ngày thường thiếu cặp TC thì VẪN phải mời (không được sửa lố tay)
+    e2 = _nv(client, h, ca, ten="Ô ngày thiếu cặp")
+    _phieu(client, h, e2, tu=1050, den=1230)
+    _bam(e2, 1, 8, 0, "in"); _bam(e2, 1, 17, 0, "out")
+    assert _day(client, h, e2)["ot_suggestion"]["kieu"] == "bu_cap"

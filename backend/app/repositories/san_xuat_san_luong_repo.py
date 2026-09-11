@@ -13,7 +13,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models.san_xuat import CV_HOAN_THANH, SanXuatCongViec, SanXuatPhuThuoc
-from ..models.san_xuat_ly_do import SanXuatLyDo
 from ..models.san_xuat_san_luong import (
     BG_DIEU_CHINH,
     BG_XAC_NHAN,
@@ -92,18 +91,6 @@ class SanXuatSanLuongRepository:
             c.ten_cong_doan,
         ))
         return rows
-
-    # --- Lý do/lỗi (§15) ---------------------------------------------------------------------
-    def ly_do(self, ly_do_id: int) -> SanXuatLyDo | None:
-        return self.db.get(SanXuatLyDo, ly_do_id)
-
-    def nhan_ly_do(self, ids: set[int]) -> dict[int, str]:
-        """{id: tên} cho nhãn nhóm lỗi/lý do trên drawer (batch hỏng, điều chỉnh bàn giao)."""
-        ids = {i for i in ids if i}
-        if not ids:
-            return {}
-        rows = self.db.scalars(select(SanXuatLyDo).where(SanXuatLyDo.id.in_(ids)))
-        return {r.id: r.ten for r in rows}
 
     # --- Batch sản lượng (§11.1) -------------------------------------------------------------
     def batch(self, batch_id: int) -> SanXuatBatch | None:

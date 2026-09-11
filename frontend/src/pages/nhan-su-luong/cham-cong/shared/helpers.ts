@@ -101,6 +101,17 @@ export function tongCongDacBiet(row: TimesheetRow): number {
   );
 }
 
+/** Công NGÀY THƯỜNG = tổng công − công CN/lễ − công phép có lương (chủ 09/09/2026: *"nhìn cái
+ *  công đó tưởng là công ngày thường, họ không biết chỗ nào công thường chỗ nào công lễ"*).
+ *
+ *  `total_cong` của máy chủ ĐÃ GỒM công ngày lễ / nghỉ tuần và ngày phép có lương, nên để cạnh
+ *  cột CN/Lễ nó bị đọc thành hai rổ rời nhau cộng lại — sai. Ba cột giờ CỘNG ĐÚNG ra tổng:
+ *  công thường + CN/Lễ + phép = tổng công. */
+export function congThuong(row: TimesheetRow): number {
+  const tong = row.total_cong ?? row.total_days ?? 0;
+  return soCong(tong - tongCongDacBiet(row) - soCong(row.paid_leave_days));
+}
+
 /** Tổng GIỜ tăng ca cả tháng của một hàng — cột riêng trên bảng công (chủ 09/09/2026: *"cho thêm 1
  *  cột tổng giờ tăng ca để người ta còn biết"*). Cùng con số với cột "Tăng ca (giờ)" của file .xlsx. */
 export function gioTangCa(row: TimesheetRow): number {

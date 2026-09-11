@@ -262,6 +262,13 @@
 .lg-table .ns__table tbody tr:hover td {
   background: var(--rust-soft) !important;
 }
+/* Dấu • sau số công: hàng này có công ngày lễ / nghỉ tuần (ăn hệ số) — chi tiết ở tooltip,
+   cột riêng nằm trong file Excel. */
+.lg-cong-le {
+  color: var(--plum-deep, #6a4d8f);
+  font-weight: var(--fw-bold);
+}
+
 .lg-num {
   font-family: var(--ff-num);
   text-align: right;

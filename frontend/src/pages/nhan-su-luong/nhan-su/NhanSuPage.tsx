@@ -25,6 +25,7 @@ import {
   Key,
   Layers,
   Search,
+  Upload,
   UserPlus,
   X,
 } from "lucide-react";
@@ -35,6 +36,7 @@ import { RequestQueueModal } from "./modals/RequestQueueModal";
 import { JobGradesModal } from "./modals/JobGradesModal";
 import { EmployeeDetailPanel } from "./EmployeeDetailPanel";
 import { EmployeeWizard } from "./EmployeeWizard";
+import { ImportExcelDialog } from "../../../components/ImportExcelDialog";
 import "../../nhan-su.css";
 
 export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
@@ -46,6 +48,9 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   // Ô "Xuất Excel danh sách". Trước 11/08/2026 nút render TRẦN, không hỏi quyền gì — nên ô đó
   // trong ma trận chưa bao giờ có tác dụng. Máy chủ cũng đã siết sang `nhan_su:export`.
   const canExport = can("nhan_su", "export");
+  // Nhập Excel đòi CẢ create lẫn update (cùng luật với nhập Excel danh mục): một lượt nhập vừa
+  // tạo người mới vừa sửa người cũ, có đúng một trong hai ô là không đủ. Máy chủ gác y hệt.
+  const canImport = can("nhan_su", "create") && can("nhan_su", "update");
   // Sửa danh mục bậc = `nhan_su:update` (đúng ô backend gác `PUT /bac-tay-nghe/{id}`).
   const canUpdate = can("nhan_su", "update");
 
@@ -69,6 +74,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   const [sort, setSort] = useState("code");
   const [endingSoon, setEndingSoon] = useState(false); // KPI "sắp hết thử việc" (lọc client)
   const [exporting, setExporting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [page, setPage] = useState(1);
   const size = 20;
 
@@ -143,7 +149,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
       });
       const a = document.createElement("a");
       a.href = url;
-      a.download = "danh-sach-nhan-vien.xlsx";
+      a.download = "ho-so-nhan-su.xlsx";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -152,6 +158,24 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
       setError("Không tải được file danh sách nhân viên.");
     } finally {
       setExporting(false);
+    }
+  }
+
+  /** File MẪU để nạp dữ liệu ban đầu — đúng tiêu đề file xuất, không kèm ai, cộng sheet Hướng dẫn
+   *  liệt kê tên phòng/tổ · bậc · ca hợp lệ. Người chưa có ai trong hệ thống vẫn có file để khai. */
+  async function taiMauNhap() {
+    if (!token) return;
+    try {
+      const url = await api.employees.mauNhapBlobUrl(token);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "mau-nhap-nhan-su.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError("Không tải được file mẫu.");
     }
   }
 
@@ -291,6 +315,12 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
               >
                 <Download size={14} />
                 {exporting ? "Đang xuất…" : "Xuất Excel"}
+              </button>
+            )}
+            {canImport && (
+              <button className="ns-btn-excel" onClick={() => setImportOpen(true)}>
+                <Upload size={14} />
+                Nhập Excel
               </button>
             )}
             <div className="ns2__filters">
@@ -670,6 +700,28 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
           // Bảng danh sách in cột "Bậc tay nghề" theo TÊN bậc — nạp lại để đổi tên/tắt bậc hiện
           // ngay, khỏi bắt người dùng F5.
           onSaved={() => load()}
+        />
+      )}
+
+      {importOpen && token && (
+        <ImportExcelDialog
+          ten="hồ sơ nhân sự"
+          chay={(f, mode) => api.employees.importExcel(token, f, mode)}
+          taiMau={taiMauNhap}
+          luat={
+            "Bấm “Tải file mẫu” để lấy file trắng đúng định dạng, hoặc “Xuất Excel” " +
+            "để lấy file có sẵn người hiện có rồi sửa trên chính file đó. Mã đã có là sửa đúng " +
+            "người đó; mã CHƯA có là thêm người mới GIỮ NGUYÊN mã đó (chuyển dữ liệu sang máy " +
+            "khác thì mã không bị cấp lại); để TRỐNG ô Mã thì máy tự cấp NV001, NV002… Cột không " +
+            "có trong file thì giữ nguyên, ô trống ở cột CÓ trong file thì xoá giá trị — riêng " +
+            "Thâm niên trước, Số người phụ thuộc, Cách tính thuế TNCN thì về mặc định (0 · 0 · " +
+            "Luỹ tiến). Ai không có mặt " +
+            "trong file thì không bị đụng tới. Cả file là MỘT lượt: còn một dòng lỗi thì không ghi " +
+            "gì cả. Trạng thái của người đã có và tài khoản đăng nhập thì file không đổi được — " +
+            "làm trên màn."
+          }
+          onClose={() => setImportOpen(false)}
+          onImported={() => { setImportOpen(false); load(); }}
         />
       )}
 

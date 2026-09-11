@@ -6,13 +6,13 @@
 //
 //  · KcsPanel  — hiện khi bước là KCS (`la_kcs`): ghi mẻ kiểm tra, ghi lỗi + ≥1 ảnh, thêm/xoá ảnh.
 //  · KhoPanel  — hiện khi KCS + có nhóm (`nhom_id`): tạo yêu cầu nhập thành phẩm, phân loại BTP dư.
-//  · DongNhomPanel — hiện khi KCS CUỐI + có nhóm: checklist cổng đóng + nút "Đóng thiếu" kèm lý do.
+//  · DongNhomPanel — hiện khi KCS CUỐI + có nhóm: checklist cổng đóng + nút "Đóng thiếu" (một nhịp xác nhận, không ô lý do — mg 0288).
 //  · KcsHopThu / KhoHopThu — hộp thư mức trang, hiện khi CÓ việc chờ (real-time qua eventTick/g5Tick).
 import { useEffect, useState } from "react";
 import type {
   SxWorkItemChiTiet, SxKcsChiTiet, SxKcsBatchChiTiet, SxKcsLoi, SxKcsAnh,
   SxKhoChiTiet, SxNhapKhoYc, SxKhoLot, SxKhoHopThu, SxDongNhomDieuKien,
-  SxPhanLoaiBtp, SxLyDo, SxPhanLoaiBtpIn, SxDongThieuIn, SxThuongToTruong,
+  SxPhanLoaiBtp, SxPhanLoaiBtpIn, SxDongThieuIn, SxThuongToTruong,
 } from "../api/client";
 import { assetUrl } from "../api/client";
 import { Button } from "../components/Button";
@@ -20,7 +20,7 @@ import { ChipLoaiBuoc } from "../components/ChipBuoc";
 import { Icon } from "../components/Icons";
 import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe } from "../lib/gioNhap";
 import { num, ngayGio } from "./keHoachSxShared";
-import { Field, LyDoSelect, toNum, toDtLocal, type ThsxExec } from "./ThsxExecPanels";
+import { Field, toNum, toDtLocal, type ThsxExec } from "./ThsxExecPanels";
 import { nhanDonVi } from "./lsxBuoc";
 
 export type Opt = { id: number; ten: string };
@@ -59,13 +59,12 @@ function Pill({ map, k }: { map: Record<string, { txt: string; cls: string }>; k
 
 // ════════════════════════════ KCS §13 (panel drawer) ════════════════════════
 export function ThsxKcsPanel({
-  chiTiet, ct, canAssign, busy, loadLyDo, toChiuOpts, congDoanRefOpts, exec,
+  chiTiet, ct, canAssign, busy, toChiuOpts, congDoanRefOpts, exec,
 }: {
   chiTiet: SxWorkItemChiTiet;
   ct: SxKcsChiTiet | null;
   canAssign: boolean;
   busy: boolean;
-  loadLyDo: (nhom: string) => Promise<SxLyDo[]>;
   toChiuOpts: Opt[];
   congDoanRefOpts: Opt[];
   exec: ThsxExec;
@@ -107,7 +106,7 @@ export function ThsxKcsPanel({
         <ul className="thsx-x-list">
           {batches.map((b) => (
             <KcsBatchRow key={b.id} b={b} canAssign={canAssign} busy={busy}
-              loadLyDo={loadLyDo} toChiuOpts={toChiuOpts} congDoanRefOpts={congDoanRefOpts} exec={exec} />
+              toChiuOpts={toChiuOpts} congDoanRefOpts={congDoanRefOpts} exec={exec} />
           ))}
         </ul>
       )}
@@ -181,10 +180,10 @@ function KcsBatchForm({
 }
 
 function KcsBatchRow({
-  b, canAssign, busy, loadLyDo, toChiuOpts, congDoanRefOpts, exec,
+  b, canAssign, busy, toChiuOpts, congDoanRefOpts, exec,
 }: {
   b: SxKcsBatchChiTiet; canAssign: boolean; busy: boolean;
-  loadLyDo: (nhom: string) => Promise<SxLyDo[]>; toChiuOpts: Opt[]; congDoanRefOpts: Opt[]; exec: ThsxExec;
+  toChiuOpts: Opt[]; congDoanRefOpts: Opt[]; exec: ThsxExec;
 }) {
   const [open, setOpen] = useState(false);
   const [loiOpen, setLoiOpen] = useState(false);
@@ -223,7 +222,7 @@ function KcsBatchRow({
               )}
             </div>
             {loiOpen && (
-              <KcsLoiForm batch={b} busy={busy} loadLyDo={loadLyDo}
+              <KcsLoiForm batch={b} busy={busy}
                 toChiuOpts={toChiuOpts} congDoanRefOpts={congDoanRefOpts}
                 onXong={() => setLoiOpen(false)} exec={exec} />
             )}
@@ -244,22 +243,20 @@ function KcsBatchRow({
 }
 
 function KcsLoiForm({
-  batch, busy, loadLyDo, toChiuOpts, congDoanRefOpts, onXong, exec,
+  batch, busy, toChiuOpts, congDoanRefOpts, onXong, exec,
 }: {
-  batch: SxKcsBatchChiTiet; busy: boolean; loadLyDo: (nhom: string) => Promise<SxLyDo[]>;
+  batch: SxKcsBatchChiTiet; busy: boolean;
   toChiuOpts: Opt[]; congDoanRefOpts: Opt[]; onXong: () => void; exec: ThsxExec;
 }) {
-  const [nhomLoiId, setNhomLoiId] = useState<number | null>(null);
   const [soLuong, setSoLuong] = useState("");
   const [moTa, setMoTa] = useState("");
   const [toChiu, setToChiu] = useState<number | null>(null);
   const [congDoanRef, setCongDoanRef] = useState<number | null>(null);
   const [files, setFiles] = useState<File[]>([]);
-  const hopLe = nhomLoiId != null && files.length >= 1;
+  const hopLe = files.length >= 1;
 
   async function luu() {
     if (await exec.ghiLoiKcs(batch.id, {
-      nhom_loi_id: nhomLoiId!,
       to_chiu_id: toChiu,
       cong_doan_ref_id: congDoanRef,
       so_luong: toNum(soLuong),
@@ -272,9 +269,6 @@ function KcsLoiForm({
   return (
     <div className="thsx-x-form thsx-x-form--sub">
       <div className="thsx-x-grid2">
-        <Field label="Nhóm lỗi">
-          <LyDoSelect nhom="loi" loadLyDo={loadLyDo} value={nhomLoiId} onChange={setNhomLoiId} />
-        </Field>
         <Field label={`Số lượng${batch.don_vi ? ` (${nhanDonVi(batch.don_vi)})` : ""}`}>
           <input type="number" min={0} className="thsx-x-in" value={soLuong} onChange={(e) => setSoLuong(e.target.value)} placeholder="0" />
         </Field>
@@ -306,7 +300,7 @@ function KcsLoiForm({
           <Icon name="check" size={13} /> Ghi lỗi
         </Button>
       </div>
-      {!hopLe && <p className="thsx-x-hint">Cần chọn nhóm lỗi và ít nhất một ảnh.</p>}
+      {!hopLe && <p className="thsx-x-hint">Cần ít nhất một ảnh bằng chứng.</p>}
     </div>
   );
 }
@@ -320,14 +314,13 @@ function KcsLoiRow({
   return (
     <li className="thsx-x-loi">
       <div className="thsx-x-loi__h">
-        <span className="thsx-x-loi__ten">{loi.nhom_loi_ten ?? "Lỗi"}</span>
+        <span className="thsx-x-loi__ten">{loi.mo_ta || "Lỗi"}</span>
         {loi.so_luong > 0 && (
           <span className="thsx-x-loi__q thsx-num">{num(loi.so_luong)}{loi.don_vi ? ` ${nhanDonVi(loi.don_vi)}` : ""}</span>
         )}
         <span className="thsx-x-item__spacer" />
         <Pill map={LOI_TT} k={loi.trang_thai} />
       </div>
-      {loi.mo_ta && <p className="thsx-x-loi__mo">{loi.mo_ta}</p>}
       {loi.trang_thai === "rejected" && loi.ly_do_tu_choi && (
         <p className="thsx-x-loi__reject"><Icon name="x" size={12} /> Tổ từ chối: “{loi.ly_do_tu_choi}”</p>
       )}
@@ -683,18 +676,16 @@ export function ThsxThuongToTruongPanel({ rows }: { rows: SxThuongToTruong[] | n
 
 // ══════════════════════ ĐÓNG NHÓM §16 / §13.3 (panel drawer) ═════════════════
 export function ThsxDongNhomPanel({
-  dieuKien, canAssign, busy, loadLyDo, onDongThieu,
+  dieuKien, canAssign, busy, onDongThieu,
 }: {
   dieuKien: SxDongNhomDieuKien | null;
   canAssign: boolean;
   busy: boolean;
-  loadLyDo: (nhom: string) => Promise<SxLyDo[]>;
   /** Chỉ nhận ĐÚNG mặt ghi nó cần, không ôm cả `exec` — panel này còn được dùng ở màn KCS
    *  (`pages/kcs`), nơi không có controller bàn tổ để dựng đủ 30 hàm của `ThsxExec`. */
   onDongThieu: (nhomId: number, body: SxDongThieuIn) => Promise<boolean>;
 }) {
   const [dongOpen, setDongOpen] = useState(false);
-  const [lyDoId, setLyDoId] = useState<number | null>(null);
 
   if (dieuKien == null) {
     return (
@@ -708,9 +699,8 @@ export function ThsxDongNhomPanel({
   const daDong = dieuKien.trang_thai === "closed_full" || dieuKien.trang_thai === "closed_short";
 
   async function dong() {
-    if (lyDoId == null) return;
-    if (await onDongThieu(dieuKien!.nhom_id, { ly_do_id: lyDoId, expected_version: dieuKien!.version })) {
-      setDongOpen(false); setLyDoId(null);
+    if (await onDongThieu(dieuKien!.nhom_id, { expected_version: dieuKien!.version })) {
+      setDongOpen(false);
     }
   }
 
@@ -769,13 +759,10 @@ export function ThsxDongNhomPanel({
               </div>
             ) : (
               <div className="thsx-x-form thsx-x-form--sub">
-                <Field label="Lý do đóng thiếu">
-                  <LyDoSelect nhom="dong_thieu" loadLyDo={loadLyDo} value={lyDoId} onChange={setLyDoId} />
-                </Field>
                 <p className="thsx-x-hint">Đóng thiếu sẽ báo ngay cho Sale và Kế hoạch SX.</p>
                 <div className="thsx-x-act">
-                  <Button variant="ghost" onClick={() => { setDongOpen(false); setLyDoId(null); }} disabled={busy}>Huỷ</Button>
-                  <Button variant="accent" onClick={dong} disabled={busy || lyDoId == null}>
+                  <Button variant="ghost" onClick={() => setDongOpen(false)} disabled={busy}>Huỷ</Button>
+                  <Button variant="accent" onClick={dong} disabled={busy}>
                     <Icon name="check" size={13} /> Xác nhận đóng thiếu
                   </Button>
                 </div>
@@ -857,10 +844,9 @@ function KcsHopThuRow({
   return (
     <li className="thsx-hopthu__it">
       <div className="thsx-hopthu__main">
-        <span className="thsx-hopthu__ten">{loi.nhom_loi_ten ?? "Lỗi"}</span>
+        <span className="thsx-hopthu__ten">{loi.mo_ta || "Lỗi"}</span>
         {loi.so_luong > 0 && <span className="thsx-num">{num(loi.so_luong)}{loi.don_vi ? ` ${nhanDonVi(loi.don_vi)}` : ""}</span>}
       </div>
-      {loi.mo_ta && <p className="thsx-hopthu__mo">{loi.mo_ta}</p>}
       {loi.anh.length > 0 && (
         <div className="thsx-x-anh">
           {loi.anh.map((a) => (

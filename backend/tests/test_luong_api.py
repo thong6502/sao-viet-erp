@@ -2413,11 +2413,18 @@ def test_xuat_excel_cot_thuong_co_khoan_danh_muc(client):
     r = client.get("/api/luong/export.xlsx?year=2026&month=6", headers=_h(token))
     assert r.status_code == 200, r.text
     ws = load_workbook(BytesIO(r.content)).active
-    head = [c.value for c in ws[1]]
-    i_thuong, i_tong = head.index("Thưởng"), head.index("Tổng")
-    row = next(r for r in ws.iter_rows(min_row=2, values_only=True) if r[1] == "NV Xuất Excel")
-    assert row[i_thuong] == 1_200_000, f"cột Thưởng ra {row[i_thuong]}, mất khoản danh mục"
-    assert row[i_tong] == _line_of(client, token, eid)["gross"]
+    # Khuôn mới (09/09/2026, theo bảng lương kế toán đang dùng): tiêu đề ở DÒNG 4, dữ liệu từ dòng 5.
+    head = [c.value for c in ws[4]]
+    row = next(r for r in ws.iter_rows(min_row=5, values_only=True) if r[2] == "NV Xuất Excel")
+    lay = lambda ten: float(row[head.index(ten)] or 0)      # noqa: E731
+    assert lay("Khoản phát sinh") == 1_200_000, "mất khoản danh mục phát sinh"
+    assert lay("TỔNG LƯƠNG") == _line_of(client, token, eid)["gross"]
+    # ⭐ File phải TỰ CỘNG RA Thực nhận — bản cũ thiếu đoàn phí / khoản trừ / lương đợt 1.
+    assert lay("CỘNG THU") - lay("Phạt/trừ thực tế") == lay("TỔNG LƯƠNG")
+    con_lai = (lay("TỔNG LƯƠNG") - lay("BHXH") - lay("BHYT") - lay("BHTN")
+               - lay("Đoàn phí công đoàn") - lay("Thuế TNCN") - lay("Khoản trừ danh mục")
+               - lay("Tạm ứng trừ kỳ này"))
+    assert con_lai == lay("THỰC NHẬN")
 
 
 def _bulk(client, token, cid, **body):

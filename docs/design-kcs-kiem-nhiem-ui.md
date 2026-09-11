@@ -91,7 +91,7 @@ Cấu trúc (mirror `KhoBaoCaoPage.tsx` KPI strip + filter, nhưng số liệu t
     <Select value={loai} options={[Tất cả, Routing, Đột xuất]} .../>
     <Select value={congDoanId} options={...danh mục công đoạn...} .../>
     <input placeholder="Mã đơn/LSX" value={tuKhoa} onChange=.../>
-    {/* nhom_loi_id, kcs_department_id: thêm nếu cần, không bắt buộc phải phơi hết 7 filter backend ra UI ngay - tối thiểu: tu/den/loai/cong_doan_id/tu_khoa cho v1, đủ đáp ứng §6.2 "bộ lọc gọn" */}
+    {/* kcs_department_id: thêm nếu cần, không bắt buộc phải phơi hết filter backend ra UI ngay - tối thiểu: tu/den/loai/cong_doan_id/tu_khoa cho v1, đủ đáp ứng §6.2 "bộ lọc gọn". (nhom_loi_id đã gỡ cùng danh mục Lý do & lỗi SX - mg 0288) */}
   </div>
 
   <div className="kcs-dash__strip">   {/* mirror .kho-dash__strip — dải ngang liền, KHÔNG card rời */}
@@ -103,7 +103,7 @@ Cấu trúc (mirror `KhoBaoCaoPage.tsx` KPI strip + filter, nhưng số liệu t
 
   <div className="kcs-dash__charts">   {/* 3 biểu đồ NHỎ, đúng §6.2 — KHÔNG thêm card trang trí (Task 10 mục 3) */}
     <MonthBars .../>  {/* xu hướng lỗi theo ngày — dùng theo_ngay[], trục X=ngay, Y=tong_loi (có thể thêm tong_dat cùng trục nếu MonthBars hỗ trợ multi-series, nếu không thì 1 series tong_loi là đủ tối thiểu) */}
-    <MixDonut .../>   {/* nhóm lỗi nhiều nhất — dùng nhom_loi[], top 5 + "Khác" gộp phần còn lại nếu >5 mục */}
+    <MixDonut .../>   {/* tổ bị ghi lỗi nhiều nhất — dùng to[], top 5 + "Khác" gộp phần còn lại nếu >5 mục. (Ô này từng là "nhóm lỗi nhiều nhất"; danh mục lỗi đã gỡ - mg 0288) */}
     <MixDonut .../>   {/* công đoạn/tổ bị ghi lỗi nhiều nhất — dùng cong_doan[] hoặc to[], chọn 1 trong 2 làm biểu đồ chính; cái còn lại hiện dạng bảng mini bên cạnh nếu chỗ cho phép, KHÔNG bắt buộc phải vẽ cả 2 thành chart nếu chật chỗ mobile */}
   </div>
 </section>
@@ -160,7 +160,7 @@ Cấu trúc (dùng shell `Drawer.tsx`, class gốc `.rc-drawer` + `.kcs-drawer` 
 
   {soLoi > 0 && (                          /* Khối 4 — CHỈ hiện khi Lỗi > 0 (Task 9 mục 4) */
     <div className="kcs-drawer__loi">
-      <Select label="Nhóm lỗi *" .../>
+      {/* "Nhóm lỗi *" đã gỡ cùng danh mục Lý do & lỗi SX (mg 0288) — lỗi tả bằng ô Mô tả tự do */}
       <textarea placeholder="Mô tả lỗi"/>
       <Select label="Tổ/công đoạn liên quan" .../>   {/* to_chiu_id — OPTIONAL, "chưa xác định" hợp lệ theo Task 8 Ruling 4 */}
       <div className="kcs-drawer__anh">   {/* ảnh BẮT BUỘC ≥1 khi lỗi>0 — tái dùng logic AnhLuoi của ThsxG5.tsx */}

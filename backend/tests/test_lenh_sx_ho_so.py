@@ -25,7 +25,6 @@ from app.models.lsx import TT_SAN_SANG, Lsx, LsxCongDoan, LsxCongDoanVatTu
 from app.models.may_thiet_bi import MayThietBi
 from app.models.order import OrderLine
 from app.models.san_xuat import SanXuatCongViec, SanXuatNhomLsx
-from app.models.san_xuat_ly_do import NHOM_LOI, SanXuatLyDo
 from app.models.san_xuat_thuc_thi import SanXuatPhanCong
 from app.models.bai_ghep_cong_doan import BaiGhepCongDoanVatTu
 from app.models.san_xuat_kho import SanXuatKhoHang, SanXuatKhoLot
@@ -942,7 +941,7 @@ def test_vat_tu_khong_lan_sang_bai_ghep_khac(
 # ép 0.0, tổng `san_luong` ép 0, `bo_qua` ép rỗng, `khach_hang` ép None. Nguyên nhân giống nhau:
 # `test_du_cac_khoi` chỉ soi TÊN KHOÁ, còn giá trị thì không bài nào nhìn. Sáu bài dưới đây canh
 # GIÁ TRỊ, và mỗi bài nói rõ con số sai nào nó chặn.
-def _ghi_san_luong(sess, admin, cv, *, tong, tot, hong=0, nhom_loi_id=None, ma="NV-HS-SL") -> None:
+def _ghi_san_luong(sess, admin, cv, *, tong, tot, hong=0, ma="NV-HS-SL") -> None:
     """Ghi MỘT batch sản lượng bằng ĐÚNG đường production (`san_luong.tao_batch`).
 
     Bước phải ĐANG CHẠY mới ghi được (`_TRANG_THAI_GHI_DUOC`), nên mở ba cửa của `thuc_thi.bat_dau`
@@ -961,7 +960,7 @@ def _ghi_san_luong(sess, admin, cv, *, tong, tot, hong=0, nhom_loi_id=None, ma="
         sess, user=admin, cong_viec_id=cv.id,
         bat_dau=datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc),
         ket_thuc=datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc),
-        tong=tong, tot=tot, hong=hong, nhom_loi_id=nhom_loi_id,
+        tong=tong, tot=tot, hong=hong,
     )
     sess.expire_all()
 
@@ -1021,12 +1020,9 @@ def test_san_luong_cong_don_moi_batch(client, seed_credentials, sess, admin, len
     trả 0 lúc xưởng đã chạy 500 tờ là hồ sơ nói dối đúng chỗ đau nhất. Hai batch trên CÙNG một bước
     để bắt luôn kiểu "gán = batch cuối" thay vì "+=".
     """
-    loi = SanXuatLyDo(ma="LOI-HS-1", nhom=NHOM_LOI, ten="Nhăn giấy")
-    sess.add(loi)
-    sess.commit()
     cv = _cvs(sess, lenh_that)[0]
     _ghi_san_luong(sess, admin, cv, tong=300, tot=300)
-    _ghi_san_luong(sess, admin, cv, tong=200, tot=180, hong=20, nhom_loi_id=loi.id)
+    _ghi_san_luong(sess, admin, cv, tong=200, tot=180, hong=20)
 
     sl = _ho_so(client, seed_credentials, lenh_that)["san_luong"]
     assert sl["tong"] == 500.0, "cộng dồn, không phải lấy batch cuối (200)"

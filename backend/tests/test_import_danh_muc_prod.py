@@ -16,8 +16,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import func, select
 
-from app.db import Base, SessionLocal, engine
-from app.db_migrations import run_migrations
+from tests.conftest import phien_da_seed
+
+from app.db import engine
 from app.import_danh_muc_prod import run
 from app.seed import seed_all
 from app.models.bu_hao import BuHao
@@ -25,7 +26,6 @@ from app.models.cong_doan import CongDoan
 from app.models.khuon_be import KhuonBe
 from app.models.may_thiet_bi import MayThietBi
 from app.models.piece_work import PieceRate
-from app.models.san_xuat_ly_do import SanXuatLyDo
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from app.services.bien_cong_thuc import BIEN, LOAI_CONG_DOAN, LOAI_QUY_DOI, LOAI_VAT_TU
 from app.services.thanh_phan_engine import kiem_cong_thuc, safe_eval
@@ -56,20 +56,14 @@ _BANG_CONG_THUC = [
 
 # Bảng cần đối chiếu số dòng giữa hai lần chạy (idempotent).
 _BANG_DEM = [ChungLoaiGiay, GiayNguyen, VatTuInAn, MayThietBi, BuHao,
-             CongDoan, KhuonBe, SanXuatLyDo, PieceRate]
+             CongDoan, KhuonBe, PieceRate]
 
 
 @pytest.fixture
 def db():
     """DB test như prod SAU khởi động bình thường: migrations + seed_all (SEED_DEMO=false),
     rồi script `run()` layer danh mục lên trên."""
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    s = SessionLocal()
-    run_migrations(s)
-    seed_all(s)
-    yield s
-    s.close()
+    yield from phien_da_seed()
 
 
 def _dem(db, model) -> int:
@@ -83,7 +77,7 @@ def test_run_idempotent_va_cong_thuc_engine_nuot_duoc(db):
 
     # Có thêm dòng thật ở mọi danh mục đa dạng (không phải no-op).
     for khoa in ("chung_loai_giay", "giay", "vat_tu", "may", "bu_hao",
-                 "cong_doan", "khuon", "ly_do_san_xuat", "cong_viec_khoan"):
+                 "cong_doan", "khuon", "cong_viec_khoan"):
         assert kq1[khoa] > 0, f"{khoa} không thêm dòng nào ở lần chạy đầu"
 
     # --- Lần 2: phải idempotent ---

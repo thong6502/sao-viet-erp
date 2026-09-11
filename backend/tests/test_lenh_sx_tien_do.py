@@ -31,6 +31,7 @@ from app.models.lsx import LB_MAY, LsxCongDoan, LsxCongDoanPhuThuoc
 from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, SanXuatCongViec
 from app.models.san_xuat_san_luong import SanXuatBatch
 from app.models.san_xuat_thuc_thi import PHIEN_KET_THUC, PHIEN_TAM_DUNG, SanXuatPhienChay
+from app.services.gio_xuong import ve_gio_xuong
 from app.services.lenh_sx import boi_canh, tien_do
 from app.services.san_xuat import release
 
@@ -162,8 +163,13 @@ def _dung_lenh(
         if phut is None:
             cv.du_kien_bat_dau = cv.du_kien_ket_thuc = None
         else:
-            cv.du_kien_bat_dau = bat_dau[i]
-            cv.du_kien_ket_thuc = ket_thuc[i]
+            # HAI THANG GIỜ (`services/gio_xuong.py`): `bat_dau[i]`/`ket_thuc[i]` là mốc UTC
+            # THẬT mà bài test muốn nói tới, còn cột `du_kien_*` lưu GIỜ TƯỜNG dán nhãn UTC —
+            # đúng thứ `san_xuat/snapshot.py` chép sang từ `xep_lich_cong_doan`. Ghi thẳng mốc
+            # UTC vào đó là dựng một hình dạng dữ liệu KHÔNG tồn tại ở production, và bài test
+            # khi ấy chỉ xanh trên máy chạy múi UTC.
+            cv.du_kien_bat_dau = ve_gio_xuong(bat_dau[i])
+            cv.du_kien_ket_thuc = ve_gio_xuong(ket_thuc[i])
     db.commit()
     return a.id
 

@@ -256,6 +256,61 @@ describe("CatalogDrawer — form của màn danh mục dùng chung", () => {
     expect(screen.getByRole("button", { name: "Tạo mới" })).toBeTruthy();
   });
 
+  it("ô trỏ danh mục KHÔNG mời mục đã ngừng dùng, nhưng GIỮ mục bản ghi đang trỏ tới", async () => {
+    const user = userEvent.setup();
+    // CD-002 đã NGỪNG DÙNG; bản ghi CD-001 lại đang trỏ vào đúng nó.
+    const rows: Row[] = [
+      { id: 1, ma: "CD-001", ten: "Bế", active: true, cha_id: 2 },
+      { id: 2, ma: "CD-002", ten: "Cán màng", active: false },
+      { id: 3, ma: "CD-003", ten: "Gấp", active: true },
+    ];
+    moMan({ ...CO_BAN,
+      fields: [{ key: "cha_id", label: "Công đoạn trước", type: "ref", refPrefix: "/api/nhom-may" }],
+    }, rows);
+
+    // TẠO MỚI: chưa trỏ vào đâu ⇒ mục ngừng dùng không được bày ra mời.
+    await moDrawerTao(user);
+    const oTao = drawer().getByLabelText(/^Công đoạn trước/);
+    await waitFor(() => expect(within(oTao).getAllByRole("option").length).toBeGreaterThan(1));
+    const nhanTao = within(oTao).getAllByRole("option").map((o) => o.textContent);
+    expect(nhanTao).toEqual(["— chọn —", "CD-001 · Bế", "CD-003 · Gấp"]);
+
+    await user.keyboard("{Escape}");
+    // SỬA bản ghi đang trỏ vào mục đã ngừng: mục đó VẪN nằm trong menu, kèm chữ "(ngừng dùng)".
+    // Lọc thẳng ra thì ô rơi về "— chọn —", người khai tưởng chưa khai, bấm Lưu là mất liên kết.
+    await user.click(await screen.findByText("Bế"));
+    await screen.findByRole("dialog");
+    const oSua = drawer().getByLabelText(/^Công đoạn trước/) as HTMLSelectElement;
+    await waitFor(() => expect(within(oSua).getAllByRole("option").length).toBe(4));
+    expect(within(oSua).getAllByRole("option").map((o) => o.textContent))
+      .toContain("CD-002 · Cán màng (ngừng dùng)");
+    expect(oSua.value).toBe("2");
+  });
+
+  it("ô Nhóm máy: vẫn lọc ngừng-dùng nhưng TUYỆT ĐỐI không dán chữ vào nhãn — nhãn CHÍNH LÀ giá trị", async () => {
+    const user = userEvent.setup();
+    const rows: Row[] = [
+      { id: 1, ma: "CD-001", ten: "Máy A", active: true, loai_may: "Nhóm cũ" },
+      { id: 2, ma: "CD-002", ten: "Nhóm cũ", active: false },
+      { id: 3, ma: "CD-003", ten: "Nhóm mới", active: true },
+    ];
+    moMan({ ...CO_BAN,
+      fields: [{ key: "loai_may", label: "Nhóm máy", type: "nhom_may", refPrefix: "/api/nhom-may" }],
+    }, rows);
+
+    await user.click(await screen.findByText("Máy A"));
+    await screen.findByRole("dialog");
+    const o = drawer().getByLabelText(/^Nhóm máy/) as HTMLSelectElement;
+    await waitFor(() => expect(within(o).getAllByRole("option").length).toBe(4));
+
+    // Nhóm đang gán còn nguyên trong menu…
+    expect(o.value).toBe("Nhóm cũ");
+    // …và nhãn của nó KHÔNG có đuôi "(ngừng dùng)": ô này lưu TÊN nhóm xuống `may_thiet_bi
+    // .loai_may`, dán chữ vào là chọn một nhát ghi thẳng "Nhóm cũ (ngừng dùng)" xuống DB.
+    const nhan = within(o).getAllByRole("option").map((x) => x.textContent);
+    expect(nhan).toEqual(["— chọn nhóm máy —", "Máy A", "Nhóm cũ", "Nhóm mới"]);
+  });
+
   it("ô bị `showIf` ẩn thì KHÔNG lọt vào body, dù trong form vẫn còn giá trị mặc định", async () => {
     const user = userEvent.setup();
     const goi = moMan({

@@ -38,7 +38,6 @@ from sqlalchemy.orm import Session
 
 from ...models.payroll import PERIOD_LOCKED, PERIOD_PAID, PayrollPeriod
 from ...models.san_xuat import SanXuatCongViec
-from ...models.san_xuat_ly_do import NHOM_MO_LAI_PHAN_BO
 from ...models.san_xuat_san_luong import SanXuatBatch
 from ...models.san_xuat_phan_bo import (
     HT_XAC_NHAN,
@@ -107,7 +106,7 @@ def _don_gia_don_vi(cv: SanXuatCongViec) -> tuple[float, str | None]:
     `don_gia_hd` THẮNG `don_gia` khi có mặt (08/09/2026): bước ấy khai ô tiền công bằng công thức
     RA THẲNG TIỀN (chip `don_gia_khoan`), nên `don_gia` gốc chỉ còn là một số liệu bên trong công
     thức — nhân nó với sản lượng ở đây là bỏ qua cả công thức người ta viết, đúng thứ chủ đã cấm.
-    Số đóng băng lúc phát hành, xem `snapshot._DonGiaHieuDung` và `LsxService.don_gia_hieu_dung`.
+    Số đóng băng lúc phát hành, xem `snapshot._SoPhatHanh.khoan_json` và `LsxService.don_gia_hieu_dung`.
     """
     khoan = cv.khoan_json or {}
     if (hd := float(khoan.get("don_gia_hd") or 0)) > 0:
@@ -415,10 +414,10 @@ def chot_phan_bo(
 
 
 def mo_lai_phan_bo(
-    db: Session, *, user, phan_bo_id: int, ly_do_id: int, expected_version: int | None = None
+    db: Session, *, user, phan_bo_id: int, expected_version: int | None = None
 ) -> dict:
     """Mở lại phân bổ ĐÃ CHỐT để sửa (§12.3) — CHỈ khi kỳ lương của batch CHƯA khoá. Sau khi kỳ đã
-    khoá thì không mở kỳ cũ, phải dùng `bu_tru`. Bắt buộc lý do (nhóm `mo_lai_phan_bo`)."""
+    khoá thì không mở kỳ cũ, phải dùng `bu_tru`."""
     pb_repo = SanXuatPhanBoRepository(db)
     header = pb_repo.phan_bo(phan_bo_id)
     if header is None:
@@ -434,12 +433,7 @@ def mo_lai_phan_bo(
     if _ky_da_khoa(db, header.ky_nam, header.ky_thang):
         raise ValueError("Kỳ lương đã khoá — không mở lại được, hãy dùng bù trừ ở kỳ mở tiếp theo.")
 
-    ly_do = pb_repo.ly_do(ly_do_id)
-    if ly_do is None or ly_do.nhom != NHOM_MO_LAI_PHAN_BO:
-        raise ValueError("Lý do mở lại không hợp lệ (phải thuộc nhóm 'mo_lai_phan_bo').")
-
     header.trang_thai = PB_MO_LAI
-    header.mo_lai_ly_do_id = ly_do_id
     header.mo_lai_by_id = getattr(user, "id", None)
     header.mo_lai_luc = _moc()
     header.version += 1
@@ -448,7 +442,7 @@ def mo_lai_phan_bo(
         actor_user_id=getattr(user, "id", None),
         action="san_xuat.phan_bo.mo_lai",
         target=f"san_xuat_phan_bo:{header.id}",
-        detail=f"ly_do={ly_do_id}",
+        detail=f"pb={header.id}",
     )
     db.commit()
     return {
@@ -470,7 +464,6 @@ def bu_tru(
     so_luong_tra_luong: float,
     ky_bu_nam: int,
     ky_bu_thang: int,
-    ly_do_id: int,
     mo_ta: str | None = None,
 ) -> dict:
     """Đẻ dòng BÙ TRỪ sau khi kỳ lương ĐÃ khoá (§12.3). Không sửa kỳ cũ — ghi chênh lệch (có thể âm)
@@ -493,10 +486,6 @@ def bu_tru(
     if _ky_da_khoa(db, ky_bu_nam, ky_bu_thang):
         raise ValueError("Kỳ bù đã khoá — chọn kỳ lương đang mở.")
 
-    ly_do = pb_repo.ly_do(ly_do_id)
-    if ly_do is None or ly_do.nhom != NHOM_MO_LAI_PHAN_BO:
-        raise ValueError("Lý do bù trừ không hợp lệ (phải thuộc nhóm 'mo_lai_phan_bo').")
-
     delta = float(so_luong_tra_luong or 0)
     if abs(delta) <= _EPS:
         raise ValueError("Số lượng bù trừ phải khác 0.")
@@ -513,7 +502,6 @@ def bu_tru(
         ngay=date(ky_bu_nam, ky_bu_thang, 1),
         so_luong_tra_luong=delta,
         don_gia=float(header.don_gia or 0),
-        ly_do_id=ly_do_id,
         mo_ta=(mo_ta or None),
         created_by_id=getattr(user, "id", None),
     )

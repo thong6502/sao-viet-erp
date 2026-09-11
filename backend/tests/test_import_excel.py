@@ -136,7 +136,6 @@ PREFIX = {
     "bu_hao": "/api/bu-hao",
     "khuon_be": "/api/khuon-be",
     "loai_san_pham": "/api/loai-san-pham",
-    "san_xuat_ly_do": "/api/san-xuat-ly-do",
     "cong_viec_khoan": "/api/cong-viec-khoan",
     "don_vi_do": "/api/don-vi",
     "chung_loai_giay": "/api/vat-lieu-kho/chung-loai-giay",
@@ -150,7 +149,7 @@ assert set(PREFIX) == set(SPECS), "PREFIX và SPECS phải phủ đúng 13 màn 
 
 MA = {
     "kho_hang": "KHO-T1", "bu_hao": "BH-T1", "khuon_be": "KB-T1", "loai_san_pham": "LSP-T1",
-    "san_xuat_ly_do": "LD-T1", "cong_viec_khoan": "KH-T1", "don_vi_do": "dvt1",
+    "cong_viec_khoan": "KH-T1", "don_vi_do": "dvt1",
     "chung_loai_giay": "CL-T1", "giay": "GI-T1", "vat_tu": "VT-T1", "thanh_pham": "TP-T1",
     "cong_doan": "CD-T1", "may_thiet_bi": "MAY-T1",
 }
@@ -175,9 +174,6 @@ def _dung_nen(client, h) -> dict[str, dict]:
     ra["khuon_be"] = _tao(client, h, "khuon_be", {
         "ma": MA["khuon_be"], "ten": "Khuôn thử", "loai": "khuon_be", "so_ke": "K1",
         "tinh_trang": "dang_dung", "ghi_chu": "gc"})
-    ra["san_xuat_ly_do"] = _tao(client, h, "san_xuat_ly_do", {
-        "ma": MA["san_xuat_ly_do"], "nhom": "loi", "ten": "Lỗi thử",
-        "mo_ta": "mô tả", "thu_tu": 7})
     ra["cong_viec_khoan"] = _tao(client, h, "cong_viec_khoan", {
         "ma": MA["cong_viec_khoan"], "ten": "Việc khoán thử", "department_id": to_id,
         "unit": "to", "unit_price": 120, "note": "gc"})
@@ -751,16 +747,16 @@ def test_loi_o_dong_cuoi_van_rollback_toan_bo_file(client, seed_credentials):
     """
     h = _login(client, **seed_credentials)
     noi_dung = _wb_tu(
-        ["Mã", "Nhóm", "Tên", "Thứ tự hiện"],
-        [["LD-A", "loi", "Lý do A", 1],
-         ["LD-B", "loi", "Lý do B", 2],
-         ["LD-C", "nhom-khong-ton-tai", "Lý do C", 3]],
-        ten_sheet=SPECS["san_xuat_ly_do"].tieu_de[:31], loai="san_xuat_ly_do")
+        ["Mã", "Tên", "Loại dao", "Tình trạng"],
+        [["KB-A", "Khuôn A", "khuon_be", "dang_dung"],
+         ["KB-B", "Khuôn B", "khuon_be", "dang_dung"],
+         ["KB-C", "Khuôn C", "khuon_be", "tinh-trang-khong-ton-tai"]],
+        ten_sheet=SPECS["khuon_be"].tieu_de[:31], loai="khuon_be")
 
-    kq = _nhap(client, h, PREFIX["san_xuat_ly_do"], noi_dung, mode="commit").json()
+    kq = _nhap(client, h, PREFIX["khuon_be"], noi_dung, mode="commit").json()
     assert kq["hop_le"] is False and kq["da_ghi"] is False
     assert (kq["tong_dong"], kq["tao_moi"]) == (3, 2), kq   # đếm được, nhưng KHÔNG ghi
-    assert client.get(PREFIX["san_xuat_ly_do"], headers=h).json()["total"] == 0
+    assert client.get(PREFIX["khuon_be"], headers=h).json()["total"] == 0
 
 
 def test_xem_truoc_khong_bao_gio_ghi(client, seed_credentials):

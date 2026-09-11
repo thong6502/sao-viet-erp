@@ -78,10 +78,10 @@ CB_THIEU_NGUOI = "thieu_nguoi"  # tổ không đủ quân cho các việc chạy
 CB_KHO_MAY = "kho_may"          # khổ / số màu / định lượng vượt khả năng máy
 
 # Dòng KHÔNG dùng khuôn (và mọi lượt chạy chung của bài ghép, vốn không trỏ bước lệnh nào) vẫn
-# phải có đủ 5 khoá: FE đọc `dong.khuon_ma` thẳng, thiếu khoá là `undefined` lẫn với "chưa chốt".
+# phải có đủ 4 khoá: FE đọc `dong.khuon_ma` thẳng, thiếu khoá là `undefined` lẫn với "chưa chốt".
 _KHUON_TRONG = {
     "requires_tooling": False, "khuon_ma": None, "khuon_so_ke": None,
-    "khuon_tinh_trang": None, "khuon_ngay_ve": None,
+    "khuon_tinh_trang": None,
 }
 
 
@@ -593,7 +593,21 @@ class XepLichService:
 
     # ================= QUÂN SỐ & QUỸ GIỜ-NGƯỜI CỦA TỔ (mục I) =================
 
-    def quan_so_tu_tinh(self, department_id: int, ngay: date) -> int:
+    def si_so_to(self, department_id: int) -> int:
+        """Số người ĐANG BIÊN CHẾ của tổ — KHÔNG phụ thuộc ngày nào.
+
+        Tách khỏi `quan_so_tu_tinh` vì đây là phần duy nhất không đổi theo ngày: một vòng quét
+        nhiều ngày của cùng một tổ (panel một lệnh chạy 3-4 ngày) hỏi lại đúng con số này mỗi ngày.
+        Chỗ nhớ nằm ở `XepLich2Context.si_so_to`, phạm vi một khối đóng băng.
+        """
+        dang_lam = (EMP_ACTIVE, EMP_PROBATION, EMP_PROBATION_ENDED)
+        return int(self.db.execute(
+            select(func.count()).select_from(Employee).where(
+                Employee.department_id == department_id, Employee.status.in_(dang_lam),
+            )
+        ).scalar_one())
+
+    def quan_so_tu_tinh(self, department_id: int, ngay: date, *, si_so: int | None = None) -> int:
         """Số người của tổ trong ngày, SUY từ hồ sơ nhân sự — không tính người tầng giữa.
 
         · đếm `employees.department_id` == ĐÚNG tổ đó (nút lá), trạng thái đang đi làm;
@@ -601,14 +615,12 @@ class XepLichService:
 
         Người gắn ở tầng giữa ("thuộc Xưởng in", không thuộc tổ lá nào) KHÔNG tính vào tổ nào —
         cộng họ vào một tổ nào đó là đếm thừa người, và lịch sẽ hứa một năng lực không có thật.
+
+        `si_so` = sĩ số tổ đã đếm SẴN (không bắt buộc) — xem `si_so_to`.
         """
         # Hết thử việc chờ xác nhận vẫn đi làm ⇒ vẫn phải xếp được ca.
         dang_lam = (EMP_ACTIVE, EMP_PROBATION, EMP_PROBATION_ENDED)
-        tong = self.db.execute(
-            select(func.count()).select_from(Employee).where(
-                Employee.department_id == department_id, Employee.status.in_(dang_lam),
-            )
-        ).scalar_one()
+        tong = self.si_so_to(department_id) if si_so is None else si_so
         nghi = self.db.execute(
             select(func.count(func.distinct(LeaveRequest.employee_id)))
             .select_from(LeaveRequest).join(Employee, Employee.id == LeaveRequest.employee_id)
@@ -622,7 +634,7 @@ class XepLichService:
         ).scalar_one()
         return max(0, int(tong) - int(nghi))
 
-    def quan_so_ngay(self, department_id: int, ngay: date) -> dict:
+    def quan_so_ngay(self, department_id: int, ngay: date, *, si_so: int | None = None) -> dict:
         """Quân số CÓ HIỆU LỰC của tổ trong ngày: dòng gõ đè nếu có, không thì số tự tính.
 
         Trả cả hai con số + nguồn, để màn hiện được "tự tính 8, đang gõ đè 5 — mượn 3 sang tổ Bế".
@@ -632,7 +644,7 @@ class XepLichService:
         trong cùng tiến trình có thể vừa ghi xong — cache ở đây là trả số cũ cho người vừa sửa.
         Vòng lặp nóng (`khoang_tai_to`) tự nhớ trong PHẠM VI một lần gọi, xem ở đó.
         """
-        tu_tinh = self.quan_so_tu_tinh(department_id, ngay)
+        tu_tinh = self.quan_so_tu_tinh(department_id, ngay, si_so=si_so)
         row = self.db.execute(
             select(ToQuanSoNgay).where(
                 ToQuanSoNgay.department_id == department_id, ToQuanSoNgay.ngay == ngay,
@@ -993,7 +1005,6 @@ class XepLichService:
                 "khuon_ma": k.ma if k else None,
                 "khuon_so_ke": k.so_ke if k else None,
                 "khuon_tinh_trang": k.tinh_trang if k else None,
-                "khuon_ngay_ve": k.ngay_ve_du_kien if k else None,
             }
         return ra
 

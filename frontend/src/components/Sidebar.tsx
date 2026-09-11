@@ -6,7 +6,7 @@
 // The user widget lives in the top header (Topbar), not here (feat-018).
 import { useEffect, useState } from "react";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
-import { VOUCHER_PAGE_LABEL } from "../constants/features";
+import { BAI_GHEP_ENABLED, XEP_LICH_2_ENABLED, VOUCHER_PAGE_LABEL } from "../constants/features";
 import { Icon, type IconName } from "./Icons";
 import "./sidebar.css";
 
@@ -106,11 +106,25 @@ export const NAV: NavSection[] = [
       { id: "ke-hoach-vat-tu", label: "Kế hoạch vật tư", icon: "box", module: "ke_hoach_vat_tu" },
       // Màn bài ghép cũ gỡ 18/08/2026. Id đường dẫn giữ `bai-ghep-2` (đổi id là hỏng dấu trang
       // người dùng đã lưu + bản đồ badge), NHÃN là "Bài ghép" — người dùng chỉ còn một màn.
-      { id: "bai-ghep-2", label: "Bài ghép", icon: "layers", module: "bai_ghep_2" },
+      // TẠM ẨN 10/09/2026 theo cờ `BAI_GHEP_ENABLED` — spread rỗng chứ KHÔNG xoá dòng, để bật lại
+      // là đổi đúng một chữ ở `constants/features.ts`. Ẩn mục menu cũng khoá luôn route: bảng
+      // `MODULES_BY_NAV_ID` dựng từ chính `NAV` này, mất mục thì AppShell coi `bai-ghep-2` là màn
+      // không có quyền.
+      ...(BAI_GHEP_ENABLED
+        ? [{ id: "bai-ghep-2", label: "Bài ghép", icon: "layers", module: "bai_ghep_2" } as NavItem]
+        : []),
       // Màn xếp lịch cũ (module `xep_lich`) đã thay bằng "một bàn làm việc" v2 (`xep_lich_2`) — 19/08/2026.
       // GIỮ id đường dẫn `xep-lich-cong-doan-2` để không hỏng dấu trang + bản đồ badge; NHÃN về tên quen.
       // Mọi vai đã có quyền `xep_lich_2` (mg 0218 chép từ `xep_lich`) nên không ai mất quyền khi bỏ màn cũ.
-      { id: "xep-lich-cong-doan-2", label: "Xếp lịch công đoạn", icon: "calendar", module: "xep_lich_2" },
+      // TẠM ẨN 10/09/2026 theo cờ `XEP_LICH_2_ENABLED` — spread rỗng chứ KHÔNG xoá dòng, y hệt
+      // cách ẩn Bài ghép ở trên. Thay bằng "Xếp lịch 3" ngay dưới.
+      ...(XEP_LICH_2_ENABLED
+        ? [{ id: "xep-lich-cong-doan-2", label: "Xếp lịch công đoạn", icon: "calendar",
+             module: "xep_lich_2" } as NavItem]
+        : []),
+      // Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH SẢN XUẤT. Module quyền RIÊNG `xep_lich_3`, mọi vai
+      // từng có `xep_lich_2` đã được chép sang (mg 0292 + seed), nên không ai mất đường vào.
+      { id: "xep-lich-3", label: "Xếp lịch", icon: "calendar", module: "xep_lich_3" },
       // Hai ô quyền cùng mở màn này: tổ sửa chữa vào bằng `ky_thuat_may`, người ngoài báo máy hỏng
       // vào bằng `yeu_cau_sua_chua` (màn tự chọn khung theo quyền).
       { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may",
@@ -272,10 +286,6 @@ export const NAV: NavSection[] = [
       { id: "khuon-be", label: "Khuôn & khung", icon: "clipboard", module: "khuon_be" },
       // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
       { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "dm_kho_hang" },
-      // Lý do & lỗi SX (§15): danh mục chuẩn hoá lý do/lỗi nuôi mọi ô chọn ở màn Thực hiện SX
-      // (hỏng batch · điều chỉnh bàn giao · mở lại phân bổ…). Quyền RIÊNG `dm_ly_do_san_xuat`
-      // (mg 0221 chép từ `san_xuat`). Đứng cuối nhóm — nó là dữ liệu vận hành SX, không phải master.
-      { id: "ly-do-san-xuat", label: "Lý do & lỗi SX", icon: "alert", module: "dm_ly_do_san_xuat" },
       // Tiêu chí KCS (module KCS kiêm nhiệm, mg 0250): checklist chuẩn hoá + công đoạn nào áp
       // dụng — dùng để chụp (snapshot) checklist khi phát hành lệnh (Task 3).
       { id: "kcs-tieu-chi", label: "Tiêu chí KCS", icon: "fileCheck", module: "dm_kcs_tieu_chi" },

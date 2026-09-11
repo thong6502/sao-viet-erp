@@ -16,11 +16,6 @@ import pytest
 
 from app.models.department import Department
 from app.models.san_xuat import CV_DANG_CHAY
-from app.models.san_xuat_ly_do import (
-    NHOM_DIEU_CHINH_BAN_GIAO,
-    NHOM_TAM_DUNG,
-    SanXuatLyDo,
-)
 from app.models.san_xuat_san_luong import (
     BG_DE_XUAT,
     BG_DIEU_CHINH,
@@ -42,13 +37,6 @@ from tests.test_san_xuat_thuc_thi import (  # noqa: F401
 )
 
 _T0 = datetime(2026, 8, 19, 8, 0, tzinfo=timezone.utc)
-
-
-def _ly_do(db, nhom, ma, ten) -> SanXuatLyDo:
-    ld = SanXuatLyDo(ma=ma, nhom=nhom, ten=ten)
-    db.add(ld)
-    db.flush()
-    return ld
 
 
 def _hai_cv(db, orders, lsx_svc, admin, customer, ma="TO-BG"):
@@ -171,10 +159,9 @@ def test_dieu_chinh_ghi_lich_su_va_co_khong_nhat_quan(db, orders, lsx_svc, admin
     # Công đoạn sau tiêu thụ 80 (lot trỏ về batch của nguồn) → giảm bàn giao xuống dưới 80 = lệch.
     _batch(db, admin, cv2, tot=80, lot_vao=[{"nguon_batch_id": b1, "so_luong": 80}],
            t0=_T0 + timedelta(hours=3))
-    dc = _ly_do(db, NHOM_DIEU_CHINH_BAN_GIAO, "DC-1", "Đếm lại thiếu")
 
     res = ban_giao.dieu_chinh(
-        db, user=admin, ban_giao_id=r["ban_giao_id"], so_luong_sau=50, ly_do_id=dc.id
+        db, user=admin, ban_giao_id=r["ban_giao_id"], so_luong_sau=50, mo_ta="Đếm lại thiếu"
     )
     assert res["trang_thai_ban_giao"] == BG_DIEU_CHINH
     assert res["so_luong"] == 50 and res["khong_nhat_quan"] is True
@@ -183,12 +170,13 @@ def test_dieu_chinh_ghi_lich_su_va_co_khong_nhat_quan(db, orders, lsx_svc, admin
 
     # Nâng lại trên mức đã dùng → hết lệch.
     res2 = ban_giao.dieu_chinh(
-        db, user=admin, ban_giao_id=r["ban_giao_id"], so_luong_sau=90, ly_do_id=dc.id
+        db, user=admin, ban_giao_id=r["ban_giao_id"], so_luong_sau=90, mo_ta="Đếm lại đủ"
     )
     assert res2["khong_nhat_quan"] is False
 
 
-def test_dieu_chinh_bat_buoc_ly_do_dung_nhom(db, orders, lsx_svc, admin, customer):
+def test_dieu_chinh_khong_con_doi_ly_do(db, orders, lsx_svc, admin, customer):
+    """Danh mục lý do/lỗi ĐÃ GỠ (mg 0288): điều chỉnh bàn giao KHÔNG còn phải nêu lý do."""
     to, cv1, cv2, lsx = _hai_cv(db, orders, lsx_svc, admin, customer)
     cv1.lsx_id = cv2.lsx_id = lsx
     db.commit()
@@ -197,10 +185,5 @@ def test_dieu_chinh_bat_buoc_ly_do_dung_nhom(db, orders, lsx_svc, admin, custome
         db, user=admin, nguon_cong_viec_id=cv1.id, dich_cong_viec_id=cv2.id, so_luong=100
     )
 
-    with pytest.raises(ValueError):                      # thiếu lý do
-        ban_giao.dieu_chinh(db, user=admin, ban_giao_id=r["ban_giao_id"], so_luong_sau=80)
-    sai = _ly_do(db, NHOM_TAM_DUNG, "TD-9", "Chờ mực")  # sai nhóm
-    with pytest.raises(ValueError):
-        ban_giao.dieu_chinh(
-            db, user=admin, ban_giao_id=r["ban_giao_id"], so_luong_sau=80, ly_do_id=sai.id
-        )
+    res = ban_giao.dieu_chinh(db, user=admin, ban_giao_id=r["ban_giao_id"], so_luong_sau=80)
+    assert res["so_luong"] == 80

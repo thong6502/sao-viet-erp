@@ -308,7 +308,7 @@ def tao_khuon_cho_lenh(
     _guard_scope(db, lsx, user, authz)
     try:
         return svc.tao_khuon_cho_lenh(
-            lsx, ten=payload.ten, loai=payload.loai, ngay_ve=payload.ngay_ve_du_kien, actor=user,
+            lsx, ten=payload.ten, loai=payload.loai, actor=user,
         )
     except Exception as exc:
         raise _map(exc)

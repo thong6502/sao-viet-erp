@@ -44,7 +44,6 @@ from app.models.san_xuat_kcs import (
     SanXuatKcsLoiAnh,
 )
 from app.models.san_xuat_kho import YC_CHO_KHO, YC_DA_NHAP, YC_MOT_PHAN
-from app.models.san_xuat_ly_do import NHOM_LOI, NHOM_TAM_DUNG, SanXuatLyDo
 from app.models.san_xuat_san_luong import BG_DE_XUAT, BG_XAC_NHAN, SanXuatBanGiao, SanXuatBatch
 from app.models.user import User
 from app.repositories.audit_repo import AuditLogRepository
@@ -67,13 +66,6 @@ from tests.test_san_xuat_thuc_thi import (  # noqa: F401
 
 _T0 = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
 _T1 = _T0 + timedelta(hours=1)
-
-
-def _ly_do(db, nhom=NHOM_LOI, ma="LOI-BONG", ten="Bong tróc mực") -> SanXuatLyDo:
-    ld = SanXuatLyDo(ma=ma, nhom=nhom, ten=ten)
-    db.add(ld)
-    db.flush()
-    return ld
 
 
 def _cv_kcs(db, orders, lsx_svc, admin, customer, ma="TO-KCS"):
@@ -307,17 +299,16 @@ def test_routing_checklist_bat_buoc_chan_khi_thieu_ket_qua(db, orders, lsx_svc, 
 # --- Lỗi + ảnh (§13.2) ----------------------------------------------------------------------
 def test_ghi_loi_kem_anh_va_neo_to_chiu(db, orders, lsx_svc, admin, customer):
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
-    ld = _ly_do(db)
     to2, tt2 = _to_chiu(db)
 
     res = kcs.ghi_loi(
-        db, user=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id,
+        db, user=admin, kcs_batch_id=rb["kcs_batch_id"],
         mo_ta="Lem mực mép trái", to_chiu_id=to2.id, so_luong=6, anh=_anh(),
     )
 
     loi = db.get(SanXuatKcsLoi, res["loi_id"])
     assert loi.trang_thai == TN_RECORDED and loi.to_chiu_id == to2.id
-    assert loi.nhom_loi_id == ld.id and float(loi.so_luong) == 6
+    assert loi.mo_ta == "Lem mực mép trái" and float(loi.so_luong) == 6
     # Đẩy SSE tới tổ trưởng tổ BỊ yêu cầu.
     assert res["to_chiu_head_user_id"] == tt2.id
     anh = db.query(SanXuatKcsLoiAnh).filter_by(loi_id=loi.id).all()
@@ -326,25 +317,13 @@ def test_ghi_loi_kem_anh_va_neo_to_chiu(db, orders, lsx_svc, admin, customer):
 
 def test_ghi_loi_bat_buoc_it_nhat_mot_anh(db, orders, lsx_svc, admin, customer):
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
-    ld = _ly_do(db)
     with pytest.raises(ValueError):
-        kcs.ghi_loi(db, user=admin, kcs_batch_id=rb["kcs_batch_id"],
-                    nhom_loi_id=ld.id, anh=[])
-
-
-def test_ghi_loi_nhom_phai_la_loi(db, orders, lsx_svc, admin, customer):
-    to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
-    sai = _ly_do(db, nhom=NHOM_TAM_DUNG, ma="TD-KCS", ten="Chờ mực")   # không phải nhóm `loi`
-    with pytest.raises(ValueError):
-        kcs.ghi_loi(db, user=admin, kcs_batch_id=rb["kcs_batch_id"],
-                    nhom_loi_id=sai.id, anh=_anh())
+        kcs.ghi_loi(db, user=admin, kcs_batch_id=rb["kcs_batch_id"], anh=[])
 
 
 def test_xoa_anh_giu_it_nhat_mot(db, orders, lsx_svc, admin, customer):
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
-    ld = _ly_do(db)
-    res = kcs.ghi_loi(db, user=admin, kcs_batch_id=rb["kcs_batch_id"],
-                      nhom_loi_id=ld.id, anh=_anh())      # đúng 1 ảnh
+    res = kcs.ghi_loi(db, user=admin, kcs_batch_id=rb["kcs_batch_id"], anh=_anh())  # đúng 1 ảnh
     anh = db.query(SanXuatKcsLoiAnh).filter_by(loi_id=res["loi_id"]).first()
     with pytest.raises(ValueError):                        # xoá ảnh cuối → chặn
         kcs.xoa_anh_loi(db, user=admin, anh_id=anh.id)
@@ -352,9 +331,7 @@ def test_xoa_anh_giu_it_nhat_mot(db, orders, lsx_svc, admin, customer):
 
 def test_them_roi_xoa_anh(db, orders, lsx_svc, admin, customer):
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
-    ld = _ly_do(db)
-    res = kcs.ghi_loi(db, user=admin, kcs_batch_id=rb["kcs_batch_id"],
-                      nhom_loi_id=ld.id, anh=_anh())
+    res = kcs.ghi_loi(db, user=admin, kcs_batch_id=rb["kcs_batch_id"], anh=_anh())
     them = kcs.them_anh_loi(db, user=admin, loi_id=res["loi_id"], anh=[
         {"file_name": "loi2.jpg", "file_url": "/api/files/san-xuat/kcs-loi/1/y.jpg",
          "file_type": "image/jpeg"}])
@@ -371,10 +348,9 @@ def _mot_loi(db, orders, lsx_svc, admin, customer):
     (§7: hồ sơ cũ pending/accepted/rejected giữ nguyên để đọc lịch sử). KHÔNG qua `kcs.ghi_loi()`
     vì lỗi MỚI ghi `recorded`, không còn đi vào trạng thái `pending` nữa (Task 11.5)."""
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
-    ld = _ly_do(db)
     to2, tt2 = _to_chiu(db)
     loi = SanXuatKcsLoi(
-        kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id, to_chiu_id=to2.id,
+        kcs_batch_id=rb["kcs_batch_id"], mo_ta="Bong tróc mực", to_chiu_id=to2.id,
         so_luong=6, don_vi="cái", trang_thai=TN_CHO, created_by=admin.id,
     )
     db.add(loi)
@@ -427,7 +403,7 @@ def test_chi_tiet_kcs_gom_batch_loi_anh(db, orders, lsx_svc, admin, customer):
     b0 = ct["batch"][0]
     assert b0["so_luong_nhan"] == 100 and len(b0["loi"]) == 1
     assert b0["loi"][0]["trang_thai"] == TN_CHO and len(b0["loi"][0]["anh"]) == 1
-    assert b0["loi"][0]["nhom_loi_ten"] == "Bong tróc mực"
+    assert b0["loi"][0]["mo_ta"] == "Bong tróc mực"
 
 
 def test_chi_tiet_kcs_cho_nguoi_khong_phai_to_truong(db, orders, lsx_svc, admin, customer):
@@ -519,34 +495,27 @@ def test_dot_xuat_checklist_bat_buoc_dung_chung_ham_validate(db, orders, lsx_svc
     assert res["kcs_batch_id"]
 
 
-def test_dot_xuat_khong_dat_bat_buoc_nhom_loi_va_anh(db, orders, lsx_svc, admin, customer):
+def test_dot_xuat_khong_dat_bat_buoc_anh(db, orders, lsx_svc, admin, customer):
     to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
     to_kiem, tv = _to_kiem(db)
 
-    with pytest.raises(ValueError, match="chọn nhóm lỗi"):
-        kcs.tao_kiem_dot_xuat(
-            db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
-            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=5, so_luong_khong_dat=5,
-            don_vi="cái",
-        )
-    ld = _ly_do(db)
     with pytest.raises(ValueError, match="ảnh bằng chứng"):
         kcs.tao_kiem_dot_xuat(
             db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
             bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=5, so_luong_khong_dat=5,
-            don_vi="cái", nhom_loi_id=ld.id, anh=None,
+            don_vi="cái", anh=None,
         )
     res = kcs.tao_kiem_dot_xuat(
         db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
         bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=5, so_luong_khong_dat=5,
-        don_vi="cái", nhom_loi_id=ld.id, anh=_anh(),
+        don_vi="cái", anh=_anh(),
     )
     assert res["loi_id"] is not None
     repo = SanXuatKcsRepository(db)
     assert repo.loi(res["loi_id"]) is not None
 
 
-def test_routing_khong_bi_doi_hoi_nhom_loi_khi_khong_dat(db, orders, lsx_svc, admin, customer):
+def test_routing_khong_bi_doi_hoi_anh_khi_khong_dat(db, orders, lsx_svc, admin, customer):
     """Routing GIỮ NGUYÊN flow 2 bước — batch cũ `khong_dat=10` không kèm lỗi vẫn PASS (Ruling 2:
     y hệt `test_ket_luan_khong_dat_khi_khong_co_dat`, chạy lại để xác nhận KHÔNG bị retrofit)."""
     _to, _cv, r = _batch(db, orders, lsx_svc, admin, customer, nhan=40, dat=0, khong_dat=40)
@@ -737,9 +706,8 @@ def test_dieu_chinh_chan_tuyet_doi_khi_kho_da_nhan_mot_phan(db, orders, lsx_svc,
 
 def test_dieu_chinh_khong_bypass_luat_giu_anh_cuoi(db, orders, lsx_svc, admin, customer):
     to, cv, res = _batch(db, orders, lsx_svc, admin, customer, nhan=100, dat=90, khong_dat=10)
-    ld = _ly_do(db)
     loi = kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"],
-                       nhom_loi_id=ld.id, anh=_anh())               # đúng 1 ảnh
+                      anh=_anh())                                   # đúng 1 ảnh
 
     out = kcs.dieu_chinh_ket_qua(
         db, user=admin, kcs_batch_id=res["kcs_batch_id"],
@@ -778,7 +746,7 @@ def test_api_ghi_loi_multipart_admin_thieu_bit_403(client):
     ).json()["access_token"]
     resp = client.post(
         "/api/san-xuat/kcs/1/loi",
-        data={"nhom_loi_id": 1},
+        data={"mo_ta": "Lem mực"},
         files={"files": ("loi.png", b"\x89PNG\r\n\x1a\n", "image/png")},
         headers={"Authorization": f"Bearer {tok}"},
     )

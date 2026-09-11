@@ -114,6 +114,16 @@ class CongDoan(Base):
     # Bước TRÊN dòng giấy bỏ qua cột này: số của chúng đến từ chuỗi bù hao ngược (tờ → con → tay →
     # cái). Khai vào đây cũng không ai đọc — engine chỉ hỏi nó ở nhánh ngoài dòng.
     cong_thuc_san_luong: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # ĐƠN VỊ của số vừa tính ở trên (mg `0289`, 10/09/2026) — trỏ MỀM `don_vi_do.ma`.
+    #
+    # Bước ngoài dòng giấy để TRỐNG cả `don_vi_vao`/`don_vi_ra` (menu đóng 5 chặng của dòng giấy),
+    # nên trước cột này con số 4 của Ghi kẽm CTP đi từ lệnh xuống bàn tổ mà không mang theo chữ
+    # "bản kẽm" nào: ô Ghi mẻ sản lượng ở tổ hiện trống đơn vị, câu diễn giải cụt đuôi.
+    #
+    # KHÔNG mượn đơn vị sẵn có: `may_thiet_bi.don_vi_toc_do` là đơn vị ĐO GIỜ, `khoan_json.don_vi`
+    # là đơn vị TÍNH TIỀN — hai thứ cố ý tách rời nhau, và bước TỔ ngoài dòng thì không có máy nào
+    # để mượn. Bước TRÊN dòng giấy bỏ qua cột này: đơn vị của chúng là tên chặng.
+    don_vi_san_luong: Mapped[str | None] = mapped_column(String(24), nullable=True)
     nhom: Mapped[str] = mapped_column(String(12), index=True, nullable=False)  # prepress|print|finishing
     # Nhóm MÁY làm được công đoạn này — tên nhóm ở danh mục `nhom_may` ("Máy in"/"Bế"/"Cán màng / UV"…).
     # Chặn gán máy SAI LOẠI ở bước (vd bước Ghi kẽm CTP không cho gán máy Bế). NULL/[] = chưa khai =

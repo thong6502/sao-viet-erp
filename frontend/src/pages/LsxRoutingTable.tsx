@@ -44,6 +44,9 @@ import "./dag-routing.css";
 export interface RefRow {
   id: number;
   ten: string;
+  /** Cờ NGỪNG DÙNG của danh mục (`active=false`). Ref vẫn nạp cả mục đã ngừng — bước cũ còn đeo
+   *  máy đó thì phải đọc được TÊN nó; việc mời hay không mời là chuyện của `mayChonDuoc`. */
+  active?: boolean | null;
   /** Máy: `loai_may` — để gom nhóm dropdown thay vì đổ 24 dòng phẳng. */
   nhom?: string | null;
   ma?: string;
@@ -131,7 +134,7 @@ export function LsxRoutingTable({
   tenSanPham: string;
   /** Tên khách của lệnh — khối Khuôn của drawer bày ra để nói rõ đang lọc dao theo ai. */
   tenKhach: string;
-  onTaoKhuon: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
+  onTaoKhuon: (input: { ten: string; loai: string | null }) => Promise<number>;
   vatTuRefs: RefRow[] | null;
   /** Danh mục GIẤY — NVL chính chọn tay ở bước (08/09/2026). Đi RIÊNG với `vatTuRefs` vì hai
    *  danh mục đánh số độc lập. */
@@ -264,6 +267,7 @@ export function LsxRoutingTable({
               he_so_quy_doi: b.he_so_quy_doi > 1 ? String(b.he_so_quy_doi) : "",
               hao_hut: b.hao_hut ? String(b.hao_hut) : "",
               hao_hut_pct: b.hao_hut_pct ? String(b.hao_hut_pct) : "",
+              don_vi_san_luong: b.don_vi_san_luong || "",
               tren_dong_giay: b.tren_dong_giay,
               loi_quy_doi: b.loi_quy_doi,
               san_luong_dien_giai: b.san_luong_dien_giai,
@@ -364,7 +368,7 @@ export function LsxRoutingTable({
           tooling_type: m.tooling_type ?? null,
           ...((m.tooling_type ?? null) === loaiCu ? {} : {
             khuon_be_id: null, khuon_be_ma: null, khuon_be_ten: null,
-            khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
+            khuon_be_so_ke: null, khuon_be_tinh_trang: null,
           }),
           he_so_quy_doi: m.he_so_quy_doi > 1 ? String(m.he_so_quy_doi) : "",
           // RESET khoán: giữ `khoan_rate_id` cũ thì nó trỏ đầu việc của công đoạn CŨ → lưu thì backend
@@ -789,7 +793,6 @@ export function LsxRoutingTable({
                           ma: r.khuon_be_ma,
                           so_ke: r.khuon_be_so_ke,
                           tinh_trang: r.khuon_be_tinh_trang,
-                          ngay_ve_du_kien: r.khuon_be_ngay_ve,
                         }}
                       />
                     </button>
@@ -809,8 +812,14 @@ export function LsxRoutingTable({
                   <td className="khsx-rt__qty">
                     {/* GỠ điều kiện `nhom === "prepress"` (14/08/2026): bước chế bản nay CÓ số
                         thật (ra ← công thức của đơn vị, vào suy ngược kèm hao) nên che bằng dấu —
-                        là giấu mất số bản kẽm phải ghi. Chỉ còn che khi THẬT SỰ chưa khai đơn vị. */}
-                    {!r.don_vi_vao && !r.don_vi_ra ? (
+                        là giấu mất số bản kẽm phải ghi. Chỉ còn che khi THẬT SỰ chưa khai đơn vị.
+
+                        Và "chưa khai đơn vị" nay phải hỏi tới ĐƠN VỊ SẢN LƯỢNG (10/09/2026): từ mg
+                        `0273`, BỎ TRỐNG cả hai ô đơn vị chặng CHÍNH LÀ cách khai "bước ngoài dòng
+                        giấy", nên điều kiện cũ quay ra giấu số ở đúng bước cần đọc số nhất — ghi
+                        kẽm mấy bản. Bước đó đo bằng đơn vị của chính công đoạn (`kem`), lấy từ
+                        danh mục chứ không có ở dòng. */}
+                    {!r.don_vi_vao && !r.don_vi_ra && !r.don_vi_san_luong ? (
                       <span className="khsx-muted">—</span>
                     ) : (
                       <>
@@ -824,7 +833,7 @@ export function LsxRoutingTable({
                         <span className="khsx-num">
                           {num(r.so_luong_vao_moi ?? n(r.so_luong_vao))}
                         </span>
-                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_vao, r)}</span>
+                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_vao || r.don_vi_san_luong, r)}</span>
                         <span className="khsx-rt__arrow" aria-label="ra">→</span>
                         {r.so_luong_ra_moi != null && (
                           <s className="khsx-rt__cu">{num(n(r.so_luong_ra))}</s>
@@ -832,7 +841,7 @@ export function LsxRoutingTable({
                         <span className="khsx-num">
                           {num(r.so_luong_ra_moi ?? n(r.so_luong_ra))}
                         </span>
-                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_ra, r)}</span>
+                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_ra || r.don_vi_san_luong, r)}</span>
                         {(r.so_luong_vao_moi != null || r.so_luong_ra_moi != null) && (
                           <span className="khsx-rt__sub2 khsx-rt__lech">
                             danh mục đã đổi — bấm Lưu công đoạn để chốt số mới

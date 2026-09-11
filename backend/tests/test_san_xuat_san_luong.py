@@ -16,7 +16,6 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.san_xuat import CV_DANG_CHAY, SanXuatCongViec
-from app.models.san_xuat_ly_do import NHOM_LOI, NHOM_TAM_DUNG, SanXuatLyDo
 from app.models.san_xuat_san_luong import SanXuatBatch, SanXuatBatchLotVao
 from app.services.san_xuat import san_luong
 
@@ -34,13 +33,6 @@ from tests.test_san_xuat_thuc_thi import (  # noqa: F401
 )
 
 _T0 = datetime(2026, 8, 19, 8, 0, tzinfo=timezone.utc)
-
-
-def _ly_do(db, nhom=NHOM_LOI, ma="LOI-NHAN", ten="Nhăn giấy") -> SanXuatLyDo:
-    ld = SanXuatLyDo(ma=ma, nhom=nhom, ten=ten)
-    db.add(ld)
-    db.flush()
-    return ld
 
 
 def _cv_chay(db, orders, lsx_svc, admin, customer, ma="TO-SL"):
@@ -67,20 +59,19 @@ def _hai_cv_chay(db, orders, lsx_svc, admin, customer):
 
 
 # --- Ghi batch (§11.1) ----------------------------------------------------------------------
-def test_tao_batch_tot_hong_va_nhom_loi(db, orders, lsx_svc, admin, customer):
+def test_tao_batch_tot_hong_va_mo_ta_loi(db, orders, lsx_svc, admin, customer):
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
-    ld = _ly_do(db)
 
     res = san_luong.tao_batch(
         db, user=admin, cong_viec_id=cv.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1),
-        tong=100, tot=90, hong=10, nhom_loi_id=ld.id, mo_ta_loi="Kẹt tay kê",
+        tong=100, tot=90, hong=10, mo_ta_loi="Kẹt tay kê",
     )
 
     assert res["cong_viec_id"] == cv.id and res["batch_id"]
     b = db.get(SanXuatBatch, res["batch_id"])
     assert float(b.tong) == 100 and float(b.tot) == 90 and float(b.hong) == 10
-    assert b.nhom_loi_id == ld.id and b.don_vi == "tờ"
+    assert b.mo_ta_loi == "Kẹt tay kê" and b.don_vi == "tờ"
     # Tổng tốt dẫn xuất = nền trần bàn giao.
     assert san_luong.SanXuatSanLuongRepository(db).tong_tot(cv.id) == 90
 
@@ -95,21 +86,15 @@ def test_tong_khac_tot_cong_hong_bi_chan(db, orders, lsx_svc, admin, customer):
         )
 
 
-def test_hong_bat_buoc_nhom_loi_dung_nhom(db, orders, lsx_svc, admin, customer):
+def test_hong_khong_con_doi_nhom_loi(db, orders, lsx_svc, admin, customer):
+    """Danh mục lý do/lỗi ĐÃ GỠ (mg 0288): ghi hỏng KHÔNG còn phải nêu lý do gì."""
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
-    with pytest.raises(ValueError):                       # có hỏng nhưng thiếu nhóm lỗi
-        san_luong.tao_batch(
-            db, user=admin, cong_viec_id=cv.id,
-            bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1),
-            tong=100, tot=90, hong=10,
-        )
-    sai = _ly_do(db, nhom=NHOM_TAM_DUNG, ma="TD-1", ten="Chờ mực")  # nhóm không phải `loi`
-    with pytest.raises(ValueError):
-        san_luong.tao_batch(
-            db, user=admin, cong_viec_id=cv.id,
-            bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1),
-            tong=100, tot=90, hong=10, nhom_loi_id=sai.id,
-        )
+    r = san_luong.tao_batch(
+        db, user=admin, cong_viec_id=cv.id,
+        bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1),
+        tong=100, tot=90, hong=10,
+    )
+    assert r["batch_id"] is not None
 
 
 def test_chua_bat_dau_khong_ghi_duoc(db, orders, lsx_svc, admin, customer):

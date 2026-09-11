@@ -45,8 +45,8 @@ def _giao_dien_hoi() -> set[tuple[str, str]]:
     hoi: set[tuple[str, str]] = set()
     for p in FE.rglob("*.ts*"):
         s = p.read_text(encoding="utf-8")
-        hoi.update(re.findall(r'\bcan\(\s*"([a-z_]+)"\s*,\s*"(\w+)"\s*\)', s))
-        hoi.update(re.findall(r'caps\.get\("([a-z_]+)"\)\?\.can_(\w+)', s))
+        hoi.update(re.findall(r'\bcan\(\s*"([a-z_0-9]+)"\s*,\s*"(\w+)"\s*\)', s))
+        hoi.update(re.findall(r'caps\.get\("([a-z_0-9]+)"\)\?\.can_(\w+)', s))
     return hoi
 
 
@@ -55,7 +55,7 @@ def _service_hoi() -> set[tuple[str, str]]:
     hoi: set[tuple[str, str]] = set()
     for p in (BE / "services").rglob("*.py"):
         s = p.read_text(encoding="utf-8")
-        hoi.update(re.findall(r'\.can\(\s*[\w.]+\s*,\s*"([a-z_]+)"\s*,\s*"(\w+)"', s))
+        hoi.update(re.findall(r'\.can\(\s*[\w.]+\s*,\s*"([a-z_0-9]+)"\s*,\s*"(\w+)"', s))
     return hoi
 
 
@@ -245,7 +245,7 @@ def test_o_chi_tiet_khong_dung_chung_cot_voi_nut_thao_tac():
 
     dung_chung, mod = [], None
     for dong in than.split("\n"):
-        khop = re.match(r"\s{2}([a-z_]+): \[", dong)
+        khop = re.match(r"\s{2}([a-z_0-9]+): \[", dong)
         if khop:
             mod = khop.group(1)
         for k in re.findall(r'key: "(can_\w+)"', dong):
@@ -271,10 +271,15 @@ def test_khong_co_hai_o_chi_tiet_dung_chung_mot_cot():
     than = s[s.index("const FINE_ACTIONS"):]
     than = than[: than.index("\n};")]
 
+    # `[a-z_0-9]+` — CHỮ SỐ là bắt buộc. Thiếu nó thì `xep_lich_2:` / `xep_lich_3:` /
+    # `bai_ghep_2:` không khớp dòng mở khối, `mod` kẹt lại ở module TRƯỚC ĐÓ và mọi ô của
+    # chúng bị dồn nhầm sang đó. Bệnh im lặng cho tới 10/09/2026: thêm `xep_lich_3` (cùng cặp
+    # can_approve / can_approve_exception với `xep_lich_2`) là hai khối dồn chung một rổ ⇒ báo
+    # trùng oan cho `san_xuat`.
     trung, mod = [], None
     da_thay: dict[str, set[str]] = {}
     for dong in than.split("\n"):
-        khop = re.match(r"\s{2}([a-z_]+): \[", dong)
+        khop = re.match(r"\s{2}([a-z_0-9]+): \[", dong)
         if khop:
             mod = khop.group(1)
             da_thay[mod] = set()

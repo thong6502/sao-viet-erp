@@ -7,23 +7,17 @@ from __future__ import annotations
 
 import pytest
 
-from app.db import SessionLocal, init_db
+from tests.conftest import phien_da_seed
+
 from app.repositories.customer_repo import CustomerRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import hash_password
-from app.seed import seed_all
 
 
 @pytest.fixture
 def db():
-    init_db()
-    session = SessionLocal()
-    try:
-        seed_all(session)
-        yield session
-    finally:
-        session.close()
+    yield from phien_da_seed()
 
 
 class _Actor:

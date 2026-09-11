@@ -12,7 +12,7 @@ import { ApiError } from "../../api/client";
 import { crud, type Row } from "../../api/rebuildCatalog";
 import { useNapTenDonVi } from "../tenDonVi";
 import { CatalogDrawer } from "./CatalogDrawer";
-import { ImportExcelDialog } from "./ImportExcelDialog";
+import { ImportExcelDialog } from "../../components/ImportExcelDialog";
 import { OTim } from "./OTim";
 import { XoaDanhMucDialog } from "./XoaDanhMucDialog";
 import { CircleXIcon, DownloadIcon, PlusIcon, TrashIcon, UploadIcon } from "./icons";
@@ -400,9 +400,6 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
                 // Cùng dạng "chữ phụ dài": tên khác của Ghi chú/Mô tả/Vị trí/Nhóm ở các danh mục
                 // khác (Công việc khoán, Chủng loại giấy, Lý do & lỗi SX, Kho hàng, Máy, Khuôn).
                 "note", "mo_ta", "vi_tri", "loai_may", "khach_hang_ten", "so_ke",
-                // Khuôn: "Ngày có khuôn" đổi giữa ngày ngắn và "dự kiến DD/MM/YYYY" dài hơn — cột
-                // hẹp nên bản ngắn cũng từng vỡ dòng ở đúng biên pixel; cắt 1 dòng cho chắc.
-                "ngay_ve_du_kien",
                 // Khuôn: "Loại" ("Khuôn ép kim") và "Tình trạng" ("Đang đặt làm") là
                 // nhãn ánh xạ nhưng có giá trị dài hơn hẳn số còn lại trong cùng cột — cột hẹp
                 // nên vỡ 2-3 dòng ngay cả khi các giá trị khác vẫn gọn 1 dòng.
@@ -538,9 +535,8 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
 
       {showImport && token && (
         <ImportExcelDialog
-          prefix={config.prefix}
           ten={config.title.toLowerCase()}
-          token={token}
+          chay={(f, mode) => crud(config.prefix).importExcel(token, f, mode)}
           onClose={() => setShowImport(false)}
           onImported={() => { setShowImport(false); lamMoi(); onMutate?.(); }}
         />

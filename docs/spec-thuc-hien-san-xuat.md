@@ -12,7 +12,7 @@
 |---|---|---|
 | 1 | Nền tổ chức & phát hành (cờ KCS, navbar node lá, nhóm thành phẩm, snapshot phát hành, gói nguyên tử, phiên bản cập nhật lịch) | 🔨 Đang làm — mg 0220: `departments.is_kcs` + `job_grades.output_coefficient` nối 2 màn danh mục (BE + test). Backbone phát hành XONG (6 bảng `san_xuat_*` create_all, `SanXuatRepository`, `component`/`nhom`/`snapshot`/`release`, nối vào cả 2 cửa phát hành, 7 test `test_san_xuat_release.py` xanh): thành phần liên thông, gói+phiên bản+công việc đóng băng, một-bài-ghép-một-công-việc, suy nhóm thành phẩm, đánh KCS-cuối, cửa soi `van_de_phat_hanh`, idempotent mức gói. **Nguồn navbar node lá (BE) XONG**: `services/san_xuat/board.py` (`teams`+`work_items`, scope all/department/own tái dùng module quyền `san_xuat`, KHÔNG đẻ quyền/migration mới), `schemas/san_xuat.py`, `routers/san_xuat.py` (`GET /api/san-xuat/teams` + `/work-items?team_id=`, gác `require_permission("san_xuat","read")`, ngoài phạm vi→403), đã mount trong `main.py`; 7 test `test_san_xuat_board.py` + 4 api `test_san_xuat_board_api.py` xanh, compileall sạch. Còn: **navbar FE** (bơm node lá vào Sidebar), phiên bản cập-nhật-lịch (§4.3), FE (KCS checkbox đã có, hộp thoại phát hành chưa gắn cửa soi) |
 | 2 | Khung thực hiện tại tổ (timeline, drawer, phân công, phiên chạy, khoảng tham gia, chấm công/OT, actual overlay) | ✅ BE ĐỌC+GHI + FE "một bàn làm việc" XONG (chờ nghiệm thu cuối) — Đọc: `board.teams`/`work_items`/`chi_tiet_cong_viec` (drawer: roster + phiên chạy + khoảng tham gia; nhãn resolve theo lô) + endpoint picker riêng gác `san_xuat` `GET /teams/{id}/nhan-vien` (KHÔNG mượn `/api/employees` vì nó đòi quyền `nhan_su` → tổ trưởng 403). Ghi: 3 bảng mới create_all `san_xuat_phan_cong`/`san_xuat_phien_chay`/`san_xuat_khoang_tham_gia`, repo + service `services/san_xuat/thuc_thi.py` (snapshot cờ khoán từ `departments.has_piece_work`; bước nội bộ chỉ nhận thợ khoán; GATE §6 chỉ `head_user_id` đúng tổ; bắt đầu cần ≥1 khoán; trễ/tạm dừng bắt buộc lý do; không hai khoảng chồng giờ; version chống bấm trùng; máy chủ + naive/aware). Router 6 endpoint ghi gác `san_xuat:assign_work` + SSE sau commit; KHÔNG migration. **FE**: 5 file `ThucHienSxPage`/`ThsxTimeline`/`ThsxDrawer`/`thsxShared`/`thuc-hien-sx.css` (bám pattern XepLich2, timeline tái dùng `xl2Shared`, KHÔNG kéo-thả), nối `api.sanXuat` (9 method) + AppShell (Kho-pattern: teamList/badge/dynamicItems/render/SSE) + `permissions` (`assign_work`); styleseed **94/100 A**, `npx tsc` sạch. 15 test `test_san_xuat_thuc_thi.py` + 7 board + 4 api xanh. **Khoảng trống chờ pha sau:** (b) §7.3 chấm công-OT dẫn xuất; (c) actual overlay (cần trường mốc thực trên `WorkItemOut`); (d) §7.1 "số người thực tế ≠ dự kiến → lý do" (chờ nguồn số người dự kiến) |
-| 3 | Đầu vào, sản lượng & bàn giao (xác nhận vật tư, chọn lot BTP, batch sản lượng, bàn giao, overconsumption) | ✅ BE XONG (chờ FE + nghiệm thu cuối) — 6 bảng mới create_all (`san_xuat_ly_do`, `san_xuat_batch`, `san_xuat_batch_lot_vao`, `san_xuat_ban_giao`, `san_xuat_ban_giao_dieu_chinh`, `san_xuat_vat_tu_nhan`) + repo `san_xuat_san_luong_repo.py`. **Sản lượng** `services/san_xuat/san_luong.py`: batch `tong=tot+hong`, hong>0 bắt nhóm lỗi chuẩn (`nhom='loi'`), chỉ ghi khi cv đã khởi động, GATE §6, `tong_tot` = nền trần bàn giao; lot đầu vào §10.3 (batch công đoạn trước, không trỏ chính mình) + `them_lot`. **Bàn giao** `services/san_xuat/ban_giao.py`: cùng-tổ-cùng-LSX tự `confirmed` (notify None), khác tổ→`proposed`→bên NHẬN xác nhận (gate ĐÍCH, nguồn không tự xác nhận), trần `tong_tot−đã_giao`, sửa chỉ khi `proposed`, điều chỉnh đẻ lịch sử + cờ `khong_nhat_quan` khi giảm dưới lượng đã dùng (§11.3), bắt buộc lý do nhóm `dieu_chinh_ban_giao`. **Vật tư** `services/san_xuat/vat_tu_nhan.py`: xác nhận phiếu XUẤT posted NGUYÊN TRẠNG (§10.1), 1 phiếu/1 lần (`voucher_id` UNIQUE), gate tổ trưởng. **Danh mục Lý do & lỗi SX** = catalog thứ 12 trên màn Cấu hình danh mục (module quyền riêng `dm_ly_do_san_xuat`, mg 0221 chép quyền từ `san_xuat`), KHÔNG đẻ màn mới. Router `san_xuat.py` + schema mặt GHI đã khai (LotVaoIn/BatchIn/BanGiao*/VatTu*). **44 test san_xuat (G1–G3) chạy chung xanh** (9 san_luong + 8 ban_giao + 4 vat_tu_nhan mới) + `test_schema_documented` + `test_catalog_registry` xanh; KHÔNG migration cột (chỉ bảng mới). **Còn: FE drawer** (nhập batch + picker lot đầu vào + UI bàn giao + xác nhận vật tư, gắn vào `ThsxDrawer` chỗ placeholder "Pha sau") + FE cấu hình catalog lý do; qua 2-agent + styleseed + dev-browser |
+| 3 | Đầu vào, sản lượng & bàn giao (xác nhận vật tư, chọn lot BTP, batch sản lượng, bàn giao, overconsumption) | ✅ BE XONG (chờ FE + nghiệm thu cuối) — 6 bảng mới create_all (`san_xuat_ly_do` — ĐÃ GỠ 10/09/2026, mg 0288 —, `san_xuat_batch`, `san_xuat_batch_lot_vao`, `san_xuat_ban_giao`, `san_xuat_ban_giao_dieu_chinh`, `san_xuat_vat_tu_nhan`) + repo `san_xuat_san_luong_repo.py`. **Sản lượng** `services/san_xuat/san_luong.py`: batch `tong=tot+hong` (hong>0 TỪNG bắt nhóm lỗi chuẩn — bỏ theo mg 0288), chỉ ghi khi cv đã khởi động, GATE §6, `tong_tot` = nền trần bàn giao; lot đầu vào §10.3 (batch công đoạn trước, không trỏ chính mình) + `them_lot`. **Bàn giao** `services/san_xuat/ban_giao.py`: cùng-tổ-cùng-LSX tự `confirmed` (notify None), khác tổ→`proposed`→bên NHẬN xác nhận (gate ĐÍCH, nguồn không tự xác nhận), trần `tong_tot−đã_giao`, sửa chỉ khi `proposed`, điều chỉnh đẻ lịch sử + cờ `khong_nhat_quan` khi giảm dưới lượng đã dùng (§11.3); lý do điều chỉnh TỪNG bắt buộc — bỏ theo mg 0288. **Vật tư** `services/san_xuat/vat_tu_nhan.py`: xác nhận phiếu XUẤT posted NGUYÊN TRẠNG (§10.1), 1 phiếu/1 lần (`voucher_id` UNIQUE), gate tổ trưởng. **Danh mục Lý do & lỗi SX** (catalog thứ 12, quyền `dm_ly_do_san_xuat`) ĐÃ GỠ HẲN 10/09/2026 — xem §15. Router `san_xuat.py` + schema mặt GHI đã khai (LotVaoIn/BatchIn/BanGiao*/VatTu*). **44 test san_xuat (G1–G3) chạy chung xanh** (9 san_luong + 8 ban_giao + 4 vat_tu_nhan mới) + `test_schema_documented` + `test_catalog_registry` xanh; KHÔNG migration cột (chỉ bảng mới). **Còn: FE drawer** (nhập batch + picker lot đầu vào + UI bàn giao + xác nhận vật tư, gắn vào `ThsxDrawer` chỗ placeholder "Pha sau") + FE cấu hình catalog lý do; qua 2-agent + styleseed + dev-browser |
 | 4 | Hỗ trợ & phân bổ (hỗ trợ 2 tổ, hệ số bậc, phân bổ theo batch, chốt/mở lại, nối PieceWork) | ⏳ Chưa bắt đầu |
 | 5 | KCS & kho (batch KCS, lỗi+ảnh, trách nhiệm, đóng thiếu, TP/BTP theo đơn, nhập kho một phần, tự đóng nhóm) | ✅ XONG — nền batch/lỗi/ảnh/trách nhiệm + kho BTP/thành phẩm + tự đóng nhóm đã có TRƯỚC module KCS kiêm nhiệm (`services/san_xuat/kcs.py`, `kho.py`; test `test_san_xuat_kcs.py`/`test_san_xuat_kho.py`/`test_san_xuat_dong_nhom.py`/`test_san_xuat_g5_tich_hop.py`). Module **KCS kiêm nhiệm** (mg `0250`, 2026-08-31) sau đó mở rộng thêm luồng ghi song song trên nền này (routing 2 bước + đột xuất 1 bước, checklist, gửi kho một nút, dashboard/Excel) — chi tiết ở §13 (viết lại 2026-08-31) |
 | 6 | Real-time & hoàn thiện (SSE toàn sự kiện, badge/toast, audit, chống trùng, test tích hợp) | ⏳ Chưa bắt đầu |
@@ -357,9 +357,8 @@ Ràng buộc:
 
 Nếu có số lượng hỏng:
 
-- Bắt buộc chọn nhóm lỗi chuẩn hóa.
-- Có thể bổ sung mô tả.
-- Không cho nhập một lý do tự do thay thế hoàn toàn danh mục lỗi.
+- Ghi kèm mô tả lỗi bằng chữ, TUỲ CHỌN — không bắt buộc (xem §15: danh mục lỗi đã gỡ 10/09/2026).
+- Không có ô nào bắt buộc nữa: số hỏng ghi được kể cả khi tổ không nói gì thêm.
 
 Cho phép nhiều batch một phần trong cùng công đoạn.
 
@@ -382,7 +381,7 @@ Số lượng đã xác nhận đồng thời là:
 ### 11.3. Điều chỉnh bàn giao
 
 - Không xóa cứng bàn giao.
-- Người nhập sai được tạo điều chỉnh kèm lý do.
+- Người nhập sai được tạo điều chỉnh, kèm mô tả bằng chữ nếu muốn (không bắt buộc — §15).
 - Giữ lịch sử trước và sau điều chỉnh.
 - Nếu điều chỉnh giảm thấp hơn số lượng công đoạn sau đã sử dụng, công đoạn sau bị đánh dấu không nhất quán.
 - Không cho chốt phân bổ hoặc đóng nhóm khi còn không nhất quán.
@@ -493,7 +492,7 @@ Quy tắc:
 - Sau khi công đoạn hoàn thành, phân bổ ở trạng thái nháp.
 - Tổ trưởng phải chốt riêng.
 - Công nhân chỉ xem được kết quả đã chốt.
-- Trước khi kỳ lương khóa, tổ trưởng được mở lại với lý do và chốt lại.
+- Trước khi kỳ lương khóa, tổ trưởng được mở lại (một nhịp xác nhận, không phải nêu lý do — §15) và chốt lại.
 - Sau khi kỳ lương đã khóa, không sửa kỳ cũ.
 - Điều chỉnh sau khóa được ghi thành dòng bù trừ ở kỳ mở tiếp theo, có tham chiếu batch và kỳ gốc.
 - Nhóm thành phẩm không được đóng hoàn toàn nếu còn phân bổ chưa chốt.
@@ -584,16 +583,16 @@ Hai luồng SỐNG dùng bảng `SanXuatKcsBatch`/`SanXuatKcsLoi` chung, phân b
    bàn giao `confirmed`/`adjusted` đã xác nhận tới công việc đó (chỉ áp khi công việc đã có ít nhất
    một dòng bàn giao — công việc chưa nối bàn giao thì chưa có gì để chặn theo).
 2. Nếu có Lỗi (`so_luong_khong_dat > 0`): gọi tiếp `POST /api/san-xuat/kcs/{kcs_batch_id}/loi`
-   (`kcs.ghi_loi`, multipart) — nhóm lỗi + mô tả + tổ/công đoạn liên đới (tuỳ chọn) + ≥1 ảnh bắt
+   (`kcs.ghi_loi`, multipart) — mô tả + tổ/công đoạn liên đới (tuỳ chọn) + ≥1 ảnh bắt
    buộc. Đây là lệnh RIÊNG, không gộp vào bước 1.
 
 **Đột xuất (kiêm nhiệm, mg `0250`)** — một tổ SX KHÁC kiểm một công việc ĐANG CHẠY/TẠM DỪNG, KHÔNG
 cần đứng sẵn trong routing (`cv.la_kcs` có thể `false`), gộp MỘT bước: `POST /api/san-xuat/kcs/dot-xuat`
 (`kcs.tao_kiem_dot_xuat`, multipart) nhận `cong_viec_id`, `kcs_department_id` (tổ đi kiểm), số
-lượng, checklist, VÀ (nếu `so_luong_khong_dat > 0`) nhóm lỗi + mô tả + tổ chịu + ảnh — tất cả trong
+lượng, checklist, VÀ (nếu `so_luong_khong_dat > 0`) mô tả + tổ chịu + ảnh — tất cả trong
 CÙNG một lệnh gọi. Khác routing ở ba điểm cố ý: không đòi `la_kcs`/"đã bắt đầu" mà chỉ đòi
 `dang_chay`/`tam_dung` (KHÔNG gồm `hoan_thanh`, khác routing); KHÔNG đẻ kèm `SanXuatBatch` sản lượng
-(`batch_id` giữ `NULL`), không đụng `trang_thai`/kho của công việc đích; nhóm lỗi + ảnh bắt buộc NGAY
+(`batch_id` giữ `NULL`), không đụng `trang_thai`/kho của công việc đích; ảnh bắt buộc NGAY
 trong cùng lệnh thay vì tách bước.
 
 Cả hai luồng: `SanXuatBatch` sản lượng nền (routing) có `tot = so_luong_nhan`, `hong = 0` — NĂNG SUẤT
@@ -609,9 +608,10 @@ là trưởng tổ (`_gate_member`).
 
 ### 13.4. Lỗi KCS — ghi một chiều, không còn Nhận/Từ chối cho phiếu mới
 
-- Khi `so_luong_khong_dat > 0`: bắt buộc chọn nhóm lỗi từ danh mục `san_xuat_ly_do.nhom="loi"`, bắt
-  buộc ≥1 ảnh bằng hệ thống lưu file hiện có; `to_chiu_id` (tổ liên đới) và `cong_doan_ref_id` là
-  TUỲ CHỌN vì có thể chưa thống nhất trách nhiệm ngoài đời.
+- Khi `so_luong_khong_dat > 0`: bắt buộc ≥1 ảnh bằng hệ thống lưu file hiện có — ẢNH là bằng chứng
+  duy nhất còn bắt buộc. `mo_ta` (tả lỗi bằng chữ), `to_chiu_id` (tổ liên đới) và `cong_doan_ref_id`
+  đều TUỲ CHỌN: ảnh nói thay được, và trách nhiệm có thể chưa thống nhất ngoài đời. Trước 10/09/2026
+  chỗ này bắt chọn nhóm lỗi từ danh mục `san_xuat_ly_do` — danh mục ĐÃ GỠ, xem §15.
 - Mọi `SanXuatKcsLoi` tạo mới đều nhận `trang_thai="recorded"` (`TN_RECORDED`) — MỘT CHIỀU, không
   còn cách nào tạo lỗi ở trạng thái `pending` nữa. Khác hẳn thiết kế trước đây (bản mục 13 cũ mà tài
   liệu này thay thế): KHÔNG có bước tổ bị yêu cầu Chấp nhận/Từ chối cho phiếu mới, không phân xử.
@@ -666,10 +666,10 @@ không giữ lô, không dừng việc, không tạo yêu cầu kho từ batch �
   (quyền `export` riêng — xem báo cáo không cần quyền xuất file) DÙNG CHUNG một hàm lọc hàng
   (`_hang_kcs_theo_scope` trong `services/san_xuat/kcs_bao_cao.py`) — cùng bộ filter luôn trả cùng
   tổng giữa hai kênh (plan §9 mục 10).
-- Filter: `tu`, `den`, `kcs_department_id`, `lsx_id`, `tu_khoa`, `cong_doan_id`, `loai`,
-  `nhom_loi_id`.
+- Filter: `tu`, `den`, `kcs_department_id`, `lsx_id`, `tu_khoa`, `cong_doan_id`, `loai`.
 - KPI: tổng lượt, tổng nhận, tổng đạt, tổng lỗi, tỷ lệ đạt = **tổng đạt / tổng nhận** (không phải
-  trung bình từng đợt); kèm phân bố theo ngày, xếp hạng nhóm lỗi/công đoạn/tổ nhiều lỗi nhất.
+  trung bình từng đợt); kèm phân bố theo ngày, xếp hạng công đoạn/tổ nhiều lỗi nhất. KHÔNG còn xếp
+  hạng theo nhóm lỗi — lỗi nay chỉ có mô tả tự do, gom nhóm chuỗi tự do là thống kê nói dối (§15).
 - Excel hai sheet: `Kết quả KCS` (một dòng/kết quả) + `Chi tiết checklist` (một dòng/tiêu chí/kết
   quả) — freeze header, autofilter, giờ theo Asia/Bangkok, số tối đa ba chữ số thập phân, tên file
   `bao-cao-kcs-{tu}_{den}.xlsx` (`toanbo` nếu bỏ trống ngày).
@@ -744,27 +744,30 @@ BTP dư trước khi đóng nhóm phải được phân loại thành một tron
 
 ---
 
-## 15. Danh mục lý do và lỗi
+## 15. Danh mục lý do và lỗi — ĐÃ GỠ (10/09/2026, mg `0288`)
 
-Gộp vào màn Cấu hình danh mục hiện có, không tạo màn danh mục mới.
+Danh mục "Lý do & lỗi SX" (bảng `san_xuat_ly_do`, màn danh mục thứ 12, ô quyền `dm_ly_do_san_xuat`)
+đã bỏ HẲN cùng mọi ràng buộc của nó. Chủ chốt: không khâu nào bắt người dùng nêu lý do nữa.
 
-Một danh mục lỗi chuẩn hóa dùng chung cho:
+Sáu chỗ trước đây BẮT BUỘC chọn lý do từ danh mục, nay không đòi gì:
 
-- Sản lượng hỏng tại công đoạn sản xuất.
-- Lỗi do KCS phát hiện.
+| Chỗ | Trước | Nay |
+|---|---|---|
+| Batch sản lượng có hỏng | bắt `nhom_loi_id` nhóm `loi` | chỉ còn `mo_ta_loi` tự do, tuỳ chọn |
+| Lỗi KCS (`ghi_loi`, kiểm đột xuất/điểm kiểm) | bắt `nhom_loi_id` | `mo_ta` tự do, tuỳ chọn; ảnh vẫn bắt buộc |
+| Điều chỉnh bàn giao | bắt lý do nhóm `dieu_chinh_ban_giao` | `mo_ta` tự do, tuỳ chọn |
+| Mở lại phân bổ đã chốt | bắt lý do nhóm `mo_lai_phan_bo` | một nhịp xác nhận, không ô nào |
+| Bù trừ phân bổ kỳ đã khoá | bắt lý do | `mo_ta` tự do, tuỳ chọn |
+| Đóng thiếu nhóm thành phẩm | bắt lý do nhóm `dong_thieu` | một nhịp xác nhận, không ô nào |
 
-Các lý do vận hành cũng đi qua cơ chế danh mục/config hiện có:
+Migration `0288` gỡ 5 cột FK (`san_xuat_batch.nhom_loi_id`, `san_xuat_kcs_loi.nhom_loi_id`,
+`san_xuat_ban_giao_dieu_chinh.ly_do_id`, `san_xuat_phan_bo.mo_lai_ly_do_id`,
+`san_xuat_phan_bo_bu_tru.ly_do_id`) rồi mới bỏ bảng `san_xuat_ly_do` và xoá ô quyền. Các id lý do
+neo trên hồ sơ cũ MẤT THEO — cố ý, vì không còn bảng nào tra ngược ra tên lý do.
 
-- Tạm dừng.
-- Bắt đầu trễ.
-- Sai lệch nhân sự.
-- Chạy khi vật tư chưa đủ.
-- Điều chỉnh bàn giao.
-- Mở lại phân bổ.
-- Đóng thiếu.
-- Các lý do vận hành tương tự.
-
-Không hard-code danh sách lý do trong frontend.
+Các ô ghi chú TỰ DO sẵn có KHÔNG thuộc danh mục này và GIỮ NGUYÊN, gồm cả những chỗ vẫn bắt buộc
+theo §7.2: lý do tạm dừng, lý do bắt đầu trễ, lý do lệch nhân sự, lý do chạy khi vật tư chưa đủ —
+chúng luôn là chuỗi tự do trên bảng của chính chúng, chưa bao giờ đọc danh mục.
 
 ---
 
@@ -789,7 +792,7 @@ Audit phải lưu:
 - Người gây ra sự kiện đó.
 - Thời điểm.
 - Hoàn thành đầy đủ hay hoàn thành thiếu.
-- Lý do đóng thiếu nếu có.
+- (Trước 10/09/2026 còn ghi lý do đóng thiếu — bỏ theo §15.)
 
 Trạng thái nhập kho thành phẩm tách biệt với trạng thái đóng nhóm. KCS có thể tạo nhập kho một phần trước khi nhóm hoàn tất.
 

@@ -135,8 +135,7 @@ class KhuonMoiIn(BaseModel):
 
     ten: str = Field(min_length=1, max_length=200)
     loai: str | None = None
-    #: Ngày cần có dao. Service của danh mục Khuôn bắt buộc trường này khi `dang_dat_lam`.
-    ngay_ve_du_kien: date
+    # 🔴 `ngay_ve_du_kien` ĐÃ GỠ (mg `0293`) — dao mới vào kho ở `dang_dat_lam`, không kèm ngày.
 
 
 class PhuThuocOption(BaseModel):
@@ -236,7 +235,6 @@ class LsxCongDoanOut(BaseModel):
     khuon_be_ten: str | None = None
     khuon_be_so_ke: str | None = None
     khuon_be_tinh_trang: str | None = None
-    khuon_be_ngay_ve: date | None = None
     # Ý ĐỊNH của sale chép từ phiếu tính giá + chỗ lệch với con dao kế hoạch đã chốt. `khuon_lech`
     # là câu tiếng Việt server dựng sẵn (hoặc None) — mọi màn nói cùng một câu, FE không suy lại.
     khuon_nguon: str | None = None
@@ -249,6 +247,10 @@ class LsxCongDoanOut(BaseModel):
     # cứng thì mọi lần mở chi tiết lệnh có bước chế bản là 500.
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
+    # Đơn vị ĐO SẢN LƯỢNG khai ở danh mục Công đoạn — chữ để dán cạnh số của bước NGOÀI dòng giấy
+    # (hai ô trên trống rỗng ở đúng những bước đó). Thiếu field này thì bảng routing hiện "—" ở
+    # bước ghi kẽm, tức giấu mất số bản kẽm phải ghi.
+    don_vi_san_luong: str | None = None
     # Bước có nằm trên DÒNG GIẤY không — quyết định bởi CỜ TRẠM của danh mục Đơn vị, FE không tự
     # suy được từ mã. Sai/thiếu field này thì màn hiện hai số 0 (số lượng + hao) mà không nói vì sao.
     tren_dong_giay: bool = True
@@ -643,6 +645,7 @@ class XemTruocRoutingBuoc(BaseModel):
     so_luong_ra: float
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
+    don_vi_san_luong: str | None = None
     he_so_quy_doi: float
     hao_hut: float
     hao_hut_pct: float

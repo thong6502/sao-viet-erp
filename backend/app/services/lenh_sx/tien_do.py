@@ -64,6 +64,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from ...models.san_xuat import CV_HOAN_THANH, SanXuatCongViec
+from ..gio_xuong import ve_gio_xuong, ve_utc_that
 from .boi_canh import BoiCanh
 
 # Giờ xưởng (+7). Hạn SX là kiểu `Date` nên "trễ hay không" phải quy về NGÀY THEO GIỜ XƯỞNG:
@@ -309,7 +310,11 @@ def _moc_da_xong(bc: BoiCanh, cvs: list) -> datetime | None:
     dong = [_aware(p.ket_thuc) for cv in cvs for p in bc.phien[cv.id] if p.ket_thuc is not None]
     if dong:
         return max(dong)
-    kh = [_aware(cv.du_kien_ket_thuc) for cv in cvs if cv.du_kien_ket_thuc is not None]
+    # Bậc 2 đổi THANG: `du_kien_ket_thuc` là giờ tường dán nhãn UTC, còn hàm này trả UTC THẬT (bậc
+    # 1 lấy từ `phien.ket_thuc`, và `tre_han` so bằng `.astimezone(BUSINESS_TZ).date()`). Trả thẳng
+    # là mốc xong nhảy +7 tiếng — đủ để một lệnh về đúng hạn lúc 18h bị đọc thành 1h sáng HÔM SAU
+    # và bật cờ trễ. Xem `services/gio_xuong.py`.
+    kh = [ve_utc_that(_aware(cv.du_kien_ket_thuc)) for cv in cvs if cv.du_kien_ket_thuc is not None]
     if kh:
         return max(kh)
     return None
@@ -349,6 +354,12 @@ def du_kien_xong(bc: BoiCanh, lsx_id: int, bay_gio: datetime) -> datetime | None
         return _moc_da_xong(bc, cvs)
 
     moc = _aware(bay_gio)
+    # SÀN đo bằng HIỆU hai mốc, mà `moc` là UTC THẬT còn `du_kien_bat_dau` là giờ tường dán nhãn
+    # UTC (`services/gio_xuong.py`). Trừ thẳng là mọi bước nhận thêm đúng offset máy chủ (VN: 7
+    # tiếng) vào sàn ⇒ `du_kien_xong` của MỌI lệnh chưa vào việc bị đẩy muộn 7 tiếng và `tre_han`
+    # bật oan. Hiệu thì bất biến theo thang, nên chỉ cần kéo `moc` sang thang xưởng, KHÔNG đổi
+    # thang của giá trị trả về (bên gọi + `tre_han` đang đo bằng UTC thật).
+    moc_xuong = ve_gio_xuong(moc)
     con_lai: dict[int, float] = {}
     san: dict[int, float] = {}
     for cv in cvs:
@@ -359,7 +370,7 @@ def du_kien_xong(bc: BoiCanh, lsx_id: int, bay_gio: datetime) -> datetime | None
             con_lai[cv.id] = 0.0
             continue
         san[cv.id] = (
-            max(0.0, (_aware(cv.du_kien_bat_dau) - moc).total_seconds() / 60.0)
+            max(0.0, (_aware(cv.du_kien_bat_dau) - moc_xuong).total_seconds() / 60.0)
             if cv.du_kien_bat_dau is not None else 0.0
         )
         thoi_luong = _thoi_luong_phut(cv)

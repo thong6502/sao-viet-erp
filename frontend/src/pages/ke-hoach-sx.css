@@ -3274,6 +3274,14 @@ td.khsx-num > .khsx-unit {
   box-shadow: 0 0 0 4px rgba(148, 43, 23, 0.15);
 }
 
+/* Ô CHỌN ĐƠN VỊ của bước NGOÀI dòng giấy (ghi kẽm, đóng thùng) — đứng ngay cạnh ô số, thay chỗ
+   cái pill chỉ-đọc. `min-width: 0` để nó co được trong node hẹp: thiếu dòng này thì flex item giữ
+   bề rộng nội dung và ô số bị đẩy tràn khỏi thẻ. */
+.khsx-flow-dv-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .khsx-flow-connector {
   display: flex;
   flex-direction: column;

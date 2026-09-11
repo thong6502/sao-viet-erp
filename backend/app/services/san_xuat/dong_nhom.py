@@ -26,7 +26,6 @@ from ...models.san_xuat import (
     NHOM_DONG_THIEU,
     SanXuatNhom,
 )
-from ...models.san_xuat_ly_do import NHOM_DONG_THIEU as LY_DO_NHOM_DONG_THIEU
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
@@ -210,11 +209,10 @@ def dong_thieu(
     *,
     user,
     nhom_id: int,
-    ly_do_id: int,
     expected_version: int | None = None,
 ) -> dict:
-    """Trưởng KCS đóng THIẾU nhóm còn dở (§13.3). Bắt buộc lý do; vẫn phải sạch điều kiện toàn vẹn
-    (mọi điều kiện TRỪ "mọi việc xong"). Chuyển sang `closed_short`, ghi audit sự kiện + lý do."""
+    """Trưởng KCS đóng THIẾU nhóm còn dở (§13.3). Vẫn phải sạch điều kiện toàn vẹn (mọi điều kiện
+    TRỪ "mọi việc xong"). Chuyển sang `closed_short`, ghi audit sự kiện."""
     repo = SanXuatRepository(db)
     nhom = repo.nhom(nhom_id)
     if nhom is None:
@@ -230,10 +228,6 @@ def dong_thieu(
         raise PermissionError("Nhóm không có bước KCS nên không có ai đóng thiếu.")
     _gate_truong_kcs(db, user, kcs_cvs)
 
-    ly_do = SanXuatPhanBoRepository(db).ly_do(ly_do_id)
-    if ly_do is None or ly_do.nhom != LY_DO_NHOM_DONG_THIEU:
-        raise ValueError("Lý do đóng thiếu không hợp lệ.")
-
     _n, _c, dk = _danh_gia(db, nhom_id)
     thieu = [d for d in dk if d["ma"] != _MA_HOAN_THANH and not d["dat"]]
     if thieu:
@@ -245,7 +239,7 @@ def dong_thieu(
         actor_user_id=getattr(user, "id", None),
         action="san_xuat_dong_nhom_thieu",
         target=f"san_xuat_nhom:{nhom.id}",
-        detail=f"ly_do={ly_do_id} order={nhom.order_id}",
+        detail=f"order={nhom.order_id}",
     )
     # Đóng THIẾU cũng phát thưởng: tổ vẫn đã làm ra chừng đó hàng với chừng đó lỗi. Bậc thưởng
     # xét trên SẢN LƯỢNG THỰC — làm thiếu thì rơi xuống khoảng sản lượng thấp hơn, đó đã là hệ
@@ -257,6 +251,5 @@ def dong_thieu(
         "order_id": nhom.order_id,
         "trang_thai": nhom.trang_thai,
         "kieu": "thieu",
-        "ly_do_id": ly_do_id,
         "version": nhom.version,
     }

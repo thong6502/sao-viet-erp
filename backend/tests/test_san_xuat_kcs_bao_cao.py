@@ -2,18 +2,19 @@
 
 Soi tầng service mới `services/san_xuat/kcs_bao_cao.py` (KHÔNG đụng `kcs.py`):
   · mục 2: tỷ lệ đạt = tổng Đạt / tổng nhận (SUM/SUM), KHÔNG phải trung bình tỷ lệ từng phiếu;
-  · mục 3: nhóm lỗi/công đoạn/tổ xếp theo TỔNG số lượng, không phải đếm dòng;
+  · mục 3: công đoạn/tổ xếp theo TỔNG số lượng, không phải đếm dòng (bảng "nhóm lỗi" đã gỡ
+    cùng danh mục Lý do & lỗi SX — mg 0288);
   · mục 3.4: "tổ hiệu lực" — batch `routing` lấy `cong_viec.department_id` (KHÔNG có
     `kcs_department_id`, cột này NULL); batch `dot_xuat` lấy `kcs.kcs_department_id`;
   · mục 4: hồ sơ `to_chiu_id IS NULL` KHÔNG vào bảng xếp hạng "tổ", nhưng VẪN cộng vào KPI tổng
-    lỗi và bảng xếp hạng nhóm lỗi;
+    lỗi;
   · §9 mục 10: JSON (`bao_cao_kcs`) và Excel (`xuat_excel_kcs`) đọc CHUNG `_hang_kcs_theo_scope`
     — cùng filter phải trả cùng tổng (test 8);
   · RBAC: `GET /kcs/bao-cao` gác `read`, `GET /kcs/bao-cao/export.xlsx` gác `export` RIÊNG (test 7,
     đi qua HTTP thật vì đây là chỗ RBAC thật sự áp — service không tự gác quyền).
 
-Tái dùng dàn cảnh + helper của test KCS (`_batch`, `_cv_kcs`, `_cv_production`, `_to_kiem`, `_ly_do`,
-`_anh`) và `_authz`/`_FakeAuthz` của test board (ép scope không phụ thuộc tên role seed).
+Tái dùng dàn cảnh + helper của test KCS (`_batch`, `_cv_kcs`, `_cv_production`, `_to_kiem`, `_anh`)
+và `_authz`/`_FakeAuthz` của test board (ép scope không phụ thuộc tên role seed).
 """
 from __future__ import annotations
 
@@ -46,7 +47,6 @@ from tests.test_san_xuat_kcs import (  # noqa: F401
     _batch,
     _cv_kcs,
     _cv_production,
-    _ly_do,
     _to_kiem,
     admin,
     customer,
@@ -96,37 +96,42 @@ def test_ty_le_dat_la_tong_tren_tong_khong_phai_trung_binh(db, orders, lsx_svc, 
 
 
 # --- Mục 3: xếp hạng theo TỔNG số lượng, không phải đếm dòng ----------------------------------
-def test_xep_hang_nhom_loi_cong_doan_to_theo_tong_so_luong(db, orders, lsx_svc, admin, customer):
+def test_xep_hang_to_theo_tong_so_luong(db, orders, lsx_svc, admin, customer):
+    """Xếp hạng lấy TỔNG số lượng, KHÔNG đếm dòng: tổ X có 1 hồ sơ 50 cái phải đứng trên tổ Y có
+    3 hồ sơ 1 cái. (Bảng xếp hạng "nhóm lỗi" đã gỡ cùng danh mục Lý do & lỗi SX — mg 0288: lỗi nay
+    chỉ có mô tả tự do, gom nhóm theo chuỗi tự do là thống kê nói dối.)"""
     _to, _cv, res = _batch(db, orders, lsx_svc, admin, customer, nhan=100, dat=46, khong_dat=54,
                             ma="KCS-XH")
-    ld_x = _ly_do(db, ma="LOI-XH-X", ten="Nhóm X")
-    ld_y = _ly_do(db, ma="LOI-XH-Y", ten="Nhóm Y")
-    kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], nhom_loi_id=ld_x.id,
-                so_luong=50, anh=_anh())
+    to_x = Department(name="Tổ XH X", code="KCS-XH-X", la_san_xuat=True)
+    to_y = Department(name="Tổ XH Y", code="KCS-XH-Y", la_san_xuat=True)
+    db.add_all([to_x, to_y])
+    db.commit()
+    kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], to_chiu_id=to_x.id,
+                mo_ta="Nhoè mảng", so_luong=50, anh=_anh())
     for _ in range(3):
-        kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], nhom_loi_id=ld_y.id,
-                     so_luong=1, anh=_anh())
+        kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], to_chiu_id=to_y.id,
+                     mo_ta="Xước nhẹ", so_luong=1, anh=_anh())
 
     out = kcs_bao_cao.bao_cao_kcs(db, admin, _authz(db))
 
-    assert out["nhom_loi"][0]["nhom_loi_id"] == ld_x.id   # tổng 50 > tổng 3, KHÔNG phải Y (3 dòng)
-    assert out["nhom_loi"][0]["tong_so_luong"] == 50
-    ten_by_id = {r["nhom_loi_id"]: r["ten"] for r in out["nhom_loi"]}
-    assert ten_by_id[ld_x.id] == "Nhóm X" and ten_by_id[ld_y.id] == "Nhóm Y"
+    assert "nhom_loi" not in out                          # bảng nhóm lỗi đã gỡ (mg 0288)
+    assert out["to"][0]["to_id"] == to_x.id               # tổng 50 > tổng 3, KHÔNG phải Y (3 dòng)
+    assert out["to"][0]["tong_so_luong"] == 50
+    ten_by_id = {r["to_id"]: r["ten"] for r in out["to"]}
+    assert ten_by_id[to_x.id] == "Tổ XH X" and ten_by_id[to_y.id] == "Tổ XH Y"
 
 
-# --- Mục 4: hồ sơ không xác định trách nhiệm KHÔNG vào bảng xếp hạng "tổ" (nhưng vẫn vào KPI +
-# xếp hạng nhóm lỗi) --------------------------------------------------------------------------
+# --- Mục 4: hồ sơ không xác định trách nhiệm KHÔNG vào bảng xếp hạng "tổ" (nhưng vẫn vào KPI)
+# ---------------------------------------------------------------------------------------------
 def test_loi_khong_to_chiu_khong_len_bang_xep_hang_to(db, orders, lsx_svc, admin, customer):
     _to, _cv, res = _batch(db, orders, lsx_svc, admin, customer, nhan=100, dat=90, khong_dat=10,
                             ma="KCS-M4")
-    ld = _ly_do(db, ma="LOI-M4", ten="Lỗi chung")
     to_chiu = Department(name="Tổ Chịu M4", code="KCS-M4-TC", la_san_xuat=True)
     db.add(to_chiu)
     db.commit()
-    kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], nhom_loi_id=ld.id,
+    kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], mo_ta="Lỗi chung",
                 to_chiu_id=to_chiu.id, so_luong=6, anh=_anh())
-    kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], nhom_loi_id=ld.id,
+    kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], mo_ta="Lỗi chung",
                 to_chiu_id=None, so_luong=4, anh=_anh())
 
     out = kcs_bao_cao.bao_cao_kcs(db, admin, _authz(db))
@@ -136,8 +141,6 @@ def test_loi_khong_to_chiu_khong_len_bang_xep_hang_to(db, orders, lsx_svc, admin
     assert None not in to_ids and to_chiu.id in to_ids
     to_row = next(r for r in out["to"] if r["to_id"] == to_chiu.id)
     assert to_row["tong_so_luong"] == 6              # CHỈ dòng có to_chiu được cộng vào bảng "tổ"
-    nhom_row = next(r for r in out["nhom_loi"] if r["nhom_loi_id"] == ld.id)
-    assert nhom_row["tong_so_luong"] == 10           # CẢ HAI dòng (6+4) vẫn cộng vào nhóm lỗi
 
 
 # --- Mục 3.4 (Ruling 2): batch routing lọc theo tổ ĐANG CHẠY, không phải kcs_department_id -----
@@ -288,7 +291,7 @@ def test_excel_ten_sheet_va_header_dung(db, orders, lsx_svc, admin, customer):
     assert header1 == [
         "Mã kết quả", "Thời điểm", "Loại", "Tổ KCS", "Mã LSX", "Công đoạn", "Số nhận",
         "Số đạt", "Số không đạt", "Đơn vị", "Kết luận", "Ghi chú", "Người ghi",
-        "Số lỗi ghi nhận", "Nhóm lỗi", "Tổ chịu trách nhiệm", "URL ảnh",
+        "Số lỗi ghi nhận", "Mô tả lỗi", "Tổ chịu trách nhiệm", "URL ảnh",
     ]
     header2 = [c.value for c in wb["Chi tiết checklist"][1]]
     assert header2 == [
@@ -321,12 +324,11 @@ def test_excel_so_dong_khop_du_lieu(db, orders, lsx_svc, admin, customer):
 
 def test_excel_url_anh_xuat_hien_dung_cot(db, orders, lsx_svc, admin, customer):
     _to, _cv, res = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-XL-IMG")
-    ld = _ly_do(db, ma="LOI-XL-IMG", ten="Lỗi có ảnh")
     anh_2 = [
         {"file_name": "a.jpg", "file_url": "https://x/a.jpg", "file_type": "image/jpeg"},
         {"file_name": "b.jpg", "file_url": "https://x/b.jpg", "file_type": "image/jpeg"},
     ]
-    kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], nhom_loi_id=ld.id,
+    kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"], mo_ta="Lỗi có ảnh",
                 so_luong=5, anh=anh_2)
 
     content, _fn = kcs_bao_cao.xuat_excel_kcs(db, admin, _authz(db))

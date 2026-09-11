@@ -9,7 +9,7 @@ Nghiệm thu §21 (dòng khó nhất): "lỗi KCS chờ phản hồi KHÔNG ch�
 chặn đóng nhóm" — hai đường (nhập kho thành phẩm vs cổng đóng nhóm) độc lập nhau.
 
 Tái dùng NGUYÊN dàn cảnh + helper từ các test G5 (không dựng cảnh mới): `_batch` (batch KCS đạt một
-phần 100/90/10), `_hoan_thanh_het` (đánh dấu mọi việc của nhóm xong), `_ly_do`/`_to_chiu`/`_anh`.
+phần 100/90/10), `_hoan_thanh_het` (đánh dấu mọi việc của nhóm xong), `_to_chiu`/`_anh`.
 """
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from app.services.san_xuat import dong_nhom, kcs, kho
 from tests.test_san_xuat_dong_nhom import _hoan_thanh_het
 from tests.test_san_xuat_kcs import (  # noqa: F401
     _batch,
-    _ly_do,
     _to_chiu,
     admin,
     customer,
@@ -38,13 +37,13 @@ def _trang_thai_nhom(db, nhom_id):
     return SanXuatRepository(db).nhom(nhom_id).trang_thai
 
 
-def _ghi_loi_cho(db, *, admin, kcs_batch_id, nhom_loi_id, to_chiu_id):
+def _ghi_loi_cho(db, *, admin, kcs_batch_id, to_chiu_id):
     """Lỗi kiểu CŨ (trang_thai=pending), chèn thẳng qua model — các test dưới đây soi luồng
     phản hồi legacy (chốt chặn `het_loi_kcs_cho` + `phan_hoi_loi`). KHÔNG qua `kcs.ghi_loi()`
     vì lỗi MỚI ghi `recorded`, không còn vào `pending` nữa (Task 11.5) — xem cùng lý do ở
     `tests/test_san_xuat_kcs.py::_mot_loi`."""
     loi = SanXuatKcsLoi(
-        kcs_batch_id=kcs_batch_id, nhom_loi_id=nhom_loi_id, to_chiu_id=to_chiu_id,
+        kcs_batch_id=kcs_batch_id, mo_ta="Lem mực", to_chiu_id=to_chiu_id,
         so_luong=6, don_vi="cái", trang_thai=TN_CHO, created_by=admin.id,
     )
     db.add(loi)
@@ -62,10 +61,9 @@ def test_phan_hoi_loi_la_chot_cuoi_thi_router_tu_dong_dong_du(db, orders, lsx_sv
     `_thu_dong_nhom` → nhóm tự đóng ĐỦ (không cần trưởng KCS đóng tay)."""
     _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     _hoan_thanh_het(db, cv.nhom_id)
-    ld = _ly_do(db)
     to2, tt2 = _to_chiu(db)
     loi_id = _ghi_loi_cho(
-        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id, to_chiu_id=to2.id,
+        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], to_chiu_id=to2.id,
     )
 
     # Còn lỗi chờ → chưa hội đủ, chốt chặn không đóng.
@@ -101,10 +99,9 @@ def test_chot_chan_la_cong_VA_go_mot_chot_chua_du(db, orders, lsx_svc, admin, cu
     chỉ khi gỡ NỐT cái còn lại lần chốt chặn kế mới đóng ĐỦ."""
     _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     _hoan_thanh_het(db, cv.nhom_id)
-    ld = _ly_do(db)
     to2, tt2 = _to_chiu(db)
     loi_id = _ghi_loi_cho(
-        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id, to_chiu_id=to2.id,
+        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], to_chiu_id=to2.id,
     )
     lb = kho.phan_loai_btp_du(
         db, user=admin, cong_viec_id=cv.id, so_luong=5, phan_loai=PL_NHAP_BTP
@@ -127,10 +124,9 @@ def test_loi_kcs_cho_khong_chan_nhap_kho_phan_dat_nhung_chan_dong_nhom(db, order
     cổng đóng nhóm — điều kiện `het_loi_kcs_cho` chưa đạt."""
     _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)  # dat = 90
     _hoan_thanh_het(db, cv.nhom_id)
-    ld = _ly_do(db)
     to2, tt2 = _to_chiu(db)
     _ghi_loi_cho(
-        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id, to_chiu_id=to2.id,
+        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], to_chiu_id=to2.id,
     )
 
     # Đường nhập kho phần ĐẠT vẫn chạy: lỗi (số không đạt) không liên quan số đạt.

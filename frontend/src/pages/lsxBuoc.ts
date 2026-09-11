@@ -53,7 +53,6 @@ export interface EditRow {
   khuon_be_ten: string | null;
   khuon_be_so_ke: string | null;
   khuon_be_tinh_trang: string | null;
-  khuon_be_ngay_ve: string | null;
   /** Ý ĐỊNH của sale về khuôn, chép từ phiếu tính giá lúc dựng lệnh — CHỈ ĐỌC. Không phải quyết
    *  định cuối (quyết định cuối là `khuon_be_id` do kế hoạch chốt); đứng cạnh nhau để so được. */
   khuon_nguon: "co_san" | "lam_moi" | null;
@@ -66,6 +65,9 @@ export interface EditRow {
   so_luong_ra: string;
   don_vi_vao: string;
   don_vi_ra: string;
+  /** Đơn vị ĐO SẢN LƯỢNG của công đoạn (CHỈ ĐỌC, theo danh mục). Bước NGOÀI dòng giấy để trống cả
+   *  hai ô trên nên đây là chữ DUY NHẤT dán được cạnh số của nó. "" = công đoạn chưa khai. */
+  don_vi_san_luong: string;
   /** Bước có nằm trên DÒNG GIẤY không — CHỈ ĐỌC, server quyết theo cặp đơn vị của bước (bỏ trống
    *  cả hai = ngoài dòng giấy).
    *  `false` ⇒ số lượng không tự tính ngược, bù hao không cộng vào số giấy (drawer nói tại chỗ). */
@@ -210,7 +212,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     khuon_be_ten: cd.khuon_be_ten ?? null,
     khuon_be_so_ke: cd.khuon_be_so_ke ?? null,
     khuon_be_tinh_trang: cd.khuon_be_tinh_trang ?? null,
-    khuon_be_ngay_ve: cd.khuon_be_ngay_ve ?? null,
     khuon_nguon: cd.khuon_nguon ?? null,
     khuon_phi: Number(cd.khuon_phi) || 0,
     khuon_lech: cd.khuon_lech ?? null,
@@ -221,6 +222,7 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     // vế VÀO khi vế vào CÓ giá trị — bước không đổi cách đếm thì hai vế bằng nhau.
     don_vi_vao: cd.don_vi_vao || "",
     don_vi_ra: cd.don_vi_ra || cd.don_vi_vao || "",
+    don_vi_san_luong: cd.don_vi_san_luong || "",
     // Server cũ chưa gửi cờ ⇒ coi như TRÊN dòng giấy: im lặng đúng với hành vi trước đây, hơn là
     // đột nhiên dán chú giải "ngoài dòng giấy" lên mọi bước.
     tren_dong_giay: cd.tren_dong_giay !== false,
@@ -310,18 +312,22 @@ export function tenBuoc(
  *
  *  Máy ĐANG gán luôn giữ lại dù rớt bộ lọc (dữ liệu cũ, hoặc công đoạn siết danh sách sau khi lệnh
  *  đã gán) — không thì mở lệnh cũ ra là ô máy trống trơn, người xếp lịch tưởng chưa ai gán. */
-export function mayChonDuoc<T extends { id: number; nhom?: string | null }>(
+export function mayChonDuoc<T extends { id: number; nhom?: string | null; active?: boolean | null }>(
   mayRefs: T[],
   cd: { nhomMayChoPhep?: string[] | null; mayChoPhep?: number[] | null } | null | undefined,
   mayDangGan: number | null | undefined,
 ): T[] {
+  // Máy đã NGỪNG DÙNG ở danh mục thì không mời cho bước nữa — cùng lời hứa của hộp thoại
+  // "Ngừng dùng". Nhưng máy bước ĐANG gán thì giữ nguyên trong danh sách: lọc thẳng ra là ô select
+  // rơi về trống, người dùng tưởng chưa gán rồi lưu đè mất máy cũ.
+  const con = mayRefs.filter((m) => m.active !== false || m.id === mayDangGan);
   const ds = cd?.mayChoPhep ?? null;
   if (ds && ds.length > 0) {
-    return mayRefs.filter((m) => ds.includes(m.id) || m.id === mayDangGan);
+    return con.filter((m) => ds.includes(m.id) || m.id === mayDangGan);
   }
   const nhom = cd?.nhomMayChoPhep ?? null;
-  if (!nhom || nhom.length === 0) return mayRefs;
-  return mayRefs.filter((m) => (m.nhom != null && nhom.includes(m.nhom)) || m.id === mayDangGan);
+  if (!nhom || nhom.length === 0) return con;
+  return con.filter((m) => (m.nhom != null && nhom.includes(m.nhom)) || m.id === mayDangGan);
 }
 
 export function emptyRow(): EditRow {
@@ -330,9 +336,9 @@ export function emptyRow(): EditRow {
     la_kcs: false,
     department_id: null, department_ten: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
-    khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
+    khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null,
     khuon_nguon: null, khuon_phi: 0, khuon_lech: null,
-    so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to",
+    so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", don_vi_san_luong: "",
     tren_dong_giay: true, loi_quy_doi: null, san_luong_dien_giai: null, he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "",
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",

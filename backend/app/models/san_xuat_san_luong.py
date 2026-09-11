@@ -58,8 +58,8 @@ class SanXuatBatch(Base):
     """Một BATCH sản lượng của một công việc (§11.1). Nhiều batch một phần trong cùng công đoạn.
 
     Ràng buộc `tong = tot + hong` do service kiểm (Numeric, không dựa CHECK để còn dung sai làm
-    tròn). `hong > 0` bắt buộc `nhom_loi_id` (nhóm lỗi chuẩn hoá), `mo_ta_loi` chỉ bổ sung — không
-    thay thế danh mục (§11.1). Người tham gia batch SUY LÚC ĐỌC từ khoảng tham gia giao cửa sổ
+    tròn). Hỏng ghi kèm `mo_ta_loi` tự do, tuỳ chọn — danh mục lý do/lỗi ĐÃ GỠ. Người tham gia
+    batch SUY LÚC ĐỌC từ khoảng tham gia giao cửa sổ
     `[bat_dau, ket_thuc]` (§12.1), không lưu ở đây."""
 
     __tablename__ = "san_xuat_batch"
@@ -74,10 +74,6 @@ class SanXuatBatch(Base):
     tot: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
     hong: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, server_default="0", default=0)
     don_vi: Mapped[str] = mapped_column(String(24), nullable=False)
-    # Nhóm lỗi chuẩn hoá khi có hỏng (§11.1). SET NULL để giữ batch cũ khi danh mục lỗi bị xoá mềm.
-    nhom_loi_id: Mapped[int | None] = mapped_column(
-        ForeignKey("san_xuat_ly_do.id", ondelete="SET NULL"), nullable=True, index=True
-    )
     mo_ta_loi: Mapped[str | None] = mapped_column(String(500), nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -166,9 +162,6 @@ class SanXuatBanGiaoDieuChinh(Base):
     )
     so_luong_truoc: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
     so_luong_sau: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
-    ly_do_id: Mapped[int | None] = mapped_column(
-        ForeignKey("san_xuat_ly_do.id", ondelete="SET NULL"), nullable=True, index=True
-    )
     mo_ta: Mapped[str | None] = mapped_column(String(500), nullable=True)
     khong_nhat_quan: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False

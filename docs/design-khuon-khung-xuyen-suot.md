@@ -29,9 +29,9 @@ theo dõi thì hoàn toàn không có. Hai đường sống song song, không ch
 | Đ1 | Nhãn gán ở Kế hoạch phải **đi theo bước tới mọi chỗ bước đó xuất hiện**, cho tới khi lệnh hoàn thành. Không phải icon, không phải màu lane. |
 | Đ2 | **Khung lụa cũng là đồ lưu kho dùng lại** như khuôn bế → đưa vào chung danh mục. |
 | Đ3 | Đổi tên module danh mục thành **"Khuôn & khung"**, thêm ô **phân loại**. |
-| Đ4 | **KHÔNG** dùng ngày dự kiến có khuôn để chặn xếp lịch. |
+| Đ4 | **KHÔNG** dùng ngày dự kiến có khuôn để chặn xếp lịch. *(10/09/2026, mg `0293`: ô ngày đó GỠ HẲN khỏi kho khuôn — không còn mốc nào để mà chặn.)* |
 | Đ5 | Thay vào đó: lệnh phát hành xuống xưởng thì phải **nhận đủ khuôn/khung tương ứng** — một **ô tích "đã nhận"** ở bàn tổ. |
-| Đ6 | Ngày làm khuôn để **thợ chủ động vào module sửa**; hệ thống chỉ chở thông tin, không đoán, không chặn. |
+| Đ6 | ~~Ngày làm khuôn để **thợ chủ động vào module sửa**~~ — GỠ 10/09/2026 (mg `0293`): không ai quay lại sửa ngày đó bao giờ, nên nó luôn lạc hậu. Thứ thợ cập nhật là **tình trạng** (`dang_dat_lam` → `dang_dung`), và đó là thứ duy nhất hệ chở đi. |
 
 Giả định đã nêu và chủ dự án không bác: **dao chưa về vẫn cho phát hành lệnh** — vì lệnh còn nhiều
 bước chạy trước bế, chặn cả lệnh là giam luôn phần in.
@@ -110,8 +110,9 @@ Bước nào công đoạn có cờ cần dụng cụ thì khối "Phí khuôn" 
 - **Dùng dao có sẵn** → 0đ, không hỏi thêm.
 - **Làm dao mới** → mở ô tiền (đang có).
   Ô **ngày dự kiến có dao** từng nằm ở đây đã GỠ 06/09/2026 (migration `0269`): nó chỉ là dự trù,
-  không nơi nào đọc — mốc thật là `ngay_ve_du_kien` của chính con dao trong kho khuôn, do người
-  làm khuôn cập nhật (Đ6). Hai mốc song song chỉ tổ lệch nhau mà không ai thấy.
+  không nơi nào đọc. Ô ngày tương ứng bên kho khuôn (`khuon_be.ngay_ve_du_kien`) cũng GỠ nốt
+  10/09/2026 (migration `0293`) — nay hệ KHÔNG mang mốc "bao giờ có dao" ở đâu cả, chỉ mang tình
+  trạng của con dao.
 
 Chưa chọn nhánh nào = **chưa trả lời**, khác hẳn với "đã trả lời là có sẵn". Đây là thay đổi nhỏ
 nhưng gỡ đứt gãy lớn nhất: kế hoạch đọc được *ý định của sale* thay vì đoán từ một ô tiền trống.
@@ -186,7 +187,7 @@ In đậm = đang thiếu ít nhất một trong hai chip.
 
 ## 7. Cái KHÔNG làm
 
-- **Không** chặn xếp lịch theo ngày dự kiến có khuôn (Đ4).
+- **Không** chặn xếp lịch theo tình trạng khuôn (Đ4 — ngày dự kiến thì đã gỡ hẳn, mg `0293`).
 - **Không** chặn phát hành lệnh khi dao chưa về.
 - **Không** ràng buộc "một dao không chạy hai chỗ cùng lúc" — đã cân nhắc, để sau nếu xưởng gặp thật.
 - **Không** đổi tên bảng / mã quyền / prefix API của danh mục (§4.2).

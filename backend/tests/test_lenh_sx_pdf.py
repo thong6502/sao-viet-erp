@@ -40,7 +40,6 @@ nên bài dưới không cần tự tạo dữ liệu danh mục.
 from __future__ import annotations
 
 import re
-from datetime import date
 
 from app.models.khuon_be import KhuonBe
 from app.services.lenh_sx import phieu_cong_nghe
@@ -365,14 +364,13 @@ def test_giay_in_ma_dao_va_so_ke(client, seed_credentials, lenh_co_khuon, monkey
 
 
 def test_giay_noi_thang_dao_chua_ve(client, seed_credentials, lenh_co_khuon, sess, monkeypatch):
-    """Dao đang đặt làm thì giấy phải nói "chưa về" + ngày dự kiến.
+    """Dao đang đặt làm thì giấy phải nói "chưa về".
 
     Im lặng ở ca này là để thợ đi tìm một con dao không tồn tại trong kho — tệ hơn hẳn việc không
-    in gì cả, vì tờ giấy trông vẫn đầy đủ.
+    in gì cả, vì tờ giấy trông vẫn đầy đủ. (Ngày dự kiến đi kèm đã gỡ ở mg `0293`.)
     """
     dao = sess.query(KhuonBe).filter(KhuonBe.ma == KHUON_MA).one()
     dao.tinh_trang = "dang_dat_lam"
-    dao.ngay_ve_du_kien = date(2026, 9, 20)
     sess.commit()
 
     giay = _bat_chu(monkeypatch)
@@ -381,7 +379,7 @@ def test_giay_noi_thang_dao_chua_ve(client, seed_credentials, lenh_co_khuon, ses
     assert r.status_code == 200, r.text
 
     theo_ten = {d["Công đoạn"]: d for d in _bang_routing(giay, 3)}
-    assert theo_ten["Bế"]["Loại bước"] == f"Máy · {KHUON_MA} — chưa về, dự kiến 20/09/2026"
+    assert theo_ten["Bế"]["Loại bước"] == f"Máy · {KHUON_MA} — chưa về"
 
 
 def test_chan_trang_co_moc_in_va_nguoi_in(client, seed_credentials, lenh_that, monkeypatch):

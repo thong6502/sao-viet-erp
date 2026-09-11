@@ -36,8 +36,6 @@ from app.services.role_service import SCOPELESS_MODULES
 #: dữ liệu GỐC của cả xưởng, không có khái niệm "đơn giá của tôi".
 #: `bai_ghep` (màn cũ) rời danh sách 18/08/2026: mg `0216` chép quyền sang `bai_ghep_2` rồi xoá khoá.
 #: `xep_lich` (màn cũ) rời danh sách 19/08/2026: mg `0219` chép quyền sang `xep_lich_2` rồi xoá khoá.
-#: `dm_ly_do_san_xuat` (19/08/2026): danh mục Lý do & lỗi SX (§15) — màn thứ 12, scopeless như 11
-#: màn kia (danh sách lý do là dữ liệu GỐC của xưởng, không có "lý do của tôi"). mg `0221` chép quyền.
 #: `yeu_cau_sua_chua` (20/08/2026): ô báo máy hỏng cho người NGOÀI tổ kỹ thuật. Scopeless là CHỦ Ý —
 #: ai cũng phải thấy hết hàng chờ thì mới thôi báo trùng một cái máy. Việc "chỉ sửa lời báo của
 #: mình" do `_kiem_chu_yeu_cau` chặn theo người gửi, không chặn bằng phạm vi.
@@ -46,12 +44,13 @@ from app.services.role_service import SCOPELESS_MODULES
 SCOPELESS_CU = frozenset({
     "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_cong_viec_khoan", "dm_bu_hao",
     "dm_don_vi", "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
-    "dm_ly_do_san_xuat",
     # Thành phẩm (19/08/2026, mg 0203): danh mục thì KHÔNG có phạm vi — bỏ sót ở đây là màn mọc
     # ra dropdown Phạm vi, rồi scope `own` bó âm thầm quyền vừa cấp.
     "dm_thanh_pham",
     "ky_thuat_may", "yeu_cau_sua_chua",
     "ke_hoach_vat_tu", "bai_ghep_2", "xep_lich_2", "phieu_bao_tri",
+    # Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH, không đọc scope lần nào, quyền chép từ `xep_lich_2`.
+    "xep_lich_3",
     "dm_kcs_tieu_chi",
 })
 
@@ -78,8 +77,6 @@ LOAI_MODULE_CU = {
     "thanh_pham": "dm_thanh_pham",
     "khuon_be": "khuon_be",
     "kho_hang": "dm_kho_hang",
-    # Lý do & lỗi SX vào Cấu hình danh mục 19/08/2026 (§15) — màn thứ 12, module riêng.
-    "san_xuat_ly_do": "dm_ly_do_san_xuat",
     "ky_thuat_sua_chua": "ky_thuat_may",
     "ky_thuat_bao_tri": "ky_thuat_may",
     # Yêu cầu báo hỏng (20/08/2026) — khoá ĐẦU TIÊN mang giá trị TUPLE: người báo phải đọc được
@@ -147,10 +144,10 @@ def test_khuon_be_giu_nguyen_chuoi_quyen():
 def test_khong_trung_loai_khong_trung_module():
     loai = [d.loai for d in DANH_MUC] + [a for d in DANH_MUC for a in d.alias_loai]
     assert len(loai) == len(set(loai)), "trùng `loai` giữa tên chính và tên đời cũ"
-    # 14 từ 31/08/2026: 10 màn gốc + Công việc khoán + Lý do SX (upstream) + Thành phẩm + Tiêu
-    # chí KCS (Task 3 KCS kiêm nhiệm). Con số phải ĐỔI chứ không được bỏ — nó bắt cả trường hợp
-    # lỡ tay khai trùng một màn thành hai dòng.
-    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 14
+    # 13 từ 10/09/2026: 10 màn gốc + Công việc khoán + Thành phẩm + Tiêu chí KCS. (14 trước đó —
+    # màn "Lý do & lỗi SX" GỠ HẲN cùng danh mục `san_xuat_ly_do`, mg 0288.) Con số phải ĐỔI chứ
+    # không được bỏ — nó bắt cả trường hợp lỡ tay khai trùng một màn thành hai dòng.
+    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 13
 
 
 def test_dem_theo_loai_phu_dung_cac_man_co_model():
@@ -170,10 +167,10 @@ def test_dang_ky_tra_du_cac_man(client):
     r = client.get("/api/danh-muc/dang-ky", headers=_admin(client))
     assert r.status_code == 200, r.text
     items = r.json()["items"]
-    assert len(items) == 14
+    assert len(items) == 13
 # `test_dang_ky_tra_du_11_man` GỠ 21/08/2026 — trùng việc với `test_dang_ky_tra_du_cac_man`
-# ngay trên (cả hai đếm số màn của endpoint đăng ký). Con số cập nhật thành 14 (31/08/2026) khi
-# Tiêu chí KCS nhập vào cùng Thành phẩm, Công việc khoán và Lý do SX.
+# ngay trên (cả hai đếm số màn của endpoint đăng ký). Con số 14 (31/08/2026) rút còn 13
+# (10/09/2026) khi màn "Lý do & lỗi SX" gỡ hẳn.
 
 
 def test_dang_ky_khong_bi_nuot_vao_route_co_tham_so(client):

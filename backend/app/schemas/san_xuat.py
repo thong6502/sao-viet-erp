@@ -53,7 +53,6 @@ class KhuonChipOut(BaseModel):
     ten: str | None = None
     so_ke: str | None = None
     tinh_trang: str | None = None
-    ngay_ve_du_kien: str | None = None
 
 
 class WorkItemOut(BaseModel):
@@ -79,7 +78,22 @@ class WorkItemOut(BaseModel):
     so_luong_ra: float | None = None
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
+    # Bước NGOÀI dòng giấy (ghi kẽm đếm bản, đóng thùng đếm thùng): vào = ra nên cột "SL vào → ra"
+    # hiện MỘT số kèm đơn vị bản địa, và `sl_dien_giai` nói vì sao ra đúng số ấy ("Số bản kẽm =
+    # 4 bản kẽm"). Cờ là ẢNH CHỤP lúc phát hành — FE không suy lại được từ mã đơn vị.
+    ngoai_dong: bool = False
+    sl_dien_giai: str | None = None
     trang_thai: str
+    # Dải thời lượng CHẠY của thẻ (phút, đã chia theo phần sản lượng của phân đoạn). Ba số bằng
+    # nhau ⇒ máy chưa khai tốc độ min/max, UI bỏ phần trong ngoặc chứ đừng vẽ râu 0. None = lệnh
+    # phát hành trước 10/09/2026 (ảnh chụp chưa có khoá) — "Phát hành cập nhật" là cách lấy về.
+    chay_phut: float | None = None
+    chay_phut_min: float | None = None
+    chay_phut_max: float | None = None
+    # DẶN DÒ của người lập kế hoạch + THẺ QUY CÁCH rút gọn: tổ trưởng không có quyền `lsx` nên
+    # không mở nổi hồ sơ lệnh — hai thứ này đi theo thẻ việc, không phải cửa tra ngược.
+    ghi_chu: str | None = None
+    quy_cach: dict | None = None
     # Định mức vật tư đóng băng lúc phát hành (view "Danh sách") — đọc thẳng `vat_tu_json`.
     dinh_muc_vat_tu: list[VatTuDinhMucOut] = []
     # Lớp thực-tế đè lên thanh kế hoạch (§5.1): các phiên chạy đã ghi, phiên mở để ket_thuc=None.
@@ -252,8 +266,6 @@ class BatchOut(BaseModel):
     tot: float
     hong: float
     don_vi: str
-    nhom_loi_id: int | None = None
-    nhom_loi_ten: str | None = None
     mo_ta_loi: str | None = None
     ghi_chu: str | None = None
     version: int
@@ -483,7 +495,6 @@ class BatchIn(BaseModel):
     tot: float
     hong: float = 0
     don_vi: str | None = None           # trống ⇒ đơn vị ra của công việc
-    nhom_loi_id: int | None = None      # bắt buộc khi hong > 0 (nhóm `loi`)
     mo_ta_loi: str | None = None
     ghi_chu: str | None = None
     lot_vao: list[LotVaoIn] = []
@@ -530,8 +541,7 @@ class BanGiaoXacNhanIn(BaseModel):
 
 class BanGiaoDieuChinhIn(BaseModel):
     so_luong_sau: float
-    ly_do_id: int                        # bắt buộc, nhóm `dieu_chinh_ban_giao`
-    mo_ta: str | None = None
+    mo_ta: str | None = None            # ghi chú tự do, tuỳ chọn
     expected_version: int | None = None
 
 
@@ -591,7 +601,6 @@ class PhanBoChotIn(BaseModel):
 
 
 class PhanBoMoLaiIn(BaseModel):
-    ly_do_id: int                        # bắt buộc, nhóm `mo_lai_phan_bo`
     expected_version: int | None = None
 
 
@@ -654,8 +663,7 @@ class BuTruIn(BaseModel):
     so_luong_tra_luong: float            # chênh lệch, có thể âm
     ky_bu_nam: int
     ky_bu_thang: int
-    ly_do_id: int                        # bắt buộc, nhóm `mo_lai_phan_bo`
-    mo_ta: str | None = None
+    mo_ta: str | None = None            # ghi chú tự do, tuỳ chọn
 
 
 class BuTruKetQuaOut(BaseModel):
@@ -768,12 +776,6 @@ class KcsBaoCaoTheoNgayRow(BaseModel):
     tong_loi: float
 
 
-class KcsBaoCaoNhomLoiRow(BaseModel):
-    nhom_loi_id: int | None = None
-    ten: str
-    tong_so_luong: float
-
-
 class KcsBaoCaoCongDoanRow(BaseModel):
     ten_cong_doan: str
     tong_so_luong: float
@@ -792,7 +794,6 @@ class KcsBaoCaoOut(BaseModel):
     tong_loi: float
     ty_le_dat: float | None = None
     theo_ngay: list[KcsBaoCaoTheoNgayRow]
-    nhom_loi: list[KcsBaoCaoNhomLoiRow]
     cong_doan: list[KcsBaoCaoCongDoanRow]
     to: list[KcsBaoCaoToRow]
 
@@ -807,8 +808,6 @@ class KcsAnhOut(BaseModel):
 class KcsLoiOut(BaseModel):
     id: int
     kcs_batch_id: int
-    nhom_loi_id: int | None = None
-    nhom_loi_ten: str | None = None
     mo_ta: str | None = None
     to_chiu_id: int | None = None
     cong_doan_ref_id: int | None = None
@@ -1072,8 +1071,7 @@ class ThuongToTruongOut(BaseModel):
 
 
 class DongThieuIn(BaseModel):
-    """Trưởng KCS đóng thiếu nhóm còn dở (§13.3): bắt buộc lý do nhóm `dong_thieu`."""
-    ly_do_id: int
+    """Trưởng KCS đóng thiếu nhóm còn dở (§13.3) — không đòi lý do (danh mục lý do/lỗi ĐÃ GỠ)."""
     expected_version: int | None = None
 
 
@@ -1082,7 +1080,6 @@ class DongNhomKetQuaOut(BaseModel):
     order_id: int | None = None
     trang_thai: str
     kieu: str                            # du | thieu
-    ly_do_id: int | None = None
     version: int
 
 

@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session
 from ...models.cong_doan import NHOM as NHOM_CONG_DOAN
 from ...models.department import Department
 from ...models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG
-from ...models.san_xuat_ly_do import NHOM_LOI
 from ...models.san_xuat_kcs import (
     KCS_DAT,
     KCS_DAT_MOT_PHAN,
@@ -273,7 +272,6 @@ def tao_kiem_dot_xuat(
     don_vi: str | None = None,
     ghi_chu: str | None = None,
     checklist_ket_qua: list[dict] | None = None,
-    nhom_loi_id: int | None = None,
     loi_mo_ta: str | None = None,
     to_chiu_id: int | None = None,
     cong_doan_ref_id: int | None = None,
@@ -293,7 +291,7 @@ def tao_kiem_dot_xuat(
       · KHÔNG đẻ kèm `san_xuat_batch` sản lượng, KHÔNG đụng `trang_thai`/kho — bản ghi CHẤT LƯỢNG
         thuần. Đây cũng là lý do điểm kiểm KHÔNG chặn bước sau (chủ chốt chốt 08/09/2026): nó
         không đụng vào trạng thái của thẻ việc nên dây chuyền chạy tiếp bình thường.
-      · `so_luong_khong_dat > 0` bắt buộc ghi lỗi (nhóm lỗi + ≥1 ảnh) NGAY trong CÙNG lệnh gọi —
+      · `so_luong_khong_dat > 0` bắt buộc ghi lỗi (≥1 ảnh; danh mục nhóm lỗi ĐÃ GỠ — mg 0288) NGAY trong CÙNG lệnh gọi —
         routing tách hai bước (`tao_batch_kcs` rồi `ghi_loi` riêng); hai loại này gộp một."""
     if loai not in (KCS_LOAI_DOT_XUAT, KCS_LOAI_DIEM_KIEM):
         raise ValueError("Loại kiểm không hợp lệ.")
@@ -325,13 +323,8 @@ def tao_kiem_dot_xuat(
     checklist_ket_qua = _validate_checklist_bat_buoc(cv, checklist_ket_qua)
 
     if khong_dat > _EPS:
-        if not nhom_loi_id:
-            raise ValueError("Không đạt lớn hơn 0 bắt buộc chọn nhóm lỗi.")
         if not anh:
             raise ValueError("Không đạt lớn hơn 0 bắt buộc kèm ít nhất một ảnh bằng chứng.")
-        ld = repo.ly_do(int(nhom_loi_id))
-        if ld is None or ld.nhom != NHOM_LOI:
-            raise ValueError("Nhóm lỗi không hợp lệ (phải là một lỗi trong danh mục).")
         if to_chiu_id and db.get(Department, int(to_chiu_id)) is None:
             raise ValueError("Không tìm thấy tổ bị yêu cầu nhận trách nhiệm.")
         if cong_doan_ref_id and repo.cong_viec(int(cong_doan_ref_id)) is None:
@@ -364,7 +357,6 @@ def tao_kiem_dot_xuat(
         cac_anh = [_chuan_hoa_anh(r, getattr(user, "id", None)) for r in (anh or [])]
         loi = SanXuatKcsLoi(
             kcs_batch_id=kcs.id,
-            nhom_loi_id=int(nhom_loi_id),
             mo_ta=(loi_mo_ta or "").strip() or None,
             to_chiu_id=int(to_chiu_id) if to_chiu_id else None,
             cong_doan_ref_id=int(cong_doan_ref_id) if cong_doan_ref_id else None,
@@ -502,7 +494,6 @@ def ghi_loi(
     *,
     user,
     kcs_batch_id: int,
-    nhom_loi_id: int | None,
     mo_ta: str | None = None,
     to_chiu_id: int | None = None,
     cong_doan_ref_id: int | None = None,
@@ -512,8 +503,8 @@ def ghi_loi(
 ) -> dict:
     """Ghi MỘT lỗi phát hiện trong batch KCS (§13.2) + ≥1 ảnh bằng chứng (bắt buộc).
 
-    Người ghi = tổ trưởng tổ KCS (gate theo công việc KCS). `nhom_loi_id` phải là lý do nhóm `loi`.
-    `to_chiu_id` (tổ liên đới, tùy chọn) chỉ để tra cứu — lỗi ghi `trang_thai="recorded"` MỘT
+    Người ghi = tổ trưởng tổ KCS (gate theo công việc KCS). Lỗi tả bằng `mo_ta` tự do — danh mục
+    lý do/lỗi ĐÃ GỠ. `to_chiu_id` (tổ liên đới, tùy chọn) chỉ để tra cứu — lỗi ghi `trang_thai="recorded"` MỘT
     CHIỀU, không tạo `pending` và không chờ phản hồi (§2.3; khác luồng `phan_hoi_loi` cũ áp cho
     hồ sơ `pending` từ trước, xem `TN_CHO`/`TRANG_THAI_TRACH_NHIEM`)."""
     repo = SanXuatKcsRepository(db)
@@ -528,12 +519,6 @@ def ghi_loi(
     anh = anh or []
     if not anh:
         raise ValueError("Mỗi lỗi phải kèm ít nhất một ảnh bằng chứng.")
-
-    if not nhom_loi_id:
-        raise ValueError("Phải chọn nhóm lỗi.")
-    ld = repo.ly_do(int(nhom_loi_id))
-    if ld is None or ld.nhom != NHOM_LOI:
-        raise ValueError("Nhóm lỗi không hợp lệ (phải là một lỗi trong danh mục).")
 
     to_chiu = None
     if to_chiu_id:
@@ -552,7 +537,6 @@ def ghi_loi(
 
     loi = SanXuatKcsLoi(
         kcs_batch_id=kcs.id,
-        nhom_loi_id=int(nhom_loi_id),
         mo_ta=(mo_ta or "").strip() or None,
         to_chiu_id=int(to_chiu_id) if to_chiu_id else None,
         cong_doan_ref_id=int(cong_doan_ref_id) if cong_doan_ref_id else None,
@@ -571,7 +555,7 @@ def ghi_loi(
         actor_user_id=getattr(user, "id", None),
         action="san_xuat_kcs_ghi_loi",
         target=f"san_xuat_kcs_loi:{loi.id}",
-        detail=f"kcs_batch={kcs.id} nhom_loi={nhom_loi_id} to_chiu={to_chiu_id or '-'}",
+        detail=f"kcs_batch={kcs.id} to_chiu={to_chiu_id or '-'}",
     )
     db.commit()
     return {
@@ -684,12 +668,10 @@ def _anh_ra(a: SanXuatKcsLoiAnh) -> dict:
     return {"id": a.id, "file_name": a.file_name, "file_url": a.file_url, "file_type": a.file_type}
 
 
-def _loi_ra(loi: SanXuatKcsLoi, anh: list[SanXuatKcsLoiAnh], ten_loi: str | None) -> dict:
+def _loi_ra(loi: SanXuatKcsLoi, anh: list[SanXuatKcsLoiAnh]) -> dict:
     return {
         "id": loi.id,
         "kcs_batch_id": loi.kcs_batch_id,
-        "nhom_loi_id": loi.nhom_loi_id,
-        "nhom_loi_ten": ten_loi,
         "mo_ta": loi.mo_ta,
         "to_chiu_id": loi.to_chiu_id,
         "cong_doan_ref_id": loi.cong_doan_ref_id,
@@ -726,7 +708,6 @@ def _batches_ra(
     loi_map = repo.cac_loi_nhieu(batch_ids)
     all_loi = [l for ls in loi_map.values() for l in ls]
     anh_map = repo.anh_cua_loi_nhieu([l.id for l in all_loi])
-    ten_loi = repo.nhan_ly_do({l.nhom_loi_id for l in all_loi})
 
     yc_map = SanXuatKhoRepository(db).cac_yc_cua_nhieu_batch(batch_ids)
     nguoi_ids = {b.created_by for b in batches if b.created_by}
@@ -751,7 +732,7 @@ def _batches_ra(
             "ghi_chu": b.ghi_chu,
             "version": b.version,
             "loi": [
-                _loi_ra(l, anh_map.get(l.id, []), ten_loi.get(l.nhom_loi_id))
+                _loi_ra(l, anh_map.get(l.id, []))
                 for l in loi_map.get(b.id, [])
             ],
             "loai": b.loai,
@@ -858,5 +839,4 @@ def hop_thu_loi(db: Session, user) -> list[dict]:
     for tid in to_ids:
         rows.extend(repo.loi_cho_to(tid))
     anh_map = repo.anh_cua_loi_nhieu([l.id for l in rows])
-    ten_loi = repo.nhan_ly_do({l.nhom_loi_id for l in rows})
-    return [_loi_ra(l, anh_map.get(l.id, []), ten_loi.get(l.nhom_loi_id)) for l in rows]
+    return [_loi_ra(l, anh_map.get(l.id, [])) for l in rows]

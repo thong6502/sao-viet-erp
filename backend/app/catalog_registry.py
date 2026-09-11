@@ -80,12 +80,6 @@ DANH_MUC: tuple[DanhMuc, ...] = (
     # nguyên. Nhãn nằm ở cột `modules.label` của DB thật nên đi kèm migration 0261.
     DanhMuc("khuon_be", "khuon_be", "Khuôn & khung", "khuon-be", model="models.khuon_be:KhuonBe"),
     DanhMuc("kho_hang", "dm_kho_hang", "Khai báo kho", "khai-bao-kho"),
-    # Lý do & lỗi sản xuất (§15 spec-thuc-hien-san-xuat): danh mục CHUẨN HOÁ dùng chung cho hỏng
-    # batch, lỗi KCS và các lý do vận hành (tạm dừng · bắt đầu trễ · điều chỉnh bàn giao…). Gộp vào
-    # Cấu hình danh mục thay vì hard-code danh sách lý do ở FE. Module RIÊNG `dm_ly_do_san_xuat`
-    # (mg `0221` chép quyền từ `san_xuat`); `model=None` như `kho_hang` — luồng xoá dùng chặn mềm
-    # ở service, không cần bộ đếm nơi-dùng.
-    DanhMuc("san_xuat_ly_do", "dm_ly_do_san_xuat", "Lý do & lỗi SX", "ly-do-san-xuat"),
     # Hạng mục kiểm KCS: khai theo cây Giai đoạn → Công đoạn → hạng mục (mg `0285`), màn riêng
     # `KcsKhaiBaoPage` chứ không dùng nền danh mục phẳng. `model=` để bộ đếm "còn ai dùng không"
     # có gì mà đếm (xem `danh_muc_tham_chieu._san_xuat_kcs_tieu_chi`).

@@ -20,6 +20,7 @@ import {
   type Xl2VatTuTomTat, type Xl2XemTruoc, type XepLichGoiY,
 } from "../api/client";
 import { crud, type Row } from "../api/rebuildCatalog";
+import { BAI_GHEP_ENABLED } from "../constants/features";
 import { tagTone } from "../lib/tagTone";
 import { useDebounced } from "../utils/useDebounced";
 import { useAuth } from "../auth/useAuth";
@@ -609,10 +610,14 @@ export function XepLich2Page({
   // Mở đúng chỗ SỬA nhân lực của một dòng đã xếp: dòng của lệnh → Lệnh SX mở thẳng lệnh đó (drawer
   // bước có ô số người + ba mốc biên); dòng của bài ghép → màn Bài ghép (bước chung của bài, không có
   // mốc lệnh đơn lẻ để mở sâu hơn — cùng cách lùi như `moNguon`).
+  //
+  // Màn Bài ghép ĐANG ẨN (`BAI_GHEP_ENABLED = false`) ⇒ nhánh `else` không còn chỗ đến: chỗ TRUYỀN
+  // `onMoBuoc` đã tự bỏ nút cho dòng bài ghép, ở đây chặn thêm một lớp để không ai gọi thẳng vào
+  // một route bị cổng quyền chặn. Dòng bài ghép VẪN nằm trên Gantt như cũ, chỉ là không nhảy đi đâu.
   const moBuocCuaDong = useCallback((d: Xl2Dong) => {
     if (!navigate) return;
     if (d.nguon === "lsx" && d.lsx_id != null) navigate("ke-hoach-sx", { openLsxId: d.lsx_id });
-    else navigate("bai-ghep-2", {});
+    else if (BAI_GHEP_ENABLED) navigate("bai-ghep-2", {});
   }, [navigate]);
 
   const duaVao = useCallback(async (r: Xl2QRow) => {
@@ -1195,7 +1200,8 @@ export function XepLich2Page({
                 onTach={() => moTach(selDong)}
                 onGop={() => void doGop(selDong)}
                 onMoNguon={canMoNguon ? moNguon : undefined}
-                onMoBuoc={navigate ? () => moBuocCuaDong(selDong) : undefined}
+                onMoBuoc={navigate && (BAI_GHEP_ENABLED || selDong.nguon === "lsx")
+                  ? () => moBuocCuaDong(selDong) : undefined}
               />
             ) : selEntity ? (
               <EntityPanel nguon={selEntity.nguon} ma={selEntityLabel} bc={boiCanh}
@@ -1398,7 +1404,11 @@ export function XepLich2Page({
         open={!!askCapNhat}
         title={<span><Icon name="refresh" size={16} /> Phát hành cập nhật {askCapNhat?.ma}?</span>}
         message={
-          `Tái chụp máy + giờ của ${goiPh?.so_chua_bat_dau ?? 0} việc CHƯA bắt đầu theo lịch hiện tại, lên phiên bản mới`
+          // Nói ĐỦ những gì được chụp lại (10/09/2026): ngoài máy + giờ còn hành lý đọc-để-làm của
+          // thẻ việc. Người lập kế hoạch sửa câu dặn dò xong bấm nút này mà microcopy chỉ hứa
+          // "máy + giờ" thì họ không biết dặn dò đã xuống tổ hay chưa. Số lượng/khoán/vật tư vẫn
+          // đóng băng — xem `release_update.py`.
+          `Tái chụp máy + giờ + dặn dò/quy cách của ${goiPh?.so_chua_bat_dau ?? 0} việc CHƯA bắt đầu theo lịch hiện tại, lên phiên bản mới`
           + `${goiPh?.so_da_bat_dau ? ` (giữ nguyên ${goiPh.so_da_bat_dau} việc đã bắt đầu)` : ""}`
           + ". Phân công + hỗ trợ của việc cập nhật bị huỷ để tổ xác nhận lại."
         }
@@ -2321,7 +2331,13 @@ function DongPanel({
             <span className="xl2-field__lb">Máy</span>
             <select value={draftMay ?? ""} onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setDraftMay(v); if (v != null) setDraftDept(null); }}>
               <option value="">— không gán máy —</option>
-              {mays.map((m) => <option key={m.id} value={m.id}>{m.ma} · {m.ten}</option>)}
+              {/* Máy đã NGỪNG DÙNG ở danh mục thì thôi mời; máy dòng ĐANG gán vẫn giữ (kèm chữ
+                  "ngừng dùng") — lọc thẳng ra là ô rơi về "không gán máy" rồi lưu là mất máy cũ. */}
+              {mays.filter((m) => m.active !== false || m.id === draftMay).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.ma} · {m.ten}{m.active === false ? " (ngừng dùng)" : ""}
+                </option>
+              ))}
             </select>
           </label>
           <label className="xl2-field">

@@ -103,6 +103,11 @@ def phat_hanh(
         nhom_by_lsx=nhom_by_lsx, cv_by_step=cv_by_step,
     )
     repo.flush()
+    # CỐ Ý KHÔNG ghi `SanXuatCongViecLichSu` cho v1 ở đây (thiết kế ban đầu định ghi, lý do "không
+    # thì v1 trống" KHÔNG đứng vững): dòng SỐNG chính là trạng thái của mọi phiên bản kể từ
+    # `cv.phien_ban_so` trở đi, nên bước chưa lần nào bị cập nhật đọc v1 ngay trên dòng sống. Ghi
+    # thêm ở đây chỉ đẻ một dòng v1 TRÙNG cho mọi bước về sau bị đè — xem cách đọc ở
+    # `XepLich3Service.so_sanh_phien_ban`.
     return goi
 
 

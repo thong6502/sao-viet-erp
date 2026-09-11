@@ -4,9 +4,9 @@
 tổ trưởng) → transaction → ghi audit → (SSE do router phát sau commit). Truy vấn/ghi DB nằm ở
 `repositories/san_xuat_san_luong_repo.py`; ở đây chỉ luật.
 
-Luật cứng (§11.1): `tong = tot + hong` (dung sai làm tròn 3 số lẻ); có `hong` thì bắt buộc
-`nhom_loi_id` là một lý do nhóm `loi` (mô tả tự do chỉ bổ sung, không thay danh mục). Chọn lot
-đầu vào (§10.3) dựng quan hệ truy vết nguyên liệu/BTP → batch đầu ra.
+Luật cứng (§11.1): `tong = tot + hong` (dung sai làm tròn 3 số lẻ); hỏng ghi kèm mô tả tự do
+(`mo_ta_loi`, tuỳ chọn) — danh mục lý do/lỗi ĐÃ GỠ. Chọn lot đầu vào (§10.3) dựng quan hệ truy vết
+nguyên liệu/BTP → batch đầu ra.
 """
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from ...models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG
-from ...models.san_xuat_ly_do import NHOM_LOI
 from ...models.san_xuat_san_luong import (
     BG_XAC_NHAN,
     LOT_TU_BATCH,
@@ -176,15 +175,14 @@ def tao_batch(
     tot,
     hong=0,
     don_vi: str | None = None,
-    nhom_loi_id: int | None = None,
     mo_ta_loi: str | None = None,
     ghi_chu: str | None = None,
     lot_vao: list[dict] | None = None,
 ) -> dict:
     """Ghi MỘT batch sản lượng (§11.1) + các lot đầu vào (§10.3). Cho nhiều batch một phần / công đoạn.
 
-    Ràng buộc: `tong = tot + hong`; `hong > 0` bắt buộc `nhom_loi_id` thuộc nhóm `loi`. Đơn vị bỏ
-    trống ⇒ lấy `don_vi_ra` của công việc (đơn vị bản địa công đoạn)."""
+    Ràng buộc: `tong = tot + hong`. Đơn vị bỏ trống ⇒ lấy `don_vi_ra` của công việc (đơn vị bản
+    địa công đoạn)."""
     repo = SanXuatSanLuongRepository(db)
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
@@ -205,15 +203,6 @@ def tao_batch(
         raise ValueError("Batch phải có khoảng thời gian bắt đầu và kết thúc.")
     if _aware(ket_thuc) < _aware(bat_dau):
         raise ValueError("Kết thúc batch không được trước khi bắt đầu.")
-
-    if hong_f > _EPS:
-        if not nhom_loi_id:
-            raise ValueError("Có số lượng hỏng thì phải chọn nhóm lỗi.")
-        ld = repo.ly_do(int(nhom_loi_id))
-        if ld is None or ld.nhom != NHOM_LOI:
-            raise ValueError("Nhóm lỗi không hợp lệ (phải là một lỗi trong danh mục).")
-    else:
-        nhom_loi_id = None  # không hỏng thì không neo nhóm lỗi
 
     don_vi_batch = (don_vi or cv.don_vi_ra or "").strip()
     if not don_vi_batch:
@@ -246,7 +235,6 @@ def tao_batch(
         tot=tot_f,
         hong=hong_f,
         don_vi=don_vi_batch,
-        nhom_loi_id=nhom_loi_id,
         mo_ta_loi=(mo_ta_loi or "").strip() or None,
         ghi_chu=(ghi_chu or "").strip() or None,
         created_by=getattr(user, "id", None),

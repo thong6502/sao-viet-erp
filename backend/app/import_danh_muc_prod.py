@@ -22,8 +22,6 @@ Công thức bám TỪ ĐIỂN BIẾN `services/bien_cong_thuc.py`:
 """
 from __future__ import annotations
 
-from datetime import date
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -34,7 +32,6 @@ from .models.don_vi_do import DonViDo, DonViQuyDoi
 from .models.khuon_be import KhuonBe
 from .models.may_thiet_bi import MayThietBi
 from .models.piece_work import PieceRate
-from .models.san_xuat_ly_do import SanXuatLyDo
 from .models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from .repositories.rbac_repo import DepartmentRepository
 from .seed import seed_departments, seed_san_xuat_org, to_sx_theo_ten_bat_ky
@@ -321,11 +318,13 @@ _MAY_IN = [_IN, _INX]
 _CONG_DOAN = [
     # --- Chế bản (không đơn vị dòng giấy; kieu_bu_hao khong) ---
     _cd("CD-1001", "Phơi kẽm PS", "prepress", "so_kem * 55000",
-        nhom_may_cho_phep=[_CB], cong_thuc_san_luong="so_kem", run_rate=55000),
+        nhom_may_cho_phep=[_CB], cong_thuc_san_luong="so_kem",
+        don_vi_san_luong="kem", run_rate=55000),
     _cd("CD-1002", "Bình bài điện tử", "prepress", "so_mau * 25000",
         nhom_may_cho_phep=[_CB], run_rate=25000),
     _cd("CD-1003", "Xuất film / ghi phim", "prepress", "so_kem * 40000",
-        nhom_may_cho_phep=[_CB], cong_thuc_san_luong="so_kem", run_rate=40000),
+        nhom_may_cho_phep=[_CB], cong_thuc_san_luong="so_kem",
+        don_vi_san_luong="kem", run_rate=40000),
     # --- In (đơn vị to→to; kieu_bu_hao tra_bang → nối mã bù hao) ---
     _cd("CD-1004", "In offset 1 mặt (1-2 màu)", "print", "to_dau_vao * so_mat * 300",
         kieu_bu_hao="tra_bang", nhom_may_cho_phep=_MAY_IN, don_vi_vao="to", don_vi_ra="to", run_rate=300),
@@ -450,11 +449,10 @@ def _import_khoan(db: Session) -> int:
 
 
 # ---------------------------------------------------------------------------------------------
-# 8) Khuôn (thêm 20). loai khuon_be/khuon_ep · tình trạng · số kệ · ngày có khuôn (dự kiến).
+# 8) Khuôn (thêm 20). loai khuon_be/khuon_ep · tình trạng · số kệ.
 # ---------------------------------------------------------------------------------------------
-def _kb(ma, ten, loai, so_ke, tinh_trang, ngay=None, ghi_chu=None):
-    return dict(ma=ma, ten=ten, loai=loai, so_ke=so_ke, tinh_trang=tinh_trang,
-                ngay_ve_du_kien=ngay, ghi_chu=ghi_chu)
+def _kb(ma, ten, loai, so_ke, tinh_trang, ghi_chu=None):
+    return dict(ma=ma, ten=ten, loai=loai, so_ke=so_ke, tinh_trang=tinh_trang, ghi_chu=ghi_chu)
 
 
 _KHUON = [
@@ -471,9 +469,9 @@ _KHUON = [
     _kb("KB-1011", "Khuôn bế thiệp cưới bế biên", "khuon_be", "Kệ D2 — kho khuôn", "dang_dung"),
     _kb("KB-1012", "Khuôn bế lịch để bàn chân gấp", "khuon_be", "Kệ D3 — kho khuôn", "dang_dung"),
     _kb("KB-1013", "Khuôn bế hộp pizza 30cm", "khuon_be", "Kệ C5 — kho khuôn", "dang_dat_lam",
-        ngay=date(2026, 9, 15), ghi_chu="Đặt thợ ngoài làm dao."),
+        ghi_chu="Đặt thợ ngoài làm dao."),
     _kb("KB-1014", "Khuôn bế hộp cơm giấy", "khuon_be", "Kệ C6 — kho khuôn", "dang_dat_lam",
-        ngay=date(2026, 9, 30), ghi_chu="Chờ dao mới cho đơn hàng chuỗi F&B."),
+        ghi_chu="Chờ dao mới cho đơn hàng chuỗi F&B."),
     _kb("KB-1015", "Khuôn ép nhũ logo thương hiệu A", "khuon_ep", "Kệ E1 — kho khuôn", "dang_dung"),
     _kb("KB-1016", "Khuôn ép nhũ tiêu đề thiệp", "khuon_ep", "Kệ E2 — kho khuôn", "dang_dung"),
     _kb("KB-1017", "Khuôn ép chìm (deboss) hộp quà", "khuon_ep", "Kệ E3 — kho khuôn", "dang_dung"),
@@ -487,86 +485,6 @@ _KHUON = [
 
 def _import_khuon(db: Session) -> int:
     return _them_thieu(db, KhuonBe, _KHUON)
-
-
-# ---------------------------------------------------------------------------------------------
-# 9) Lý do & lỗi SX — bộ mặc định phủ đủ 8 nhóm (§15). KHÔNG có công thức.
-# ---------------------------------------------------------------------------------------------
-def _ld(nhom: str, cap: list[tuple[str, str, str]]) -> list[dict]:
-    """cap = list (ma, ten, mo_ta); thu_tu chạy theo thứ tự khai."""
-    return [dict(ma=ma, nhom=nhom, ten=ten, mo_ta=(mo or None), thu_tu=i)
-            for i, (ma, ten, mo) in enumerate(cap, start=1)]
-
-
-_LY_DO = (
-    _ld("loi", [
-        ("LD-LOI-01", "Nhăn giấy", "Giấy nhăn/gấp mép khi chạy máy."),
-        ("LD-LOI-02", "Lệch màu", "Màu in lệch so với tờ ký mẫu."),
-        ("LD-LOI-03", "Bavia / răng cưa bế", "Cạnh bế bị xơ, răng cưa."),
-        ("LD-LOI-04", "Trầy xước bề mặt", "Bề mặt in bị trầy khi gia công."),
-        ("LD-LOI-05", "Bong tróc màng", "Màng cán bị bong, phồng rộp."),
-        ("LD-LOI-06", "Lem mực / dây mực", "Mực lem, dây bẩn sang tờ khác."),
-        ("LD-LOI-07", "Sai kích thước thành phẩm", "Thành phẩm sai khổ cắt/bế."),
-        ("LD-LOI-08", "Rách / hư tờ in", "Tờ in bị rách trong quá trình chạy."),
-    ]),
-    _ld("tam_dung", [
-        ("LD-TD-01", "Chờ mực", "Dừng chờ pha/cấp mực."),
-        ("LD-TD-02", "Chờ kẽm", "Dừng chờ ghi/phơi kẽm."),
-        ("LD-TD-03", "Kẹt giấy", "Máy kẹt giấy phải xử lý."),
-        ("LD-TD-04", "Sự cố máy", "Máy hỏng/trục trặc kỹ thuật."),
-        ("LD-TD-05", "Mất điện", "Mất điện lưới/nguồn."),
-        ("LD-TD-06", "Chờ lệnh / chờ duyệt", "Dừng chờ lệnh hoặc duyệt bài."),
-        ("LD-TD-07", "Vệ sinh máy", "Dừng vệ sinh, rửa lô."),
-        ("LD-TD-08", "Hết ca / giao ca", "Dừng theo ca làm việc."),
-    ]),
-    _ld("bat_dau_tre", [
-        ("LD-BDT-01", "Vật tư về trễ", "Giấy/vật tư chưa về kịp giờ chạy."),
-        ("LD-BDT-02", "Kẽm ra trễ", "Chế bản ra kẽm chậm."),
-        ("LD-BDT-03", "Máy bận lệnh trước", "Máy chưa xong lệnh trước đó."),
-        ("LD-BDT-04", "Chờ duyệt bài", "Bài chưa được duyệt để in."),
-        ("LD-BDT-05", "Thiếu nhân sự đầu ca", "Chưa đủ người vào đầu ca."),
-    ]),
-    _ld("lech_nhan_su", [
-        ("LD-NS-01", "Nghỉ phép", "Người trong tổ nghỉ phép."),
-        ("LD-NS-02", "Nghỉ ốm", "Người trong tổ nghỉ ốm."),
-        ("LD-NS-03", "Điều động tổ khác", "Điều người sang hỗ trợ tổ khác."),
-        ("LD-NS-04", "Tăng cường hỗ trợ", "Thêm người từ tổ khác sang."),
-        ("LD-NS-05", "Đào tạo / học việc", "Người bận đào tạo, học việc."),
-    ]),
-    _ld("thieu_vat_tu", [
-        ("LD-VT-01", "Thiếu giấy", "Không đủ giấy để chạy hết lệnh."),
-        ("LD-VT-02", "Thiếu mực pha", "Chưa đủ mực pha theo màu."),
-        ("LD-VT-03", "Thiếu màng cán", "Chưa đủ màng cho gia công."),
-        ("LD-VT-04", "Thiếu keo", "Chưa đủ keo dán/đóng."),
-        ("LD-VT-05", "Khuôn chưa về", "Dao/khuôn chưa có trong tay."),
-    ]),
-    _ld("dieu_chinh_ban_giao", [
-        ("LD-BG-01", "Bù hàng lỗi", "Chạy bù cho phần hàng lỗi."),
-        ("LD-BG-02", "Khách đổi số lượng", "Khách thay đổi số lượng đặt."),
-        ("LD-BG-03", "Điều chỉnh do hụt bù hao", "Bù hao không đủ, phải chỉnh giao."),
-        ("LD-BG-04", "Giao bổ sung", "Giao thêm phần còn thiếu."),
-        ("LD-BG-05", "Thu hồi hàng lỗi", "Thu lại hàng lỗi đã giao."),
-    ]),
-    _ld("mo_lai_phan_bo", [
-        ("LD-PB-01", "Sửa sai phân bổ", "Phân bổ chi phí/sản lượng sai, mở lại."),
-        ("LD-PB-02", "Bổ sung công đoạn thiếu", "Thiếu công đoạn, thêm vào lệnh."),
-        ("LD-PB-03", "Khách khiếu nại chất lượng", "Xử lý khiếu nại, tính lại."),
-        ("LD-PB-04", "Tính lại đơn giá", "Đơn giá sai, tính lại."),
-        ("LD-PB-05", "Gộp / tách lệnh", "Gộp hoặc tách lệnh sản xuất."),
-    ]),
-    _ld("dong_thieu", [
-        ("LD-DT-01", "Hụt do bù hao không đủ", "Bù hao thiếu nên giao hụt."),
-        ("LD-DT-02", "Hỏng vượt định mức", "Hàng hỏng nhiều hơn định mức cho phép."),
-        ("LD-DT-03", "Khách chấp nhận giao thiếu", "Khách đồng ý nhận thiếu."),
-        ("LD-DT-04", "Dừng đơn giữa chừng", "Đơn dừng, đóng theo số đã làm."),
-        ("LD-DT-05", "Thiếu vật tư không bù kịp", "Vật tư thiếu, không bù kịp hạn."),
-    ]),
-)
-
-
-def _import_ly_do(db: Session) -> int:
-    rows = [r for nhom_rows in _LY_DO for r in nhom_rows]
-    return _them_thieu(db, SanXuatLyDo, rows)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -591,7 +509,6 @@ def run(db: Session) -> dict[str, int]:
     kq["bu_hao"] = _import_bu_hao(db)
     kq["cong_doan"] = _import_cong_doan(db)
     kq["khuon"] = _import_khuon(db)
-    kq["ly_do_san_xuat"] = _import_ly_do(db)
 
     # Tổ sản xuất + gắn công đoạn → tổ (mở cổng: gọi thẳng, không qua SEED_DEMO).
     seed_san_xuat_org(db)

@@ -30,11 +30,12 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
-import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
-import certFscUrl from "../assets/certs/fsc.png";
-import certSmetaUrl from "../assets/certs/smeta-sedex.png";
-import certIso9001Url from "../assets/certs/iso-9001.png";
-import certIso22000Url from "../assets/certs/iso-22000.png";
+// Đầu trang bản in = ĐÚNG tấm letterhead giấy của công ty (tên + logo + thông tin liên hệ + 4
+// huy hiệu chứng nhận + viền kép, đã nằm sẵn trong ảnh) — chủ xưởng đưa file, chốt 10/09/2026.
+// Trước đây khối này dựng bằng HTML từ 5 ảnh rời + SVN_COMPANY: mỗi lần letterhead giấy đổi là
+// phải sửa code, mà chữ dựng lại vẫn không khớp bản in thật.
+import letterheadUrl from "../assets/letterhead-sao-viet-nhat.jpg";
+import { useInTuDong } from "./bao-gia-in-tu-dong";
 import {
   Activity,
   AlertCircle,
@@ -55,6 +56,7 @@ import {
   GitBranch,
   History,
   Image as ImageIcon,
+  ImagePlus,
   Lock,
   Paperclip,
   Pencil,
@@ -499,6 +501,8 @@ const ACT_META: Record<string, [LucideIcon, string, string]> = {
   transition_converted_to_order: [ArrowRight, "moss", "Lên đơn hàng"],
   quote_attach_add: [Paperclip, "steel", "Đính kèm tài liệu"],
   quote_attach_delete: [X, "ash", "Xóa tài liệu đính kèm"],
+  quote_item_image_set: [ImagePlus, "steel", "Đặt ảnh minh họa bản in"],
+  quote_item_image_clear: [X, "ash", "Gỡ ảnh minh họa bản in"],
 };
 
 // Ngày + giờ cho feed Hoạt động ("ai làm gì · khi nào").
@@ -800,6 +804,9 @@ function QuotationDetailView({
   // Diễn giải quy cách đang sửa: id dòng đang mở ô + nội dung gõ dở (lưu khi rời ô).
   const [dgOpen, setDgOpen] = useState<number | null>(null);
   const [dgDraft, setDgDraft] = useState<string>("");
+  // Ảnh minh họa in cho khách: id dòng đang tải ảnh lên (khóa nút, hiện "Đang tải…") + ô xem lớn.
+  const [anhBusy, setAnhBusy] = useState<number | null>(null);
+  const [anhXem, setAnhXem] = useState<{ url: string; ten: string } | null>(null);
   // P3: danh sách khách để CHỌN/ĐỔI khách ngay ở detail (khi còn nháp) — auto-fill lại liên hệ + ĐC giao.
   const [customers, setCustomers] = useState<{ id: number; name: string; code: string }[]>([]);
 
@@ -1067,6 +1074,85 @@ function QuotationDetailView({
       discount_amount: it ? Math.round((v * currentDiscPct(it)) / 100) : undefined,
     }]);
   }
+  /** Đặt ảnh minh họa (in ở cột "Hình ảnh minh họa" bản gửi khách) cho CỤM chứa dòng này.
+   *  Backend ghi cho mọi dòng cùng tên — sản phẩm cùng tên chỉ cần upload MỘT lần. */
+  async function datAnhMinhHoa(itemId: number, file: File) {
+    if (!token || !d) return;
+    setAnhBusy(itemId);
+    setErr(null);
+    try {
+      await api.quotations.uploadItemImage(token, d.id, itemId, file);
+      await reload(d.id);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Không tải được ảnh minh họa.");
+    } finally {
+      setAnhBusy(null);
+    }
+  }
+  async function xoaAnhMinhHoa(itemId: number) {
+    if (!token || !d) return;
+    setAnhBusy(itemId);
+    setErr(null);
+    try {
+      await api.quotations.deleteItemImage(token, d.id, itemId);
+      await reload(d.id);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Không xóa được ảnh minh họa.");
+    } finally {
+      setAnhBusy(null);
+    }
+  }
+
+  /** Ô ảnh minh họa của MỘT cụm in. Đặt ở dải nhóm (cụm ruột+bìa) hoặc ở dòng đứng riêng — đúng
+   *  một chỗ cho mỗi dòng sẽ in ra khách, vì cả cụm chỉ có MỘT ảnh. */
+  function oAnhCum(it: QuoteItemDetail, ten: string) {
+    const url = assetUrl(it.anh_minh_hoa);
+    const dangTai = anhBusy === it.id;
+    return (
+      <div className="qanh">
+        {url ? (
+          <>
+            <button
+              type="button"
+              className="qanh__thumb"
+              onClick={() => setAnhXem({ url, ten })}
+              title="Xem ảnh lớn"
+            >
+              <img src={url} alt={`Ảnh minh họa ${ten}`} />
+            </button>
+            {canRequote && (
+              <button
+                type="button"
+                className="qanh__go"
+                disabled={dangTai}
+                onClick={() => xoaAnhMinhHoa(it.id)}
+              >
+                {dangTai ? "Đang xóa…" : "Xóa ảnh"}
+              </button>
+            )}
+          </>
+        ) : canRequote ? (
+          <label className={`qanh__them${dangTai ? " is-busy" : ""}`}>
+            <ImagePlus size={13} />
+            {dangTai ? "Đang tải…" : "Thêm ảnh minh họa"}
+            <input
+              type="file"
+              accept="image/*"
+              disabled={dangTai}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";     // chọn lại đúng file vừa lỗi vẫn kích hoạt onChange
+                if (f) datAnhMinhHoa(it.id, f);
+              }}
+            />
+          </label>
+        ) : null}
+      </div>
+    );
+  }
+
   /** Lưu diễn giải quy cách của 1 dòng (rời ô mới lưu). Không đổi thì bỏ qua — khỏi ghi nhật ký thừa. */
   function commitDienGiai(itemId: number) {
     setDgOpen(null);
@@ -1509,6 +1595,8 @@ function QuotationDetailView({
                             + Thêm diễn giải
                           </button>
                         ) : null}
+                        {/* Dòng thuộc cụm thì ảnh đã treo ở dải nhóm phía trên — không lặp lại. */}
+                        {!con && oAnhCum(it, it.product_name)}
                       </td>
                       <td className="num">
                         {it.quantity.toLocaleString("vi-VN")}
@@ -1559,6 +1647,8 @@ function QuotationDetailView({
                   };
 
                   if (node.kind === "don") return [dongIt(node.it, false)];
+                  // Ảnh của cụm đặt ở DẢI NHÓM: dải này chính là dòng sẽ in ra khách, mà cả cụm
+                  // dùng chung một ảnh — treo ở từng phần con là mời người dùng upload 2 lần.
                   const tongVon = node.members.reduce((s, m) => s + calcItem(m).cost, 0);
                   const tongTien = node.members.reduce((s, m) => s + calcItem(m).net, 0);
                   return [
@@ -1568,6 +1658,7 @@ function QuotationDetailView({
                         <span className="qgrouphd__sub">
                           {node.members.length} phần · in ra khách 1 dòng
                         </span>
+                        {oAnhCum(node.members[0], node.ten)}
                       </td>
                       <td className="num">{node.members[0].quantity.toLocaleString("vi-VN")}</td>
                       <td className="num muted">{numf(tongVon)}</td>
@@ -2178,6 +2269,28 @@ function QuotationDetailView({
         );
       })()}
 
+      {/* Xem lớn ảnh minh họa — thumbnail trong bảng bé, phải soi được trước khi gửi khách. */}
+      {anhXem && (
+        <div
+          className="att-lightbox"
+          role="presentation"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setAnhXem(null); }}
+        >
+          <div className="att-lightbox__box" role="dialog" aria-modal="true" aria-label={anhXem.ten}>
+            <header className="att-lightbox__head">
+              <span className="att-lightbox__name">Ảnh minh họa — {anhXem.ten}</span>
+              <div className="att-lightbox__acts">
+                <a href={anhXem.url} target="_blank" rel="noreferrer" title="Mở tab mới"><ExternalLink size={17} /></a>
+                <button type="button" onClick={() => setAnhXem(null)} aria-label="Đóng"><X size={18} /></button>
+              </div>
+            </header>
+            <div className="att-lightbox__body">
+              <img src={anhXem.url} alt={`Ảnh minh họa ${anhXem.ten}`} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPrint && <QuotationPrintModal d={d} canDownload={canExport} onClose={() => setShowPrint(false)} />}
     </main>
   );
@@ -2194,46 +2307,18 @@ function QuotationPrintModal({
   canDownload: boolean;
   onClose: () => void;
 }) {
-  // Có quyền export thì bấm "Xem bản in" ra thẳng hộp thoại in luôn, khỏi bắt xem trước rồi
-  // bấm thêm nút "In / Lưu PDF" — đợi HẾT ảnh logo + huy hiệu chứng nhận tải xong (lần đầu vào
-  // trang, ảnh chưa kịp cache) rồi mới in, không thì bản in bị thiếu ảnh. In xong (hoặc bấm huỷ)
-  // đóng luôn khung xem trước. `firedRef` chặn StrictMode gọi effect 2 lần (dev) ra 2 hộp thoại
-  // in liên tiếp.
-  const firedRef = useRef(false);
-  useEffect(() => {
-    if (!canDownload || firedRef.current) return;
-    firedRef.current = true;
-    const imgs = Array.from(
-      document.querySelectorAll<HTMLImageElement>(".qpdf .q-logo img, .qpdf .q-badges img"),
-    );
-    const doPrint = () => window.print();
-    window.addEventListener("afterprint", onClose);
-    const pending = imgs.filter((img) => !img.complete);
-    if (pending.length === 0) {
-      doPrint();
-    } else {
-      let remaining = pending.length;
-      const settle = () => {
-        remaining -= 1;
-        if (remaining <= 0) doPrint();
-      };
-      pending.forEach((img) => {
-        img.addEventListener("load", settle, { once: true });
-        img.addEventListener("error", settle, { once: true });
-      });
-    }
-    return () => window.removeEventListener("afterprint", onClose);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Tự in + tự đóng khung xem trước (chỉ khi có quyền export). Xem `bao-gia-in-tu-dong.ts`:
+  // listener `afterprint` PHẢI nằm ở effect riêng, không thì StrictMode gỡ mất và nút
+  // "Xem bản in" chết câm từ lần bấm thứ hai.
+  useInTuDong(canDownload, onClose);
 
   const now = new Date();
   const p2 = (n: number) => (n < 10 ? "0" : "") + n;
-  const money = (v: number) => Math.round(v).toLocaleString("vi-VN");
   // Đơn giá KHÔNG làm tròn: dòng gộp (ruột + bìa) hay ra số lẻ .5, làm tròn xong khách nhân
   // Số lượng × Đơn giá ra khác Thành tiền. Giữ tối đa 2 số lẻ để phép nhân trên giấy luôn khớp.
   const donGia = (v: number) => v.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 
-  // Bảng hiển thị giá CHƯA VAT; VAT + tổng thanh toán ở panel dưới (bám dữ liệu thật của báo giá).
+  // Bảng CHỈ chào ĐƠN GIÁ chưa VAT — tờ gửi khách không còn dòng cộng/VAT/tổng thanh toán.
   // GỘP NHÓM: ruột + bìa cùng nhãn `nhom` in ra 1 dòng "quyển sách" (khách mua 1 cuốn, không phải
   // 1 ruột + 1 bìa). Chỉ gộp ở bản in — dữ liệu vẫn từng dòng để markup riêng + xuống SX tách lệnh.
   const lines = gopTheoNhom(d.items, (it) => ({
@@ -2250,16 +2335,6 @@ function QuotationPrintModal({
   // Tầng gộp thứ HAI: các cụm CÙNG TÊN về một dòng, mỗi SL là một mức trong ba cột số. Ba mức
   // của cùng một món trước đây in ra ba dòng lặp y hệt phần mô tả (chốt 05/09/2026).
   const dongIn = gopTrungTen(lines);
-  const netSubtotal = lines.reduce((s, l) => s + l.thanhTien, 0); // Σ tiền hàng chưa VAT
-  const vatAmount = d.vat_amount;
-  const grand = d.total; // tổng thanh toán (gồm VAT)
-  const vatSet = new Set(d.items.map((it) => it.vat_percent));
-  const vatPct =
-    vatSet.size === 1
-      ? [...vatSet][0]
-      : netSubtotal > 0
-        ? Math.round((vatAmount / netSubtotal) * 100)
-        : 0;
 
   // Điều khoản in ra phiếu: mỗi dòng của terms_text = 1 mục (bản in tự đánh số). Bỏ trống → mặc định.
   const termLines = (d.terms_text || DEFAULT_TERMS)
@@ -2281,26 +2356,10 @@ function QuotationPrintModal({
           <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
         </div>
         <div className="qpdf">
-          {/* LETTERHEAD: tên công ty đỏ + logo/thông tin liên hệ, viền kép xanh chốt đầu trang */}
+          {/* LETTERHEAD: nguyên tấm ảnh letterhead của công ty (tên + logo + liên hệ + chứng nhận
+              + viền kép đã có sẵn trong ảnh) — không dựng lại bằng chữ nữa. */}
           <header className="q-mh">
-            <div className="q-brand">{SVN_COMPANY.name}</div>
-            <div className="q-brand-row">
-              <div className="q-logo"><img src={svnLogoUrl} alt="Sao Việt Nhật" /></div>
-              <div className="q-brand-info">
-                <div className="full"><span className="q-blbl">Trụ sở</span><span>{SVN_COMPANY.address}</span></div>
-                <div><span className="q-blbl">Điện thoại</span><span>{SVN_COMPANY.phone}</span></div>
-                <div><span className="q-blbl">MST</span><span>{SVN_COMPANY.taxCode}</span></div>
-                <div><span className="q-blbl">Email</span><span>{SVN_COMPANY.email}</span></div>
-                <div><span className="q-blbl">Website</span><span>{SVN_COMPANY.website}</span></div>
-              </div>
-              {/* Huy hiệu chứng nhận — bám letterhead giấy thật, đặt cuối hàng logo/thông tin. */}
-              <div className="q-badges">
-                <img src={certFscUrl} alt="FSC" />
-                <img src={certSmetaUrl} alt="SMETA / Sedex Member" />
-                <img src={certIso9001Url} alt="ISO 9001:2015" />
-                <img src={certIso22000Url} alt="ISO 22000" />
-              </div>
-            </div>
+            <img className="q-mh-img" src={letterheadUrl} alt={SVN_COMPANY.name} />
           </header>
 
           <div className="q-date-line">{SVN_COMPANY.placeOfIssue}, ngày {p2(now.getDate())} tháng {p2(now.getMonth() + 1)} năm {now.getFullYear()}</div>
@@ -2322,9 +2381,9 @@ function QuotationPrintModal({
                 "Mã hàng" (dòng gộp ruột+bìa có 2 mã khác nhau nên luôn để trống — mà báo giá kiểu
                 quyển sách thì hầu hết dòng đều gộp). Chỗ trống dồn cho mô tả và 3 cột số. */}
             <colgroup>
-              <col style={{ width: "5%" }} /><col style={{ width: "45%" }} />
+              <col style={{ width: "5%" }} /><col style={{ width: "37%" }} />
               <col style={{ width: "7%" }} /><col style={{ width: "12%" }} />
-              <col style={{ width: "15%" }} /><col style={{ width: "16%" }} />
+              <col style={{ width: "15%" }} /><col style={{ width: "24%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -2333,7 +2392,7 @@ function QuotationPrintModal({
                 <th>ĐVT</th>
                 <th>Số lượng</th>
                 <th>Đơn giá<span className="q-sub">chưa VAT</span></th>
-                <th>Thành tiền<span className="q-sub">chưa VAT</span></th>
+                <th>Hình ảnh minh họa</th>
               </tr>
             </thead>
             <tbody>
@@ -2349,6 +2408,10 @@ function QuotationPrintModal({
                 // của ruột và bìa khác nhau, in một cái ra là sai. Nhiều MỨC cũng vậy: mỗi mức có
                 // ghi chú riêng, in ghi chú của mức đầu lên cả cụm là gán nhầm cho hai mức kia.
                 const don = g.goc.length === 1 ? g.goc[0] : null;
+                // Ảnh minh họa thuộc CẢ CỤM (mọi dòng trong cụm mang cùng URL — backend ghi cả
+                // cụm). Lấy cái đầu tiên có giá trị để báo giá cũ / dòng vừa thêm tay không làm
+                // mất ảnh của cụm.
+                const anhCum = g.goc.map((it) => it.anh_minh_hoa).find(Boolean) ?? null;
                 return (
                   <Fragment key={g.key}>
                     {g.muc.map((m, j) => (
@@ -2371,31 +2434,24 @@ function QuotationPrintModal({
                         )}
                         <td className="r">{m.soLuong.toLocaleString("vi-VN")}</td>
                         <td className="r">{donGia(m.soLuong > 0 ? m.thanhTien / m.soLuong : m.thanhTien)}</td>
-                        <td className="r">{money(m.thanhTien)}</td>
+                        {/* Ảnh của cụm — kéo suốt các mức như STT/ĐVT: các mức chỉ khác SỐ LƯỢNG,
+                            vẫn là một món nên in một ảnh, không lặp ba lần. */}
+                        {j === 0 && (
+                          <td className="c q-anh" rowSpan={g.muc.length}>
+                            {anhCum
+                              ? <img src={assetUrl(anhCum) ?? ""} alt={`Ảnh minh họa ${g.ten}`} />
+                              : null}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </Fragment>
                 );
               })}
             </tbody>
-            <tfoot>
-              <tr>
-                <td className="q-sub-lbl" colSpan={5}>Cộng tiền hàng (chưa VAT)</td>
-                <td className="r">{money(netSubtotal)}</td>
-              </tr>
-              <tr>
-                <td className="q-sub-lbl" colSpan={5}>Thuế GTGT {vatPct}%</td>
-                <td className="r">{money(vatAmount)}</td>
-              </tr>
-              {/* Gộp thẳng vào bảng thay vì tách khung riêng — cùng font/cỡ Times với 2 dòng cộng
-                  phía trên, chỉ nổi bật bằng viền đôi + cỡ chữ lớn hơn. */}
-              <tr className="q-grand-row">
-                <td className="q-sub-lbl" colSpan={5}>
-                  Tổng thanh toán<span className="q-gt-sub">đã gồm VAT</span>
-                </td>
-                <td className="r">{money(grand)}<span className="q-u">đ</span></td>
-              </tr>
-            </tfoot>
+            {/* KHÔNG có dòng Cộng tiền hàng / VAT / Tổng thanh toán: chủ xưởng chốt 10/09/2026 —
+                tờ gửi khách chỉ chào ĐƠN GIÁ từng món, khách chọn món và số lượng rồi mới ra
+                tổng ở đơn hàng. Số tổng vẫn tính đủ và hiện ở màn soạn nội bộ. */}
           </table>
 
           {/* ĐIỀU KHOẢN — bám dữ liệu thật (terms_text), tự đánh số theo dòng */}

@@ -15,8 +15,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db import Base, SessionLocal, engine
-from app.db_migrations import run_migrations
+from tests.conftest import phien_da_seed
+
+from app.db import engine
 from app.models.cong_doan import CongDoan
 from app.models.customer import Customer
 from app.models.department import Department
@@ -38,7 +39,6 @@ from app.repositories.quotation_repo import QuotationRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 from app.schemas.order import OrderCreate, OrderDepositReceiptIn, OrderUpdate
-from app.seed import seed_all
 from app.services.accounting_service import AccountingService
 from app.services.bai_ghep_service import BaiGhepService
 from app.services.lsx_service import LsxConflict, LsxService
@@ -303,13 +303,7 @@ def _in_step(db, lsx_id: int) -> LsxCongDoan:
 # --- fixtures ----------------------------------------------------------------
 @pytest.fixture
 def db():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    s = SessionLocal()
-    run_migrations(s)
-    seed_all(s)
-    yield s
-    s.close()
+    yield from phien_da_seed()
 
 
 @pytest.fixture

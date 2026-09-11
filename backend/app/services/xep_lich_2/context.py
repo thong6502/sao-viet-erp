@@ -12,6 +12,11 @@ chấm `_van_de_dat_lich` hỏi ~7 thứ (ca · khoá máy · việc trên máy 
 nhiệm · hai hạn); quét vài trăm mốc thì thành vài nghìn truy vấn cho CÙNG một câu hỏi. Trong khối
 `with ctx.dong_bang():` mỗi câu hỏi chỉ chạy MỘT lần. CỐ Ý bắt phải xin (opt-in): đường GHI (`luu`,
 `phat_hanh`, `dua_vao`, `xoa_nhap`) không đi qua đây nên không có cửa nào đọc phải số cũ.
+
+Kho nhớ đó không chỉ giữ nền: qua `nho()` tầng service gửi vào cả những thứ DẪN XUẤT đắt tiền mà
+một màn hình phải hỏi hai lượt cho cùng một đối tượng — kết quả `_tinh` của một dòng (Panel chấm
+một lượt để chặn phát hành, một lượt để bày ra) và bảng cân đối vật tư của một lệnh. Đó là lý do
+`nho()` mở ra ngoài thay vì để mỗi tầng tự dựng cache riêng rồi lệch vòng đời nhau.
 """
 from __future__ import annotations
 
@@ -65,6 +70,18 @@ class XepLich2Context:
         if khoa not in self._snap:
             self._snap[khoa] = tinh()
         return self._snap[khoa]
+
+    def nho(self, khoa: tuple, tinh):
+        """Cùng kho nhớ, mở cho tầng NGOÀI context (service) gửi vào những thứ dẫn xuất đắt tiền.
+
+        Nền của bàn thì context tự hỏi, nhưng có thứ chỉ service mới dựng nổi — kết quả `_tinh` của
+        một dòng, bảng cân đối vật tư của một lệnh. Panel phải hỏi đúng những thứ đó HAI lượt cho
+        cùng một đối tượng (một lượt cho cửa phát hành, một lượt để bày ra), nên chỗ nhớ phải dùng
+        chung chứ không phải mỗi tầng một kho.
+
+        Ngoài khối `dong_bang` thì đây chỉ là gọi thẳng — KHÔNG nhớ gì, giống hệt `_nho`.
+        """
+        return self._nho(khoa, tinh)
 
     # --- Ca làm ------------------------------------------------------------
     def ca_windows(self) -> list[tuple[int, int, bool]]:
@@ -200,10 +217,24 @@ class XepLich2Context:
         ])
         return [(s, f, n) for (rid, s, f, n) in rows if rid != exclude_id]
 
+    def si_so_to(self, department_id: int | None) -> int | None:
+        """Sĩ số biên chế của tổ — nhớ theo TỔ, vì nó không đổi theo ngày (xem `core.si_so_to`)."""
+        if not department_id:
+            return None
+        return self._nho(("si_so_to", department_id),
+                         lambda: self.core.si_so_to(department_id))
+
     def quan_so(self, department_id: int | None, ngay: date) -> dict:
-        """Quân số CÓ HIỆU LỰC của tổ trong ngày (số tự tính hoặc dòng gõ đè) — mượn engine cũ."""
-        return self._nho(("quan_so", department_id, ngay),
-                         lambda: self.core.quan_so_ngay(department_id, ngay))
+        """Quân số CÓ HIỆU LỰC của tổ trong ngày (số tự tính hoặc dòng gõ đè) — mượn engine cũ.
+
+        Nhớ theo (tổ, ngày) vì phép trừ nghỉ phép và dòng gõ đè đều theo ngày; riêng SĨ SỐ tổ thì
+        chung cho mọi ngày nên đi qua `si_so_to` — panel một lệnh chạy vài ngày khỏi đếm lại người.
+        """
+        return self._nho(
+            ("quan_so", department_id, ngay),
+            lambda: self.core.quan_so_ngay(department_id, ngay,
+                                           si_so=self.si_so_to(department_id)),
+        )
 
     # --- Tiền nhiệm (DAG routing) -----------------------------------------
     def tien_nhiem_finish(self, dong) -> list[datetime]:

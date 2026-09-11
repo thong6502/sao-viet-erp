@@ -19,7 +19,7 @@ import type { TdsxKanbanCard, TdsxKanbanMeta, TdsxThanhLocParams } from "../api/
 import { Button } from "../components/Button";
 import { ChipKhuon, ChipLoaiBuoc, nhanKhuon } from "../components/ChipBuoc";
 import { Icon, type IconName } from "../components/Icons";
-import { ChipGap, EmptyState, classHan, ngay, num } from "./keHoachSxShared";
+import { EmptyState, classHan, ngay, num } from "./keHoachSxShared";
 
 /** Bốn trạng thái CÔNG VIỆC (`models/san_xuat.py`) — dùng CHUNG cho chip Kanban (chỉ bao giờ
  *  `running`/`paused`, xem docstring `KanbanChipOut`) và khối Theo máy (đủ cả bốn). Định nghĩa MỘT
@@ -169,15 +169,24 @@ export function TdsxKanban({
       )}
 
       {(!daTai || tongTheLoc > 0 || !meta || meta.cot.length === 0) && !loi && soCotRong > 0 && (
-        <div className="tdsx-kb__cotloc">
-          <span className="tdsx-kb__cotloc-chu">
-            {hienCotRong
-              ? `Đang hiện đủ ${cotTatCa.length} công đoạn của danh mục.`
-              : `Đang ẩn ${soCotRong} công đoạn chưa có việc.`}
-          </span>
-          <Button variant="ghost" onClick={() => setHienCotRong((v) => !v)}>
-            {hienCotRong ? "Ẩn công đoạn trống" : "Hiện tất cả công đoạn"}
-          </Button>
+        <div className="tdsx-kb__control-bar">
+          <div className="tdsx-kb__control-stats">
+            <span className="tdsx-kb__stat-pill tdsx-kb__stat-pill--active">
+              <i className="tdsx-stat-dot" />
+              <strong>{cotTatCa.length - soCotRong}</strong> công đoạn có việc
+            </span>
+            <span className="tdsx-kb__stat-pill tdsx-kb__stat-pill--empty">
+              <strong>{soCotRong}</strong> công đoạn trống
+            </span>
+          </div>
+          <button
+            type="button"
+            className="tdsx-kb__toggle-btn"
+            onClick={() => setHienCotRong((v) => !v)}
+          >
+            <Icon name="eye" size={14} />
+            <span>{hienCotRong ? `Ẩn ${soCotRong} công đoạn trống` : `Hiện tất cả ${cotTatCa.length} công đoạn`}</span>
+          </button>
         </div>
       )}
 
@@ -185,11 +194,22 @@ export function TdsxKanban({
         <div className={`tdsx-kb__board${loading && daTai ? " is-mo" : ""}`}>
           {cotHien.map((cot) => {
             const trongCot = theoCot.get(cot.key) ?? [];
+            const isZero = trongCot.length === 0;
+            const iconName = getStepIconName(cot.ten);
             return (
-              <section key={cot.key} className="tdsx-kb__col" aria-label={`Công đoạn ${cot.ten}`}>
+              <section key={cot.key} className={`tdsx-kb__col${isZero ? " is-empty" : ""}`} aria-label={`Công đoạn ${cot.ten}`}>
                 <header className="tdsx-kb__colhead">
-                  <span className="tdsx-kb__colten">{cot.ten}</span>
-                  {daTai && <span className="tdsx-kb__coln">{num(trongCot.length)}</span>}
+                  <div className="tdsx-kb__colhead-title">
+                    <span className="tdsx-kb__colhead-icon">
+                      <Icon name={iconName} size={14} />
+                    </span>
+                    <span className="tdsx-kb__colten">{cot.ten}</span>
+                  </div>
+                  {daTai && (
+                    <span className={`tdsx-kb__coln ${isZero ? "tdsx-kb__coln--zero" : "tdsx-kb__coln--active"}`}>
+                      {num(trongCot.length)}
+                    </span>
+                  )}
                 </header>
                 <div className="tdsx-kb__body">
                   {!daTai ? (
@@ -197,8 +217,15 @@ export function TdsxKanban({
                       <span className="khsx-skel__bar khsx-skel__bar--card" />
                       <span className="khsx-skel__bar khsx-skel__bar--card" />
                     </>
-                  ) : trongCot.length === 0 ? (
-                    <p className="tdsx-kb__colrong">Chưa có việc nào ở công đoạn này.</p>
+                  ) : isZero ? (
+                    <div className="tdsx-kb__empty-slot">
+                      <div className="tdsx-kb__empty-icon">
+                        <Icon name="check" size={16} />
+                      </div>
+                      <h5 className="tdsx-kb__empty-title">Trạm sẵn sàng</h5>
+                      <p className="tdsx-kb__empty-sub">Chưa có lệnh tắc ở công đoạn này</p>
+                      <span className="tdsx-kb__empty-badge">Sẵn sàng nhận việc</span>
+                    </div>
                   ) : (
                     trongCot.map((card) => (
                       <TheCard key={card.lsx_id} card={card} onOpen={() => onOpenHoSo(card.lsx_id)} />
@@ -212,6 +239,16 @@ export function TdsxKanban({
       )}
     </div>
   );
+}
+
+function getStepIconName(ten: string): IconName {
+  const t = ten.toLowerCase();
+  if (t.includes("in")) return "printer";
+  if (t.includes("cán") || t.includes("màng")) return "layers";
+  if (t.includes("bế")) return "box";
+  if (t.includes("cắt") || t.includes("thành phẩm")) return "fileText";
+  if (t.includes("giao")) return "cart";
+  return "grid";
 }
 
 /** Ba cột giả để vẽ khung + skeleton ngay LƯỢT ĐẦU, trước khi `/meta` kịp về (khuôn "khung hiện
@@ -228,53 +265,80 @@ function TheCard({ card, onOpen }: { card: TdsxKanbanCard; onOpen: () => void })
   const chipHien = chips.length > CHIP_HIEN_TOI_DA ? chips.slice(0, CHIP_RUT_GON_CON_LAI) : chips;
   const chipConLai = chips.length - chipHien.length;
 
+  const is_running = chips.some((c) => c.trang_thai === "running");
+  const is_paused = chips.some((c) => c.trang_thai === "paused");
+
+  let cardAccentCls = "";
+  if (card.is_rush) cardAccentCls = " tdsx-kb__card--rush";
+  else if (qua_han) cardAccentCls = " tdsx-kb__card--late";
+  else if (is_running) cardAccentCls = " tdsx-kb__card--running";
+  else if (is_paused) cardAccentCls = " tdsx-kb__card--paused";
+
   return (
-    <button type="button" className="tdsx-kb__card" onClick={onOpen}>
-      <span className="tdsx-kb__row1">
-        <span className="tdsx-kb__ma">{card.ma}</span>
-        {card.is_rush && <ChipGap />}
-      </span>
-
-      <span className="tdsx-kb__row2" title={`${card.khach_hang ?? "—"} · ${card.ten ?? "—"}`}>
-        {card.khach_hang ?? "—"} · {card.ten ?? "—"}
-      </span>
-
-      <span className="tdsx-kb__row3">
-        <span className="tdsx-kb__sl">{num(card.so_luong_dat)}</span>
-        <span className={`tdsx-kb__han ${classHan(card.han_hoan_thanh_sx)}`}>
-          {qua_han && <Icon name="alert" size={12} />}
-          {qua_han ? "Quá hạn" : "Hạn"} {ngay(card.han_hoan_thanh_sx)}
+    <button type="button" className={`tdsx-kb__card${cardAccentCls}`} onClick={onOpen}>
+      {/* Row 1: Code + Priority / Step Badge */}
+      <div className="tdsx-kb__card-head">
+        <span className="tdsx-kb__code-tag">
+          <Icon name="fileText" size={13} />
+          <span className="tdsx-kb__ma">{card.ma}</span>
         </span>
-      </span>
+        {card.is_rush ? (
+          <span className="tdsx-kb__rush-pill">⚡ GẤP</span>
+        ) : (
+          <span className="tdsx-kb__step-pill">{card.buoc_hien_tai ?? "Chờ làm"}</span>
+        )}
+      </div>
 
-      <span className="tdsx-kb__row4">{card.buoc_hien_tai ?? "—"}</span>
+      {/* Row 2: Product Name (Primary) & Customer Name (Secondary) */}
+      <div className="tdsx-kb__info">
+        <h4 className="tdsx-kb__ten-sp" title={card.ten ?? "—"}>
+          {card.ten ?? "Chưa có tên sản phẩm"}
+        </h4>
+        {card.khach_hang && (
+          <div className="tdsx-kb__khach-hang" title={card.khach_hang}>
+            <Icon name="users" size={12} />
+            <span>{card.khach_hang}</span>
+          </div>
+        )}
+      </div>
 
+      {/* Row 3: Meta Badges (Quantity & Due Date) */}
+      <div className="tdsx-kb__meta-bar">
+        <span className="tdsx-kb__sl-pill" title="Số lượng đặt">
+          <Icon name="box" size={12} />
+          <strong>{num(card.so_luong_dat)}</strong>
+          <small>sp</small>
+        </span>
+
+        {card.han_hoan_thanh_sx && (
+          <span className={`tdsx-kb__han-pill ${qua_han ? "is-late" : ""}`}>
+            <Icon name={qua_han ? "alert" : "calendar"} size={12} />
+            <span>{qua_han ? "Quá hạn" : "Hạn"} {ngay(card.han_hoan_thanh_sx)}</span>
+          </span>
+        )}
+      </div>
+
+      {/* Row 4: Running Machine Chips */}
       {chips.length > 0 && (
-        <span className="tdsx-kb__chips">
+        <div className="tdsx-kb__chips">
           {chipHien.map((c) => {
             const m = tdsxTtMeta(c.trang_thai);
-            // Chữ phải nằm trong MỘT span riêng: `.tdsx-tt` là inline-flex, chữ trần thành flex
-            // item vô danh nên `text-overflow: ellipsis` không ăn — đo thật ở thẻ Kanban rộng
-            // 218px mà nội dung 281px, "…Thợ Tổ Cán màng 1" bị cắt ngang chữ, không dấu ba chấm,
-            // không cách nào đọc lại. `title` để hover ra đủ (thẻ cha có `title` riêng của nó).
             const chu = `${c.may}${
               c.nguoi.length === 1 ? ` · ${c.nguoi[0]}` : c.nguoi.length > 1 ? ` · ${c.nguoi.length} người` : ""
             }`;
             return (
-              <span key={c.cong_viec_id} className="tdsx-kb__chip">
+              <div key={c.cong_viec_id} className="tdsx-kb__chip">
                 <span className={`tdsx-tt ${m.cls}`} title={`${chu} · ${m.label}`}>
                   <i aria-hidden="true" />
                   <span className="tdsx-tt__chu">{chu}</span>
                 </span>
-                {/* Nhãn của BƯỚC (04/09/2026) — gán ở màn Kế hoạch thì phải theo bước tới tận
-                    đây, không phải mỗi màn tự suy lấy rồi đứt quãng giữa đường. */}
                 <ChipLoaiBuoc loai_buoc={c.nhan?.loai_buoc} nha_cung_cap={c.nhan?.nha_cung_cap} />
                 <ChipKhuon can_khuon={!!c.nhan?.khuon_ma} khuon={nhanKhuon(c.nhan)} />
-              </span>
+              </div>
             );
           })}
           {chipConLai > 0 && <span className="tdsx-kb__chipthem">+{chipConLai} nhánh khác</span>}
-        </span>
+        </div>
       )}
     </button>
   );

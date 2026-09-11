@@ -74,12 +74,15 @@ describe("form Vật tư khác KHÔNG còn quy cách đóng gói", () => {
 });
 
 describe("ô ĐVT lấy từ danh mục Đơn vị", () => {
-  it("chọn từ /api/don-vi, lưu MÃ, và chỉ mời đơn vị còn dùng", () => {
+  it("chọn từ /api/don-vi, lưu MÃ, và KHÔNG lọc ngừng-dùng ở query", () => {
     for (const cfg of [CFG_GIAY, CFG_VAT_TU]) {
       const f = truong(cfg, "don_vi_gia");
-      expect(f.type).toBe("ref-search-ma");          // lưu mã `kg`, không lưu id
-      expect(f.refPrefix).toBe("/api/don-vi");       // nguồn duy nhất, không còn list cứng
-      expect(f.refParams).toEqual({ active: true }); // không mời đơn vị đã ngừng dùng
+      expect(f.type).toBe("ref-search-ma");     // lưu mã `kg`, không lưu id
+      expect(f.refPrefix).toBe("/api/don-vi");  // nguồn duy nhất, không còn list cứng
+      // Việc gạt đơn vị đã ngừng dùng là của `locConDung` trong CatalogDrawer, KHÔNG phải của
+      // query: lọc từ server thì hàng cũ đang trỏ vào đơn vị vừa ngừng mở ra thấy ô TRỐNG,
+      // bấm Lưu là xoá mất mã đang đúng.
+      expect(f.refParams?.active).toBeUndefined();
     }
   });
 });
@@ -112,11 +115,11 @@ describe("màn Công việc khoán (đơn giá khoán theo tổ)", () => {
     expect(CFG_CONG_VIEC_KHOAN.prefix).toBe("/api/cong-viec-khoan");
   });
 
-  it("ô Đơn vị dùng CÙNG cách khai với Giấy · Vật tư (lưu mã, chỉ mời đơn vị còn dùng)", () => {
+  it("ô Đơn vị dùng CÙNG cách khai với Giấy · Vật tư (lưu mã, lọc ngừng-dùng ở drawer)", () => {
     const f = truong(CFG_CONG_VIEC_KHOAN, "unit");
     expect(f.type).toBe("ref-search-ma");
     expect(f.refPrefix).toBe("/api/don-vi");
-    expect(f.refParams).toEqual({ active: true });
+    expect(f.refParams?.active).toBeUndefined();
   });
 
   it("KHÔNG có ô `group_name`: nhãn tổ do server suy từ tổ đã chọn", () => {
@@ -157,11 +160,19 @@ describe("ô Cách đo lượng ĐÃ GỠ khỏi Máy · Công việc khoán · 
     expect(CFG_GIAY.nhanTabCongThuc).toBeUndefined();
   });
 
-  it("Công đoạn: drawer chỉ còn ô Tính giá, ô Sản lượng ra đã ẩn khỏi UI", () => {
-    // `cong_thuc_san_luong` ẩn khỏi drawer 07/09/2026 — ẩn TRÊN UI thôi: cột DB và engine đọc nó
-    // vẫn còn, và vì `PUT` dùng `exclude_unset` nên ô vắng mặt trong form không ghi rỗng số cũ.
-    expect(CFG_CONG_DOAN.fields.some((f) => f.key === "cong_thuc_san_luong")).toBe(false);
-    // Ô còn lại vẫn tự khai `nhanTab` ⇒ tab công thức mang đúng tên, không rơi vào nhãn mặc định.
+  it("Công đoạn: cặp ô của bước NGOÀI dòng giấy chỉ hiện khi hai ô chặng đều trống", () => {
+    // `cong_thuc_san_luong` ẩn 07/09/2026 rồi HIỆN LẠI 10/09/2026: ẩn nó là cắt cửa khai duy nhất
+    // của số lượng bước ngoài dòng giấy (engine vẫn đọc cột nhưng không ai gõ được), nên "Ghi kẽm
+    // CTP" xuống bàn tổ với `0 → 0`. Đi cùng nó là ô ĐƠN VỊ của số ấy (mg `0289`).
+    const ct = truong(CFG_CONG_DOAN, "cong_thuc_san_luong");
+    const dv = truong(CFG_CONG_DOAN, "don_vi_san_luong");
+    expect(ct.nhanTab).toBe("Công thức sản lượng ra");
+    expect(ct.loaiO).toBe("quy_doi");     // ô ra LƯỢNG ⇒ bộ chip `quy_doi`, không mời chip đơn giá
+    for (const f of [ct, dv]) {
+      expect(f.showIf?.({})).toBe(true);                          // chưa khai chặng ⇒ hiện
+      expect(f.showIf?.({ don_vi_vao: "to", don_vi_ra: "to" })).toBe(false);   // trên dòng ⇒ ẩn
+    }
+    // Ô giá vẫn tự khai `nhanTab` ⇒ tab công thức mang đúng tên, không rơi vào nhãn mặc định.
     expect(truong(CFG_CONG_DOAN, "cong_thuc_gia").nhanTab).toBe("Công thức tính giá");
     expect(CFG_CONG_DOAN.nhanTabCongThuc).toBeUndefined();
   });
