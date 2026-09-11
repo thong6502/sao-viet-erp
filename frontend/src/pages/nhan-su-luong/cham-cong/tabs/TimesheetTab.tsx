@@ -1,5 +1,5 @@
 // Tab Bảng công tháng (tách từ pages/ChamCongPage.tsx).
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
   type DayDetail,
@@ -13,7 +13,6 @@ import {
   UserCheck,
   CalendarDays,
   Clock,
-  Calendar,
   FileEdit,
   AlertTriangle,
   RefreshCw,
@@ -24,9 +23,14 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { MonthPicker } from "../../../../components/MonthPicker";
 import { OtConfirmModal } from "../modals/OtConfirmModal";
+import { EmployeeCalendarModal } from "../modals/EmployeeCalendarModal";
 import {
   FAULT_OPTIONS,
   FAULT_LABEL,
@@ -34,7 +38,6 @@ import {
   WEEKDAY_NAMES_SHORT,
 } from "../shared/constants";
 import {
-  docONgay,
   soCong,
   congDacBiet,
   congThuong,
@@ -49,243 +52,21 @@ import {
 
 // --- Tab: Bảng công tháng (HR) ----------------------------------------------
 
-function EmployeeCalendarModal({
-  employeeName,
-  employeeRow,
-  year,
-  month,
-  daysInMonth,
-  heSoNgay,
-  onClose,
-}: {
-  employeeName: string;
-  employeeRow: TimesheetRow;
-  year: number;
-  month: number;
-  daysInMonth: number;
-  /** Hệ số quy đổi công lễ / nghỉ tuần từ Cấu hình lương — truyền xuống chứ không đọc lại,
-   *  hai lịch phải nói cùng một con số. */
-  heSoNgay: HeSoNgay;
-  onClose: () => void;
-}) {
-  const startOffset = (new Date(year, month - 1, 1).getDay() + 6) % 7; // Mon=0..Sun=6
-  const calendarCells: (number | null)[] = [];
-  for (let i = 0; i < startOffset; i++) {
-    calendarCells.push(null);
+/** Tạo dãy số trang có dấu "..." khi danh sách dài chuẩn ERP */
+export function getPageNumbers(
+  trangHien: number,
+  soTrang: number,
+): (number | string)[] {
+  if (soTrang <= 7) {
+    return Array.from({ length: soTrang }, (_, i) => i + 1);
   }
-  for (let d = 1; d <= daysInMonth; d++) {
-    calendarCells.push(d);
+  if (trangHien <= 4) {
+    return [1, 2, 3, 4, 5, "...", soTrang];
   }
-
-  // Calculate statistics for this employee
-  let workedDays = 0;
-  let totalOtMinutes = 0;
-  let lateDays = 0;
-  let earlyDays = 0;
-  let leaveDays = 0;
-
-  Object.values(employeeRow.days).forEach((day) => {
-    if (day.leave) {
-      leaveDays++;
-    } else {
-      if (day.first_in || day.last_out) {
-        workedDays += day.cong ?? 1;
-      }
-      if (day.ot_minutes) {
-        totalOtMinutes += day.ot_minutes;
-      }
-      if (day.late) {
-        lateDays++;
-      }
-      if (day.early) {
-        earlyDays++;
-      }
-    }
-  });
-
-  return (
-    <div className="ns-modal" role="dialog" aria-modal="true">
-      <div
-        className="ns-modal__box cc-emp-cal-modal-box"
-        style={{ maxWidth: "700px" }}
-      >
-        <header className="ns-modal__head">
-          <h2
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              margin: 0,
-            }}
-          >
-            <Calendar size={18} /> Lịch công tháng {month}/{year} ·{" "}
-            {employeeName}
-          </h2>
-          <button className="ns-modal__x" onClick={onClose}>
-            ×
-          </button>
-        </header>
-        <div className="ns-modal__body">
-          {/* Summary metrics of the employee */}
-          <div className="cc-emp-cal-summary-grid">
-            <div className="cc-emp-cal-summary-card">
-              <span className="cc-emp-cal-summary-lbl">Số ngày công</span>
-              <span className="cc-emp-cal-summary-val">
-                {employeeRow.total_cong ?? workedDays} công
-              </span>
-            </div>
-            <div className="cc-emp-cal-summary-card">
-              <span className="cc-emp-cal-summary-lbl">Tổng giờ làm</span>
-              <span className="cc-emp-cal-summary-val">
-                {employeeRow.total_hours ?? 0}h
-              </span>
-            </div>
-            <div className="cc-emp-cal-summary-card">
-              <span className="cc-emp-cal-summary-lbl">Tăng ca (OT)</span>
-              <span className="cc-emp-cal-summary-val">
-                {(totalOtMinutes / 60).toFixed(1)}h
-              </span>
-            </div>
-            <div className="cc-emp-cal-summary-card">
-              <span className="cc-emp-cal-summary-lbl">Muộn / Sớm</span>
-              <span className="cc-emp-cal-summary-val text-warn">
-                {lateDays} / {earlyDays} lần
-              </span>
-            </div>
-          </div>
-
-          {/* Calendar grid */}
-          <div className="cc-month-grid" style={{ marginTop: "16px" }}>
-            {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((w) => (
-              <div
-                key={w}
-                style={{
-                  textAlign: "center",
-                  fontWeight: "bold",
-                  fontSize: "12px",
-                  paddingBottom: "6px",
-                  color: "var(--ash)",
-                }}
-              >
-                {w}
-              </div>
-            ))}
-            {calendarCells.map((dayNum, idx) => {
-              if (dayNum === null)
-                return (
-                  <div
-                    key={`empty-${idx}`}
-                    className="cc-month-cell cc-month-cell--empty"
-                  />
-                );
-
-              const day = employeeRow.days[String(dayNum)];
-              // CHUNG hàm với lịch tự phục vụ. Đoạn `if` cũ ở đây hỏi `day.leave` TRƯỚC nên ngày
-              // lễ hiện thành "Nghỉ phép (P)" — HCNS và người lao động nhìn cùng một ngày mà đọc
-              // ra hai chuyện khác nhau.
-              const o = docONgay(day, heSoNgay);
-              let cellClass = "cc-month-cell cc-emp-cal-cell" + o.variant;
-
-              const currentDayOfWeek = new Date(
-                year,
-                month - 1,
-                dayNum,
-              ).getDay();
-              const isWeekendCell =
-                currentDayOfWeek === 0 || currentDayOfWeek === 6;
-              if (!day && isWeekendCell) {
-                cellClass += " cc-month-cell--weekend";
-              }
-
-              return (
-                <div key={dayNum} className={cellClass}>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span className="cc-month-cell-num">{dayNum}</span>
-                    <span className="cc-month-cell__pills">
-                      {o.pills.map((p) => (
-                        <span
-                          key={p.text}
-                          className={`cc-badge-pill cc-badge-pill--cell cc-badge-pill--${p.tone}`}
-                          title={p.title}
-                        >
-                          {p.text}
-                        </span>
-                      ))}
-                    </span>
-                  </div>
-                  {/* Tên CA của ngày (Phân ca tháng) — hiện DÙ có bấm hay không. Chủ hỏi
-                      "điền ca từng ngày vào ô công". Bấm ô để đổi ca ở tab Khai ca. */}
-                  {o.caLabel && (
-                    <div
-                      className="cc-month-cell__ca"
-                      title={`Ca làm: ${o.caLabel}`}
-                    >
-                      {o.caLabel}
-                    </div>
-                  )}
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      color: "var(--ink)",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {o.timeRange || "—"}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "var(--ash)",
-                      marginTop: "2px",
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: "2px",
-                      justifyContent: "space-between",
-                      width: "100%",
-                    }}
-                  >
-                    <span>
-                      {o.statusLabel}
-                      {o.gain && <span className={o.gainClass}> {o.gain}</span>}
-                    </span>
-                    {day?.late && (
-                      <span
-                        style={{ color: "var(--signal)", fontWeight: "bold" }}
-                      >
-                        Muộn
-                      </span>
-                    )}
-                    {day?.early && (
-                      <span
-                        style={{
-                          color: "var(--amber-deep)",
-                          fontWeight: "bold",
-                        }}
-                      >
-                        Sớm
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose}>
-            Đóng
-          </button>
-        </footer>
-      </div>
-    </div>
-  );
+  if (trangHien >= soTrang - 3) {
+    return [1, "...", soTrang - 4, soTrang - 3, soTrang - 2, soTrang - 1, soTrang];
+  }
+  return [1, "...", trangHien - 1, trangHien, trangHien + 1, "...", soTrang];
 }
 
 /** Bỏ dấu + thường hoá: gõ "quan" vẫn ra "Quân", gõ "nv02" vẫn ra "NV002" — kế toán tìm nhanh
@@ -427,11 +208,6 @@ export function TimesheetTab({
     }
   }
 
-  function openCell(employeeId: number, employeeName: string, dayNum: number) {
-    const date = `${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
-    setOpenDay({ employeeId, employeeName, date });
-  }
-
   async function exportExcel() {
     setDownloading(true);
     try {
@@ -454,9 +230,13 @@ export function TimesheetTab({
     }
   }
 
-  const days = data
-    ? Array.from({ length: data.days_in_month }, (_, i) => i + 1)
-    : [];
+  // `useMemo`: mảng này là prop của từng hàng đã bọc `memo`. Dựng lại mỗi lượt render là cấp cho
+  // hàng một prop mới toanh ⇒ `memo` không giữ được hàng nào.
+  const days = useMemo(
+    () =>
+      data ? Array.from({ length: data.days_in_month }, (_, i) => i + 1) : [],
+    [data],
+  );
 
   const rowsHien = useMemo(() => {
     const q = khongDau(tim.trim());
@@ -468,6 +248,58 @@ export function TimesheetTab({
         khongDau(r.employee_code).includes(q),
     );
   }, [data, tim]);
+
+  // --- Phân trang TRÊN DỮ LIỆU ĐÃ TẢI (11/09/2026) --------------------------
+  //
+  // Cả tháng vẫn về một lượt như cũ; chỉ khác là vẽ ra màn theo từng trang. Đây là chỗ nghẽn
+  // THẬT ở quy mô lớn: 500 NV × 39 ô = ~19.500 `<td>` trong MỘT bảng.
+  //
+  // CỐ Ý không phân trang ở máy chủ: `monthly_timesheet` còn nuôi Lương (`metrics_map`), Chốt
+  // công (`period_status`/`lock_period`), NV tự xem (`my_timesheet`) và bản xuất Excel — nhét
+  // tham số cắt dữ liệu vào đó là đặt một con dao ngay giữa đường Lương đang tin là "đủ người".
+  // Giữ dữ liệu đủ ở trình duyệt còn đổi lại hai thứ: ô KPI vẫn cộng theo TOÀN BỘ tập đang lọc
+  // (không phải một trang), và ô tìm tên/mã vẫn chạy tức thì không phải gõ-rồi-chờ.
+  const [soMoiTrang, setSoMoiTrang] = useState(50);
+  const [trang, setTrang] = useState(1);
+  const soTrang =
+    soMoiTrang === 0 ? 1 : Math.max(1, Math.ceil(rowsHien.length / soMoiTrang));
+  // Kẹp lại thay vì tin `trang`: đổi tháng/tổ hay gõ ô tìm đều làm danh sách ngắn lại, đứng ở
+  // trang 9 mà còn 2 trang thì bảng trắng trơn trong khi vẫn có người.
+  const trangHien = Math.min(trang, soTrang);
+  const rowsTrang = useMemo(
+    () =>
+      soMoiTrang === 0
+        ? rowsHien
+        : rowsHien.slice((trangHien - 1) * soMoiTrang, trangHien * soMoiTrang),
+    [rowsHien, trangHien, soMoiTrang],
+  );
+  useEffect(() => {
+    setTrang(1);
+  }, [ym, deptId, tim, soMoiTrang]);
+
+  // Ba callback DÙNG CHUNG cho mọi hàng — `useCallback` để định danh không đổi giữa các lượt
+  // render, nếu không `memo` ở `TimesheetRowView` vô hiệu (xem ghi chú ở component đó).
+  const laCuoiTuan = useCallback(
+    (d: number) => isWeekend(year, month, d),
+    [year, month],
+  );
+  const moODay = useCallback(
+    (r: TimesheetRow, dayNum: number) => {
+      const date = `${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+      setOpenDay({
+        employeeId: r.employee_id,
+        employeeName: r.employee_name,
+        date,
+      });
+    },
+    [year, month],
+  );
+  const moChiTietNgay = moODay;
+  const moLichNV = useCallback(
+    (r: TimesheetRow) => setSelectedEmployeeCal({ row: r, name: r.employee_name }),
+    [],
+  );
+  const moCongDacBiet = useCallback((r: TimesheetRow) => setSpecialFor(r), []);
 
   // Thứ đang CHẶN chốt công (máy chủ chặn cả đơn chờ duyệt lẫn ngày treo — xem
   // `AttendanceService.lock_period`). Chỉ kể loại nào thật sự còn số.
@@ -863,19 +695,15 @@ export function TimesheetTab({
               </tr>
             </thead>
             <tbody>
-              {rowsHien.map((r) => (
+              {rowsTrang.map((r) => (
                 <TimesheetRowView
                   key={r.employee_id}
                   row={r}
                   days={days}
-                  isWeekend={(d) => isWeekend(year, month, d)}
-                  onCellClick={(dayNum) =>
-                    openCell(r.employee_id, r.employee_name, dayNum)
-                  }
-                  onNameClick={() =>
-                    setSelectedEmployeeCal({ row: r, name: r.employee_name })
-                  }
-                  onSpecialClick={() => setSpecialFor(r)}
+                  isWeekend={laCuoiTuan}
+                  onCellClick={moODay}
+                  onNameClick={moLichNV}
+                  onSpecialClick={moCongDacBiet}
                 />
               ))}
               {rowsHien.length === 0 && (
@@ -889,6 +717,109 @@ export function TimesheetTab({
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!loading && data && rowsHien.length > 0 && (
+        <div className="cc-ts-pager">
+          <span className="cc-ts-pager__count">
+            {soMoiTrang === 0 || soTrang === 1 ? (
+              <>
+                <b>{rowsHien.length}</b> nhân viên
+              </>
+            ) : (
+              <>
+                <b>
+                  {(trangHien - 1) * soMoiTrang + 1}–
+                  {Math.min(trangHien * soMoiTrang, rowsHien.length)}
+                </b>{" "}
+                / {rowsHien.length} nhân viên
+              </>
+            )}
+          </span>
+          {/* Cột giữa: phân trang chỉ hiện khi soTrang > 1 */}
+          {soTrang > 1 && (
+            <div className="cc-ts-pager__nav">
+              <button
+                type="button"
+                className="cc-ts-pager__icon-btn"
+                disabled={trangHien <= 1}
+                onClick={() => setTrang(1)}
+                title="Trang đầu"
+              >
+                <ChevronsLeft size={14} />
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost cc-ts-pager__btn"
+                disabled={trangHien <= 1}
+                onClick={() => setTrang(trangHien - 1)}
+                title="Trang trước"
+              >
+                <ChevronLeft size={14} />
+                <span>‹ Trước</span>
+              </button>
+              <div className="cc-ts-pager__pages">
+                {getPageNumbers(trangHien, soTrang).map((p, idx) =>
+                  typeof p === "number" ? (
+                    <button
+                      key={p}
+                      type="button"
+                      className={`cc-ts-pager__page-num ${p === trangHien ? "cc-ts-pager__page-num--active" : ""}`}
+                      onClick={() => setTrang(p)}
+                    >
+                      {p}
+                    </button>
+                  ) : (
+                    <span key={`ellipsis-${idx}`} className="cc-ts-pager__ellipsis">
+                      …
+                    </span>
+                  ),
+                )}
+              </div>
+              <span className="cc-ts-pager__pos">
+                Trang {trangHien}/{soTrang}
+              </span>
+              <button
+                type="button"
+                className="btn btn--ghost cc-ts-pager__btn"
+                disabled={trangHien >= soTrang}
+                onClick={() => setTrang(trangHien + 1)}
+                title="Trang sau"
+              >
+                <span>Sau ›</span>
+                <ChevronRight size={14} />
+              </button>
+              <button
+                type="button"
+                className="cc-ts-pager__icon-btn"
+                disabled={trangHien >= soTrang}
+                onClick={() => setTrang(soTrang)}
+                title="Trang cuối"
+              >
+                <ChevronsRight size={14} />
+              </button>
+            </div>
+          )}
+          <div className="cc-ts-pager__size-wrap">
+            <label className="cc-ts-pager__size">
+              Mỗi trang
+              <div className="cc-ts-pager__select-box">
+                <select
+                  value={soMoiTrang}
+                  onChange={(e) => setSoMoiTrang(Number(e.target.value))}
+                >
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  {/* "Tất cả" giữ lại cho ai quen cuộn một mạch — ở vài trăm người thì chậm, nên
+                      KHÔNG để làm mặc định. */}
+                  <option value={0}>Tất cả</option>
+                </select>
+                <ChevronDown size={13} className="cc-ts-pager__select-arrow" />
+              </div>
+            </label>
+          </div>
         </div>
       )}
 
@@ -916,6 +847,7 @@ export function TimesheetTab({
           daysInMonth={data?.days_in_month ?? 30}
           heSoNgay={data?.he_so_ngay ?? HE_SO_NGAY_MAC_DINH}
           onClose={() => setSelectedEmployeeCal(null)}
+          onSelectDay={(dayNum) => moChiTietNgay(selectedEmployeeCal.row, dayNum)}
         />
       )}
 
@@ -1047,7 +979,18 @@ function CongDacBietDrawer({
   );
 }
 
-function TimesheetRowView({
+/** Một HÀNG của bảng công — bọc `memo` (11/09/2026).
+ *
+ *  Hàng này nặng: 3 ô đầu + 31 ô ngày + 5 ô tổng ≈ 39 `<td>`. Ô "Tìm tên/mã NV" là state của
+ *  component CHA, nên trước khi bọc `memo` thì mỗi ký tự gõ vào ô tìm là React dựng lại TOÀN BỘ
+ *  hàng đang hiển thị — 500 NV ⇒ ~19.500 ô mỗi lần nhấn phím. Mở ngăn lịch, bấm chốt kỳ… đều trả
+ *  cùng cái giá đó.
+ *
+ *  ⚠️ `memo` chỉ ăn thua khi MỌI prop giữ nguyên định danh giữa hai lượt vẽ. Vì vậy ba callback
+ *  dưới đây nhận `row` làm tham số (cha giữ `useCallback` một bản duy nhất) thay vì đóng gói sẵn
+ *  `row` trong arrow function tạo mới mỗi lượt — đổi lại là hàm vô hiệu hoàn toàn. `days` cũng
+ *  phải là mảng `useMemo` bên cha, đừng dựng `Array.from(...)` ngay trong thân render. */
+const TimesheetRowView = memo(function TimesheetRowView({
   row,
   days,
   isWeekend,
@@ -1058,9 +1001,9 @@ function TimesheetRowView({
   row: TimesheetRow;
   days: number[];
   isWeekend: (dayNum: number) => boolean;
-  onCellClick?: (dayNum: number) => void;
-  onNameClick?: () => void;
-  onSpecialClick?: () => void;
+  onCellClick?: (row: TimesheetRow, dayNum: number) => void;
+  onNameClick?: (row: TimesheetRow) => void;
+  onSpecialClick?: (row: TimesheetRow) => void;
 }) {
   const congCnLe = tongCongDacBiet(row);
   const gioTc = gioTangCa(row);
@@ -1070,7 +1013,7 @@ function TimesheetRowView({
       ? {
           role: "button" as const,
           tabIndex: 0,
-          onClick: () => onCellClick!(d),
+          onClick: () => onCellClick!(row, d),
           style: { cursor: "pointer" },
         }
       : {};
@@ -1084,7 +1027,7 @@ function TimesheetRowView({
           </span>
           <span
             className="cc-name-link"
-            onClick={onNameClick}
+            onClick={() => onNameClick?.(row)}
             title="Xem lịch công tháng"
           >
             {row.employee_name}
@@ -1191,7 +1134,7 @@ function TimesheetRowView({
           <button
             type="button"
             className="cc-ts-special"
-            onClick={onSpecialClick}
+            onClick={() => onSpecialClick?.(row)}
             title="Tổng công ngày nghỉ tuần + ngày lễ + ngày công ty cho nghỉ — bấm để xem từng ngày và hệ số quy đổi"
           >
             <span className="cc-badge-pill cc-badge-pill--purple">
@@ -1220,7 +1163,7 @@ function TimesheetRowView({
       </td>
     </tr>
   );
-}
+});
 
 // "Ô biết nói": chi tiết punch 1 ngày của 1 NV + chấm bù/sửa (fault_party) có audit.
 
