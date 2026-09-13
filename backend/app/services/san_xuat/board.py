@@ -486,16 +486,19 @@ def _phien_giao_me(phien_rows, b) -> list:
 
 
 def _ca_cua(cas, dt) -> str | None:
-    """Tên CA chứa mốc `dt`, hoặc None khi mốc rơi ngoài mọi ca đã khai.
+    """Tên CA chứa mốc THỰC THI `dt` (UTC thật), hoặc None khi mốc rơi ngoài mọi ca đã khai.
 
     Dùng lại đúng `_ca_cua_moc` của Theo dõi sản xuất thay vì viết bản so giờ thứ hai: luật ca qua
     nửa đêm (Ruling C120) chỉ nên có MỘT chỗ, hai bản chép nhau là sớm muộn lệch nhau. "Ngoài ca"
-    là một câu trả lời thật và tổ trưởng cần thấy đúng nó — đừng đoán ca gần nhất."""
+    là một câu trả lời thật và tổ trưởng cần thấy đúng nó — đừng đoán ca gần nhất.
+
+    Phút ca (`start_minute`) là phút-trong-ngày theo GIỜ TƯỜNG, nên phải đưa mốc về giờ xưởng
+    trước khi so — trả UTC thật vào đây là mẻ 20:00 rơi vào Ca 1 (13:00)."""
     if dt is None:
         return None
     from ..lenh_sx.bang_theo_doi import _ca_cua_moc
 
-    kq = _ca_cua_moc(list(cas), lich_hien_thi(dt))
+    kq = _ca_cua_moc(list(cas), thuc_te_hien_thi(dt))
     return kq[0].name if kq else None
 
 
@@ -857,10 +860,10 @@ def chi_tiet_cong_viec(
             "batches": [
                 {
                     "id": b.id,
-                    # Batch do TỔ GÕ ở ô `datetime-local` → `_aware()` gắn nhãn UTC lên giờ
-                    # tường: thang LỊCH, không phải mốc máy chủ. Gỡ nhãn là xong.
-                    "bat_dau": lich_hien_thi(b.bat_dau),
-                    "ket_thuc": lich_hien_thi(b.ket_thuc),
+                    # Cửa sổ mẻ là mốc THỰC THI (UTC thật từ mg 0298 — trước đó tổ gõ giờ tường
+                    # rồi bị dán nhãn UTC, lệch đúng 7 tiếng so với phiên chạy/chấm công).
+                    "bat_dau": thuc_te_hien_thi(b.bat_dau),
+                    "ket_thuc": thuc_te_hien_thi(b.ket_thuc),
                     "tong": float(b.tong),
                     "tot": float(b.tot),
                     "hong": float(b.hong),

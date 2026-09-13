@@ -45,9 +45,9 @@ from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
 from ...services.rbac_service import AuthorizationService
-from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi
+from ..gio_xuong import moc_tu_client, thuc_te_hien_thi
 from .board import _item_dict, _to_thay_duoc
-from .thuc_thi import _aware, _gate, _moc
+from .thuc_thi import _gate, _moc
 
 # Dung sai làm tròn (cột Numeric(18,3)) — như san_luong.
 _EPS = 0.0005
@@ -191,7 +191,11 @@ def tao_batch_kcs(
 
     if bat_dau is None or ket_thuc is None:
         raise ValueError("Batch kiểm tra phải có khoảng thời gian bắt đầu và kết thúc.")
-    if _aware(ket_thuc) < _aware(bat_dau):
+    # Người kiểm GÕ hai mốc này ở ô `datetime-local` (naive = giờ tường xưởng) → UTC THẬT, cùng
+    # thang với khoảng tham gia/chấm công vì batch sản lượng kèm theo chạy qua pipeline phân bổ.
+    bat_dau = moc_tu_client(bat_dau)
+    ket_thuc = moc_tu_client(ket_thuc)
+    if ket_thuc < bat_dau:
         raise ValueError("Kết thúc kiểm tra không được trước khi bắt đầu.")
 
     don_vi_kcs = (don_vi or cv.don_vi_ra or "").strip()
@@ -216,8 +220,8 @@ def tao_batch_kcs(
     # LỖI SẢN PHẨM ghi ở lỗi KCS, KHÔNG phải hỏng do KCS). Pipeline phân bổ đọc batch.tot → chia đúng.
     batch = SanXuatBatch(
         cong_viec_id=cv.id,
-        bat_dau=_aware(bat_dau),
-        ket_thuc=_aware(ket_thuc),
+        bat_dau=bat_dau,
+        ket_thuc=ket_thuc,
         tong=nhan,
         tot=nhan,
         hong=0,
@@ -232,8 +236,8 @@ def tao_batch_kcs(
         cong_viec_id=cv.id,
         batch_id=batch.id,
         nhom_id=cv.nhom_id,
-        bat_dau=_aware(bat_dau),
-        ket_thuc=_aware(ket_thuc),
+        bat_dau=bat_dau,
+        ket_thuc=ket_thuc,
         so_luong_nhan=nhan,
         co_mau=co_mau_f,
         so_luong_dat=dat,
@@ -315,7 +319,11 @@ def tao_kiem_dot_xuat(
     )
     if bat_dau is None or ket_thuc is None:
         raise ValueError("Batch kiểm tra phải có khoảng thời gian bắt đầu và kết thúc.")
-    if _aware(ket_thuc) < _aware(bat_dau):
+    # Người kiểm GÕ hai mốc này ở ô `datetime-local` (naive = giờ tường xưởng) → UTC THẬT, cùng
+    # thang với khoảng tham gia/chấm công vì batch sản lượng kèm theo chạy qua pipeline phân bổ.
+    bat_dau = moc_tu_client(bat_dau)
+    ket_thuc = moc_tu_client(ket_thuc)
+    if ket_thuc < bat_dau:
         raise ValueError("Kết thúc kiểm tra không được trước khi bắt đầu.")
     don_vi_kcs = (don_vi or cv.don_vi_ra or "").strip()
     if not don_vi_kcs:
@@ -335,8 +343,8 @@ def tao_kiem_dot_xuat(
         cong_viec_id=cv.id,
         batch_id=None,
         nhom_id=cv.nhom_id,
-        bat_dau=_aware(bat_dau),
-        ket_thuc=_aware(ket_thuc),
+        bat_dau=bat_dau,
+        ket_thuc=ket_thuc,
         so_luong_nhan=nhan,
         co_mau=co_mau_f,
         so_luong_dat=dat,
@@ -720,9 +728,9 @@ def _batches_ra(
             "id": b.id,
             "batch_id": b.batch_id,
             "nhom_id": b.nhom_id,
-            # Người kiểm GÕ hai mốc này (`KcsBatchIn`) → thang LỊCH như batch sản lượng.
-            "bat_dau": lich_hien_thi(b.bat_dau),
-            "ket_thuc": lich_hien_thi(b.ket_thuc),
+            # Mốc THỰC THI (UTC thật từ mg 0298) — `thuc_te_hien_thi` đưa về giờ tường xưởng.
+            "bat_dau": thuc_te_hien_thi(b.bat_dau),
+            "ket_thuc": thuc_te_hien_thi(b.ket_thuc),
             "so_luong_nhan": float(b.so_luong_nhan or 0),
             "co_mau": float(b.co_mau) if b.co_mau is not None else None,
             "so_luong_dat": float(b.so_luong_dat or 0),

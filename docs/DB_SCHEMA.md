@@ -4620,8 +4620,8 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | --- | --- | --- | --- | --- | --- |
 | `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
 | `cong_viec_id` | `Integer` FK→`san_xuat_cong_viec.id` (CASCADE) | IX | no | — | Công việc (snapshot). |
-| `bat_dau` | `DateTime(timezone=True)` | — | no | — | Mốc đầu cửa sổ batch. |
-| `ket_thuc` | `DateTime(timezone=True)` | — | no | — | Mốc cuối cửa sổ batch. |
+| `bat_dau` | `DateTime(timezone=True)` | — | no | — | Mốc đầu cửa sổ batch — **UTC THẬT** (mg `0298`): tổ gõ giờ tường ở ô `datetime-local`, service quy đổi bằng `gio_xuong.moc_tu_client()` để đo cùng thước với `san_xuat_khoang_tham_gia` / `attendance_logs`. Trả ra qua `thuc_te_hien_thi()`. |
+| `ket_thuc` | `DateTime(timezone=True)` | — | no | — | Mốc cuối cửa sổ batch (cùng thang `bat_dau`). |
 | `tong` | `Numeric(18,3)` | — | no | — | Tổng sản lượng ghi = `tot + hong`. |
 | `tot` | `Numeric(18,3)` | — | no | — | Sản lượng tốt (nền cho trần bàn giao). |
 | `hong` | `Numeric(18,3)` | — | no | `0` | Sản lượng hỏng. |
@@ -4877,8 +4877,8 @@ KHÔNG còn cột TIỀN nào: `don_gia` đã bỏ (mg 0296, 11/09/2026) — s�
 | `cong_viec_id` | `Integer` FK→`san_xuat_cong_viec.id` (CASCADE) | IX | no | — | Công việc KCS (snapshot). |
 | `batch_id` | `Integer` FK→`san_xuat_batch.id` (SET NULL) | **U**, IX | yes | — | Batch sản lượng nền cho phân bổ năng suất KCS. |
 | `nhom_id` | `Integer` FK→`san_xuat_nhom.id` (SET NULL) | IX | yes | — | Nhóm thành phẩm đang kiểm (định danh lô cho nhập kho §14.1). |
-| `bat_dau` | `DateTime(timezone=True)` | — | no | — | Mốc đầu cửa sổ kiểm. |
-| `ket_thuc` | `DateTime(timezone=True)` | — | no | — | Mốc cuối cửa sổ kiểm. |
+| `bat_dau` | `DateTime(timezone=True)` | — | no | — | Mốc đầu cửa sổ kiểm — **UTC THẬT** (mg `0298`), cùng quy ước `san_xuat_batch.bat_dau`. |
+| `ket_thuc` | `DateTime(timezone=True)` | — | no | — | Mốc cuối cửa sổ kiểm (cùng thang `bat_dau`). |
 | `so_luong_nhan` | `Numeric(18,3)` | — | no | — | Số nhận-và-kết-luận = nền năng suất KCS. |
 | `co_mau` | `Numeric(18,3)` | — | yes | — | Cỡ mẫu kiểm. |
 | `so_luong_dat` | `Numeric(18,3)` | — | no | — | Số đạt (nền nhập kho thành phẩm). |

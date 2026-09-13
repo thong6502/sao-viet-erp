@@ -561,8 +561,10 @@ def _san_luong(bc: BoiCanh, lsx_id: int) -> dict:
                 "cong_viec_id": cv.id,
                 "ten_viec": cv.ten_cong_doan,
                 "la_buoc_ghep": cv.id in ghep,
-                "bat_dau": b.bat_dau,
-                "ket_thuc": b.ket_thuc,
+                # Cửa sổ mẻ là mốc THỰC THI (UTC thật) — trả thô thì Postgres gắn `+00:00` và FE
+                # `new Date(iso)` cộng thêm offset máy chủ. Cùng khuôn với `hoan_thanh_luc`.
+                "bat_dau": thuc_te_hien_thi(b.bat_dau),
+                "ket_thuc": thuc_te_hien_thi(b.ket_thuc),
                 "tong": _f(b.tong),
                 "tot": _f(b.tot),
                 "hong": _f(b.hong),
@@ -590,7 +592,7 @@ def _kcs(bc: BoiCanh, lsx_id: int) -> dict:
                 "ten_viec": cv.ten_cong_doan,
                 "la_buoc_ghep": cv.id in ghep,
                 "la_kcs_cuoi": bool(cv.la_kcs_cuoi),
-                "ket_thuc": k.ket_thuc,
+                "ket_thuc": thuc_te_hien_thi(k.ket_thuc),
                 "so_luong_nhan": _f(k.so_luong_nhan),
                 "so_luong_dat": _f(k.so_luong_dat),
                 "so_luong_khong_dat": _f(k.so_luong_khong_dat),

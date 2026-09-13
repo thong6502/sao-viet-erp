@@ -57,6 +57,7 @@ from ...repositories.san_xuat_phan_bo_repo import SanXuatPhanBoRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ...repositories.san_xuat_thuc_thi_repo import SanXuatThucThiRepository
 from ..attendance_service import AttendanceService
+from ..gio_xuong import ve_gio_xuong
 from .thuc_thi import _aware, _gate, _moc
 
 _EPS = 0.0005  # dung sai làm tròn Numeric(18,3)
@@ -136,7 +137,9 @@ def _tinh_batch(
     kq.don_vi_native = batch.don_vi
     kq.don_vi_pay = _don_vi_tra_luong(cv)
     kq.q_pay = kq.q_native  # sản lượng chia = sản lượng TỐT bản địa, không quy đổi
-    ngay = _aware(batch.bat_dau).date()
+    # NGÀY của mẻ = ngày theo GIỜ TƯỜNG xưởng, không phải ngày UTC: mẻ ca 3 lúc 02:00 sáng 12/9 là
+    # 19:00Z ngày 11/9, lấy thẳng `.date()` là ghi phân bổ (và kỳ lương) vào nhầm ngày hôm trước.
+    ngay = ve_gio_xuong(batch.bat_dau).date()
     kq.ngay = ngay
 
     # (2) Hỗ trợ đã xác nhận trong phạm vi (công đoạn + ngày batch).
@@ -179,6 +182,8 @@ def _tinh_batch(
     #     Phút hợp lệ (§7.3) = giao(khoảng THAM GIA trong batch, khoảng CHẤM CÔNG hợp lệ = cặp
     #     vào/ra thực tế ∩ (trong ca thường ∪ phiếu tăng ca đã duyệt)). Không chấm công hợp lệ ⇒
     #     0 phút ⇒ đánh 'thiếu chấm công' (chặn chốt cho tới khi bổ sung hoặc loại khỏi lương batch).
+    # Từ mg 0298 cửa sổ mẻ là UTC THẬT — CÙNG thang với `khoang_tham_gia` (`thuc_thi._moc()`) và
+    # `attendance_logs.checked_at`, nên giao khoảng ở dưới mới ra số phút thật.
     b0, b1 = batch.bat_dau, batch.ket_thuc
     att = _attendance(db)
     hople_cache: dict[int, list[tuple[datetime, datetime]]] = {}

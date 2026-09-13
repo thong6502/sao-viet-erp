@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import inspect, text
@@ -13544,3 +13544,57 @@ def _migrate_bo_bang_thuong_to_truong(db) -> None:
 
 
 MIGRATIONS.append(("0297_bo_bang_thuong_to_truong", _migrate_bo_bang_thuong_to_truong))
+
+
+def _migrate_me_ve_utc_that(db) -> None:
+    """Cửa sổ MẺ (`san_xuat_batch`, `san_xuat_kcs_batch`) đổi thang: giờ tường xưởng → UTC THẬT.
+
+    Tổ gõ mốc mẻ ở ô `datetime-local`, trình duyệt gửi chuỗi KHÔNG kèm offset, service cũ dán thẳng
+    nhãn UTC (`_aware()`). Nhưng mọi thứ đem so với cửa sổ mẻ đều là UTC THẬT:
+    `san_xuat_khoang_tham_gia` và `san_xuat_phien_chay` (do `thuc_thi._moc()` ghi) cùng
+    `attendance_logs.checked_at`. Lệch đúng bằng offset máy chủ (VN: 7 tiếng) ⇒ giao khoảng RỖNG:
+
+      · cổng chấm công §7.3 luôn ra 0 phút hợp lệ ⇒ cờ `thieu_cham_cong` CHẶN CHỐT phân bổ dù tổ
+        đã chấm công đủ (phát hiện 11/09/2026 trên bàn tổ);
+      · "máy đã chạy mẻ", "ca", "người tham gia mẻ", "sự cố dừng máy trong mẻ" đều trống/sai;
+      · `lenh_sx/danh_sach._tom_tat` đếm KCS vào nhầm ngày xưởng.
+
+    Dời các dòng ĐÃ GHI về đúng thang. Lấy offset của CHÍNH máy chủ (không ghim +7) vì giá trị cũ
+    do đồng hồ máy chủ sinh ra. DB trắng / test: bảng rỗng nên UPDATE chạm 0 dòng.
+
+    KHÔNG động tới `du_kien_bat_dau/ket_thuc` và `can_luc`: đó là thang LỊCH, cố ý, và không bao
+    giờ đem so với chấm công (xem `services/gio_xuong.py`).
+
+    Chạy lại KHÔNG khôi phục được — muốn lùi thì cộng ngược đúng offset ấy.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    bang = [t for t in ("san_xuat_batch", "san_xuat_kcs_batch") if t in set(insp.get_table_names())]
+    if not bang:
+        return
+    lech = datetime.now().astimezone().utcoffset() or timedelta(0)
+    giay = int(lech.total_seconds())
+    if giay == 0:
+        return  # máy chủ đặt ở UTC: hai thang trùng nhau, không có gì để dời
+    is_pg = (bind.dialect.name or "").startswith("postgres")
+    for t in bang:
+        if is_pg:
+            db.execute(
+                text(
+                    f"UPDATE {t} SET bat_dau = bat_dau - CAST(:d AS interval), "
+                    f"ket_thuc = ket_thuc - CAST(:d AS interval)"
+                ),
+                {"d": f"{giay} seconds"},
+            )
+        else:
+            db.execute(
+                text(
+                    f"UPDATE {t} SET bat_dau = datetime(bat_dau, :d), "
+                    f"ket_thuc = datetime(ket_thuc, :d)"
+                ),
+                {"d": f"{-giay} seconds"},
+            )
+    db.commit()
+
+
+MIGRATIONS.append(("0298_me_ve_utc_that", _migrate_me_ve_utc_that))

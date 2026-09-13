@@ -14,7 +14,6 @@ routing của CHÍNH tổ đó). `_to_kcs_hieu_luc` gộp hai nhánh này — c�
 from __future__ import annotations
 
 from datetime import date, datetime
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -37,11 +36,9 @@ from ...models.san_xuat_kcs import (
 from ...models.user import User
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...services.rbac_service import AuthorizationService
-from ..gio_xuong import lich_hien_thi
+from ..gio_xuong import thuc_te_hien_thi
 from .board import _to_thay_duoc
-from .thuc_thi import _aware
 
-_VN_TZ = ZoneInfo("Asia/Bangkok")
 _LOAI_LABEL = {
     KCS_LOAI_ROUTING: "Bước KCS",
     KCS_LOAI_DOT_XUAT: "Đột xuất",
@@ -62,11 +59,10 @@ def _to_kcs_hieu_luc(cv: SanXuatCongViec, kcs: SanXuatKcsBatch) -> int | None:
 
 
 def _ve_gio_vn(dt: datetime | None) -> datetime | None:
-    """Quy datetime aware/naive-UTC về giờ VN, bỏ tzinfo (wall-clock) — đúng convention `_naive`
-    đã dùng khắp `services/san_xuat/*.py` cho đầu ra hiển thị."""
-    if dt is None:
-        return None
-    return _aware(dt).astimezone(_VN_TZ).replace(tzinfo=None)
+    """Quy mốc THỰC THI (UTC thật) về giờ tường xưởng, bỏ tzinfo — đúng convention đầu ra của
+    `services/san_xuat/*.py`. Đi qua `gio_xuong.thuc_te_hien_thi` để chỉ có MỘT chỗ quy đổi (và
+    lấy đúng múi máy chủ thay vì ghim cứng Asia/Bangkok)."""
+    return thuc_te_hien_thi(dt)
 
 
 def _ngay_vn(dt: datetime | None) -> date | None:
@@ -150,7 +146,7 @@ def _checklist_rows_cho_batch(kcs: SanXuatKcsBatch, cv: SanXuatCongViec) -> list
         tc = tieu_chi.get(kq.get("thu_tu")) or {}
         out.append({
             "kcs_batch_id": kcs.id,
-            "thoi_diem": lich_hien_thi(kcs.bat_dau),
+            "thoi_diem": _ve_gio_vn(kcs.bat_dau),
             "ma": tc.get("ma"),
             "ten": tc.get("ten"),
             "bat_buoc": tc.get("bat_buoc"),

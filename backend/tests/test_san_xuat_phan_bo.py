@@ -55,6 +55,11 @@ def _user(db, username) -> User:
     return u
 
 
+def _utc(dt: datetime) -> datetime:
+    """SQLite trả cột `DateTime(timezone=True)` về NAIVE — ép nhãn UTC để so thời điểm."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
 def _khoang(db, cv, emp, bat_dau, ket_thuc, heso) -> SanXuatKhoangThamGia:
     """Khoảng tham gia dựng thẳng với hệ số bậc ẢNH CHỤP (engine đọc để chia trọng số §12.2)."""
     k = SanXuatKhoangThamGia(
@@ -498,3 +503,54 @@ def test_bu_tru_ky_goc_chua_khoa_bi_chan(db, orders, lsx_svc, admin, customer):
             db, user=admin, batch_id=batch.id, employee_id=e.id,
             so_luong_tra_luong=3, ky_bu_nam=2026, ky_bu_thang=9,
         )
+
+
+# --- Thang giờ của cửa sổ mẻ (mg 0298) ------------------------------------------------------
+def test_moc_tu_client_quy_gio_tuong_ve_utc_that():
+    """Ô `datetime-local` gửi chuỗi KHÔNG offset ⇒ Pydantic dựng datetime NAIVE = giờ TƯỜNG xưởng.
+
+    Dán thẳng nhãn UTC lên đó là lệch đúng bằng offset máy chủ. `moc_tu_client` phải đọc nó như giờ
+    địa phương rồi quy về UTC thật; mốc ĐÃ kèm offset thì giữ nguyên thời điểm."""
+    from app.services.gio_xuong import moc_tu_client
+
+    naive = datetime(2026, 9, 11, 21, 47)
+    assert moc_tu_client(naive) == naive.astimezone().astimezone(timezone.utc)
+    assert moc_tu_client(naive).tzinfo is timezone.utc
+
+    aware = datetime(2026, 9, 11, 21, 47, tzinfo=VN_TZ)
+    assert moc_tu_client(aware) == aware                     # cùng thời điểm, chỉ đổi nhãn
+    assert moc_tu_client(None) is None
+
+
+def test_me_go_gio_tuong_van_giao_duoc_voi_cham_cong(db, orders, lsx_svc, admin, customer):
+    """HỒI QUY 11/09/2026 — mẻ gõ giờ tường KHÔNG được làm cổng §7.3 ra 0 phút.
+
+    Trước mg 0298 cửa sổ mẻ nằm ở thang LỊCH (giờ tường dán nhãn UTC) còn khoảng tham gia và chấm
+    công ở UTC THẬT ⇒ giao nhau RỖNG ⇒ cờ `thieu_cham_cong` chặn Chốt dù tổ chấm công đủ."""
+    to, cv, _b = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-TZ")
+    # 14:00–15:00 giờ VN ngày _NGAY — nằm gọn trong ca HC-PB 08:00–17:00 của `_cham_cong`.
+    dau_utc = datetime(_NGAY.year, _NGAY.month, _NGAY.day, 14, 0, tzinfo=VN_TZ).astimezone(timezone.utc)
+    cuoi_utc = dau_utc + timedelta(hours=1)
+    # Đúng thứ trình duyệt gửi lên: giờ TƯỜNG của máy chủ tại hai mốc ấy, bỏ tzinfo.
+    dau_go = dau_utc.astimezone().replace(tzinfo=None)
+    cuoi_go = cuoi_utc.astimezone().replace(tzinfo=None)
+
+    r = san_luong.tao_batch(
+        db, user=admin, cong_viec_id=cv.id,
+        bat_dau=dau_go, ket_thuc=cuoi_go, tong=100.0, tot=100.0,
+    )
+    batch = db.get(SanXuatBatch, r["batch_id"])
+    assert _utc(batch.bat_dau) == dau_utc and _utc(batch.ket_thuc) == cuoi_utc
+
+    e = _emp(db, to, "NV-PB-TZ")
+    _cham_cong(db, e)
+    db.commit()
+    _khoang(db, cv, e, dau_utc, cuoi_utc, heso=1.0)
+    db.commit()
+
+    kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
+    assert kq["thieu_cham_cong"] == [] and kq["can_chot"] is True
+    dong = SanXuatPhanBoRepository(db).cac_dong(kq["phan_bo_id"])
+    assert [float(d.phut_thuc_te) for d in dong] == [60.0]
+    header = db.get(SanXuatPhanBo, kq["phan_bo_id"])
+    assert header.ngay == _NGAY                              # ngày theo giờ xưởng, không phải ngày UTC

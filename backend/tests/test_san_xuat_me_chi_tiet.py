@@ -14,6 +14,7 @@ from datetime import timedelta
 from app.models.attendance import WorkShift
 from app.models.may_thiet_bi import MayThietBi
 from app.models.san_xuat_thuc_thi import SanXuatPhienChay
+from app.services.gio_xuong import ve_gio_xuong
 from app.services.san_xuat import board
 
 # Fixtures + helper luồng thật.
@@ -87,7 +88,12 @@ def test_me_mang_theo_may_da_chay_no(db, orders, lsx_svc, admin, customer):
 
 def test_me_mang_theo_ca_va_su_co_dung_may(db, orders, lsx_svc, admin, customer):
     _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-CA")
-    db.add(WorkShift(name="Ca 1 xưởng", start_minute=6 * 60, end_minute=14 * 60))
+    # `start_minute` là phút-trong-ngày theo GIỜ TƯỜNG xưởng, còn cửa sổ mẻ là UTC THẬT (mg 0298),
+    # nên ca phải neo vào giờ tường CỦA CHÍNH mốc mẻ — ghim cứng 06:00–14:00 là bài chỉ xanh trên
+    # máy đặt múi UTC. Kẹp hai đầu để ca 8 tiếng luôn ôm trọn mốc ở mọi múi giờ máy chủ.
+    tuong = ve_gio_xuong(batch.bat_dau)
+    dau_ca = max(0, min(tuong.hour * 60 + tuong.minute - 120, 24 * 60 - 480))
+    db.add(WorkShift(name="Ca 1 xưởng", start_minute=dau_ca, end_minute=dau_ca + 480))
     db.flush()
     _phien(db, cv, bat_dau=batch.bat_dau, ket_thuc=batch.bat_dau + timedelta(minutes=20),
            loai_dong="tam_dung", ly_do="kẹt giấy", stt=1)
