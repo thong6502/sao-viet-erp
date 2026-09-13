@@ -3,12 +3,11 @@
 Covers: người liên hệ + địa chỉ giao hàng (CRUD, bất biến một primary/default), check
 trùng mở rộng MST+tên+email (soft — vẫn tạo), điều khoản thanh toán (#12 validate theo
 kiểu mốc), chiết khấu riêng gate quyền `view_discount` (#14 — ẩn số + PUT bị bỏ qua),
-khách tiềm năng (lead), import CSV dry-run→commit + export, và scope `department` =
+khách tiềm năng (lead), xuất danh bạ .xlsx, và scope `department` =
 subtree (#26: trưởng phòng cha thấy khách của team con).
 """
 from __future__ import annotations
 
-import io
 
 from app.db import SessionLocal
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
@@ -208,61 +207,31 @@ def test_attachment_upload_and_delete(client):
     ).status_code == 204
 
 
-# --- #23 import / export -----------------------------------------------------------
+# --- #23 xuất danh bạ (.xlsx) -----------------------------------------------------
+#
+# Cả hai chiều đều là Excel từ 11/09/2026. Nhập .xlsx test ở `test_khach_hang_excel.py`.
 
 
-_CSV = (
-    "Tên khách hàng,Loại,MST,Điện thoại,Email,Địa chỉ,Người liên hệ\n"
-    "Cty Import Một,Công ty,0101234567,0911,imp1@x.vn,HN,Anh A\n"
-    "Cty Import Hai,Cá nhân,,0912,,HCM,\n"
-    ",Công ty,0100000000,,,,\n"  # thiếu tên → error
-)
+def test_xuat_excel_co_du_cot_chinh_sach(client):
+    """File xuất có cột `Mã KH` — và đó là lý do nó KHÔNG nhập ngược lại được: mẫu nhập cố ý
+    không có cột Mã (mã là mã hệ tự cấp, nhập chỉ thêm mới)."""
+    from io import BytesIO
 
+    from openpyxl import load_workbook
 
-def _upload_csv(client, token, dry_run: bool):
-    return client.post(
-        "/api/customers/import",
-        files={"file": ("kh.csv", ("﻿" + _CSV).encode("utf-8"), "text/csv")},
-        data={"dry_run": "true" if dry_run else "false"},
-        headers=_h(token),
-    )
-
-
-def test_import_dry_run_then_commit(client):
     token = _admin_token(client)
-    # Dry-run: báo từng dòng, KHÔNG ghi.
-    r = _upload_csv(client, token, dry_run=True)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["dry_run"] is True and body["total"] == 3
-    assert body["errors"] == 1 and body["created"] == 0
-    before = client.get("/api/customers", headers=_h(token)).json()["total"]
-
-    # Commit: 2 dòng hợp lệ được tạo, dòng lỗi bị bỏ qua.
-    r = _upload_csv(client, token, dry_run=False)
-    body = r.json()
-    assert body["created"] == 2 and body["errors"] == 1
-    after = client.get("/api/customers", headers=_h(token)).json()["total"]
-    assert after == before + 2
-    # Import chỉ nạp ĐỊNH DANH; Loại tiếng Việt map đúng (Cá nhân → ca_nhan).
-    listing = client.get("/api/customers?size=200", headers=_h(token)).json()
-    hai = next((c for c in listing["items"] if c["name"] == "Cty Import Hai"), None)
-    assert hai is not None and hai["customer_kind"] == "ca_nhan"
-
-
-def test_import_template_and_export(client):
-    token = _admin_token(client)
-    r = client.get("/api/customers/import-template.csv", headers=_h(token))
-    assert r.status_code == 200
-    tmpl = r.content.decode("utf-8-sig")
-    assert "Tên khách hàng" in tmpl and "Loại" in tmpl
-
     _create(client, token, name="Cty Xuất File", discount_max_pct=8)
-    r = client.get("/api/customers/export.csv", headers=_h(token))
-    assert r.status_code == 200
-    text = r.content.decode("utf-8-sig")
-    # Redesign spec-06 v2: export có cột rào chiết khấu/biên (ai cũng xem).
-    assert "CK tối đa (%)" in text and "Cty Xuất File" in text
+
+    r = client.get("/api/customers/xuat-excel", headers=_h(token))
+    assert r.status_code == 200, r.text
+    ws = load_workbook(BytesIO(r.content)).active
+
+    tieu_de = [o.value for o in ws[1]]
+    assert tieu_de[0] == "Mã KH"
+    assert "Chiết khấu tối đa (%)" in tieu_de and "Sale phụ trách" in tieu_de
+
+    ten = [ws.cell(row=i, column=2).value for i in range(2, ws.max_row + 1)]
+    assert "Cty Xuất File" in ten
 
 
 # --- #26 scope department = subtree -------------------------------------------------

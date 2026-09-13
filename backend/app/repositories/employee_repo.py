@@ -46,6 +46,21 @@ class EmployeeRepository:
     def get_by_id(self, employee_id: int) -> Employee | None:
         return self.db.get(Employee, employee_id)
 
+    def ids_by_department(self, department_id: int) -> set[int]:
+        """Id của MỌI NV đang thuộc một tổ — không lọc trạng thái, không lọc biên chế.
+
+        Dùng làm `allowed` cho Bảng công tháng khi người xem chọn một tổ: `allowed` chỉ quyết định
+        NẠP BAO NHIÊU dữ liệu, còn ai lên bảng vẫn do bộ lọc `emp.department_id` ở cuối chốt. Vì
+        vậy tập này phải là SIÊU TẬP — lọc thêm ở đây (vd bỏ NV đã nghỉ) là làm biến mất hàng của
+        người còn lượt bấm sót trong tháng.
+
+        Chỉ lấy cột `id`: gọi hàm này là để KHỎI nạp 500 object Employee."""
+        return set(
+            self.db.execute(
+                select(Employee.id).where(Employee.department_id == department_id)
+            ).scalars()
+        )
+
     def get_by_user_id(self, user_id: int) -> Employee | None:
         """The employee linked to this login account, if any (UNIQUE user_id)."""
         return self.db.execute(

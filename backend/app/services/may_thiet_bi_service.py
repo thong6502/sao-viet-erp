@@ -6,6 +6,7 @@ Thân CRUD dùng chung ở `services/catalog_base.CatalogService`; ở đây ch�
 from __future__ import annotations
 
 from decimal import Decimal
+from uuid import uuid4
 
 from ..models.may_thiet_bi import MayThietBi, NhomMay, la_nhom_khoa, ma_don_vi_goc
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository, NhomMayRepository
@@ -48,6 +49,42 @@ class MayThietBiService(CatalogService):
 
     def __init__(self, repo: MayThietBiRepository, audit=None) -> None:
         super().__init__(repo, audit)
+
+    # -- nắn dữ liệu trước khi ghi --
+    def _chuan_hoa(self, data: dict) -> dict:
+        """Cấp `id` cho gói bảo trì (và việc con) nào chưa có, TRƯỚC khi ghi xuống DB.
+
+        `ky_thuat_bao_tri.goi_id` neo vào đúng cái id này. Gói không có id thì:
+          · không tra được "kỳ trước làm ngày nào" ⇒ chu kỳ vô nghĩa;
+          · và nặng nhất — cửa chống trùng của ticker (`sinh_phieu_den_han`) chỉ chạy khi `goi_id`
+            khác rỗng, nên mỗi vòng quét lại đẻ thêm một phiếu cho tới khi có người phát hiện.
+
+        Form Máy tự sinh `hm-…` lúc thêm dòng, đường nhập Excel cũng tự cấp cho dòng để trống — chốt
+        ở đây là để **dữ liệu cũ** và **một cú PUT thẳng API** cũng không lọt. Chạy ở `_chuan_hoa`
+        nên phủ cả tạo lẫn sửa (xem `CatalogService.create`/`update`).
+
+        Gói ĐÃ CÓ id thì GIỮ NGUYÊN, không đụng vào: id là sợi dây nối tới những phiếu đã sinh, cấp
+        lại là đứt hết lịch sử của gói đó.
+        """
+        tui = data.get("fields_theo_loai")
+        if not isinstance(tui, dict) or not isinstance(tui.get("lich_bao_tri"), list):
+            return data
+        goi_moi = []
+        for g in tui["lich_bao_tri"]:
+            if not isinstance(g, dict):
+                goi_moi.append(g)          # dòng rác trong cột JSON tự do — giữ nguyên, đừng nổ
+                continue
+            g = dict(g)
+            if not str(g.get("id") or "").strip():
+                g["id"] = f"hm-{uuid4().hex[:12]}"
+            if isinstance(g.get("hang_muc"), list):
+                g["hang_muc"] = [
+                    {**h, "id": h["id"]} if isinstance(h, dict) and str(h.get("id") or "").strip()
+                    else ({**h, "id": f"{g['id']}-{i}"} if isinstance(h, dict) else h)
+                    for i, h in enumerate(g["hang_muc"], start=1)
+                ]
+            goi_moi.append(g)
+        return {**data, "fields_theo_loai": {**tui, "lich_bao_tri": goi_moi}}
 
     # -- validate (§8) --
     def _validate(self, data: dict, obj: MayThietBi | None = None) -> None:

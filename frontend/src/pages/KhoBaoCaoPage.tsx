@@ -1,6 +1,6 @@
 // Báo cáo kho (kế toán) — sổ nhập-xuất (phiếu ĐÃ GHI SỔ) + khóa kỳ THEO KHOẢNG (chốt/mở) +
 // tab Lịch sử thao tác + export MISA. docs/spec-bao-cao-kho.md. Chỉ quyền `close_book` vào.
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -81,14 +81,6 @@ function nextKhoaTu(kyList: KhoaSoKyRow[], scope: number | "all"): string | null
   if (!maxDen) return null;
   const [y, m, d] = maxDen.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
-}
-
-/** Mốc CHỐT SỔ của một kỳ = 0h ngày liền sau ngày cuối kỳ (= ngày đầu kỳ sau). Hiện kèm ở tab
- *  "Kỳ đã khóa" để thấy mạch nối "cuối kỳ này → đầu kỳ sau" dù hai kỳ không dùng chung ngày. */
-function chotTai(denNgay: string | null): string {
-  if (!denNgay) return "—";
-  const [y, m, d] = denNgay.slice(0, 10).split("-").map(Number);
-  return fmtDate(new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10));
 }
 
 // Tên kỳ TỰ SINH từ khoảng ngày: trọn 1 tháng dương lịch → "Tháng M/YYYY"; ngược lại → "DD/MM/YYYY–DD/MM/YYYY".
@@ -207,6 +199,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   // Kỳ (đã khóa) đang chọn ở ô "Kỳ" — index trong kyList; -1 = nhập ngày tay. Khi CÓ chọn kỳ thì
   // "Từ ngày" khóa cứng (= đầu kỳ), chỉ cho sửa "Đến ngày" (tính giá tới bất kỳ thời điểm trong kỳ).
   const [nxtKyIdx, setNxtKyIdx] = useState(-1);
+  // Mốc kỳ mà khoảng ngày đang gắn theo ("tu|den|kho") — để biết khi nào phải nạp lại trọn khoảng.
+  const kyDaGan = useRef<string | null>(null);
   const [nxtView, setNxtView] = useState<"bang" | "bieudo">("bang");   // Bảng ↔ Biểu đồ
   // Sổ · Ngày CT + các cột SỐ (funnel cột) — khai sớm vì `filteredRows` dùng ngay.
   const [ctFrom, setCtFrom] = useState("");
@@ -314,20 +308,37 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   useEffect(() => {
     if (tab === "nxt") loadNxt();
   }, [loadNxt, tab]);
-  // Tab N-X-T bám theo KỲ ĐÃ KHÓA: vào tab mà chưa chọn kỳ thì TỰ chọn (kỳ chứa hôm nay, không có
-  // thì kỳ mới nhất) → "Từ ngày" luôn là đầu một kỳ THẬT, ô "đến" ràng buộc đúng trong kỳ đó.
+  // Tab N-X-T bám theo KỲ ĐÃ KHÓA: "Từ ngày" LUÔN là đầu của kỳ đang chọn.
+  // Chưa chọn kỳ → tự chọn (kỳ chứa hôm nay, không có thì kỳ mới nhất).
+  // ĐÃ chọn → vẫn phải ĐỒNG BỘ LẠI ngày: `kyList` đổi dưới chân khi vừa khóa/mở sổ, index cũ trỏ
+  // sang kỳ khác ⇒ nhãn dropdown một đằng mà Từ/Đến một nẻo (bug 09/09: dropdown "01/08–09/09"
+  // nhưng Từ ngày vẫn là 01/09 mặc định, nên tính giá + báo cáo chạy sai khoảng).
   // Không có kỳ nào đã khóa → để nguyên khoảng mặc định (tháng hiện tại) cho còn xem được.
   useEffect(() => {
-    if (tab !== "nxt" || nxtKyIdx >= 0 || kyList.length === 0) return;
-    const hnay = todayISO();
-    const i = kyList.findIndex(
-      (k) => k.tu_ngay.slice(0, 10) <= hnay && hnay <= k.den_ngay.slice(0, 10),
-    );
-    const k = kyList[i >= 0 ? i : 0];
-    setNxtKyIdx(i >= 0 ? i : 0);
-    setNxtTu(k.tu_ngay.slice(0, 10));
-    setNxtDen(k.den_ngay.slice(0, 10));
-    setKhoId(k.kho_id ?? null);
+    if (tab !== "nxt" || kyList.length === 0) return;
+    let i = nxtKyIdx;
+    if (i < 0) {
+      const hnay = todayISO();
+      const j = kyList.findIndex(
+        (k) => k.tu_ngay.slice(0, 10) <= hnay && hnay <= k.den_ngay.slice(0, 10),
+      );
+      i = j >= 0 ? j : 0;
+    } else if (i > kyList.length - 1) {
+      i = kyList.length - 1;      // danh sách vừa ngắn lại (mở sổ) → kẹp cho khỏi trỏ ra ngoài
+    }
+    const k = kyList[i];
+    if (!k) return;
+    if (i !== nxtKyIdx) setNxtKyIdx(i);
+    // Nạp trọn khoảng MỖI KHI GẮN SANG MỘT KỲ KHÁC — nhận diện kỳ bằng chính khoảng ngày + kho,
+    // KHÔNG so với `nxtTu` (đầu kỳ có thể trùng ngẫu nhiên với mặc định ⇒ bỏ sót việc nạp "đến").
+    // Đã gắn rồi thì thôi, nên người dùng đổi "đến ngày" để tính giữa kỳ không bị ghi đè.
+    const moc = `${k.tu_ngay.slice(0, 10)}|${k.den_ngay.slice(0, 10)}|${k.kho_id ?? ""}`;
+    if (kyDaGan.current !== moc) {
+      kyDaGan.current = moc;
+      setNxtTu(k.tu_ngay.slice(0, 10));
+      setNxtDen(k.den_ngay.slice(0, 10));
+      setKhoId(k.kho_id ?? null);
+    }
   }, [tab, kyList, nxtKyIdx]);
 
   // "Tính giá kỳ" (bình quân, kiểu MISA) — popup xác nhận rồi chốt tồn cuối kỳ vào snapshot.
@@ -381,10 +392,15 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     setTinhBusy(true);
     setTinhErr(null);
     try {
-      // Tên kỳ = tên của kỳ ĐÃ KHÓA đang chọn (kỳ khóa không đặt tên thì suy từ khoảng ngày).
+      // ĐẦU KỲ lấy THẲNG từ kỳ đã khóa đang chọn, KHÔNG tin `nxtTu` — nếu state lệch (danh sách kỳ
+      // vừa đổi) thì chốt nhầm khoảng là hỏng cả snapshot. "Đến" giữ theo người dùng (tính giữa kỳ)
+      // nhưng kẹp trong kỳ.
       const kSel = kyList[nxtKyIdx];
-      const ten = (kSel?.ten?.trim() || autoTenKy(nxtTu, nxtDen)) || null;
-      const p = await api.kho.baoCao.tinhGiaKy(token, { tu: nxtTu, den: nxtDen, kho_id: khoId, ten });
+      const tuKy = kSel ? kSel.tu_ngay.slice(0, 10) : nxtTu;
+      const denKy = kSel ? kSel.den_ngay.slice(0, 10) : nxtDen;
+      const den = nxtDen < tuKy || nxtDen > denKy ? denKy : nxtDen;
+      const ten = (kSel?.ten?.trim() || autoTenKy(tuKy, den)) || null;
+      const p = await api.kho.baoCao.tinhGiaKy(token, { tu: tuKy, den, kho_id: khoId, ten });
       setNxtRows(p.items);
       setNxtDaTinh(p.da_tinh);
       setNxtDaKhoa(p.da_khoa);
@@ -2066,11 +2082,6 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     <td>
                       <span className="rc__code-badge" style={{ fontWeight: 600 }}>
                         {fmtDate(k.tu_ngay)} – {fmtDate(k.den_ngay)}
-                      </span>
-                      {/* Kỳ RỜI NGÀY: kỳ sau bắt đầu ngày kế tiếp. Hiện mốc chốt (= ngày đầu kỳ sau)
-                          để thấy mạch nối "cuối kỳ này → đầu kỳ sau" dù không dùng chung ngày. */}
-                      <span className="kho-hint" style={{ display: "block", marginTop: 2 }}>
-                        chốt tại {chotTai(k.den_ngay)}
                       </span>
                     </td>
                     <td>

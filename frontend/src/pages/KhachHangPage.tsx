@@ -23,7 +23,7 @@ import {
   type CustomerRow,
   type DuplicateWarn,
   type FollowupRow,
-  type ImportResultOut,
+  type NhapExcelOut,
   type KhoNhanRow,
   type OrderHistoryRow,
   type QuoteHistoryRow,
@@ -40,12 +40,14 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Select } from "../components/Select";
 import {
   AlarmClock,
+  AlertCircle,
   BarChart3,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
   ChevronRight,
   Download,
+  FileSpreadsheet,
   FileText,
   Gauge,
   HeartHandshake,
@@ -61,6 +63,7 @@ import {
   Search,
   SearchX,
   Tags,
+  UploadCloud,
   UserPlus,
   Users,
   X,
@@ -380,7 +383,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
       const url = await api.customers.exportCsvBlobUrl(token);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "danh-ba-khach-hang.csv";
+      a.download = "danh-ba-khach-hang.xlsx";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -591,12 +594,12 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
         <div className="kh__head-actions">
           {canExport && (
             <Button variant="ghost" onClick={exportBook} loading={exportingBook}>
-              <Download size={14} /> Xuất CSV
+              <Download size={14} /> Xuất Excel
             </Button>
           )}
           {canCreate && (
             <Button variant="ghost" onClick={() => setImportOpen(true)}>
-              Nhập CSV
+              Nhập Excel
             </Button>
           )}
           {canReassign && (
@@ -5072,7 +5075,13 @@ function AttachmentsTab({ customerId }: { customerId: number }) {
   );
 }
 
-// --- Import CSV dialog (#23: dry-run xem trước → xác nhận ghi) ------------------
+// --- Nhập Excel (#23; thay đường CSV cũ 11/09/2026) ----------------------------
+//
+// Khác đường CSV đã gỡ ở ba điểm, và cả ba đều đổi cách vẽ màn:
+//   · CẢ FILE là MỘT giao dịch ⇒ còn một dòng lỗi thì KHÔNG ghi gì. Nút Nhập phải KHOÁ khi còn
+//     lỗi, chứ không phải "nhập N dòng hợp lệ, bỏ qua dòng hỏng" như trước.
+//   · Xem trước chạy y hệt lượt ghi rồi rollback ⇒ con số ở đây là con số THẬT.
+//   · Trùng MST/tên/email là CẢNH BÁO, vẫn ghi — nên tách hẳn khỏi khối lỗi.
 
 function ImportDialog({
   onClose,
@@ -5083,10 +5092,12 @@ function ImportDialog({
 }) {
   const { token } = useAuth();
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<ImportResultOut | null>(null);
-  const [result, setResult] = useState<ImportResultOut | null>(null);
+  const [preview, setPreview] = useState<NhapExcelOut | null>(null);
+  const [result, setResult] = useState<NhapExcelOut | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -5097,10 +5108,10 @@ function ImportDialog({
   async function downloadTemplate() {
     if (!token) return;
     try {
-      const url = await api.customers.importTemplateBlobUrl(token);
+      const url = await api.customers.mauExcelBlobUrl(token);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "mau-import-khach-hang.csv";
+      a.download = "mau-nhap-khach-hang.xlsx";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -5110,13 +5121,13 @@ function ImportDialog({
     }
   }
 
-  async function runDry(f: File) {
+  async function xemTruoc(f: File) {
     if (!token) return;
     setBusy(true);
     setError(null);
     setPreview(null);
     try {
-      setPreview(await api.customers.importCsv(token, f, true));
+      setPreview(await api.customers.importExcel(token, f, "preview"));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Không đọc được file.");
     } finally {
@@ -5129,113 +5140,526 @@ function ImportDialog({
     setBusy(true);
     setError(null);
     try {
-      setResult(await api.customers.importCsv(token, file, false));
+      setResult(await api.customers.importExcel(token, file, "commit"));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Import không thành công.");
+      setError(err instanceof ApiError ? err.message : "Nhập không thành công.");
     } finally {
       setBusy(false);
     }
   }
 
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleFileSelected = (selectedFile: File | null) => {
+    if (!selectedFile) return;
+    setFile(selectedFile);
+    setResult(null);
+    void xemTruoc(selectedFile);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const dropped = e.dataTransfer.files?.[0];
+    if (dropped) {
+      handleFileSelected(dropped);
+    }
+  };
+
+  const clearFile = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setFile(null);
+    setPreview(null);
+    setResult(null);
+    setError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const shown = result ?? preview;
 
+  const step1Done = Boolean(file);
+  const step2Done = Boolean(file && preview);
+  const step3Done = Boolean(result);
+
+  const step1Status = step1Done ? "kh__im-step--done" : "kh__im-step--active";
+  const step2Status = step2Done
+    ? "kh__im-step--done"
+    : file
+      ? "kh__im-step--active"
+      : "";
+  const step3Status = step3Done
+    ? "kh__im-step--done"
+    : preview
+      ? "kh__im-step--active"
+      : "";
+
   return (
-    <div className="kh__overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="kh__dialog card" role="dialog" aria-modal="true" aria-label="Nhập danh bạ từ CSV">
-        <div className="kh__dialog-head">
-          <h2>Nhập danh bạ khách hàng (CSV)</h2>
-          <button type="button" className="kh__close" aria-label="Đóng" onClick={onClose}>
-            <X size={14} strokeWidth={2} />
+    <div className="kh__overlay kh__overlay--blur" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        className="kh__dialog kh__dialog--import card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Nhập danh bạ khách hàng từ Excel"
+      >
+        {/* Header */}
+        <div className="kh__im-head">
+          <div className="kh__im-head-left">
+            <div className="kh__im-head-icon" aria-hidden="true">
+              <FileSpreadsheet size={24} strokeWidth={1.75} />
+            </div>
+            <div>
+              <h2 className="kh__im-title">Nhập danh bạ khách hàng</h2>
+              <p className="kh__im-subtitle">
+                Nhập dữ liệu khách hàng từ file bảng tính Excel (.xlsx)
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="kh__im-close"
+            aria-label="Đóng"
+            onClick={onClose}
+          >
+            <X size={16} strokeWidth={2} />
           </button>
         </div>
-        <div className="kh__dialog-body">
-          {result == null && (
-            <>
-              <p className="kh__muted">
-                File CSV UTF-8 theo{" "}
-                <button type="button" className="kh__linkbtn" onClick={downloadTemplate}>
-                  file mẫu
-                </button>{" "}
-                (Excel: Save As → CSV UTF-8). Hệ thống kiểm tra trước, bạn xem kết quả từng
-                dòng rồi mới xác nhận ghi. Trùng MST/tên/email chỉ cảnh báo, không chặn.
+
+        {/* Body */}
+        <div className="kh__im-body">
+          {result != null ? (
+            <div className="kh__im-success">
+              <div className="kh__im-success-icon-wrap">
+                <CheckCircle2 size={46} className="kh__im-success-icon" strokeWidth={2.2} />
+              </div>
+              <h3 className="kh__im-success-title">Nhập danh bạ thành công!</h3>
+              <p className="kh__im-success-desc">
+                Hệ thống đã thêm mới thành công <strong>{result.tao_moi} khách hàng</strong> từ tệp Excel.
               </p>
+
+              <div className="kh__im-success-stats">
+                <div className="kh__im-success-stat">
+                  <span className="kh__im-success-stat-val">{result.tong_dong}</span>
+                  <span className="kh__im-success-stat-lbl">Tổng dòng xử lý</span>
+                </div>
+                <div className="kh__im-success-stat kh__im-success-stat--highlight">
+                  <span className="kh__im-success-stat-val">{result.tao_moi}</span>
+                  <span className="kh__im-success-stat-lbl">Khách hàng tạo mới</span>
+                </div>
+                {result.canh_bao.length > 0 && (
+                  <div className="kh__im-success-stat kh__im-success-stat--warn">
+                    <span className="kh__im-success-stat-val">{result.canh_bao.length}</span>
+                    <span className="kh__im-success-stat-lbl">Cảnh báo trùng (đã ghi)</span>
+                  </div>
+                )}
+              </div>
+
+              {result.bo_qua_tai_chinh && (
+                <div className="kh__im-alert kh__im-alert--warn">
+                  <AlertTriangle size={18} className="kh__im-alert-icon" />
+                  <div>
+                    <div className="kh__im-alert-title">Lưu ý phân quyền tài chính</div>
+                    <div className="kh__im-alert-text">
+                      Đã bỏ qua các cột chính sách tài chính do bạn không có quyền Đặt hạn mức công nợ. Phần còn lại đã được ghi thành công.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Step indicator */}
+              <div className="kh__im-steps">
+                <div className={`kh__im-step ${step1Status}`}>
+                  <div className="kh__im-step-bubble">
+                    {step1Done ? <Check size={14} strokeWidth={2.5} /> : "1"}
+                  </div>
+                  <div className="kh__im-step-info">
+                    <div className="kh__im-step-title">Tải file mẫu</div>
+                    <div className="kh__im-step-desc">Định dạng .xlsx chuẩn</div>
+                  </div>
+                </div>
+                <div className="kh__im-step-divider" />
+                <div className={`kh__im-step ${step2Status}`}>
+                  <div className="kh__im-step-bubble">
+                    {step2Done ? <Check size={14} strokeWidth={2.5} /> : "2"}
+                  </div>
+                  <div className="kh__im-step-info">
+                    <div className="kh__im-step-title">Tải file lên</div>
+                    <div className="kh__im-step-desc">
+                      {file ? file.name : "Kéo thả hoặc chọn tệp"}
+                    </div>
+                  </div>
+                </div>
+                <div className="kh__im-step-divider" />
+                <div className={`kh__im-step ${step3Status}`}>
+                  <div className="kh__im-step-bubble">
+                    {step3Done ? <Check size={14} strokeWidth={2.5} /> : "3"}
+                  </div>
+                  <div className="kh__im-step-info">
+                    <div className="kh__im-step-title">Kiểm tra & Nhập</div>
+                    <div className="kh__im-step-desc">
+                      {preview
+                        ? preview.hop_le
+                          ? "Dữ liệu hợp lệ"
+                          : `${preview.loi.length} dòng lỗi`
+                        : "Đối soát dữ liệu"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 1 banner: download template */}
+              <div className="kh__im-template-banner">
+                <div className="kh__im-template-left">
+                  <div className="kh__im-template-title">Chưa có tệp dữ liệu theo định dạng chuẩn?</div>
+                  <div className="kh__im-template-desc">
+                    Tải file mẫu Excel chuẩn để điền dữ liệu — mỗi dòng một khách <strong>mới</strong>.
+                    Mã khách do hệ thống tự cấp nên file mẫu không có cột Mã.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="kh__im-template-btn"
+                  onClick={downloadTemplate}
+                >
+                  <Download size={15} strokeWidth={2} />
+                  <span>Tải file mẫu Excel (.xlsx)</span>
+                </button>
+              </div>
+
+              {/* Hidden file input */}
               <input
+                ref={fileInputRef}
                 type="file"
-                accept=".csv,text/csv"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                style={{ display: "none" }}
                 onChange={(e) => {
                   const f = e.target.files?.[0] ?? null;
-                  setFile(f);
-                  setResult(null);
-                  if (f) void runDry(f);
+                  handleFileSelected(f);
                 }}
               />
-            </>
-          )}
 
-          {error && <div className="banner banner--error" role="alert">{error}</div>}
+              {/* Step 2: Dropzone or File Card */}
+              {!file ? (
+                <div
+                  className={`kh__im-dropzone ${isDragging ? "kh__im-dropzone--dragging" : ""}`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && fileInputRef.current?.click()}
+                >
+                  <div className="kh__im-dropzone-icon">
+                    <UploadCloud size={30} strokeWidth={1.8} />
+                  </div>
+                  <div className="kh__im-dropzone-main">
+                    Kéo & thả file Excel vào đây,<span className="kh__im-dropzone-browse"> hoặc click để chọn tệp</span>
+                  </div>
+                  <div className="kh__im-dropzone-hint">
+                    Chỉ hỗ trợ file <strong>.xlsx</strong> • Cả file là 1 giao dịch (All-or-nothing)
+                  </div>
+                </div>
+              ) : (
+                <div className="kh__im-filecard">
+                  <div className="kh__im-filecard-left">
+                    <div className="kh__im-filecard-icon">
+                      <FileSpreadsheet size={24} strokeWidth={1.8} />
+                    </div>
+                    <div className="kh__im-filecard-meta">
+                      <div className="kh__im-filecard-name-row">
+                        <span className="kh__im-filecard-name" title={file.name}>
+                          {file.name}
+                        </span>
+                        <span className="kh__im-filecard-ext">.XLSX</span>
+                      </div>
+                      <div className="kh__im-filecard-sub">
+                        <span className="kh__im-filecard-size">{formatFileSize(file.size)}</span>
+                        <span className="kh__im-filecard-sep">•</span>
+                        {busy ? (
+                          <span className="kh__im-filecard-status kh__im-filecard-status--busy">
+                            <Loader2 size={13} className="kh__spin" />
+                            Đang đọc & kiểm tra dữ liệu...
+                          </span>
+                        ) : preview ? (
+                          preview.hop_le ? (
+                            <span className="kh__im-filecard-status kh__im-filecard-status--ok">
+                              <CheckCircle2 size={13} />
+                              Sẵn sàng ghi ({preview.tong_dong} dòng)
+                            </span>
+                          ) : (
+                            <span className="kh__im-filecard-status kh__im-filecard-status--err">
+                              <AlertCircle size={13} />
+                              {preview.loi.length} dòng lỗi
+                            </span>
+                          )
+                        ) : (
+                          <span className="kh__im-filecard-status">Đã nạp tệp</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-          {shown && (
-            <>
-              <div className={`banner ${shown.errors > 0 ? "banner--warn" : "banner--success"}`} role="status">
-                {result
-                  ? `Đã nhập ${result.created} khách hàng (${result.warnings} cảnh báo trùng, ${result.errors} dòng lỗi bị bỏ qua).`
-                  : `Xem trước: ${shown.total} dòng — ${shown.total - shown.errors} hợp lệ (${shown.warnings} trùng), ${shown.errors} lỗi.`}
-              </div>
-              {shown.rows.some((r) => r.status !== "created") && (
-                <div className="kh__import-rows">
-                  <table className="kh__table kh__table--tight">
-                    <thead>
-                      <tr>
-                        <th>Dòng</th>
-                        <th>Khách hàng</th>
-                        <th>Kết quả</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {shown.rows
-                        .filter((r) => r.status !== "created")
-                        .map((r) => (
-                          <tr key={r.row}>
-                            <td className="kh__mono">{r.row}</td>
-                            <td>{r.name ?? "—"}</td>
-                            <td>
-                              <span
-                                className={`kh__badge${r.status === "error" ? " kh__badge--off" : " kh__badge--lead"}`}
-                              >
-                                {r.status === "error" ? "Lỗi" : "Trùng"}
-                              </span>{" "}
-                              {r.message}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
+                  <div className="kh__im-filecard-actions">
+                    <button
+                      type="button"
+                      className="kh__im-btn-change"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={busy}
+                    >
+                      Đổi file khác
+                    </button>
+                    <button
+                      type="button"
+                      className="kh__im-btn-remove"
+                      onClick={clearFile}
+                      disabled={busy}
+                      title="Xoá file"
+                      aria-label="Xoá file"
+                    >
+                      <Trash2 size={15} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Global Error Banner */}
+              {error && (
+                <div className="kh__im-alert kh__im-alert--error" role="alert">
+                  <AlertCircle size={18} className="kh__im-alert-icon" />
+                  <div>
+                    <div className="kh__im-alert-title">Lỗi xử lý file</div>
+                    <div className="kh__im-alert-text">{error}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Preview results & Metrics */}
+              {shown && (
+                <div className="kh__im-validation">
+                  {/* Metric Cards Grid */}
+                  <div className="kh__im-metrics">
+                    <div className="kh__im-metric-card">
+                      <div className="kh__im-metric-icon kh__im-metric-icon--total">
+                        <List size={18} strokeWidth={2} />
+                      </div>
+                      <div className="kh__im-metric-body">
+                        <div className="kh__im-metric-val">{shown.tong_dong}</div>
+                        <div className="kh__im-metric-lbl">Tổng số dòng</div>
+                      </div>
+                    </div>
+
+                    <div className={`kh__im-metric-card ${shown.hop_le ? "kh__im-metric-card--success" : ""}`}>
+                      <div className="kh__im-metric-icon kh__im-metric-icon--success">
+                        <CheckCircle2 size={18} strokeWidth={2} />
+                      </div>
+                      <div className="kh__im-metric-body">
+                        <div className="kh__im-metric-val">{shown.tao_moi}</div>
+                        <div className="kh__im-metric-lbl">Hợp lệ / Tạo mới</div>
+                      </div>
+                    </div>
+
+                    <div className={`kh__im-metric-card ${shown.loi.length > 0 ? "kh__im-metric-card--error" : ""}`}>
+                      <div className="kh__im-metric-icon kh__im-metric-icon--error">
+                        <AlertCircle size={18} strokeWidth={2} />
+                      </div>
+                      <div className="kh__im-metric-body">
+                        <div className="kh__im-metric-val">{shown.loi.length}</div>
+                        <div className="kh__im-metric-lbl">Dòng lỗi</div>
+                      </div>
+                    </div>
+
+                    <div className={`kh__im-metric-card ${shown.canh_bao.length > 0 ? "kh__im-metric-card--warn" : ""}`}>
+                      <div className="kh__im-metric-icon kh__im-metric-icon--warn">
+                        <AlertTriangle size={18} strokeWidth={2} />
+                      </div>
+                      <div className="kh__im-metric-body">
+                        <div className="kh__im-metric-val">{shown.canh_bao.length}</div>
+                        <div className="kh__im-metric-lbl">Cảnh báo trùng</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary Alert */}
+                  {shown.hop_le ? (
+                    <div className="kh__im-alert kh__im-alert--success" role="status">
+                      <CheckCircle2 size={20} className="kh__im-alert-icon" />
+                      <div>
+                        <div className="kh__im-alert-title">Toàn bộ dữ liệu hợp lệ!</div>
+                        <div className="kh__im-alert-text">
+                          Đã kiểm tra đối soát <strong>{shown.tong_dong} dòng</strong>, tất cả đều hợp lệ. Bạn có thể nhấn
+                          nút <strong>"Xác nhận nhập"</strong> bên dưới để lưu <strong>{shown.tao_moi} khách hàng mới</strong>.
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="kh__im-alert kh__im-alert--error" role="status">
+                      <AlertCircle size={20} className="kh__im-alert-icon" />
+                      <div>
+                        <div className="kh__im-alert-title">
+                          Phát hiện {shown.loi.length} dòng lỗi trong file!
+                        </div>
+                        <div className="kh__im-alert-text">
+                          Quy tắc an toàn: <strong>Cả file là 1 giao dịch (All-or-nothing)</strong>. Toàn bộ file sẽ không
+                          được ghi cho đến khi bạn sửa xong các dòng lỗi này trong Excel.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Financial Policy Note */}
+                  {shown.bo_qua_tai_chinh && (
+                    <div className="kh__im-alert kh__im-alert--warn" role="status">
+                      <AlertTriangle size={18} className="kh__im-alert-icon" />
+                      <div>
+                        <div className="kh__im-alert-title">Lưu ý phân quyền tài chính</div>
+                        <div className="kh__im-alert-text">
+                          Đã bỏ qua các cột chính sách tài chính — bạn không có quyền Đặt hạn mức công nợ. Phần còn lại vẫn được ghi bình thường.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error Table */}
+                  {shown.loi.length > 0 && (
+                    <div className="kh__im-table-card kh__im-table-card--error">
+                      <div className="kh__im-table-head">
+                        <div className="kh__im-table-title">
+                          <AlertCircle size={15} />
+                          <span>Chi tiết các dòng bị lỗi ({shown.loi.length} dòng)</span>
+                        </div>
+                        <span className="kh__im-table-tag">Bắt buộc sửa</span>
+                      </div>
+                      <div className="kh__im-table-wrap">
+                        <table className="kh__im-table">
+                          <thead>
+                            <tr>
+                              <th style={{ width: "95px" }}>Dòng Excel</th>
+                              <th style={{ width: "160px" }}>Cột</th>
+                              <th>Lý do vi phạm</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {shown.loi.map((r, i) => (
+                              <tr key={`loi-${r.dong}-${i}`}>
+                                <td>
+                                  <span className="kh__im-row-badge kh__im-row-badge--err">
+                                    #{r.dong}
+                                  </span>
+                                </td>
+                                <td className="kh__im-col-name">{r.cot || "—"}</td>
+                                <td className="kh__im-reason">{r.ly_do}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Duplicate Warnings Table */}
+                  {shown.canh_bao.length > 0 && (
+                    <div className="kh__im-table-card kh__im-table-card--warn">
+                      <div className="kh__im-table-head">
+                        <div className="kh__im-table-title">
+                          <AlertTriangle size={15} />
+                          <span>Cảnh báo nghi trùng thông tin ({shown.canh_bao.length} dòng)</span>
+                        </div>
+                        <span className="kh__im-table-tag kh__im-table-tag--soft">Vẫn cho phép nhập</span>
+                      </div>
+                      <div className="kh__im-table-wrap">
+                        <table className="kh__im-table">
+                          <thead>
+                            <tr>
+                              <th style={{ width: "95px" }}>Dòng Excel</th>
+                              <th>Nội dung cảnh báo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {shown.canh_bao.map((r, i) => (
+                              <tr key={`cb-${r.dong}-${i}`}>
+                                <td>
+                                  <span className="kh__im-row-badge kh__im-row-badge--warn">
+                                    #{r.dong}
+                                  </span>
+                                </td>
+                                <td className="kh__im-reason">{r.ly_do}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>
           )}
+        </div>
 
-          <div className="kh__dialog-actions">
-            {result ? (
-              <Button variant="primary" onClick={onImported}>
-                Xong
+        {/* Footer */}
+        <div className="kh__im-foot">
+          {result ? (
+            <div className="kh__im-foot-success">
+              <Button variant="primary" onClick={onImported} className="kh__im-btn-finish">
+                <span>Hoàn tất & xem danh sách</span>
+                <ArrowRight size={16} />
               </Button>
-            ) : (
-              <>
-                <Button variant="ghost" onClick={onClose}>
+            </div>
+          ) : (
+            <div className="kh__im-foot-default">
+              <div className="kh__im-foot-hint">
+                {!file
+                  ? "Vui lòng chọn hoặc kéo thả file Excel để tiếp tục."
+                  : busy
+                    ? "Đang phân tích và đối soát dữ liệu file..."
+                    : preview && !preview.hop_le
+                      ? "Vui lòng sửa hết lỗi trước khi xác nhận nhập."
+                      : preview && preview.hop_le
+                        ? "Dữ liệu hợp lệ, sẵn sàng ghi vào hệ thống."
+                        : ""}
+              </div>
+              <div className="kh__im-foot-btns">
+                <Button variant="ghost" onClick={onClose} disabled={busy}>
                   Huỷ
                 </Button>
                 <Button
                   variant="primary"
                   onClick={commit}
                   loading={busy}
-                  disabled={!file || !preview || preview.total === preview.errors}
+                  /* Cả file là một giao dịch: còn lỗi thì không có gì để ghi. */
+                  disabled={!file || !preview || !preview.hop_le || preview.loi.length > 0 || preview.tao_moi === 0}
                 >
-                  Nhập {preview ? preview.total - preview.errors : ""} dòng hợp lệ
+                  <Check size={15} />
+                  <span>
+                    {preview?.hop_le
+                      ? `Xác nhận nhập ${preview.tao_moi} khách hàng`
+                      : "Xác nhận nhập"}
+                  </span>
                 </Button>
-              </>
-            )}
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

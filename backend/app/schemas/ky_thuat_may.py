@@ -327,8 +327,9 @@ class HanGoiRow(BaseModel):
     goi_id: str | None = None
     goi_ten: str | None = None
     han: date | None = None
-    # phieu | ngay_bat_dau | thieu_chu_ky | thieu_ngay_bat_dau — nói rõ hạn này tính từ đâu, hoặc
-    # vì sao KHÔNG tính được (hai lý do là hai ô khác nhau trên form Máy).
+    # phieu | ngay_bat_dau | thieu_chu_ky | thieu_ngay_bat_dau | thieu_ma_goi — nói rõ hạn này tính
+    # từ đâu, hoặc vì sao KHÔNG tính được. Hai lý do đầu là hai ô khác nhau trên form Máy; riêng
+    # `thieu_ma_goi` là dữ liệu hỏng (gói không có `id`), lưu lại máy một lần là hệ tự cấp.
     nguon: str
     phieu_dang_mo_id: int | None = None
 

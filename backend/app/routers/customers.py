@@ -24,7 +24,9 @@ from fastapi import (
     UploadFile,
     status,
 )
+from sqlalchemy.orm import Session
 
+from ..db import get_db
 from ..deps import (
     get_audit_repository,
     get_authorization_service,
@@ -78,9 +80,10 @@ from ..schemas.customer import (
     DuplicateRef,
     DuplicateWarn,
     HeatCellOut,
-    ImportResultOut,
-    ImportRowResult,
     MonthPointOut,
+    NhapExcelCanhBao,
+    NhapExcelLoi,
+    NhapExcelOut,
     NoteIn,
     NoteOut,
     NotesOut,
@@ -100,6 +103,8 @@ from ..schemas.customer import (
     TagOut,
     TagsOut,
 )
+from ..services import customer_excel
+from ..services.catalog_excel import ExcelSaiMan
 from ..services.customer_analytics import CustomerAnalyticsService, CustomerStat
 from ..services.customer_service import (
     CustomerForbidden,
@@ -107,6 +112,7 @@ from ..services.customer_service import (
     CustomerService,
     CustomerValidationError,
     ReassignForbidden,
+    nguoi_du_tu_cach_nhan_khach,
     ReceivableUnavailable,
 )
 from ..services.rbac_service import AuthorizationService
@@ -271,15 +277,6 @@ def _min_date():
     return date.min
 
 
-def _thuoc_khoi_kinh_doanh(depts: DepartmentRepository) -> set[int] | None:
-    """Id phòng thuộc khối KINH DOANH (`departments.la_kinh_doanh`, kế thừa cây con).
-
-    `None` = **chưa khai khối nào** ⇒ người gọi lùi về quy tắc theo QUYỀN. Không tự đoán theo tên
-    phòng: danh mục phòng ban là do người dùng khai, "Kinh doanh" có thể tên là "Phòng Bán hàng"."""
-    khoi = depts.kinh_doanh_departments()
-    return {d.id for d in khoi} if khoi else None
-
-
 @router.get("/sales", response_model=list[SaleOption])
 def list_sale_options(
     svc: Service,
@@ -325,29 +322,23 @@ def list_sale_options(
         if c.sale_user_id is not None:
             so_kh[c.sale_user_id] = so_kh.get(c.sale_user_id, 0) + 1
 
-    # 3) Ai đủ tư cách nhận khách.
-    khoi_kd = _thuoc_khoi_kinh_doanh(depts)
-
-    def du_tu_cach(u: User) -> bool:
-        if not u.is_active:
-            return False
-        if khoi_kd is not None:
-            return u.department_id in khoi_kd
-        perm = roles.get_permission(u.role_id, MODULE) if u.role_id is not None else None
-        return perm is not None and perm.can_read
+    # 3) Ai đủ tư cách nhận khách — luật DÙNG CHUNG với cột "Sale phụ trách" của file nhập Excel
+    #    (`services/customer_service.nguoi_du_tu_cach_nhan_khach`). Trước 11/09/2026 luật nằm ngay
+    #    trong hàm này, và bộ nhập Excel đã kịp lệch một nhịp vì tự khai lại.
+    du_tu_cach_ids = nguoi_du_tu_cach_nhan_khach(svc.customers.db)
 
     ung_vien: dict[int, User] = {}
     gan_duoc: dict[int, bool] = {}
     for u in users.list_all():
         if trong_pham_vi is not None and u.id not in trong_pham_vi:
             continue
-        gan_duoc[u.id] = du_tu_cach(u)
+        gan_duoc[u.id] = u.id in du_tu_cach_ids
         if gan_duoc[u.id] or u.id in so_kh:
             ung_vien[u.id] = u
     # Người xem luôn có mặt: sale scope `own` phải chọn được chính mình dù chưa có khách nào.
     if user.id not in ung_vien:
         ung_vien[user.id] = user
-        gan_duoc.setdefault(user.id, du_tu_cach(user))
+        gan_duoc.setdefault(user.id, user.id in du_tu_cach_ids)
 
     ten_phong = {d.id: d.name for d in depts.list_all()}
     out: list[SaleOption] = []
@@ -610,139 +601,92 @@ def care_followups(
     )
 
 
-# --- import / export danh bạ (#23) -------------------------------------------
-
-_KIND_LABELS = {"ca_nhan": "Cá nhân", "cong_ty": "Công ty"}
-# Redesign spec-06 v2: import chỉ nạp thông tin ĐỊNH DANH (bỏ Hạn mức/Trạng thái, thêm Loại).
-_IMPORT_HEADERS = [
-    "Tên khách hàng", "Loại", "MST", "Điện thoại", "Email", "Địa chỉ", "Người liên hệ",
-]
-
-
-def _csv_response(rows: list[list], filename: str) -> Response:
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    for r in rows:
-        w.writerow(r)
-    # UTF-8 BOM so Excel opens Vietnamese correctly.
-    data = b"\xef\xbb\xbf" + buf.getvalue().encode("utf-8")
-    return Response(
-        content=data,
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+# --- xuất / nhập danh bạ (#23) -----------------------------------------------
+#
+# CẢ HAI CHIỀU đều là .xlsx từ 11/09/2026 — trước đó xuất CSV, nhập CSV.
+#
+# Đường CSV cũ (`/export.csv`, `/import-template.csv`, `POST /import`,
+# `CustomerService.import_rows`) ĐÃ GỠ. Nhập CSV chỉ nạp 7 cột định danh, không có Sale phụ trách,
+# không có chính sách tài chính, ghi từng dòng nên gãy giữa chừng là để lại một nửa, và bản xem
+# trước kiểm nhẹ hơn lúc ghi thật. Hai cửa nhập cho cùng một việc là sớm muộn lệch nhau, nên thay
+# chứ không để song song. Toàn bộ luật đọc/ghi nằm ở `services/customer_excel.py`.
 
 
-@router.get("/export.csv")
-def export_customers_csv(
+@router.get("/xuat-excel")
+def xuat_excel(
+    db: Annotated[Session, Depends(get_db)],
     svc: Service,
     authz: Authz,
-    users: Users,
     # Xuất file MẶC ĐỊNH BẬT: chỉ cần quyền Xem khách (gỡ quyền chi tiết `export` 24/08/2026).
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> Response:
-    """Xuất toàn bộ danh bạ trong scope của người gọi (CSV UTF-8 BOM mở bằng Excel).
-    Redesign spec-06 v2: định danh + chính sách tài chính (ai cũng xem); bỏ Trạng thái + CK cũ."""
-    scope = _scope_for(authz, user)
-    book = svc.list_scoped_all(scope=scope, actor=user)
+    """Xuất danh bạ trong scope của người gọi ra .xlsx — định danh + chính sách tài chính.
+
+    File này để ĐỌC / ĐỐI CHIẾU, KHÔNG nhập ngược lại được: nó có cột `Mã KH`, còn mẫu nhập cố ý
+    không có (mã là mã hệ tự cấp, nhập chỉ thêm mới). Sửa khách đã có thì sửa trên màn.
+    """
+    book = svc.list_scoped_all(scope=_scope_for(authz, user), actor=user)
     book.sort(key=lambda c: c.code)
-    names = _sale_names(users, {c.sale_user_id for c in book if c.sale_user_id})
-
-    header = [
-        "Mã KH", *_IMPORT_HEADERS, "NV phụ trách", "Hạn mức (VND)", "Số ngày công nợ",
-        "CK tối thiểu (%)", "CK tối đa (%)", "Markup tối thiểu (%)", "Markup tối đa (%)",
-    ]
-    rows: list[list] = [header]
-    for c in book:
-        rows.append([
-            c.code, c.name, _KIND_LABELS.get(c.customer_kind, ""), c.tax_code or "",
-            c.phone or "", c.email or "", c.address or "", c.contact_name or "",
-            names.get(c.sale_user_id, "") if c.sale_user_id else "",
-            c.credit_limit,
-            c.payment_term_days if c.payment_term_days is not None else "",
-            c.discount_min_pct if c.discount_min_pct is not None else "",
-            c.discount_max_pct if c.discount_max_pct is not None else "",
-            c.markup_min_pct if c.markup_min_pct is not None else "",
-            c.markup_max_pct if c.markup_max_pct is not None else "",
-        ])
-    return _csv_response(rows, "danh-ba-khach-hang.csv")
-
-
-@router.get("/import-template.csv")
-def import_template_csv(
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-) -> Response:
-    """File mẫu import (header tiếng Việt + 1 dòng ví dụ). Chỉ thông tin định danh."""
-    return _csv_response(
-        [
-            _IMPORT_HEADERS,
-            ["Công ty TNHH ABC", "Công ty", "0101234567", "0912345678", "lienhe@abc.vn",
-             "Số 1 Phố X, Hà Nội", "Chị Lan"],
-        ],
-        "mau-import-khach-hang.csv",
+    return Response(
+        content=customer_excel.xuat(db, book),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="danh-ba-khach-hang.xlsx"'},
     )
 
 
-@router.post("/import", response_model=ImportResultOut)
-def import_customers_csv(
+@router.get("/mau-excel")
+def mau_excel(
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> Response:
+    """File mẫu .xlsx — RỖNG, chỉ dòng tiêu đề (chốt 11/09/2026).
+
+    Không kèm khách đang có: mẫu này để THÊM MỚI. Mã khách là mã hệ tự cấp nên file cũng không có
+    cột Mã — muốn sửa hàng loạt thì dùng `GET /export.csv` để đối chiếu, còn sửa thì trên màn.
+
+    Sáu cột chính sách tài chính CHỈ xuất cho người có `set_credit_terms`: đưa ra một cột họ không
+    được ghi chỉ tổ mời họ điền vào chỗ sẽ bị bỏ qua.
+    """
+    return Response(
+        content=customer_excel.tao_mau(
+            db, co_tai_chinh=authz.can(user, MODULE, "set_credit_terms")
+        ),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="mau-nhap-khach-hang.xlsx"'},
+    )
+
+
+@router.post("/import-excel", response_model=NhapExcelOut)
+def import_excel(
+    db: Annotated[Session, Depends(get_db)],
     svc: Service,
+    authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
     file: UploadFile = File(...),
-    dry_run: bool = Form(default=True),
-) -> ImportResultOut:
-    """Import danh bạ từ CSV (#23 — Excel Save-As CSV). `dry_run=true` (mặc định) chỉ
-    KIỂM TRA và trả kết quả từng dòng để xem trước; gửi lại với dry_run=false mới ghi.
-    Trùng MST/tên/email = cảnh báo mềm, vẫn tạo (§34) — người dùng thấy trước ở preview."""
-    raw = file.file.read()
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="File phải là CSV mã hóa UTF-8 (Excel: Save As → CSV UTF-8).",
-        ) from None
-    reader = csv.reader(io.StringIO(text))
-    lines = [r for r in reader if any((cell or "").strip() for cell in r)]
-    if not lines:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="File rỗng."
-        )
-    header = [h.strip().lower() for h in lines[0]]
-    col_map: dict[int, str] = {}
-    for idx, h in enumerate(header):
-        key = CustomerService.IMPORT_COLUMNS.get(h)
-        if key:
-            col_map[idx] = key
-    if "name" not in col_map.values():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail='Thiếu cột "Tên khách hàng" — tải file mẫu để lấy đúng header.',
-        )
-    rows = [
-        {key: (line[idx].strip() if idx < len(line) else "") for idx, key in col_map.items()}
-        for line in lines[1:]
-    ]
-    if not rows:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="File chỉ có header, không có dòng dữ liệu.",
-        )
+    mode: str = Query(default="preview", pattern="^(preview|commit)$"),
+) -> NhapExcelOut:
+    """Nhập danh bạ từ .xlsx — mỗi dòng một khách MỚI, CẢ FILE là một giao dịch.
 
-    results = svc.import_rows(rows=rows, actor=user, dry_run=dry_run)
-    out_rows = [
-        ImportRowResult(
-            row=no, status=st, message=msg,
-            code=c.code if c else None, name=c.name if c else (rows[no - 1].get("name") or None),
+    `mode=preview` chạy y hệt `commit` rồi rollback, nên con số xem trước là con số THẬT (kể cả lỗi
+    chỉ lộ ra lúc service validate). Cố ý không làm một bản kiểm "sơ bộ" nhẹ hơn — nếu xem trước dễ
+    dãi hơn lúc ghi thì người dùng bấm Xác nhận xong mới ăn lỗi, đúng thứ nút xem trước sinh ra để
+    tránh (đây là điểm yếu của đường nhập CSV cũ đã gỡ).
+    """
+    try:
+        kq = customer_excel.nhap(
+            db, svc, file.file.read(),
+            actor=user, scope=_scope_for(authz, user),
+            co_tai_chinh=authz.can(user, MODULE, "set_credit_terms"),
+            ghi=(mode == "commit"),
         )
-        for no, st, msg, c in results
-    ]
-    return ImportResultOut(
-        dry_run=dry_run,
-        total=len(out_rows),
-        created=sum(1 for r in out_rows if r.status in ("created", "warning") and not dry_run),
-        warnings=sum(1 for r in out_rows if r.status == "warning"),
-        errors=sum(1 for r in out_rows if r.status == "error"),
-        rows=out_rows,
+    except ExcelSaiMan as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    return NhapExcelOut(
+        hop_le=kq.hop_le, tong_dong=kq.tong_dong, tao_moi=kq.tao_moi, da_ghi=kq.da_ghi,
+        bo_qua_tai_chinh=kq.bo_qua_tai_chinh,
+        loi=[NhapExcelLoi(dong=x.dong, cot=x.cot, ly_do=x.ly_do) for x in kq.loi],
+        canh_bao=[NhapExcelCanhBao(dong=x.dong, ly_do=x.ly_do) for x in kq.canh_bao],
     )
 
 

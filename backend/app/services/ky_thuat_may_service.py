@@ -67,6 +67,14 @@ MODULE_SUA_CHUA = "ky_thuat_may"
 # ("chưa khai Bắt đầu từ") thay vì im lặng bỏ gói đó ra khỏi lịch.
 BO_QUA_THIEU_CHU_KY = "thieu_chu_ky"
 BO_QUA_THIEU_NGAY_BAT_DAU = "thieu_ngay_bat_dau"
+# Gói khai trong JSON của máy mà KHÔNG có `id`. Không có id thì không neo được: `ky_thuat_bao_tri
+# .goi_id` để trống ⇒ không tra ra "kỳ trước làm ngày nào", và nguy nhất là cửa chống trùng của
+# ticker (`sinh_phieu_den_han`) vốn chỉ chạy khi `goi_id` khác rỗng — gói thiếu id là MỖI VÒNG QUÉT
+# lại đẻ thêm một phiếu, 10 phút một cái, không có gì dừng lại.
+# Form Máy và đường nhập Excel đều tự cấp id, và `MayThietBiService._chuan_hoa` cấp nốt cho dữ liệu
+# cũ ngay lần lưu lại đầu tiên. Đây là LƯỚI AN TOÀN cho hàng chưa kịp lưu lại: bỏ qua gói, nhưng nói
+# ra lý do thay vì im lặng biến nó khỏi lịch.
+BO_QUA_THIEU_MA_GOI = "thieu_ma_goi"
 
 # Nguồn của hạn — để màn hình nói rõ "tính từ đâu" thay vì phun ra một ngày không ai kiểm được.
 NGUON_PHIEU = "phieu"
@@ -95,6 +103,14 @@ class KyThuatMayDaXuLy(KyThuatMayError):
 
 class KyThuatMayValidationError(KyThuatMayError):
     pass
+
+
+class KyThuatMayTrungKy(KyThuatMayError):
+    """Tạo phiếu bảo trì cho một kỳ ĐÃ CÓ phiếu — 409, không phải 422.
+
+    Dữ liệu gửi lên hợp lệ, chỉ là kỳ đó xử lý rồi. Cùng hạng với `KyThuatMayDaXuLy`: người dùng
+    cần biết "đã có rồi, mở cái cũ ra" chứ không phải "bạn nhập sai".
+    """
 
 
 class KyThuatMayThieuAnh(KyThuatMayError):
@@ -626,6 +642,20 @@ class KyThuatMayService:
         # Lập tay theo một gói có sẵn ⇒ chép luôn chu kỳ + việc con của gói đó, khỏi gõ lại.
         goi_id = (data.get("goi_id") or "").strip() or None
         if goi_id:
+            # MỘT KỲ = MỘT PHIẾU. Ticker đã tự chặn trùng từ đầu, nhưng đường BẤM TAY (ô "kỳ dự
+            # kiến" trên lịch) thì chưa — và nó còn tự mời bấm lại: chuỗi kỳ dự kiến neo theo phiếu
+            # mở SỚM NHẤT, nên tạo phiếu cho 18/09 xong lịch VẪN vẽ chấm dự kiến ở 18/09, bấm nữa là
+            # ra phiếu thứ hai, thứ ba (đã dính thật: PBT-0002/0003/0004 cùng gói cùng ngày).
+            # `lich()` nay thôi vẽ chấm ở ngày đã có phiếu — nhưng cửa phải nằm ở ĐÂY: bấm đúp, hai
+            # người cùng bấm, hay gọi thẳng API đều không đi qua màn hình.
+            # Chỉ áp cho phiếu THEO GÓI: phiếu đột xuất (`goi_id` trống) không thuộc kỳ nào, một máy
+            # hỏng hai việc trong cùng ngày là chuyện thường.
+            trung = self.repo.phieu_cua_ky(may.id, goi_id, ngay)
+            if trung is not None:
+                raise KyThuatMayTrungKy(
+                    f"Kỳ {ngay:%d/%m/%Y} của gói này đã có phiếu {trung.ma} "
+                    f"({trung.trang_thai}) — mở phiếu đó ra thay vì tạo thêm."
+                )
             goi = next((g for g in goi_bao_tri_cua(may) if g.get("id") == goi_id), None)
             if goi is not None:
                 payload.setdefault("goi_ten", (goi.get("viec") or "").strip() or None)
@@ -814,19 +844,28 @@ class KyThuatMayService:
     def han_ke_tiep(self, may_id: int, goi: dict, *, moc: Any = _CHUA_NAP) -> tuple[date | None, str]:
         """(hạn, nguồn). `hạn = None` ⇒ KHÔNG tính được, và lý do nằm ở `nguồn`:
 
+          · `thieu_ma_goi`      — gói trong JSON của máy không có `id`, nên phiếu không neo vào đâu
+            được. Mở máy ra bấm Lưu một lần là hệ tự cấp id (`MayThietBiService._chuan_hoa`);
           · `thieu_chu_ky`      — gói khai tên nhưng bỏ trống "Mỗi … tháng";
           · `thieu_ngay_bat_dau` — có chu kỳ nhưng chưa từng làm lần nào VÀ chưa khai "Bắt đầu từ",
             nên không có gốc để cộng chu kỳ. KHÔNG đoán là hôm nay (xem ghi chú ở đầu file).
 
+        Trả `None` ở đây là CHẶN luôn cả ba đường đọc lịch: ticker không sinh phiếu, màn Lịch không
+        vẽ kỳ dự kiến, tab Lịch bảo trì không hiện "Kỳ tới" — một chốt, không phải ba.
+
         `moc` = ngày hoàn thành gần nhất của gói. Người gọi duyệt NHIỀU gói (lịch, ticker) truyền
         sẵn từ `repo.moc_hoan_thanh_map()` để khỏi hỏi DB từng gói; bỏ trống thì hàm tự hỏi.
         """
+        # Kiểm ID TRƯỚC chu kỳ: thiếu chu kỳ là người khai làm dở dang (khai tiếp là xong), còn
+        # thiếu id là dữ liệu hỏng — nói đúng cái đang hỏng thì người ta mới sửa đúng chỗ.
+        goi_id = str(goi.get("id") or "").strip()
+        if not goi_id:
+            return None, BO_QUA_THIEU_MA_GOI
         so = _f(goi.get("so"))
         if so <= 0:
             return None, BO_QUA_THIEU_CHU_KY
-        goi_id = (goi.get("id") or "").strip()
         if moc is _CHUA_NAP:
-            moc = self.repo.ngay_hoan_thanh_gan_nhat(may_id, goi_id) if goi_id else None
+            moc = self.repo.ngay_hoan_thanh_gan_nhat(may_id, goi_id)
         if moc is not None:
             return cong_chu_ky(moc, so, goi.get("don_vi")), NGUON_PHIEU
         bat_dau = _parse_date(goi.get("ngay_bat_dau"))
@@ -912,6 +951,13 @@ class KyThuatMayService:
         huy_map = self.repo.moc_huy_map()
         mo_map = self.repo.phieu_dang_mo_map()
 
+        # Ngày nào ĐÃ CÓ phiếu thật của gói đó thì thôi vẽ chấm dự kiến đè lên. Không có chốt này
+        # thì chấm dự kiến nằm ngay cạnh phiếu vừa tạo — đúng một lời mời bấm thêm lần nữa, và mỗi
+        # lần bấm là một phiếu trùng (xem `tao_bao_tri`). Lấy CẢ phiếu đã hoàn thành / đã hủy, cùng
+        # định nghĩa "kỳ này xử lý rồi" với `repo.phieu_cua_ky` — hai nơi lệch nhau thì màn hình lại
+        # mời làm đúng cái việc mà server sắp chặn.
+        da_co_phieu = {(p.may_id, p.goi_id, p.ngay_ke_hoach) for p in phieu if p.goi_id}
+
         du_kien: list[dict] = []
         for may in self._may_co_lich():
             for goi in goi_bao_tri_cua(may):
@@ -932,7 +978,7 @@ class KyThuatMayService:
                 for _ in range(60):
                     if moc > den:
                         break
-                    if moc >= tu:
+                    if moc >= tu and (may.id, goi_id, moc) not in da_co_phieu:
                         du_kien.append({
                             "may_id": may.id, "may_ma": may.ma, "may_ten": may.ten,
                             "may_loai": may.loai_may,
