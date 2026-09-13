@@ -143,7 +143,7 @@
 }
 
 .pay-kpibar__val {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
@@ -211,7 +211,7 @@
 /* --- ô số bấm được trên bảng ngoài --- */
 
 .pay-cell {
-  /* font-family: var(--ff-num); */
+  /* font-family: var(--ff-sans); */
   font-variant-numeric: tabular-nums;
 }
 
@@ -278,7 +278,7 @@
 
 .pay-credit dd {
   margin: 2px 0 0;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
@@ -326,7 +326,7 @@
 }
 
 .pay-block__head strong {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -391,7 +391,7 @@
 .pay-table .pay-num {
   text-align: right;
   white-space: nowrap;
-  /* font-family: var(--ff-num); */
+  /* font-family: var(--ff-sans); */
   font-variant-numeric: tabular-nums;
 }
 
@@ -536,7 +536,7 @@
 }
 
 .pay-don__code {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-sm);
 }
 
@@ -557,7 +557,7 @@
    UI_DESIGN.md §0 "màu ở liều lớn... chỗ không có việc lại nổi hơn chỗ có việc"). Chỉ đơn có
    ÍT NHẤT một đợt đang trễ mới gắn `--danger` (JSX tính bằng `overdue_days` sẵn có mỗi dòng). */
 .pay-don__due b {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -717,7 +717,7 @@
 }
 
 .pay-batch-bar__tien {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 15px;
   font-weight: 700;
   color: var(--on-charcoal);

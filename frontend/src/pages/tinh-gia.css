@@ -88,7 +88,7 @@
   font-size: 12px;
 }
 .tg-mono {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -240,7 +240,7 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
 }
 .tg-input--num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   text-align: left;
   font-variant-numeric: tabular-nums;
 }
@@ -262,7 +262,7 @@ select.tg-input {
   background: var(--rule-hair);
   color: var(--ink);
   padding: 10px 12px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
@@ -487,7 +487,7 @@ select.tg-input {
   vertical-align: top;
 }
 .tg-num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -538,7 +538,7 @@ select.tg-input {
   color: var(--ink);
 }
 .tg-cost__grandval {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 20px;
   font-variant-numeric: tabular-nums;
   color: var(--rust);
@@ -945,7 +945,7 @@ select.tg-input {
   color: var(--ash-2);
 }
 .ptg-stat-val {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 15px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -1009,7 +1009,7 @@ select.tg-input {
   margin: 0;
 }
 .tg-comp__cost {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   color: var(--ash);
   font-variant-numeric: tabular-nums;
@@ -1312,7 +1312,7 @@ select.tg-input {
   white-space: nowrap;
 }
 .tg-hien__v {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 15px;
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
@@ -1392,7 +1392,7 @@ select.tg-input {
   border-top: 1px solid var(--rule-hair);
 }
 .tg-kem__val {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 16px;
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
@@ -2011,7 +2011,7 @@ select.tg-input--sm {
   color: var(--ash);
 }
 .tg-imp__con {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   font-size: 18px;
   font-weight: var(--fw-bold);
   color: var(--rust);
@@ -3023,13 +3023,13 @@ select.tg-input--sm {
 
 /* ---- helper text classes ---- */
 .rdx-cost .num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
 }
 .rdx-cost .mono {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 .rdx-cost .muted {
@@ -3312,7 +3312,7 @@ select.tg-input--sm {
   font-weight: 700;
 }
 .rdx-cost .subrow .val {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--rust-deep);
   font-weight: 700;
@@ -3344,7 +3344,7 @@ select.tg-input--sm {
   flex: none;
 }
 .rdx-cost .dk__big {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   font-size: 38px;
@@ -3380,7 +3380,7 @@ select.tg-input--sm {
   color: var(--on-dark-muted);
 }
 .rdx-cost .drow .v {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--on-dark);
   font-weight: 500;

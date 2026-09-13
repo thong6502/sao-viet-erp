@@ -118,7 +118,7 @@
 .cc-quota-chip-val strong {
   font-weight: 700;
   color: #0f172a;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
 }
 
 .cc-quota-chip-sub {
@@ -249,7 +249,7 @@
   color: #0f172a;
   font-weight: 700;
   font-size: 13px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
 }
 
 .cc-date-cell {

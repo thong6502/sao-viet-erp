@@ -1453,7 +1453,7 @@ export function InboxRequestDrawer({
                             </td>
                             {canViewStock && (
                               <td className="kho-num">
-                                <div style={{ fontFamily: "var(--ff-num)", fontWeight: "var(--fw-bold)" }}>
+                                <div style={{ fontFamily: "var(--ff-sans)", fontWeight: "var(--fw-bold)" }}>
                                   {fmtQty(l.ton_kha_dung ?? 0)} <span className="kho-alloc__unit">{dvtGoc}</span>
                                 </div>
                                 {l.ton_kha_dung != null && (
@@ -3032,7 +3032,7 @@ export function VoucherDrawer({
                           <tr key={l.id}>
                             <td style={{ minWidth: 300 }}>
                               <div className="kho-lines__name" style={{ fontWeight: "var(--fw-bold)", color: "var(--ink)" }}>{l.hang_ten ?? "—"}</div>
-                              <div className="kho-lines__code" style={{ fontFamily: "var(--ff-num)", fontSize: 12, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
+                              <div className="kho-lines__code" style={{ fontFamily: "var(--ff-sans)", fontSize: 12, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
                             </td>
                             <td className="kho-lines__code" style={{ textAlign: "center" }}>{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
                             <td className="kho-num">

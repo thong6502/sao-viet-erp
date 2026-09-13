@@ -105,7 +105,7 @@
   white-space: nowrap;
 }
 .xl3-kpi-pill strong {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
@@ -207,7 +207,7 @@
   align-items: center;
   gap: 6px;
   padding: 0 var(--sp-3);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
   color: var(--ink);
@@ -316,7 +316,7 @@
   background: var(--steel-soft);
   color: var(--steel);
   font-size: var(--fs-2xs);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 .xl3-cho__tim-wrap {
@@ -412,7 +412,7 @@
   gap: var(--sp-2);
 }
 .xl3-the__ma {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   font-size: var(--fs-xs);
   color: var(--ink);
@@ -421,7 +421,7 @@
   margin-left: auto;
   color: var(--ash-2);
   font-size: var(--fs-2xs);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   display: inline-flex;
   align-items: center;
@@ -453,7 +453,7 @@
   border: 1px solid var(--rule-hair);
   color: var(--ash);
   font-size: var(--fs-2xs);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 .xl3-gap {
@@ -476,7 +476,7 @@
   background: var(--canvas);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
 }
 .xl3-cho__trang button {
   min-width: 26px;
@@ -541,7 +541,7 @@
   padding: 1px 2px;
 }
 .xl3-gantt__so-v30 {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 13px;
   font-weight: 700;
   color: var(--ink);
@@ -587,7 +587,7 @@
   font-weight: var(--fw-medium);
 }
 .xl3-gantt__so {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 13px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -602,7 +602,7 @@
   padding: 1px 6px;
   border-radius: var(--r-pill);
   font-size: 10px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -837,7 +837,7 @@
   overflow: hidden;
 }
 .xl3-hang__ma-text {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: 700;
   color: var(--ink);
@@ -1153,7 +1153,7 @@
   gap: 10px;
 }
 .xl3-modal__ma {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 18px;
   font-weight: 700;
   color: var(--ink);
@@ -1178,7 +1178,7 @@
 }
 .xl3-modal__sub-po {
   color: var(--ash-2);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 12px;
 }
 .xl3-copy-btn {
@@ -1282,7 +1282,7 @@
   background: var(--canvas);
   color: var(--ink);
   font-size: 13px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   outline: none;
   transition: border-color var(--duration-fast);
@@ -1324,7 +1324,7 @@
   text-overflow: ellipsis;
 }
 .xl3-modal__stat-v {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   color: var(--ink);
@@ -1376,7 +1376,7 @@
   flex-wrap: wrap;
 }
 .xl3-modal__ketqua-v {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 13px;
   font-weight: 700;
   color: var(--ink);
@@ -1454,7 +1454,7 @@
 .xl3-spec-cust-po {
   font-size: 11px;
   color: var(--ash-2);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   margin-top: 2px;
 }
 
@@ -1481,7 +1481,7 @@
   font-variant-numeric: tabular-nums;
 }
 .xl3-spec-v--date {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   letter-spacing: 0.02em;
 }
 .xl3-spec-sub {
@@ -1559,7 +1559,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   background: var(--paper);
@@ -1638,7 +1638,7 @@
   flex: none;
 }
 .xl3-m-step-dur {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   color: var(--ink);
@@ -1687,7 +1687,7 @@
   border-radius: 50%;
   background: var(--paper);
   border: 1px solid var(--rule);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 700;
   color: var(--ash);
@@ -1752,7 +1752,7 @@
   white-space: nowrap;
 }
 .xl3-c-dur {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   color: var(--ink);
@@ -1898,7 +1898,7 @@
   gap: 6px;
 }
 .xl3-deadline-val {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 15px;
   font-weight: 700;
   color: var(--ink);
@@ -2092,7 +2092,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 700;
   color: #475569;
@@ -2170,7 +2170,7 @@
 }
 
 .xl3-pipe-dur {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   padding: 2px 8px;
@@ -2254,7 +2254,7 @@
   color: var(--ash-2);
 }
 .xl3-pipe-moc-v {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ash-2);
   white-space: nowrap;

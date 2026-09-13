@@ -107,7 +107,7 @@
   white-space: nowrap;
 }
 .khsx-code-badge .khsx__code {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-size: 12.5px;
   font-weight: 700;
   color: var(--ink);
@@ -146,7 +146,7 @@
 .khsx-order-chip {
   display: inline-flex;
   align-items: center;
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--ink);
@@ -168,7 +168,7 @@
   gap: 4px;
 }
 .khsx-qty-cell b {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
@@ -230,7 +230,7 @@
   color: var(--ash);
 }
 .khsx-date-line b {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -397,8 +397,8 @@
 .khsx__table--queue { min-width: 880px; }
 .khsx__table--lenh { min-width: 1000px; }
 
-/* Nhãn tiếng Việt CÓ DẤU: dùng sans thường, KHÔNG mono/uppercase/letter-spacing — chữ hoa có
-   dấu bị bóp, mono không dựng cho tiếng Việt. Mono chỉ dành cho MÃ và SỐ. */
+/* Nhãn tiếng Việt CÓ DẤU: dùng sans thường, KHÔNG uppercase/letter-spacing — chữ hoa có
+   dấu bị bóp. */
 .khsx__table thead th {
   font-size: 11px;
   color: #334155;
@@ -571,7 +571,7 @@
 }
 
 .khsx-num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
@@ -913,7 +913,7 @@ td.khsx-num > .khsx-unit {
   color: #2563eb;
   font-size: 12.5px;
   font-weight: 600;
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
@@ -951,7 +951,7 @@ td.khsx-num > .khsx-unit {
   white-space: nowrap;
 }
 .khsx-num__main {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: 600;
   color: var(--ink);
 }
@@ -1614,7 +1614,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-buffer-gauge__val {
   font-size: 12.5px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: 600;
   color: #0f172a;
 }
@@ -1674,7 +1674,7 @@ td.khsx-num > .khsx-unit {
   padding: 2px 6px 2px 8px;
 }
 .khsx-order-badge__code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: 700;
   color: #0f172a;
@@ -1736,7 +1736,7 @@ td.khsx-num > .khsx-unit {
   gap: 8px;
 }
 .khsx-val-date__main {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 13.5px;
   font-weight: 600;
   color: #0f172a;
@@ -1775,7 +1775,7 @@ td.khsx-num > .khsx-unit {
   color: #334155;
   font-size: 11.5px;
   font-weight: 700;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
 }
 .khsx-team-item__avatar--blue {
   background: #e0e7ff;
@@ -1813,7 +1813,7 @@ td.khsx-num > .khsx-unit {
   flex-wrap: wrap;
 }
 .khsx-audit-trail strong {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: 600;
   color: #334155;
 }
@@ -2058,7 +2058,7 @@ td.khsx-num > .khsx-unit {
 .khsx-rt__open:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
 .khsx-rt__ten { font-size: var(--fs-sm); }
 
-/* Badge loại bước — chữ thường có dấu, KHÔNG mono/IN HOA (font mono không dựng cho dấu tiếng Việt). */
+/* Badge loại bước — chữ thường có dấu, KHÔNG IN HOA. */
 .khsx-lb {
   display: inline-flex;
   align-items: center;
@@ -2076,14 +2076,13 @@ td.khsx-num > .khsx-unit {
 .khsx-lb--ghep { background: var(--rule-hair); color: var(--ash); }
 /* `.khsx-lb--opt` (nhãn "tùy chọn") GỠ 07/09/2026 cùng ô "Bước bắt buộc": không còn bước tuỳ chọn. */
 
-/* Thời lượng ("1 giờ 13 phút") có CHỮ CÓ DẤU nên KHÔNG được dùng mono — JetBrains Mono không
-   dựng cho dấu tiếng Việt, đọc rất khó. Giữ canh cột bằng `tabular-nums` trên chính font app. */
-.khsx-dur {   font-family: var(--ff-num);
+/* Thời lượng ("1 giờ 13 phút") dùng font app. */
+.khsx-dur {   font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums; }
 
-/* Vào → Ra: SỐ mono canh cột, ĐƠN VỊ sans (chữ có dấu). */
+/* Vào → Ra: số rồi đơn vị. */
 .khsx-rt__qty { white-space: nowrap; }
-.khsx-rt__qty .khsx-num {   font-family: var(--ff-num);
+.khsx-rt__qty .khsx-num {   font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums; }
 .khsx-rt__dv { color: var(--ash); font-size: var(--fs-xs); margin: 0 2px 0 3px; }
 .khsx-rt__arrow { color: var(--rule); margin: 0 4px; }
@@ -2672,7 +2671,7 @@ td.khsx-num > .khsx-unit {
   font-size: 12px;
   line-height: 1.45;
   border-radius: var(--r-2);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 .khsx-khoan__ok {
@@ -3630,7 +3629,7 @@ td.khsx-num > .khsx-unit {
   flex-wrap: wrap;
 }
 .khsx-vattu-code {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   color: #1e40af;
@@ -3666,7 +3665,7 @@ td.khsx-num > .khsx-unit {
   gap: 4px;
 }
 .khsx-formula-code {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   color: #334155;
   background: #f1f5f9;
@@ -3851,7 +3850,7 @@ td.khsx-num > .khsx-unit {
   gap: 10px;
 }
 .khsx-vattu-card__code {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   color: #2563eb;
@@ -4097,7 +4096,7 @@ td.khsx-num > .khsx-unit {
   transform: translateY(-0.5px);
 }
 .khsx-legend-tag b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   color: var(--ink, #0f172a);
@@ -4201,7 +4200,7 @@ td.khsx-num > .khsx-unit {
 }
 
 .khsx-time-stage-card__stat-num {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 17px;
   font-weight: 700;
@@ -4267,7 +4266,7 @@ td.khsx-num > .khsx-unit {
 }
 
 .khsx-subtask-chip__val {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   font-weight: 700;
@@ -4342,7 +4341,7 @@ td.khsx-num > .khsx-unit {
   color: var(--ink, #0f172a);
 }
 .khsx-time-row__val {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 15px;
   font-weight: 700;
@@ -4386,7 +4385,7 @@ td.khsx-num > .khsx-unit {
   background: #f8fafc;
 }
 .khsx-sub-pill b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   color: var(--ink, #0f172a);
@@ -4426,7 +4425,7 @@ td.khsx-num > .khsx-unit {
   max-width: 100%;
 }
 .khsx-formula-token {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   font-weight: 600;
@@ -4507,7 +4506,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-tolerance-target b {
   color: var(--ink, #0f172a);
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
@@ -4535,7 +4534,7 @@ td.khsx-num > .khsx-unit {
   color: var(--ash-2, var(--ash-2));
 }
 .khsx-tolerance-node__val {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   font-weight: 600;
@@ -4623,7 +4622,7 @@ td.khsx-num > .khsx-unit {
   font-size: 16px;
   font-weight: 800;
   color: var(--ink, #0f172a);
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
@@ -4671,7 +4670,7 @@ td.khsx-num > .khsx-unit {
   color: var(--ash, var(--ash-2));
 }
 .khsx-tinh-gio__row b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink, #0f172a);
 }
@@ -4707,7 +4706,7 @@ td.khsx-num > .khsx-unit {
   color: var(--ash, var(--ash-2));
 }
 .khsx-tinh-gio__dai b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink, #0f172a);
 }
@@ -4733,7 +4732,7 @@ td.khsx-num > .khsx-unit {
   gap: 8px;
 }
 .khsx-khuon__ma {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   padding: 2px 7px;
@@ -5064,7 +5063,7 @@ td.khsx-num > .khsx-unit {
   height: 20px;
   padding: 0 6px;
   border-radius: var(--r-pill);
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -5129,7 +5128,7 @@ td.khsx-num > .khsx-unit {
 }
 
 .khsx .khvt-utab__count {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -5160,7 +5159,7 @@ td.khsx-num > .khsx-unit {
   height: 20px;
   padding: 0 6px;
   border-radius: var(--r-pill);
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -5218,7 +5217,7 @@ td.khsx-num > .khsx-unit {
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
 }
 .khsx .khvt-utab__count {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -5349,7 +5348,7 @@ td.khsx-num > .khsx-unit {
   flex-wrap: wrap;
 }
 .khsx .khvt-alert-inline__item code {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--amber-deep);
@@ -5480,7 +5479,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-ton-val b,
 .khsx .khvt-can-val b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -5516,7 +5515,7 @@ td.khsx-num > .khsx-unit {
 
 .khsx .khvt-coverage-badge {
   display: inline-block;
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -5624,7 +5623,7 @@ td.khsx-num > .khsx-unit {
   overflow: hidden !important;
 }
 .khsx .khvt-po-note b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 700;
   color: var(--rust-deep);
 }
@@ -5642,7 +5641,7 @@ td.khsx-num > .khsx-unit {
   flex-wrap: wrap;
 }
 .khsx .khvt-lenh-pill {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -5653,7 +5652,7 @@ td.khsx-num > .khsx-unit {
   border-radius: var(--r-2);
 }
 .khsx .khvt-lenh-more {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 600;
   color: var(--ash);
@@ -5721,7 +5720,7 @@ td.khsx-num > .khsx-unit {
   font-family: var(--ff-sans);
 }
 
-/* Chỉ số, mã, ngày tháng dùng font mono */
+/* Chỉ số, mã, ngày tháng */
 .khsx .khvt-drawer .khvt-drawer__code,
 .khsx .khvt-drawer .khvt-lsx-code,
 .khsx .khvt-drawer .khvt-lsx-link,
@@ -5797,7 +5796,7 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-drawer__code {
   font-size: 12px;
   font-weight: 700;
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   color: var(--ink);
   background: var(--canvas);
   padding: 1px 7px;
@@ -5883,7 +5882,7 @@ td.khsx-num > .khsx-unit {
   white-space: nowrap;
 }
 .khsx .khvt-kpi-badge b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 14px;
 }
 .khsx .khvt-kpi-badge small {
@@ -6262,7 +6261,7 @@ td.khsx-num > .khsx-unit {
   border: 1px solid var(--kh-thieu-bd);
 }
 .khsx .khvt-readiness-badge b {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -6271,7 +6270,7 @@ td.khsx-num > .khsx-unit {
   color: var(--ink);
 }
 .khsx .khvt-readiness-info b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -6427,7 +6426,7 @@ td.khsx-num > .khsx-unit {
   color: var(--ink);
 }
 .khsx .khvt-floating-dock__count b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -6436,7 +6435,7 @@ td.khsx-num > .khsx-unit {
   color: var(--signal);
 }
 .khsx .khvt-floating-dock__total b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -6522,7 +6521,7 @@ td.khsx-num > .khsx-unit {
   color: var(--ink);
 }
 .khsx .khvt-stream-chip__deficit {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--kh-thieu-fg);
@@ -6531,7 +6530,7 @@ td.khsx-num > .khsx-unit {
   border-radius: var(--r-2);
 }
 .khsx .khvt-stream-chip__ok {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--ash);
@@ -6540,7 +6539,7 @@ td.khsx-num > .khsx-unit {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -6569,13 +6568,13 @@ td.khsx-num > .khsx-unit {
   white-space: nowrap;
 }
 .khsx .khvt-readiness-info b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
 .khsx .khvt-readiness-info small {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash-2);
 }
@@ -6663,7 +6662,7 @@ td.khsx-num > .khsx-unit {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   color: var(--amber-deep);
@@ -6707,7 +6706,7 @@ td.khsx-num > .khsx-unit {
 .khsx-khuon__hang1 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .khsx-khuon__hang1 .khsx-khuon__bo { margin-left: auto; }
 .khsx-khuon__ma {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   font-size: var(--fs-sm);
   color: var(--ink);
@@ -6828,7 +6827,7 @@ td.khsx-num > .khsx-unit {
   gap: 4px;
 }
 .khsx-vtke__strip-val b {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-size: 14px;
   font-weight: 700;
   color: var(--ink);
@@ -6899,7 +6898,7 @@ td.khsx-num > .khsx-unit {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-size: 11.5px;
   font-weight: 700;
   color: var(--ash);
@@ -6989,7 +6988,7 @@ td.khsx-num > .khsx-unit {
   color: var(--ash);
 }
 .khsx-vtke__flow-num b {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-weight: 600;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -7095,7 +7094,7 @@ th.khsx-vtbang__ma {
   white-space: nowrap;
 }
 td.khsx-vtbang__ma {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-size: 11px;
   font-weight: 700;
   color: var(--ash);
@@ -7116,7 +7115,7 @@ th.khsx-vtbang__sl {
   white-space: nowrap;
 }
 td.khsx-vtbang__sl {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-size: 13px;
   font-weight: 700;
   color: var(--ink);
@@ -7166,7 +7165,7 @@ th.khsx-vtbang__buoc {
   border: 1px solid var(--rule-soft);
 }
 .khsx-vtcard__buoc {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-size: 11px;
   font-weight: 600;
   color: var(--ash);
@@ -7439,13 +7438,13 @@ th.khsx-vtbang__buoc {
    một nhịp để "tên" và "thiếu bao nhiêu" là hai mẩu tin riêng. */
 .khsx .khvt-stream-chip__deficit {
   color: var(--kh-thieu-fg);
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 700;
   margin-left: 4px;
 }
 .khsx .khvt-stream-chip__ok {
   color: var(--ash);
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-weight: 600;
   margin-left: 4px;
 }
@@ -7461,7 +7460,7 @@ th.khsx-vtbang__buoc {
   color: var(--ash);
 }
 .khsx .khvt-readiness-info b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   color: var(--ink);
 }
 .khsx .khvt-readiness-bar {
@@ -7549,7 +7548,7 @@ th.khsx-vtbang__buoc {
   margin-top: 4px;
   font-size: 11px;
   color: var(--rust-deep);
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
 }
 .khsx .khvt-compete-alert {
   display: inline-flex;
@@ -7628,7 +7627,7 @@ th.khsx-vtbang__buoc {
   color: var(--ash);
 }
 .khsx .khvt-bcard__readiness-head b {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   color: var(--ink);
 }
 .khsx .khvt-bcard__progress {
@@ -7717,7 +7716,7 @@ th.khsx-vtbang__buoc {
   flex-shrink: 0;
 }
 .khsx .khvt-bcard__item-need { color: var(--ink); }
-.khsx .khvt-bcard__item-need b { font-family: var(--ff-num, monospace); }
+.khsx .khvt-bcard__item-need b { font-family: var(--ff-sans); }
 .khsx .khvt-bcard__item-hold { color: var(--ash); }
 .khsx .khvt-bcard__item-badge {
   padding: 2px 7px;
@@ -7752,7 +7751,7 @@ th.khsx-vtbang__buoc {
   line-height: 1.55;
   color: var(--ash);
 }
-.gclv-hop__hq b { color: var(--ink); font-family: var(--ff-num, monospace); }
+.gclv-hop__hq b { color: var(--ink); font-family: var(--ff-sans); }
 
 /* --- Hàng 3 đèn tiến độ (Đợt 1 redesign 18/08/2026) -------------------------
    Ba thứ bảng lệnh CHƯA nói: vật tư · máy & giờ · người. CHỈ vẽ chấm khi đỏ/vàng — ô trống nghĩa
@@ -7838,7 +7837,7 @@ th.khsx-vtbang__buoc {
   margin-top: 4px;
   font-size: 11px;
   color: var(--rust-deep);
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   cursor: help;
 }
 .khsx .khvt-po-note b {
@@ -7857,7 +7856,7 @@ th.khsx-vtbang__buoc {
   gap: 4px;
   font-size: 11px;
   color: var(--rust-deep);
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
 }
 
 /* "Có thể giữ ngay" — tin TỐT (còn cửa để giữ trước), không phải cảnh báo, nên tông xanh riêng
@@ -7895,7 +7894,7 @@ th.khsx-vtbang__buoc {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
 }
 .khsx .khvt-po-list__loai {
   display: inline-flex !important;

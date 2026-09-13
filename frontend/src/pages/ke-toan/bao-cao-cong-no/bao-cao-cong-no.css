@@ -141,7 +141,7 @@
 }
 
 .bccn__kpi-number {
-  font-family: var(--ff-num, inherit);
+  font-family: var(--ff-sans);
   font-size: 17px;
   font-weight: 700;
   color: var(--ink, #0f172a);
@@ -490,7 +490,7 @@
 }
 
 .bccn__soct-ct {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-2xs);
   color: var(--ash);
   white-space: nowrap;
@@ -534,7 +534,7 @@
 
 .bccn__soct-gio {
   margin-left: 6px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-2xs);
   color: var(--ash-2);
 }
@@ -697,7 +697,7 @@
 }
 
 .bccn__ma {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-2xs);
   color: var(--ash);
   white-space: nowrap;
@@ -708,14 +708,14 @@
 }
 
 .bccn__tk-cell {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-2xs);
   color: var(--ash);
   text-align: center !important;
 }
 
 .bccn__tien {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
 }
@@ -1055,7 +1055,7 @@
 
 .bccn__col-money {
   text-align: right;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
 }
@@ -1232,7 +1232,7 @@
 }
 
 .bccn__khoang-ngay {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
   color: var(--ink);

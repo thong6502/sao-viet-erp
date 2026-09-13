@@ -109,7 +109,7 @@ export function RefSearchField({ value, options, placeholder, byMa, onChange }: 
     return (
       <div className="rc-input-wrapper" style={{ display: "flex", gap: "6px", alignItems: "stretch" }}>
         <span className="rc-input" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", color: "var(--danger, #b3261e)" }}>
-          <span><b style={{ fontFamily: "var(--ff-num)" }}>{String(value)}</b> · không có trong danh mục</span>
+          <span><b style={{ fontFamily: "var(--ff-sans)" }}>{String(value)}</b> · không có trong danh mục</span>
           <button type="button" className="rc-timeline__btn rc-timeline__btn--danger" title="Bỏ chọn — tìm lại"
             onClick={() => { onChange(null); setQ(""); setOpen(true); }}>✕</button>
         </span>

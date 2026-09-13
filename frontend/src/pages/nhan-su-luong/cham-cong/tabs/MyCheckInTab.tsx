@@ -296,7 +296,7 @@ export function MyCheckIn({
               {showTimer && (
                 <div className="cc-shift-elapsed-time">
                   <span>Thời gian làm:</span>
-                  <b style={{ fontFamily: "var(--ff-num)" }}>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b>
+                  <b style={{ fontFamily: "var(--ff-sans)" }}>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b>
                 </div>
               )}
               {showTimer && (

@@ -1,4 +1,4 @@
-// Left navigation rail (ERP shell). Dark `--ink` surface, mono uppercase
+// Left navigation rail (ERP shell). Dark `--ink` surface, uppercase
 // section labels, rust active row — per docs/UI_DESIGN.md (Navigation + Color).
 // Sections collapse; items with `children` expand. Active row sets aria-current.
 // Each item is gated by a `module` key: only modules the current role can Read

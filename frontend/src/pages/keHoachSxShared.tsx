@@ -137,7 +137,7 @@ export const TRANG_THAI_TABS: { key: string; label: string }[] = [
 // --- trạng thái XẾP LỊCH (bàn Xếp lịch công đoạn) ---------------------------
 // Mọi nhãn của bàn xếp lịch nằm ĐÚNG MỘT chỗ (cùng file với pill/chip lệnh) — không đẻ file nhãn riêng.
 
-/** Thời lượng phút → "1 giờ 13 phút". Chữ CÓ DẤU nên KHÔNG dùng mono; canh cột bằng tabular-nums ở CSS. */
+/** Thời lượng phút → "1 giờ 13 phút". Hiển thị bằng font app (--ff-sans). */
 export function thoiLuong(phut: number | null | undefined): string {
   if (phut == null || phut <= 0) return "—";
   const t = Math.round(phut);

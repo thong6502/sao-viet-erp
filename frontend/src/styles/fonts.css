@@ -1,14 +1,12 @@
 /* Self-hosted fonts (woff2) — serve local vì app chạy nội bộ/VPS, không phụ thuộc CDN.
-   MỘT font chữ cho toàn app: Be Vietnam Pro (400/500/600/700).
-   JetBrains Mono (400/600) KHÔNG còn dùng cho chữ — chỉ phục vụ SỐ và MÃ qua token
-   `--ff-num` (lý do ghi ở styles/tokens.css).
+   MỘT font cho toàn app — cả chữ, số và mã: Be Vietnam Pro (400/500/600/700).
+   JetBrains Mono (số/mã) đã gỡ 13/09/2026 cùng token `--ff-num`.
 
    Mỗi weight = MỘT file đã gộp latin + vietnamese. Trước đây tách 2 file theo
    `unicode-range` (copy cách Google Fonts làm) — vô nghĩa ở đây: UI này 100% tiếng Việt
    nên trình duyệt LUÔN phải tải cả hai, tách chỉ tốn thêm request. Gộp lại còn NHỎ HƠN
    vì bỏ được phần bảng trùng: 12 file / 205 KB → 6 file / 144 KB.
-   File gộp bằng fontTools từ chính subset cũ; JetBrains Mono là variable font nên phải
-   hoá tĩnh (varLib.instancer) đúng weight trước khi gộp. */
+   File gộp bằng fontTools từ chính subset cũ. */
 
 @font-face {
   font-family: "Be Vietnam Pro";
@@ -40,20 +38,4 @@
   font-weight: 700;
   font-display: swap;
   src: url("../assets/fonts/be-vietnam-pro-700.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("../assets/fonts/jetbrains-mono-400.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "JetBrains Mono";
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url("../assets/fonts/jetbrains-mono-600.woff2") format("woff2");
 }

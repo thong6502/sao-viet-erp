@@ -176,7 +176,7 @@ button.ns__kpi {
 }
 
 .ns__kpival {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1521,7 +1521,7 @@ button.ns__kpi {
 }
 
 .ns-wizard__salary-total strong {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   color: var(--ink);
   font-size: 17px;
   font-variant-numeric: tabular-nums;
@@ -2268,7 +2268,7 @@ button.ns__kpi {
   border: 1px solid var(--rule);
   border-radius: var(--r-5);
   background: var(--canvas);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 13px;
   color: var(--ink);
   text-align: right;
@@ -2361,7 +2361,7 @@ button.ns__kpi {
 }
 
 .ns-comp-table__foot strong {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 13.5px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -2527,7 +2527,7 @@ button.ns__kpi {
 
 /* ── Chuẩn hoá font số tabular-nums ── */
 .ns-num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2729,7 +2729,7 @@ button.ns__kpi {
 .ns-wizard__mobile-step-num {
   font-weight: 700;
   color: var(--rust);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 
