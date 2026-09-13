@@ -337,7 +337,7 @@ nợ** (thay danh sách đơn), sắp theo hạn trả, đợt chưa có hạn l
 **Hồ sơ NCC**: 2 ô mới — *Hạn mức công nợ (VNĐ)* · *Số ngày cho nợ*.
 
 Bám UI_DESIGN.md: pill `r99` + chấm, KPI dạng dải pill (không phải 4 thẻ), bảng theo spec `.rdx-`,
-cột số dùng `--ff-num`.
+cột số dùng `--ff-sans`.
 
 ---
 

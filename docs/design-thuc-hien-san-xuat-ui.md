@@ -260,7 +260,7 @@ Bọc `.thsx`, đặt biến cục bộ giống `.xl2` (label-w, bar-h, lane-h).
 | Chữ chính / mờ / rất mờ | `--ink` / `--ash` / `--ash-2` |
 | Đường kẻ | `--rule` / `--rule-soft` / `--rule-hair` |
 | Accent / bề mặt tô (đang chọn, hover hàng, header) | `--rust` / `--rust-deep` / `--rust-soft` |
-| Font chữ / font SỐ-MÃ (giờ, SL, mã) | `--ff-sans` / `--ff-num` + `font-variant-numeric: tabular-nums` |
+| Font (cả chữ lẫn giờ, SL, mã) | `--ff-sans` |
 | Cỡ chữ | `--fs-2xs`…`--fs-xl` · Đậm `--fw-medium`/`--fw-bold` |
 | Giãn cách (4px scale) | `--sp-1`…`--sp-8` |
 | Bo góc | `--r-2`/`--r-3`/`--r-6` · pill `--r-pill` |

@@ -223,7 +223,7 @@ chip GẤP.
 
 | # | Cột | Rộng | Nội dung | Cắt chữ? |
 |---|---|---|---|---|
-| 1 | **Mã** | `11%` (~124px) | `ma` trong badge mã (`--ff-num`, tabular-nums) + chip **GẤP** khi `is_rush` | **KHÔNG BAO GIỜ** — `nowrap`, không ellipsis. Mã là định danh; cắt mã là hỏng cả dòng. |
+| 1 | **Mã** | `11%` (~124px) | `ma` trong badge mã (`--ff-sans`) + chip **GẤP** khi `is_rush` | **KHÔNG BAO GIỜ** — `nowrap`, không ellipsis. Mã là định danh; cắt mã là hỏng cả dòng. |
 | 2 | **Sản phẩm / SL** | `20%` (~226px) | dòng 1 `ten`; dòng 2 `so_luong_dat` + `don_vi_tinh`, thêm `· đã giao {da_giao}` **chỉ khi `da_giao > 0`** | Xuống dòng, clamp **2 dòng** + `title` đủ chữ ở ≥769px; **bỏ clamp** ở ≤768px |
 | 3 | **Khách** | `13%` (~147px) | dòng 1 `khach_hang`; dòng 2 `sale` (nhỏ, `--ash-2`) | như cột 2 |
 | 4 | **Máy / người** | `13%` (~147px) | dòng 1 `may`; dòng 2 `nguoi[]` — hiện **2 tên đầu + `+N`**, `title` đủ tên | cắt **từ cuối** (thứ tự mảng là thứ tự giao) |
@@ -575,8 +575,7 @@ spacing lấy từ `ke-hoach-sx.css`.
 | Tab đang chọn | `--charcoal` nền, `--on-charcoal` chữ |
 | Chip GẤP · focus ring · hover hàng | `--rust` / `--rust-deep` / `--rust-soft` |
 | Trạng thái | `--steel` · `--signal` · `--plum` · `--amber` · `--moss` (+ `-soft`) |
-| Mã, số lượng, %, giờ, ngày | `--ff-num` + `font-variant-numeric: tabular-nums` |
-| Chữ thường (tên SP, khách, công đoạn) | `--ff-sans` — **đừng** dùng `--ff-num` cho chữ |
+| Chữ và số (tên SP, khách, công đoạn, mã, số lượng, %, giờ, ngày) | `--ff-sans` |
 | Cỡ chữ / giãn cách / bo góc | `--fs-*` · `--sp-*` (thang 4px) · `--r-2`/`--r-3`/`--r-5`, pill `--r-pill` |
 
 Bề rộng trang: `max-width: 1360px; margin: 0 auto; padding: var(--sp-5) var(--sp-6)` — rộng hơn

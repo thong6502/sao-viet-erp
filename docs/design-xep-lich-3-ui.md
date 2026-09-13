@@ -165,7 +165,7 @@ chạy độc lập ngoài repo — **code thật không được bê hex đó v
 | Chữ chính / mờ / rất mờ | `--ink` / `--ash` / `--ash-2` |
 | Đường kẻ | `--rule` / `--rule-soft` / `--rule-hair` |
 | Accent (thanh đang chọn, nút Phát hành) | `--rust` / `--rust-deep` / `--rust-soft` |
-| Font chữ / font SỐ-MÃ | `--ff-sans` / `--ff-num` + `font-variant-numeric: tabular-nums` |
+| Font (cả chữ lẫn số, mã) | `--ff-sans` |
 | Cỡ chữ | `--fs-2xs`…`--fs-xl`; đậm `--fw-medium` / `--fw-bold` |
 | Giãn cách | `--sp-1`…`--sp-8` |
 | Bo góc | `--r-2` / `--r-3`; pill `--r-pill` |

@@ -127,7 +127,7 @@ td      padding 12px 14px · kẻ dưới 1px --rule-hair · vertical-align midd
         hàng CUỐI bỏ kẻ (đã có viền ngoài)
 hover   nền --rust-soft
 chọn    nền --rust-soft + box-shadow inset 3px 0 0 --rust (viền trái)
-số      --ff-num + font-variant-numeric: tabular-nums · cột căn PHẢI
+số      --ff-sans · cột căn PHẢI
 ```
 
 **Vì sao nền `--paper` mà vẫn thấy được dải tiêu đề:** `--paper` một mình chỉ lệch
@@ -139,12 +139,11 @@ hàng `--rule-hair` 1px.
 
 ## 7. Chữ
 
-Một font cho toàn bộ **chữ**: **Be Vietnam Pro** (`--ff-sans`), 4 weight 400/500/600/700.
+Một font cho toàn bộ **chữ và số**: **Be Vietnam Pro** (`--ff-sans`), 4 weight
+400/500/600/700 — kể cả tiền, số lượng, giờ, %, mã phiếu, công thức. Không dùng font thứ hai.
 
-`--ff-num` (JetBrains Mono) **chỉ** dùng cho **số và mã** — tiền, số lượng, giờ, %, mã
-phiếu, công thức. Lý do bắt buộc: Be Vietnam Pro có chữ số **rộng khác nhau** (số `1` =
-385 so với số `4` = 710 trên 1000em) và **không có feature `tnum`**, nên cột số dùng sans
-sẽ so le và CSS không cứu được. Luôn đi kèm `font-variant-numeric: tabular-nums`.
+Be Vietnam Pro không có feature `tnum` nên **đừng** khai `font-variant-numeric:
+tabular-nums` (khai cũng vô tác dụng); cột số căn PHẢI.
 
 Nhãn HOA giãn cách là hiệu ứng của `text-transform: uppercase` + `letter-spacing`,
 **không phải** của font — đừng vì cái đó mà lôi font thứ hai vào chữ.
