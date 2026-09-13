@@ -263,9 +263,23 @@ describe("Giấy — ô Công thức tính giá ĐIỀN SẴN khi thêm mới", 
     expect(f.macDinhTheo?.({ don_vi_gia: "cai" })).toBe(CT_TO);
   });
 
-  it("ô Công thức tính định mức KHÔNG điền sẵn — nó là câu hỏi khác", () => {
-    // Ô định mức ra LƯỢNG (kg phải mua), đã có sẵn dữ liệu seed cho hàng cũ; điền sẵn cả hai ô là
-    // mời người khai bấm Lưu mà chưa đọc ô nào.
-    expect(truong(CFG_GIAY, "cong_thuc_luong").macDinhTheo).toBeUndefined();
+  it("ô Công thức tính định mức cũng điền sẵn — nhưng ra LƯỢNG, không có đơn giá", () => {
+    // Cùng chuỗi mg `0197` đã backfill cho giấy bán theo cân (`_CT_LUONG_GIAY_CAN` ở seed): nó là
+    // thứ DUY NHẤT còn đổi được tờ → kg cho bảng cân đối vật tư. Ô này KHÔNG được nhắc tới tiền,
+    // nên chuỗi dừng ở `to_nguyen`, không nhân `don_gia_giay`.
+    const f = truong(CFG_GIAY, "cong_thuc_luong");
+    const CT_KG = "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen";
+    expect(f.macDinhTheo?.({})).toBe(CT_KG);
+    expect(f.macDinhTheo?.({ don_vi_gia: "kg" })).toBe(CT_KG);
+    expect(f.macDinhTheo?.({ don_vi_gia: "tan" })).toBe(CT_KG);
+  });
+
+  it("giấy đếm theo TỜ thì định mức cũng ra TỜ, không ra kg", () => {
+    // Định mức đem so với TỒN KHO, mà kho cộng dồn theo ĐVT gốc của mặt hàng. Giấy khai ĐVT `tờ`
+    // mà định mức trả về kg thì bảng cân đối trừ kg vào một kho đang đếm tờ.
+    const f = truong(CFG_GIAY, "cong_thuc_luong");
+    for (const dv of ["to", "ram", "cai"]) {
+      expect(f.macDinhTheo?.({ don_vi_gia: dv })).toBe("to_nguyen");
+    }
   });
 });

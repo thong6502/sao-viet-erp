@@ -602,20 +602,34 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
   ],
 };
 
-/** Công thức TIỀN giấy điền sẵn cho mặt hàng mới, theo ĐVT đang chọn.
+/** Giấy này bán/đếm theo CÂN hay theo TỜ — câu hỏi quyết định cả hai công thức điền sẵn dưới đây.
  *
- *  Giấy bán theo CÂN thì tiền = khối lượng × đ/kg, mà khối lượng phải dựng lại từ định lượng ×
- *  khổ tờ × số tờ. Giấy đếm theo TỜ thì đơn giá đã là tiền một tờ — nhân thêm định lượng và diện
- *  tích nữa là lệch hàng chục lần, và phiếu vẫn ra một con số trông hợp lý nên không ai soi ra.
- *
- *  ĐVT chưa chọn (ô này không có `default`, mở drawer ra là trống) thì đoán theo CÂN: giấy ở đây
- *  bán theo cân, ô đơn giá ngay trên cũng ghi đ/kg. Chọn ĐVT xong thì công thức tự đổi lại. */
-const congThucGiaGiay = (donViGia: unknown): string => {
+ *  ĐVT chưa chọn (ô đó không có `default`, mở drawer ra là trống) thì coi như theo CÂN: giấy ở
+ *  đây bán theo cân, ô đơn giá ngay trên cũng ghi đ/kg. Chọn ĐVT xong thì công thức tự đổi lại.
+ *  Cùng tập mã với nhánh dự phòng bên `thanh_phan_engine.py`. */
+const giayTheoCan = (donViGia: unknown): boolean => {
   const dv = String(donViGia ?? "");
-  return !dv || dv === "kg" || dv === "tan"
-    ? "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen * don_gia_giay"
-    : "don_gia_giay * to_nguyen";
+  return !dv || dv === "kg" || dv === "tan";
 };
+
+/** Công thức TIỀN giấy điền sẵn cho mặt hàng mới.
+ *
+ *  Theo CÂN thì tiền = khối lượng × đ/kg, mà khối lượng phải dựng lại từ định lượng × khổ tờ × số
+ *  tờ. Đếm theo TỜ thì đơn giá đã là tiền một tờ — nhân thêm định lượng và diện tích nữa là lệch
+ *  hàng chục lần, và phiếu vẫn ra một con số trông hợp lý nên không ai soi ra. */
+const congThucGiaGiay = (donViGia: unknown): string =>
+  (giayTheoCan(donViGia)
+    ? "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen * don_gia_giay"
+    : "don_gia_giay * to_nguyen");
+
+/** Công thức ĐỊNH MỨC điền sẵn — cùng phép đếm, nhưng dừng trước đơn giá: ô này trả lời "một lệnh
+ *  ăn bao nhiêu giấy" cho bảng cân đối vật tư, và tuyệt đối không được nhắc tới tiền.
+ *
+ *  Số nó trả về đi so với TỒN KHO, mà kho cộng dồn theo ĐVT gốc của mặt hàng — nên giấy đếm theo
+ *  tờ thì định mức cũng phải ra tờ, không ra kg. Chuỗi theo cân là chuỗi mg `0197` đã backfill cho
+ *  giấy bán theo cân (`_CT_LUONG_GIAY_CAN` ở `seed_rebuild.py`). */
+const congThucLuongGiay = (donViGia: unknown): string =>
+  (giayTheoCan(donViGia) ? "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen" : "to_nguyen");
 
 export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
@@ -658,6 +672,7 @@ export const CFG_GIAY: CatalogConfig = {
     // `sl_vao`/`sl_ra` và KHÔNG có đơn giá — ô này không được phép nhắc tới tiền.
     { key: "cong_thuc_luong", label: "Công thức tính định mức", type: "formula", loaiO: "quy_doi",
       group: "Giá", nhanTab: "Công thức tính định mức",
+      macDinhTheo: (f) => congThucLuongGiay(f.don_vi_gia),
       hint: "vd: dinh_luong * dai_nguyen * rong_nguyen * to_nguyen — ra số kg giấy phải mua" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
     // NVL thay thế (mục 5 "Bảng định mức", mg 0239) — tra cứu/gợi ý khi thiếu giấy, MỘT CHIỀU.
