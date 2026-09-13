@@ -693,9 +693,8 @@ tiêu đề ghi máy BE-04 nhưng ô **"Máy *"** lại hiện "— Chọn máy 
 
 **Đường vào:** các mục tổ được AppShell tiêm động vào sidebar.
 
-**Đặc thù:** đây là màn cho THỢ, thiết kế TEXTLESS (QR / icon / màu / nút to). Lens nghiệm thu
-riêng: *"người không biết chữ có dùng được không"* — nút phải to, biểu tượng phải rõ, không dựa
-vào chữ nhỏ.
+**Đặc thù:** đây là màn thao tác ngay tại xưởng — tay bận, máy đang chạy, nhìn lướt. Nút phải to,
+biểu tượng phải rõ, số phải lớn, luồng bấm cố định; không dựa vào chữ nhỏ.
 
 **Nghi can:** §35 đã vá "bàn làm việc 3 cột không chịu gập". Cần kiểm: nút ghi sản lượng, hộp quét
 QR, hộp báo lỗi/lý do, nút KCS.
@@ -713,7 +712,7 @@ QR, hộp báo lỗi/lý do, nút KCS.
       số trước–sau (bề ngang ô, số dòng, `scrollWidth/clientWidth`, có chồng nhau không).
 - [ ] **Bước 5: Kiểm cân ngoặc** (`depth 0`), đánh dấu `- [x]` vào bảng theo dõi, báo cáo cụ thể
       đã bấm gì / gõ gì / thấy gì ở từng bước.
-- [ ] **Bước 6:** Nghiệm thu thêm bằng lens "không biết chữ": mỗi nút chính có đạt tối thiểu
+- [ ] **Bước 6:** Nghiệm thu thêm ở khoảng cách thao tác thật: mỗi nút chính có đạt tối thiểu
       44×44px không; biểu tượng có ≥ 24px không. Ghi số đo.
 
 ---
