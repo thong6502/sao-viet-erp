@@ -584,3 +584,42 @@ def test_ngay_nghi_theo_LICH_XUONG_chu_khong_phai_T7_va_CN(db, svc3, lenh, admin
     assert date(2026, 9, 13) in nghi          # chủ nhật
     assert date(2026, 9, 15) in nghi          # lễ khai tay
     assert date(2026, 9, 20) not in nghi      # chủ nhật nhưng làm bù
+
+
+# ============================================================== thu hồi phải MỞ KHOÁ được lệnh
+# Vỡ THẬT 11/09/2026: LSX26-0004 thu hồi vì "chưa chọn giấy" rồi không sửa được giấy nữa. Thu hồi
+# đi chung `go_phat_hanh_lsx` với màn 2 nên lùi đúng một nấc về `da_lap_ke_hoach` — nấc KHOÁ sửa
+# lệnh/routing/xoá, mà cửa ra của nó ("Xoá nháp" màn 2) phải bấm lên một DÒNG xếp lịch thì màn 3
+# không có, còn hàng chờ màn 2 chỉ nhận `san_sang` nên lệnh cũng không hiện ra ở đó.
+
+def test_thu_hoi_o_man_3_tra_lenh_ve_SAN_SANG_va_sua_lai_duoc(db, svc3, lenh, admin, lsx_svc):
+    from app.models.lsx import TT_DA_PHAT_HANH, TT_SAN_SANG
+    from app.schemas.lsx import LsxUpdateIn
+
+    svc3.dat_moc(lenh.id, datetime(2026, 9, 11, 8, 0))
+    svc3.phat_hanh(lenh.id, actor=admin)
+    assert lenh.trang_thai == TT_DA_PHAT_HANH
+
+    kq = _svc_moi(db).thu_hoi(lenh.id, actor=admin, ly_do="chưa chọn giấy")
+
+    assert kq["trang_thai"] == TT_SAN_SANG
+    db.refresh(lenh)
+    assert lenh.trang_thai == TT_SAN_SANG
+    # Cái ĐÍCH của việc thu hồi: sửa lại được. Trước bản vá, đây là `LsxConflict`.
+    lsx_svc.update(lsx_id=lenh.id, payload=LsxUpdateIn(ghi_chu="đổi giấy"), actor=admin)
+
+
+def test_thu_hoi_GIU_da_lap_ke_hoach_khi_lenh_con_dong_xep_lich_cua_man_2(db, svc3, lenh, admin):
+    """Lệnh từng đi qua "đưa vào kế hoạch" của màn 2 thì nấc `da_lap_ke_hoach` là CÓ THẬT — lịch
+    vẫn còn, gỡ tiếp bằng "Xoá nháp". Hạ thẳng về `san_sang` ở đây là bỏ quên đống dòng ấy."""
+    from app.models.lsx import TT_DA_LAP_KE_HOACH
+    from app.models.xep_lich import XepLichCongDoan
+
+    svc3.dat_moc(lenh.id, datetime(2026, 9, 11, 8, 0))
+    svc3.phat_hanh(lenh.id, actor=admin)
+    db.add(XepLichCongDoan(nguon="lsx", lsx_id=lenh.id, source_thu_tu=0))
+    db.commit()
+
+    kq = _svc_moi(db).thu_hoi(lenh.id, actor=admin, ly_do="đổi máy in")
+
+    assert kq["trang_thai"] == TT_DA_LAP_KE_HOACH

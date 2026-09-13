@@ -688,6 +688,9 @@ class XepLich3Service:
         cửa gác xếp lịch mà là chuyện dưới xưởng: bắt gõ LÝ DO (đảo một quyết định đã thả xuống
         thì thứ duy nhất còn lại là cái vết), và chặn khi đã có công việc BẮT ĐẦU chạy (§4.3) —
         rút gói lúc thợ đang làm là xoá việc đang chạy, không phải "không chặn gì hết".
+
+        SAU đó hạ tiếp về `san_sang` khi lệnh KHÔNG có dòng `xep_lich_cong_doan` nào và không nằm
+        trong bài ghép — xem `_ve_san_sang`.
         """
         from ..xep_lich_van_de_service import XepLichVanDeService
 
@@ -703,7 +706,50 @@ class XepLich3Service:
         XepLichVanDeService(self.db, self.audit).go_phat_hanh_lsx(
             lsx_id=lsx_id, actor=actor, ly_do=ly_do,
         )
+        self._ve_san_sang(l, actor=actor)
         return {"lsx_id": lsx_id, "trang_thai": l.trang_thai}
+
+    def _ve_san_sang(self, l, *, actor=None) -> bool:
+        """Hạ lệnh vừa thu hồi từ `da_lap_ke_hoach` xuống `san_sang` khi nấc đó KHÔNG có thật.
+
+        `go_phat_hanh_lsx` là hàm dùng chung với màn 2, nên nó lùi đúng MỘT nấc về
+        `da_lap_ke_hoach`. Ở màn 2 đó là nấc có thật — "đưa vào kế hoạch" đã sinh dòng
+        `xep_lich_cong_doan`, lịch vẫn còn, gỡ tiếp bằng "Xoá nháp". Màn 3 thì KHÔNG có nấc ấy:
+        đặt mốc không đổi trạng thái, `phat_hanh` nhảy thẳng `san_sang → da_phat_hanh`. Thu hồi mà
+        dừng ở `da_lap_ke_hoach` là thả lệnh vào một nấc không màn nào ra được — nấc đó khoá sửa
+        lệnh / sửa routing / đổi trạng thái / xoá (`lsx_service.update`, `replace_routing`,
+        `set_trang_thai`, `xoa`), trong khi "Xoá nháp" của màn 2 phải bấm lên một DÒNG xếp lịch mà
+        lệnh này không có, và hàng chờ màn 2 chỉ nhận `san_sang` nên nó cũng không hiện ra ở đó.
+        Vỡ THẬT 11/09/2026: LSX26-0004 thu hồi vì "chưa chọn giấy" rồi không sửa được giấy nữa.
+
+        HAI cửa giữ lại, vì ở đó `da_lap_ke_hoach` đúng nghĩa và vẫn gỡ được bằng màn 2:
+          · còn dòng `xep_lich_cong_doan` — lệnh từng đi qua "đưa vào kế hoạch" của màn 2;
+          · lệnh là thành viên BÀI GHÉP — trạng thái do bài quyết (`go_bai_ghep`), hạ lẻ một
+            thành viên là bài và lệnh nói hai chuyện khác nhau.
+        """
+        from ...models.bai_ghep import BaiGhepThanhVien
+        from ...repositories.xep_lich_repo import XepLichRepository
+
+        if l.trang_thai != TT_DA_LAP_KE_HOACH:
+            return False
+        if XepLichRepository(self.db).exists_lsx(l.id):
+            return False
+        from sqlalchemy import select
+
+        da_ghep = self.db.execute(
+            select(BaiGhepThanhVien.id).where(BaiGhepThanhVien.lsx_id == l.id).limit(1)
+        ).first()
+        if da_ghep is not None:
+            return False
+        l.trang_thai = TT_SAN_SANG
+        if self.audit is not None:
+            self.audit.create(
+                actor_user_id=getattr(actor, "id", None), action="xep_lich_3_ve_san_sang",
+                target=f"lsx:{l.id}",
+                detail=f"Lệnh {l.ma} về Sẵn sàng sau thu hồi — không còn dòng xếp lịch nào",
+            )
+        self.db.commit()
+        return True
 
     def goi_phat_hanh(self, lsx_id: int) -> dict:
         """Trạng thái gói công việc đã thả xuống xưởng — CHỈ ĐỌC, để màn biết bày nút nào.

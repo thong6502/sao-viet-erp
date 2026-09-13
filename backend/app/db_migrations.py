@@ -13598,3 +13598,33 @@ def _migrate_me_ve_utc_that(db) -> None:
 
 
 MIGRATIONS.append(("0298_me_ve_utc_that", _migrate_me_ve_utc_that))
+
+
+def _migrate_go_ket_lenh_da_lap_khong_lich(db) -> None:
+    """Gỡ kẹt các LSX mang nhãn `da_lap_ke_hoach` mà KHÔNG còn dòng xếp lịch nào.
+
+    Nấc `da_lap_ke_hoach` nghĩa là "đã sinh dòng `xep_lich_cong_doan`" (`models/lsx.py`), và nó
+    KHOÁ sửa lệnh / sửa routing / đổi trạng thái / xoá lệnh. Cửa ra duy nhất là "Xoá nháp" của màn
+    Xếp lịch 2, mà nút đó phải bấm lên một DÒNG xếp lịch; hàng chờ màn 2 lại chỉ nhận `san_sang`.
+    Nên một lệnh rơi vào nấc này mà không có dòng nào thì KHÔNG màn nào cứu được.
+
+    Đường rơi vào đó: thu hồi phát hành ở màn Xếp lịch 3 (`xep_lich_3/service.thu_hoi` đi chung
+    `go_phat_hanh_lsx` của màn 2, lùi đúng một nấc), trong khi màn 3 không hề đi qua nấc ấy lúc
+    phát hành. Đã bịt ở service cùng đợt này (`_ve_san_sang`); migration lo phần dữ liệu đã kẹt.
+
+    CHỪA thành viên bài ghép: trạng thái của họ do bài quyết (`go_bai_ghep`), và bài ghép chỉ sinh
+    dòng cho bước NGOÀI in nên "không có dòng" ở đó là hợp lệ, không phải kẹt.
+    """
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+    if not {"lsx", "xep_lich_cong_doan", "bai_ghep_thanh_vien"} <= bang:
+        return
+    db.execute(text(
+        "UPDATE lsx SET trang_thai = 'san_sang' WHERE trang_thai = 'da_lap_ke_hoach' "
+        "AND NOT EXISTS (SELECT 1 FROM xep_lich_cong_doan x WHERE x.lsx_id = lsx.id) "
+        "AND NOT EXISTS (SELECT 1 FROM bai_ghep_thanh_vien t WHERE t.lsx_id = lsx.id)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0299_go_ket_lenh_da_lap_khong_lich", _migrate_go_ket_lenh_da_lap_khong_lich))
