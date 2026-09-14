@@ -17,6 +17,7 @@ from ...models.san_xuat_san_luong import (
     BG_DIEU_CHINH,
     BG_XAC_NHAN,
     SanXuatBanGiao,
+    SanXuatBanGiaoBatch,
     SanXuatBanGiaoDieuChinh,
 )
 from ...repositories.audit_repo import AuditLogRepository
@@ -69,37 +70,80 @@ def _ket_qua(bg: SanXuatBanGiao, nguon_cv, dich_cv, *, notify_user_id: int | Non
     }
 
 
+def _so_theo_me(
+    repo: SanXuatSanLuongRepository,
+    nguon_cv,
+    batch_ids: list[int] | None,
+    *,
+    ban_giao: SanXuatBanGiao | None = None,
+) -> tuple[list[int], float]:
+    """Chọn mẻ ⇒ ra số lượng giao (14/09/2026). Tổ KHÔNG gõ số: số = tổng TỐT của các mẻ chọn.
+
+    Còn mẻ chưa giao thì phải chọn ít nhất một; mẻ đã đi theo lần giao KHÁC thì không chọn lại được.
+    Hết mẻ chưa giao mà vẫn còn lẻ (điều chỉnh giảm sau xác nhận) thì giao nốt phần lẻ, không mẻ.
+    Số không vượt phần còn chưa giao: bàn giao tạo trước khi có giao-theo-mẻ không gắn mẻ nào, nên
+    mẻ cũ vẫn hiện "chưa giao" dù số đã đi rồi.
+
+    `ban_giao` = lần giao đang SỬA: mẻ của chính nó chọn lại được, số của nó không tính là đã giao."""
+    cua_no: set[int] = set()
+    con_lai = repo.tong_tot(nguon_cv.id) - repo.tong_da_giao(nguon_cv.id)
+    if ban_giao is not None:
+        cua_no = set(repo.me_cua_ban_giao_nhieu([ban_giao.id]).get(ban_giao.id, []))
+        con_lai += float(ban_giao.so_luong)
+    da_giao = repo.batch_da_giao_ids(nguon_cv.id) - cua_no
+    chua_giao = {
+        b.id: b for b in repo.cac_batch(nguon_cv.id)
+        if b.id not in da_giao and float(b.tot) > _EPS
+    }
+    chon = list(dict.fromkeys(batch_ids or []))
+    if chon:
+        if any(i not in chua_giao for i in chon):
+            raise ValueError("Có mẻ không thuộc bước này, không có sản lượng tốt hoặc đã giao rồi.")
+        sl = min(sum(float(chua_giao[i].tot) for i in chon), con_lai)
+    elif chua_giao:
+        raise ValueError("Chọn mẻ cần giao.")
+    else:
+        sl = con_lai
+    if sl <= _EPS:
+        raise ValueError("Không còn sản lượng tốt để giao.")
+    return chon, sl
+
+
 def de_xuat(
     db: Session,
     *,
     user,
     nguon_cong_viec_id: int,
     dich_cong_viec_id: int | None,
-    so_luong,
     don_vi: str | None = None,
+    batch_ids: list[int] | None = None,
 ) -> dict:
-    """Bên NGUỒN đề xuất giao một lượng sản lượng tốt sang công đoạn sau (§11.2).
+    """Bên NGUỒN đề xuất giao sản lượng tốt sang công đoạn sau (§11.2).
 
-    Cùng tổ + cùng LSX → `confirmed` ngay. Khác → `proposed`, chờ bên đích xác nhận. Không giao vượt
-    (tổng tốt − đã giao)."""
+    Cùng tổ + cùng LSX → `confirmed` ngay. Khác → `proposed`, chờ bên đích xác nhận.
+
+    ĐÍCH phải là chặng sau theo routing lệnh (`cong_viec_chang_sau`) — không còn chọn tự do trong
+    mọi việc cùng lệnh. Bước cuối lệnh (không có chặng sau) mới được giao ra ngoài (`dich=None`).
+
+    GIAO THEO MẺ: số lượng suy ra từ mẻ chọn (`_so_theo_me`), không nhận số gõ tay. Đếm thực tế lệch
+    thì bên nhận xác nhận xong rồi ĐIỀU CHỈNH (§11.3)."""
     repo = SanXuatSanLuongRepository(db)
     nguon_cv = repo.cong_viec(nguon_cong_viec_id)
     if nguon_cv is None:
         raise ValueError("Không tìm thấy công việc nguồn.")
     _gate(db, user, nguon_cv)
 
-    dich_cv = repo.cong_viec(dich_cong_viec_id) if dich_cong_viec_id else None
-    if dich_cong_viec_id and dich_cv is None:
-        raise ValueError("Không tìm thấy công việc đích.")
+    chang_sau = {c.id: c for c in repo.cong_viec_chang_sau(nguon_cv)}
+    if chang_sau:
+        if not dich_cong_viec_id:
+            raise ValueError("Bước này còn chặng sau theo routing — phải giao cho chặng sau.")
+        if dich_cong_viec_id not in chang_sau:
+            raise ValueError("Đích bàn giao không phải chặng sau của bước này theo routing.")
+    elif dich_cong_viec_id:
+        raise ValueError("Bước cuối của lệnh không có chặng sau — chỉ giao ra kho.")
+    dich_cv = chang_sau.get(dich_cong_viec_id) if dich_cong_viec_id else None
 
-    sl = _so_khong_am(so_luong, "Số lượng bàn giao")
-    if sl <= 0:
-        raise ValueError("Số lượng bàn giao phải lớn hơn 0.")
-    con_lai = repo.tong_tot(nguon_cong_viec_id) - repo.tong_da_giao(nguon_cong_viec_id)
-    if sl > con_lai + _EPS:
-        raise ValueError(
-            f"Vượt sản lượng tốt còn lại để giao ({con_lai:g})."
-        )
+    chon, sl = _so_theo_me(repo, nguon_cv, batch_ids)
 
     don_vi_bg = (don_vi or nguon_cv.don_vi_ra or "").strip()
     if not don_vi_bg:
@@ -121,11 +165,16 @@ def de_xuat(
     )
     repo.add(bg)
     repo.flush()
+    for batch_id in chon:
+        repo.add(SanXuatBanGiaoBatch(ban_giao_id=bg.id, batch_id=batch_id))
     AuditLogRepository(db).create(
         actor_user_id=getattr(user, "id", None),
         action="san_xuat_ban_giao_de_xuat",
         target=f"san_xuat_ban_giao:{bg.id}",
-        detail=f"nguon={nguon_cv.id} dich={dich_cv.id if dich_cv else '-'} sl={sl} {'cung_to' if cung_to else 'de_xuat'}",
+        detail=(
+            f"nguon={nguon_cv.id} dich={dich_cv.id if dich_cv else '-'} sl={sl} "
+            f"me={','.join(map(str, chon)) or '-'} {'cung_to' if cung_to else 'de_xuat'}"
+        ),
     )
     db.commit()
     # Chờ xác nhận → báo tổ trưởng ĐÍCH; tự xác nhận → không cần báo ai đợi.
@@ -138,10 +187,11 @@ def sua_de_xuat(
     *,
     user,
     ban_giao_id: int,
-    so_luong,
+    batch_ids: list[int] | None,
     expected_version: int | None = None,
 ) -> dict:
-    """Bên NGUỒN sửa số lượng khi bàn giao còn `proposed` (§11.2 "bên giao sửa số đề xuất")."""
+    """Bên NGUỒN sửa lại MẺ đi theo lần giao khi còn `proposed` (§11.2) — tick nhầm thì gỡ ra, sót
+    thì thêm vào; số lượng tính lại theo mẻ. Đã xác nhận thì không sửa mẻ nữa, chỉ điều chỉnh số."""
     repo = SanXuatSanLuongRepository(db)
     bg = repo.ban_giao(ban_giao_id)
     if bg is None:
@@ -153,18 +203,28 @@ def sua_de_xuat(
     _gate(db, user, nguon_cv)
     _kiem_version(bg, expected_version)
 
-    sl = _so_khong_am(so_luong, "Số lượng bàn giao")
-    if sl <= 0:
-        raise ValueError("Số lượng bàn giao phải lớn hơn 0.")
-    # Trần loại trừ chính đề xuất này (đang tính trong tổng đã giao).
-    con_lai = repo.tong_tot(bg.nguon_cong_viec_id) - (
-        repo.tong_da_giao(bg.nguon_cong_viec_id) - float(bg.so_luong)
-    )
-    if sl > con_lai + _EPS:
-        raise ValueError(f"Vượt sản lượng tốt còn lại để giao ({con_lai:g}).")
+    chon, sl = _so_theo_me(repo, nguon_cv, batch_ids, ban_giao=bg)
+    sl_truoc = float(bg.so_luong)
+
+    # Gỡ dòng cũ TRƯỚC rồi mới thêm: `batch_id` UNIQUE, mà trong một lần flush SQLAlchemy chèn
+    # trước xoá sau. Mẻ giữ nguyên thì giữ nguyên dòng.
+    cu = {lk.batch_id: lk for lk in repo.lien_ket_me(bg.id)}
+    for batch_id, lk in cu.items():
+        if batch_id not in chon:
+            repo.delete(lk)
+    repo.flush()
+    for batch_id in chon:
+        if batch_id not in cu:
+            repo.add(SanXuatBanGiaoBatch(ban_giao_id=bg.id, batch_id=batch_id))
 
     bg.so_luong = sl
     bg.version += 1
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None),
+        action="san_xuat_ban_giao_sua",
+        target=f"san_xuat_ban_giao:{bg.id}",
+        detail=f"sl={sl_truoc:g}->{sl:g} me={','.join(map(str, chon)) or '-'}",
+    )
     db.commit()
     return _ket_qua(bg, nguon_cv, dich_cv, notify_user_id=_head(db, dich_cv.department_id if dich_cv else None))
 

@@ -361,6 +361,9 @@ class BatchOut(BaseModel):
     nguoi_tham_gia: list[NguoiThamGiaBatchOut]
     chia_du_kien: ChiaDuKienOut | None = None
     lot_vao: list[LotVaoOut]
+    # Mẻ đã đi theo một lần bàn giao chưa (`san_xuat_ban_giao_batch`) — form bàn giao chỉ liệt kê
+    # mẻ chưa giao.
+    da_ban_giao: bool = False
 
 
 class SanLuongOut(BaseModel):
@@ -387,16 +390,22 @@ class BanGiaoOut(BaseModel):
     trang_thai: str                     # proposed | confirmed | adjusted
     khong_nhat_quan: bool
     version: int
+    batch_ids: list[int] = []           # các mẻ của công đoạn nguồn đi theo lần giao này
 
 
-class BanGiaoDichGoiYOut(BaseModel):
-    """Gợi ý ĐÍCH khi tạo bàn giao — chặng sau cùng gói/LSX (§11.2). Ngoài danh sách này, tổ
-    trưởng vẫn được chọn "giao ra ngoài" (đích trống)."""
+class BanGiaoChangSauOut(BaseModel):
+    """CHẶNG SAU theo routing lệnh — đích bàn giao hợp lệ duy nhất (§11.2). Nhiều dòng khi bước
+    sau tách lần chạy hoặc routing rẽ nhánh; rỗng = bước cuối lệnh, giao ra kho."""
     cong_viec_id: int
     ten_cong_doan: str
     to_id: int | None = None
     to_ten: str | None = None
     du_kien_bat_dau: datetime | None = None
+    phan_doan_so: int = 1
+    phan_doan_tong: int = 1
+    loai_buoc: str
+    nha_cung_cap: str | None = None
+    trang_thai: str
 
 
 class VatTuNhanOut(BaseModel):
@@ -557,7 +566,7 @@ class WorkItemChiTietOut(BaseModel):
     san_luong: SanLuongOut
     ban_giao_di: list[BanGiaoOut]
     ban_giao_den: list[BanGiaoOut]
-    ban_giao_goi_y: list[BanGiaoDichGoiYOut]
+    ban_giao_chang_sau: list[BanGiaoChangSauOut]
     vat_tu: list[VatTuNhanOut]
     vat_tu_cap: VatTuCapOut = VatTuCapOut()
     ho_tro: list[HoTroChiTietOut]
@@ -610,13 +619,14 @@ class SanLuongKetQuaOut(BaseModel):
 
 
 class BanGiaoDeXuatIn(BaseModel):
-    dich_cong_viec_id: int | None = None  # None = giao ra ngoài (nhập kho BTP, pha sau)
-    so_luong: float
+    dich_cong_viec_id: int | None = None  # None = giao ra kho — chỉ bước cuối lệnh
     don_vi: str | None = None
+    # Mẻ đi theo lần giao (bắt buộc khi còn mẻ chưa giao). Số lượng suy ra từ mẻ, không nhận số gõ.
+    batch_ids: list[int] = []
 
 
 class BanGiaoSuaIn(BaseModel):
-    so_luong: float
+    batch_ids: list[int] = []             # danh sách mẻ MỚI của lần giao còn chờ xác nhận
     expected_version: int | None = None
 
 

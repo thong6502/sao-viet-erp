@@ -29,7 +29,6 @@ import { ngayToWall, type Xl2Zoom } from "./xl2Shared";
 import { wallMinutes, nowWall } from "./gantt-time";
 import { ThsxTimeline } from "./ThsxTimeline";
 import { ThsxDanhSach } from "./ThsxDanhSach";
-import { ThsxCards } from "./ThsxCards";
 import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { ThsxDrawer } from "./ThsxDrawer";
 import { type ThsxExec } from "./ThsxExecPanels";
@@ -76,14 +75,14 @@ function readZoom(): Xl2Zoom {
   return s === "gio" || s === "ca" || s === "ngay" || s === "tuan" ? s : "ca";
 }
 
-// Kiểu view bàn tổ: "the" (Thẻ công việc - Workstation Studio), "danh_sach" (bảng tràn màn) hay "lich" (Gantt).
-type ThsxView = "the" | "danh_sach" | "lich";
+// Kiểu view bàn tổ: "danh_sach" (bảng tràn màn) hay "lich" (Gantt). View "Thẻ" đã gỡ 14/09/2026 —
+// máy nào còn lưu "the" trong localStorage thì rơi về mặc định Bảng.
+type ThsxView = "danh_sach" | "lich";
 const VIEW_KEY = "thsx.view";
 
 function readView(): ThsxView {
   const s = typeof localStorage !== "undefined" ? localStorage.getItem(VIEW_KEY) : null;
-  if (s === "the" || s === "danh_sach" || s === "lich") return s;
-  return "the";
+  return s === "lich" ? "lich" : "danh_sach";
 }
 
 type ReasonKind = "bat_dau" | "tam_dung" | "ket_thuc";
@@ -138,7 +137,7 @@ export function ThucHienSxPage({
   const canKhoRead = can("kho", "read");     // xem hộp thư kho §14
   const canKhoCreate = can("kho", "create"); // xác nhận nhập/nhận (nhân viên kho)
 
-  // Bàn tổ có HAI hình dữ liệu (11/09/2026): `lenh` = một TRANG lệnh/bài ghép (view Thẻ + Danh
+  // Bàn tổ có HAI hình dữ liệu (11/09/2026): `lenh` = một TRANG lệnh/bài ghép (view Danh
   // sách, máy chủ đã gom và cắt trang theo LỆNH); `items` = mảng bước phẳng (view Lịch/Gantt —
   // trục thời gian không có tầng lệnh). Đúng một hình được nạp mỗi lần, tuỳ `view`.
   const [items, setItems] = useState<SxWorkItem[] | null>(null);
@@ -656,7 +655,7 @@ export function ThucHienSxPage({
       taoBatch: (b) => mutate(() => api.sanXuat.taoBatch(token!, selectedId!, b), "Đã ghi mẻ sản lượng.")
         .then((r) => (r ? r.ket_qua_lsx ?? [] : null)),
       deXuatBanGiao: (b) => ok(mutate(() => api.sanXuat.deXuatBanGiao(token!, selectedId!, b), "Đã đề xuất bàn giao.")),
-      suaBanGiao: (id, b) => ok(mutate(() => api.sanXuat.suaBanGiao(token!, id, b), "Đã sửa số lượng bàn giao.")),
+      suaBanGiao: (id, b) => ok(mutate(() => api.sanXuat.suaBanGiao(token!, id, b), "Đã sửa mẻ bàn giao.")),
       xacNhanBanGiao: (id, v) => ok(mutate(() => api.sanXuat.xacNhanBanGiao(token!, id, { expected_version: v }), "Đã xác nhận bàn giao.")),
       dieuChinhBanGiao: (id, b) => ok(mutate(() => api.sanXuat.dieuChinhBanGiao(token!, id, b), "Đã điều chỉnh bàn giao.")),
       xacNhanVatTu: (voucherId) => ok(mutate(() => api.sanXuat.xacNhanVatTu(token!, { voucher_id: voucherId, department_id: teamId }), "Đã xác nhận nhận vật tư.")),
@@ -687,6 +686,19 @@ export function ThucHienSxPage({
 
   const panelOpen = selectedId != null;
 
+  // Ngăn chi tiết là lớp NỔI (trượt từ phải, nền mờ) như drawer danh mục — Esc đóng như ở đó.
+  // Nhường Esc cho lớp trên nó: hộp thoại xác nhận (`.cdlg-overlay`) và ô nào đã tự nuốt phím.
+  useEffect(() => {
+    if (!panelOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector(".cdlg-overlay")) return;
+      closePanel();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [panelOpen, closePanel]);
+
   // ============================ render =======================================
   return (
     <div className="thsx">
@@ -715,10 +727,6 @@ export function ThucHienSxPage({
           </button>
         </div>
         <div className="thsx-seg" role="group" aria-label="Kiểu xem">
-          <button type="button" className="thsx-seg__btn" title="Xem dạng Thẻ công việc (Workstation Studio)"
-            aria-pressed={view === "the"} onClick={() => setView("the")}>
-            <Icon name="box" size={13} /> Thẻ
-          </button>
           <button type="button" className="thsx-seg__btn" title="Xem danh sách bản ghi (Bảng)"
             aria-pressed={view === "danh_sach"} onClick={() => setView("danh_sach")}>
             <Icon name="table" size={13} /> Bảng
@@ -780,7 +788,7 @@ export function ThucHienSxPage({
         onKhoXacNhanBtp={onKhoXacNhanBtp}
       />
 
-      {/* Lưới 3 cột — Tự ẩn sidebar trái khi ở chế độ Thẻ hoặc Bảng để tràn 100% không gian */}
+      {/* Lưới 3 cột — Tự ẩn sidebar trái khi ở chế độ Bảng để tràn 100% không gian */}
       <div className={`thsx-grid${panelOpen ? " is-panel" : ""}${view !== "lich" ? " thsx-grid--full" : ""}`}>
         {/* CỘT TRÁI — CHỈ hiện ở chế độ Lịch (Gantt) để kéo việc vào timeline, tránh trùng lặp */}
         {view === "lich" && (
@@ -813,32 +821,12 @@ export function ThucHienSxPage({
           </aside>
         )}
 
-        {/* CỘT GIỮA — Thẻ công việc (Card View), bảng (Danh sách) hoặc timeline (Gantt) */}
+        {/* CỘT GIỮA — bảng (Danh sách) hoặc timeline (Gantt) */}
         <section className="thsx-center thsx-col--center">
           {err ? (
             <div className="thsx-centerempty"><BangLoi text={err} onRetry={loadItems} /></div>
           ) : (view === "lich" ? items : lenh) == null ? (
             view === "lich" ? <TimelineSkeleton /> : <ListSkeleton />
-          ) : view === "the" ? (
-            (lenh ?? []).length === 0 ? (
-              <div className="thsx-centerempty">
-                <EmptyState icon={q ? "search" : "check"}
-                  title={q ? "Không khớp tìm kiếm" : "Chưa có việc phát hành"}
-                  sub={q ? "Thử đổi từ khoá." : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
-              </div>
-            ) : (
-              <>
-                <ThsxCards
-                  lenh={lenh ?? []}
-                  selectedId={selectedId}
-                  onPick={pickViec}
-                  onBatDau={(w) => { pickViec(w); onBatDau(); }}
-                  onTamDung={(w) => { pickViec(w); onTamDung(); }}
-                  onKetThuc={(w) => { pickViec(w); onKetThuc(); }}
-                />
-                <ThanhTrang trang={trang} soTrang={soTrang} tong={tongLenh} onDoi={setTrang} />
-              </>
-            )
           ) : view === "danh_sach" ? (
             (lenh ?? []).length === 0 ? (
               <div className="thsx-centerempty">
@@ -876,7 +864,7 @@ export function ThucHienSxPage({
           )}
         </section>
 
-        {/* CỘT PHẢI — drawer chi tiết */}
+        {/* NGĂN CHI TIẾT — lớp nổi trượt từ phải (không chiếm cột lưới) */}
         <aside className={`thsx-panel${panelOpen ? " thsx-panel--open" : ""}`}
           aria-label="Chi tiết công việc đang chọn">
           {panelOpen && (
@@ -912,7 +900,7 @@ export function ThucHienSxPage({
         </aside>
       </div>
 
-      {/* Nền mờ đóng drawer (chỉ hiện trên màn hẹp qua CSS) */}
+      {/* Nền mờ phía sau ngăn chi tiết — bấm ra ngoài là đóng */}
       {panelOpen && <div className="thsx-scrim" onClick={closePanel} aria-hidden="true" />}
 
       {/* Dải chân — chú giải trạng thái + cửa sổ */}

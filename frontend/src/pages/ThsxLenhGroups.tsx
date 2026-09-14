@@ -2,8 +2,7 @@
 //
 // Chủ xưởng chốt 11/09/2026: *"lệnh hoặc bài ghép thôi, chứ không làm sao tôi biết được công đoạn
 // đó cho lệnh nào"*. Component này chỉ lo tầng ngoài (dòng lệnh + gấp/mở); công đoạn bên trong do
-// nơi gọi vẽ qua `render` — nhờ vậy view "thẻ" và view "danh sách" dùng CHUNG một tầng lệnh mà
-// vẫn giữ mật độ hiển thị riêng của mình.
+// nơi gọi vẽ qua `render` (hiện chỉ còn view "danh sách" — view "thẻ" đã gỡ 14/09/2026).
 //
 // Cắt trang do MÁY CHỦ làm, đếm theo LỆNH (xem `api.sanXuat.workItems`), nên ở đây không có chỗ
 // nào cắt mảng — `lenh` nhận vào là đúng một trang.

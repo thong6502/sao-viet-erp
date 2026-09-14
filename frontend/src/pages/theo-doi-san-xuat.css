@@ -529,7 +529,6 @@
   padding: 14px 16px;
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
-  border-left: 4px solid var(--rule);
   border-radius: var(--r-5);
   box-shadow: 0 2px 8px -1px rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
   cursor: pointer;
@@ -544,12 +543,6 @@
   box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.08);
 }
 .tdsx-kb__card:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
-
-/* Status accent borders */
-.tdsx-kb__card--rush { border-left-color: var(--rust) !important; }
-.tdsx-kb__card--late { border-left-color: var(--signal) !important; }
-.tdsx-kb__card--running { border-left-color: var(--moss) !important; }
-.tdsx-kb__card--paused { border-left-color: var(--amber) !important; }
 
 /* Header row of card: Code + Rush/Step Pill */
 .tdsx-kb__card-head {

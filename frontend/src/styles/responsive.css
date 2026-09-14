@@ -4787,7 +4787,7 @@
    `.cl-card__head` (`luong.css:886`) là hàng `space-between` KHÔNG khai `flex-wrap`. Ở tab con
    "Danh mục khoản thu nhập", nút "+ Thêm khoản" bị bóp còn 57px và gãy làm ba dòng
    ("+ / Thêm / khoản"), cao 66px (ảnh `t18-dm-01.png`). Cho wrap thì nút về 119px, cao 44px —
-   đúng sàn chạm ngón. Lớp này còn được `LeaderBonusEditor.tsx:140` dùng; đã vào xem sau khi vá.
+   đúng sàn chạm ngón.
 
    (5) KHUÔN 4 — HỒ SƠ CỦA TÔI: ELLIPSIS NUỐT MẤT NỘI DUNG.
    Bảng đề nghị: `ho-so-cua-toi.css:256` đặt `table-layout: fixed`, `:272` chốt cột "Thao tác"

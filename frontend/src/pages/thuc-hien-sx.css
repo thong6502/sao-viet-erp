@@ -201,11 +201,9 @@
   grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) 0px;
   gap: 0;
   overflow: hidden;
-  transition: grid-template-columns 220ms var(--easing-standard);
 }
-.thsx-grid.is-panel {
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) 440px;
-}
+/* Mở ngăn chi tiết KHÔNG còn nới cột thứ ba: ngăn là lớp nổi `position: fixed` (xem khối
+   "NGĂN CHI TIẾT" dưới), bảng việc giữ nguyên bề ngang phía sau nền mờ. */
 .thsx-col--center { min-width: 0; }
 
 /* ================= CỘT TRÁI — DANH SÁCH VIỆC =============================== */
@@ -743,62 +741,28 @@
 }
 .thsx-ds__tbl tr:last-child td { border-bottom: 0; }
 
-/* Status Left Accent Borders & Row Styling */
+/* Dòng bảng — KHÔNG vạch màu cạnh trái (user bỏ 14/09/2026); trạng thái đã có pill ở cột cuối,
+   dòng đang chọn chỉ đổi nền. */
 .thsx-ds__row {
   cursor: pointer;
-  transition: background var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
+  transition: background var(--duration-fast) ease;
 }
 .thsx-ds__row:hover { background: #f8fafc; }
 .thsx-ds__row:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
 
-/* Selected Row — Subtle neutral slate highlight with rust indicator */
 .thsx-ds__row--sel {
   background: #f1f5f9;
 }
 .thsx-ds__row--sel:hover {
   background: #e2e8f0;
 }
-.thsx-ds__row--sel td:first-child {
-  box-shadow: inset 4px 0 0 var(--rust) !important;
-}
-
-/* Left Accent Indicator by Status */
-.thsx-ds__row--running td:first-child { box-shadow: inset 4px 0 0 var(--moss); }
-.thsx-ds__row--paused td:first-child { box-shadow: inset 4px 0 0 var(--amber); }
-.thsx-ds__row--released td:first-child { box-shadow: inset 4px 0 0 var(--steel); }
 .thsx-ds__row--completed td:first-child { opacity: 0.8; }
-
-.thsx-ds__row--kcs td:first-child { box-shadow: inset 4px 0 0 var(--plum); }
 
 /* Source & Code Cell */
 .thsx-ds__src-cell {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.thsx-ds__exp-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-pill);
-  background: var(--canvas);
-  color: var(--ash-2);
-  cursor: pointer;
-  flex: none;
-  transition: transform var(--duration-fast) ease, background var(--duration-fast) ease, color var(--duration-fast) ease;
-}
-.thsx-ds__exp-btn:hover {
-  background: var(--paper);
-  color: var(--ink);
-}
-.thsx-ds__exp-btn.is-expanded {
-  transform: rotate(180deg);
-  background: var(--charcoal);
-  color: var(--on-charcoal);
-  border-color: var(--charcoal);
 }
 .thsx-ds__src-main { display: flex; flex-direction: column; gap: 1px; }
 .thsx-ds__src {
@@ -982,65 +946,63 @@
 .thsx-ds__empty-val { color: var(--ash-2); font-style: italic; font-size: var(--fs-xs); }
 .thsx-rot270 { transform: rotate(270deg); }
 
-/* Dòng mở rộng (Expanded Panel) */
-.thsx-ds__exp-row td {
-  padding: 0;
-  border-bottom: 1px solid var(--rule);
-  background: var(--paper);
-}
-.thsx-ds__exp-panel {
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--paper);
-  border-top: 1px dashed var(--rule);
-}
-.thsx-ds__exp-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: var(--sp-4);
-}
-.thsx-ds__exp-block { display: flex; flex-direction: column; gap: 4px; }
-.thsx-ds__exp-lbl {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--ash-2);
-}
-.thsx-ds__exp-txt {
-  font-size: var(--fs-xs);
-  color: var(--ink);
-  background: var(--canvas);
-  padding: 6px 10px;
-  border-radius: var(--r-2);
-  border: 1px solid var(--rule-soft);
-  line-height: 1.4;
-}
-.thsx-ds__exp-specs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.thsx-ds__exp-tag {
-  font-size: 11px;
-  padding: 3px 8px;
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
-  color: var(--ink);
-}
-.thsx-ds__exp-tag b { color: var(--rust-deep); }
 
 
-
-/* ================= CỘT PHẢI — DRAWER ======================================= */
+/* ================= NGĂN CHI TIẾT — LỚP NỔI TRƯỢT TỪ PHẢI ===================
+   Cùng dáng drawer danh mục (`rebuild-catalog.css` `.rc-drawer`): nổi đè lên trang, nền mờ
+   phía sau, trượt từ mép phải vào. Trước 13/09/2026 ở màn rộng ngăn này là CỘT THỨ BA của lưới
+   (đẩy bảng việc hẹp lại), chỉ ≤1180px mới hoá lớp trượt. */
 .thsx-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 61;
+  width: max(50vw, 540px);
+  max-width: 95vw;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
   border-left: 1px solid var(--rule-soft);
+  border-radius: var(--r-6) 0 0 var(--r-6);
   background: var(--canvas);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(100%);
+  visibility: hidden;
+  /* Đang trượt ra (220ms) thì ngăn đã rỗng — đừng để nó chặn cú bấm vào bảng việc bên dưới. */
+  pointer-events: none;
+  transition: transform 220ms var(--easing-standard), visibility 0s linear 220ms;
 }
-.thsx-grid:not(.is-panel) .thsx-panel { border-left: 0; }
+.thsx-panel--open {
+  transform: translateX(0);
+  visibility: visible;
+  pointer-events: auto;
+  transition: none;
+  animation: thsx-panel-slide 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.thsx-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(13, 12, 10, 0.48);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: thsx-scrim-fade var(--duration-base) var(--easing-standard);
+}
+@keyframes thsx-panel-slide {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes thsx-scrim-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thsx-panel,
+  .thsx-panel--open,
+  .thsx-scrim { transition: none; animation: none; }
+}
 .thsx-panel__inner {
   display: flex;
   flex-direction: column;
@@ -1095,7 +1057,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--sp-4);
+  padding: var(--sp-3);
 }
 .thsx-panel__loading,
 .thsx-panel__empty {
@@ -1144,7 +1106,7 @@
   min-width: 0;
 }
 .thsx-kv__v--num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 /* Câu VÌ SAO ra con số ấy ("Số bản kẽm = 4 bản kẽm") — nằm TRONG ô giá trị chứ không thành dòng
@@ -1191,6 +1153,9 @@
   color: var(--ink);
   white-space: pre-wrap;
 }
+/* Kế hoạch không gửi ghi chú nào — vẫn hiện một dòng mờ để thợ biết là KHÔNG có, chứ không phải
+   màn tải thiếu. */
+.thsx-dando--trong { color: var(--ash-2); font-style: italic; }
 .thsx-qc .thsx-dando {
   margin-top: var(--sp-2);
   padding-top: var(--sp-2);
@@ -1447,6 +1412,18 @@
 }
 .thsx-x-form--sub { background: var(--canvas); margin-top: var(--sp-2); }
 .thsx-x-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+/* Hỗ trợ chéo: ô lọc Tổ hẹp hơn ô chọn Thợ; màn hẹp thì xếp dọc, không bóp tên. */
+.thsx-x-grid-to { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: var(--sp-2); }
+@media (max-width: 520px) { .thsx-x-grid-to { grid-template-columns: minmax(0, 1fr); } }
+/* Nút mở Select dùng chung, đội lốt ô nhập của màn xưởng (viền giấy, focus gỉ) cho cùng hàng với
+   ô ngày / tỷ lệ. Hai lớp để thắng `.sel__trigger` bất kể thứ tự nạp CSS. */
+.sel__trigger.thsx-x-seltrig {
+  border: 1px solid var(--rule); border-radius: var(--r-2);
+  background: var(--paper); color: var(--ink);
+  font-size: var(--fs-sm); padding: 6px 8px; min-height: 36px;
+}
+.sel__trigger.thsx-x-seltrig.is-open,
+.sel__trigger.thsx-x-seltrig:focus-visible { border-color: var(--rust); box-shadow: none; outline: 2px solid var(--rust); outline-offset: -1px; }
 .thsx-x-fld { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .thsx-x-fld__l { font-size: var(--fs-2xs); color: var(--ash); font-weight: var(--fw-medium); }
 .thsx-x-in, .thsx-x-sel {
@@ -1473,6 +1450,34 @@
 
 .thsx-x-hint { margin: 0; font-size: var(--fs-2xs); color: var(--ash); }
 .thsx-x-hint b { color: var(--ink); }
+.thsx-x-hint--err, .thsx-x-hint--err b { color: var(--rust-deep); }
+
+/* Bàn giao (14/09/2026): chặng sau lấy theo routing nên hiện CỐ ĐỊNH như một ô chỉ-đọc, không phải
+   select. Danh sách chọn (`.thsx-x-chon`) chỉ dùng khi thật sự có lựa chọn: nhiều lần chạy/nhánh
+   của chặng sau, và các mẻ chưa giao. Ô chọn cao ≥ 40px — màn xưởng bấm bằng ngón tay. */
+.thsx-x-dich {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  border: 1px solid var(--rule); border-radius: var(--r-2);
+  background: var(--canvas); color: var(--ink);
+  font-size: var(--fs-sm); padding: 8px 10px;
+}
+.thsx-x-dich svg { color: var(--ash); flex: none; }
+.thsx-x-dich__ten { font-weight: var(--fw-medium); min-width: 0; }
+.thsx-x-dich__gio { margin-left: auto; font-size: var(--fs-2xs); color: var(--ash); }
+.thsx-x-chon { display: flex; flex-direction: column; gap: 4px; }
+.thsx-x-chon__o {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  min-height: 40px; box-sizing: border-box;
+  border: 1px solid var(--rule); border-radius: var(--r-2);
+  background: var(--paper); color: var(--ink);
+  font-size: var(--fs-sm); padding: 6px 10px; cursor: pointer;
+}
+.thsx-x-chon__o.is-on { border-color: var(--rust); background: var(--canvas); }
+.thsx-x-chon__o input { margin: 0; flex: none; accent-color: var(--rust); width: 16px; height: 16px; }
+.thsx-x-chon__ten { min-width: 0; }
+.thsx-x-chon__phu { margin-left: auto; font-size: var(--fs-2xs); color: var(--ash); }
+.thsx-x-chon__phu b { color: var(--ink); }
+.thsx-x-bg__me { font-size: var(--fs-2xs); color: var(--ash); flex: none; }
 
 .thsx-x-act { display: flex; gap: var(--sp-2); justify-content: flex-end; }
 .thsx-x-act--row { justify-content: flex-start; margin-top: var(--sp-2); }
@@ -1573,6 +1578,14 @@
 .thsx-x-vt__ic { color: var(--ash-2); flex: none; }
 .thsx-x-vt__ic.is-ok { color: var(--moss-deep); }
 .thsx-x-vt__ma { font-size: var(--fs-sm); color: var(--ink); }
+/* Mã phiếu + icon là NÚT mở drawer phiếu kho, giãn hết phần trống để cả dòng bấm được (trừ nút bên phải). */
+.thsx-x-vt__open { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 2px 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.thsx-x-vt:has(.thsx-x-vt__open:hover) { border-color: var(--rule); background: var(--paper); }
+.thsx-x-vt__open:hover .thsx-x-vt__ma { text-decoration: underline; text-underline-offset: 2px; }
+.thsx-x-vt__open:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: var(--r-2); }
+/* Lớp portal bọc drawer phiếu kho — đặt trên `.thsx-panel` (61); focus lập trình không vẽ viền. */
+.thsx-phieu-kho-lop { position: fixed; inset: 0; z-index: 70; }
+.thsx-phieu-kho-lop:focus { outline: none; }
 /* Kho ĐÃ NHẬN lot (§14.1) — dòng lot trong drawer phải nói được hàng nằm kho nào. */
 .thsx-x-vt__kho { font-size: var(--fs-2xs); color: var(--ash); }
 .thsx-x-vt__at { font-size: var(--fs-2xs); color: var(--moss-deep); }
@@ -1591,37 +1604,17 @@
 .thsx-x-vt-delta__row.is-down { color: var(--rust-deep); }
 .thsx-x-vt-delta__lbl { color: var(--ash); margin-right: 3px; }
 
-/* một THẺ mỗi dòng vật tư (drawer hẹp — bảng nhiều cột trong khung cuộn là bẫy đã biết) */
-.thsx-x-vtline {
-  border: 1px solid var(--rule-soft); border-radius: var(--r-3); background: var(--canvas);
-  padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: 6px;
-}
-.thsx-x-vtline + .thsx-x-vtline { margin-top: var(--sp-2); }
-.thsx-x-vtline__h { display: flex; align-items: center; gap: 6px; }
-.thsx-x-vtline__ref { font-size: var(--fs-2xs); color: var(--ash); }
-/* Cảnh báo ĐỎ ngay trên thẻ dòng: mặt hàng chưa khai đơn vị gốc thì không gửi được — nói ra chỗ
-   người dùng đang nhìn, đừng để họ đoán vì sao nút Gửi tắt. */
-.thsx-x-vtline__err {
-  display: flex; align-items: center; gap: 4px;
-  font-size: var(--fs-2xs); color: var(--rust);
-}
-.thsx-x-vtline__del { flex: none; color: var(--ash); background: none; border: none; cursor: pointer; padding: 2px; }
-.thsx-x-vtline__del:hover:not(:disabled) { color: var(--rust); }
-.thsx-x-vtline__del:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.thsx-x-vt-qty { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.thsx-x-vt-qty__btn {
-  flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center;
-  justify-content: center; border: 1px solid var(--rule-soft); border-radius: var(--r-2);
-  background: var(--paper); color: var(--ash-2); cursor: pointer;
-}
-.thsx-x-vt-qty__btn:hover:not(:disabled) { border-color: var(--rust); color: var(--rust); }
-.thsx-x-vt-qty__btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.thsx-x-vt-qty .thsx-x-in { width: 88px; text-align: right; }
-/* nút chữ "Về 0" đứng trong hàng số, không đẩy sang mép phải như dùng ở khối kho */
-.thsx-x-vt-qty .thsx-x-linkbtn { margin-left: 2px; }
-
 .thsx-x-vt-req { color: var(--rust-deep); margin-left: 3px; }
+
+/* Ngăn kéo "Yêu cầu cấp vật tư" — khung + bảng dùng lại NGUYÊN lớp của màn Kho (`rc-drawer`,
+   `kho-lines`…); ở đây chỉ phần riêng: hàng Lý do dính liền dưới dòng vật tư, và câu vì-sao-nút-Gửi-tắt
+   ở chân. Không selector nào kết thúc bằng `.rc-*` (gác `cssKhongCuop.test.ts`). */
+.thsx-vtdn tr:has(+ .thsx-vtdn__lydo) > td { border-bottom: none; }
+.thsx-vtdn .thsx-vtdn__lydo > td { padding-top: 0; }
+.thsx-vtdn__lydo-f { display: flex; align-items: center; gap: var(--sp-2); }
+.thsx-vtdn__lydo-f > span { flex: none; }
+.thsx-vtdn__lydo-f > input { flex: 1 1 auto; min-width: 0; }
+.thsx-vtdn__cantro { margin: 0 auto 0 0; align-self: center; }
 
 /* --- hỗ trợ chéo --- */
 .thsx-x-ht { border: 1px solid var(--rule-soft); border-radius: var(--r-3); background: var(--canvas); padding: var(--sp-2) var(--sp-3); }
@@ -1851,7 +1844,7 @@
   position: fixed;
   right: var(--sp-5);
   bottom: var(--sp-5);
-  z-index: 40;
+  z-index: 70;              /* trên ngăn chi tiết (61) — thao tác trong ngăn báo toast ở đây */
   max-width: 420px;
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--r-5);
@@ -1926,34 +1919,10 @@
   .thsx-skel__q { animation: none; }
 }
 
-/* ---------------- Drawer trên màn hẹp (trượt) ----------------------------- */
-.thsx-scrim { display: none; }
+/* ---------------- Màn hẹp: cột danh sách hẹp lại ---------------------------
+   Ngăn chi tiết đã là lớp nổi ở MỌI cỡ màn (khối "NGĂN CHI TIẾT" trên). */
 @media (max-width: 1180px) {
   .thsx-grid { grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
-  .thsx-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(440px, 94vw);
-    z-index: 41;
-    border-left: 1px solid var(--rule);
-    box-shadow: var(--shadow-lg);
-    transform: translateX(100%);
-    transition: transform 180ms ease;
-  }
-  .thsx-panel--open { transform: translateX(0); }
-  .thsx-scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    background: color-mix(in srgb, var(--charcoal) 42%, transparent);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .thsx-panel { transition: none; }
-  .thsx-grid { transition: none; }
 }
 
 .thsx-x-toa-banner {
@@ -2056,9 +2025,7 @@
 .thsx-grid.thsx-grid--full {
   grid-template-columns: minmax(0, 1fr) !important;
 }
-.thsx-grid.thsx-grid--full.is-panel {
-  grid-template-columns: minmax(0, 1fr) 420px !important;
-}
+/* (Bỏ luật `.is-panel` → `minmax(0,1fr) 420px`: ngăn chi tiết nay là lớp nổi, không chiếm cột.) */
 
 /* Status Chips ở Subbar - KPI Digest cards */
 .thsx-digest {
@@ -2105,46 +2072,8 @@
 }
 .thsx-digest__chip--done svg { color: #0d9488; }
 
-/* ── Workstation Task Cards (ThsxCards) ────────────────────────────────────── */
-.thsx-cards__scroll {
-  padding: var(--sp-5);
-  height: 100%;
-  overflow-y: auto;
-  background: #f8fafc;
-}
-.thsx-cards__sec {
-  margin-bottom: var(--sp-6);
-}
-.thsx-cards__sech {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
-  color: #475569;
-  margin-bottom: var(--sp-3);
-  padding-bottom: var(--sp-2);
-  border-bottom: 1px solid #e2e8f0;
-}
-.thsx-cards__secn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: #e2e8f0;
-  color: #334155;
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
-}
-
-.thsx-cards__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: var(--sp-4);
-}
-
-/* Thẻ công việc đơn lẻ */
+/* Khung thẻ gốc — view Thẻ đã gỡ 14/09/2026 nhưng các khối trong drawer (`ThsxDrawer`) vẫn mang
+   `.thsx-card` và thừa hưởng flex/gap ở đây, nên giữ lại; bản gọn hơn đè bên dưới. */
 .thsx-card {
   background: #ffffff;
   border-radius: 12px;
@@ -2164,205 +2093,10 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   border-color: #a5b4fc;
 }
-.thsx-card--sel {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2), 0 8px 24px rgba(0, 0, 0, 0.08);
-}
-.thsx-card--kcs {
-  border-left: 4px solid #8b5cf6;
-}
-
-.thsx-card__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.thsx-card__serial-grp {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.thsx-card__src-ic {
-  color: #64748b;
-}
-.thsx-card__serial {
-  font-weight: 700;
-  font-size: 15px;
-  color: #0f172a;
-  letter-spacing: 0.02em;
-}
-.thsx-card__src-name {
-  font-size: 12px;
-  color: #64748b;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.thsx-card__body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.thsx-card__title {
-  font-size: 16px;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.thsx-card__kcs-badge {
-  font-size: 11px;
-  font-weight: 700;
-  background: #f3e8ff;
-  color: #7e22ce;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.thsx-card__chips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.thsx-card__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: #f1f5f9;
-  color: #475569;
-  font-weight: 500;
-}
-.thsx-card__chip--may {
-  background: #e0f2fe;
-  color: #0369a1;
-  font-weight: 600;
-}
-
-.thsx-card__metrics {
-  display: flex;
-  gap: 12px;
-  background: #f8fafc;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid #f1f5f9;
-}
-.thsx-card__metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-}
-.thsx-card__metric-lbl {
-  font-size: 11px;
-  color: #64748b;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.thsx-card__metric-val {
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.thsx-card__vattu {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #475569;
-  background: #fffbe6;
-  border: 1px solid #ffe58f;
-  padding: 6px 10px;
-  border-radius: 6px;
-}
-
-.thsx-card__time {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #64748b;
-}
-
-/* Footer Action Bar cho Thẻ 1-Click */
-.thsx-card__ftr {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 10px;
-  border-top: 1px solid #f1f5f9;
-}
-.thsx-card__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease;
-}
-.thsx-card__btn:active { transform: scale(0.97); }
-.thsx-card__btn--subtle {
-  background: #f1f5f9;
-  color: #475569;
-}
-.thsx-card__btn--subtle:hover { background: #e2e8f0; color: #1e293b; }
-
-.thsx-card__btn--start {
-  background: #10b981;
-  color: #ffffff;
-  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
-}
-.thsx-card__btn--start:hover { background: #059669; }
-
-.thsx-card__btn-group {
-  display: flex;
-  gap: 6px;
-}
-.thsx-card__btn--pause {
-  background: #f59e0b;
-  color: #ffffff;
-  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3);
-}
-.thsx-card__btn--pause:hover { background: #d97706; }
-
-.thsx-card__btn--done {
-  background: #6366f1;
-  color: #ffffff;
-  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
-}
-.thsx-card__btn--done:hover { background: #4f46e5; }
-
-.thsx-card__done-lbl {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #0d9488;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: #ccfbf1;
-}
 
 /* ═══════════ TẦNG LỆNH của bàn tổ (ThsxLenhGroups) — 11/09/2026 ═══════════
-   Bản ghi của bàn là LỆNH SX / BÀI GHÉP; công đoạn nằm BÊN TRONG dòng lệnh. Dùng chung cho view
-   Thẻ và view Danh sách nên chỉ khai tầng ngoài ở đây, ruột để hai view tự lo. */
+   Bản ghi của bàn là LỆNH SX / BÀI GHÉP; công đoạn nằm BÊN TRONG dòng lệnh. Chỉ khai tầng ngoài ở
+   đây, ruột (bảng bước) để view Danh sách tự lo. */
 .thsx-lenh__scroll {
   display: flex;
   flex-direction: column;
@@ -2467,3 +2201,1128 @@
 .thsx-slt__dv b { font-size: var(--fs-xl); color: var(--ink); }
 .thsx-slt__me { font-size: var(--fs-xs); color: var(--ash-2); }
 .thsx-slt__trong { font-size: var(--fs-xs); color: var(--ash-2); }
+
+/* ================= WOW MES SIDEBAR DESIGN SYSTEM ================= */
+
+@keyframes pulseGlow {
+  0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.thsx-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  display: inline-block;
+  flex: none;
+  animation: pulseGlow 1.8s infinite;
+}
+
+/* Mini KPI Strip ngay bên dưới Header */
+.thsx-mini-kpis {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 14px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 11px;
+  color: #475569;
+  font-weight: 500;
+  flex: none;
+}
+.thsx-mini-kpi-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.thsx-mini-kpi-item b {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+/* Glassmorphism Segmented Tab Switcher */
+.thsx-drawer-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  flex: none;
+}
+.thsx-drawer-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+.thsx-drawer-tab:hover {
+  color: #0f172a;
+  background: rgba(15, 23, 42, 0.05);
+}
+.thsx-drawer-tab.is-active {
+  color: #0284c7;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+.thsx-drawer-tab__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+/* Thẻ Cards siêu gọn gàng (Option A) */
+.thsx-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 12px 8px 12px;
+  margin-bottom: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: all 0.2s ease;
+}
+.thsx-card > .thsx-psec__h {
+  margin: 0 0 2px 0;
+  min-height: 20px;
+}
+.thsx-card:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+.thsx-card--accent {
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+.thsx-card--dark {
+  background: #0f172a;
+  color: #f8fafc;
+  border-color: #1e293b;
+}
+
+/* Inline Spec Table Siêu Mảnh (Option A) */
+.thsx-spec-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.thsx-spec-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  line-height: 1.4;
+}
+.thsx-spec-table tr:last-child td {
+  border-bottom: none;
+}
+.thsx-spec-lbl {
+  color: #64748b;
+  font-weight: 500;
+  width: 40%;
+}
+.thsx-spec-val {
+  color: #0f172a;
+  font-weight: 600;
+  font-family: var(--ff-sans);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Industrial Spec Cards Grid */
+.thsx-specs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+.thsx-spec-pill {
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.01);
+}
+.thsx-spec-pill__lbl {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.thsx-spec-pill__val {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-top: 2px;
+  font-family: var(--ff-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Big Number Metric Box */
+.thsx-big-kpi {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 4px 0 2px 0;
+}
+.thsx-big-kpi__val {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  font-family: var(--ff-sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.thsx-big-kpi__unit {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* Real-time Progress Bar */
+.thsx-progress-box {
+  margin: 4px 0;
+}
+.thsx-progress-bar {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+.thsx-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  border-radius: 3px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Roster Avatar Cards */
+.thsx-roster-row-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-top: 4px;
+  transition: background 0.15s ease;
+}
+.thsx-roster-row-card:hover {
+  background: #f1f5f9;
+}
+.thsx-roster-avatar-glow {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(2, 132, 199, 0.2);
+  flex: none;
+}
+
+/* Pinned Glassmorphic Footer Bar */
+.thsx-glass-footer {
+  flex: none;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 12px 16px;
+  border-top: 1px solid var(--rule-soft, #e2e8f0);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.06);
+  z-index: 20;
+}
+
+.thsx-alert-capsule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 16px;
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 3px rgba(217, 119, 6, 0.06);
+}
+
+/* ================= BẢNG PHẲNG 2 CỘT SIÊU MẢNH (ZERO BOX CLUTTER - NO SUB-BOXES) ================= */
+.thsx-flat-spec-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px 12px;
+  margin-top: 2px;
+  padding: 0;
+}
+
+.thsx-flat-spec-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 3px 0;
+  border-bottom: 1px dashed #f1f5f9;
+  min-width: 0;
+}
+
+/* Item lẻ cuối cùng trải rộng 2 cột */
+.thsx-flat-spec-item:last-child:nth-child(odd) {
+  grid-column: span 2;
+}
+
+.thsx-flat-spec-lbl {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+}
+
+.thsx-flat-spec-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+  font-family: var(--ff-sans);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ================= PRODUCTION HUB CARD & FLAT METRIC STRIP ================= */
+.thsx-prod-hub {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+}
+
+.thsx-prod-hub__pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: #10b981;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 1px 8px;
+  border-radius: 12px;
+  margin-left: auto;
+}
+
+.thsx-flat-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin-top: 2px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 5px 0;
+}
+
+/* ================= BATCH METRIC STRIP 4 CỘT ================= */
+.thsx-batch-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  margin-top: 4px;
+  margin-bottom: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 5px 0;
+}
+
+.thsx-batch-metric-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  border-right: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.thsx-batch-metric-tile:last-child {
+  border-right: none;
+}
+
+.thsx-batch-pill {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 7px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.thsx-batch-pill--tot {
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+
+.thsx-batch-pill--hong {
+  color: #e11d48;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  margin-left: 4px;
+}
+
+.thsx-flat-metric-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  border-right: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.thsx-flat-metric-col:last-child {
+  border-right: none;
+}
+
+.thsx-metric-lbl {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.thsx-metric-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.thsx-metric-val--done {
+  color: #059669;
+}
+
+.thsx-metric-val--thieu {
+  color: #d97706;
+}
+
+.thsx-metric-unit {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* ================= PLAN MATRIX GRID 2 CỘT ================= */
+.thsx-plan-grid-2col {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 10px;
+  margin-top: 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.thsx-plan-grid-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 3px 0;
+  border-bottom: 1px dashed #f1f5f9;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.thsx-plan-grid-item:last-child:nth-child(odd) {
+  grid-column: span 2;
+}
+
+.thsx-plan-lbl {
+  color: #64748b;
+  font-weight: 500;
+  flex: none;
+  white-space: nowrap;
+}
+
+.thsx-plan-val {
+  color: #0f172a;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thsx-plan-val--thieu {
+  color: #d97706;
+}
+
+/* ================= ROSTER COMPACT GRID 2 CỘT ================= */
+.thsx-roster-grid-2col {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  list-style: none;
+  padding: 0;
+}
+
+.thsx-roster-chip-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  min-width: 0;
+}
+
+.thsx-roster-chip-card:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.thsx-roster-chip-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.thsx-roster-chip-left .thsx-roster__nm {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thsx-roster__rut-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex: none;
+  padding: 0;
+}
+
+.thsx-roster__rut-chip:hover {
+  background: #fef2f2;
+  color: #ef4444;
+  border-color: #fca5a5;
+}
+
+/* ================= INDUSTRIAL SESSION TIMELINE ================= */
+.thsx-phien-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  list-style: none;
+  padding: 0;
+}
+
+.thsx-phien-timeline__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.15s ease;
+}
+
+.thsx-phien-timeline__row.is-run {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+/* ================= KHOẢNG THAM GIA FLUSH CHIP LIST ================= */
+.thsx-kthamgia-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  list-style: none;
+  padding: 0;
+}
+
+.thsx-kthamgia-chip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.thsx-kthamgia-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.thsx-kthamgia-name {
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.thsx-kthamgia-time-badge {
+  font-family: var(--ff-sans);
+  font-variant-numeric: tabular-nums;
+  color: #64748b;
+  font-weight: 500;
+  background: #f8fafc;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid #f1f5f9;
+  white-space: nowrap;
+  flex: none;
+}
+
+/* ================= THSX BATCH EXPANDED SPEC GRID & SHARE CARD ================= */
+.thsx-batch-spec-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 12px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 11.5px;
+}
+
+.thsx-batch-spec-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.thsx-batch-spec-cell--full {
+  grid-column: 1 / -1;
+}
+
+.thsx-batch-spec-cell--bad {
+  color: #be123c;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.thsx-batch-spec-label {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.thsx-batch-spec-val {
+  color: #1e293b;
+  word-break: break-word;
+}
+
+.thsx-text-emerald {
+  color: #059669;
+}
+
+.thsx-text-rose {
+  color: #e11d48;
+}
+
+/* Share card container */
+.thsx-batch-share-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.thsx-batch-share-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.thsx-batch-share-h-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 12.5px;
+  color: #0f172a;
+}
+
+.thsx-batch-share-ky {
+  font-size: 11px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.thsx-batch-share-sum {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #334155;
+  background: #f8fafc;
+  padding: 6px 10px;
+  border-radius: 5px;
+  margin-bottom: 8px;
+  border: 1px solid #f1f5f9;
+}
+
+.thsx-batch-share-sum b {
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.thsx-batch-share-ht {
+  color: #d97706;
+  font-size: 11px;
+}
+
+/* Modern Share Table */
+.thsx-batch-share-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.thsx-batch-share-tbl th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  padding: 4px 6px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fafafa;
+}
+
+.thsx-batch-share-tbl th.r,
+.thsx-batch-share-tbl td.r {
+  text-align: right;
+}
+
+.thsx-batch-share-tbl td {
+  padding: 6px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
+
+.thsx-batch-share-tbl tr:hover td {
+  background: #f8fafc;
+}
+
+.thsx-batch-share-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+/* ================= REMOVE ALL SIDE BORDERS (NO LEFT BORDER ACCENTS) ================= */
+.thsx-ds__row,
+.thsx-ds__row > td,
+.thsx-ds__src-cell,
+.thsx-batch-share-sum {
+  border-left: none !important;
+}
+
+/* ================= VẬT TƯ KPI STRIP & STATUS BADGES ================= */
+.thsx-vattu-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 5px 0;
+}
+
+.thsx-vattu-kpi-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 4px;
+  border-right: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.thsx-vattu-kpi-tile:last-child {
+  border-right: none;
+}
+
+.thsx-vattu-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: #b45309;
+  margin-bottom: 8px;
+}
+
+.thsx-vattu-alert-banner svg {
+  color: #d97706;
+  flex: none;
+}
+
+.thsx-vattu-matrix-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.thsx-vattu-matrix-tbl th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  padding: 6px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fafafa;
+}
+
+.thsx-vattu-matrix-tbl th.r,
+.thsx-vattu-matrix-tbl td.r {
+  text-align: right;
+}
+
+.thsx-vattu-matrix-tbl td {
+  padding: 7px 6px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
+
+.thsx-vattu-matrix-tbl tr:hover td {
+  background: #f8fafc;
+}
+
+.thsx-vattu-matrix-tbl tr.is-lech td {
+  background: #fffbeb;
+}
+
+.thsx-vattu-name-cell {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.thsx-vattu-delta-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.thsx-vattu-badge {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.thsx-vattu-badge--wait {
+  color: #d97706;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+}
+
+.thsx-vattu-badge--down {
+  color: #e11d48;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+}
+
+.thsx-vattu-badge--up {
+  color: #d97706;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+.thsx-vattu-badge--ok {
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+
+.thsx-vattu-history-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.thsx-vattu-history-empty svg {
+  color: #94a3b8;
+}
+
+/* ================= HIGH-TECH GLASSMORPHIC BATCH FORM (OPTION 3) ================= */
+.thsx-glass-batch-card {
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+.thsx-glass-batch-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.thsx-glass-batch-h-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.thsx-pulse-icon {
+  color: #0284c7;
+}
+
+.thsx-glass-unit-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #0369a1;
+  background: #e0f2fe;
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.thsx-glass-in {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #0f172a;
+  transition: all 0.15s ease;
+}
+
+.thsx-glass-in:focus {
+  background: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+}
+
+.thsx-glass-in--num {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+
+.thsx-glass-in--tot {
+  color: #059669;
+}
+
+.thsx-glass-hong-tile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #047857;
+  margin: 6px 0;
+}
+
+.thsx-glass-hong-tile.is-bad {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #be123c;
+}
+
+.thsx-glass-hong-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thsx-glass-form-ftr {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* ================= MODAL DIALOG OVERLAY (OPTION A - NO LAYOUT SHIFT) ================= */
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: scale(0.96) translateY(-8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.thsx-batch-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.thsx-batch-modal-dialog {
+  width: 480px;
+  max-width: 92vw;
+  max-height: 90vh;
+  overflow: hidden;
+  margin: 0 !important;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25) !important;
+  animation: modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  background: #ffffff !important;
+}
+.thsx-batch-modal-dialog:focus { outline: none; }
+
+/* Chỉ THÂN cuộn; đầu và hàng nút đứng yên. Đệm 3px + âm lề 3px để vòng sáng focus của ô
+   (`.thsx-glass-in:focus` 3px) không bị mép cuộn cắt. */
+.thsx-batch-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 3px;
+  margin: -3px;
+}
+
+.thsx-batch-modal-h-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thsx-batch-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.thsx-batch-modal-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+
+
+
+
+
+
+
+
+
+

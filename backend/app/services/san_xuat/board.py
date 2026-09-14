@@ -515,7 +515,7 @@ def _nguoi_trong_batch(khoang, ten_map, b) -> list[dict]:
     return [{"employee_id": eid, "ho_ten": ten} for eid, ten in seen.items()]
 
 
-def _bg_dict(b, doi_tac_id, doi_tac_map) -> dict:
+def _bg_dict(b, doi_tac_id, doi_tac_map, me_map) -> dict:
     return {
         "id": b.id,
         "doi_tac_cong_viec_id": doi_tac_id,
@@ -526,6 +526,7 @@ def _bg_dict(b, doi_tac_id, doi_tac_map) -> dict:
         "trang_thai": b.trang_thai,
         "khong_nhat_quan": b.khong_nhat_quan,
         "version": b.version,
+        "batch_ids": me_map.get(b.id, []),
     }
 
 
@@ -795,9 +796,13 @@ def chi_tiet_cong_viec(
     kh_svc = _kh_service(db, _hang_service(db))
     vat_tu_cap = _vat_tu_cap(db, sl, kh_svc, cv, cac_dn, du_lieu_cu)
 
-    # Gợi ý ĐÍCH bàn giao = chặng sau của cùng gói/LSX (§11.2); tổ trưởng chọn hoặc "giao ra ngoài".
-    goi_y = sl.cong_viec_sau_goi_y(cv)
-    goi_y_to_ten = repo.to_ten_nhan({c.department_id for c in goi_y if c.department_id})
+    # ĐÍCH bàn giao = chặng sau theo routing lệnh (§11.2) — FE bày cố định, chỉ cho chọn khi bước
+    # sau tách lần chạy/rẽ nhánh. Rỗng = bước cuối lệnh, giao ra kho.
+    chang_sau = sl.cong_viec_chang_sau(cv)
+    chang_sau_to_ten = repo.to_ten_nhan({c.department_id for c in chang_sau if c.department_id})
+    # Mẻ nào đã đi theo lần giao nào — form bàn giao chỉ tick sẵn mẻ chưa giao.
+    me_map = sl.me_cua_ban_giao_nhieu([b.id for b in bg_di] + [b.id for b in bg_den])
+    me_da_giao = sl.batch_da_giao_ids(cv.id)
 
     return {
         # Vòng sửa 1, mục 2: truyền đúng bộ số đã tính ở trên — nếu không, "cong_viec.con_thieu"
@@ -886,6 +891,7 @@ def chi_tiet_cong_viec(
                     "nguoi_tham_gia": _nguoi_trong_batch(khoang, ten_map, b),
                     "so_nguoi": len(_nguoi_trong_batch(khoang, ten_map, b)),
                     "chia_du_kien": chia_nhap.get(b.id),
+                    "da_ban_giao": b.id in me_da_giao,
                     "lot_vao": [
                         {
                             "id": lot.id,
@@ -901,17 +907,22 @@ def chi_tiet_cong_viec(
                 for b in batches
             ],
         },
-        "ban_giao_di": [_bg_dict(b, b.dich_cong_viec_id, doi_tac_map) for b in bg_di],
-        "ban_giao_den": [_bg_dict(b, b.nguon_cong_viec_id, doi_tac_map) for b in bg_den],
-        "ban_giao_goi_y": [
+        "ban_giao_di": [_bg_dict(b, b.dich_cong_viec_id, doi_tac_map, me_map) for b in bg_di],
+        "ban_giao_den": [_bg_dict(b, b.nguon_cong_viec_id, doi_tac_map, me_map) for b in bg_den],
+        "ban_giao_chang_sau": [
             {
                 "cong_viec_id": c.id,
                 "ten_cong_doan": c.ten_cong_doan,
                 "to_id": c.department_id,
-                "to_ten": goi_y_to_ten.get(c.department_id) if c.department_id else None,
+                "to_ten": chang_sau_to_ten.get(c.department_id) if c.department_id else None,
                 "du_kien_bat_dau": lich_hien_thi(c.du_kien_bat_dau),
+                "phan_doan_so": c.phan_doan_so,
+                "phan_doan_tong": c.phan_doan_tong,
+                "loai_buoc": c.loai_buoc,
+                "nha_cung_cap": c.nha_cung_cap,
+                "trang_thai": c.trang_thai,
             }
-            for c in goi_y
+            for c in chang_sau
         ],
         "vat_tu": [
             {

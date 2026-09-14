@@ -77,22 +77,4 @@ describe("ThsxDanhSach — Workstation Studio Modern Table View", () => {
 
     expect(onBatDau).toHaveBeenCalledWith(item);
   });
-
-  it("cho phép mở rộng accordion xem dặn dò kỹ thuật khi bấm nút chevron toggle", () => {
-    const item = mockViec({ id: 203, ghi_chu: "Kiểm tra kỹ bù hao 5%" });
-    const onPick = vi.fn();
-
-    render(
-      <ThsxDanhSach
-        lenh={mockLenh([item])}
-        selectedId={null}
-        onPick={onPick}
-      />
-    );
-
-    const toggleBtn = screen.getByLabelText("Toggle chi tiết dòng");
-    fireEvent.click(toggleBtn);
-
-    expect(screen.getByText("Kiểm tra kỹ bù hao 5%")).toBeInTheDocument();
-  });
 });

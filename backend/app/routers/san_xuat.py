@@ -699,7 +699,7 @@ def de_xuat_ban_giao(
     """Bên NGUỒN đề xuất giao sản lượng tốt sang công đoạn sau (§11.2). Cùng tổ+LSX ⇒ xác nhận luôn."""
     res = _chay(lambda: ban_giao.de_xuat(
         db, user=user, nguon_cong_viec_id=cong_viec_id,
-        dich_cong_viec_id=body.dich_cong_viec_id, so_luong=body.so_luong, don_vi=body.don_vi,
+        dich_cong_viec_id=body.dich_cong_viec_id, don_vi=body.don_vi, batch_ids=body.batch_ids,
     ))
     _phat_sse_ban_giao(res)
     return res
@@ -712,10 +712,10 @@ def sua_ban_giao(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
 ) -> dict:
-    """Bên NGUỒN sửa số lượng khi bàn giao còn chờ xác nhận (§11.2)."""
+    """Bên NGUỒN sửa lại mẻ đi theo lần giao khi còn chờ xác nhận (§11.2); số lượng tính lại."""
     res = _chay(lambda: ban_giao.sua_de_xuat(
         db, user=user, ban_giao_id=ban_giao_id,
-        so_luong=body.so_luong, expected_version=body.expected_version,
+        batch_ids=body.batch_ids, expected_version=body.expected_version,
     ))
     _phat_sse_ban_giao(res)
     return res
