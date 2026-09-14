@@ -138,7 +138,8 @@ def test_work_items_con_thieu_dung_tung_dong_khi_gop_nhieu_viec(
     ])
     db.commit()
 
-    res = board.work_items(db, admin, _authz(db), team_id=to.id)
+    # Hình PHẲNG (từng công việc) — mặc định `nhom="lenh"` gom theo lệnh từ 11/09/2026.
+    res = board.work_items(db, admin, _authz(db), team_id=to.id, nhom="phang")
     by_id = {item["id"]: item for item in res["cong_viec"]}
     # cv1: tổng tốt 4000+3000=7000, mục tiêu 10000 ⇒ còn thiếu 3000.
     assert by_id[cv1.id]["con_thieu"] == 3000.0
