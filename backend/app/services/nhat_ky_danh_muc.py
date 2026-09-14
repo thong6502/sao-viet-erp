@@ -23,8 +23,10 @@ from typing import Any
 
 from sqlalchemy import inspect as sa_inspect
 
+from ..models.may_thiet_bi import ma_don_vi_goc
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.cong_thuc_lich_su_repo import CongThucLichSuRepository
+from ..repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
 
 # --- Hành động: một tên cho mỗi loại thao tác, frontend dịch sang nhãn + icon --------------
 ACTION_TAO = "dm_tao"
@@ -227,6 +229,8 @@ NHAN: dict[str, str] = {
     "unit": "Đơn vị",
     "unit_price": "Đơn giá",
     "cong_doan": "Công đoạn (cột cũ)",
+    # Bảng con của công việc khoán (14/09/2026) — gom thành dict ở `_con_cua_cong_viec_khoan`.
+    "viec_phat_sinh": "Việc phát sinh",
     # Tiêu chí KCS (`san_xuat_kcs_tieu_chi`, mg 0250) — chữ lấy đúng nhãn cột đang hiện trên màn
     # (`rebuildCatalogConfigs`), để đọc nhật ký xong tìm ra đúng cái ô đó trên form.
     "huong_dan": "Hướng dẫn",
@@ -268,6 +272,11 @@ HAU_TO: dict[str, str] = {
 # Trường TIỀN: hậu tố lấy theo ĐVT của chính bản ghi ("đ/kg", "đ/tờ") vì mỗi mặt hàng một đơn vị.
 # `unit_price` = đơn giá khoán; ĐVT của nó nằm ở cột `unit` (xem `_hau_to`).
 TIEN = frozenset({"don_gia", "gia", "don_gia_kg", "don_gia_to", "đon_gia", "unit_price"})
+
+# Cột giữ MÃ đơn vị của danh mục Đơn vị & quy đổi — nhật ký in TÊN ("tờ", "bản kẽm"), không in mã
+# ("to", "kem"): người đọc hiểu "đ/to" là chữ "to". `don_vi_toc_do` lưu `<mã>_gio`, xem `_ten_don_vi`.
+DON_VI_MA = frozenset({"unit", "don_vi_gia", "don_vi_vao", "don_vi_ra", "don_vi_san_luong",
+                       "don_vi_toc_do"})
 
 
 def _la_so(v: Any) -> bool:
@@ -400,12 +409,22 @@ def _chu(v: Any) -> str:
     return str(v)
 
 
-def _hau_to(truong: str, ban_ghi: dict[str, Any]) -> str:
+def _ten_don_vi(truong: str, ma: Any, bang: dict[str, str]) -> Any:
+    """Mã đơn vị → tên theo danh mục; mã lạ giữ nguyên (luật của `nhan_don_vi`). Tốc độ máy lưu
+    `to_gio` mà danh mục khoá theo `to`, nên cắt hậu tố rồi đọc "tờ/h" như cột Tốc độ của bảng máy."""
+    if not isinstance(ma, str) or not ma.strip():
+        return ma
+    if truong == "don_vi_toc_do":
+        return f"{nhan_don_vi(bang, ma_don_vi_goc(ma))}/h"
+    return nhan_don_vi(bang, ma)
+
+
+def _hau_to(truong: str, ban_ghi: dict[str, Any], bang: dict[str, str]) -> str:
     if truong in TIEN:
         # Hai tên cột cho cùng một ý "ĐVT của bản ghi này": `don_vi_gia` ở mặt hàng gốc, `unit` ở
         # công việc khoán. Đọc cả hai để "Đơn giá 250 → 300 đ/tờ" chứ không phải "đ" trần.
         dv = (ban_ghi.get("don_vi_gia") or ban_ghi.get("unit") or "").strip()
-        return f"đ/{dv}" if dv else "đ"
+        return f"đ/{nhan_don_vi(bang, dv)}" if dv else "đ"
     return HAU_TO.get(truong, "")
 
 
@@ -420,7 +439,29 @@ def anh_chup(obj: Any) -> dict[str, Any]:
     cols = sa_inspect(type(obj)).columns.keys()
     ra = {c: getattr(obj, c, None) for c in cols if c not in BO_QUA}
     ra.update(_con_cua_cong_doan(obj))
+    ra.update(_con_cua_cong_viec_khoan(obj))
     return ra
+
+
+def _con_cua_cong_viec_khoan(obj: Any) -> dict[str, dict[str, str]]:
+    """Việc phát sinh của công việc khoán → dict `{tên việc: "100 đ/bản kẽm"}` để nhật ký so từng việc.
+
+    Cùng lý do với `_con_cua_cong_doan`: `columns` không thấy bảng con, không gom thì đổi đơn giá
+    thay kẽm không để lại vết nào. Khoá theo TÊN (thứ người đọc nhật ký nhận ra), nên đổi tên một
+    việc hiện thành hai dòng "tên cũ … → —" và "tên mới — → …". Luôn trả khoá kể cả khi rỗng —
+    thiếu khoá ở ảnh "sau" thì lần xoá sạch danh sách im lặng.
+
+    Đơn vị in bằng TÊN danh mục ("100 đ/bản kẽm"), không in mã: "50 đ/to" người đọc nhật ký hiểu
+    là chữ "to". Tra qua session của chính bản ghi — ảnh chụp trước và sau cùng một luật tra.
+    """
+    if getattr(obj, "__tablename__", "") != "piece_rates":
+        return {}
+    viecs = getattr(obj, "viec_phat_sinh", None) or []
+    s = sa_inspect(obj).session if viecs else None
+    bang = DonViDoRepository(s).ten_theo_ma() if s is not None else {}
+    return {"viec_phat_sinh": {
+        v.ten: f"{_so(v.don_gia)} đ/{nhan_don_vi(bang, v.don_vi)}" for v in viecs
+    }}
 
 
 def _con_cua_cong_doan(obj: Any) -> dict[str, dict[str, Any]]:
@@ -478,8 +519,13 @@ def _khac(cu: Any, moi: Any) -> bool:
     return not (_rong(cu) and _rong(moi))
 
 
-def mo_ta_thay_doi(truoc: dict[str, Any], sau: dict[str, Any]) -> list[str]:
-    """Các dòng "Nhãn cũ → mới", chỉ cho trường THỰC SỰ đổi."""
+def mo_ta_thay_doi(truoc: dict[str, Any], sau: dict[str, Any], *,
+                   ten_don_vi: dict[str, str] | None = None) -> list[str]:
+    """Các dòng "Nhãn cũ → mới", chỉ cho trường THỰC SỰ đổi.
+
+    `ten_don_vi` = bảng MÃ → TÊN (`DonViDoRepository.ten_theo_ma`) để in đơn vị bằng tên; bỏ trống
+    thì in mã. Hàm giữ thuần — nơi gọi nạp bảng (`ghi_sua`)."""
+    bang = ten_don_vi or {}
     dong: list[str] = []
     for truong, moi in sau.items():
         cu = truoc.get(truong)
@@ -499,9 +545,20 @@ def mo_ta_thay_doi(truoc: dict[str, Any], sau: dict[str, Any]) -> list[str]:
                 dong.append(
                     f"{nhan} › {_nhan_con(k)} {_chu(d_cu.get(k))} → {_chu(d_moi.get(k))}")
             continue
-        hau = _hau_to(truong, sau)
+        if truong in DON_VI_MA:
+            cu, moi = _ten_don_vi(truong, cu, bang), _ten_don_vi(truong, moi, bang)
+        hau = _hau_to(truong, sau, bang)
         dong.append(f"{nhan} {_chu(cu)} → {_chu(moi)}{(' ' + hau) if hau else ''}")
     return dong
+
+
+def _bang_don_vi(obj: Any, truoc: dict[str, Any], sau: dict[str, Any]) -> dict[str, str]:
+    """Bảng MÃ → TÊN đơn vị, CHỈ nạp khi lần lưu này đổi trường tiền / trường mã đơn vị — sửa tên
+    hay ghi chú thì khỏi tốn thêm câu SQL. Tra qua session của chính bản ghi, như bảng con."""
+    if not any(t in TIEN or t in DON_VI_MA for t, v in sau.items() if _khac(truoc.get(t), v)):
+        return {}
+    s = sa_inspect(obj).session
+    return DonViDoRepository(s).ten_theo_ma() if s is not None else {}
 
 
 def _ghi(audit: AuditLogRepository | None, *, actor_id: int | None, action: str,
@@ -541,7 +598,7 @@ def ghi_sua(audit, *, actor_id: int | None, loai: str, obj: Any,
     """Ghi MỘT dòng cho cả lần lưu — sửa 3 trường vẫn là một lần bấm Lưu, tách ra thì nhật ký
     loãng và mất ngữ cảnh. Không đổi gì thì không ghi (bấm Lưu mà giữ nguyên = không phải sự kiện)."""
     sau = anh_chup(obj)
-    dong = mo_ta_thay_doi(truoc, sau)
+    dong = mo_ta_thay_doi(truoc, sau, ten_don_vi=_bang_don_vi(obj, truoc, sau))
     if not dong:
         return
     _ghi_lich_su_cong_thuc(audit, actor_id=actor_id, loai=loai, obj_id=obj.id, truoc=truoc, sau=sau)

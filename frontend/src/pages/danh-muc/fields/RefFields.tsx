@@ -1,7 +1,7 @@
 // Hai ô TRỎ SANG DANH MỤC KHÁC:
 //   `RefMultiField`  — chọn NHIỀU + xếp thứ tự (lưu mảng id), vẽ dạng dòng thời gian.
 //   `RefSearchField` — tìm-chọn MỘT (typeahead, bỏ dấu vẫn khớp), lưu id hoặc MÃ.
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import { khopGanDung } from "../../../utils/timGanDung";
 import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from "../icons";
@@ -69,6 +69,11 @@ export function RefSearchField({ value, options, placeholder, byMa, onChange }: 
 }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  // Menu LẬT LÊN khi phía dưới ô không đủ chỗ trong khung đang cuộn. Ô nằm ở dòng cuối bảng sát chân
+  // drawer (việc phát sinh, định mức đầu việc) mà mở xuống thì chân "Hủy / Lưu thay đổi" cắt mất nửa
+  // danh sách — người khai tưởng chỉ có vài lựa chọn.
+  const khungRef = useRef<HTMLDivElement>(null);
+  const [lenTren, setLenTren] = useState(false);
   const rong = value == null || value === "";
   const selected = rong ? null : options.find(
     (o) => (byMa ? String(o.ma ?? "").toLowerCase() === String(value).toLowerCase() : o.id === value)
@@ -81,6 +86,23 @@ export function RefSearchField({ value, options, placeholder, byMa, onChange }: 
     ? options.filter((o) => khopGanDung(`${o.ma} ${o.ten}`, nq))
     : options
   ).slice(0, 20);
+
+  // Đo SAU khi menu đã vẽ (chiều cao thật của nó), so với mép khung cuộn gần nhất — không phải mép
+  // cửa sổ: drawer tự cuộn thân, chân drawer nằm ngoài phần cuộn đó.
+  useLayoutEffect(() => {
+    const khung = khungRef.current;
+    const menu = khung?.querySelector<HTMLElement>(".rc-ref-search-panel");
+    if (!open || !khung || !menu) {
+      setLenTren(false);
+      return;
+    }
+    let cuon = khung.parentElement;
+    while (cuon && !/(auto|scroll)/.test(getComputedStyle(cuon).overflowY)) cuon = cuon.parentElement;
+    const o = khung.getBoundingClientRect();
+    const mep = cuon ? cuon.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    const duoi = mep.bottom - o.bottom;
+    setLenTren(menu.offsetHeight + 4 > duoi && o.top - mep.top > duoi);
+  }, [open, q, matches.length]);
 
   /** Nhận CHỮ ĐANG GÕ khi nó chỉ về đúng một dòng — chạy lúc ô mất focus (kể cả khi mất focus vì
    *  người ta bấm thẳng "Lưu thay đổi").
@@ -129,7 +151,7 @@ export function RefSearchField({ value, options, placeholder, byMa, onChange }: 
     );
   }
   return (
-    <div className="rc-input-wrapper" style={{ position: "relative", display: "block" }}>
+    <div ref={khungRef} className="rc-input-wrapper" style={{ position: "relative", display: "block" }}>
       {/* Còn chữ trong ô mà chưa chọn được dòng nào ⇒ ô phải TRÔNG NHƯ chưa xong. Đây đúng là
           trạng thái đã đẻ ra lỗi 422 câm: người khai nhìn thấy chữ mình gõ nên tưởng đã khai. */}
       <input className={`rc-input${nq ? " rc-input--invalid" : ""}`} value={q}
@@ -141,7 +163,7 @@ export function RefSearchField({ value, options, placeholder, byMa, onChange }: 
         <span className="rc-field__hint rc-field__hint--loi">Chưa chọn — bấm một dòng trong danh sách.</span>
       )}
       {open && matches.length > 0 && (
-        <div className="rc-ref-search-panel">
+        <div className={`rc-ref-search-panel${lenTren ? " rc-ref-search-panel--len" : ""}`}>
           {matches.map((o) => {
             const showCode = o.ma && o.ma.toLowerCase() !== String(o.ten).toLowerCase();
             return (
@@ -160,7 +182,7 @@ export function RefSearchField({ value, options, placeholder, byMa, onChange }: 
         </div>
       )}
       {open && nq && matches.length === 0 && (
-        <div className="rc-ref-search-panel" style={{ padding: "10px 12px", color: "var(--ash, #64748b)", fontSize: "12.5px" }}>
+        <div className={`rc-ref-search-panel${lenTren ? " rc-ref-search-panel--len" : ""}`} style={{ padding: "10px 12px", color: "var(--ash, #64748b)", fontSize: "12.5px" }}>
           Không thấy mã/tên khớp “{q}”.
         </div>
       )}

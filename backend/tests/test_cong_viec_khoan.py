@@ -332,9 +332,10 @@ def test_nhat_ky_ghi_du_tao_sua_ngung_dung(client):
     dong = _nhat_ky(client, h, rid)
     sua = [i for i in dong if i["action"] == "dm_sua"]
     assert sua, "thiếu dòng SỬA"
-    # Nhãn tiếng Việt + hậu tố ĐVT của chính bản ghi ("đ/to"), không phải tên cột `unit_price`.
+    # Nhãn tiếng Việt + hậu tố ĐVT của chính bản ghi, bằng TÊN danh mục ("đ/tờ") chứ không bằng
+    # mã ("đ/to"), không phải tên cột `unit_price`.
     assert "Đơn giá" in sua[0]["detail"], sua[0]["detail"]
-    assert "đ/to" in sua[0]["detail"], sua[0]["detail"]
+    assert "đ/tờ" in sua[0]["detail"] and "đ/to " not in f"{sua[0]['detail']} ", sua[0]["detail"]
 
     client.patch(f"{API}/{rid}/active", json={"active": False}, headers=h)
     assert len([i for i in _nhat_ky(client, h, rid) if i["action"] == "dm_sua"]) >= 2, \

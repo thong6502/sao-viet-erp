@@ -345,6 +345,35 @@ describe("CatalogDrawer — form của màn danh mục dùng chung", () => {
     await waitFor(() => expect(soLanGhi(goi)).toBe(2));
     expect(bodyGhi(goi).body?.so_mau).toBe(4);
   });
+
+  it("việc phát sinh: dòng cũ giữ `id`, giá gửi lên dạng SỐ, dòng thêm mới không có `id`", async () => {
+    const user = userEvent.setup();
+    const rows: Row[] = [{
+      id: 7, ma: "CD-007", ten: "In 4 màu",
+      viec_phat_sinh: [{ id: 5, ten: "Thay kẽm", don_gia: 100, don_vi: "ban_kem" }],
+    }];
+    const goi = moMan({ ...CO_BAN,
+      fields: [{ key: "viec_phat_sinh", label: "Việc phát sinh", type: "viec-phat-sinh", refPrefix: "/api/don-vi" }],
+    }, rows);
+
+    await user.click(await screen.findByText("In 4 màu"));
+    await screen.findByRole("dialog");
+    const gia = drawer().getByLabelText("Đơn giá dòng 1") as HTMLInputElement;
+    expect((drawer().getByLabelText("Tên việc dòng 1") as HTMLInputElement).value).toBe("Thay kẽm");
+    await user.clear(gia);
+    await user.type(gia, "120");
+
+    await user.click(drawer().getByRole("button", { name: /Thêm việc phát sinh/ }));
+    await user.type(drawer().getByLabelText("Tên việc dòng 2"), "Rửa lô mực");
+    await user.click(drawer().getByRole("button", { name: "Lưu thay đổi" }));
+
+    await waitFor(() => expect(soLanGhi(goi)).toBe(1));
+    // `id` đi theo dòng là thứ giữ cho sản xuất sau này trỏ đúng việc cũ khi đổi tên/giá.
+    expect(bodyGhi(goi).body?.viec_phat_sinh).toEqual([
+      { id: 5, ten: "Thay kẽm", don_gia: 120, don_vi: "ban_kem" },
+      { ten: "Rửa lô mực", don_gia: null, don_vi: "" },
+    ]);
+  });
 });
 
 // `macDinhTheo` — prefill TÍNH TỪ FORM đang gõ, khác `default` (giá trị tĩnh chốt lúc mở drawer).

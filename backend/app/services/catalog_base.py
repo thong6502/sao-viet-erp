@@ -140,6 +140,11 @@ class CatalogService:
     def _sau_ghi(self) -> None:
         """Chạy sau mọi thao tác ghi — chỗ để service con quên cache nội bộ."""
 
+    def _anh_chup_nhan_ban(self, goc) -> dict:
+        """Dữ liệu dựng bản sao. Mặc định: mọi cột nghiệp vụ. Service có BẢNG CON ghi đè để chép
+        dòng con ở dạng thân POST — ảnh chụp nhật ký chỉ mang chúng dưới dạng chữ để so."""
+        return nk.anh_chup(goc)
+
     # -- ghi nhật ký (service con ghi đè khi có quy ước riêng) ---------------------------
 
     def _ghi_tao(self, actor_id: int | None, obj) -> None:
@@ -262,7 +267,7 @@ class CatalogService:
     def clone(self, item_id: int, actor_id: int | None = None):
         """Nhân bản một dòng: copy mọi cột nghiệp vụ, đổi mã + tên để không trùng bản gốc."""
         goc = self.get(item_id)
-        data = nk.anh_chup(goc)
+        data = self._anh_chup_nhan_ban(goc)
         ma_goc = data.get("ma") or ""
         data["ten"] = f"{data.get('ten', '')} (bản sao)"
         data["ma"] = "" if self.MA_TU_SINH else ma_ban_sao(self.repo.find_by_ma, ma_goc)

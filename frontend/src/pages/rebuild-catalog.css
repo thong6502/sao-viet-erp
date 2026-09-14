@@ -1450,6 +1450,11 @@
   box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1);
   box-sizing: border-box;
 }
+/* Lật lên: dưới ô không đủ chỗ trong khung cuộn (dòng cuối sát chân drawer) — RefSearchField tự đo. */
+.rc-ref-search-panel--len {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
 
 .rc-ref-search-item {
   display: flex;
@@ -1895,6 +1900,17 @@ select.rc-input:focus {
   color: var(--paper-contrast, #f5f1e8);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
+
+/* ── Bảng Việc phát sinh của công việc khoán (ViecPhatSinhField) ──
+   Luật căn cột chung ở trên viết cho bảng BẬC (ba cột số căn phải). Bảng này hai cột CHỮ, căn
+   phải là tiêu đề "Tên việc" lệch hẳn khỏi chữ gõ trong ô. Căn tiêu đề theo đúng chữ trong ô:
+   lề 19px = 8px lề ô + 10px lề trong input + 1px viền. */
+.rc-bands--vps .rc-bands__table { table-layout: fixed; }
+.rc-bands--vps .rc-bands__table th:nth-child(1),
+.rc-bands--vps .rc-bands__table th:nth-child(3) { text-align: left; padding-left: 19px; }
+.rc-bands--vps .rc-bands__table th:nth-child(2) { text-align: right; padding-right: 21px; width: 150px; }
+.rc-bands--vps .rc-bands__table th:nth-child(3) { width: 34%; }
+.rc-bands--vps .rc-bands__table th:nth-child(4) { width: 44px; }
 
 /* ── Bảng Định mức đầu việc của Tổ (DinhMucDauViecField) ── */
 .rc-bands--dinh-muc {

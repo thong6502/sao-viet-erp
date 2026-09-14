@@ -9,6 +9,8 @@ chỉ còn ba việc bảng này khác 8 danh mục kia:
   ghép GHIM ảnh chụp (`khoan_json.rate_id`). Còn nơi dùng ⇒ chỉ ngừng dùng, `_blockers` đếm hộ.
 * Đơn vị lưu ĐÚNG chữ nhận được, chỉ cắt khoảng trắng — quyết định 31/07/2026 giữ nguyên: dòng cũ,
   seed và import đều mang đơn vị ngoài danh mục, chặn ở service là khoá luôn đường sửa chúng.
+* VIỆC PHÁT SINH (bảng con `cong_viec_khoan_phat_sinh`, 14/09/2026): ba ô tên · đơn giá · đơn vị,
+  kiểm ở `_kiem_viec_phat_sinh`, nhân bản chép theo ở `_anh_chup_nhan_ban`.
 """
 from __future__ import annotations
 
@@ -74,6 +76,13 @@ class CongViecKhoanService(CatalogService):
             ten_to = self.repo.ten_to(data.get("department_id"))
             if ten_to:
                 data["group_name"] = ten_to[:40]
+        if isinstance(data.get("viec_phat_sinh"), list):
+            # Mã đơn vị hạ chữ thường: danh mục Đơn vị lưu mã thường (`don_vi_do_repo.ma_case`).
+            data["viec_phat_sinh"] = [
+                {**r, "ten": str(r.get("ten") or "").strip(),
+                 "don_vi": str(r.get("don_vi") or "").strip().lower()}
+                for r in data["viec_phat_sinh"]
+            ]
         return data
 
     def _validate(self, data: dict, obj=None) -> None:
@@ -103,6 +112,45 @@ class CongViecKhoanService(CatalogService):
             raise CongViecKhoanValidationError("Thiếu đơn giá.")
         if gia is not None and float(gia) < 0:
             raise CongViecKhoanValidationError("Đơn giá không được âm.")
+        if isinstance(data.get("viec_phat_sinh"), list):
+            self._kiem_viec_phat_sinh(data["viec_phat_sinh"])
+
+    def _kiem_viec_phat_sinh(self, rows: list[dict]) -> None:
+        """Luật khai VIỆC PHÁT SINH — đủ ba ô, tên không trùng trong cùng công việc khoán.
+
+        Câu lỗi gọi TÊN việc (hoặc số dòng khi chưa có tên): danh sách dài vài dòng, báo chung
+        chung thì người khai phải soi từng dòng mới ra chỗ sai.
+
+        Đơn vị PHẢI có trong danh mục Đơn vị & quy đổi — khác ô `unit` của cha (còn nhận chữ ngoài
+        danh mục để đỡ dòng đời cũ). Bảng này mới, không có dòng cũ nào cần đỡ; chặn từ đầu thì sau
+        này quy đổi/tính lương không vấp một mã lạ nào.
+        """
+        da_co: set[str] = set()
+        for i, r in enumerate(rows, start=1):
+            ten = r.get("ten") or ""
+            if not ten:
+                raise CongViecKhoanValidationError(
+                    f"Tên việc phát sinh (dòng {i}) không được trống.")
+            khoa = " ".join(ten.lower().split())
+            if khoa in da_co:
+                raise CongViecKhoanValidationError(f'Việc phát sinh "{ten}" bị trùng tên.')
+            da_co.add(khoa)
+            gia = r.get("don_gia")
+            if gia is None:
+                raise CongViecKhoanValidationError(
+                    f'Chưa nhập đơn giá cho việc phát sinh "{ten}".')
+            if float(gia) < 0:
+                raise CongViecKhoanValidationError(
+                    f'Đơn giá của việc phát sinh "{ten}" không được âm.')
+            if not r.get("don_vi"):
+                raise CongViecKhoanValidationError(
+                    f'Chưa chọn đơn vị tính cho việc phát sinh "{ten}".')
+        co_that = self.repo.ten_don_vi({r["don_vi"] for r in rows})
+        for r in rows:
+            if r["don_vi"] not in co_that:
+                raise CongViecKhoanValidationError(
+                    f'Đơn vị tính "{r["don_vi"]}" của việc phát sinh "{r["ten"]}" không có trong '
+                    "danh mục Đơn vị & quy đổi.")
 
     def _blockers(self, obj) -> list[str]:
         """Nơi ĐANG DÙNG dòng này — có thì `delete()` trả 409 kèm lý do tiếng Việt.
@@ -114,6 +162,16 @@ class CongViecKhoanService(CatalogService):
         from .danh_muc_tham_chieu import tham_chieu
 
         return tham_chieu(self.repo.db, self.LOAI, obj).chan
+
+    def _anh_chup_nhan_ban(self, goc) -> dict:
+        """Bản sao chép luôn các việc phát sinh — thành dòng MỚI (không id), không dùng chung dòng
+        với bản gốc. Ảnh chụp nhật ký mang chúng dưới dạng chữ để so, không dựng lại được."""
+        data = super()._anh_chup_nhan_ban(goc)
+        data["viec_phat_sinh"] = [
+            {"ten": v.ten, "don_gia": float(v.don_gia), "don_vi": v.don_vi}
+            for v in goc.viec_phat_sinh
+        ]
+        return data
 
     # -- đọc ---------------------------------------------------------------------------
 

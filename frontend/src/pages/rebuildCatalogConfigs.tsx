@@ -520,6 +520,11 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
       } },
     { key: "unit_price", label: "Đơn giá",
       render: (r) => (Number(r.unit_price) ? `${Number(r.unit_price).toLocaleString("vi-VN")} đ` : "") },
+    // Việc phát sinh chỉ hiện TÊN — giá và đơn vị xem trong drawer, dồn cả vào ô là cột phình ngang.
+    { key: "viec_phat_sinh", label: "Việc phát sinh",
+      render: (r) => (Array.isArray(r.viec_phat_sinh)
+        ? (r.viec_phat_sinh as { ten?: string }[]).map((v) => v.ten).filter(Boolean).join(", ")
+        : "") },
     { key: "note", label: "Ghi chú", render: (r) => (r.note ? String(r.note) : "") },
   ],
   fields: [
@@ -527,13 +532,17 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
     // nguồn thì đầu việc khoán và công đoạn không bao giờ trỏ hai danh sách tổ khác nhau (mà lệch
     // là bước lệnh không tìm thấy đầu việc nào của tổ mình).
     { key: "department_id", label: "Tổ làm việc này", type: "ref",
-      refPrefix: "/api/cong-doan/phong-ban", required: true, group: "Thông tin",
-      hint: "Bước lệnh của tổ này sẽ chọn được đơn giá vừa khai." },
+      refPrefix: "/api/cong-doan/phong-ban", required: true, group: "Thông tin"},
     { key: "unit", label: "Đơn vị tính khoán", ...F_DON_VI, required: true, group: "Đơn giá" },
-    { key: "unit_price", label: "Đơn giá (đ)", type: "number", required: true, group: "Đơn giá",
-      hint: "Tiền cho MỘT đơn vị ở trên. Vd bế tay 400 đ/tờ." },
+    { key: "unit_price", label: "Đơn giá (đ)", type: "number", required: true, group: "Đơn giá" },
     // Ô "Cách đo lượng khoán" ĐÃ GỠ (06/09/2026): khai ở dòng đầu việc trong drawer Công đoạn.
     { key: "note", label: "Ghi chú", type: "text", group: "Thông tin" },
+    // Thứ bậc: tổ → công đoạn → công việc khoán → VIỆC PHÁT SINH. Tổ đã có ở trên nên mỗi dòng chỉ
+    // ba ô. Đợt đầu chỉ khai báo — sản xuất chưa đọc danh sách này.
+    // Không khai `hint`: gợi ý nằm DƯỚI bảng bị menu đơn vị của dòng cuối trùm lên — ví dụ đã chuyển
+    // vào dòng "chưa có gì" và chữ mờ trong ô. Trùng tên thì server báo đích danh việc nào.
+    { key: "viec_phat_sinh", label: "", type: "viec-phat-sinh",
+      refPrefix: "/api/don-vi", group: "Việc phát sinh" },
   ],
 };
 
