@@ -1,11 +1,10 @@
 // Tab Thông tin của hồ sơ nhân sự (tách từ pages/NhanSuPage.tsx).
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   api,
   type EmployeeDetail,
   type EmployeeInput,
   type EmployeeMeta,
-  type WorkShift,
 } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { fmtDate } from "../../../../utils/format";
@@ -52,28 +51,10 @@ export function InfoTab({
   } as unknown as EmployeeInput);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [shifts, setShifts] = useState<WorkShift[]>([]);
-  // Ca nền ĐANG hiệu lực (A7, 08/09/2026): `default_shift_id` là mốc MỚI NHẤT kể cả mốc tương lai
-  // nên hồ sơ từng hiện ca chưa tới ngày. Đọc lịch sử mốc, lấy mốc `is_current`; chưa tải/ lỗi thì
-  // rơi về cột cũ.
-  const [currentShiftId, setCurrentShiftId] = useState<number | null | undefined>(undefined);
-  useEffect(() => {
-    api.attendance
-      .shifts(token)
-      .then((r) => setShifts(r.items))
-      .catch(() => setShifts([]));
-  }, [token]);
-  useEffect(() => {
-    api.employees
-      .shiftHistory(token, emp.id)
-      .then((r) => {
-        const now = r.items.find((a) => a.is_current);
-        setCurrentShiftId(now ? now.shift_id : r.items.length ? null : emp.default_shift_id);
-      })
-      .catch(() => setCurrentShiftId(undefined));
-  }, [token, emp.id, emp.default_shift_id]);
-  const shiftId = currentShiftId === undefined ? emp.default_shift_id : currentShiftId;
-  const shiftName = shifts.find((s) => s.id === shiftId)?.name ?? null;
+  // Ca nền ĐANG hiệu lực (A7, 08/09/2026) — máy chủ suy sẵn trong `GET /employees/{id}`. Trước
+  // 14/09/2026 tab tự tải lịch sử mốc + cả danh mục ca để tự suy: thêm hai lời gọi mỗi lần mở hồ
+  // sơ, mà danh mục ca đòi quyền Khai ca nên HCNS không có quyền đó luôn thấy "chưa gán" oan.
+  const shiftName = (emp as unknown as { current_shift_name?: string | null }).current_shift_name ?? null;
   const resigned = emp.status === "resigned";
 
   function set<K extends keyof EmployeeInput>(k: K, v: EmployeeInput[K]) {

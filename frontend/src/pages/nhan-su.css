@@ -2619,7 +2619,7 @@ button.ns__kpi {
 
 /* ── Slide-over Drawer Nhân sự (.ns-detail-drawer) ── */
 .ns-detail-drawer {
-  width: min(740px, 95vw);
+  width: min(1080px, 95vw);
   background: var(--canvas);
 }
 

@@ -6,7 +6,7 @@ import { errMsg } from "../shared/helpers";
 /** Danh mục bậc dùng chung cho wizard / dialog nâng bậc / điều chuyển.
  *  Để LOCAL trong file chứ không nâng thành prop của `EmployeeWizard`: màn Phòng ban cũng dựng
  *  wizard này, thêm một prop bắt buộc là vỡ chỗ đó. */
-export function useJobGrades(token: string) {
+export function useJobGrades(token: string, enabled = true) {
   const [grades, setGrades] = useState<JobGrade[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(() => {
@@ -19,9 +19,11 @@ export function useJobGrades(token: string) {
         setErr(errMsg(e));
       });
   }, [token]);
+  // `enabled`: dialog Thao tác hồ sơ dựng hook cho MỌI loại thao tác, nhưng chỉ Điều chuyển / Nâng
+  // bậc mới có ô bậc — cho nghỉ, đình chỉ, chính thức… không cần tải danh mục.
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (enabled) void reload();
+  }, [reload, enabled]);
   /** Trả BẢN GHI vừa tạo để nơi gọi chọn luôn bậc đó — thêm xong mà còn phải tự tìm lại trong
    *  danh sách là thừa một bước, và dễ chọn nhầm bậc tên gần giống. */
   const addGrade = useCallback(

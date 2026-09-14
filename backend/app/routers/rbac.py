@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..deps import (
     get_activity_service,
@@ -399,6 +399,18 @@ def list_users(
     return admin.list_users()
 
 
+@router.get("/users/{user_id}", response_model=UserRow)
+def get_user(
+    user_id: int,
+    admin: Users,
+    _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+) -> dict:
+    try:
+        return admin.get_user_row(user_id)
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+
 # GỠ `POST /users`: mọi tài khoản đăng nhập PHẢI thuộc một hồ sơ nhân viên, nên đường tạo
 # tài khoản duy nhất là qua Hồ sơ nhân sự (`POST /api/employees` kèm `account`, hoặc
 # `POST /api/employees/{id}/account`). Không còn cửa nào đẻ ra tài khoản mồ côi.
@@ -536,6 +548,7 @@ def list_user_activity(
     user_id: int,
     admin: Users,
     _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+    limit: int = Query(default=50, ge=1, le=200),
 ) -> list[AuditRow]:
     return [
         AuditRow(
@@ -546,7 +559,7 @@ def list_user_activity(
             detail=a.detail,
             created_at=a.created_at,
         )
-        for a in admin.list_activity(user_id)
+        for a in admin.list_activity(user_id, limit=limit)
     ]
 
 

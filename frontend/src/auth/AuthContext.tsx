@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiError, api, registerAuthCallbacks, type User } from "../api/client";
+import { ApiError, api, refreshSession, registerAuthCallbacks, type User } from "../api/client";
 
 type Status = "loading" | "authenticated" | "anonymous";
 
@@ -51,21 +51,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // On mount: restore the session from the httpOnly refresh cookie via /refresh.
   // No stored bearer token to read — the cookie rides along automatically.
+  // Đi qua `refreshSession` (promise dùng chung), KHÔNG gọi thẳng `api.refresh()`: StrictMode chạy
+  // effect này hai lần ⇒ hai lượt cùng cookie ⇒ máy chủ coi lượt sau là token bị trộm và giết phiên.
   useEffect(() => {
     let cancelled = false;
-    api
-      .refresh()
-      .then((res) => {
-        if (cancelled) return;
-        setUser(res.user);
-        setToken(res.access_token);
-        setStatus("authenticated");
-      })
-      .catch(() => {
-        if (cancelled) return;
+    refreshSession().then((res) => {
+      if (cancelled) return;
+      if (!res) {
         // No/expired/revoked refresh cookie -> treat as logged out.
         setStatus("anonymous");
-      });
+        return;
+      }
+      setUser(res.user);
+      setToken(res.access_token);
+      setStatus("authenticated");
+    });
     return () => {
       cancelled = true;
     };

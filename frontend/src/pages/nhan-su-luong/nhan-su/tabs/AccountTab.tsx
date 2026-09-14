@@ -10,7 +10,7 @@ import {
 } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { useCan } from "../../../../auth/permissions";
-import { fmtDate } from "../../../../utils/format";
+import { fmtDate, fmtDateTime } from "../../../../utils/format";
 import {
   Activity,
   ChevronDown,
@@ -23,6 +23,8 @@ import {
 import { deviceLabel, errMsg, genPassword } from "../shared/helpers";
 import { Field } from "../components/form-fields";
 import { InfoCard, InfoField } from "../components/info-display";
+
+const ACTIVITY_LIMIT = 8;
 
 /** Tab "Tài khoản & Quyền" — gộp từ màn Người dùng cũ (đã bỏ). Mọi tài khoản đều thuộc một
  * hồ sơ, nên đây là nơi DUY NHẤT cấp/quản tài khoản đăng nhập của nhân viên. */
@@ -56,39 +58,60 @@ export function AccountTab({
   const [roleId, setRoleId] = useState<number | "">("");
 
   const uid = emp.user_id;
-  const reload = useCallback(() => {
-    if (uid == null) {
-      setRow(null);
-      return;
-    }
+  // Ba nguồn tải RIÊNG: mỗi thao tác chỉ tải lại phần nó đổi (đổi vai trò không đụng phiên).
+  // Trước đây mỗi lần bấm là kéo lại cả danh sách tài khoản toàn hệ thống + phiên + nhật ký.
+  const loadRow = useCallback(() => {
+    if (uid == null) return;
     api.rbac
-      .users(token)
-      .then((rows) => setRow(rows.find((u) => u.id === uid) ?? null))
-      .catch(() => {});
+      .user(token, uid)
+      .then(setRow)
+      .catch(() => setRow(null));
+  }, [token, uid]);
+  const loadSessions = useCallback(() => {
+    if (uid == null) return;
     api.rbac
       .userSessions(token, uid)
       .then(setSessions)
       .catch(() => setSessions([]));
+  }, [token, uid]);
+  const loadActivity = useCallback(() => {
+    if (uid == null) return;
     api.rbac
-      .userActivity(token, uid)
+      .userActivity(token, uid, ACTIVITY_LIMIT)
       .then(setActivity)
       .catch(() => setActivity([]));
   }, [token, uid]);
   useEffect(() => {
-    reload();
-  }, [reload]);
+    if (uid == null) {
+      setRow(null);
+      setSessions([]);
+      setActivity([]);
+      return;
+    }
+    loadRow();
+    loadSessions();
+    loadActivity();
+  }, [uid, loadRow, loadSessions, loadActivity]);
 
   const roleOpts = (meta?.roles ?? []).filter(
     (r) => r.department_id === emp.department_id,
   );
 
-  async function run(fn: () => Promise<unknown>) {
+  /** `after`: tải lại đúng phần vừa đổi. `listChanged`: danh sách nhân sự có cột phản ánh thao
+   * này (tài khoản, vai trò) thì mới báo trang cha tải lại. */
+  async function run(
+    fn: () => Promise<unknown>,
+    {
+      after = [],
+      listChanged = false,
+    }: { after?: (() => void)[]; listChanged?: boolean } = {},
+  ) {
     setBusy(true);
     setError(null);
     try {
       await fn();
-      reload();
-      onChanged();
+      after.forEach((f) => f());
+      if (listChanged) onChanged();
     } catch (e) {
       setError(errMsg(e));
     } finally {
@@ -156,14 +179,17 @@ export function AccountTab({
               variant="accent"
               disabled={busy || !username.trim() || password.length < 6}
               onClick={() =>
-                run(async () => {
-                  await api.employees.createAccount(token, emp.id, {
-                    username: username.trim(),
-                    password,
-                    role_id: roleId === "" ? null : roleId,
-                  });
-                  setTempPw(password);
-                })
+                run(
+                  async () => {
+                    await api.employees.createAccount(token, emp.id, {
+                      username: username.trim(),
+                      password,
+                      role_id: roleId === "" ? null : roleId,
+                    });
+                    setTempPw(password);
+                  },
+                  { listChanged: true },
+                )
               }
             >
               {busy ? "Đang tạo…" : "Cấp tài khoản"}
@@ -182,6 +208,16 @@ export function AccountTab({
 
   // --- Đã có tài khoản ---
   const locked = row !== null && !row.is_active;
+  // Mỗi lần đăng nhập mà không bấm Đăng xuất để lại một phiên sống 7 ngày, nên một người có thể
+  // có hàng trăm phiên chỉ từ vài trình duyệt. Gom theo thiết bị: phiên đã về mới-nhất-trước nên
+  // nhóm đầu tiên là thiết bị vừa đăng nhập, mốc giữ lại là lần đăng nhập mới nhất của nhóm.
+  const sessionGroups: { label: string; count: number; latest: string }[] = [];
+  for (const s of sessions) {
+    const label = deviceLabel(s.user_agent);
+    const g = sessionGroups.find((x) => x.label === label);
+    if (g) g.count += 1;
+    else sessionGroups.push({ label, count: 1, latest: s.created_at });
+  }
   return (
     <div>
       {error && <div className="banner banner--error">{error}</div>}
@@ -222,7 +258,10 @@ export function AccountTab({
                     disabled={busy}
                     onChange={(e) => {
                       const v = e.target.value ? Number(e.target.value) : null;
-                      run(() => api.rbac.assignUserRole(token, uid, v));
+                      run(() => api.rbac.assignUserRole(token, uid, v), {
+                        after: [loadRow, loadActivity],
+                        listChanged: true,
+                      });
                     }}
                   >
                     <option value="">— chưa gán —</option>
@@ -250,10 +289,13 @@ export function AccountTab({
               className="btn btn--ghost btn--sm"
               disabled={busy}
               onClick={() =>
-                run(async () => {
-                  const r = await api.rbac.resetUserPassword(token, uid);
-                  setTempPw(r.temporary_password);
-                })
+                run(
+                  async () => {
+                    const r = await api.rbac.resetUserPassword(token, uid);
+                    setTempPw(r.temporary_password);
+                  },
+                  { after: [loadSessions, loadActivity] },
+                )
               }
             >
               <Key size={12} /> Đặt lại mật khẩu
@@ -264,7 +306,11 @@ export function AccountTab({
               type="button"
               className="btn btn--ghost btn--sm"
               disabled={busy}
-              onClick={() => run(() => api.rbac.revokeUserSessions(token, uid))}
+              onClick={() =>
+                run(() => api.rbac.revokeUserSessions(token, uid), {
+                  after: [loadSessions, loadActivity],
+                })
+              }
             >
               <Lock size={12} /> Thu hồi mọi phiên
             </button>
@@ -275,7 +321,9 @@ export function AccountTab({
               className={`btn btn--sm ${locked ? "btn--primary" : "btn--ghost ns-btn--danger"}`}
               disabled={busy}
               onClick={() =>
-                run(() => api.rbac.setUserActive(token, uid, locked))
+                run(() => api.rbac.setUserActive(token, uid, locked), {
+                  after: [loadRow, loadActivity],
+                })
               }
             >
               <Lock size={12} />{" "}
@@ -294,14 +342,18 @@ export function AccountTab({
         title={`Phiên đang hoạt động (${sessions.length})`}
         icon={Activity}
       >
-        {sessions.length === 0 ? (
+        {sessionGroups.length === 0 ? (
           <InfoField label="Phiên" value={null} icon={Activity} />
         ) : (
-          sessions.map((s) => (
+          sessionGroups.map((g) => (
             <InfoField
-              key={s.id}
-              label={deviceLabel(s.user_agent)}
-              value={`Đăng nhập ${fmtDate(s.created_at)}`}
+              key={g.label}
+              label={g.label}
+              value={
+                g.count > 1
+                  ? `${g.count} phiên · mới nhất ${fmtDateTime(g.latest)}`
+                  : `Đăng nhập ${fmtDateTime(g.latest)}`
+              }
               icon={Activity}
             />
           ))
@@ -312,16 +364,14 @@ export function AccountTab({
         {activity.length === 0 ? (
           <InfoField label="Hoạt động" value={null} icon={Activity} />
         ) : (
-          activity
-            .slice(0, 8)
-            .map((a) => (
-              <InfoField
-                key={a.id}
-                label={`${a.action} · ${fmtDate(a.created_at)}`}
-                value={a.actor_name ?? a.detail}
-                icon={Activity}
-              />
-            ))
+          activity.map((a) => (
+            <InfoField
+              key={a.id}
+              label={`${a.action} · ${fmtDate(a.created_at)}`}
+              value={a.actor_name ?? a.detail}
+              icon={Activity}
+            />
+          ))
         )}
       </InfoCard>
     </div>

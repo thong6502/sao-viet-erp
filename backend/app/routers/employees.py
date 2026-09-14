@@ -82,7 +82,6 @@ from ..schemas.employee import (
     UpdateRequestIn,
     UpdateRequestOut,
     UpdateRequestsOut,
-    UserOption,
 )
 from ..services import employee_excel as excel_nhan_su
 from ..services.catalog_excel import ExcelSaiMan
@@ -159,36 +158,22 @@ def _raise(exc: Exception) -> None:
     raise exc
 
 
-def _dept_names(depts: DepartmentRepository, ids: set[int]) -> dict[int, str]:
-    out: dict[int, str] = {}
-    for did in ids:
-        d = depts.get_by_id(did)
-        if d is not None:
-            out[did] = d.name
-    return out
-
-
-def _user_names(users: UserRepository, ids: set[int]) -> dict[int, str]:
-    out: dict[int, str] = {}
-    for uid in ids:
-        u = users.get_by_id(uid)
-        if u is not None:
-            out[uid] = u.username
-    return out
-
-
-def _role_names(
+def _account_names(
     users: UserRepository, roles: RoleRepository, ids: set[int]
-) -> dict[int, str]:
-    """user_id → tên Vai trò (RBAC) của tài khoản, để hiện làm "Chức danh" ở list nhân sự."""
-    out: dict[int, str] = {}
-    for uid in ids:
-        u = users.get_by_id(uid)
-        if u is not None and u.role_id is not None:
-            r = roles.get_by_id(u.role_id)
-            if r is not None:
-                out[uid] = r.name
-    return out
+) -> tuple[dict[int, str], dict[int, str]]:
+    """(user_id → tên đăng nhập, user_id → tên Vai trò RBAC) cho một trang danh sách — HAI truy
+    vấn cố định. Bản cũ `get_by_id` từng tài khoản rồi từng vai: 71 câu SQL cho trang 20 người."""
+    accounts = users.map_by_ids(ids)
+    role_names = roles.names_by_ids({u.role_id for u in accounts.values()})
+    return (
+        {uid: u.username for uid, u in accounts.items()},
+        {uid: role_names[u.role_id] for uid, u in accounts.items() if u.role_id in role_names},
+    )
+
+
+def _actor_names(users: UserRepository, actor_ids) -> dict[int, str]:
+    """user_id → tên hiển thị người thao tác (Quá trình công tác, Nhật ký) — MỘT truy vấn."""
+    return {uid: (u.name or u.username) for uid, u in users.map_by_ids(actor_ids).items()}
 
 
 def _grade_name(employee, svc) -> str | None:
@@ -224,7 +209,9 @@ def _row(
 
 
 def _full(employee, depts: DepartmentRepository, users: UserRepository,
-          svc=None) -> EmployeeOut:
+          svc=None, *, che_luong: bool = False) -> EmployeeOut:
+    """`che_luong`: người gọi không có `view_salary` ⇒ che trường nhạy cảm. Response của các
+    đường GHI (tạo/sửa/chuyển trạng thái/gắn tài khoản) cũng phải che, không chỉ GET."""
     out = EmployeeOut.model_validate(employee)
     if svc is not None:
         out.job_grade_name = _grade_name(employee, svc)
@@ -234,6 +221,8 @@ def _full(employee, depts: DepartmentRepository, users: UserRepository,
     if employee.user_id is not None:
         u = users.get_by_id(employee.user_id)
         out.account_username = u.username if u is not None else None
+    if che_luong:
+        _mask_salary(out)
     return out
 
 
@@ -279,7 +268,7 @@ def _can_apply_transition(authz: AuthorizationService, user: User, kind: str) ->
 
 
 def _rows_theo_bo_loc(svc: EmployeeService, *, scope: str, user: User, q, department_id,
-                      status_filter, has_account, sort) -> list:
+                      status_filter, has_account, sort, ending_soon: bool = False) -> list:
     """Lấy TRỌN danh sách theo đúng bộ lọc + phạm vi quyền của người bấm.
 
     KHÔNG dùng trần `size` của endpoint danh sách (`le=200`): lặp theo mẻ tới khi đủ `total`, nên
@@ -291,7 +280,8 @@ def _rows_theo_bo_loc(svc: EmployeeService, *, scope: str, user: User, q, depart
     while True:
         batch, total = svc.list_employees(
             scope=scope, actor=user, q=q, department_id=department_id, status=status_filter,
-            has_account=has_account, sort=sort, page=page, size=excel_nhan_su.ME_XUAT,
+            has_account=has_account, ending_soon=ending_soon, sort=sort, page=page,
+            size=excel_nhan_su.ME_XUAT,
         )
         rows.extend(batch)
         if len(rows) >= total or not batch:
@@ -313,6 +303,7 @@ def export_employees_xlsx(
     department_id: int | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     has_account: bool | None = Query(default=None),
+    ending_soon: bool = Query(default=False),
     sort: str = Query(default="code"),
 ) -> Response:
     """Xuất hồ sơ nhân sự ra .xlsx — ĐỦ MỌI Ô của hồ sơ, không phải 8 cột danh sách.
@@ -331,7 +322,8 @@ def export_employees_xlsx(
     """
     scope = _scope_for(authz, user)
     rows = _rows_theo_bo_loc(svc, scope=scope, user=user, q=q, department_id=department_id,
-                             status_filter=status_filter, has_account=has_account, sort=sort)
+                             status_filter=status_filter, has_account=has_account, sort=sort,
+                             ending_soon=ending_soon)
     return Response(
         content=excel_nhan_su.xuat_excel(
             rows, excel_nhan_su.dung_ngu_canh(svc),
@@ -404,6 +396,9 @@ def list_employees(
     department_id: int | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     has_account: bool | None = Query(default=None),
+    # Ô KPI "Sắp hết thử việc". Trước 14/09/2026 giao diện tự lọc trên đúng trang 20 dòng đang
+    # xem ⇒ ai sắp hết hạn mà nằm trang 2 trở đi thì biến mất, trang 1 báo "chưa có ai".
+    ending_soon: bool = Query(default=False),
     sort: str = Query(default="code"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
@@ -415,72 +410,41 @@ def list_employees(
     scope = _scope_for(authz, user)
     rows, total = svc.list_employees(
         scope=scope, actor=user, q=q, department_id=department_id, status=status_filter,
-        has_account=has_account, sort=sort, page=page, size=size,
+        has_account=has_account, ending_soon=ending_soon, sort=sort, page=page, size=size,
     )
-    dept_ids = {e.department_id for e in rows if e.department_id is not None}
-    user_ids = {e.user_id for e in rows if e.user_id is not None}
-    names = _dept_names(depts, dept_ids)
-    unames = _user_names(users, user_ids)
-    rnames = _role_names(users, roles, user_ids)
+    names = depts.names_by_ids({e.department_id for e in rows})
+    unames, rnames = _account_names(users, roles, {e.user_id for e in rows if e.user_id})
     gnames = {g.id: g.name for g in svc.list_job_grades()}
 
     return EmployeeListOut(
         items=[_row(e, names, unames, rnames, gnames) for e in rows],
         total=total, page=page, size=size,
-        kpis=_kpis(svc.list_scoped_all(scope=scope, actor=user)),
-    )
-
-
-def _kpis(book) -> EmployeeKpis:
-    from datetime import date, timedelta
-
-    soon = date.today() + timedelta(days=30)
-    return EmployeeKpis(
-        total=len(book),
-        active=sum(1 for e in book if e.status == "active"),
-        probation=sum(1 for e in book if e.status == "probation"),
-        probation_ended=sum(1 for e in book if e.status == "probation_ended"),
-        on_leave=sum(1 for e in book if e.status == "on_leave"),
-        resigned=sum(1 for e in book if e.status == "resigned"),
-        probation_ending_soon=sum(
-            1 for e in book
-            if e.status == "probation" and e.probation_end_date is not None
-            and date.today() <= e.probation_end_date <= soon
-        ),
+        kpis=EmployeeKpis(**svc.employee_kpis(scope=scope, actor=user)),
     )
 
 
 @router.get("/meta", response_model=EmployeeMetaOut)
 def get_meta(
-    svc: Service,
-    users: Users,
     depts: Depts,
     roles: Roles,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> EmployeeMetaOut:
-    """Dropdown data: departments + roles + login accounts not yet linked to any employee."""
+    """Dropdown data: departments + roles. Hai truy vấn cố định, không theo số phòng."""
     departments = depts.list_all()
     # `fallback_all=False`: chưa ai tick cờ Sản xuất thì trả về RỖNG — cờ phải là sự thật.
     # FE tự xử trường hợp "chưa ai tick" (hiện ô Bậc cho mọi phòng còn hơn giấu mất ô).
-    prod_ids = {d.id for d in depts.production_departments(fallback_all=False)}
+    prod_ids = {d.id for d in depts.production_departments(fallback_all=False, depts=departments)}
     dept_opts = [DepartmentOption(id=d.id, name=d.name, la_san_xuat=(d.id in prod_ids))
                  for d in departments]
-    linked = {e.user_id for e in svc.list_scoped_all(scope="all", actor=user) if e.user_id is not None}
-    unlinked = [
-        UserOption(id=u.id, username=u.username, name=u.name or u.username)
-        for u in users.list_all()
-        if u.id not in linked
-    ]
-    # Vai trò gắn tài khoản (wizard + tab Tài khoản & Quyền). Role thuộc 1 phòng ban nên gom
-    # theo từng phòng; số phòng nhỏ nên vòng lặp này rẻ.
+    # Vai trò gắn tài khoản (wizard + tab Tài khoản & Quyền). Role thuộc 1 phòng ban; FE lọc
+    # theo phòng của hồ sơ đang mở.
+    dept_ids = {d.id for d in departments}
     role_opts = [
         RoleOption(id=r.id, name=r.name, department_id=r.department_id)
-        for d in departments
-        for r in roles.list_by_department(d.id)
+        for r in roles.list_all()
+        if r.department_id in dept_ids
     ]
-    return EmployeeMetaOut(
-        departments=dept_opts, unlinked_users=unlinked, roles=role_opts
-    )
+    return EmployeeMetaOut(departments=dept_opts, roles=role_opts)
 
 
 # --- create -----------------------------------------------------------------
@@ -544,7 +508,8 @@ def create_employee(
     except PayrollError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     return EmployeeCreateOut(
-        employee=_full(employee, depts, users, svc),
+        employee=_full(employee, depts, users, svc,
+                       che_luong=not authz.can(user, MODULE, "view_salary")),
         duplicate_national_id=_dup(dup_nid),
         duplicate_social_insurance=_dup(dup_si),
         account_username=account_username,
@@ -592,29 +557,24 @@ def update_my_profile(body: MyContactIn, svc: Service, depts: Depts, users: User
     return MyProfileOut(has_employee=True, employee=_my_out(emp, depts, users, svc))
 
 
-@router.get("/me/events", response_model=EmployeeEventsOut)
-def my_events(svc: Service, users: Users, user: SelfUser) -> EmployeeEventsOut:
+def _events_out(events, users: UserRepository) -> EmployeeEventsOut:
+    names = _actor_names(users, {ev.actor_user_id for ev in events})
     items = []
-    for ev in svc.my_events(user=user):
+    for ev in events:
         row = EmployeeEventOut.model_validate(ev)
-        if ev.actor_user_id is not None:
-            u = users.get_by_id(ev.actor_user_id)
-            row.actor_name = (u.name or u.username) if u is not None else None
+        row.actor_name = names.get(ev.actor_user_id)
         items.append(row)
     return EmployeeEventsOut(items=items)
+
+
+@router.get("/me/events", response_model=EmployeeEventsOut)
+def my_events(svc: Service, users: Users, user: SelfUser) -> EmployeeEventsOut:
+    return _events_out(svc.my_events(user=user), users)
 
 
 @router.get("/me/attachments", response_model=AttachmentsOut)
 def my_attachments(svc: Service, user: SelfUser) -> AttachmentsOut:
     return AttachmentsOut(items=[AttachmentOut.model_validate(a) for a in svc.my_attachments(user=user)])
-
-
-def _decider_name(req, users: UserRepository) -> str | None:
-    """Tên người đã quyết (duyệt/từ chối) — hoặc chính NV nếu họ tự rút lại."""
-    if req.decided_by is None:
-        return None
-    u = users.get_by_id(req.decided_by)
-    return (u.name or u.username) if u is not None else None
 
 
 def _current_values(emp, changes: dict) -> dict:
@@ -627,15 +587,17 @@ def _current_values(emp, changes: dict) -> dict:
     return out
 
 
-def _req_out(req, emps: dict[int, object], users: UserRepository | None = None,
+def _req_out(req, emps: dict[int, object], decider_names: dict[int, str] | None = None,
              che_nhay_cam: bool = False) -> UpdateRequestOut:
+    """`decider_names`: user_id → tên người đã quyết (duyệt/từ chối, hoặc chính NV tự rút) — tra
+    sẵn cả trang bằng `_actor_names`, không tra từng dòng."""
     out = UpdateRequestOut.model_validate(req)
     emp = emps.get(req.employee_id)
     if emp is not None:
         out.employee_name = emp.full_name
         out.current = _current_values(emp, req.changes or {})
-    if users is not None:
-        out.decided_by_name = _decider_name(req, users)
+    if decider_names is not None:
+        out.decided_by_name = decider_names.get(req.decided_by)
     if che_nhay_cam:
         # Cửa `/employees/{id}` che STK/CCCD cho người thiếu `view_salary`, cửa hàng đợi YC thì
         # trả nguyên (bản rà liên thông E10, 08/09/2026) — che cùng một luật ở đây.
@@ -664,8 +626,9 @@ def my_requests(svc: Service, users: Users, user: SelfUser,
     if status_filter is not None and status_filter not in REQUEST_STATUSES:
         raise HTTPException(status_code=400, detail="Trạng thái lọc không hợp lệ.")
     rows, total, dem = svc.my_update_requests(user=user, status=status_filter, page=page, size=size)
+    names = _actor_names(users, {r.decided_by for r in rows})
     return MyUpdateRequestsOut(
-        items=[_req_out(r, {}, users) for r in rows], total=total, page=page, size=size, dem=dem,
+        items=[_req_out(r, {}, names) for r in rows], total=total, page=page, size=size, dem=dem,
     )
 
 
@@ -676,7 +639,7 @@ def cancel_my_request(request_id: int, svc: Service, users: Users, user: SelfWri
         req = svc.cancel_my_update_request(user=user, request_id=request_id)
     except EmployeeError as exc:
         _raise(exc)
-    return _req_out(req, {}, users)
+    return _req_out(req, {}, _actor_names(users, {req.decided_by}))
 
 
 # --- HCNS duyệt yêu cầu cập nhật (quyền chi tiết `approve`) ------------------
@@ -687,13 +650,10 @@ def list_requests(svc: Service, users: Users, authz: Authz,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
                   status_filter: str | None = Query(default=None, alias="status")) -> UpdateRequestsOut:
     reqs = svc.list_update_requests(status=status_filter, scope=_scope_for(authz, user), actor=user)
-    emps: dict[int, object] = {}
-    for eid in {r.employee_id for r in reqs}:
-        emp = svc.employees.get_by_id(eid)
-        if emp is not None:
-            emps[eid] = emp
+    emps = svc.employees.map_by_ids({r.employee_id for r in reqs})
+    names = _actor_names(users, {r.decided_by for r in reqs})
     che = not authz.can(user, MODULE, "view_salary")
-    return UpdateRequestsOut(items=[_req_out(r, emps, users, che_nhay_cam=che) for r in reqs])
+    return UpdateRequestsOut(items=[_req_out(r, emps, names, che_nhay_cam=che) for r in reqs])
 
 
 @router.post("/update-requests/{request_id}/approve", response_model=UpdateRequestOut)
@@ -705,7 +665,7 @@ def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, auth
                                         can_edit_salary=authz.can(user, MODULE, "edit_salary"))
     except EmployeeError as exc:
         _raise(exc)
-    return _req_out(req, {}, users)
+    return _req_out(req, {}, _actor_names(users, {req.decided_by}))
 
 
 @router.post("/update-requests/{request_id}/reject", response_model=UpdateRequestOut)
@@ -716,7 +676,7 @@ def reject_request(request_id: int, body: RequestDecisionIn, svc: Service, authz
                                         note=body.note, scope=_scope_for(authz, user))
     except EmployeeError as exc:
         _raise(exc)
-    return _req_out(req, {}, users)
+    return _req_out(req, {}, _actor_names(users, {req.decided_by}))
 
 
 # --- detail / edit ----------------------------------------------------------
@@ -797,9 +757,9 @@ def get_employee(
         employee = svc.get_employee(employee_id=employee_id, scope=_scope_for(authz, user), actor=user)
     except EmployeeError as exc:
         _raise(exc)
-    out = _full(employee, depts, users, svc)
-    if not authz.can(user, MODULE, "view_salary"):
-        _mask_salary(out)
+    out = _full(employee, depts, users, svc,
+                che_luong=not authz.can(user, MODULE, "view_salary"))
+    out.current_shift_id, out.current_shift_name = svc.current_shift(employee)
     return out
 
 
@@ -829,7 +789,8 @@ def update_employee(
     except EmployeeError as exc:
         _raise(exc)
     return EmployeeUpdateOut(
-        employee=_full(employee, depts, users, svc),
+        employee=_full(employee, depts, users, svc,
+                       che_luong=not authz.can(user, MODULE, "view_salary")),
         duplicate_national_id=_dup(dup_nid),
         duplicate_social_insurance=_dup(dup_si),
     )
@@ -960,7 +921,8 @@ def apply_transition(
         _raise(exc)
     except PayrollError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
-    return _full(employee, depts, users, svc)
+    return _full(employee, depts, users, svc,
+                 che_luong=not authz.can(user, MODULE, "view_salary"))
 
 
 # --- Quá trình công tác + Nhật ký ------------------------------------------
@@ -978,14 +940,7 @@ def list_events(
         events = svc.list_events(employee_id=employee_id, scope=_scope_for(authz, user), actor=user)
     except EmployeeError as exc:
         _raise(exc)
-    items = []
-    for ev in events:
-        row = EmployeeEventOut.model_validate(ev)
-        if ev.actor_user_id is not None:
-            u = users.get_by_id(ev.actor_user_id)
-            row.actor_name = (u.name or u.username) if u is not None else None
-        items.append(row)
-    return EmployeeEventsOut(items=items)
+    return _events_out(events, users)
 
 
 @router.get("/{employee_id}/activity", response_model=EmployeeActivityOut)
@@ -1003,17 +958,14 @@ def list_activity(
     except EmployeeError as exc:
         _raise(exc)
     rows = audit.list_by_target(f"employee:{employee_id}")
-    items = []
-    for a in rows:
-        actor_name = None
-        if a.actor_user_id is not None:
-            u = users.get_by_id(a.actor_user_id)
-            actor_name = (u.name or u.username) if u is not None else None
-        items.append(EmployeeActivityRowOut(
+    names = _actor_names(users, {a.actor_user_id for a in rows})
+    return EmployeeActivityOut(items=[
+        EmployeeActivityRowOut(
             action=a.action, target=a.target, detail=a.detail,
-            actor_name=actor_name, created_at=a.created_at,
-        ))
-    return EmployeeActivityOut(items=items)
+            actor_name=names.get(a.actor_user_id), created_at=a.created_at,
+        )
+        for a in rows
+    ])
 
 
 # --- attachments ------------------------------------------------------------
@@ -1117,7 +1069,8 @@ def attach_account(
             )
     except EmployeeError as exc:
         _raise(exc)
-    return _full(employee, depts, users, svc)
+    return _full(employee, depts, users, svc,
+                 che_luong=not authz.can(user, MODULE, "view_salary"))
 
 
 # GỠ `DELETE /{employee_id}/account` (gỡ liên kết): mọi tài khoản phải thuộc một hồ sơ, nên

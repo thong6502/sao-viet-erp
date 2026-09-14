@@ -245,6 +245,10 @@ class EmployeeOut(EmployeeRow):
     # Trưởng bộ phận (departments.head_user_id → tên tài khoản). CHỈ route self-service
     # `/me` điền — danh sách HCNS bỏ trống để không phải tra thêm mỗi dòng (N+1).
     department_head_name: str | None = None
+    # Ca nền ĐANG hiệu lực hôm nay (khác `default_shift_id` = mốc mới nhất, có thể là mốc tương
+    # lai). CHỈ `GET /{id}` điền — tab Thông tin hiện thẳng, khỏi tự tải lịch sử mốc + danh mục ca.
+    current_shift_id: int | None = None
+    current_shift_name: str | None = None
 
 
 class EmployeeKpis(BaseModel):
@@ -411,12 +415,6 @@ class DepartmentOption(BaseModel):
     la_san_xuat: bool = False
 
 
-class UserOption(BaseModel):
-    id: int
-    username: str
-    name: str
-
-
 class RoleOption(BaseModel):
     """Vai trò để gán cho tài khoản. Role thuộc ĐÚNG 1 phòng ban, nên FE lọc theo
     `department_id` của hồ sơ đang mở."""
@@ -427,10 +425,12 @@ class RoleOption(BaseModel):
 
 
 class EmployeeMetaOut(BaseModel):
-    """Dropdown data for the forms: departments + roles + accounts not yet linked to any NV."""
+    """Dropdown data for the forms: departments + roles.
+
+    `unlinked_users` (tài khoản chưa nối hồ sơ) ĐÃ BỎ 14/09/2026: không màn nào đọc, mà mỗi lần
+    mở màn Nhân sự nó quét cả bảng hồ sơ lẫn cả bảng tài khoản."""
 
     departments: list[DepartmentOption]
-    unlinked_users: list[UserOption]
     roles: list[RoleOption] = []
 
 

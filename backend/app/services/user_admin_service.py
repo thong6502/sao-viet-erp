@@ -68,36 +68,34 @@ class UserAdminService:
         self.employees = employees
 
     def list_users(self) -> list[dict]:
-        dept_names: dict[int, str] = {}
-        role_names: dict[int, str] = {}
-        rows: list[dict] = []
-        for u in self.users.list_all():
-            dept_name = None
-            if u.department_id is not None:
-                if u.department_id not in dept_names:
-                    d = self.departments.get_by_id(u.department_id)
-                    dept_names[u.department_id] = d.name if d else None
-                dept_name = dept_names[u.department_id]
-            role_name = None
-            if u.role_id is not None:
-                if u.role_id not in role_names:
-                    r = self.roles.get_by_id(u.role_id)
-                    role_names[u.role_id] = r.name if r else None
-                role_name = role_names[u.role_id]
-            rows.append(
-                {
-                    "id": u.id,
-                    "code": u.code,
-                    "name": u.name,
-                    "username": u.username,
-                    "department_id": u.department_id,
-                    "department_name": dept_name,
-                    "role_id": u.role_id,
-                    "role_name": role_name,
-                    "is_active": u.is_active,
-                }
-            )
-        return rows
+        users = self.users.list_all()
+        return self._rows(users)
+
+    def get_user_row(self, user_id: int) -> dict:
+        """Một dòng như `list_users` — tab Tài khoản của hồ sơ chỉ cần đúng một người, trước đây
+        kéo cả danh sách tài khoản về rồi lọc ở trình duyệt."""
+        u = self.users.get_by_id(user_id)
+        if u is None:
+            raise UserNotFound(f"User {user_id} not found")
+        return self._rows([u])[0]
+
+    def _rows(self, users: list[User]) -> list[dict]:
+        dept_names = self.departments.names_by_ids({u.department_id for u in users})
+        role_names = self.roles.names_by_ids({u.role_id for u in users})
+        return [
+            {
+                "id": u.id,
+                "code": u.code,
+                "name": u.name,
+                "username": u.username,
+                "department_id": u.department_id,
+                "department_name": dept_names.get(u.department_id),
+                "role_id": u.role_id,
+                "role_name": role_names.get(u.role_id),
+                "is_active": u.is_active,
+            }
+            for u in users
+        ]
 
     def create_user(
         self, *, name: str, username: str, department_id: int, actor_id: int | None,
@@ -314,6 +312,6 @@ class UserAdminService:
         """Live sessions (active refresh tokens) for a user (spec-08)."""
         return self.tokens.list_active_for_user(user_id)
 
-    def list_activity(self, user_id: int) -> list[AuditLog]:
+    def list_activity(self, user_id: int, limit: int = 50) -> list[AuditLog]:
         """Recent audit rows targeting this user (spec-08)."""
-        return self.audit.list_for_target(f"user:{user_id}")
+        return self.audit.list_for_target(f"user:{user_id}", limit=limit)

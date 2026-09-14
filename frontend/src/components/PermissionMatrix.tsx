@@ -7,7 +7,7 @@
 // tiết" → bấm BUNG INLINE ngay dưới hàng (không popover portal). Data contract KHÔNG đổi.
 import { useState } from "react";
 import type { ModuleDef, PermissionRow, Scope, RoleTemplate } from "../api/client";
-import { BAI_GHEP_ENABLED } from "../constants/features";
+import { BAI_GHEP_ENABLED, XEP_LICH_2_ENABLED } from "../constants/features";
 import { Icon } from "./Icons";
 import "./permission-matrix.css";
 
@@ -504,6 +504,9 @@ const MODULE_DA_NGUNG = new Set([
   // vì màn đã rút khỏi menu: để ô lại thì quản trị tick xong vẫn không ai thấy màn nào mở ra.
   // Dòng `role_permissions` đã cấp GIỮ NGUYÊN trong DB, bật cờ lại là ô hiện y như cũ.
   ...(BAI_GHEP_ENABLED ? [] : ["bai_ghep_2"]),
+  // `xep_lich_2` (Xếp lịch công đoạn) cùng lối: màn ĐANG ẨN theo `XEP_LICH_2_ENABLED`, ô quyền
+  // ẩn theo — quyền đã cấp giữ nguyên trong DB, API màn 2 vẫn đọc nó.
+  ...(XEP_LICH_2_ENABLED ? [] : ["xep_lich_2"]),
 ]);
 
 const MODULE_GROUPS: {
