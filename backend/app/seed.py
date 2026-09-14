@@ -76,7 +76,9 @@ MODULES: list[tuple[str, str]] = [
     # Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH SẢN XUẤT. Khoá RIÊNG chứ không tick thêm bit vào
     # `xep_lich_2`: hai màn còn chạy song song tới lúc nghiệm thu, tách khoá thì tắt/bật từng màn
     # theo vai được. mg `0292` chép quyền cho DB đã có dữ liệu; ở đây là đường của DB TRẮNG.
-    ("xep_lich_3", "Xếp lịch 3"),
+    # NHÃN "Xếp lịch" (14/09/2026): menu đã gọi màn này là "Xếp lịch", ô quyền phải cùng tên để
+    # người cấp quyền dò theo màn hình. `seed_modules` tự đồng bộ nhãn vào DB lúc khởi động.
+    ("xep_lich_3", "Xếp lịch"),
     # HAI MÀN CHỈ ĐỌC (31/08/2026). Phạm vi của chúng bám `orders.sale_user_id` — phạm vi của
     # người BÁN — khác hẳn `san_xuat` vốn bám `lsx.nguoi_phu_trach_id` (người LÀM). Đó là lý do
     # phải là hai khoá riêng chứ không tick thêm bit vào `san_xuat`: sửa nghĩa scope của

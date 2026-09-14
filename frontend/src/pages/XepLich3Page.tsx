@@ -11,7 +11,9 @@ import { useDebounced } from "../utils/useDebounced";
 import { Xl3ChiTiet } from "./Xl3ChiTiet";
 import { Xl3Gantt } from "./Xl3Gantt";
 import { Xl3HangCho } from "./Xl3HangCho";
-import { dauTuan, themNgay, treHan } from "./xl3Shared";
+import {
+  NGAY_NHAP_MAX, NGAY_NHAP_MIN, dauTuan, gioPhut, loiKhoangNgay, phutChayTrongCuaSo, soNgayGiua, themNgay, treHan,
+} from "./xl3Shared";
 import "./xep-lich-3.css";
 
 const MOI_TRANG = 20;
@@ -31,6 +33,33 @@ export function XepLich3Page({
   const [soNgay, setSoNgay] = useState<number>(7);
   const [tu, setTu] = useState<string>(() => dauTuan(new Date()));
   const den = useMemo(() => themNgay(tu, soNgay - 1), [tu, soNgay]);
+
+  // Ô chọn KHOẢNG ngày tự do. Gõ vào bản nháp `nhapTu/nhapDen`, bấm Áp dụng mới đổi cửa sổ — đổi
+  // theo từng phím thì mỗi ô ngày gõ dở là một lượt `/lich` với khoảng rác.
+  const [moKhoang, setMoKhoang] = useState(false);
+  const [nhapTu, setNhapTu] = useState(tu);
+  const [nhapDen, setNhapDen] = useState(den);
+  const nhanKhoangRef = useRef<HTMLSpanElement>(null);
+  const oKhoangRef = useRef<HTMLFormElement>(null);
+  const loiKhoang = loiKhoangNgay(nhapTu, nhapDen);
+  const batKhoang = () => {
+    if (!moKhoang) { setNhapTu(tu); setNhapDen(den); }
+    setMoKhoang(!moKhoang);
+  };
+  useEffect(() => {
+    if (!moKhoang) return;
+    const ngoai = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!oKhoangRef.current?.contains(t) && !nhanKhoangRef.current?.contains(t)) setMoKhoang(false);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setMoKhoang(false); };
+    document.addEventListener("mousedown", ngoai);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", ngoai);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [moKhoang]);
 
   const [dong, setDong] = useState<Xl3Dong[]>([]);
   // Ngày không làm việc của ĐÚNG cửa sổ đang xem — lễ, làm bù, cấu hình tuần. Đi kèm `/lich` chứ
@@ -53,6 +82,12 @@ export function XepLich3Page({
   const [keoTuHangCho, setKeoTuHangCho] = useState<number | null>(null);
   const [nhip, setNhip] = useState(0);
   const lamMoi = useCallback(() => setNhip((n) => n + 1), []);
+  // Đọc trong callback ghi mà không đưa vào deps — `datMoc` đổi danh tính là effect kéo thả của
+  // Gantt gỡ/gắn lại listener giữa chừng.
+  const tickRef = useRef(eventTick);
+  tickRef.current = eventTick;
+  const theRef = useRef(the);
+  theRef.current = the;
 
   const hetGio = useRef<number | null>(null);
   useEffect(() => {
@@ -164,10 +199,32 @@ export function XepLich3Page({
       if (!token || !suaDuoc) return;
       setDangGhi(true);
       setLoi(null);
+      // Nhịp SSE lấy LÚC GỬI: máy chủ phát sự kiện trước khi trả phản hồi, nên nhịp của chính lần
+      // ghi này có thể về trước cả `await` bên dưới.
+      const tickTruoc = tickRef.current;
+      const tuHangCho = theRef.current.some((t) => t.lsx_id === lsxId);
       try {
         const r = await api.xepLich3.datMoc(token, lsxId, batDauAt, expected);
         setBao(r.thong_bao ?? null);
-        sau(lsxId);
+        // VẼ NGAY bằng dòng PUT trả về — máy chủ dựng nó bằng đúng `_dong` của `/lich`. Trước
+        // 14/09/2026 dòng này bị bỏ, thanh nhảy về chỗ cũ rồi đứng đó chờ tải lại cả lịch.
+        setDong((ds) => (ds.some((d) => d.lsx_id === lsxId)
+          ? ds.map((d) => (d.lsx_id === lsxId ? r : d))
+          : [...ds, r]));
+        if (tuHangCho) {
+          setThe((ds) => ds.filter((t) => t.lsx_id !== lsxId));
+          setTongCho((n) => Math.max(0, n - 1));
+        }
+        // KHÔNG chọn lệnh: kéo thả xong chỉ cần thanh dài/ngắn lại, muốn xem chi tiết thì bấm.
+        // KHÔNG tự tải lại: máy chủ phát `xep_lich_3_changed`, AppShell tăng `eventTick` (màn tải
+        // lại lịch + hàng chờ + chi tiết đang mở) và tự nạp badge khối Sản xuất. Tự gọi thêm ở đây
+        // là mỗi lần thả tải hai lượt, cộng `onBadgeStale` nạp badge của MỌI module (~25 request).
+        // Chỉ khi SSE im quá 3 giây (mất kết nối) mới tự tải, để màn không đứng số cũ.
+        window.setTimeout(() => {
+          if (tickRef.current !== tickTruoc) return;
+          lamMoi();
+          onBadgeStale?.();
+        }, 3000);
       } catch (e) {
         setLoi(
           e instanceof ApiError && e.status === 409
@@ -182,7 +239,7 @@ export function XepLich3Page({
         setKeoTuHangCho(null);
       }
     },
-    [token, suaDuoc, sau, lamMoi],
+    [token, suaDuoc, lamMoi, onBadgeStale],
   );
 
   const boLich = useCallback(async () => {
@@ -273,10 +330,11 @@ export function XepLich3Page({
     const tong = dong.length;
     const daPhatHanh = dong.filter((d) => d.trang_thai === "da_phat_hanh").length;
     const tre = dong.filter((d) => (treHan(d) ?? 0) > 0).length;
-    return { tong, daPhatHanh, tre, tongCho };
-  }, [dong, tongCho]);
+    const phutChay = phutChayTrongCuaSo(dong, tu, soNgay);
+    return { tong, daPhatHanh, tre, tongCho, phutChay };
+  }, [dong, tongCho, tu, soNgay]);
 
-  const nhanTuan = `${tu.slice(8)}/${tu.slice(5, 7)} – ${den.slice(8)}/${den.slice(5, 7)}/${den.slice(0, 4)}`;
+  const nhanTuan = `${tu.slice(8)}/${tu.slice(5, 7)}${tu.slice(0, 4) !== den.slice(0, 4) ? `/${tu.slice(0, 4)}` : ""} – ${den.slice(8)}/${den.slice(5, 7)}/${den.slice(0, 4)}`;
 
   return (
     <div className="xl3">
@@ -298,6 +356,13 @@ export function XepLich3Page({
             <span className="xl3-kpi-sep" />
             <span className="xl3-kpi-pill xl3-kpi-pill--amber">
               Chờ xếp: <strong>{kpi.tongCho}</strong>
+            </span>
+            <span className="xl3-kpi-sep" />
+            <span
+              className="xl3-kpi-pill"
+              title="Tổng giờ máy chạy của các lệnh, chỉ tính phần nằm trong khoảng ngày đang xem"
+            >
+              Giờ chạy trong cửa sổ: <strong>{gioPhut(kpi.phutChay)}</strong>
             </span>
             {kpi.tre > 0 && (
               <>
@@ -350,7 +415,17 @@ export function XepLich3Page({
             >
               <ChevronLeft size={16} />
             </button>
-            <span className="xl3__tuan-nhan" onClick={() => setTu(dauTuan(new Date()))}>
+            <span
+              ref={nhanKhoangRef}
+              className="xl3__tuan-nhan"
+              role="button"
+              tabIndex={0}
+              aria-haspopup="dialog"
+              aria-expanded={moKhoang}
+              title="Chọn từ ngày đến ngày"
+              onClick={batKhoang}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); batKhoang(); } }}
+            >
               <Calendar size={13} style={{ color: "var(--ash)" }} />
               {nhanTuan}
             </span>
@@ -362,6 +437,51 @@ export function XepLich3Page({
               <ChevronRight size={16} />
             </button>
           </div>
+          {moKhoang && (
+            <form
+              ref={oKhoangRef}
+              className="xl3-khoang"
+              role="dialog"
+              aria-label="Chọn khoảng ngày"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (loiKhoang) return;
+                setTu(nhapTu);
+                setSoNgay(soNgayGiua(nhapTu, nhapDen));
+                setMoKhoang(false);
+              }}
+            >
+              <label className="xl3-khoang__o">
+                <span>Từ ngày</span>
+                <input
+                  type="date"
+                  value={nhapTu}
+                  min={NGAY_NHAP_MIN}
+                  max={NGAY_NHAP_MAX}
+                  autoFocus
+                  onChange={(e) => setNhapTu(e.target.value)}
+                />
+              </label>
+              <label className="xl3-khoang__o">
+                <span>Đến ngày</span>
+                <input
+                  type="date"
+                  value={nhapDen}
+                  min={/^\d{4}-\d{2}-\d{2}$/.test(nhapTu) ? nhapTu : NGAY_NHAP_MIN}
+                  max={NGAY_NHAP_MAX}
+                  onChange={(e) => setNhapDen(e.target.value)}
+                />
+              </label>
+              <div className="xl3-khoang__chan">
+                <span className={loiKhoang ? "xl3-khoang__loi" : "xl3-khoang__dem"} role={loiKhoang ? "alert" : undefined}>
+                  {loiKhoang ?? `${soNgayGiua(nhapTu, nhapDen)} ngày`}
+                </span>
+                <button type="submit" className="xl3-khoang__ap" disabled={!!loiKhoang}>
+                  Áp dụng
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </header>
 

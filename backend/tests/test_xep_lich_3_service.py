@@ -122,6 +122,78 @@ def test_chi_tiet_du_o_cua_panel(svc3, lenh):
         assert k in ct, f"thieu khoa {k}"
 
 
+def test_chi_tiet_dien_giai_nghi_cong_lai_dung_con_so_gop(svc3, lenh):
+    """Panel ghi "Nghỉ" một con số thì phần diễn giải bên dưới phải cộng ra ĐÚNG con số đó."""
+    svc3.dat_moc(lenh.id, datetime(2026, 9, 11, 8, 0))
+    ct = svc3.chi_tiet(lenh.id)
+    pt = ct["phan_tach_nghi"]
+    assert pt["ca_san_xuat"]
+    assert (pt["nghi_giua_ca_phut"] + pt["ngoai_ca_phut"] + pt["ngay_nghi_phut"]
+            + pt["gia_cong_ngoai_phut"]) == pytest.approx(ct["nghi_ngoai_ca_phut"], abs=0.5)
+    assert all("ten" in n for n in pt["ngay_nghi"])
+    # Đi qua được `response_model` — schema không khai thì Pydantic nuốt im lặng.
+    from app.schemas.xep_lich_3 import ChiTietOut
+
+    assert ChiTietOut.model_validate(ct).phan_tach_nghi is not None
+
+
+def test_chi_tiet_ghi_ten_ca_va_bua_nghi_cua_tung_ca(db, svc3, lenh):
+    """Khung gộp "06:00–24:00" không nói bữa nghỉ nào của ca nào — panel phải có tên từng ca."""
+    from app.models.attendance import WorkShift
+
+    db.add_all([
+        WorkShift(name="Ca 1", start_minute=360, end_minute=900,
+                  break_start_minute=720, break_end_minute=780),
+        WorkShift(name="Ca 2", start_minute=900, end_minute=0, is_overnight=True,
+                  break_start_minute=1080, break_end_minute=1140),
+    ])
+    db.commit()
+    svc3.dat_moc(lenh.id, datetime(2026, 9, 11, 8, 0))
+    pt = svc3.chi_tiet(lenh.id)["phan_tach_nghi"]
+    assert [(c["ten"], c["tu"], c["den"], c["nghi_tu"], c["nghi_den"]) for c in pt["cac_ca"]] == [
+        ("Ca 1", "06:00", "15:00", "12:00", "13:00"),
+        ("Ca 2", "15:00", "24:00", "18:00", "19:00"),
+    ]
+    from app.schemas.xep_lich_3 import ChiTietOut
+
+    assert ChiTietOut.model_validate(svc3.chi_tiet(lenh.id)).phan_tach_nghi.cac_ca[1].nghi_tu == "18:00"
+
+
+def test_chi_tiet_ten_to_mot_truy_van(db, svc3, lenh):
+    """Mỗi bước một tổ KHÁC nhau: tên tổ của bảng công đoạn vẫn chỉ MỘT câu `departments`."""
+    from app.models.department import Department
+    from app.models.lsx import LsxCongDoan
+
+    for i in range(2):                  # thêm bước để có ≥ 3 tổ khác nhau trong một lệnh
+        db.add(LsxCongDoan(lsx_id=lenh.id, thu_tu=90 + i, ten=f"Bước thêm {i}"))
+    db.flush()
+    buoc = db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id == lenh.id).all()
+    assert len(buoc) >= 3
+    for i, b in enumerate(buoc):
+        d = Department(name=f"Tổ nạp lô {i}", code=f"TNL{i}")
+        db.add(d)
+        db.flush()
+        b.department_id = d.id
+    db.commit()
+    db.expire_all()
+    svc3.dat_moc(lenh.id, datetime(2026, 9, 11, 8, 0))
+    svc = XepLich3Service(db, XepLichLenhRepository(db), AuditLogRepository(db))
+    dem = {"n": 0}
+
+    def _bat(conn, cur, stmt, params, ctx, many):
+        s = " ".join(stmt.lower().split())
+        if s.startswith("select") and "from departments" in s:
+            dem["n"] += 1
+
+    event.listen(db.get_bind(), "before_cursor_execute", _bat)
+    try:
+        ct = svc.chi_tiet(lenh.id)
+    finally:
+        event.remove(db.get_bind(), "before_cursor_execute", _bat)
+    assert sorted(c["to_ten"] for c in ct["cong_doans"]) == sorted(f"Tổ nạp lô {i}" for i in range(len(buoc)))
+    assert dem["n"] == 1, f"N+1 theo tổ: {dem['n']} câu cho {len(buoc)} bước"
+
+
 def test_chi_tiet_lenh_chua_xep_van_mo_duoc(svc3, lenh):
     """Bấm thẻ hàng chờ cũng mở panel — chưa có lịch thì các ô lịch để trống, không nổ."""
     ct = svc3.chi_tiet(lenh.id)
@@ -161,6 +233,59 @@ def test_lich_khong_N_cong_1_truy_van_routing(db, svc3, hai_lenh):
     finally:
         event.remove(db.get_bind(), "before_cursor_execute", _bat)
     assert dem["n"] <= 2, f"N+1: {dem['n']} truy van routing cho {len(hai_lenh)} lenh"
+
+
+def test_moc_cong_doan_nap_may_va_ct_gio_theo_lo(db, svc3, hai_lenh):
+    """Mỗi bước một máy KHÁC nhau: máy + công thức giờ của cặp vẫn chỉ MỘT câu mỗi thứ.
+
+    Trước 14/09/2026 `_may` và `_ct_gio_cua_may` hỏi từng máy/từng cặp: cột Trạng thái màn Máy trên
+    dev ra 11 + 11 câu cho 2 lệnh, và số đó lớn dần theo số máy có trong lịch.
+    """
+    from app.models.cong_doan import CongDoanMay
+    from app.models.lsx import LsxCongDoan
+    from app.models.may_thiet_bi import MayThietBi
+
+    buoc = db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id.in_([l.id for l in hai_lenh])).all()
+    assert len(buoc) >= 2          # ≥ 2 máy khác nhau là đủ phân biệt "một câu" với "mỗi máy một câu"
+    for i, b in enumerate(buoc):
+        m = MayThietBi(ma=f"NL-M{i}", ten=f"Máy nạp lô {i}", loai_may="press_offset_sheet")
+        db.add(m)
+        db.flush()
+        b.may_id = m.id
+        if b.cong_doan_id:
+            db.add(CongDoanMay(cong_doan_id=b.cong_doan_id, may_id=m.id, thu_tu=0,
+                               cong_thuc_gio=f"so_luong / {i + 2}"))
+    db.commit()
+    for l in hai_lenh:
+        svc3.dat_moc(l.id, datetime(2026, 9, 11, 8, 0))
+
+    svc = XepLich3Service(db, XepLichLenhRepository(db), AuditLogRepository(db))
+    dem = {"may_thiet_bi": 0, "cong_doan_may": 0}
+
+    def _bat(conn, cur, stmt, params, ctx, many):
+        s = " ".join(stmt.lower().split())
+        for bang in dem:
+            if s.startswith("select") and f"from {bang}" in s:
+                dem[bang] += 1
+
+    event.listen(db.get_bind(), "before_cursor_execute", _bat)
+    try:
+        moc = svc.moc_cong_doan([l.id for l in hai_lenh])
+    finally:
+        event.remove(db.get_bind(), "before_cursor_execute", _bat)
+    assert moc and all(moc[l.id] for l in hai_lenh)
+    assert dem == {"may_thiet_bi": 1, "cong_doan_may": 1}, (
+        f"N+1 theo máy: {dem} cho {len(buoc)} bước mỗi bước một máy")
+
+    # Nạp theo lô phải ra ĐÚNG chữ mà đường hỏi từng cặp ra — kể cả cặp chưa khai (chuỗi rỗng).
+    from app.repositories.lsx_repo import LsxRepository
+    from app.services.lsx_service import LsxService
+
+    cap = {(b.cong_doan_id, b.may_id) for b in buoc if b.cong_doan_id} | {(buoc[0].cong_doan_id or 1, 999999)}
+    lo = LsxService(db, LsxRepository(db), None, None)
+    lo.nap_ct_gio(cap)
+    le = LsxService(db, LsxRepository(db), None, None)
+    assert {k: lo._ct_gio_cua_may(*k) for k in cap} == {k: le._ct_gio_cua_may(*k) for k in cap}
 
 
 # ============================================================== ghi

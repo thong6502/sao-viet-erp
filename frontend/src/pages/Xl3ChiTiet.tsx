@@ -1,7 +1,7 @@
 // XẾP LỊCH 3 — POPUP MODAL COMPACT STUDIO (TINH GỌN CAO CẤP)
 import { useEffect, useRef, useState } from "react";
 import {
-  AlertCircle, Box, Calendar, CalendarCheck, Check, Copy,
+  AlertCircle, ArrowRightLeft, Box, Calendar, CalendarCheck, Check, Clock, Copy,
   FoldVertical, Gauge, History, Layers, PackageCheck, PauseCircle,
   PlayCircle, Printer, RotateCcw, Scissors, Send, Sparkles, Tag, Target, Trash2, Truck, UserCheck, X,
 } from "lucide-react";
@@ -11,7 +11,13 @@ import type {
   Xl3GoiPhatHanh,
   Xl3SoSanh,
 } from "../api/client";
-import { gio, ngayNgan, thoiLuong, treHan } from "./xl3Shared";
+import { gio, gioChu, moc, ngayNgan, quangDongHo, thuNgay, treHan } from "./xl3Shared";
+import type { Xl3PhanTachNghi } from "./xl3Shared";
+
+/** "13:00 T6 11/09" — khoảng tính dài qua cuối tuần thì phải thấy thứ, không thì khỏi biết có dính CN. */
+function gioThu(iso: string | null | undefined): string {
+  return iso ? `${iso.slice(11, 16)} ${thuNgay(iso)}` : "—";
+}
 
 const TRANG_THAI_NHAN: Record<string, string> = {
   nhap: "Nháp",
@@ -122,12 +128,14 @@ const TT_BUOC: Record<string, { chu: string; cls: string }> = {
 };
 
 /** Chênh mốc kết thúc của MỘT bước → chữ + hậu tố class. Server đã tính sẵn `lech_phut` trên mốc
- *  gốc; ở đây chỉ đọc dấu. Ngưỡng ±15 phút gọi là "đúng giờ": xưởng ghi mốc bằng tay, chênh trong
- *  một phần tư giờ là nhiễu ghi chép chứ không phải tín hiệu điều độ cần thấy. */
+ *  gốc; ở đây chỉ đọc dấu. Hiệu hai mốc giờ là giờ ĐỒNG HỒ nên ghi bằng `quangDongHo` — chia cho
+ *  ngày làm 8 tiếng thì 43 giờ lệch đọc thành "5 ngày 3 giờ". Ngưỡng ±15 phút gọi là "đúng giờ":
+ *  xưởng ghi mốc bằng tay, chênh trong một phần tư giờ là nhiễu ghi chép chứ không phải tín hiệu
+ *  điều độ cần thấy. */
 function nhanLech(phut: number | null): { chu: string; cls: string } | null {
   if (phut === null) return null;
   if (Math.abs(phut) <= 15) return { chu: "đúng giờ", cls: "khit" };
-  const d = thoiLuong(Math.abs(phut));
+  const d = quangDongHo(Math.abs(phut));
   return phut > 0 ? { chu: `muộn ${d}`, cls: "tre" } : { chu: `sớm ${d}`, cls: "som" };
 }
 
@@ -209,6 +217,7 @@ export function Xl3ChiTiet({
   const lechThucTe = ct?.co_thuc_te ? nhanLech(ct.lech_ket_thuc_phut) : null;
   // Lệnh đã có việc chạy dưới xưởng ⇒ ô giờ đổi nghĩa thành "bắt đầu phần còn lại".
   const daChayDo = !!ct?.co_thuc_te && !!ct.thuc_bat_dau_lenh;
+  const phanTach = (ct as { phan_tach_nghi?: Xl3PhanTachNghi | null } | null)?.phan_tach_nghi ?? null;
 
   const phienBans = goi?.co_goi ? (goi.phien_bans ?? []) : [];
   // Bấm phiên bản thứ nhất là chọn, thứ hai là so; bấm lại cái đang chọn thì bỏ nó ra. Không dựng
@@ -280,7 +289,7 @@ export function Xl3ChiTiet({
                       thẳng ra: người dùng gõ 11/09 rồi đọc lại chính con số đó sẽ tưởng cả lệnh
                       dời sang 11/09, trong khi bước đã xong vẫn nằm ở 9/9. */}
                   <div className="xl3-modal__card-tieu">
-                    <Calendar size={13} /> {daChayDo ? "Bắt đầu phần còn lại" : "Bắt đầu chạy máy"}
+                    <Calendar size={13} /> {daChayDo ? "Bắt đầu phần còn lại" : "Bắt đầu lệnh"}
                   </div>
                   <div className="xl3-modal__input-wrap">
                     <input
@@ -298,21 +307,185 @@ export function Xl3ChiTiet({
                       className="xl3-modal__da-chay"
                       title="Không lùi được mốc xuống dưới bước đã xong — máy sẽ tự trượt lên và báo lại."
                     >
-                      <PlayCircle size={10} />
-                      Lệnh đã bắt đầu {gio(ct.thuc_bat_dau_lenh)} · {ct.so_buoc_xong}/{ct.so_buoc} việc đã xong
+                      <PlayCircle size={11} />
+                      <span>Lệnh đã bắt đầu <strong>{gio(ct.thuc_bat_dau_lenh)}</strong> · <strong>{ct.so_buoc_xong}/{ct.so_buoc}</strong> bước đã xong</span>
                     </div>
                   )}
 
-                  <div className="xl3-modal__stats">
-                    <div className="xl3-modal__stat xl3-modal__stat--chay">
-                      <span className="xl3-modal__stat-k"><PlayCircle size={10} /> Chạy</span>
-                      <span className="xl3-modal__stat-v">{thoiLuong(ct.chay_phut)}</span>
-                    </div>
-                    <div className="xl3-modal__stat xl3-modal__stat--nghi">
-                      <span className="xl3-modal__stat-k"><PauseCircle size={10} /> Nghỉ ca</span>
-                      <span className="xl3-modal__stat-v">{thoiLuong(ct.nghi_ngoai_ca_phut)}</span>
-                    </div>
-                  </div>
+                  {daXep && (
+                    <>
+                      {/* Timeline Banner */}
+                      <div className="xl3-timeline-strip">
+                        <div className="xl3-timeline-main">
+                          <div className="xl3-timeline-node">
+                            <span className="xl3-timeline-label">BẮT ĐẦU</span>
+                            <span className="xl3-timeline-val">{gioThu(ct.bat_dau_at)}</span>
+                          </div>
+
+                          <div className="xl3-timeline-arrow-wrap">
+                            <span className="xl3-timeline-arrow">➔</span>
+                          </div>
+
+                          <div className="xl3-timeline-node xl3-timeline-node--end">
+                            <span className="xl3-timeline-label">DỰ KIẾN XONG</span>
+                            <span className="xl3-timeline-val">{gioThu(ct.ket_thuc)}</span>
+                          </div>
+                        </div>
+
+                        <div className="xl3-timeline-footer">
+                          <span className="xl3-timeline-badge" title="Tổng thời gian thực hiện">
+                            <Clock size={11} />
+                            Tổng khoảng tính: <strong>{gioChu(((moc(ct.ket_thuc) ?? 0) - (moc(ct.bat_dau_at) ?? 0)) / 60_000)}</strong>
+                          </span>
+                          {daChayDo && (
+                            <span className="xl3-timeline-subnote">
+                              (kế hoạch cả {ct.so_buoc} bước)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* KPI Split Bar & Mini Metric Cards */}
+                      {(() => {
+                        const chayM = ct.chay_phut || 0;
+                        const nghiM = ct.nghi_ngoai_ca_phut || 0;
+                        const tongM = chayM + nghiM;
+                        const pctChay = tongM > 0 ? Math.round((chayM / tongM) * 100) : 0;
+                        const pctNghi = tongM > 0 ? 100 - pctChay : 0;
+
+                        return (
+                          <div className="xl3-kpi-block">
+                            <div className="xl3-kpi-split-bar" title={`Tỉ lệ thời gian: ${pctChay}% giờ làm, ${pctNghi}% nghỉ & ngoài ca`}>
+                              <div className="xl3-kpi-split-fill xl3-kpi-split-fill--chay" style={{ width: `${pctChay}%` }} />
+                              <div className="xl3-kpi-split-fill xl3-kpi-split-fill--nghi" style={{ width: `${pctNghi}%` }} />
+                            </div>
+
+                            <div className="xl3-modal__stats">
+                              <div
+                                className="xl3-modal__stat xl3-modal__stat--chay"
+                                title="Cộng giờ làm của các bước: bước máy gồm cả chuẩn bị máy, bước tổ tính theo năng suất người"
+                              >
+                                <div className="xl3-modal__stat-head">
+                                  <span className="xl3-modal__stat-k"><PlayCircle size={11} /> Giờ làm</span>
+                                  <span className="xl3-modal__stat-pct">{pctChay}%</span>
+                                </div>
+                                <span className="xl3-modal__stat-v">{gioChu(chayM)}</span>
+                              </div>
+
+                              <div className="xl3-modal__stat xl3-modal__stat--nghi">
+                                <div className="xl3-modal__stat-head">
+                                  <span className="xl3-modal__stat-k"><PauseCircle size={11} /> Nghỉ &amp; ngoài ca</span>
+                                  <span className="xl3-modal__stat-pct">{pctNghi}%</span>
+                                </div>
+                                <span className="xl3-modal__stat-v">{gioChu(nghiM)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Chi tiết Ca & Thời gian nghỉ */}
+                      {phanTach && (
+                        <div className="xl3-shift-card">
+                          <div className="xl3-shift-head">
+                            <span className="xl3-shift-title">Chi tiết ca &amp; thời gian nghỉ</span>
+                          </div>
+
+                          {/* Ca sản xuất */}
+                          {phanTach.cac_ca?.length ? (
+                            <div className="xl3-shift-section">
+                              <span className="xl3-shift-sec-label">Ca sản xuất:</span>
+                              <div className="xl3-shift-chips">
+                                {phanTach.cac_ca.map((c) => (
+                                  <span key={`${c.ten}-${c.tu}`} className="xl3-chip xl3-chip--ca">
+                                    <strong>{c.ten}</strong> {c.tu}–{c.den}
+                                    {c.nghi_tu && <span className="xl3-chip-sub"> (nghỉ {c.nghi_tu}–{c.nghi_den})</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : phanTach.ca_san_xuat.length > 0 ? (
+                            <div className="xl3-shift-section">
+                              <span className="xl3-shift-sec-label">Ca sản xuất:</span>
+                              <div className="xl3-shift-chips">
+                                {phanTach.ca_san_xuat.map((k, idx) => (
+                                  <span key={idx} className="xl3-chip xl3-chip--ca">
+                                    {k.tu}–{k.den}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {/* Nghỉ giữa ca */}
+                          {phanTach.nghi_giua_ca_phut > 0 && (
+                            <div className="xl3-shift-row">
+                              <div className="xl3-shift-meta">
+                                <span className="xl3-shift-k">Nghỉ giữa ca</span>
+                                <b className="xl3-shift-v">{gioChu(phanTach.nghi_giua_ca_phut)}</b>
+                              </div>
+                              <div className="xl3-shift-chips">
+                                {phanTach.nghi_giua_ca.map((k, i) => (
+                                  <span key={i} className="xl3-chip xl3-chip--nghi">
+                                    {k.tu}–{k.den}
+                                    {k.so_lan > 1 && <span className="xl3-chip-tag">{k.so_lan} lần</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Ngoài ca */}
+                          {phanTach.ngoai_ca_phut > 0 && (
+                            <div className="xl3-shift-row">
+                              <div className="xl3-shift-meta">
+                                <span className="xl3-shift-k">Ngoài ca</span>
+                                <b className="xl3-shift-v">{gioChu(phanTach.ngoai_ca_phut)}</b>
+                              </div>
+                              <div className="xl3-shift-chips">
+                                {phanTach.ngoai_ca.map((k, i) => (
+                                  <span key={i} className="xl3-chip xl3-chip--ngoai">
+                                    {k.tu}–{k.den}
+                                    {k.so_lan > 1 && <span className="xl3-chip-tag">{k.so_lan} lần</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Ngày nghỉ */}
+                          {phanTach.ngay_nghi_phut > 0 && (
+                            <div className="xl3-shift-row">
+                              <div className="xl3-shift-meta">
+                                <span className="xl3-shift-k">Ngày nghỉ</span>
+                                <b className="xl3-shift-v">{gioChu(phanTach.ngay_nghi_phut)}</b>
+                              </div>
+                              <div className="xl3-shift-chips">
+                                {phanTach.ngay_nghi.map((n, i) => (
+                                  <span key={i} className="xl3-chip xl3-chip--ngay">
+                                    {thuNgay(n.ngay)}
+                                    {n.ten && ` (${n.ten})`}
+                                    {Math.round(n.phut) < 1440 && ` · ${gioChu(n.phut)}`}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Gia công ngoài */}
+                          {phanTach.gia_cong_ngoai_phut > 0 && (
+                            <div className="xl3-shift-row">
+                              <div className="xl3-shift-meta">
+                                <span className="xl3-shift-k">Gia công ngoài</span>
+                                <b className="xl3-shift-v">{gioChu(phanTach.gia_cong_ngoai_phut)}</b>
+                              </div>
+                              <span className="xl3-shift-subtxt">bên gia công giữ hàng</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
 
                   {/* Ngày xong THEO LỊCH ĐÃ XẾP — khác hẳn MỤC TIÊU ở thẻ dưới, nên tách riêng và
                       nói thẳng chênh nhau mấy ngày, đừng bắt người điều độ tự trừ hai con số. */}
@@ -484,6 +657,28 @@ export function Xl3ChiTiet({
 
                     {moLichSu && (
                       <>
+                        {/* Dòng hướng dẫn chọn phiên bản */}
+                        <div className={`xl3-ls-hint${chon.length > 0 ? " xl3-ls-hint--active" : ""}`}>
+                          {chon.length === 0 ? (
+                            <span>💡 Bấm chọn 2 phiên bản để so sánh mốc lịch &amp; máy chạy</span>
+                          ) : chon.length === 1 ? (
+                            <span className="xl3-ls-hint-row">
+                              <span>💡 Đã chọn <strong>v{chon[0]}</strong> · Bấm thêm 1 bản nữa để so sánh</span>
+                              <button type="button" className="xl3-ls-bo-link" onClick={() => setChon([])}>
+                                hủy
+                              </button>
+                            </span>
+                          ) : (
+                            <span className="xl3-ls-hint-row">
+                              <span>✓ Đang so <strong>v{capA}</strong> với <strong>v{capB}</strong></span>
+                              <button type="button" className="xl3-ls-bo-link" onClick={() => setChon([])}>
+                                bỏ chọn
+                              </button>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Danh sách phiên bản (Scrollable container) */}
                         <div className="xl3-ls-list">
                           {phienBans.map((p) => {
                             const dangChon = chon.includes(p.so);
@@ -493,59 +688,64 @@ export function Xl3ChiTiet({
                                 type="button"
                                 className={`xl3-ls-item${dangChon ? " xl3-ls-item--chon" : ""}`}
                                 onClick={() => chonPhienBan(p.so)}
-                                title="Bấm hai phiên bản để so lịch từng bước"
+                                title="Bấm chọn 2 phiên bản để so lịch từng bước"
                               >
-                                <span className="xl3-ls-v">v{p.so}</span>
-                                <span className="xl3-ls-loai">
+                                <span className="xl3-ls-v-pill">v{p.so}</span>
+                                <span className={`xl3-ls-loai-badge xl3-ls-loai-badge--${p.loai}`}>
                                   {p.loai === "cap_nhat" ? "cập nhật" : "phát hành"}
                                 </span>
-                                <span className="xl3-ls-ly-do">{p.ly_do || "—"}</span>
+                                <span className="xl3-ls-ly-do" title={p.ly_do || "Không có ghi chú"}>
+                                  {p.ly_do || "—"}
+                                </span>
                                 <span className="xl3-ls-luc">{gio(p.luc)}</span>
                               </button>
                             );
                           })}
                         </div>
 
+                        {/* Thẻ So Sánh Độc Lập */}
                         {capA != null && capB != null && (
-                          <div className="xl3-ls-so">
-                            <div className="xl3-ls-so-dau">
-                              So v{capA} → v{capB}
-                              <button type="button" className="xl3-ls-bo" onClick={() => setChon([])}>
-                                bỏ chọn
+                          <div className="xl3-ls-compare-card">
+                            <div className="xl3-ls-compare-head">
+                              <span className="xl3-ls-compare-title">
+                                <ArrowRightLeft size={12} /> So sánh v{capA} ➔ v{capB}
+                              </span>
+                              <button type="button" className="xl3-ls-compare-close" onClick={() => setChon([])} title="Bỏ chọn">
+                                <X size={12} /> Bỏ chọn
                               </button>
                             </div>
+
                             {loiSoSanh && <div className="xl3-ls-loi">{loiSoSanh}</div>}
-                            {!soSanh && !loiSoSanh && <div className="xl3-ls-trong">Đang so…</div>}
+                            {!soSanh && !loiSoSanh && <div className="xl3-ls-trong">Đang đối chiếu...</div>}
                             {soSanh && (
                               soSanh.dong.some((d) => d.doi_gio || d.doi_may) ? (
-                                <table className="xl3-ls-bang">
-                                  <tbody>
-                                    {soSanh.dong.filter((d) => d.doi_gio || d.doi_may).map((d) => (
-                                      <tr key={d.cong_viec_id}>
-                                        <td className="xl3-ls-b-ten">{d.ten}</td>
-                                        <td className="xl3-ls-b-doi">
-                                          {d.doi_gio && (
-                                            <span className="xl3-ls-b-gio">
-                                              {gio(d.a.bat_dau)} → {gio(d.b.bat_dau)}
-                                            </span>
-                                          )}
-                                          {d.doi_may && (
-                                            <span className="xl3-ls-b-may">
-                                              máy {d.a.may_ten ?? "—"} → {d.b.may_ten ?? "—"}
-                                            </span>
-                                          )}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                                <div className="xl3-ls-diff-list">
+                                  {soSanh.dong.filter((d) => d.doi_gio || d.doi_may).map((d) => (
+                                    <div key={d.cong_viec_id} className="xl3-ls-diff-row">
+                                      <span className="xl3-ls-diff-step">{d.ten}</span>
+                                      <div className="xl3-ls-diff-details">
+                                        {d.doi_gio && (
+                                          <div className="xl3-ls-diff-time">
+                                            <span className="xl3-ls-diff-old">{gio(d.a.bat_dau)}</span>
+                                            <span className="xl3-ls-diff-arrow">➔</span>
+                                            <span className="xl3-ls-diff-new">{gio(d.b.bat_dau)}</span>
+                                          </div>
+                                        )}
+                                        {d.doi_may && (
+                                          <div className="xl3-ls-diff-machine">
+                                            <span className="xl3-ls-diff-old-m">máy {d.a.may_ten ?? "—"}</span>
+                                            <span className="xl3-ls-diff-arrow">➔</span>
+                                            <span className="xl3-ls-diff-new-m">máy {d.b.may_ten ?? "—"}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               ) : (
-                                /* KHÔNG nói "không đổi gì" chắc nịch: bản ghi lịch sử chỉ có từ
-                                   10/09/2026, phiên bản cũ hơn đã bị đè mất và đọc ra y hệt bản
-                                   hiện tại. Hai chuyện đó phải phân biệt được. */
                                 <div className="xl3-ls-trong">
                                   Không thấy bước nào đổi giữa hai phiên bản này. Lưu ý: bản ghi lịch sử
-                                  chỉ có từ 10/09/2026 — các lần cập nhật trước đó đã bị ghi đè, không dựng lại được.
+                                  chỉ lưu chi tiết từ 10/09/2026.
                                 </div>
                               )
                             )}
@@ -575,7 +775,6 @@ export function Xl3ChiTiet({
                 </div>
 
                 <div className="xl3-pipe-card-container">
-                  <div className="xl3-pipe-line" />
                   <div className="xl3-pipe-list">
                     {ct.cong_doans.map((c, idx) => {
                       const { icon, colorClass } = getCongDoanTheme(c.ten);
@@ -661,7 +860,7 @@ export function Xl3ChiTiet({
                                 {c.thue_ngoai_ngay != null
                                   ? `Thuê ngoài ${c.thue_ngoai_ngay}d`
                                   : c.chay_phut > 0
-                                    ? thoiLuong(c.chay_phut)
+                                    ? gioChu(c.chay_phut)
                                     : c.canh_bao
                                       ? "Chưa tính được giờ"
                                       : "—"}
@@ -685,7 +884,7 @@ export function Xl3ChiTiet({
                 {duyetDuoc && daPhatHanh && khoaThuHoi && (
                   <span className="xl3-modal__chan-nhac">
                     <AlertCircle size={12} />
-                    Đã có {soDaBatDau}/{goi?.so_cong_viec ?? 0} việc bắt đầu — không rút cả gói về được.
+                    Đã có {soDaBatDau}/{goi?.so_cong_viec ?? 0} thẻ việc dưới xưởng bắt đầu — không rút cả gói về được.
                   </span>
                 )}
                 {suaDuoc && daXep && !daPhatHanh && (
@@ -716,8 +915,8 @@ export function Xl3ChiTiet({
                     type="button"
                     className="xl3-nut xl3-nut--chinh"
                     disabled={dangGhi}
-                    title={`Đẩy lịch mới xuống xưởng cho ${goi?.so_chua_bat_dau ?? 0} việc chưa bắt đầu; ${soDaBatDau} việc đã chạy giữ nguyên.`}
-                    aria-label={`Phát hành cập nhật — đẩy lịch mới xuống xưởng cho ${goi?.so_chua_bat_dau ?? 0} việc chưa bắt đầu; ${soDaBatDau} việc đã chạy giữ nguyên.`}
+                    title={`Đẩy lịch mới xuống xưởng cho ${goi?.so_chua_bat_dau ?? 0} thẻ việc chưa bắt đầu; ${soDaBatDau} thẻ việc đã chạy giữ nguyên.`}
+                    aria-label={`Phát hành cập nhật — đẩy lịch mới xuống xưởng cho ${goi?.so_chua_bat_dau ?? 0} thẻ việc chưa bắt đầu; ${soDaBatDau} thẻ việc đã chạy giữ nguyên.`}
                     onClick={onCapNhat}
                   >
                     <Send size={13} /> Phát hành cập nhật

@@ -63,12 +63,21 @@
   border-bottom: 1px solid var(--rule-soft);
   background: var(--canvas);
   flex: none;
+  /* Thiếu chỗ thì cụm chọn ngày xuống dòng thay vì tràn ra ngoài mép phải (dải số liệu dài từ khi
+     có "Giờ chạy trong cửa sổ"). */
+  flex-wrap: wrap;
+  row-gap: var(--sp-2);
 }
+/* `flex-basis: 0` + sàn `min-content`: hẹp dần thì tiêu đề chồng lên trên dải số liệu TRƯỚC, chỉ
+   khi dải số liệu cũng hết chỗ mới đẩy cụm chọn ngày xuống dòng. Để `flex: auto` thì hàng ngắt theo
+   bề rộng tiêu đề + dải số liệu nằm ngang, cụm chọn ngày rớt dòng oan ở màn laptop. */
 .xl3__tieu-cum {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   flex-wrap: wrap;
+  flex: 1 1 0;
+  min-width: min-content;
 }
 .xl3__tieu h1 {
   margin: 0;
@@ -126,6 +135,7 @@
   align-items: center;
   gap: var(--sp-2);
   flex: none;
+  position: relative; /* neo ô chọn khoảng ngày `.xl3-khoang` */
 }
 /* Segmented View Switcher (7 ngày / 14 ngày / 30 ngày) */
 .xl3-view-switcher {
@@ -216,6 +226,96 @@
   border-right: 1px solid var(--rule-hair);
   background: var(--canvas);
   cursor: pointer;
+}
+.xl3__tuan-nhan:hover,
+.xl3__tuan-nhan[aria-expanded="true"] {
+  background: var(--paper);
+}
+.xl3__tuan-nhan:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: -2px;
+}
+
+/* Ô chọn KHOẢNG ngày — thả xuống dưới cụm ‹ ngày ›, mép phải thẳng mép cụm. Nằm ngoài
+   `.xl3__tuan-cum` vì cụm đó `overflow: hidden` (bo tròn viên thuốc), đặt trong là bị cắt. */
+.xl3-khoang {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: min(320px, calc(100vw - 32px));
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.18), 0 4px 10px -2px rgba(15, 23, 42, 0.08);
+}
+.xl3-khoang__o {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+}
+.xl3-khoang__o input {
+  min-height: 34px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.xl3-khoang__o input:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+.xl3-khoang__chan {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.xl3-khoang__dem,
+.xl3-khoang__loi {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-2xs);
+  line-height: 1.3;
+}
+.xl3-khoang__dem {
+  color: var(--ash-2);
+}
+.xl3-khoang__loi {
+  color: var(--signal);
+}
+.xl3-khoang__ap {
+  flex: none;
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--rust);
+  color: #ffffff;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+.xl3-khoang__ap:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Băng báo */
@@ -854,21 +954,50 @@
   line-height: 1.25;
   width: 100%;
 }
+/* Dòng khách: chữ khách + máy co giãn, chip "Trễ hạn" giữ nguyên bề rộng ở mép phải — chip là thứ
+   phải đọc được, tên khách thì chịu cắt đuôi (rê chuột vẫn ra đủ). */
+.xl3-hang__dong-khach {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
 .xl3-hang__phu {
+  flex: 1 1 auto;
+  min-width: 0;
   color: var(--ash-2);
   font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.2;
-  width: 100%;
 }
 .xl3-hang__khach {
   color: var(--ash);
 }
+.xl3-hang__tre {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--signal-soft);
+  color: var(--signal);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  white-space: nowrap;
+}
 .xl3-hang__sl {
-  color: var(--ink);
-  font-weight: 500;
+  color: var(--ash-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  width: 100%;
 }
 .xl3-hang__may {
   color: var(--ash-2);
@@ -878,6 +1007,10 @@
   position: relative;
   flex: none;
   height: 100%;
+  /* Nhốt MỌI z-index bên trong lưới (chữ thanh 3, vạch hạn 5, thẻ hạn 6, thanh đang kéo 6…) dưới
+     cột nhãn dính (3). Không nhốt thì thứ gì cao hơn hoặc ngang 3 mà đứng sau trong DOM sẽ nổi đè
+     lên cột nhãn khi cuộn ngang. Nhốt ở đây một lần thay vì chạy theo từng lớp mới thêm vào lưới. */
+  isolation: isolate;
 }
 .xl3-cot {
   position: absolute;
@@ -888,19 +1021,115 @@
 .xl3-cot--nghi {
   background: repeating-linear-gradient(45deg, var(--paper), var(--paper) 8px, rgba(0,0,0,0.015) 8px, rgba(0,0,0,0.015) 16px);
 }
+/* Vạch hạn:
+   - Hạn Giao Khách (.xl3-han--kh): MÀU ĐỎ (nét đứt đỏ #dc2626 + tag đỏ #fef2f2). Mốc giao hàng nghiêm ngặt với khách.
+   - Hạn SX (.xl3-han--sx): MÀU CAM (nét đứt cam #ea580c + tag cam #fff7ed). Mốc xưởng hoàn thành nội bộ.
+   - Thẻ nhãn vector pill nằm ở đỉnh hàng (top: 2px), thiết kế phẳng sắc nét chuẩn Studio. */
 .xl3-han {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  width: 2px;
-  background: var(--signal);
-  opacity: 0.65;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: 5;
+  pointer-events: auto;
+  transition: border-color 0.15s ease, border-width 0.15s ease;
+}
+.xl3-han--kh {
+  border-left: 2px dashed #dc2626;
+}
+.xl3-han--sx {
+  border-left: 2px dashed #ea580c;
+}
+
+.xl3-han-tag {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 8.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+  z-index: 6;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.xl3-han-svg {
+  flex-shrink: 0;
+}
+.xl3-han--kh .xl3-han-tag {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+.xl3-han--sx .xl3-han-tag {
+  background: #fff7ed;
+  color: #ea580c;
+  border: 1px solid #fed7aa;
+}
+.xl3-han--lat .xl3-han-tag {
+  left: auto;
+  right: 4px;
+}
+
+.xl3-han:hover {
+  z-index: 10;
+}
+.xl3-han--kh:hover {
+  border-left-width: 2.5px;
+  border-left-color: #b91c1c;
+  filter: drop-shadow(0 0 3px rgba(220, 38, 38, 0.4));
+}
+.xl3-han--sx:hover {
+  border-left-width: 2.5px;
+  border-left-color: #c2410c;
+  filter: drop-shadow(0 0 3px rgba(234, 88, 12, 0.4));
+}
+.xl3-han:hover .xl3-han-tag {
+  transform: translateY(-1px) scale(1.03);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+}
+.xl3-han-text {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+/* Nhãn "xong dd/mm hh:mm" cạnh đuôi thanh; lệnh trễ thì đỏ và nói trễ bao nhiêu ngày. */
+.xl3-xong {
+  position: absolute;
+  top: 23px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--ash);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+.xl3-xong b {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.xl3-xong--tre,
+.xl3-xong--tre b {
+  color: var(--signal);
+}
+.xl3-xong--lat {
+  transform: translateX(-100%);
 }
 
 /* Thanh tiến độ Gantt chuẩn ERP Studio — Nền Solid Đậm Tương Phản Cao */
 .xl3-thanh {
   position: absolute;
-  top: 11px;
+  top: 16px;
   height: 32px;
   border-radius: 6px;
   background: #2563eb;
@@ -1001,20 +1230,6 @@
   bottom: 0;
   pointer-events: none;
   border-right: 1px solid rgba(255, 255, 255, 0.25);
-}
-
-.xl3-tre-chip {
-  position: absolute;
-  top: 15px;
-  padding: 1px var(--sp-2);
-  border-radius: var(--r-pill);
-  background: #fee2e2;
-  color: #991b1b;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  pointer-events: none;
-  border: 1px solid #fecaca;
 }
 
 /* Collapsible Left Queue Dock */
@@ -1827,14 +2042,260 @@
 .xl3-tt--san_sang { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
 .xl3-tt--da_lap_ke_hoach { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
 
-/* Mini Metric KPI Cards */
-.xl3-modal__stat--chay { background: #eff6ff; border-color: #dbeafe; }
-.xl3-modal__stat--chay .xl3-modal__stat-k { color: #1e40af; }
-.xl3-modal__stat--chay .xl3-modal__stat-v { color: #1d4ed8; }
+/* Timeline Banner / Strip */
+.xl3-timeline-strip {
+  margin-top: 10px;
+  padding: 9px 10px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: var(--r-2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.xl3-timeline-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+.xl3-timeline-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.xl3-timeline-node--end {
+  text-align: right;
+}
+.xl3-timeline-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.xl3-timeline-val {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.xl3-timeline-arrow-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+}
+.xl3-timeline-arrow {
+  font-size: 12px;
+  color: #2563eb;
+  font-weight: bold;
+}
+.xl3-timeline-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #cbd5e1;
+  flex-wrap: wrap;
+}
+.xl3-timeline-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.xl3-timeline-badge strong {
+  font-weight: 800;
+  color: #1e40af;
+}
+.xl3-timeline-subnote {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+}
 
-.xl3-modal__stat--nghi { background: #f8fafc; border-color: #e2e8f0; }
-.xl3-modal__stat--nghi .xl3-modal__stat-k { color: #64748b; }
-.xl3-modal__stat--nghi .xl3-modal__stat-v { color: #475569; }
+/* KPI Block & Split Bar */
+.xl3-kpi-block {
+  margin-top: 10px;
+}
+.xl3-kpi-split-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #e2e8f0;
+  display: flex;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.xl3-kpi-split-fill {
+  height: 100%;
+}
+.xl3-kpi-split-fill--chay {
+  background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
+}
+.xl3-kpi-split-fill--nghi {
+  background: linear-gradient(90deg, #cbd5e1 0%, #94a3b8 100%);
+}
+
+.xl3-modal__stat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+.xl3-modal__stat-pct {
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.xl3-modal__stat--chay {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: #bfdbfe;
+}
+.xl3-modal__stat--chay .xl3-modal__stat-k { color: #1e40af; }
+.xl3-modal__stat--chay .xl3-modal__stat-v { color: #1d4ed8; font-size: 12px; font-weight: 800; }
+.xl3-modal__stat--chay .xl3-modal__stat-pct { color: #2563eb; }
+
+.xl3-modal__stat--nghi {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-color: #e2e8f0;
+}
+.xl3-modal__stat--nghi .xl3-modal__stat-k { color: #475569; }
+.xl3-modal__stat--nghi .xl3-modal__stat-v { color: #334155; font-size: 12px; font-weight: 800; }
+.xl3-modal__stat--nghi .xl3-modal__stat-pct { color: #64748b; }
+
+/* Shift & Rest Breakdown Card */
+.xl3-shift-card {
+  margin-top: 10px;
+  padding: 9px 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--r-2);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+.xl3-shift-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 5px;
+}
+.xl3-shift-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.xl3-shift-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.xl3-shift-sec-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+}
+.xl3-shift-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 5px;
+  border-top: 1px dashed #f1f5f9;
+}
+.xl3-shift-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+.xl3-shift-k {
+  color: #475569;
+  font-weight: 600;
+  font-size: 10px;
+}
+.xl3-shift-v {
+  color: #0f172a;
+  font-weight: 700;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.xl3-shift-subtxt {
+  font-size: 10px;
+  color: #94a3b8;
+  font-style: italic;
+}
+.xl3-shift-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Micro-chips / Badges */
+.xl3-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+.xl3-chip--ca {
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+.xl3-chip--ca strong {
+  font-weight: 700;
+  color: #0284c7;
+}
+.xl3-chip-sub {
+  color: #0369a1;
+  opacity: 0.85;
+}
+.xl3-chip--nghi {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.xl3-chip--ngoai {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+.xl3-chip--ngay {
+  background: #fae8ff;
+  color: #86198f;
+  border: 1px solid #f5d0fe;
+}
+.xl3-chip-tag {
+  background: rgba(0, 0, 0, 0.07);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 700;
+  font-size: 9px;
+  margin-left: 2px;
+}
 
 /* Khối Deadline Cards (Hạn SX & Hạn Giao Khách) */
 .xl3-deadline-grid {
@@ -2055,16 +2516,6 @@
   background: #94a3b8;
 }
 
-.xl3-pipe-line {
-  position: absolute;
-  top: 20px;
-  bottom: 20px;
-  left: 21px;
-  width: 2px;
-  background: linear-gradient(to bottom, #cbd5e1 0%, #e2e8f0 100%);
-  z-index: 1;
-}
-
 .xl3-pipe-list {
   display: flex;
   flex-direction: column;
@@ -2072,6 +2523,19 @@
   position: relative;
   z-index: 2;
   width: 100%;
+}
+
+/* Đường nối các nút bước. Bám vào DANH SÁCH chứ không bám khung cuộn: khung có max-height nên
+   `bottom` tính theo phần đang thấy, đường chỉ dài ~440px và đứt giữa chừng khi cuộn xuống. */
+.xl3-pipe-list::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 10px;
+  width: 2px;
+  background: linear-gradient(to bottom, #cbd5e1 0%, #e2e8f0 100%);
+  z-index: 1;
 }
 
 .xl3-pipe-step {
@@ -2414,34 +2878,213 @@
   width: 100%; padding: 0; background: none; border: 0; cursor: pointer; color: inherit;
   text-align: left;
 }
-.xl3-ls-dem { font-size: 11px; color: var(--xl3-mo, #94a3b8); }
-.xl3-ls-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.xl3-ls-dem { font-size: 11px; color: var(--xl3-mo, #94a3b8); font-weight: 600; }
+
+.xl3-ls-hint {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.xl3-ls-hint--active {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+.xl3-ls-hint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.xl3-ls-bo-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.xl3-ls-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.xl3-ls-list::-webkit-scrollbar {
+  width: 4px;
+}
+.xl3-ls-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 2px;
+}
+
 .xl3-ls-item {
-  display: grid; grid-template-columns: 30px 62px 1fr auto; align-items: center; gap: 8px;
-  padding: 5px 7px; border: 1px solid transparent; border-radius: 6px;
-  background: rgba(148, 163, 184, 0.07); cursor: pointer; text-align: left; font: inherit;
-  font-size: 11.5px; color: inherit;
+  display: grid;
+  grid-template-columns: 28px 60px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  color: inherit;
+  transition: all 0.15s ease;
 }
-.xl3-ls-item:hover { background: rgba(148, 163, 184, 0.16); }
-.xl3-ls-item--chon { border-color: #f59e0b; background: rgba(245, 158, 11, 0.14); }
-.xl3-ls-v { font-weight: 700; font-variant-numeric: tabular-nums; }
-.xl3-ls-loai { font-size: 10.5px; color: var(--xl3-mo, #94a3b8); }
-.xl3-ls-ly-do { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.xl3-ls-luc { font-size: 10.5px; color: var(--xl3-mo, #94a3b8); font-variant-numeric: tabular-nums; }
-.xl3-ls-so { margin-top: 10px; border-top: 1px dashed rgba(148, 163, 184, 0.35); padding-top: 8px; }
-.xl3-ls-so-dau {
-  display: flex; align-items: center; gap: 10px; font-size: 11.5px; font-weight: 600;
-  margin-bottom: 6px;
+.xl3-ls-item:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
 }
-.xl3-ls-bo {
-  background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 10.5px;
-  font-weight: 400; color: var(--xl3-mo, #94a3b8); text-decoration: underline;
+.xl3-ls-item--chon {
+  border-color: #f59e0b;
+  background: #fffbeeb3;
+  box-shadow: 0 0 0 1px #f59e0b;
 }
-.xl3-ls-loi { font-size: 11.5px; color: #ef4444; }
-.xl3-ls-trong { font-size: 11px; color: var(--xl3-mo, #94a3b8); line-height: 1.5; }
-.xl3-ls-bang { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-.xl3-ls-bang td { padding: 3px 0; vertical-align: top; }
-.xl3-ls-b-ten { padding-right: 10px !important; white-space: nowrap; }
-.xl3-ls-b-doi { display: flex; flex-direction: column; gap: 1px; }
-.xl3-ls-b-gio { font-variant-numeric: tabular-nums; color: #f59e0b; }
-.xl3-ls-b-may { font-size: 10.5px; color: #38bdf8; }
+
+.xl3-ls-v-pill {
+  font-weight: 800;
+  font-size: 11px;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+.xl3-ls-loai-badge {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+.xl3-ls-loai-badge--phat_hanh {
+  background: #dcfce7;
+  color: #15803d;
+}
+.xl3-ls-loai-badge--cap_nhat {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.xl3-ls-ly-do {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #475569;
+  font-size: 10.5px;
+}
+.xl3-ls-luc {
+  font-size: 10px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Compare Card */
+.xl3-ls-compare-card {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #fdf8f6;
+  border: 1px solid #fed7aa;
+  border-radius: var(--r-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xl3-ls-compare-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px dashed #fdba74;
+  padding-bottom: 5px;
+}
+.xl3-ls-compare-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #c2410c;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.xl3-ls-compare-close {
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: #ea580c;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+  border-radius: 4px;
+}
+.xl3-ls-compare-close:hover {
+  background: #ffedd5;
+}
+
+.xl3-ls-diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xl3-ls-diff-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #ffedd5;
+}
+.xl3-ls-diff-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.xl3-ls-diff-step {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9a3412;
+}
+.xl3-ls-diff-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.xl3-ls-diff-time, .xl3-ls-diff-machine {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.xl3-ls-diff-old {
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+.xl3-ls-diff-arrow {
+  color: #f97316;
+  font-size: 10px;
+  font-weight: bold;
+}
+.xl3-ls-diff-new {
+  color: #ea580c;
+  font-weight: 700;
+}
+.xl3-ls-diff-old-m {
+  color: #94a3b8;
+  font-style: italic;
+}
+.xl3-ls-diff-new-m {
+  color: #0284c7;
+  font-weight: 600;
+}

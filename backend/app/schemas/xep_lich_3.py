@@ -169,6 +169,48 @@ class CongDoanOut(BaseModel):
     lech_phut: int | None = None
 
 
+class KhungGioOut(BaseModel):
+    tu: str      # "HH:MM"
+    den: str
+
+
+class KhungLapOut(KhungGioOut):
+    """Một khung giờ không chạy lặp lại trong lịch của lệnh, vd. nghỉ cơm 11:00–12:00 × 4 lần."""
+
+    so_lan: int = 0
+    phut: float = 0.0
+
+
+class NgayNghiOut(BaseModel):
+    ngay: date
+    phut: float = 0.0
+    # Tên ngày lễ nếu có; `None` = nghỉ theo cấu hình tuần, FE tự ghi thứ.
+    ten: str | None = None
+
+
+class CaXuongOut(KhungGioOut):
+    """Một ca xưởng kèm bữa nghỉ đã khai — "Ca 1 06:00–15:00 (nghỉ 12:00–13:00)"."""
+
+    ten: str
+    nghi_tu: str | None = None
+    nghi_den: str | None = None
+
+
+class PhanTachNghiOut(BaseModel):
+    """Diễn giải `nghi_ngoai_ca_phut`: bốn loại `*_phut` cộng lại đúng bằng con số gộp."""
+
+    ca_san_xuat: list[KhungGioOut] = Field(default_factory=list)
+    # Từng ca có tên; rỗng khi xưởng chưa khai ca nào (khung lùi 8 tiếng) — FE dùng `ca_san_xuat`.
+    cac_ca: list[CaXuongOut] = Field(default_factory=list)
+    nghi_giua_ca_phut: float = 0.0
+    nghi_giua_ca: list[KhungLapOut] = Field(default_factory=list)
+    ngoai_ca_phut: float = 0.0
+    ngoai_ca: list[KhungLapOut] = Field(default_factory=list)
+    ngay_nghi_phut: float = 0.0
+    ngay_nghi: list[NgayNghiOut] = Field(default_factory=list)
+    gia_cong_ngoai_phut: float = 0.0
+
+
 class ChiTietOut(_LichChung):
     lsx_id: int
     ma: str
@@ -198,6 +240,8 @@ class ChiTietOut(_LichChung):
     # `kip_chuan` đọc như mã kíp trực; nó là quân số.
     so_nguoi_tong: int = 0
     cong_doans: list[CongDoanOut] = Field(default_factory=list)
+    # Theo lịch KẾ HOẠCH (cùng lượt trải với `ket_thuc`/`nghi_ngoai_ca_phut`). `None` = chưa xếp.
+    phan_tach_nghi: PhanTachNghiOut | None = None
     # Mốc xong TÍNH LẠI theo việc đã xảy ra: bước xong sớm kéo nó lùi, xong muộn đẩy nó ra. `None`
     # ⇔ `co_thuc_te=False` (lệnh chưa phát hành) — panel khi đó chỉ bày MỘT số như trước.
     # `ket_thuc` (kế thừa `_LichChung`) vẫn là mốc theo KẾ HOẠCH; hai số cố ý bày cạnh nhau.

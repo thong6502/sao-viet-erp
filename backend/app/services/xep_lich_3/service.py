@@ -26,7 +26,7 @@ from ...models.san_xuat import CV_HOAN_THANH, CV_PHAT_HANH
 from ...models.xep_lich_lenh import XepLichLenh
 from ..gio_xuong import gio_xuong, lich_hien_thi, thuc_te_hien_thi, ve_gio_xuong
 from ..xep_lich_service import _aware, _naive
-from .trai_lich import BuocVao, KetQuaTrai, MocBuoc, trai_lich
+from .trai_lich import BuocVao, KetQuaTrai, MocBuoc, mo_ta_ca, phan_tach_nghi, trai_lich
 
 
 class XepLich3Error(Exception):
@@ -99,9 +99,11 @@ class XepLich3Service:
         self.repo = repo
         self.audit = audit
         self._lich = None       # khung giờ làm — dựng LƯỜI, đúng một lần mỗi request
+        self._ca_xuong: list = []   # tập ca đã dựng `_lich` — panel ghi tên ca, khỏi hỏi lại DB
         self._svc_dur = None    # LsxService rút gọn, chỉ để hỏi thời lượng bước
         self._nho_don: dict[int, object] = {}   # order_id -> Order (nhớ trong MỘT request)
         self._nho_kh: dict[int, object] = {}    # customer_id -> Customer
+        self._nho_to: dict[int, str | None] = {}   # department_id -> tên tổ, nạp theo LÔ
         # lsx_id -> {("id", cd_id) | ("key", step_key): may_id} — máy ĐANG GIAO CHẠY, nạp theo LÔ
         self._may_giao: dict[int, dict[tuple[str, object], int]] = {}
         self._nho_may: dict[int, object] = {}   # may_id -> MayThietBi
@@ -130,6 +132,7 @@ class XepLich3Service:
             from ..xep_lich_service import LichXuong
 
             ca = AttendanceRepository(self.db).ca_lich_xuong()
+            self._ca_xuong = list(ca)
             nghi = tuple(C.doan_nghi_trong_ngay([
                 (int(s.start_minute), int(s.end_minute),
                  bool(s.is_overnight) or int(s.end_minute) <= int(s.start_minute),
@@ -254,6 +257,30 @@ class XepLich3Service:
             self._nho_may[may_id] = self.db.get(MayThietBi, may_id)
         return self._nho_may[may_id]
 
+    def _nap_tai_nguyen(self, routing: dict) -> None:
+        """Nạp MÁY + cách đo giờ của cặp (công đoạn × máy) cho cả lô — hai truy vấn, gọi SAU `_nap_may`.
+
+        `_may` và `LsxService._ct_gio_cua_may` nhớ theo từng máy / từng cặp nên không hỏi lại, nhưng
+        lượt đầu vẫn là một câu MỖI máy: cột Trạng thái của màn Máy trải mọi lệnh đã xếp và đo dev
+        14/09/2026 ra 11 câu `may_thiet_bi` + 11 câu `cong_doan_may` cho đúng 2 lệnh — số câu chạy
+        theo số máy khác nhau trong lịch. Chỉ hỏi phần CHƯA có trong cache, nên `_tinh_buoc` gọi lại
+        cho từng lệnh trong vòng lặp là không tốn thêm câu nào.
+        """
+        may_ids: set[int] = set()
+        cap: set[tuple[int, int]] = set()
+        for lsx_id, cds in routing.items():
+            for cd in cds:
+                may_id, _ = self._may_id_cua(cd, lsx_id)
+                may_ids.update(int(m) for m in (may_id, cd.may_id) if m)
+                if may_id and getattr(cd, "cong_doan_id", None):
+                    cap.add((int(cd.cong_doan_id), int(may_id)))
+        thieu = [i for i in may_ids if i not in self._nho_may]
+        if thieu:
+            tim = self.repo.may_theo_ids(thieu)
+            for i in thieu:
+                self._nho_may[i] = tim.get(i)
+        self._dur().nap_ct_gio(cap)
+
     # ---------------------------------------------------------------- thời lượng
 
     def _tinh_buoc(self, lsx, cds) -> tuple[list[BuocVao], dict[int, dict]]:
@@ -275,6 +302,7 @@ class XepLich3Service:
         qc = quy_cach_bien(_LsxCoRouting(lsx, cds))
         lsx_id = getattr(lsx, "id", None)
         self._nap_may([lsx_id] if lsx_id else [])
+        self._nap_tai_nguyen({lsx_id: cds})
         ra: list[BuocVao] = []
         tin: dict[int, dict] = {}
         for cd in cds:
@@ -322,6 +350,7 @@ class XepLich3Service:
         )
         routing = self.repo.routing_theo_lo([r.id for r in rows])
         self._nap_may([r.id for r in rows])
+        self._nap_tai_nguyen(routing)
         dong = []
         for l in rows:
             cds = routing.get(l.id, [])
@@ -352,6 +381,7 @@ class XepLich3Service:
         lsx_map = self.repo.lsx_theo_ids([m.lsx_id for m in moc_rows])
         routing = self.repo.routing_theo_lo(list(lsx_map))
         self._nap_may(list(lsx_map))
+        self._nap_tai_nguyen(routing)
         self._nap_thuc_te(list(lsx_map))
 
         dong = []
@@ -414,6 +444,7 @@ class XepLich3Service:
         ten_dv = self.repo.ten_don_vi(
             sorted({str(c.don_vi_vao) for c in cds if c.don_vi_vao})
         )
+        self._nap_to([c.department_id for c in cds])
 
         qc = dict(l.quy_cach_json or {})         # ẢNH CHỤP lúc tạo lệnh — khoá có thể trống
         don = self._don_cua(l)
@@ -447,6 +478,7 @@ class XepLich3Service:
             ],
         }
         ra.update(self._so_lich(m, kq))
+        ra["phan_tach_nghi"] = self._phan_tach_nghi(kq)
         tt = self._du_kien_theo_thuc_te(l, cds, buoc, m, kq)
         tt.pop("_kq_con_lai", None)
         tt.pop("_doan_that", None)
@@ -528,6 +560,7 @@ class XepLich3Service:
         lsx_map = self.repo.lsx_theo_ids(list(moc))
         routing = self.repo.routing_theo_lo(list(moc))
         self._nap_may(list(moc))
+        self._nap_tai_nguyen(routing)
         self._nap_thuc_te(list(moc))
         ra: dict[int, list[MocBuoc]] = {}
         for lsx_id, m in moc.items():
@@ -858,6 +891,24 @@ class XepLich3Service:
             "updated_at": _naive(m.updated_at),
         }
 
+    def _phan_tach_nghi(self, kq: KetQuaTrai | None) -> dict | None:
+        """Diễn giải con số "nghỉ" của panel: nghỉ giữa ca mấy giờ, ngoài ca, ngày nghỉ là ngày nào.
+
+        CHỈ panel gọi — dòng Gantt không cần, khỏi trải thêm cho mỗi lệnh. Tên ngày lễ lấy từ cache
+        theo năm của `CalendarService`; ngày nghỉ theo tuần thì `ten = None`, FE tự ghi thứ.
+        """
+        if kq is None:
+            return None
+        from ...models.work_calendar import KIND_WORK
+
+        lich = self._khung()
+        ra = phan_tach_nghi(kq, lich)
+        ra["cac_ca"] = mo_ta_ca(self._ca_xuong)
+        for n in ra["ngay_nghi"]:
+            sp = lich.cal._special_for(n["ngay"])
+            n["ten"] = sp.name if sp is not None and sp.kind != KIND_WORK else None
+        return ra
+
     def _san(self, l, cds) -> tuple[datetime | None, set[int], bool]:
         """`(SÀN, id bước đã bắt đầu, lệnh đã phát hành chưa)` — thang giờ xưởng, naive.
 
@@ -1068,12 +1119,21 @@ class XepLich3Service:
         u = self.db.get(User, user_id)
         return getattr(u, "full_name", None) or getattr(u, "username", None)
 
+    def _nap_to(self, dept_ids: list[int | None]) -> None:
+        """Tên tổ của cả bảng công đoạn — MỘT truy vấn. Trước 14/09/2026 mỗi bước một `db.get`:
+        lệnh 6 bước ở 6 tổ là 6 câu mỗi lần mở popup."""
+        thieu = [int(i) for i in dict.fromkeys(dept_ids) if i and int(i) not in self._nho_to]
+        if not thieu:
+            return
+        ten = self.repo.ten_to(thieu)
+        for i in thieu:
+            self._nho_to[i] = ten.get(i)
+
     def _ten_to(self, dept_id: int | None) -> str | None:
         if not dept_id:
             return None
-        from ...models.department import Department
-
-        return getattr(self.db.get(Department, dept_id), "name", None)
+        self._nap_to([dept_id])
+        return self._nho_to.get(int(dept_id))
 
     def _ten_may_chinh(self, l, tin: dict[int, dict] | None = None) -> str | None:
         """Máy của bước IN — nhãn nhận diện dòng trên Gantt, không phải danh sách đủ máy.

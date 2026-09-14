@@ -1,7 +1,7 @@
 // XẾP LỊCH 3 — CỘT HÀNG CHỜ (REDESIGN STUDIO DOCK)
 import { CheckCircle2, ChevronLeft, Clock, Layers, Search, X } from "lucide-react";
 import type { Xl3The } from "../api/client";
-import { ngayNgan, thoiLuong } from "./xl3Shared";
+import { gioChu, ngayNgan } from "./xl3Shared";
 
 export interface Xl3HangChoProps {
   the: Xl3The[];
@@ -118,7 +118,7 @@ export function Xl3HangCho({
               <span className="xl3-the__chip">
                 {t.so_luong_dat.toLocaleString("vi-VN")} {t.don_vi_tinh ?? "sp"}
               </span>
-              <span className="xl3-the__chip">{thoiLuong(t.chay_phut)}</span>
+              <span className="xl3-the__chip">{t.chay_phut > 0 ? gioChu(t.chay_phut) : "—"}</span>
               <span className="xl3-the__chip">{t.so_buoc} bước</span>
             </div>
           </article>
