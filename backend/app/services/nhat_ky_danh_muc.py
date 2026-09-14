@@ -53,6 +53,8 @@ NHAN: dict[str, str] = {
     "ten_ngan": "Tên ngắn",
     "mo_ta": "Mô tả",
     "ghi_chu": "Ghi chú",
+    "tai_trong": "Tải trọng (tấn)",        # danh mục Xe giao hàng
+    "muc_khoan_km_id": "Mức khoán km",     # danh mục Xe giao hàng
     # Ảnh minh hoạ mặt hàng (mg `0191`) — nhật ký in NHÃN chứ không in tên cột.
     "anh_url": "Ảnh minh hoạ",
     "note": "Ghi chú",

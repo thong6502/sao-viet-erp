@@ -145,7 +145,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
   // Mã gợi ý cho bản ghi MỚI (màn nào để người dùng tự đặt mã). Hỏi xong mới điền, và chỉ điền
   // khi ô mã vẫn còn trống — người khai gõ tay trước thì tôn trọng cái họ gõ.
   useEffect(() => {
-    if (isEdit || config.autoCode || !token) return;
+    if (isEdit || config.autoCode || config.khongGoiYMa || !token) return;
     let huy = false;
     goiYMaTiepTheo(config.prefix, token)
       .then((ma) => {
@@ -396,6 +396,9 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
           && existing[f.key] !== "";
         if (!f.required && !(kieuChu && voonCoGiaTri)) continue;
       }
+      // Ô tìm-chọn BẮT BUỘC còn trống: gửi `null`, KHÔNG gửi chuỗi rỗng — "" vào cột số thì pydantic
+      // trả 422 tiếng Anh ("valid integer"), còn `null` để máy chủ nói đúng câu "Phải chọn …".
+      if (f.type === "ref-search" && v === "") v = null;
       if ((f.type === "number" || f.type === "ref" || f.type === "ref-search") && v !== "" && v != null) v = Number(v);
       if (f.jsonKey) {
         const box = (body[f.jsonKey] as Record<string, unknown>) ??
@@ -505,14 +508,16 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const baseFields = !(config.autoCode && !isEdit) ? (
       <>
         <label className="rc-field">
-          <span className="rc-field__label">Mã <em>*</em></span>
+          <span className="rc-field__label">{config.nhanMa ?? "Mã"} <em>*</em></span>
           <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
             <input className="rc-input rc-mono" value={String(form.ma ?? "")}
-              disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
+              disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder={`${config.nhanMa ?? "Mã"}...`} />
           </div>
           {!isEdit && typedMa && (
             <span style={{ fontSize: "12px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
-              {isMaDuplicate ? "Mã đã tồn tại!" : "Mã hợp lệ!"}
+              {isMaDuplicate
+                ? `${config.nhanMa ?? "Mã"} đã tồn tại!`
+                : `${config.nhanMa ?? "Mã"} hợp lệ!`}
             </span>
           )}
         </label>

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..models.department import Department
 from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.delivery_repo import DeliveryRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository, UnitLevelRepository
 from ..repositories.user_repo import UserRepository
@@ -49,6 +50,15 @@ class InvalidLevelOrder(DepartmentError):
     """A child unit's level must rank BELOW its parent's level (spec-06 / PBI-4007)."""
 
 
+class GiaoHangConChuyenChay(DepartmentError):
+    """Tắt cờ Giao hàng khi tài xế của phòng còn chuyến CHƯA ghi kết quả (chủ chốt 14/09/2026).
+
+    Đơn giá khoán km chụp lúc GHI KẾT QUẢ và tra theo phòng của tài xế — tắt cờ trước lúc đó là
+    chuyến đóng xong với `don_gia_km = NULL`: tài xế mất trắng tiền chuyến đó, không lỗi, không
+    cảnh báo (đã đo thực nghiệm, PRD khoán km §12.1).
+    """
+
+
 class KhoanKmInvalid(DepartmentError):
     """Ba ô khoán km sai luật — hai tỷ lệ không cộng đủ 100, hoặc đơn giá âm (mg 0231)."""
 
@@ -74,6 +84,7 @@ class DepartmentService:
         audit: AuditLogRepository,
         levels: UnitLevelRepository,
         employees: EmployeeRepository,
+        deliveries: DeliveryRepository | None = None,
     ) -> None:
         self.departments = departments
         self.roles = roles
@@ -81,6 +92,9 @@ class DepartmentService:
         self.audit = audit
         self.levels = levels
         self.employees = employees
+        # Chỉ để đếm chuyến đang chạy khi TẮT cờ Giao hàng. Tuỳ chọn để test dựng service gọn vẫn
+        # chạy; `deps.get_department_service` luôn truyền.
+        self.deliveries = deliveries
 
     def _head_name(self, dept: Department) -> str | None:
         if dept.head_user_id is None:
@@ -394,6 +408,15 @@ class DepartmentService:
             raise DepartmentNotFound("Không tìm thấy phòng cha")
         # No cycle (parent ∉ this unit's subtree) + child level ranks below parent (PBI-4007).
         self._validate_hierarchy(dept_id=dept_id, parent_id=parent_id, level_id=level_id)
+        # Tắt cờ Giao hàng: kiểm TRƯỚC mọi thao tác ghi, chặn là chặn cả lượt sửa.
+        if (la_giao_hang is not _KEEP and not bool(la_giao_hang) and dept.la_giao_hang
+                and self.deliveries is not None):
+            n = self.deliveries.dem_chuyen_chua_ket_qua_cua_phong(dept_id)
+            if n:
+                raise GiaoHangConChuyenChay(
+                    f"Còn {n} chuyến đang chạy của tài xế phòng này — đóng hoặc huỷ hết rồi mới "
+                    "tắt được cờ Giao hàng."
+                )
         # The code is system-owned and never edited here (spec-05).
         self.departments.rename(dept, name)
         self.departments.set_description(dept, (description or "").strip() or None)

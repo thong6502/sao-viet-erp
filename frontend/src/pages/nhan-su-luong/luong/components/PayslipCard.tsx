@@ -88,7 +88,21 @@ export function PayslipCard({
     ...((l.thuong_to_truong ?? 0) !== 0
       ? ([["Thưởng/phạt tổ trưởng (chất lượng)", l.thuong_to_truong ?? 0]] as [string, number][])
       : []),
-    ["Tăng ca", l.ot_pay],
+    // CHẾ ĐỘ KHOÁN (14/09/2026): KHÔNG có tiền tăng ca — chủ nhắc: "không có tiền tăng ca luôn,
+    // tăng ca thì làm nhiều sản lượng hơn, ăn ở sản lượng rồi". Engine để tiền GIỜ tăng ca = 0 nên
+    // `ot_pay` của dòng khoán CHỈ còn phần thêm làm nguyên ngày CN/lễ + tiền 1× ngày nghỉ off1x ⇒
+    // in TÁCH ra dòng riêng, dòng "Tăng ca" đúng 0đ. Để chung một dòng "Tăng ca" là người nhận đọc
+    // thành "khoán vẫn có tiền tăng ca".
+    ...(l.che_do_khoan
+      ? ([
+          ["Tăng ca (khoán — không có tiền tăng ca)", 0],
+          ...(l.ot_pay
+            ? [[(l.off1x_pay ?? 0) > 0
+                ? "Làm ngày Chủ nhật / lễ / ngày nghỉ 1×"
+                : "Làm ngày Chủ nhật / lễ", l.ot_pay]]
+            : []),
+        ] as [string, number][])
+      : ([["Tăng ca", l.ot_pay]] as [string, number][])),
     // Hoa hồng KD — cột riêng (07/09/2026). Trước đó là khoản nguồn `auto` mà phiếu không in ⇒ TỔNG
     // THU thiếu đúng phần hoa hồng (bản rà E5). Chỉ in khi có số.
     ...((l.hoa_hong ?? 0) !== 0

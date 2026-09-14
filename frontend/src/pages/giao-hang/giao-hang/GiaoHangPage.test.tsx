@@ -71,6 +71,9 @@ function stubApi({ trips = [], requests = [], drivers = [], taiXe }: {
           trips: [],
           lich_su: [],
         }
+      // Danh mục Xe (12/09/2026): hai hộp Lên đơn / Ghi kết quả nạp ô Xe từ `/api/xe`. Thiếu
+      // nhánh này thì stub trả `{}` ⇒ `items` undefined ⇒ hộp thoại vỡ ngay lúc vẽ.
+      : p.includes("/api/xe") ? { items: [], total: 0 }
       : p.includes("/con-phai-giao")
       ? { order_id: 3, da_giao_du: false,
           lines: [{ order_line_id: 11, mo_ta: "Hộp giấy", don_vi_tinh: "hộp",

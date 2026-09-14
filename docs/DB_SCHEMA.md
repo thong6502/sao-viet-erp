@@ -2906,6 +2906,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `paid_leave_cong` | `Numeric(6,2)` | — | no | `0` | Số công phép CÓ LƯƠNG thực được trả (sau khi kẹp trần công chuẩn). Thêm qua migration 0112. |
 | `special_cong` | `Numeric(6,2)` | — | no | `0` | **TRONG ĐÓ** của `actual_cong`: số công của **ngày LỄ / NGHỈ TUẦN có đi làm**. Tách riêng vì phần công này **KHÔNG đi qua trần** `min(công làm, công chuẩn)` — trước 17/08/2026 nó nằm chung rổ nên ai đã đủ công chuẩn rồi mới làm Chủ nhật thì phần gốc 1× bị trần nuốt, `ot_pay` chỉ bù `(hệ số − 1)` ⇒ thực nhận **1× thay vì 2×** (lễ: 2× thay vì 3×), trái Đ98.1.b/c. Snapshot để đường "Sửa 1 ô" (`update_line`) ra đúng số của "Tính lại". ĐỪNG cộng vào gross: đã nằm trong `luong_cong`. Kỳ cũ = `0` ⇒ **không hồi tố**. Thêm qua migration 0204. |
 | `off1x_pay` | `Numeric(14,2)` | — | no | `0` | **TRONG ĐÓ** của `ot_pay`: tiền của **ngày off1x** (công ty cho nghỉ, ai đi làm được trả 1×, không hệ số). Tách riêng vì khoản này **CHỊU thuế TNCN** — trả đúng 1× nên không có phần "trả cao hơn" nào để miễn theo Luật 109/2025 K8 Đ4 + NĐ 253/2026 Đ26 (kế toán chốt 17/08/2026: *"lương thuế chỉ 1 công bình thường"*). `_auto_pit` nhận nó qua tham số `ot_taxable` và cộng ngược vào thu nhập chịu thuế. Snapshot để đường "Sửa 1 ô" ra đúng số của "Tính lại". **ĐỪNG cộng vào gross**: đã nằm trong `ot_pay`. Kỳ cũ = `0` ⇒ **không hồi tố**. Thêm qua migration 0205. |
+| `che_do_khoan` | `Boolean` | — | no | `false` | **CHỤP** "người này thuộc CHẾ ĐỘ KHOÁN" lúc Tính lại (chủ chốt 14/09/2026, `docs/prd-khoan-khong-tien-tang-ca.md`): tổ bật *Lương khoán / sản lượng* HOẶC tổ bật cờ *Giao hàng* ⇒ **KHÔNG có tiền giờ tăng ca** (0đ — đã trả qua tiền khoán), vẫn có cơm tăng ca + phần thêm khi làm nguyên ngày CN/lễ. Chụp chứ không suy lúc đọc: người đổi tổ sau đó thì phiếu lương kỳ cũ vẫn giải thích đúng. Nuôi cảnh báo trước khi chốt (có giờ tăng ca mà tiền khoán = 0). Kỳ cũ = `false` ⇒ **không hồi tố**. Thêm qua migration 0299. |
 | `excused_cong` | `Numeric(6,2)` | — | no | `0` | Công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ đã duyệt) — chỉ để giải trình vì sao công thiếu mà chuyên cần vẫn đủ. Thêm qua migration 0112. |
 | `chuyen_can` | `Numeric(14,2)` | — | no | `0` | Thưởng chuyên cần. |
 | `allowance` | `Numeric(14,2)` | — | no | `0` | TỔNG phụ cấp tháng = phụ cấp KHÁC + khoản danh mục gán ở hồ sơ (+ thâm niên ở kỳ CŨ — cột dưới, ngưng 07/09/2026). Phụ cấp CA đi riêng ở `night_pay`. |
@@ -6007,6 +6008,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `ngay_hen_lai` | `Date` → `DATE` | — | yes | — | **NGƯNG GHI từ 22/08/2026** cùng lượt bỏ kết quả `hen_lai` — đó là trạng thái TREO: chuyến chưa xong mà cũng không kết thúc, hàng nằm trên xe không biết tới bao giờ. Nay khách hẹn lại = ghi `that_bai`, **trả hàng về kho**, rồi lập yêu cầu mới cho ngày hẹn. Giữ cột để đọc dòng cũ. |
 | `ghi_chu_ket_qua` | `Text` → `TEXT` | — | yes | — | Ghi chú khi đóng chuyến. |
 | `phu_xe_employee_id` | `Integer` → `INTEGER` | **IX** | yes | — | **Phụ xe** (mg 0231) — tối đa MỘT người, tuỳ chọn. Không đẻ bảng kíp xe: bảng phụ chỉ đáng khi số người thay đổi được. Vai trò do **ô thả người vào** quyết định, không phải thuộc tính của người — hôm nay lái, mai đi phụ. Service chặn xếp cùng một người vào cả hai ô (không thì họ ăn 60% + 40% của chính chuyến đó) và kiểm trùng lịch cho phụ xe y như tài xế. |
+| `vehicle_id` | `Integer` → `INTEGER` | **FK→xe.id**, **IX** | yes | — | **XE chạy chuyến** (mg `0296`) — qua nó mới biết tra MỨC nào. Đặt ở CHUYẾN chứ không ở đơn: tiền tính theo chuyến, và giao lại lần 2 là một chuyến mới có thể đi xe khác. **Bắt buộc ở cả ba cửa** — lên đơn, đổi kế hoạch, ghi kết quả (chủ chốt 12/09/2026) — cho tài xế thuộc khối Giao hàng; luật chỉ BẬT khi danh mục `xe` đã có xe còn dùng (không thì ngày triển khai chặn cứng cả phân hệ). Xe chọn vào phải ra được giá: chưa gán mức, hoặc mức chưa có bậc ⇒ chặn (14/09/2026). NULL ở chuyến đã đóng = chạy trước khi có tính năng ⇒ rơi về đơn giá phẳng, không hồi tố. |
 | `don_gia_km` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | yes | — | **CHỤP** `departments.don_gia_km` lúc ghi kết quả (mg 0231). Đọc thẳng của phòng ban lúc tính lương thì chủ chỉnh một số là bảng lương mọi tháng cũ đổi theo — bài học `orders.commission_pct`. **NULL = chuyến chạy TRƯỚC khi có tính năng** ⇒ engine bỏ qua, không đẻ tiền ngược cho quá khứ; khác hẳn `0` (đã chụp, và bằng 0). |
 | `pct_tai_xe` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | yes | — | Chụp tỷ lệ tài xế lúc ghi kết quả (mg 0231). NULL cùng nghĩa với `don_gia_km`. |
 | `pct_phu_xe` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | yes | — | Chụp tỷ lệ phụ xe lúc ghi kết quả (mg 0231). |
@@ -6068,24 +6070,81 @@ tài xế chụp mờ/chụp nhầm là chuyện thường, khoá lại là bu�
 | `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** (SET NULL) | yes | — | Ai tải lên. |
 | `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` | Lúc nào. |
 
-### `delivery_km_brackets`
+### `muc_khoan_km`
 
-**Purpose:** bậc **đơn giá khoán km** theo phòng ban (chốt 24/08/2026) — bảng MỚI, `create_all`
-tự dựng, KHÔNG cần migration tạo bảng. Cấu hình trong màn **Phòng ban** ngay dưới cờ
-`la_giao_hang`. Mirror `late_penalty_brackets` nhưng THEO PHÒNG (nhiều tổ giao hàng có thể có
-bảng giá khác nhau) thay vì toàn công ty.
+**Purpose:** một **MỨC khoán km** — một bảng bậc giá dùng chung cho nhiều xe. Bảng MỚI,
+`create_all` tự dựng. Là cấu hình **CHUNG** toàn công ty, KHÔNG thuộc phòng ban nào (chủ chốt
+14/09/2026). Khai ở màn *Cấu hình lương → Khoán km giao hàng*; bậc giá nằm ở `muc_khoan_km_bac`.
+
+Mô hình (chủ chốt 12/09/2026, `docs/prd-khoan-km-giao-hang.md` §11):
+
+```
+muc_khoan_km ──1──n── xe ──1──n── delivery_trips
+(bảng bậc giá)        (biển số)   (tra bậc theo mức của xe)
+```
+
+Cần một giá khác thì TẠO MỨC MỚI, không sửa mức đang có — mức đang có là của những xe khác. Số bậc
+là chuyện riêng của từng mức: mức này 8 bậc, mức kia 9 bậc, mốc km khác nhau đều được.
+
+Vì sao gom theo mức chứ không gắn bảng giá thẳng vào từng xe: đo `SAN LUONG T08.2026.xls` — 4 xe
+nhưng chỉ HAI thang giá (2,5T và hai xe 3,5T dùng chung; 5 tấn dùng thang × 1,1). Gắn vào xe là
+bắt khai ba bảng giống hệt nhau, rồi tăng giá quên một bảng là một xe tụt lại ở giá cũ — vẫn ra
+tiền, chỉ ra thiếu, không ai thấy.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `ten` | `String(150)` → `VARCHAR(150)` | **UQ** | no | — | Tên mức — KHOÁ NGHIỆP VỤ và là thứ duy nhất phải khai ("Xe 2 tấn"). Không có cột tải trọng: cái tên đã nói. |
+| `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú tự do. |
+| `active` | `Boolean` → `BOOLEAN` | — | no | `true` | Tắt = ngừng dùng. |
+| `created_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `now()` | Mốc tạo. |
+| `updated_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `now()` | Mốc sửa gần nhất. |
+
+### `xe`
+
+**Purpose:** danh mục **Xe giao hàng** — biển số, tải trọng, xe này ăn MỨC nào. Bảng MỚI,
+`create_all` tự dựng. Màn *Cấu hình danh mục → Xe giao hàng*, quyền `dm_xe` (mg `0296`).
+
+Vì sao là danh mục riêng chứ không khai vào `tai_san` (chốt 12/09/2026): hiện KHÔNG theo dõi khấu
+hao xe — `tai_san` không có chiếc nào. Xe **không** gắn cứng với tài xế: vai do ô thả người vào
+quyết định (PRD §3b), khai vào hồ sơ là đẻ nguồn sự thật thứ hai.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `ma` | `String(30)` → `VARCHAR(30)` | **UQ**, **IX** | no | — | **BIỂN SỐ**, khoá nghiệp vụ. Nền danh mục chỉ chuẩn hoá hoa/thường, KHÔNG bóc dấu chấm/gạch. |
+| `ten` | `String(150)` → `VARCHAR(150)` | — | no | — | Tên gọi trong xưởng ("Xe a Việt") — người phân chuyến nhớ theo tên này. |
+| `tai_trong` | `Numeric(6,2)` → `NUMERIC(6,2)` | — | yes | — | Tải trọng (tấn). CHỈ để đối chiếu khi chọn xe cho đơn nặng — **KHÔNG lái giá**; giá do MỨC quyết. |
+| `muc_khoan_km_id` | `Integer` → `INTEGER` | **FK→muc_khoan_km.id**, **IX** | yes | — | Xe này ăn MỨC nào. **BẮT BUỘC** từ 14/09/2026 — chặn ở `XeService._validate` (cột để nullable vì không ALTER ràng buộc bảng đã dựng). Lên đơn bằng xe NULL mức, hoặc mức chưa có bậc, cũng bị chặn (`DeliveryService._doi_xe`) — trước đó xe trống âm thầm ăn đơn giá phẳng `departments.don_gia_km`. |
+| `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú tự do. |
+| `active` | `Boolean` → `BOOLEAN` | — | no | `true` | Tắt = xe đã ngưng: không hiện ở ô chọn chuyến MỚI, chuyến cũ vẫn giữ tên xe. |
+| `created_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `now()` | Mốc tạo. |
+| `updated_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `now()` | Mốc sửa gần nhất. |
+
+### `muc_khoan_km_bac`
+
+**Purpose:** một **BẬC** trong bảng giá khoán km của một **MỨC** — km chuyến ≤ `up_to_km` thì ăn
+`don_gia`. Bảng MỚI (14/09/2026), `create_all` tự dựng. Số bậc tự do theo từng mức. Sửa ở màn
+*Cấu hình lương → Khoán km giao hàng*, ghi cả khối qua `PUT /api/giao-hang/muc-khoan-km/{id}/bac`.
+
+⭐ **KHÔNG có `department_id`, cố ý.** Bậc của mức từng nằm trong `delivery_km_brackets` — bảng đẻ
+ra cho bậc CẤP PHÒNG, bắt buộc `department_id` kèm FK xoá dây chuyền ⇒ xoá phòng ban là cuốn luôn
+bảng giá của mức (toàn công ty). Mg `0298` chép dòng có `muc_id` sang đây rồi **DROP**
+`delivery_km_brackets`. Bảng bậc cấp phòng đã gỡ từ trước đó (mg `0297`, 12/09/2026).
 
 **Cách tính (chủ chốt):** toàn bộ km của một chuyến × đơn giá của **MỘT bậc** mà km rơi vào —
 KHÔNG cộng dồn từng đoạn. Chuyến 8 km, bậc 5–10km giá 20.000 ⇒ 8 × 20.000 = 160.000. Đúng cách
 bảng lương thật tính (đo 521 chặng). Lúc ghi kết quả chuyến, đơn giá tra được **chụp** vào
 `delivery_trips.don_gia_km` (một số), nên engine lương đọc số đã chụp — đổi bậc sau không nắn lại
-kỳ đã tính. Phòng chưa khai bậc nào ⇒ fallback về `departments.don_gia_km` (đơn giá phẳng cũ).
+kỳ đã tính.
+
+Không để trống bảng giá được khi mức còn xe đang ăn (`DeliveryService.ghi_bac_muc`).
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `department_id` | `Integer` → `INTEGER` | **FK→departments.id** (CASCADE), **IX** | no | — | Phòng giao hàng sở hữu bảng giá này. |
-| `seq` | `Integer` → `INTEGER` | — | no | — | Thứ tự bậc 1..N. `tra_don_gia_km` duyệt theo thứ tự này; bậc ∞ phải ở cuối. |
+| `muc_id` | `Integer` → `INTEGER` | **FK→muc_khoan_km.id** (CASCADE), **IX** | no | — | MỨC sở hữu bậc này. Xoá mức thì bậc đi theo (repo xoá tường minh — SQLite test không bật FK). |
+| `seq` | `Integer` → `INTEGER` | — | no | — | Thứ tự bậc 1..N. `MucKhoanKmRepository.tra_don_gia` duyệt theo thứ tự này; bậc ∞ phải ở cuối. |
 | `up_to_km` | `Integer` → `INTEGER` | — | yes | — | Trần KM của bậc (≤ trần → giá này). **NULL = bậc cao nhất (∞)**, chỉ một và ở cuối. |
 | `don_gia` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Đồng/km cho bậc này. |
 

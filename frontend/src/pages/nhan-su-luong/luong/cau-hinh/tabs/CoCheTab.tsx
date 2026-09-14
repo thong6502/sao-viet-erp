@@ -60,7 +60,8 @@ export function CoCheTab({
       cs.map((c) => {
         if (c.component_key === key) return { ...c, ...patch };
         // ⚠️ GỠ 17/08/2026 — trước đây Khoán ⟷ Tăng ca loại trừ nhau (bật cái này tự tắt cái kia).
-        // Chủ đảo lại: "Tổ khoán VẪN CÓ tăng ca". Hai công tắc nay độc lập, backend cũng đã gỡ.
+        // Hai công tắc vẫn ĐỘC LẬP. Từ 14/09/2026 tổ khoán KHÔNG có tiền GIỜ tăng ca (chế độ khoán),
+        // nhưng công tắc Tăng ca của tổ đó vẫn quyết cơm tăng ca + phần thêm ngày CN/lễ.
         return c;
       }),
     );
@@ -85,6 +86,10 @@ export function CoCheTab({
   // Cờ Giao hàng dùng TRỰC TIẾP (không kế thừa cây) — khớp `_chup_don_gia_km` ở BE đọc cờ RIÊNG
   // của phòng tài xế. Tài xế phải thuộc đúng phòng bật cờ thì mới có khoán km.
   const laGiaoHang = depts.find((d) => d.id === deptId)?.la_giao_hang ?? false;
+  // CHẾ ĐỘ KHOÁN (14/09/2026) — khớp `PayrollService._che_do_khoan`: công tắc Lương khoán của tổ
+  // HOẶC cờ Giao hàng của CHÍNH tổ (không kế thừa). Đọc bản NHÁP của công tắc để ghi chú đổi ngay
+  // khi người ta gạt, trước cả lúc lưu.
+  const cheDoKhoan = khoanOn || laGiaoHang;
 
   return (
     <>
@@ -341,7 +346,20 @@ export function CoCheTab({
                     </span>
                     <span>
                       <span className="cl-comp__name">{def.name}</span>
-                      <span className="cl-comp__desc">{def.desc}</span>
+                      <span className="cl-comp__desc">
+                        {def.desc}
+                        {def.key === "tang_ca" && cheDoKhoan && (
+                          <>
+                            {" "}
+                            <b>
+                              Tổ này ăn khoán{khoanOn ? "" : " km (Giao hàng)"}: KHÔNG có tiền
+                              tăng ca
+                            </b>{" "}
+                            (làm thêm giờ đã trả qua tiền khoán) — công tắc này còn quyết cơm tăng
+                            ca và phần thêm khi làm nguyên ngày Chủ nhật / lễ.
+                          </>
+                        )}
+                      </span>
                     </span>
                     <span>
                       {def.kind ? (
@@ -411,8 +429,9 @@ export function CoCheTab({
         />
       )}
 
-      {/* Đơn giá khoán km giao hàng (chủ chốt 24/08/2026 — dời từ màn Phòng ban sang đây). Hiện
-          khi tổ bật cờ Bộ phận Giao hàng. Cả cụm (bậc đơn giá + % chia kíp) ở một chỗ. */}
+      {/* % chia tiền chuyến cho kíp xe — dữ liệu CỦA PHÒNG (`departments.pct_*`), nên ở lại màn
+          theo bộ phận và chỉ hiện khi phòng bật cờ Giao hàng. Bảng GIÁ (Mức khoán km) là cấu hình
+          chung, đã dời sang sub-tab "Khoán km giao hàng" (14/09/2026). */}
       {laGiaoHang && deptId != null && (
         <KhoanKmEditor
           token={token}

@@ -445,6 +445,14 @@ class PayrollLine(Base):
     # miễn (kế toán chốt 17/08/2026: "lương thuế chỉ 1 công bình thường"). Snapshot để "Sửa 1 ô"
     # trừ đúng y "Tính lại". ĐỪNG cộng vào gross: đã nằm trong `ot_pay`. Kỳ CŨ (trước mg 0205) = 0.
     off1x_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # CHỤP "người này thuộc CHẾ ĐỘ KHOÁN" lúc Tính lại (chủ chốt 14/09/2026): tổ bật Lương khoán /
+    # sản lượng HOẶC tổ bật cờ Giao hàng ⇒ giờ tăng ca KHÔNG có tiền (đã trả qua tiền khoán); vẫn
+    # có cơm tăng ca + phần thêm làm nguyên ngày CN/lễ. Chụp chứ không suy lúc đọc: người đổi tổ sau
+    # đó thì phiếu lương kỳ cũ vẫn phải nói đúng vì sao có giờ tăng ca mà tiền tăng ca = 0.
+    # Kỳ CŨ (trước mg 0299) = false ⇒ không hồi tố.
+    che_do_khoan: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
+    )
     # Công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ đã duyệt) — chỉ để giải trình vì sao công thiếu mà
     # chuyên cần vẫn đủ. Không tham gia công thức nào ở dòng lương.
     excused_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")

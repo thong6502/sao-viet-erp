@@ -786,13 +786,26 @@ export function BangLuongTab({
                   </td>
                   <td
                     className="lg-num"
-                    title={
-                      l.ot_minutes
-                        ? `${(l.ot_minutes / 60).toFixed(1)}h tăng ca`
-                        : ""
-                    }
+                    title={[
+                      l.ot_minutes ? `${(l.ot_minutes / 60).toFixed(1)}h tăng ca` : "",
+                      // Chế độ khoán (14/09/2026): có giờ mà tiền tăng ca = 0 là ĐÚNG luật, phải nói
+                      // ra kẻo HCNS tưởng bảng lương tính sót.
+                      l.che_do_khoan
+                        ? "Chế độ khoán — KHÔNG có tiền tăng ca (làm thêm giờ đã trả qua tiền khoán); vẫn có cơm tăng ca"
+                        : "",
+                      l.che_do_khoan && l.ot_pay
+                        ? "Số ở ô này là phần thêm làm nguyên ngày Chủ nhật / lễ (và ngày nghỉ 1×), không phải tiền tăng ca"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   >
                     {l.ot_pay ? money(l.ot_pay) : "—"}
+                    {/* Khoán mà ô này có số ⇒ đó là tiền làm ngày CN/lễ, nói ngay trên ô chứ không
+                        bắt người ta rê chuột mới biết. */}
+                    {l.che_do_khoan && l.ot_pay ? (
+                      <span className="lg-ot-khoan">CN / lễ</span>
+                    ) : null}
                   </td>
                   <td
                     className="lg-num"

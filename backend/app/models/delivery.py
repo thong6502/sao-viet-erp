@@ -222,6 +222,17 @@ class DeliveryTrip(Base):
     phu_xe_employee_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("employees.id"), index=True, nullable=True
     )
+    # XE chạy chuyến này (12/09/2026) — qua nó mới biết tra MỨC khoán km nào (PRD §11).
+    #
+    # Đặt ở CHUYẾN chứ không ở đơn: tiền tính theo chuyến, và giao thất bại thì lần 2 là một
+    # `DeliveryTrip` mới có thể đi xe khác — buộc xe vào đơn là bắt lần 2 mang giá của lần 1.
+    #
+    # Nullable: để trống được lúc LÊN KẾ HOẠCH (đổi xe phút chót là thường), bắt buộc khi ĐÓNG
+    # chuyến (chặn ở service). NULL ở chuyến đã đóng = chạy trước khi có tính năng ⇒ rơi về bậc
+    # nền của phòng, không hồi tố.
+    vehicle_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("xe.id"), index=True, nullable=True
+    )
 
     gio_lay_hang: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     gio_du_kien_giao: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -361,28 +372,3 @@ class DeliveryTripAttachment(Base):
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
 
-
-class DeliveryKmBracket(Base):
-    """Bậc đơn giá khoán km, THEO PHÒNG BAN (mg-free — create_all tự dựng bảng mới).
-
-    Tra theo SỐ KM của một chuyến: bậc đầu tiên có `km ≤ up_to_km` → `don_gia`; `up_to_km` NULL =
-    bậc cao nhất (từ đó trở lên). Mirror `late_penalty_brackets`.
-
-    ⭐ CÁCH TÍNH: toàn bộ km của chuyến × đơn giá của MỘT bậc mà km rơi vào (chủ chốt 24/08/2026),
-    KHÔNG cộng dồn từng đoạn. Chuyến 8 km, bậc 5–10km giá 20.000 ⇒ 8 × 20.000 = 160.000. Đây đúng
-    cách bảng lương thật tính (đo 521 chặng: thành tiền = km × đơn giá một bậc).
-
-    Vì sao THEO PHÒNG BAN chứ không toàn công ty như bảng thuế/phạt: đơn giá là thoả thuận của
-    khối giao hàng, khai ngay trong màn Phòng ban nơi bật cờ `la_giao_hang` (chủ chốt vị trí này).
-    Nhiều tổ giao hàng khác nhau có thể có bảng giá khác nhau.
-    """
-
-    __tablename__ = "delivery_km_brackets"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    department_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("departments.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    seq: Mapped[int] = mapped_column(Integer, nullable=False)                    # thứ tự bậc 1..N
-    up_to_km: Mapped[int | None] = mapped_column(Integer, nullable=True)         # trần KM; NULL = ∞
-    don_gia: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)     # đồng/km

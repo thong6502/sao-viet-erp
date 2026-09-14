@@ -593,10 +593,11 @@ def test_luong_khoan_component_mirrors_department_flag(client):
 
 
 def test_khoan_va_tang_ca_DOC_LAP(client):
-    """⚠️ ĐẢO 17/08/2026 — Khoán ⟷ Tăng ca KHÔNG còn loại trừ nhau, bật CẢ HAI được.
+    """Khoán ⟷ Tăng ca KHÔNG loại trừ nhau ở CẤU HÌNH — bật CẢ HAI được (đảo 17/08/2026, giữ nguyên).
 
-    Chủ chốt: *"Tổ khoán vẫn có tăng ca"*, đảo luật loại trừ ngày 22/07/2026. Engine cũng đã gỡ
-    vế `has_piece_work` khỏi `ot_pay`. Test này canh không ai dựng lại luật loại trừ."""
+    14/09/2026 chủ chốt thêm: người ăn khoán KHÔNG có tiền GIỜ tăng ca (engine, `_che_do_khoan`) —
+    nhưng công tắc Tăng ca của tổ khoán VẪN có nghĩa: nó quyết cơm tăng ca và phần thêm làm nguyên
+    ngày CN/lễ. Nên bật khoán KHÔNG được tự tắt Tăng ca. Test này canh không ai dựng lại luật loại trừ."""
     token = _admin_token(client)
     dept_id = _dept_id("Kinh doanh")
 

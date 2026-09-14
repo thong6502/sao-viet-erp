@@ -281,6 +281,15 @@
   background: rgba(47, 93, 58, 0.04);
 }
 .lg-minus { color: var(--rust); font-weight: var(--fw-medium); }
+/* Ô Tăng ca của người CHẾ ĐỘ KHOÁN mà có số: số đó là phần thêm làm nguyên ngày CN / lễ (khoán
+   không có tiền tăng ca) — nhãn nhỏ ngay dưới số để khỏi đọc nhầm. */
+.lg-ot-khoan {
+  display: block;
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  color: var(--ash);
+  line-height: 1.2;
+}
 .lg-plus-val { color: var(--moss-deep); }
 .lg-foot td { border-top: 2px solid var(--rule); font-weight: var(--fw-bold); background: var(--paper-contrast); }
 
@@ -2342,4 +2351,32 @@
 .lg-soikm th.lg-num {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* ── Mức khoán km ───────────────────────────────────────────────────────── */
+.muc-km-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.muc-km-brackets-clean {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--ink, #0f172a);
+}
+
+.muc-km-bracket-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.muc-km-bracket-dot {
+  margin: 0 5px;
+  color: var(--ash-2, #94a3b8);
 }

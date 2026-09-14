@@ -977,6 +977,41 @@ export const CFG_DON_VI: CatalogConfig = {
   renderExtra: (_form, existing) => <QuyDoiCuaDonVi donVi={existing} />,
 };
 
+export const CFG_XE: CatalogConfig = {
+  title: "Xe giao hàng",
+  moduleQuyen: "dm_xe",
+  enableImport: true,
+  prefix: "/api/xe",
+  nhatKyLoai: "xe",
+  // Khoá nghiệp vụ của xe LÀ BIỂN SỐ. Gọi nó là "Mã" + điền sẵn "MA-0001" thì người khai gõ biển
+  // số vào ô Tên rồi để nguyên mã tự sinh — đã dính đúng lỗi đó ngay lần khai đầu tiên.
+  nhanMa: "Biển số",
+  khongGoiYMa: true,
+  // Xoá MỀM: xe bán đi vẫn phải giữ tên cho những chuyến nó đã chạy — xoá hẳn là làm mồ côi
+  // `delivery_trips.vehicle_id` của cả lịch sử.
+  softDelete: true,
+  columns: [
+    { key: "tai_trong", label: "Tải trọng", render: (r) =>
+        r.tai_trong != null ? `${Number(r.tai_trong).toLocaleString("vi-VN")} tấn` : "" },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
+  ],
+  fields: [
+    // MỨC KHOÁN KM — ô quan trọng nhất của màn này: nó quyết định xe chạy một chuyến ra bao nhiêu
+    // tiền. BẮT BUỘC từ 14/09/2026 (máy chủ chặn): trước đó để trống được và xe trống âm thầm ăn
+    // đơn giá phẳng của phòng mà không màn nào hiện số đó. Mức tạo ở Cấu hình lương → Khoán km
+    // giao hàng.
+    // ⚠️ `hint` của ô `ref-search` được `CatalogDrawer` dùng LÀM PLACEHOLDER — viết dài là cả câu
+    // hướng dẫn tràn vào trong ô, trông như đã nhập sẵn. Giữ ngắn đúng một dòng.
+    { key: "muc_khoan_km_id", label: "Mức khoán km", type: "ref-search",
+      refPrefix: "/api/giao-hang/muc-khoan-km", required: true, group: "Thông tin",
+      hint: "Chọn mức…" },
+    { key: "tai_trong", label: "Tải trọng (tấn)", type: "number", group: "Thông tin",
+      hint: "Chỉ để đối chiếu — giá km do MỨC ở trên quyết." },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
+  ],
+};
+
+
 export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "loai-san-pham": CFG_LOAI_SAN_PHAM,
   "khai-bao-kho": CFG_KHO_HANG,
@@ -990,4 +1025,5 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "vat-tu-in-an": CFG_VAT_TU,
   "thanh-pham": CFG_THANH_PHAM,
   "khuon-be": CFG_KHUON_BE,
+  "xe": CFG_XE,
 };

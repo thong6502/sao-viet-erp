@@ -27,6 +27,7 @@ from .repositories.piece_work_repo import PieceWorkRepository
 from .repositories.production_output_repo import ProductionOutputRepository
 from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
+from .repositories.delivery_repo import DeliveryRepository
 from .repositories.employee_repo import EmployeeRepository
 from .repositories.noi_quy_repo import NoiQuyRepository
 from .repositories.machine_repo import MachineRepository
@@ -231,7 +232,8 @@ def get_department_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     levels: Annotated[UnitLevelRepository, Depends(get_unit_level_repository)],
 ) -> DepartmentService:
-    return DepartmentService(departments, roles, users, audit, levels, EmployeeRepository(db))
+    return DepartmentService(departments, roles, users, audit, levels, EmployeeRepository(db),
+                             deliveries=DeliveryRepository(db))
 
 
 def get_unit_level_service(

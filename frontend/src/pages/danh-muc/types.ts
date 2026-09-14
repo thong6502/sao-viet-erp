@@ -142,6 +142,14 @@ export interface CatalogConfig {
    *  cũng gác `/import-excel` bằng đúng cặp quyền đó. */
   enableImport?: boolean;
   autoCode?: boolean;           // mã sinh NGẦM ở backend → ẩn ô "Mã" lúc tạo, không gửi ma
+  /** Đổi CHỮ trên nhãn ô "Mã" (mặc định "Mã"). Cho danh mục mà khoá nghiệp vụ có tên riêng ai
+   *  cũng gọi — vd Xe giao hàng: khoá là BIỂN SỐ. Gọi nó là "Mã" thì người khai gõ biển số vào ô
+   *  Tên rồi để nguyên mã tự sinh. KHÔNG đổi tên cột API, chỉ đổi chữ hiện ra. */
+  nhanMa?: string;
+  /** Tắt mã GỢI Ý cho bản ghi mới. Mặc định drawer hỏi máy chủ rồi điền sẵn "MA-0001" — đúng cho
+   *  danh mục có mã chạy số, SAI cho danh mục mà mã là một thứ có thật ngoài đời (biển số): điền
+   *  sẵn là mời người ta bấm Lưu với cái mã vô nghĩa đó. */
+  khongGoiYMa?: boolean;
   /** Tạo xong thì GIỮ drawer mở ở bản ghi vừa tạo. Dùng cho màn có khối con phải gắn vào id (vd
    *  Đơn vị: tạo "tấn" xong khai ngay quy đổi) — đóng phắt là bắt người ta đi tìm lại dòng. */
   moLaiSauKhiTao?: boolean;

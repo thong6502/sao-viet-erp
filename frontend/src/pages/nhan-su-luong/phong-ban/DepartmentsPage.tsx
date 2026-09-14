@@ -295,7 +295,8 @@ export function DepartmentsPage({
   const [editLaGiaoHang, setEditLaGiaoHang] = useState(false);
   // Khoán km giao hàng (đơn giá + %) ĐÃ DỜI sang Cấu hình lương → Cơ chế lương theo bộ phận
   // (chủ chốt 24/08/2026). Ở đây chỉ còn CỜ bật/tắt Bộ phận Giao hàng.
-  // Cờ tổ KCS đích danh (§3.1/§14 spec bài ghép) — KHÔNG kế thừa cây con, khác 3 cờ trên.
+  // Cờ tổ KCS đích danh (§3.1/§14 spec bài ghép) — KHÔNG kế thừa cây con (như cờ Giao hàng,
+  // khác hai cờ Sản xuất / Kinh doanh).
   const [editIsKcs, setEditIsKcs] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2662,9 +2663,12 @@ export function DepartmentsPage({
               </div>
             </div>
 
-            {/* Switch Card "Bộ phận Giao hàng" — cùng luật kế thừa cây con với hai cờ trên.
-                Quyết định AI hiện trong tab Nhân viên giao hàng. Trước 20/08/2026 tab đó lọc
-                theo quyền RBAC rồi bỏ ai chưa có chuyến, nên tài xế mới tuyển không hiện ra. */}
+            {/* Switch Card "Bộ phận Giao hàng" — KHÔNG kế thừa cây con (chủ chốt 14/09/2026, khác
+                hai cờ trên): tổ con có tài xế phải tự bật cờ của chính nó. Trước đó ô chọn tài xế
+                đi kế thừa còn tiền khoán km đọc cờ riêng ⇒ tài xế tổ con chạy chuyến không có
+                tiền. Quyết định AI hiện trong tab Nhân viên giao hàng và ai ăn khoán km.
+                Tắt cờ khi tài xế của phòng còn chuyến chưa ghi kết quả thì máy chủ CHẶN (400,
+                hiện ở `saveError`). */}
             <div className="field depts__field--full">
               <div
                 className={`rdx-switch-card${editLaGiaoHang ? " is-checked" : ""}`}
@@ -2680,7 +2684,7 @@ export function DepartmentsPage({
                   <div className="rdx-switch-card__main">
                     <span className="rdx-switch-card__title">
                       Bộ phận Giao hàng
-                      <InfoHint label="Đánh dấu phòng/tổ làm GIAO HÀNG: cả cây con tự coi là giao hàng. Mọi người trong khối này hiện ở tab Nhân viên giao hàng — kể cả người chưa chạy chuyến nào, để còn phân chuyến cho họ." />
+                      <InfoHint label="Đánh dấu ĐÍCH DANH phòng/tổ này làm GIAO HÀNG — KHÔNG kế thừa cho cây con: tổ con có tài xế thì bật cờ ở chính tổ đó. Người trong phòng/tổ bật cờ hiện ở tab Nhân viên giao hàng (kể cả người chưa chạy chuyến nào) và được tính tiền khoán km. Không tắt được khi tài xế của phòng còn chuyến đang chạy." />
                     </span>
                     <span className="rdx-switch-card__desc">
                       Người trong khối là tài xế — hiện ở tab Nhân viên giao hàng để phân chuyến và
@@ -2692,7 +2696,7 @@ export function DepartmentsPage({
               </div>
             </div>
 
-            {/* Switch Card "Tổ KCS đích danh" — KHÔNG kế thừa cây con (khác 3 cờ trên). Gate
+            {/* Switch Card "Tổ KCS đích danh" — KHÔNG kế thừa cây con (như cờ Giao hàng). Gate
                 phát hành bài ghép (spec §3.1/§14) yêu cầu bước KCS cuối nằm ở một phòng có cờ
                 này mới cho chốt nghiệm thu. */}
             <div className="field depts__field--full">

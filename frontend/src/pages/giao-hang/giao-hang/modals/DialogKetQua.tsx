@@ -2,6 +2,7 @@
 // ⚠️ Ô `km` ở đây NUÔI TIỀN KHOÁN KM của tài xế, và payload `ghiKetQua` là logic nghiệp vụ —
 // giữ nguyên văn, đừng đụng.
 import { useEffect, useState } from "react";
+import { crud, type Row } from "../../../../api/rebuildCatalog";
 import type { DeliveryTrip, KetQuaInput } from "../../../../api/client";
 import { api } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
@@ -28,6 +29,10 @@ export function DialogKetQua({
   const [lyDo, setLyDo] = useState("");
   const [loi, setLoi] = useState<string | null>(null);
   const [xacNhanKm, setXacNhanKm] = useState(false);
+  // XE của chuyến. Mặc định lấy xe đã xếp lúc lên đơn; đổi được ở đây vì đổi xe phút chót
+  // là chuyện thường, và ĐÂY mới là lúc máy chủ cần biết để tra mức đơn giá.
+  const [xeId, setXeId] = useState(trip.vehicle_id ? String(trip.vehicle_id) : "");
+  const [xeDs, setXeDs] = useState<Row[]>([]);
   // Số thực nhận TỪNG DÒNG. Bản đầu chỉ có một ô cho `lines[0]` — đơn hai mặt hàng là ghi thiếu
   // hẳn một dòng mà không ai báo.
   const [nhan, setNhan] = useState<Record<number, string>>({});
@@ -35,6 +40,22 @@ export function DialogKetQua({
 
   // Đọc từ CHÍNH YÊU CẦU, không phải từ đơn: chuyến này chỉ giao phần của yêu cầu đó, và phần
   // "còn lại" phải trừ những lần giao trước của cùng yêu cầu — đúng phép máy chủ đang tính.
+  useEffect(() => {
+    // Chỉ xe CÒN DÙNG — nhưng chuyến đang gắn một xe vừa ngưng thì vẫn phải giữ nó trong
+    // danh sách, không thì mở hộp ra là ô nhảy về rỗng rồi bắt chọn lại xe khác cho một
+    // chuyến đã chạy xong.
+    crud("/api/xe").list(token, { active: true })
+      .then(async (r) => {
+        const ds = r.items;
+        if (trip.vehicle_id && !ds.some((x) => x.id === trip.vehicle_id)) {
+          const cu = await crud("/api/xe").get(token, trip.vehicle_id).catch(() => null);
+          if (cu) ds.push(cu);
+        }
+        setXeDs(ds);
+      })
+      .catch(() => setXeDs([]));
+  }, [token, trip.vehicle_id]);
+
   useEffect(() => {
     api.giaoHang
       .request(token, trip.request_id)
@@ -60,6 +81,7 @@ export function DialogKetQua({
       km: Number(km),
       xac_nhan_km_lon: xacNhanKm,
     };
+    if (xeId) body.vehicle_id = Number(xeId);
     if (ketQua === "thanh_cong" || ketQua === "giao_thieu") body.nguoi_nhan_thuc_te = nguoiNhan;
     if (ketQua === "giao_thieu")
       body.so_thuc_nhan = conLai.map((l) => ({
@@ -115,6 +137,24 @@ export function DialogKetQua({
             <input className="input" type="number" min="0" step="1" value={km}
               onChange={(e) => setKm(e.target.value)} />
           </label>
+          {/* Xe: BẮT BUỘC khi đóng chuyến (máy chủ chặn) — đơn giá km tra theo MỨC của xe. Chỉ
+              hiện khi danh mục đã có xe: chưa khai chiếc nào thì máy chủ cũng không đòi, bày một
+              ô rỗng bắt buộc ra là chặn người dùng vì thứ họ chưa có. */}
+          {xeDs.length > 0 && (
+            <label>
+              Xe đã chạy chuyến
+              <select className="input" value={xeId} onChange={(e) => setXeId(e.target.value)}>
+                <option value="">— Chọn xe —</option>
+                {xeDs.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {String(x.ma ?? "")}
+                    {x.ten ? ` · ${String(x.ten)}` : ""}
+                    {x.tai_trong != null ? ` · ${Number(x.tai_trong).toLocaleString("vi-VN")} tấn` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {/* 0 km là số THẬT (xe chưa lăn bánh) — không chặn. Chỉ hỏi lại khi lớn bất thường. */}
           {kmLon && (
             <label className="gh-line">

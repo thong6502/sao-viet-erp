@@ -52,6 +52,7 @@ from ..schemas.rbac import (
 from ..services.department_service import (
     DepartmentBranchHasUsers,
     DepartmentCycle,
+    GiaoHangConChuyenChay,
     KhoanKmInvalid,
     DepartmentNameTaken,
     InvalidHead,
@@ -237,7 +238,8 @@ def update_department(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except (InvalidHead, DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid) as e:
+    except (InvalidHead, DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid,
+            GiaoHangConChuyenChay) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None

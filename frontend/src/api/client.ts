@@ -5459,6 +5459,10 @@ export interface PayrollLine {
   special_cong?: number;
   /** TRONG ĐÓ của `ot_pay`: tiền ngày `off1x` (trả 1× phẳng). Đừng cộng lại vào tổng. */
   off1x_pay?: number;
+  /** CHẾ ĐỘ KHOÁN (14/09/2026, chụp lúc Tính lại): tổ bật Lương khoán / sản lượng hoặc tổ Giao hàng
+   *  ⇒ KHÔNG có tiền tăng ca (làm thêm giờ đã trả qua tiền khoán); vẫn có cơm tăng ca + phần thêm làm
+   *  nguyên ngày CN/lễ. Màn hình dùng để nói vì sao có giờ tăng ca mà tiền tăng ca = 0. */
+  che_do_khoan?: boolean;
   /** Công thiếu nhưng có đơn nghỉ theo giờ đã duyệt (được miễn phạt, giữ chuyên cần). */
   excused_cong?: number;
   chuyen_can: number;
@@ -11338,17 +11342,39 @@ export const api = {
     taiXeChon(token: string): Promise<{ items: DeliveryDriverPick[] }> {
       return authed<{ items: DeliveryDriverPick[] }>("/api/giao-hang/tai-xe-chon", token);
     },
-    /** Bậc đơn giá khoán km của một phòng — cấu hình trong màn Phòng ban. */
-    kmBrackets(token: string, deptId: number): Promise<KmBracketsResp> {
-      return authed<KmBracketsResp>(`/api/giao-hang/departments/${deptId}/km-brackets`, token);
+    /** % chia tiền một chuyến cho kíp xe. Bảng BẬC cấp phòng đã gỡ 12/09/2026 — mọi xe ăn
+     *  theo MỨC; % thì giữ vì nó là luật khác: đơn giá quyết một chuyến bao nhiêu tiền, % quyết
+     *  chia cho mấy người. */
+    khoanKmPct(token: string, deptId: number): Promise<KhoanKmPct> {
+      return authed<KhoanKmPct>(`/api/giao-hang/departments/${deptId}/khoan-km-pct`, token);
     },
-    /** Lưu cả cụm khoán km một lần: bảng bậc + % chia kíp. */
-    saveKmBrackets(
-      token: string, deptId: number, items: KmBracket[],
-      pct?: { pct_tai_xe: number; pct_phu_xe: number },
-    ): Promise<KmBracketsResp> {
-      return authed<KmBracketsResp>(`/api/giao-hang/departments/${deptId}/km-brackets`, token,
-        { method: "PUT", body: JSON.stringify({ items, ...(pct ?? {}) }) });
+    saveKhoanKmPct(token: string, deptId: number, body: KhoanKmPct): Promise<KhoanKmPct> {
+      return authed<KhoanKmPct>(`/api/giao-hang/departments/${deptId}/khoan-km-pct`, token,
+        { method: "PUT", body: JSON.stringify(body) });
+    },
+    /** Mọi MỨC khoán km + bảng bậc + số xe đang dùng mức đó. */
+    mucKhoanKm(token: string): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>("/api/giao-hang/muc-khoan-km", token);
+    },
+    taoMucKhoanKm(token: string, body: MucKmInput): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>("/api/giao-hang/muc-khoan-km", token,
+        { method: "POST", body: JSON.stringify(body) });
+    },
+    /** Chỉ gửi ô muốn đổi — ô KHÔNG gửi thì máy chủ giữ nguyên (đổi tên không làm mất ghi chú). */
+    suaMucKhoanKm(token: string, id: number, body: Partial<MucKmInput>): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>(`/api/giao-hang/muc-khoan-km/${id}`, token,
+        { method: "PUT", body: JSON.stringify(body) });
+    },
+    /** Máy chủ CHẶN nếu còn xe đang ăn mức — lỗi mang số xe, hiện thẳng cho người dùng. */
+    xoaMucKhoanKm(token: string, id: number): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>(`/api/giao-hang/muc-khoan-km/${id}`, token,
+        { method: "DELETE" });
+    },
+    /** Lưu bảng bậc của MỘT mức — cấu hình chung, không theo phòng ban (14/09/2026). Mảng RỖNG
+     *  bị máy chủ chặn khi mức còn xe đang ăn. */
+    saveKmBracketsMuc(token: string, mucId: number, items: KmBracket[]): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>(`/api/giao-hang/muc-khoan-km/${mucId}/bac`, token,
+        { method: "PUT", body: JSON.stringify({ items }) });
     },
     /** `thang` dạng `YYYY-MM` — chỉ đổi hai cột THÁNG. Cột "hôm nay" và trạng thái luôn là
      *  bây giờ, không đổi theo tháng đang xem. */
@@ -14549,6 +14575,9 @@ export interface DeliveryTrip {
    *  không phải thuộc tính của người: hôm nay lái, mai đi phụ. */
   phu_xe_employee_id?: number | null;
   phu_xe_name?: string | null;
+  vehicle_id?: number | null;
+  xe_bien_so?: string | null;
+  xe_ten?: string | null;
   gio_lay_hang: string;
   gio_du_kien_giao: string;
   ghi_chu_phan_cong: string | null;
@@ -14604,10 +14633,29 @@ export interface DeliveryRequestInput {
   ghi_chu?: string | null;
 }
 
-export interface KmBracketsResp {
-  items: KmBracket[];
+export interface KhoanKmPct {
   pct_tai_xe: number;
   pct_phu_xe: number;
+}
+
+export interface MucKm {
+  id: number;
+  /** Rỗng — ô chọn dùng chung vẽ "mã · tên" nhưng tự giấu phần mã khi rỗng. Mức chỉ có TÊN. */
+  ma?: string;
+  /** Tên mức — thứ người dùng đọc khi gán cho xe ("Xe 2 tấn"). Không được trùng. */
+  ten: string;
+  ghi_chu?: string | null;
+  active: boolean;
+  items: KmBracket[];
+  /** SỐ XE đang ăn mức này — màn phải nói trước khi người ta sửa giá: sửa một mức là đổi tiền
+   *  của cả nhóm xe, khác hẳn sửa bảng giá của riêng một chiếc. */
+  so_xe: number;
+}
+
+export interface MucKmInput {
+  ten: string;
+  ghi_chu?: string | null;
+  active?: boolean;
 }
 
 export interface KmBracket {
@@ -14622,6 +14670,8 @@ export interface PlanInput {
   /** Gửi `null` khi ĐỔI kế hoạch = GỠ phụ xe; KHÔNG gửi = giữ nguyên. Máy chủ phân biệt hai
    *  trường hợp đó, nên đừng gửi `null` chỉ vì ô đang trống ở màn tạo mới. */
   phu_xe_employee_id?: number | null;
+  /** Xe chạy chuyến. TUỲ CHỌN lúc lên kế hoạch, BẮT BUỘC lúc đóng chuyến (máy chủ chặn). */
+  vehicle_id?: number | null;
   gio_lay_hang: string;
   gio_du_kien_giao: string;
   kho_id?: number | null;
@@ -14641,6 +14691,9 @@ export interface KetQuaInput {
   so_thuc_nhan?: { order_line_id: number; qty: number }[] | null;
   /** Bật sau khi người dùng đã xem cảnh báo "km lớn bất thường" và khẳng định đúng. */
   xac_nhan_km_lon?: boolean;
+  /** Xe đã chạy chuyến — gửi để điền/đổi ngay lúc ghi kết quả. Chuyến khối Giao hàng mà cả
+   *  đây lẫn chuyến đều trống thì máy chủ chặn (đơn giá khoán km tra theo mức của xe). */
+  vehicle_id?: number | null;
 }
 
 /** Một dòng SẼ gửi kho — máy suy ra từ yêu cầu giao, người dùng chỉ xem. */

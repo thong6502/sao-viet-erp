@@ -53,14 +53,15 @@ def _bat_khoi_giao_hang(*, don_gia=4330, tx=60, px=40) -> int:
         db.close()
 
 
-def _chuyen_xong(client, h, *, suffix, tai_xe, phu_xe=None, km=100):
+def _chuyen_xong(client, h, *, suffix, tai_xe, phu_xe=None, km=100, xe_id=None):
     """Đơn → yêu cầu → kế hoạch → giao thành công. Trả `trip_id`."""
     oid, lid = _don_da_chot(suffix=suffix)
     yc = _tao_yc(client, h, oid, lid)
     body = {"request_id": yc["id"], "employee_id": tai_xe,
             "gio_lay_hang": None, "gio_du_kien_giao": None}
-    r = _len_kh(client, h, yc["id"], tai_xe) if phu_xe is None else _len_kh_kem_phu_xe(
-        client, h, yc["id"], tai_xe, phu_xe)
+    # Xe gửi NGAY ở lượt POST: từ 12/09/2026 nó bắt buộc ở bước lên đơn (khi danh mục đã có xe),
+    # nên xếp chuyến trước rồi gán xe sau là ăn 400.
+    r = _len_kh_kem_phu_xe(client, h, yc["id"], tai_xe, phu_xe, xe_id=xe_id)
     assert r.status_code == 201, r.text
     trip = r.json()["trip"]["id"]
     _di_toi_dang_giao(client, h, trip)
@@ -71,12 +72,19 @@ def _chuyen_xong(client, h, *, suffix, tai_xe, phu_xe=None, km=100):
     return trip
 
 
-def _len_kh_kem_phu_xe(client, h, request_id, tai_xe, phu_xe, *, lay=8, giao=11):
+def _len_kh_kem_phu_xe(client, h, request_id, tai_xe, phu_xe=None, *, xe_id=None,
+                       lay=8, giao=11):
+    """POST kế hoạch, kèm phụ xe và/hoặc XE nếu có. Gửi khoá nào cũng chỉ khi có giá trị —
+    `null` ở đường ĐỔI kế hoạch nghĩa là GỠ, giữ hai nghĩa tách bạch ngay từ màn tạo."""
     from tests.test_giao_hang_api import _gio
-    return client.post("/api/giao-hang/plans", json={
-        "request_id": request_id, "employee_id": tai_xe, "phu_xe_employee_id": phu_xe,
-        "gio_lay_hang": _gio(lay), "gio_du_kien_giao": _gio(giao),
-    }, headers=h)
+
+    body = {"request_id": request_id, "employee_id": tai_xe,
+            "gio_lay_hang": _gio(lay), "gio_du_kien_giao": _gio(giao)}
+    if phu_xe is not None:
+        body["phu_xe_employee_id"] = phu_xe
+    if xe_id is not None:
+        body["vehicle_id"] = xe_id
+    return client.post("/api/giao-hang/plans", json=body, headers=h)
 
 
 def _tien(trip_id: int) -> dict[int, float]:
@@ -311,12 +319,41 @@ def test_02_nguoi_KHONG_thuoc_khoi_giao_hang_thi_khong_co_tien_km(client):
     assert _tinh_luong(client, h, tx)["khoan_km"] == 0
 
 
-def _dat_bac(client, h, dept_id, bac):
-    """PUT bảng bậc cho phòng. `bac` = [(up_to_km|None, don_gia), ...]."""
-    r = client.put(f"/api/giao-hang/departments/{dept_id}/km-brackets",
+#: Đếm để mỗi lượt `_dat_bac` có một tên mức + một biển số riêng — `client` dựng lại DB mỗi bài
+#: nên không đụng nhau giữa các bài, nhưng MỘT bài gọi hai lượt thì vẫn phải khác tên.
+_dem_muc = iter(range(1, 100))
+
+
+def _dat_bac(client, h, bac):
+    """Khai bảng bậc rồi TRẢ VỀ id xe đã gán mức đó. `bac` = [(up_to_km|None, don_gia), ...].
+
+    Từ 12/09/2026 bậc KHÔNG còn ở cấp phòng nữa (chủ chốt: "bị thừa thãi, xoá đi") — mọi xe ăn
+    theo MỨC. Nên helper này nay dựng đủ dây chuyền thật: tạo mức → khai bậc cho mức → tạo xe gán
+    mức. Bài nào gọi nó thì truyền `xe_id` trả về vào `_chuyen_xong`.
+    """
+    n = next(_dem_muc)
+    r = client.post("/api/giao-hang/muc-khoan-km", json={"ten": f"Mức thử {n}"}, headers=h)
+    assert r.status_code == 201, r.text
+    muc = next(m for m in r.json()["items"] if m["ten"] == f"Mức thử {n}")["id"]
+    r = client.put(f"/api/giao-hang/muc-khoan-km/{muc}/bac",
                    json={"items": [{"up_to_km": u, "don_gia": g} for u, g in bac]}, headers=h)
     assert r.status_code == 200, r.text
-    return r.json()["items"]
+    r = client.post("/api/xe", json={"ma": f"51X-{n:05d}", "ten": f"Xe thử {n}",
+                                     "muc_khoan_km_id": muc}, headers=h)
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def _dat_bac_loi(client, h, bac, *, cho=400):
+    """Như `_dat_bac` nhưng dùng cho bài KIỂM CHẶN — trả thẳng response của lượt ghi bậc."""
+    n = next(_dem_muc)
+    r = client.post("/api/giao-hang/muc-khoan-km", json={"ten": f"Mức lỗi {n}"}, headers=h)
+    assert r.status_code == 201, r.text
+    muc = next(m for m in r.json()["items"] if m["ten"] == f"Mức lỗi {n}")["id"]
+    r = client.put(f"/api/giao-hang/muc-khoan-km/{muc}/bac",
+                   json={"items": [{"up_to_km": u, "don_gia": g} for u, g in bac]}, headers=h)
+    assert r.status_code == cho, r.text
+    return r
 
 
 def test_BAC_toan_km_nhan_don_gia_cua_bac_km_roi_vao(client):
@@ -325,39 +362,47 @@ def test_BAC_toan_km_nhan_don_gia_cua_bac_km_roi_vao(client):
     Ví dụ của chủ: dưới 5km = 10.000, 5–10km = 20.000. Chuyến 8 km ⇒ 8 × 20.000 = 160.000,
     KHÔNG phải 5×10.000 + 3×20.000. Đây đúng cách bảng lương thật tính.
     """
-    pb = _bat_khoi_giao_hang()
+    _bat_khoi_giao_hang()
     h = _admin(client)
-    _dat_bac(client, h, pb, [(5, 10_000), (10, 20_000), (None, 5_000)])
+    xe = _dat_bac(client, h, [(5, 10_000), (10, 20_000), (None, 5_000)])
     tx = _tai_xe("TX bac", phong=PHONG_GH)
 
-    trip = _chuyen_xong(client, h, suffix="bac1", tai_xe=tx, km=8)
+    trip = _chuyen_xong(client, h, suffix="bac1", tai_xe=tx, km=8, xe_id=xe)
     assert _tien(trip) == {tx: 160_000.0}, "8km phải ăn TRỌN giá bậc 5–10km"
 
 
 def test_BAC_chuyen_3km_va_chuyen_vuot_tran_dung_bac_vo_han(client):
     """3 km rơi bậc đầu; 500 km rơi bậc ∞ (up_to_km trống)."""
-    pb = _bat_khoi_giao_hang()
+    _bat_khoi_giao_hang()
     h = _admin(client)
-    _dat_bac(client, h, pb, [(5, 10_000), (10, 20_000), (None, 5_000)])
+    xe = _dat_bac(client, h, [(5, 10_000), (10, 20_000), (None, 5_000)])
     tx1 = _tai_xe("TX 3km", phong=PHONG_GH)
     tx2 = _tai_xe("TX xa", phong=PHONG_GH)
 
-    assert _tien(_chuyen_xong(client, h, suffix="bac2", tai_xe=tx1, km=3)) == {tx1: 30_000.0}
-    assert _tien(_chuyen_xong(client, h, suffix="bac3", tai_xe=tx2, km=500)) == {tx2: 2_500_000.0}
+    assert _tien(_chuyen_xong(client, h, suffix="bac2", tai_xe=tx1, km=3,
+                              xe_id=xe)) == {tx1: 30_000.0}
+    assert _tien(_chuyen_xong(client, h, suffix="bac3", tai_xe=tx2, km=500,
+                              xe_id=xe)) == {tx2: 2_500_000.0}
 
 
 def test_BAC_bien_5km_thuoc_bac_duoi(client):
     """Đúng 5 km: `km ≤ up_to_km` nên rơi bậc "≤5", không nhảy sang bậc sau."""
-    pb = _bat_khoi_giao_hang()
+    _bat_khoi_giao_hang()
     h = _admin(client)
-    _dat_bac(client, h, pb, [(5, 10_000), (None, 20_000)])
+    xe = _dat_bac(client, h, [(5, 10_000), (None, 20_000)])
     tx = _tai_xe("TX bien", phong=PHONG_GH)
-    assert _tien(_chuyen_xong(client, h, suffix="bac4", tai_xe=tx, km=5)) == {tx: 50_000.0}
+    assert _tien(_chuyen_xong(client, h, suffix="bac4", tai_xe=tx, km=5,
+                              xe_id=xe)) == {tx: 50_000.0}
 
 
 def test_BAC_chua_khai_thi_FALLBACK_ve_don_gia_phang(client):
-    """Tổ chưa khai bậc nào ⇒ dùng đơn giá phẳng cũ (4.330), không ra 0."""
-    _bat_khoi_giao_hang(don_gia=4330)              # KHÔNG gọi _dat_bac
+    """Danh mục Xe còn TRỐNG ⇒ chuyến không xe dùng đơn giá phẳng cũ (4.330), không ra 0.
+
+    Từ 12/09/2026 chỉ còn HAI nấc: bảng bậc của mức mà xe đang ăn → đơn giá phẳng của phòng. Từ
+    14/09/2026 nấc cuối chỉ còn cho ĐÚNG ca này (và chuyến cũ): xe không mức / mức chưa khai bậc
+    đều bị chặn lên đơn. Xưởng chưa kịp khai xe nào thì chuyến vẫn phải ra tiền chứ không ra 0đ.
+    """
+    _bat_khoi_giao_hang(don_gia=4330)              # KHÔNG tạo mức nào
     h = _admin(client)
     tx = _tai_xe("TX fallback", phong=PHONG_GH)
     assert _tien(_chuyen_xong(client, h, suffix="bac5", tai_xe=tx, km=100)) == {tx: 433_000.0}
@@ -365,34 +410,33 @@ def test_BAC_chua_khai_thi_FALLBACK_ve_don_gia_phang(client):
 
 def test_BAC_vo_han_khong_o_cuoi_bi_chan(client):
     """Bậc ∞ giữa bảng ⇒ nó nuốt mọi km từ chỗ đứng, các bậc sau thành vô nghĩa ⇒ chặn."""
-    pb = _bat_khoi_giao_hang()
+    _bat_khoi_giao_hang()
     h = _admin(client)
-    r = client.put(f"/api/giao-hang/departments/{pb}/km-brackets", json={"items": [
-        {"up_to_km": None, "don_gia": 5_000}, {"up_to_km": 10, "don_gia": 20_000}]}, headers=h)
-    assert r.status_code == 400, r.text
+    r = _dat_bac_loi(client, h, [(None, 5_000), (10, 20_000)])
     assert "CUỐI" in r.json()["detail"] or "cuối" in r.json()["detail"]
 
 
 def test_BAC_tran_khong_tang_dan_bi_chan(client):
     """Trần lộn xộn ⇒ tra bậc (duyệt theo thứ tự) trả nhầm giá ⇒ chặn ngay lúc lưu."""
-    pb = _bat_khoi_giao_hang()
+    _bat_khoi_giao_hang()
     h = _admin(client)
-    r = client.put(f"/api/giao-hang/departments/{pb}/km-brackets", json={"items": [
-        {"up_to_km": 20, "don_gia": 10_000}, {"up_to_km": 10, "don_gia": 20_000},
-        {"up_to_km": None, "don_gia": 5_000}]}, headers=h)
-    assert r.status_code == 400, r.text
+    _dat_bac_loi(client, h, [(20, 10_000), (10, 20_000), (None, 5_000)])
 
 
 def test_DOI_BAC_khong_lam_doi_chuyen_DA_GHI_KET_QUA(client):
     """Chụp đơn giá tra được vào chuyến ⇒ đổi bảng bậc tháng sau, chuyến cũ giữ nguyên tiền."""
-    pb = _bat_khoi_giao_hang()
+    _bat_khoi_giao_hang()
     h = _admin(client)
-    _dat_bac(client, h, pb, [(None, 10_000)])
+    xe = _dat_bac(client, h, [(None, 10_000)])
     tx = _tai_xe("TX chup bac", phong=PHONG_GH)
-    trip = _chuyen_xong(client, h, suffix="bac6", tai_xe=tx, km=100)
+    trip = _chuyen_xong(client, h, suffix="bac6", tai_xe=tx, km=100, xe_id=xe)
     assert _tien(trip) == {tx: 1_000_000.0}
 
-    _dat_bac(client, h, pb, [(None, 99_000)])       # đổi giá
+    # Đổi giá của CHÍNH mức mà xe đó đang ăn — chuyến đã chốt vẫn phải giữ số đã chụp.
+    muc = client.get("/api/xe/" + str(xe), headers=h).json()["muc_khoan_km_id"]
+    r = client.put(f"/api/giao-hang/muc-khoan-km/{muc}/bac",
+                   json={"items": [{"up_to_km": None, "don_gia": 99_000}]}, headers=h)
+    assert r.status_code == 200, r.text
     assert _tien(trip) == {tx: 1_000_000.0}, "chuyến đã chốt bị nắn theo bậc mới"
 
 
@@ -429,22 +473,24 @@ def test_gio_ket_thuc_quyet_dinh_KY_chu_khong_phai_gio_lay_hang(client):
         db.close()
 
 
-def test_LUU_PCT_qua_endpoint_bac_mot_lan(client):
-    """⭐ Dời sang Cấu hình lương (24/08/2026): endpoint bậc nay lưu CẢ % chia kíp một lần, khỏi
-    đi qua màn Phòng ban. GET trả % để màn hiện sẵn; PUT nhận % và kiểm cộng đúng 100."""
+def test_LUU_PCT_qua_endpoint_rieng(client):
+    """⭐ % chia kíp TÁCH khỏi bảng bậc (12/09/2026).
+
+    Trước đó hai ô này đi ké endpoint ghi bậc cấp phòng; bậc cấp phòng đã gỡ (chủ chốt: "bị thừa
+    thãi, xoá đi") nhưng % thì GIỮ — nó vẫn là luật thật. GET trả % để màn hiện sẵn; PUT nhận %
+    và kiểm cộng đúng 100.
+    """
     h = _admin(client)
     pb = _bat_khoi_giao_hang()
-    # Lưu bậc + % trong MỘT call.
-    r = client.put(f"/api/giao-hang/departments/{pb}/km-brackets", json={
-        "items": [{"up_to_km": None, "don_gia": 5000}], "pct_tai_xe": 70, "pct_phu_xe": 30},
-        headers=h)
+    r = client.put(f"/api/giao-hang/departments/{pb}/khoan-km-pct",
+                   json={"pct_tai_xe": 70, "pct_phu_xe": 30}, headers=h)
     assert r.status_code == 200, r.text
     assert r.json()["pct_tai_xe"] == 70 and r.json()["pct_phu_xe"] == 30
-    # GET trả lại đúng %.
-    g = client.get(f"/api/giao-hang/departments/{pb}/km-brackets", headers=h).json()
+
+    g = client.get(f"/api/giao-hang/departments/{pb}/khoan-km-pct", headers=h).json()
     assert g["pct_tai_xe"] == 70 and g["pct_phu_xe"] == 30
-    # % không cộng đủ 100 ⇒ chặn ngay ở endpoint này.
-    bad = client.put(f"/api/giao-hang/departments/{pb}/km-brackets", json={
-        "items": [{"up_to_km": None, "don_gia": 5000}], "pct_tai_xe": 70, "pct_phu_xe": 40},
-        headers=h)
+
+    # Không cộng đủ 100 ⇒ chặn: tổng chi một chuyến sẽ đổi theo số người đi, không ai giải thích được.
+    bad = client.put(f"/api/giao-hang/departments/{pb}/khoan-km-pct",
+                     json={"pct_tai_xe": 70, "pct_phu_xe": 40}, headers=h)
     assert bad.status_code == 400 and "100" in bad.json()["detail"], bad.text

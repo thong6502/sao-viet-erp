@@ -1,7 +1,7 @@
 // Kiểu dùng chung của tab Cấu hình lương (tách từ pages/CauHinhLuongTab.tsx).
 import type { ComponentKind } from "../../../../../api/client";
 
-export type SubTab = "cochE" | "danhmuc" | "phucap";
+export type SubTab = "cochE" | "khoankm" | "danhmuc" | "phucap";
 
 export type BracketDraft = {
   key: string;

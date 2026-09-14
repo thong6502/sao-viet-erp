@@ -202,14 +202,13 @@ def test_ot_and_night_pay(client):
         db.close()
 
 
-def test_piece_work_dept_van_co_ot(client):
-    """⚠️ ĐẢO 17/08/2026 — tổ khoán (has_piece_work) VẪN CÓ tăng ca, y hệt tổ thường.
+def test_piece_work_dept_KHONG_co_tien_gio_tang_ca(client):
+    """⚠️ ĐẢO LẦN HAI 14/09/2026 — người ăn khoán KHÔNG có tiền GIỜ tăng ca (0đ, không phải 1×).
 
-    Trước đó cờ này ép `ot_pay = 0` với lý do "khoán đã trả theo sản lượng"; nhưng cột `khoan`
-    LUÔN bằng 0 (nguồn sản lượng chưa dựng) ⇒ tổ khoán mất trắng. NĐ 145/2020 Đ55.2 cũng buộc
-    trả làm thêm cho người hưởng lương theo sản phẩm. Nay chỉ còn MỘT cổng: công tắc `tang_ca`.
-    07/09/2026: tham số chết `has_piece_work` của `_compute` đã GỠ hẳn — tổ khoán hay không, engine
-    nhận cùng một bộ tham số; test giữ vế "tổ khoán = tổ thường" bằng chính bộ số đó."""
+    17/08/2026 chủ đảo sang "tổ khoán VẪN CÓ tăng ca" vì cột `khoan` khi đó LUÔN = 0. Nay tiền khoán
+    chảy thật và khách phản hồi: "làm thêm giờ thì thêm sản lượng, đã ăn tiền sản lượng rồi". Chế độ
+    khoán giữ cơm tăng ca + phần thêm làm nguyên ngày CN/lễ — xem `test_khoan_khong_tien_tang_ca.py`
+    và `docs/prd-khoan-khong-tien-tang-ca.md`."""
     client
     db = SessionLocal()
     try:
@@ -219,15 +218,14 @@ def test_piece_work_dept_van_co_ot(client):
         params = svc.get_params()
         emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
                               payroll_group="pw_grp", pay_grade_key=None)
-        # Cùng dữ liệu OT 120', chỉ khác cờ tổ khoán.
+        # Cùng dữ liệu OT 120', chỉ khác chế độ khoán.
         v_norm = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26,
-                              standard_cong=26, ot_minutes=120, on=date(2026, 6, 1))
-        # Tổ khoán đi qua ĐÚNG bộ tham số ấy (không còn cờ riêng để ép về 0).
+                              standard_cong=26, ot_minutes=120, on=date(2026, 6, 1), che_do_khoan=False)
         v_piece = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26,
-                               standard_cong=26, ot_minutes=120, on=date(2026, 6, 1))
+                               standard_cong=26, ot_minutes=120, on=date(2026, 6, 1), che_do_khoan=True)
         assert v_norm["ot_pay"] == 375_000          # tổ thường
-        assert v_piece["ot_pay"] == 375_000         # tổ khoán — Y HỆT, không còn bị ép về 0
-        assert v_piece["gross"] == v_norm["gross"]
+        assert v_piece["ot_pay"] == 0               # tổ khoán — giờ tăng ca không có tiền
+        assert v_norm["gross"] - v_piece["gross"] == 375_000
     finally:
         db.close()
 
@@ -458,13 +456,13 @@ def test_night_premium_engine(client):
         db.close()
 
 
-def test_to_khoan_VAN_CO_tang_ca(client):
-    """Chủ đảo quyết định 17/08/2026: "Tổ khoán VẪN CÓ tăng ca".
+def test_to_khoan_KHONG_tien_gio_tang_ca_nhung_GIU_premium_le_va_off1x(client):
+    """Chủ chốt 14/09/2026 (đảo lần hai quyết định 17/08 "Tổ khoán VẪN CÓ tăng ca").
 
-    Trước đó `has_piece_work` ép `ot_pay = 0` với lý do "khoán đã trả theo sản lượng" — nhưng cột
-    `khoan` LUÔN bằng 0 (nguồn sản lượng chưa dựng) ⇒ tổ khoán mất trắng cả giờ OT, cả premium
-    lễ/CN, cả tiền ngày off1x. NĐ 145/2020 Đ55.2 cũng buộc trả làm thêm cho người hưởng lương
-    theo sản phẩm. Nay chỉ còn MỘT cổng: công tắc `tang_ca` của bộ phận."""
+    Người ăn khoán: giờ tăng ca KHÔNG có tiền — "làm thêm giờ thì thêm sản lượng, đã ăn tiền sản
+    lượng rồi". NHƯNG vẫn giữ phần thêm khi làm NGUYÊN NGÀY lễ / CN (đó là công, không phải giờ tăng
+    ca) và tiền 1× ngày off1x (lương chính của ngày, không phải hệ số). Lần đảo 17/08 từng mất trắng
+    cả hai thứ này — không được lặp lại."""
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
@@ -474,16 +472,16 @@ def test_to_khoan_VAN_CO_tang_ca(client):
         base = dict(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params,
                     standard_cong=26, on=date(2026, 6, 1))   # 1.000.000 đ/công · 125.000 đ/giờ
 
-        thuong = svc._compute(**base, actual_cong=26, ot_minutes=120)
-        khoan = svc._compute(**base, actual_cong=26, ot_minutes=120)   # cờ khoán đã gỡ 07/09/2026
-        # 2h tăng ca thường × 1,5 × 125.000 = 375.000 — tổ khoán nhận Y HỆT tổ thường.
+        thuong = svc._compute(**base, actual_cong=26, ot_minutes=120, che_do_khoan=False)
+        khoan = svc._compute(**base, actual_cong=26, ot_minutes=120, che_do_khoan=True)
+        # 2h tăng ca thường × 1,5 × 125.000 = 375.000 — tổ khoán: 0.
         assert thuong["ot_pay"] == 375_000
-        assert khoan["ot_pay"] == thuong["ot_pay"]
+        assert khoan["ot_pay"] == 0
 
-        # Premium ngày lễ và tiền ngày off1x cũng không còn bị nuốt.
-        k2 = svc._compute(**base, actual_cong=27, holiday_cong=1)
+        # Premium làm nguyên ngày lễ và tiền ngày off1x: tổ khoán VẪN có.
+        k2 = svc._compute(**base, actual_cong=27, holiday_cong=1, che_do_khoan=True)
         assert k2["ot_pay"] == 3_000_000                      # trọn 300%
-        k3 = svc._compute(**base, actual_cong=26, plain_cong=1)
+        k3 = svc._compute(**base, actual_cong=26, plain_cong=1, che_do_khoan=True)
         assert k3["off1x_pay"] == 1_000_000 and k3["ot_pay"] == 1_000_000
     finally:
         db.close()

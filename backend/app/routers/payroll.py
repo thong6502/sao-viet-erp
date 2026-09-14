@@ -792,7 +792,13 @@ def _canh_bao_chot(lines: list[LineOut]) -> str | None:
              and (float(l.advance_total or 0) + float(l.luong_dot_1_total or 0)
                   + float(getattr(l, "no_ung_ky_truoc", 0) or 0)) > 0]
     no = [l for l in lines if float(getattr(l, "no_ung_chuyen_ky_sau", 0) or 0) > 0]
-    if not khong and not no:
+    # CHẾ ĐỘ KHOÁN có giờ tăng ca mà tiền khoán kỳ này = 0 (14/09/2026): giờ tăng ca của họ không
+    # nhân hệ số vì "đã trả qua tiền khoán" — khoán = 0 (chưa chốt phân bổ sản xuất, không có chuyến)
+    # thì phần làm thêm mất trắng mà không ai thấy. Chỉ NÓI, không chặn.
+    khoan_trong = [l for l in lines if getattr(l, "che_do_khoan", False)
+                   and int(l.ot_minutes or 0) > 0
+                   and float(l.khoan or 0) + float(getattr(l, "khoan_km", 0) or 0) <= 0]
+    if not khong and not no and not khoan_trong:
         return None
     ten = lambda xs: ", ".join((x.employee_name or f"NV #{x.employee_id}") for x in xs[:3]) + (
         f" và {len(xs) - 3} người nữa" if len(xs) > 3 else "")
@@ -801,6 +807,10 @@ def _canh_bao_chot(lines: list[LineOut]) -> str | None:
         parts.append(f"{len(khong)} người thực lĩnh 0đ vì trừ tạm ứng/nợ kỳ trước ({ten(khong)})")
     if no:
         parts.append(f"{len(no)} người còn nợ tạm ứng chuyển sang kỳ sau ({ten(no)})")
+    if khoan_trong:
+        parts.append(f"{len(khoan_trong)} người ăn khoán có giờ tăng ca nhưng tiền khoán kỳ này = 0 "
+                     f"({ten(khoan_trong)}) — giờ tăng ca của họ không có tiền (tính vào sản lượng), "
+                     "kiểm lại phân bổ sản xuất / chuyến giao")
     return "Lưu ý trước khi chốt: " + "; ".join(parts) + "."
 
 
