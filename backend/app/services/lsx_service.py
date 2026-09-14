@@ -1015,6 +1015,31 @@ class LsxService:
             self._ct_gio_cache[khoa] = (ct or "").strip()
         return self._ct_gio_cache[khoa]
 
+    def nap_ct_gio(self, cap) -> None:
+        """Nạp sẵn `_ct_gio_cua_may` cho cả lô cặp `(cong_doan_id, may_id)` — MỘT truy vấn.
+
+        Nhớ lại theo cặp chỉ chặn hỏi LẠI; lượt đầu vẫn là một câu mỗi cặp. Cột Trạng thái của màn
+        Máy trải mọi lệnh đã xếp nên số câu chạy theo số máy khác nhau trong lịch (đo dev
+        14/09/2026: 11 câu `cong_doan_may` cho 2 lệnh). Service ngoài có cả routing trong tay thì
+        gọi hàm này TRƯỚC vòng lặp. Cặp chưa khai nhận `""`, y như `_ct_gio_cua_may`.
+        """
+        if not hasattr(self, "_ct_gio_cache"):
+            self._ct_gio_cache = {}
+        thieu = {(int(a), int(b)) for a, b in cap if a and b} - self._ct_gio_cache.keys()
+        if not thieu:
+            return
+        rows = self.db.execute(
+            select(CongDoanMay.cong_doan_id, CongDoanMay.may_id, CongDoanMay.cong_thuc_gio).where(
+                CongDoanMay.cong_doan_id.in_(sorted({a for a, _ in thieu})),
+                CongDoanMay.may_id.in_(sorted({b for _, b in thieu})),
+            )
+        ).all()
+        for cd_id, may_id, ct in rows:
+            if (cd_id, may_id) in thieu:
+                self._ct_gio_cache[(cd_id, may_id)] = (ct or "").strip()
+        for khoa in thieu:
+            self._ct_gio_cache.setdefault(khoa, "")
+
     def _dv_san_luong(self, cd) -> str | None:
         """Đơn vị ĐO SẢN LƯỢNG của công đoạn đứng sau bước — `None` khi chưa khai.
 

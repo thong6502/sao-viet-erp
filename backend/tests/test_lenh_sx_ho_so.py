@@ -1159,32 +1159,38 @@ def test_chi_khoi_tra_dung_khoi_duoc_xin_va_giong_het_ban_day_du(sess, lenh_that
         assert it[k] == du[k], f"khối {k} khác nhau giữa bản đầy đủ và bản `chi_khoi`"
 
 
-def test_chi_khoi_bot_cau_sql_that(sess, lenh_that):
-    """ĐO chứ không đoán: bản 4 khối phải chạm DB ÍT HƠN HẲN bản đầy đủ.
+def test_chi_khoi_bot_cau_sql_that(sess, lenh_that, monkeypatch):
+    """ĐO chứ không đoán: bản 4 khối chạm DB ÍT HƠN bản đầy đủ, và KHÔNG chạm engine vật tư.
 
     Đo thật (probe tạm dùng chính `_dem_sql` + chính fixture này):
-      · `lenh_that`, DB không có bài ghép : **70 câu** đầy đủ  ->  **25 câu** cho 4 khối
-      · `ghep_doi`,  DB có 1 bài ghép     : **101 câu** đầy đủ ->  **25 câu** cho 4 khối
-    Con số 4 khối KHÔNG đổi theo bài ghép — đúng chỗ phải bỏ, vì phần phình chính là
-    `trang_thai.den_va_bang` → `ke_hoach_vat_tu_service.can_doi()`
-    — hàm phình theo số bài ghép trong TOÀN kế hoạch chứ không theo lệnh đang in — cộng
-    `_giao_hang` · `_kcs` · `_su_co` · `_timeline` · `_nhan_luc`.
+      · trước 14/09/2026: `lenh_that` **70 câu** đầy đủ -> **25 câu** cho 4 khối
+      · từ 14/09/2026   : **51 câu** đầy đủ -> **26 câu** — bản đầy đủ gọn đi vì
+        `trang_thai.den_va_bang` thôi dựng lịch + soi danh mục chỉ để vứt
+        (`lsx_tong_quan.den_vat_tu_va_bang`).
+    Bản bài này trước đó assert "ít hơn MỘT NỬA" — tỉ lệ đó đỏ ngay khi bản đầy đủ nhẹ đi, tức đỏ
+    vì một bản tối ưu chứ không vì `chi_khoi` hỏng. Nên nay canh THẲNG thứ phải bỏ.
 
-    Vì sao đây không phải bài "chạy nhanh hơn": cái phải bỏ là sự GIÒN. Engine vật tư hoặc khối
-    giao hàng ném lỗi vì một trạng thái dữ liệu chẳng liên quan gì tới tờ giấy thì nút In chết
-    theo, trong khi tổ trưởng đang đứng chờ.
-
-    Assert theo TỈ LỆ chứ không chốt cứng 70/25: con số tuyệt đối trôi theo mọi thay đổi của
-    `boi_canh`, chốt cứng là bài đỏ vì lý do không liên quan. Nhưng "ít hơn một nửa" thì chỉ đỏ
-    khi `chi_khoi` thật sự thành vô nghĩa.
+    Vì sao đây không phải bài "chạy nhanh hơn": cái phải bỏ là sự GIÒN. Engine vật tư
+    (`trang_thai.den_va_bang` → `ke_hoach_vat_tu_service.can_doi()`, phình theo số bài ghép trong
+    TOÀN kế hoạch) hoặc khối giao hàng ném lỗi vì một trạng thái dữ liệu chẳng liên quan gì tới tờ
+    giấy thì nút In chết theo, trong khi tổ trưởng đang đứng chờ. Bài canh dưới cho engine vật tư
+    NỔ — bản 4 khối vẫn phải dựng xong.
     """
     from app.services.lenh_sx import ho_so as ho_so_svc
+    from app.services.lenh_sx import trang_thai
 
     _, so_du = _dem_sql(lambda: ho_so_svc.ho_so(sess, lenh_that, sale_ids=None))
     _, so_it = _dem_sql(
         lambda: ho_so_svc.ho_so(sess, lenh_that, sale_ids=None, chi_khoi=_KHOI_PHIEU)
     )
-    assert so_it * 2 < so_du, f"đầy đủ {so_du} câu · 4 khối {so_it} câu — `chi_khoi` không bớt gì"
+    assert so_it < so_du, f"đầy đủ {so_du} câu · 4 khối {so_it} câu — `chi_khoi` không bớt gì"
+
+    def _no(*a, **k):
+        raise AssertionError("bản 4 khối không được gọi engine vật tư")
+
+    monkeypatch.setattr(trang_thai, "den_va_bang", _no)
+    it = ho_so_svc.ho_so(sess, lenh_that, sale_ids=None, chi_khoi=_KHOI_PHIEU)
+    assert set(it) == _KHOI_PHIEU
 
 
 def test_chi_khoi_khoa_la_bao_loi_ngay(sess, lenh_that):

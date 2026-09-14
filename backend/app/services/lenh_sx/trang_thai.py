@@ -140,9 +140,10 @@ def den_vat_tu_theo_lo(db: Session, lsx_ids: list[int]) -> dict[int, str]:
     `XepLichService._chan_chua_giu_du`, nên "đỏ" ở đây nghĩa là cùng một câu mà cửa chặn nói —
     tính lại bằng công thức riêng là đẻ nguồn sự thật thứ hai lệch với cửa.
 
-    Đắt: bên trong là một lượt `KeHoachVatTuService.can_doi()` + một lượt `XepLichVanDeService` cho
-    cả lô. Chi phí gần như không đổi theo số lệnh nhưng KHÁC 0 — gọi hàm này trong vòng lặp từng
-    lệnh là đẻ lại đúng N+1 mà Task 6 sinh ra để chặn.
+    Đắt: bên trong là một lượt `KeHoachVatTuService.can_doi()` cho cả lô. Chi phí gần như không
+    đổi theo số lệnh nhưng KHÁC 0 — gọi hàm này trong vòng lặp từng lệnh là đẻ lại đúng N+1 mà
+    Task 6 sinh ra để chặn. (Chỉ dựng nguồn VẬT TƯ của `tong_quan`, không dựng lịch lẫn danh mục —
+    xem `lsx_tong_quan.den_vat_tu_va_bang`.)
 
     Lệnh nào không ra được đèn (id không tồn tại, hoặc `tong_quan` bỏ qua id rỗng) đơn giản VẮNG
     MẶT trong dict — `co_canh_bao` đọc bằng `.get` nên vắng mặt = không giương cờ, không nổ.
@@ -164,8 +165,8 @@ def den_va_bang(db: Session, lsx_ids: list[int]) -> tuple[dict[int, str], dict |
     Màn danh sách vẫn gọi `den_vat_tu_theo_lo` như cũ: chữ ký đó KHÔNG đổi, nên bài canh số câu
     SQL của nó (`test_so_cau_sql_hang_tren_truc_lenh`) không bị chạm.
     """
-    rows, bang = lsx_tong_quan.tong_quan_va_bang(db, lsx_ids)
-    return {r["lsx_id"]: r["den"]["vat_tu"]["muc"] for r in rows}, bang
+    den, bang = lsx_tong_quan.den_vat_tu_va_bang(db, lsx_ids)
+    return {i: d["muc"] for i, d in den.items()}, bang
 
 
 def _co_su_co_dang_mo(bc: BoiCanh, lsx_id: int) -> bool:
