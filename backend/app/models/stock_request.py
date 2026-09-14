@@ -21,6 +21,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -166,6 +167,10 @@ class StockRequestLine(Base):
     """
 
     __tablename__ = "stock_request_lines"
+    # Tra theo mặt hàng gốc: kiểm-xoá Giấy/Vật tư, bảng cân đối vật tư. Mg `0301`.
+    __table_args__ = (
+        Index("ix_stock_request_lines_hang", "hang_loai", "hang_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     request_id: Mapped[int] = mapped_column(

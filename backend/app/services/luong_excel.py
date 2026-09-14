@@ -99,7 +99,6 @@ COT = [
     ("Phụ cấp ca", "thu", lambda ln, nv: _f(getattr(ln, "shift_allowance_pay", 0)), TIEN),
     ("Lương khoán", "thu", lambda ln, nv: _f(getattr(ln, "khoan", 0)), TIEN),
     ("Khoán km", "thu", lambda ln, nv: _f(getattr(ln, "khoan_km", 0)), TIEN),
-    ("Thưởng/phạt tổ trưởng", "thu", lambda ln, nv: _f(getattr(ln, "thuong_to_truong", 0)), TIEN),
     ("Hoa hồng", "thu", lambda ln, nv: _f(getattr(ln, "hoa_hong", 0)), TIEN),
     ("Thưởng thành tích", "thu", lambda ln, nv: _f(getattr(ln, "thuong_thanh_tich", 0)), TIEN),
     ("Thưởng doanh số", "thu", lambda ln, nv: _f(getattr(ln, "thuong_doanh_so", 0)), TIEN),

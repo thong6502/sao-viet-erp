@@ -83,11 +83,6 @@ export function PayslipCard({
     ...((l.khoan_km ?? 0) !== 0
       ? ([["Khoán km giao hàng", l.khoan_km ?? 0]] as [string, number][])
       : []),
-    // Thưởng/PHẠT tổ trưởng — cộng ĐẠI SỐ vào `gross`, in như `Điều chỉnh lương`: có số mới có
-    // dòng, và dòng âm là tiền BỊ TRỪ ngay trong khối thu nhập (không phải khấu trừ kỷ luật).
-    ...((l.thuong_to_truong ?? 0) !== 0
-      ? ([["Thưởng/phạt tổ trưởng (chất lượng)", l.thuong_to_truong ?? 0]] as [string, number][])
-      : []),
     ["Tăng ca", l.ot_pay],
     // Hoa hồng KD — cột riêng (07/09/2026). Trước đó là khoản nguồn `auto` mà phiếu không in ⇒ TỔNG
     // THU thiếu đúng phần hoa hồng (bản rà E5). Chỉ in khi có số.

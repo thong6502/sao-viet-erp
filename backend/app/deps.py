@@ -23,7 +23,6 @@ from .repositories.leave_repo import LeaveRepository
 from .repositories.overtime_repo import OvertimeRepository
 from .repositories.payroll_component_repo import PayrollComponentRepository
 from .repositories.payroll_repo import PayrollRepository
-from .repositories.piece_work_repo import PieceWorkRepository
 from .repositories.production_output_repo import ProductionOutputRepository
 from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
@@ -434,12 +433,6 @@ def get_payroll_repository(
     return PayrollRepository(db)
 
 
-def get_piece_work_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> PieceWorkRepository:
-    return PieceWorkRepository(db)
-
-
 def get_cong_doan_repository(
     db: Annotated[Session, Depends(get_db)],
 ) -> CongDoanRepository:
@@ -447,12 +440,11 @@ def get_cong_doan_repository(
 
 
 def get_piece_work_service(
-    piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
     db: Annotated[Session, Depends(get_db)],
 ) -> PieceWorkService:
     # Tiền khoán theo NGƯỜI = Phiếu phân bổ ĐÃ CHỐT (Giai đoạn 4, §12). `list_nguoi_by_period` trả
     # rỗng tới khi tổ trưởng chốt một phân bổ ⇒ nối seam này KHÔNG đổi lương cho tới lúc đó.
-    return PieceWorkService(piece, outputs=ProductionOutputRepository(db))
+    return PieceWorkService(outputs=ProductionOutputRepository(db))
 
 
 def get_payroll_component_repository(

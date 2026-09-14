@@ -13628,3 +13628,76 @@ def _migrate_go_ket_lenh_da_lap_khong_lich(db) -> None:
 
 
 MIGRATIONS.append(("0299_go_ket_lenh_da_lap_khong_lich", _migrate_go_ket_lenh_da_lap_khong_lich))
+
+
+def _migrate_bo_thuong_phat_to_truong(db) -> None:
+    """Bỏ hẳn thưởng/phạt tổ trưởng theo khoảng sản lượng × tỷ lệ lỗi KCS (chủ 13/09/2026).
+
+    Gỡ bảng bậc `piece_leader_bonus_brackets` (màn khai ở Cấu hình lương → Cơ chế) và cột
+    `payroll_lines.thuong_to_truong` (luôn 0 từ mg `0297`). API `/api/luong/khoan/leader-brackets`
+    gỡ cùng đợt.
+
+    Best-effort từng câu: SQLite < 3.35 từ chối `DROP COLUMN` → cột mồ côi vô hại vì model không
+    map nữa và cột có `DEFAULT 0`. Mất các bậc đã khai — không khôi phục được.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "payroll_lines" in tables and "thuong_to_truong" in _existing_columns(insp, "payroll_lines"):
+        try:
+            db.execute(text("ALTER TABLE payroll_lines DROP COLUMN thuong_to_truong"))
+            db.commit()
+        except Exception:
+            db.rollback()
+    if "piece_leader_bonus_brackets" in tables:
+        try:
+            db.execute(text("DROP TABLE piece_leader_bonus_brackets"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0300_bo_thuong_phat_to_truong", _migrate_bo_thuong_phat_to_truong))
+
+
+# (bảng, tên index, cột) — tên TRÙNG đúng tên `create_all` đặt cho `index=True` / `Index(...)` ở
+# model, để DB trắng và DB đi đường migration ra cùng một bộ index (xem bài học ở mg `0287`).
+_INDEX_0301 = (
+    ("audit_logs", "ix_audit_logs_target_created_at", ("target", "created_at")),
+    ("phieu_thanh_phan", "ix_phieu_thanh_phan_giay_id", ("giay_id",)),
+    ("phieu_thanh_phan", "ix_phieu_thanh_phan_may_id", ("may_id",)),
+    ("phieu_thanh_pham", "ix_phieu_thanh_pham_cong_doan_id", ("cong_doan_id",)),
+    ("phieu_vat_tu", "ix_phieu_vat_tu_vat_tu_id", ("vat_tu_id",)),
+    ("stock_request_lines", "ix_stock_request_lines_hang", ("hang_loai", "hang_id")),
+    ("stock_voucher_lines", "ix_stock_voucher_lines_hang", ("hang_loai", "hang_id")),
+)
+
+
+def _migrate_index_danh_muc_tra_nguoc(db) -> None:
+    """Index cho các câu hỏi ngược "ai đang trỏ tới dòng danh mục này" (rà 14/09/2026).
+
+    Rà bảy màn danh mục (Công việc khoán · Khuôn & khung · Thành phẩm · Vật tư khác · Giấy · Công
+    đoạn · Thiết bị & Máy móc) bằng số đo: danh sách/chi tiết/lưu KHÔNG có N+1, nhưng hai đường
+    đọc của drawer đang quét cả bảng trên Postgres:
+
+    1. Tab Nhật ký — `audit_logs WHERE target = ? ORDER BY created_at DESC`. Bảng chỉ có index
+       `created_at`, mà đây là bảng phình nhanh nhất hệ (mọi lần lưu ở mọi màn ghi một dòng).
+    2. Kiểm tra trước khi xoá (`danh_muc_tham_chieu`) — đếm theo cột soft-ref chưa từng có index:
+       `phieu_thanh_phan.giay_id/may_id`, `phieu_thanh_pham.cong_doan_id`, `phieu_vat_tu.vat_tu_id`,
+       và cặp (`hang_loai`, `hang_id`) của `stock_request_lines` / `stock_voucher_lines`. Riêng cặp
+       sau: `docs/DB_SCHEMA.md` đã ghi "IX (cặp)" từ lâu nhưng model chưa bao giờ khai — tài liệu
+       nói có, DB không có.
+
+    Chỉ tạo index, không đụng dữ liệu. Thiếu bảng/cột (DB trung gian) thì bỏ qua dòng đó;
+    `IF NOT EXISTS` lo phần chạy lại và DB trắng đã có sẵn từ `create_all`.
+    """
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+    for ten_bang, ten_index, cot in _INDEX_0301:
+        if ten_bang not in bang or not set(cot) <= _existing_columns(insp, ten_bang):
+            continue
+        db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS {ten_index} ON {ten_bang} ({', '.join(cot)})"))
+    db.commit()
+
+
+MIGRATIONS.append(("0301_index_danh_muc_tra_nguoc", _migrate_index_danh_muc_tra_nguoc))

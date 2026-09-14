@@ -23,7 +23,6 @@ from ..deps import (
     get_payroll_component_repository,
     get_payroll_component_service,
     get_payroll_service,
-    get_piece_work_service,
     get_user_repository,
     require_any_permission,
     require_permission,
@@ -97,11 +96,6 @@ from ..schemas.payroll import (
     SalaryPreviewOut,
     TableOut,
 )
-from ..schemas.piece_work import (
-    LeaderBracketOut,
-    LeaderBracketsIn,
-    LeaderBracketsOut,
-)
 from ..services.payroll_service import (
     PayrollError,
     PayrollForbidden,
@@ -109,12 +103,6 @@ from ..services.payroll_service import (
     PayrollNotFound,
     PayrollService,
     PayrollValidationError,
-)
-from ..services.piece_work_service import (
-    PieceWorkError,
-    PieceWorkNotFound,
-    PieceWorkService,
-    PieceWorkValidationError,
 )
 
 router = APIRouter(prefix="/api/luong", tags=["luong"])
@@ -156,7 +144,6 @@ SalaryProfileViewer = Annotated[
     Depends(require_any_permission((MODULE, "manage_salary_profiles"), (MODULE, "view_salary"))),
 ]
 Service = Annotated[PayrollService, Depends(get_payroll_service)]
-PieceService = Annotated[PieceWorkService, Depends(get_piece_work_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Departments = Annotated[DepartmentRepository, Depends(get_department_repository)]
@@ -221,13 +208,13 @@ def _emp_scope_for(authz: AuthorizationService, user: User) -> str:
 
 
 def _raise(exc: Exception) -> None:
-    if isinstance(exc, (PayrollNotFound, PieceWorkNotFound)):
+    if isinstance(exc, PayrollNotFound):
         raise HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, PayrollForbidden):
         raise HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, PayrollLocked):
         raise HTTPException(status_code=409, detail=str(exc))
-    if isinstance(exc, (PayrollValidationError, PieceWorkValidationError)):
+    if isinstance(exc, PayrollValidationError):
         raise HTTPException(status_code=400, detail=str(exc))
     raise exc
 
@@ -913,52 +900,6 @@ def my_payslip(svc: Service, employees: Employees, departments: Departments, use
                       period=period, line=line,
                       ky_xem_duoc=res.get("ky_xem_duoc") or [],
                       cho_phat=res.get("cho_phat"))
-
-
-# --- Lương khoán (nhịp 2) ---------------------------------------------------
-#
-# ⚠️ BẢNG ĐƠN GIÁ KHOÁN KHÔNG CÒN Ở ĐÂY. Năm route `/khoan/rates` (list · tạo · sửa · xoá) và
-# `/khoan/units` đã gỡ ngày 17/08/2026: `piece_rates` thành màn "Công việc khoán" của Cấu hình danh
-# mục, đi qua `routers/cong_viec_khoan.py` (`/api/cong-viec-khoan`).
-#
-# Vì sao gỡ chứ không để song song: hai đường ghi vào cùng một bảng thì đường không đi qua
-# `CongViecKhoanService` không ghi nhật ký, và tab Nhật ký của màn thiếu dòng mà chẳng ai biết vì
-# sao. Panel "Đơn giá khoán của tổ" trong Cấu hình lương vẫn khai ngay tại chỗ — nó gọi API mới,
-# lọc theo `?to=<tên tổ>`, và đọc được nhờ OR-gate `luong` ở router kia.
-#
-# Còn lại ở đây: THƯỞNG/PHẠT tổ trưởng theo tỷ lệ hàng lỗi (bảng khác, chuyện khác).
-
-
-@router.get("/khoan/leader-brackets", response_model=LeaderBracketsOut)
-def list_leader_brackets(svc: PieceService,
-                         user: Annotated[User, Depends(require_permission(MODULE, "manage_piece_rates"))],
-                         department_id: int) -> LeaderBracketsOut:
-    """Bậc thưởng/phạt TỔ TRƯỞNG theo KHOẢNG SẢN LƯỢNG × tỷ lệ hàng lỗi — mỗi tổ một bộ riêng.
-
-    ⚠️ Engine CHƯA gọi bảng này: `leader_bonus_amount` tính đúng nhưng phần nối vào bảng lương lúc
-    lệnh sản xuất kết thúc làm sau. Xem docstring `PieceLeaderBonusBracket`."""
-    return LeaderBracketsOut(
-        department_id=department_id,
-        items=[LeaderBracketOut.model_validate(b) for b in svc.leader_brackets(department_id)],
-    )
-
-
-@router.put("/khoan/leader-brackets", response_model=LeaderBracketsOut)
-def set_leader_brackets(body: LeaderBracketsIn, svc: PieceService,
-                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]
-                        ) -> LeaderBracketsOut:
-    """Thay CẢ BỘ bậc của một tổ. `items` rỗng = tổ này không áp thưởng/phạt tổ trưởng."""
-    try:
-        rows = svc.set_leader_brackets(
-            department_id=body.department_id,
-            rows=[i.model_dump() for i in body.items],
-        )
-    except PieceWorkError as exc:
-        _raise(exc)
-    return LeaderBracketsOut(
-        department_id=body.department_id,
-        items=[LeaderBracketOut.model_validate(b) for b in rows],
-    )
 
 
 # --- Danh mục khoản thu nhập (chủ 2026-07-27) --------------------------------

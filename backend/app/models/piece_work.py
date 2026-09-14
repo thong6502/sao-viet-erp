@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, Numeric, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 
@@ -79,63 +79,43 @@ class PieceRate(Base):
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    # VIỆC PHÁT SINH của công việc khoán này (14/09/2026) — xem `ViecPhatSinh`. `delete-orphan`:
+    # bỏ một dòng khỏi danh sách là xoá hàng thật, xoá công việc khoán là xoá luôn các việc con
+    # (không trông vào `ON DELETE CASCADE`, SQLite test không bật khoá ngoại).
+    viec_phat_sinh: Mapped[list["ViecPhatSinh"]] = relationship(
+        "ViecPhatSinh", back_populates="cong_viec_khoan", order_by="ViecPhatSinh.thu_tu",
+        cascade="all, delete-orphan",
+    )
 
-class PieceLeaderBonusBracket(Base):
-    """Bậc THƯỞNG/PHẠT tổ trưởng theo KHOẢNG SẢN LƯỢNG × TỶ LỆ HÀNG LỖI (chủ 04/09/2026).
 
-    Chủ: *"nó phải sét 2 điều kiện 1 là khoảng sản lượng, 2 là tỷ lệ lỗi"*.
+class ViecPhatSinh(Base):
+    """Việc PHÁT SINH của một công việc khoán — vd "In 4 màu" có "Thay kẽm · 100 đ/bản".
 
-    Mỗi TỔ một bộ bậc riêng (`department_id`) — khác `late_penalty_brackets`/`pit_tax_brackets`
-    vốn là bảng toàn công ty. Một dòng = một ô của lưới (khoảng sản lượng × trần tỷ lệ lỗi):
+    Thứ bậc chủ xưởng chốt: tổ → công đoạn → công việc khoán → việc phát sinh. Nên dòng này chỉ
+    khai BA thứ (tên việc · đơn giá · đơn vị tính); tổ và công đoạn đọc ở công việc khoán cha.
 
-        sl_tu   sl_den   up_to_defect_pct   rate_pct
-            0    5 000                  5      +5,00
-            0    5 000               NULL      −5,00
-        5 000   10 000                  3      +7,00
-        5 000   10 000                 20      −8,00
-        5 000   10 000               NULL     −15,00
-       10 000     NULL                  3     +10,00
-       10 000     NULL               NULL     −15,00
-
-    Cách tra (xem `PieceWorkService.leader_bonus_pct`): lọc các dòng có `sl_tu < SL <= sl_den`
-    (`sl_den = NULL` là ∞) rồi trong nhóm đó lấy dòng ĐẦU TIÊN có `tỷ lệ lỗi <= up_to_defect_pct`
-    (`NULL` = ∞, phải nằm cuối nhóm). Ranh giới `<` ... `<=` lấy ĐÚNG quy ước bậc số lượng của
-    `services/bu_hao_engine.py` — hai bảng bậc cùng hình dạng mà tra ngược nhau là bẫy chết người.
-
-    Tiền = **sản lượng × rate_pct% × đơn giá khoán của đầu việc**, cộng/trừ vào lương của MỘT
-    người: tổ trưởng (`departments.head_user_id`). Không chia cho cả tổ.
-
-    CHƯA NỐI VÀO LUỒNG NÀO (11/09/2026): đường cũ đi qua `services/san_xuat/thuong_to_truong.py`
-    lúc ĐÓNG NHÓM đã bị xoá cùng cơ chế tiền khoán ở sản xuất — đóng nhóm là việc của sản xuất,
-    còn thưởng/phạt là TIỀN nên thuộc kế toán lương. Bảng bậc này là CẤU HÌNH LƯƠNG và vẫn giữ
-    nguyên: màn "Khoán theo kỳ" của kế toán sẽ dùng lại nó để rót vào `payroll_lines.thuong_to_truong`
-    (sản lượng đọc từ dòng chia ĐÃ CHỐT, tỷ lệ lỗi từ phiếu KCS `accepted`/`recorded`). Xem
-    `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
+    Đợt đầu CHỈ khai báo + hiển thị trong danh mục; sản xuất chưa đọc bảng này. Id của từng dòng
+    được GIỮ qua các lần lưu (repo sửa tại chỗ theo id, không xoá-rồi-chèn lại) — lúc sản xuất ghi
+    "thay kẽm · 7" thì trỏ vào id, đổi tên việc không làm mồ côi các lần ghi cũ.
     """
 
-    __tablename__ = "piece_leader_bonus_brackets"
+    __tablename__ = "cong_viec_khoan_phat_sinh"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # Tổ sở hữu bộ bậc. Soft-ref `departments.id` (không FK cứng, giống `piece_rates`).
-    department_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
-    seq: Mapped[int] = mapped_column(Integer, nullable=False)                # thứ tự bậc 1..N
-    # --- Điều kiện 1: KHOẢNG SẢN LƯỢNG của tổ trong lệnh (mg `0262`) --------------------------
-    # Khoảng nửa mở `sl_tu < SL <= sl_den`, cùng tên cột và cùng quy ước với bậc bù hao.
-    sl_tu: Mapped[float] = mapped_column(
-        Numeric(14, 2), nullable=False, default=0, server_default="0"
+    piece_rate_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("piece_rates.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # Trần sản lượng. NULL = ∞ (khoảng cao nhất).
-    sl_den: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
-    # --- Điều kiện 2: TRẦN % HÀNG LỖI trong khoảng sản lượng đó -------------------------------
-    # NULL = "trở lên" — đúng MỘT dòng mỗi khoảng sản lượng và phải ở cuối khoảng.
-    up_to_defect_pct: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
-    # % nhân với (sản lượng × đơn giá khoán). DƯƠNG = thưởng · ÂM = phạt. Gõ nhầm dấu là đảo ngược.
-    rate_pct: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ten: Mapped[str] = mapped_column(String(255), nullable=False)
+    don_gia: Mapped[float] = mapped_column(_MONEY, nullable=False)
+    # MÃ danh mục `don_vi_do` (`kem`, `luot`) như `piece_rates.unit`. Khác cha ở chỗ service CHẶN
+    # mã ngoài danh mục: bảng mới, không có dòng đời cũ nào cần đỡ.
+    don_vi: Mapped[str] = mapped_column(String(24), nullable=False)
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    cong_viec_khoan: Mapped["PieceRate"] = relationship("PieceRate", back_populates="viec_phat_sinh")
 
-# ⚠️ `PieceLeaderBonusSetting` (bảng `piece_leader_bonus_settings`, cột `min_output_qty`) GỠ ngày
-# 04/09/2026 cùng mg `0262`. Nó là cửa chặn "sản lượng cả kỳ dưới X thì không xét" — sinh ra vì
-# bảng bậc chỉ có MỘT chiều là tỷ lệ lỗi. Nay chính bảng bậc mang khoảng sản lượng, nên khoảng
-# thấp nhất khai `rate_pct = 0` đã gánh đúng việc đó, ngay trong bảng người dùng đang nhìn.
+
+# ⚠️ `PieceLeaderBonusBracket` (bảng `piece_leader_bonus_brackets`) GỠ 13/09/2026 cùng mg `0300`:
+# bỏ hẳn thưởng/phạt tổ trưởng theo khoảng sản lượng × tỷ lệ lỗi KCS (bảng bậc, API, màn khai và
+# cột lương `payroll_lines.thuong_to_truong`).

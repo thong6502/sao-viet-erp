@@ -822,24 +822,12 @@ Bẫy phụ:
 - Tổ chưa khai dòng nào: `tang_ca` mặc định **BẬT**, `luong_khoan` mặc định soi `departments.has_piece_work`.
 - Cờ `luong_khoan` **không điều khiển việc cộng tiền khoán** — nó chỉ (a) hiện card "Đơn giá khoán" ở FE, (b) qua `has_piece_work` mà **tắt tăng ca**. Hai hệ quả rất lệch nhau trên cùng một nút gạt.
 
-## 6.6. Thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — **ĐÃ CODE, CHƯA NỐI**
+## 6.6. Thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — **ĐÃ GỠ HẲN** (13/09/2026)
 
-> **Cập nhật 11/09/2026:** bảng `san_xuat_thuong_to_truong` và chuỗi ghi thưởng lúc ĐÓNG NHÓM đã
-> **xoá hẳn** (mg `0297`) — thưởng/phạt tổ trưởng là tiền, mà sản xuất thôi giữ tiền. Còn lại:
-> cột `payroll_lines.thuong_to_truong` (luôn 0), bảng bậc `piece_leader_bonus_brackets` (vẫn khai
-> được ở Cấu hình lương), và hàm thuần `leader_bonus_amount` — **không luồng nào gọi**.
-> `payroll_service` giữ `thuong_tt_map = {}` làm chỗ nối sẵn cho màn "Khoán theo kỳ".
-
-```
-nếu sản_lượng dưới ngưỡng min_output_qty → 0
-ngược lại: tiền = làm_tròn( tổng_khoán_tổ × tỷ_lệ_bậc / 100 )
-bậc trúng = bậc ĐẦU TIÊN có tỷ_lệ_hàng_lỗi ≤ up_to_defect_pct (bậc cuối để trống = ∞)
-```
-Tỷ lệ **DƯƠNG = thưởng, ÂM = phạt**.
-
-**Trạng thái:** **KHÔNG CÓ AI GỌI** từ `PayrollService`. Khai bậc trên UI **không ra đồng nào**. Màn khai có banner nói thẳng — **đừng gỡ banner đó**.
-
-**Neo** — `piece_work_service.py:161-218` · `models/piece_work.py:68-147`.
+Bảng bậc `piece_leader_bonus_brackets`, API `/api/luong/khoan/leader-brackets`, màn khai ở Cấu
+hình lương → Cơ chế, hàm `leader_bonus_pct`/`leader_bonus_amount` và cột
+`payroll_lines.thuong_to_truong` đều đã xoá (mg `0300`). Bảng lương, phiếu lương và file Excel
+không còn cột/dòng "Thưởng/phạt tổ trưởng".
 
 ## 6.7. Tiền khoán DỰ KIẾN ở Lệnh sản xuất — **ĐÃ GỠ HẲN** (11/09/2026)
 
@@ -1735,7 +1723,7 @@ Khác hẳn Phần 13. Đây là chỗ **hai đường tính ra hai số** hoặ
 | ~~**7**~~ | ~~**Tổ khoán mất tăng ca mà không có khoán bù**~~ — ✅ **ĐÃ SỬA 17/08/2026** | ~~Tổ nào đang bật `has_piece_work`~~ | ~~`ot_pay = 0`, mất cả premium lễ/CN và tiền off1x~~ | Chủ chốt **"Tổ khoán VẪN CÓ tăng ca"** (đảo chốt 22/07). Đã **GỠ vế `has_piece_work`** khỏi cả `ot_pay` lẫn suất cơm tăng ca, và **gỡ luật loại trừ Khoán ⟷ Tăng ca** ở `set_dept_components` + nút gạt FE. Nay chỉ còn MỘT cổng: công tắc `tang_ca` của bộ phận. Test: `test_to_khoan_VAN_CO_tang_ca` | `payroll_service.py` `_compute` |
 | **8** | **`has_piece_work` hở một chiều** | Sửa cờ ở màn **Phòng ban** | Không ghi gì vào bảng khoản lương ⇒ hai nguồn sự thật lệch nhau | Đồng bộ hai chiều | `routers/rbac.py:189` |
 | ~~**10**~~ | ~~**Trần công nuốt phần gốc 1× của ngày lễ/CN**~~ — ✅ **ĐÃ SỬA 17/08/2026 (mg 0204)** | ~~`công thực > công chuẩn` + có đi làm lễ/CN~~ | ~~52/67 người có công CN trong bảng T5/2026 bị hụt tổng **34.712.346đ/tháng**; nhận 1× thay vì 2× (lễ 2× thay vì 3×)~~ | Cột `payroll_lines.special_cong` + `_luong_cong_split(special_cong=…)` cho công lễ/CN **ra ngoài trần**; `update_line` đọc cột để hai đường tính ra cùng số | `payroll_service.py` `_luong_cong_split` · `:1584` |
-| **9** | **Thưởng/phạt tổ trưởng theo % hàng lỗi CHƯA NỐI** | Khai bậc trên UI | **Không ra đồng nào.** Banner cảnh báo trên màn khai đang nói đúng — **đừng gỡ banner** | Nối `leader_bonus_amount` vào `PayrollService` khi có nguồn sản lượng | `piece_work_service.py:200-218` |
+| ~~**9**~~ | ~~**Thưởng/phạt tổ trưởng theo % hàng lỗi CHƯA NỐI**~~ — ✅ **ĐÃ GỠ HẲN 13/09/2026 (mg 0300)** | — | — | Bỏ tính năng: bảng bậc, API, màn khai, cột lương | — |
 | **10** | **`seed_review_luong.py` import module không tồn tại** | Chạy script seed | **ImportError ngay lập tức** | Gỡ script hoặc gỡ import `production_output` | `backend/scripts/seed_review_luong.py:30`, `:39` |
 | **11** | **Docstring `LatePenaltyBracket` ghi "ENGINE CHƯA áp bảng này"** | Đọc code | **LỖI THỜI** — engine đang áp thật, đọc nhầm là tưởng phạt trễ chưa chạy | Sửa docstring | `models/payroll.py:477-478` |
 | **12** | **Docstring `_components_for` ghi "mặc định nhóm lương"** | Đọc code | **CHỮ CŨ CÒN SÓT** — không tồn tại mức mặc định theo nhóm lương | Sửa docstring | `payroll_service.py:512` |
@@ -1823,7 +1811,6 @@ Khác hẳn Phần 13. Đây là chỗ **hai đường tính ra hai số** hoặ
 | `payroll_lines.night_pay` | Phiếu lương | Luôn 0 với kỳ mới; giữ để kỳ cũ còn số |
 | 6 cột thưởng cũ (`thuong_5s`, `thuong_doanh_so`, `thuong_thanh_tich`, `phep_nam`, `tra_dong_phuc`, `other_bonus`) | Phiếu lương | **Chặn ghi mới** — khai qua khoản danh mục phát sinh |
 | `payroll_rules` (bậc/quy tắc lương) | DB | Đã bỏ khỏi đường tính mức nền |
-| `piece_leader_bonus_brackets` / `_settings` | Màn khai | **Chưa nối** — khai không ra tiền |
 | `production_outputs` | Migration cũ | **Không còn model/repo/router** |
 
 ---

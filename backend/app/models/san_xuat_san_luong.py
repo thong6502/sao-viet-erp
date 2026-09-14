@@ -170,6 +170,27 @@ class SanXuatBanGiaoDieuChinh(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
+class SanXuatBanGiaoBatch(Base):
+    """MẺ nào đi theo LẦN BÀN GIAO nào (14/09/2026). Tổ ghi sản lượng theo mẻ thì giao cũng theo
+    mẻ: form bàn giao liệt kê các mẻ CHƯA giao, tick mẻ nào thì mẻ đó gắn vào lần giao này.
+
+    `batch_id` UNIQUE — một mẻ đi theo đúng MỘT lần giao, nhờ vậy "mẻ chưa giao" là mẻ không có
+    dòng ở đây. KHÔNG lưu số lượng theo mẻ: `so_luong` của bàn giao là con số hai bên thống nhất
+    (tổ được sửa giảm khi đếm thực tế lệch), chia ngược nó xuống từng mẻ là bịa ra một con số chưa
+    ai đếm. Bàn giao toả tự động của bài ghép (`_toa_san_luong`) không đi qua bảng này."""
+
+    __tablename__ = "san_xuat_ban_giao_batch"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ban_giao_id: Mapped[int] = mapped_column(
+        ForeignKey("san_xuat_ban_giao.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    batch_id: Mapped[int] = mapped_column(
+        ForeignKey("san_xuat_batch.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
 class SanXuatVatTuNhan(Base):
     """TỔ XÁC NHẬN đã nhận vật tư của MỘT phiếu xuất đã ghi sổ (§10.1).
 

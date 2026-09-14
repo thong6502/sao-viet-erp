@@ -126,8 +126,8 @@ về nó khi đầu việc chưa khai `don_vi_nang_suat`), **không phải** vì
 Nguồn SẢN LƯỢNG THẬT nay **đã có và đã nối**: `deps.get_piece_work_service` truyền
 `ProductionOutputRepository`, repo đọc dòng chia sản lượng ĐÃ CHỐT của tổ trưởng. Cột `khoan` của
 bảng lương vẫn ra 0 vì repo trả `unit_price = 0` cho mọi dòng — **thiếu đơn giá, không thiếu sản
-lượng**. `piece_leader_bonus_brackets` (thưởng/phạt tổ trưởng theo % hàng lỗi) vẫn treo, sẽ mở cùng
-màn "Khoán theo kỳ".
+lượng**. Thưởng/phạt tổ trưởng theo % hàng lỗi (`piece_leader_bonus_brackets`) đã GỠ HẲN
+13/09/2026 (mg `0300`).
 
 Cũng **chưa** làm: chia tiền trong nhóm (ghi chú Excel: *tổ trưởng lấy 5%, còn lại nhóm tự chia*) —
 máy chỉ nên GHI NHẬN con số tổ trưởng báo, không tự chia, vì tỷ lệ do nhóm tự thoả thuận.

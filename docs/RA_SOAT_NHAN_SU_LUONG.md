@@ -227,7 +227,6 @@ màn và người tiêu thụ đã chết.
 | `payroll_params.chuyen_can_default` | Mức mặc định công ty **đã bỏ**; chuyên cần chỉ khai theo từng người | Thấp — không phơi ra màn |
 | `payroll_params.standard_cong_default` | Chỉ còn là **lưới dự phòng** khi chưa cấu hình Lịch làm việc | Thấp — không phơi ra màn |
 | `employees.payroll_group` ("Nhóm lương") | Trơ — PRD v2 bỏ mức mặc định theo nhóm | Thấp — cố ý để ngoài màn |
-| `PieceWorkService.leader_bonus_amount` | **Chưa có caller** — chờ nối khi có sản lượng | Thấp — **có test riêng**, cố ý |
 
 > Ba tham số đầu đã được **gỡ khỏi form Cấu hình lương** — người dùng không sửa nhầm được. Đó là
 > xử lý đúng: cột dormant mà vẫn cho sửa mới là bẫy.

@@ -195,7 +195,7 @@ export async function authed<T>(path: string, token: string, init: RequestInit =
 // A single shared in-flight refresh so a burst of concurrent 401s triggers at most
 // ONE /refresh call (no refresh storm). Callbacks let AuthContext stay in sync.
 
-let refreshInFlight: Promise<string | null> | null = null;
+let refreshInFlight: Promise<LoginResponse | null> | null = null;
 let onAccessToken: (token: string | null) => void = () => {};
 let onSessionEnded: () => void = () => {};
 
@@ -208,13 +208,29 @@ export function registerAuthCallbacks(cb: {
   onSessionEnded = cb.onSessionEnded;
 }
 
-function refreshAccessToken(): Promise<string | null> {
+/** Khoá Web Locks dùng chung mọi tab cùng origin. */
+const REFRESH_LOCK = "svn-auth-refresh";
+
+/** Đổi refresh cookie lấy phiên mới — ĐƯỜNG DUY NHẤT gọi `/api/auth/refresh`.
+ *
+ *  Máy chủ xoay token mỗi lượt và coi token cũ bị dùng lại là bị trộm ⇒ thu hồi CẢ HỌ token, người
+ *  dùng văng ra màn đăng nhập. Hai lượt mang cùng một cookie bay song song là đủ dính: StrictMode
+ *  chạy effect khôi phục phiên hai lần, lượt khôi phục đè lên lượt làm mới vì 401, hai tab hết hạn
+ *  access token cùng lúc. DB dev ngày 14/09/2026 có 5 họ token bị giết đúng kiểu này. Nên:
+ *    · trong một tab: mọi nơi gọi dùng chung một promise đang bay;
+ *    · giữa các tab: xếp hàng qua Web Locks — tab sau chạy khi cookie đã là token mới.
+ *  Trả `null` khi phiên đã chết (đã báo `onSessionEnded`). */
+export function refreshSession(): Promise<LoginResponse | null> {
   if (!refreshInFlight) {
-    refreshInFlight = api
-      .refresh()
+    const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+    const goi = () => api.refresh();
+    // `await` để gỡ tầng Promise lồng: kiểu của `locks.request` là Promise<T> với T = Promise<...>.
+    const chay = async (): Promise<LoginResponse> =>
+      locks ? await locks.request(REFRESH_LOCK, goi) : goi();
+    refreshInFlight = chay()
       .then((res) => {
         onAccessToken(res.access_token);
-        return res.access_token;
+        return res;
       })
       .catch(() => {
         onSessionEnded();
@@ -225,6 +241,10 @@ function refreshAccessToken(): Promise<string | null> {
       });
   }
   return refreshInFlight;
+}
+
+function refreshAccessToken(): Promise<string | null> {
+  return refreshSession().then((res) => res?.access_token ?? null);
 }
 
 // --- Real-time luồng gửi duyệt (SSE) ----------------------------------------
@@ -1883,6 +1903,8 @@ export interface SxBatch {
    *  xong là thấy ngay ai được bao nhiêu. `null` = mẻ đã có bản chia, đọc ở `phan_bo`. */
   chia_du_kien: SxChiaDuKien | null;
   lot_vao: SxLotVao[];
+  /** Mẻ đã đi theo một lần bàn giao chưa — form bàn giao chỉ liệt kê mẻ chưa giao. */
+  da_ban_giao: boolean;
 }
 export interface SxNguoiThamGiaBatch {
   employee_id: number;
@@ -1930,13 +1952,21 @@ export interface SxBanGiao {
   trang_thai: string;          // proposed | confirmed | adjusted
   khong_nhat_quan: boolean;
   version: number;
+  batch_ids: number[];         // các mẻ của công đoạn nguồn đi theo lần giao này
 }
-export interface SxBanGiaoGoiY {
+/** CHẶNG SAU theo routing lệnh — đích bàn giao hợp lệ duy nhất. Nhiều dòng khi bước sau tách lần
+ *  chạy ("lần k/N") hoặc routing rẽ nhánh; rỗng = bước cuối lệnh, giao ra kho. */
+export interface SxBanGiaoChangSau {
   cong_viec_id: number;
   ten_cong_doan: string;
   to_id: number | null;
   to_ten: string | null;
   du_kien_bat_dau: string | null;
+  phan_doan_so: number;
+  phan_doan_tong: number;
+  loai_buoc: string;
+  nha_cung_cap: string | null;
+  trang_thai: string;
 }
 export interface SxVatTuNhan {
   voucher_id: number;
@@ -2110,7 +2140,7 @@ export interface SxWorkItemChiTiet {
   san_luong: SxSanLuong;
   ban_giao_di: SxBanGiao[];
   ban_giao_den: SxBanGiao[];
-  ban_giao_goi_y: SxBanGiaoGoiY[];
+  ban_giao_chang_sau: SxBanGiaoChangSau[];
   vat_tu: SxVatTuNhan[];
   vat_tu_cap: SxVatTuCap;
   ho_tro: SxHoTro[];
@@ -2241,8 +2271,13 @@ export interface SxBatchIn {
   ghi_chu?: string | null;
   lot_vao?: SxLotVaoIn[];
 }
-export interface SxBanGiaoDeXuatIn { dich_cong_viec_id?: number | null; so_luong: number; don_vi?: string | null }
-export interface SxBanGiaoSuaIn { so_luong: number; expected_version?: number | null }
+export interface SxBanGiaoDeXuatIn {
+  dich_cong_viec_id?: number | null;   // null = giao ra kho — chỉ bước cuối lệnh
+  don_vi?: string | null;
+  batch_ids?: number[];                // mẻ đi theo lần giao (bắt buộc khi còn mẻ chưa giao)
+}                                      // số lượng máy chủ tự tính = tổng tốt của mẻ chọn
+/** Sửa lần giao còn chờ xác nhận = đặt lại danh sách mẻ; số lượng tính lại theo mẻ. */
+export interface SxBanGiaoSuaIn { batch_ids: number[]; expected_version?: number | null }
 export interface SxBanGiaoXacNhanIn { expected_version?: number | null }
 export interface SxBanGiaoDieuChinhIn { so_luong_sau: number; mo_ta?: string | null; expected_version?: number | null }
 export interface SxVatTuXacNhanIn { voucher_id: number; department_id: number; ghi_chu?: string | null }
@@ -2590,7 +2625,7 @@ export interface SxDongNhomDieuKien {
 }
 /* `SxThuongToTruong` GỠ 11/09/2026 (mg `0297`): bảng `san_xuat_thuong_to_truong` và chuỗi ghi
    thưởng lúc ĐÓNG NHÓM đã xoá — thưởng/phạt tổ trưởng là TIỀN, mà sản xuất thôi giữ tiền. Bảng bậc
-   `piece_leader_bonus_brackets` vẫn khai được ở Cấu hình lương, chờ màn "Khoán theo kỳ". */
+   `piece_leader_bonus_brackets` và cột lương `thuong_to_truong` cũng GỠ 13/09/2026 (mg `0300`). */
 export interface SxDongThieuIn {
   expected_version?: number | null;
 }
@@ -4519,6 +4554,9 @@ export interface EmployeeDetail extends EmployeeRow {
   prior_seniority_months?: number;
   /** Trưởng bộ phận. CHỈ `/api/employees/me` điền (màn HCNS để null — tránh N+1). */
   department_head_name?: string | null;
+  /** Ca NỀN đang hiệu lực HÔM NAY (mốc tương lai chưa tính) — chỉ `GET /api/employees/{id}` điền. */
+  current_shift_id?: number | null;
+  current_shift_name?: string | null;
 }
 
 export interface EmployeeKpis {
@@ -4608,7 +4646,6 @@ export interface JobGrade {
 export interface EmployeeMeta {
   /** `la_san_xuat` là cờ HIỆU LỰC — backend đã leo cây cha-con, FE không phải tự suy. */
   departments: { id: number; name: string; la_san_xuat: boolean }[];
-  unlinked_users: { id: number; username: string; name: string }[];
   /** Vai trò để gán cho tài khoản. Role thuộc ĐÚNG 1 phòng ban → lọc theo phòng của hồ sơ. */
   roles: { id: number; name: string; department_id: number }[];
 }
@@ -4699,6 +4736,8 @@ export interface EmployeeListParams {
   department_id?: number | null;
   status?: string | null;
   has_account?: boolean | null;
+  /** Thử việc hết trong 30 ngày tới — lọc ở MÁY CHỦ, đếm trùng với KPI `probation_ending_soon`. */
+  ending_soon?: boolean;
   sort?: string;
   page?: number;
   size?: number;
@@ -5509,9 +5548,6 @@ export interface PayrollLine {
   /** Khoán km giao hàng (mg 0231) — CỘNG THÊM vào gross, không phải "trong đó" của khoản nào.
    *  Là CỘT chứ không phải khoản danh mục: tiền engine tự tính đứng cùng nhà với `khoan`. */
   khoan_km?: number;
-  /** Thưởng/PHẠT tổ trưởng theo chất lượng (mg 0266) — Σ dòng `san_xuat_thuong_to_truong`
-   *  của kỳ, ghi sẵn lúc đóng nhóm thành phẩm. CỘNG ĐẠI SỐ vào gross và CÓ THỂ ÂM. */
-  thuong_to_truong?: number;
   /** Hoa hồng KD — cột riêng (07/09/2026), máy tự tính theo hoá đơn, cộng thẳng vào gross, chịu thuế. */
   hoa_hong?: number;
   ot_minutes: number;
@@ -5840,36 +5876,6 @@ export interface PieceRate {
   unit_price: number;
   note: string | null;
   active: boolean;
-}
-/** Một bậc thưởng/phạt TỔ TRƯỞNG — một ô của lưới KHOẢNG SẢN LƯỢNG × TỶ LỆ LỖI (chủ 04/09/2026).
- *
- *  Tra HAI điều kiện, đúng thứ tự: lọc các dòng có `sl_tu < sản lượng ≤ sl_den` (`sl_den` null =
- *  ∞), rồi trong nhóm đó lấy dòng ĐẦU TIÊN có `tỷ lệ lỗi ≤ up_to_defect_pct` (`null` = "trở lên",
- *  đúng MỘT dòng mỗi khoảng và phải nằm cuối khoảng).
- *
- *  Tiền = `sản lượng × rate_pct% × đơn giá khoán của đầu việc`, cộng/trừ vào lương MỘT người là
- *  tổ trưởng. `rate_pct` DƯƠNG = thưởng · ÂM = phạt.
- *  ⚠️ Engine CHƯA gọi — phần nối vào bảng lương lúc lệnh sản xuất kết thúc làm sau. */
-export interface LeaderBracket {
-  id: number;
-  department_id: number;
-  seq: number;
-  sl_tu: number;
-  sl_den: number | null;
-  up_to_defect_pct: number | null;
-  rate_pct: number;
-  note: string | null;
-}
-export interface LeaderBracketInput {
-  sl_tu: number;
-  sl_den: number | null;
-  up_to_defect_pct: number | null;
-  rate_pct: number;
-  note?: string | null;
-}
-export interface LeaderBracketsOut {
-  department_id: number;
-  items: LeaderBracket[];
 }
 
 /** Thân POST/PUT của danh mục Công việc khoán.
@@ -9897,6 +9903,10 @@ export const api = {
     users(token: string): Promise<UserRow[]> {
       return authed<UserRow[]>("/api/users", token);
     },
+    /** Một tài khoản (tab Tài khoản của hồ sơ) — khỏi kéo cả danh sách về rồi lọc. */
+    user(token: string, userId: number): Promise<UserRow> {
+      return authed<UserRow>(`/api/users/${userId}`, token);
+    },
     // `createUser` ĐÃ GỠ: mọi tài khoản phải thuộc một hồ sơ nhân viên → tạo tài khoản
     // qua Hồ sơ nhân sự (`api.employees.create` kèm `account`, hoặc `api.employees.linkAccount`).
     assignUserRole(token: string, userId: number, roleId: number | null): Promise<UserRow> {
@@ -9933,8 +9943,9 @@ export const api = {
       return authed<Session[]>(`/api/users/${userId}/sessions`, token);
     },
     /** Recent activity targeting a user. */
-    userActivity(token: string, userId: number): Promise<AuditRow[]> {
-      return authed<AuditRow[]>(`/api/users/${userId}/activity`, token);
+    userActivity(token: string, userId: number, limit?: number): Promise<AuditRow[]> {
+      const suffix = limit ? `?limit=${limit}` : "";
+      return authed<AuditRow[]>(`/api/users/${userId}/activity${suffix}`, token);
     },
     /** Bulk-move people to a target department (spec-06 / PBI-4008); old roles are dropped. */
     /** Bulk điều chuyển NHÂN SỰ sang phòng khác — theo hồ sơ, nên người chưa có tài khoản
@@ -10426,12 +10437,14 @@ export const api = {
      *  bộ lọc đang chọn — không phụ thuộc trang đang xem, không cắt ở 200 người. */
     exportXlsxBlobUrl(
       token: string,
-      params: { q?: string; status?: string | null; department_id?: number | null; sort?: string } = {},
+      params: Omit<EmployeeListParams, "page" | "size"> = {},
     ): Promise<string> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.status) qs.set("status", params.status);
       if (params.department_id != null) qs.set("department_id", String(params.department_id));
+      if (params.has_account != null) qs.set("has_account", String(params.has_account));
+      if (params.ending_soon) qs.set("ending_soon", "true");
       if (params.sort) qs.set("sort", params.sort);
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return blobUrl(`/api/employees/export.xlsx${suffix}`, token);
@@ -10457,6 +10470,7 @@ export const api = {
       if (params.department_id != null) qs.set("department_id", String(params.department_id));
       if (params.status) qs.set("status", params.status);
       if (params.has_account != null) qs.set("has_account", String(params.has_account));
+      if (params.ending_soon) qs.set("ending_soon", "true");
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
@@ -11266,18 +11280,6 @@ export const api = {
     // GỠ 17/08/2026: bảng đơn giá thành danh mục "Công việc khoán". Ai cần nó thì dùng
     // `crud("/api/cong-viec-khoan")` của `api/rebuildCatalog` — cùng một cửa với 10 màn danh mục
     // kia, nên có nhật ký, xoá mềm và mã tự sinh mà không phải khai lại đường API thứ hai.
-    /** Bậc thưởng/phạt TỔ TRƯỞNG theo khoảng sản lượng × tỷ lệ lỗi — mỗi tổ một bộ riêng. */
-    leaderBrackets(token: string, departmentId: number): Promise<LeaderBracketsOut> {
-      return authed<LeaderBracketsOut>(`/api/luong/khoan/leader-brackets?department_id=${departmentId}`, token);
-    },
-    /** Thay CẢ BỘ bậc của một tổ. Mảng rỗng = tổ không áp thưởng/phạt tổ trưởng. */
-    setLeaderBrackets(token: string, departmentId: number,
-                      items: LeaderBracketInput[]): Promise<LeaderBracketsOut> {
-      return authed<LeaderBracketsOut>("/api/luong/khoan/leader-brackets", token, {
-        method: "PUT",
-        body: JSON.stringify({ department_id: departmentId, items }),
-      });
-    },
   },
 
   // --- Giao hàng (module `giao_hang`) ---------------------------------------

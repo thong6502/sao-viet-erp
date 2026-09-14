@@ -1822,49 +1822,6 @@
   pointer-events: none;
 }
 
-/* --- Thưởng/phạt tổ trưởng: KHOẢNG SẢN LƯỢNG × tỷ lệ lỗi (chủ 04/09/2026) --- */
-/* Bảng dùng LẠI khung `RowEditor` (`.rc-bands`) của ô "Bậc số lượng" ở màn danh mục — chủ trỏ
-   thẳng vào nó: *"nó cũng tương tự như cái này nè"*. Ở đây chỉ chỉnh bề rộng ô cho 5 cột. */
-.cl-lb__grid .rc-input-wrapper { max-width: 150px; }
-/* Ghi chú là chữ, cần rộng — cởi trần 150px cho riêng cột cuối. */
-.cl-lb__grid td:nth-child(5) .rc-input-wrapper { max-width: none; }
-/* Ô % kèm chip Thưởng/Phạt: dấu âm dễ đọc lướt thành dương nên phải có chữ đi kèm. */
-.cl-lb__rate { display: flex; align-items: center; gap: var(--sp-2); }
-/* Ghim bề rộng ô cho chip khỏi bị đẩy xuống dòng. Nhắm vào WRAPPER chứ không phải `input` — ô số
-   dùng `NumInput` (rc-input-wrapper + suffix), đặt width lên input sẽ đá `.rc-input{width:100%}`. */
-.cl-lb__rate .rc-input-wrapper { width: 112px; flex: none; max-width: none; }
-/* Dòng TRÚNG của ô thử nhanh — tô sáng ngay trên bảng thay vì bắt dò lại bằng mắt. */
-.cl-lb__grid tr.is-trung > td { background: var(--paper-contrast); }
-.cl-lb__grid tr.is-trung > td:first-child { box-shadow: inset 3px 0 0 var(--accent, var(--ink)); }
-/* Câu đọc từ chính bảng bậc — mỗi khoảng sản lượng một dòng, bảng số khó hình dung. */
-.cl-lb__read {
-  margin-top: var(--sp-2);
-  padding: 8px 12px;
-  border-left: 3px solid var(--rule);
-  background: var(--paper-contrast);
-  border-radius: var(--r-2);
-  line-height: 1.7;
-}
-/* Thử nhanh — 4 cột: sản lượng · tỷ lệ lỗi · đơn giá khoán · kết quả. Cả BA ô đầu đều tác động
-   tới tiền (sản lượng vừa là điều kiện vừa là thừa số), khác khối thử cũ. */
-.cl-lb__try {
-  display: grid;
-  grid-template-columns: 170px 150px 190px minmax(0, 1fr);
-  gap: var(--sp-3);
-  align-items: end;
-  margin-top: var(--sp-3);
-  padding: 10px 12px;
-  border: 1px dashed var(--rule);
-  border-radius: var(--r-3);
-}
-@media (max-width: 1100px) {
-  .cl-lb__try { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-.cl-lb__out { font-size: 13px; color: var(--ink); padding-bottom: 8px; }
-.cl-lb__out b {   font-family: var(--ff-num);
-  font-variant-numeric: tabular-nums; }
-.cl-lb__foot { display: flex; justify-content: flex-end; margin-top: var(--sp-3); }
-
 /* Cảnh báo khi trần khấu trừ vượt mức luật hoặc bị tắt — cảnh báo, KHÔNG chặn. */
 .cl-warn-legal {
   grid-column: 1 / -1;

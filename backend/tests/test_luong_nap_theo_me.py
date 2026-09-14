@@ -24,7 +24,6 @@ from app.deps import (
     get_overtime_repository,
     get_payroll_component_repository,
     get_payroll_repository,
-    get_piece_work_repository,
     get_piece_work_service,
 )
 from app.services.hoa_hong_service import HoaHongService
@@ -44,7 +43,7 @@ def _svc(db) -> PayrollService:
     return PayrollService(
         get_payroll_repository(db), get_employee_repository(db), att,
         audit=get_audit_repository(db),
-        piece=get_piece_work_service(get_piece_work_repository(db), db),
+        piece=get_piece_work_service(db),
         departments=get_department_repository(db),
         components=get_payroll_component_repository(db),
         vouchers=get_accounting_repository(db),

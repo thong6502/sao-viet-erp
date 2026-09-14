@@ -52,7 +52,7 @@ from .payroll import (
     SalaryAdvance,
     SalaryRateRule,
 )
-from .piece_work import PieceLeaderBonusBracket, PieceRate
+from .piece_work import PieceRate
 from .product_type_catalog import ProductTypeCatalog
 from .purchase import (
     DepartmentPurchaseRequest,
@@ -143,6 +143,7 @@ from .san_xuat_thuc_thi import (
 )
 from .san_xuat_san_luong import (
     SanXuatBanGiao,
+    SanXuatBanGiaoBatch,
     SanXuatBanGiaoDieuChinh,
     SanXuatBatch,
     SanXuatBatchLotVao,
@@ -259,7 +260,6 @@ __all__ = [
     "PayrollLineComponent",
     "PitTaxBracket",
     "LatePenaltyBracket",
-    "PieceLeaderBonusBracket",
     "PieceRate",
     "PlateDieRate",
     "Norm",
@@ -323,6 +323,7 @@ __all__ = [
     "SanXuatBatch",
     "SanXuatBatchLotVao",
     "SanXuatBanGiao",
+    "SanXuatBanGiaoBatch",
     "SanXuatBanGiaoDieuChinh",
     "SanXuatVatTuNhan",
     "SanXuatKetQuaNhanh",
