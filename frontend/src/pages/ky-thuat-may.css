@@ -1131,7 +1131,8 @@
 
 .ktm-boqua-form p { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: var(--ash, #475569); }
 
-/* Ô "Người báo" của phiếu SINH TỪ yêu cầu — KHOÁ TẠI CHỖ, không giấu (20/08/2026).
+/* Ô "Người báo" của MỌI phiếu sửa chữa (từ 14/09/2026; trước đó chỉ phiếu sinh từ yêu cầu) —
+   KHOÁ TẠI CHỖ, không giấu (20/08/2026).
    Trước đây là ô chữ trắng gõ đè được: sửa một cái là mất dấu tài khoản đã bấm gửi lời báo, mà
    đó lại là người duy nhất trả lời được "hỏng thế nào" khi phiếu thiếu chi tiết. Nền giấy + gờ
    trái xám để mắt đọc ra "đây là DỮ LIỆU, không phải ô nhập" từ xa — khỏi bấm vào mới biết.
