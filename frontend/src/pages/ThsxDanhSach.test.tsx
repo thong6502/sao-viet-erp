@@ -58,7 +58,7 @@ describe("ThsxDanhSach — Workstation Studio Modern Table View", () => {
   });
 
   it("kích hoạt 1-click Bắt đầu khi bấm nút trực tiếp trong bảng", () => {
-    const item = mockViec({ id: 202, trang_thai: "released" });
+    const item = mockViec({ id: 202, trang_thai: "released", chay_duoc: true });
     const onPick = vi.fn();
     const onBatDau = vi.fn();
 
@@ -76,5 +76,25 @@ describe("ThsxDanhSach — Workstation Studio Modern Table View", () => {
     fireEvent.click(btnStart);
 
     expect(onBatDau).toHaveBeenCalledWith(item);
+  });
+
+  it("không có quyền Thực hiện lệnh thì dòng không hiện nút chạy nhanh", () => {
+    render(
+      <ThsxDanhSach
+        lenh={mockLenh([
+          mockViec({ id: 203, trang_thai: "released", chay_duoc: false }),
+          mockViec({ id: 204, trang_thai: "running", chay_duoc: false }),
+        ])}
+        selectedId={null}
+        onPick={vi.fn()}
+        onBatDau={vi.fn()}
+        onTamDung={vi.fn()}
+        onKetThuc={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText("Bắt đầu")).toBeNull();
+    expect(screen.queryByText("Tạm dừng")).toBeNull();
+    expect(screen.queryByText("Kết thúc")).toBeNull();
   });
 });

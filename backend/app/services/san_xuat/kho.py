@@ -41,6 +41,7 @@ from ...repositories.document_sequence_repo import DocumentSequenceRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ..sequence_service import SequenceService
 from .kcs import _EPS, _so_khong_am
+from ..quyen_to import VIEC_KHO
 from .thuc_thi import _gate, _moc
 
 
@@ -172,7 +173,7 @@ def tao_yeu_cau_nhap_thanh_pham(
     cv = repo.cong_viec(kcs.cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc của batch kiểm tra.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_KHO)
 
     so = _so_khong_am(so_luong, "Số lượng nhập kho")
     if so <= 0:
@@ -210,7 +211,7 @@ def tao_yeu_cau_kho_mot_nut(db: Session, *, user, kcs_batch_id: int) -> dict:
     cv = repo.cong_viec(kcs.cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc của batch kiểm tra.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_KHO)
 
     if kcs.loai != KCS_LOAI_ROUTING:
         raise ValueError("Chỉ batch kiểm theo routing mới gửi kho theo lối một nút.")
@@ -346,7 +347,7 @@ def huy_phan_chua_nhan(
     cv = repo.cong_viec(kcs.cong_viec_id) if kcs else None
     if cv is None:
         raise ValueError("Không tìm thấy công việc của yêu cầu.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_KHO)
     if expected_version is not None and expected_version != yc.version:
         raise ValueError("Phiên bản không khớp — yêu cầu vừa được cập nhật, hãy tải lại.")
 
@@ -391,7 +392,7 @@ def phan_loai_btp_du(
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_KHO)
 
     if phan_loai not in PHAN_LOAI_BTP_DU:
         raise ValueError("Phân loại BTP dư không hợp lệ.")

@@ -340,6 +340,8 @@ export type QuoteEvent =
   | { type: "order_sx_hint_changed"; code?: string; order_id: number; is_rush: boolean }
   // Kế hoạch tạo/sửa/xoá lệnh sản xuất → hàng chờ + bước "Sản xuất" ở Đơn hàng cập nhật ngay.
   | { type: "lsx_changed"; order_id: number }
+  // Thêm/xoá tệp đính kèm của một lệnh — chỉ màn chi tiết đúng lệnh đó tải lại danh sách tệp.
+  | { type: "lsx_dinh_kem_changed"; lsx_id: number }
   // Bài ghép tạo/sửa/xoá → hàng chờ ghép + danh sách bài ghép cập nhật ngay (không cần refresh).
   | { type: "bai_ghep_changed" }
   // Xếp lịch: đưa vào/gỡ kế hoạch · gán máy-ca-giờ · khóa → bàn Xếp lịch + badge cập nhật ngay.
@@ -422,6 +424,31 @@ export type QuoteEvent =
       trang_thai?: string | null;
     }
   | { type: "san_xuat_duoc_giao_viec"; cong_viec_id?: number | null }
+  // Việc GIỮA HAI TỔ (bàn giao §11 · hỗ trợ chéo §9): `*_changed` broadcast để bàn đang mở + badge
+  // tươi; `san_xuat_ban_giao` / `san_xuat_ho_tro` đẩy ĐÍCH DANH tới người cần biết (trừ người bấm),
+  // mang sẵn nhãn để toast nói được việc gì. `su_kien`: de_xuat | sua | xac_nhan | dieu_chinh | huy.
+  | { type: "san_xuat_ban_giao_changed"; team_id?: number | null; ban_giao_id?: number | null; trang_thai?: string | null }
+  | {
+      type: "san_xuat_ban_giao";
+      ban_giao_id?: number | null;
+      trang_thai?: string | null;
+      su_kien?: string | null;
+      nguon_ten?: string | null;
+      dich_ten?: string | null;
+      so_luong?: number | null;
+      don_vi?: string | null;
+    }
+  | { type: "san_xuat_ho_tro_changed"; cong_viec_id?: number | null; ho_tro_id?: number | null; trang_thai?: string | null }
+  | {
+      type: "san_xuat_ho_tro";
+      ho_tro_id?: number | null;
+      trang_thai?: string | null;
+      su_kien?: string | null;
+      ho_ten?: string | null;
+      ten_cong_doan?: string | null;
+      to_goc_ten?: string | null;
+      to_thuc_hien_ten?: string | null;
+    }
   // Giai đoạn 5 (KCS §13 · kho §14 · đóng nhóm §16/§13.3). `*_changed` = tín hiệu NHẸ broadcast để
   // panel/hộp thư đang mở refetch (quoteTick lo); `san_xuat_kcs_loi` / `san_xuat_kho` = đẩy ĐÍCH DANH
   // tới người cần hành động → toast cá nhân. `san_xuat_nhom_dong` = nhóm thành phẩm đã đóng, báo Sale
@@ -1651,16 +1678,27 @@ export interface SxTeam {
   ten: string;
   ma: string;
   la_kcs: boolean;
-  /** Vai của NGƯỜI ĐANG XEM ở tổ này, không phải thuộc tính của tổ: cùng một tổ, tổ trưởng nhận
-   *  `false` còn thợ trong tổ nhận `true`. Bật băng "Sản lượng của tôi" theo cờ này, đừng tự suy
-   *  từ scope + tổ trưởng ở FE. */
+  /** Độ sâu của nút trong cây khối sản xuất (0 = gốc) — menu thụt lề theo số này. */
+  cap: number;
+  /** Vai của NGƯỜI ĐANG XEM ở nút này, không phải thuộc tính của tổ: mức Xem của dòng quyền
+   *  `to_sx_<id>` là "Của tôi" thì `true`. Bật băng "Sản lượng của tôi" theo cờ này, đừng tự suy
+   *  ở FE. */
   la_tho: boolean;
+  /** Mức của người đang xem trên CHÍNH nút này theo từng việc (`read`/`run_order`/
+   *  `confirm_output`/`qc`/`warehouse` → "all" | "own"); thiếu khoá = không có quyền đó. */
+  quyen: Partial<Record<SxViecTo, "all" | "own">>;
   so_viec_cho: number;
+  /** Bàn giao đến + thỏa thuận hỗ trợ chéo đang chờ tổ trong vùng xác nhận (người xem giữ Xác nhận
+   *  sản lượng trọn tổ) — cộng vào badge menu cùng `so_viec_cho`. */
+  so_cho_xac_nhan: number;
   // Task 4 (mg 0250) — badge/cổng board KCS kiêm nhiệm, đọc theo `SanXuatCongViec.la_kcs` (cấp
   // CÔNG VIỆC) — KHÁC `la_kcs` phía trên (đó là `Department.is_kcs`, cấp TỔ).
   so_viec_kcs_cho: number;
   co_viec_kcs: boolean;
 }
+/** Bốn quyền chi tiết của dòng quyền theo tổ + Xem (spec 2026-09-14). */
+export type SxViecTo = "read" | "run_order" | "confirm_output" | "qc" | "warehouse";
+
 export interface SxTeamsOut {
   teams: SxTeam[];
 }
@@ -1677,8 +1715,73 @@ export interface SxSanLuongCuaToi {
   so_me: number;
 }
 
+/** Tab SẢN LƯỢNG của bàn tổ (spec 2026-09-14 §6). Ngày = ngày BẮT ĐẦU mẻ theo giờ xưởng; mọi số
+ *  đi theo ĐƠN VỊ, không bao giờ cộng lẫn. `cua_toi` = tổ này chỉ thấy phần của mình (không có số
+ *  tổ, không có tầng người). KHÔNG có ô tiền. */
+export interface SxSlTotHong { don_vi: string | null; tot: number; hong: number }
+export interface SxSlCuaToi { don_vi: string | null; da_chot: number }
+export interface SxSlNguoi {
+  employee_id: number;
+  ho_ten: string;
+  don_vi: string | null;
+  la_ho_tro: boolean;
+  da_chot: number;
+  tam_tinh: number;
+}
+export interface SxSlCongDoan {
+  cong_viec_id: number;
+  ten_cong_doan: string;
+  to_id: number | null;
+  to_ten: string;
+  cua_toi: boolean;
+  so_me: number;
+  chua_chia: number;
+  san_luong: SxSlTotHong[];
+  phan_cua_toi: SxSlCuaToi[];
+  nguoi: SxSlNguoi[];
+}
+export interface SxSlLenh {
+  nguon_loai: "lsx" | "bai_ghep";
+  nguon_id: number | null;
+  ma: string;
+  ten: string;
+  so_me: number;
+  ngay_dau: string | null;
+  ngay_cuoi: string | null;
+  san_luong: SxSlTotHong[];
+  phan_cua_toi: SxSlCuaToi[];
+  cong_doan: SxSlCongDoan[];
+}
+export interface SxSanLuongTo {
+  team_id: number;
+  tu: string;
+  den: string;
+  to_id: number | null;
+  trang: number;
+  co_trang: number;
+  tong_lenh: number;
+  co_pham_vi_tron: boolean;
+  co_pham_vi_rieng: boolean;
+  cac_to: { id: number; ten: string; cap: number }[];
+  tong: (SxSlTotHong & { so_me: number })[];
+  tong_cua_toi: SxSlCuaToi[];
+  lenh: SxSlLenh[];
+  cap_nhat_luc: string | null;
+}
+export interface SxSanLuongToLoc {
+  team_id: number;
+  tu?: string;
+  den?: string;
+  to_id?: number | null;
+  tim?: string;
+  trang?: number;
+  co_trang?: number;
+}
+
 export interface SxWorkItem {
   id: number;
+  /** Tổ THẬT của việc — bàn nút cha gộp việc của nhiều tổ con, thao tác theo tổ lấy id ở đây. */
+  department_id: number | null;
   goi_id: number;
   phien_ban_so: number;
   nguon_loai: string;          // "lsx" | "bai_ghep" | ""
@@ -1736,6 +1839,9 @@ export interface SxWorkItem {
   khuon: SxKhuonChip | null;
   khuon_da_nhan: boolean;
   khuon_da_tra: boolean;
+  /** Người xem giữ Thực hiện lệnh trên việc này (máy chủ tính theo dòng quyền tổ, mức "Của tôi" chỉ
+   *  bật trên việc đang giao cho mình) — nút chạy nhanh trên dòng bảng hiện theo cờ này. */
+  chay_duoc: boolean;
 }
 /** Quy cách in RÚT GỌN đi theo thẻ việc (mg `0290`) — 8 dòng đủ để đứng máy, không phải bản sao
  *  của `lsx.quy_cach_json`. Khoá nào không có số thì server BỎ HẲN (không gửi `null`), nên UI chỉ
@@ -1827,6 +1933,43 @@ export interface SxHoTroUngVien {
 export interface SxHoTroUngVienListOut {
   team_id: number;
   nhan_vien: SxHoTroUngVien[];
+}
+
+/** Hộp "Chờ tổ bạn xác nhận" của một bàn tổ — việc GIỮA HAI TỔ mà bên tổ mình phải bấm. */
+export interface SxChoXacNhanBanGiao {
+  id: number;
+  nguon_cong_viec_id: number;
+  nguon_ten: string;
+  nguon_to_ten: string | null;
+  dich_cong_viec_id: number;
+  dich_ten: string;
+  dich_to_ten: string | null;
+  lsx_ma: string | null;
+  so_luong: number;
+  don_vi: string;
+  de_xuat_luc: string | null;
+  version: number;
+}
+export interface SxChoXacNhanHoTro {
+  id: number;
+  cong_viec_id: number;
+  ten_cong_doan: string;
+  lsx_ma: string | null;
+  ho_ten: string;
+  to_goc_ten: string | null;
+  to_thuc_hien_ten: string | null;
+  ngay_lam_viec: string;
+  ty_le_phan_tram: number;
+  mo_ta: string | null;
+  /** Bên đang chờ CHÍNH người xem: tổ cho mượn người (gốc) / tổ đang làm (thực hiện). */
+  cho_ben_goc: boolean;
+  cho_ben_thuc_hien: boolean;
+  version: number;
+}
+export interface SxChoXacNhan {
+  team_id: number;
+  ban_giao: SxChoXacNhanBanGiao[];
+  ho_tro: SxChoXacNhanHoTro[];
 }
 
 /** Kết quả một lệnh ghi — đủ để cập nhật thanh + version lạc quan. */
@@ -2078,6 +2221,9 @@ export interface SxHoTro {
   mo_ta: string | null;
   da_xac_nhan_goc: boolean;
   da_xac_nhan_thuc_hien: boolean;
+  /** Người đang xem bấm được gì trên CHÍNH dòng này — máy chủ tính theo quyền trọn tổ ở từng bên. */
+  co_the_xac_nhan: boolean;
+  co_the_huy: boolean;
   version: number;
 }
 export interface SxPhanBoDong {
@@ -2134,6 +2280,9 @@ export interface SxWorkItemChiTiet {
   cong_viec: SxWorkItem;
   trang_thai: string;
   version: number;
+  /** Người đang xem làm được việc nào TRÊN CHÍNH công việc này (tổ của nó + mức own chỉ khi việc
+   *  đang giao cho mình) — nút ghi trong drawer bật/tắt theo đây. */
+  quyen: Partial<Record<Exclude<SxViecTo, "read">, boolean>>;
   phan_cong: SxPhanCongItem[];
   phien_chay: SxPhienChay[];
   khoang_tham_gia: SxKhoangThamGia[];
@@ -2237,10 +2386,10 @@ export interface SxBuTruKetQua {
 // Body các mặt GHI (§7). `expected_version` = khoá lạc quan; `ly_do` của tạm-dừng BẮT BUỘC.
 export interface SxPhanCongIn { employee_id: number; expected_version?: number | null }
 export interface SxGoPhanCongIn { ly_do?: string | null; expected_version?: number | null }
-export interface SxBatDauIn { ly_do_tre?: string | null; ly_do_so_nguoi?: string | null; expected_version?: number | null }
+export interface SxBatDauIn { ly_do_so_nguoi?: string | null; expected_version?: number | null }
 export interface SxDoiMayIn { may_id: number; ly_do?: string | null; expected_version?: number | null }
 export interface SxTamDungIn { ly_do: string; expected_version?: number | null }
-export interface SxKetThucIn { ly_do_tre?: string | null; expected_version?: number | null }
+export interface SxKetThucIn { expected_version?: number | null }
 /** Báo sự cố tại tổ (31/08/2026) → ghi thẳng vào hộp thư "Báo máy hỏng" của tổ sửa chữa.
  *  KHÔNG có ô "máy": server lấy đúng máy của công việc đang chạy. `mo_ta` bắt buộc khi
  *  `dung_san_xuat` (mốc mất giờ máy của lệnh). `muc_do` lấy từ `NHAN_MUC_DO` của kyThuatMay. */
@@ -3109,6 +3258,24 @@ export interface LsxQuyCachXemTruoc {
   so_mau_a: number; so_mau_b: number; so_mau_pha: number;
 }
 export interface LsxActivity { at: string; actor_name: string | null; action: string; detail: string }
+/** Tệp gắn vào CẢ lệnh. `nguoi_tai_ten` do máy chủ chốt từ tài khoản người tải. */
+export interface LsxDinhKem {
+  id: number;
+  ten_tep: string;
+  file_url: string;
+  content_type: string | null;
+  kich_thuoc: number;
+  nguoi_tai_ten: string | null;
+  tai_luc: string;
+}
+
+/** Tệp của MỘT lệnh nhìn từ Bàn tổ (chỉ đọc). Công việc bài ghép thì mỗi lệnh thành viên một nhóm. */
+export interface SxTepLenhNhom {
+  lsx_id: number;
+  lsx_ma: string;
+  lsx_ten: string | null;
+  items: LsxDinhKem[];
+}
 
 export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
   let closed = false;
@@ -3187,6 +3354,11 @@ export interface ModuleDef {
   viec_chet?: string[];
   key: string;
   label: string;
+  /** Dòng quyền THEO TỔ (`to_sx_<id>`, mg 0302): phòng ban mà dòng gắn vào + cấp trong cây khối
+   *  sản xuất (gốc = 0, để thụt lề) + cờ KCS. Module tĩnh để trống. */
+  department_id?: number | null;
+  cap?: number;
+  la_kcs?: boolean;
 }
 
 export interface Department {
@@ -3360,6 +3532,11 @@ export interface ModuleCapability {
   can_post: boolean;
   /** kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export MISA. */
   can_close_book: boolean;
+  /** Dòng quyền theo tổ (mg 0302) — bốn quyền chi tiết của Bàn tổ, đi cùng phạm vi của dòng. */
+  can_run_order?: boolean;
+  can_confirm_output?: boolean;
+  can_qc?: boolean;
+  can_warehouse?: boolean;
   /** cham_cong (mg 0194) — MỘT Ô = MỘT TAB. Xem `PermissionMatrix` để biết ô nào mở tab nào. */
   can_view_timesheet?: boolean;
   can_approve_late_early?: boolean;
@@ -3396,6 +3573,9 @@ export interface RoleTemplate {
   mo_ta: string;
   /** Ma trận ĐẦY ĐỦ (mọi module) — áp mẫu là THAY SẠCH, không trộn với quyền cũ của vai. */
   permissions: PermissionRow[];
+  /** Phần điền vào dòng quyền theo tổ CỦA PHÒNG mà vai thuộc về (Tổ trưởng / Công nhân) — giao
+   *  diện tự gắn vào `to_sx_<phòng đang mở>`. `null` = mẫu không đụng dòng tổ. */
+  quyen_to_cua_vai?: Omit<PermissionRow, "module_key"> | null;
 }
 
 export interface PermissionRow {
@@ -3443,6 +3623,11 @@ export interface PermissionRow {
   can_post: boolean;
   /** kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export MISA. */
   can_close_book: boolean;
+  /** Dòng quyền theo tổ (mg 0302) — bốn quyền chi tiết của Bàn tổ, đi cùng phạm vi của dòng. */
+  can_run_order?: boolean;
+  can_confirm_output?: boolean;
+  can_qc?: boolean;
+  can_warehouse?: boolean;
   /** cham_cong (mg 0194) — MỘT Ô = MỘT TAB. Xem `PermissionMatrix` để biết ô nào mở tab nào. */
   can_view_timesheet?: boolean;
   can_approve_late_early?: boolean;
@@ -11630,6 +11815,18 @@ export const api = {
     activity(token: string, id: number): Promise<{ items: LsxActivity[] }> {
       return authed<{ items: LsxActivity[] }>(`/api/lsx/${id}/activity`, token);
     },
+    // --- Tệp đính kèm của lệnh: mỗi tệp một request để tệp lỗi không kéo cả mẻ lỗi theo ---
+    dinhKem(token: string, id: number): Promise<{ items: LsxDinhKem[] }> {
+      return authed<{ items: LsxDinhKem[] }>(`/api/lsx/${id}/dinh-kem`, token);
+    },
+    taiDinhKem(token: string, id: number, file: File): Promise<LsxDinhKem> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<LsxDinhKem>(`/api/lsx/${id}/dinh-kem`, token, { method: "POST", body: form });
+    },
+    xoaDinhKem(token: string, id: number, dinhKemId: number): Promise<void> {
+      return authed<void>(`/api/lsx/${id}/dinh-kem/${dinhKemId}`, token, { method: "DELETE" });
+    },
   },
 
   // --- Bài ghép 2 — cùng tài nguyên/engine, API và quyền độc lập trong giai đoạn nghiệm thu. ---
@@ -12172,6 +12369,10 @@ export const api = {
     hoTroUngVien(token: string, teamId: number): Promise<SxHoTroUngVienListOut> {
       return authed<SxHoTroUngVienListOut>(`/api/san-xuat/teams/${teamId}/ho-tro-ung-vien`, token);
     },
+    /** Hộp "Chờ tổ bạn xác nhận": bàn giao đến + hỗ trợ chéo chờ bên tổ mình. 403 nếu ngoài phạm vi. */
+    choXacNhan(token: string, teamId: number): Promise<SxChoXacNhan> {
+      return authed<SxChoXacNhan>(`/api/san-xuat/teams/${teamId}/cho-xac-nhan`, token);
+    },
     /** Việc đã phát hành của MỘT tổ. 403 nếu tổ ngoài phạm vi.
      *
      *  `nhom="lenh"` (mặc định của BE) trả ĐẦU MỤC LỆNH/BÀI GHÉP kèm phân trang ĐẾM THEO LỆNH —
@@ -12200,9 +12401,22 @@ export const api = {
       return authed<SxSanLuongCuaToi>(
         `/api/san-xuat/toi/san-luong${qs({ nam, thang })}`, token);
     },
+    /** Tab Sản lượng của bàn tổ: lệnh → công đoạn → người; lọc · phân trang · tổng ở máy chủ. */
+    sanLuongTo(token: string, loc: SxSanLuongToLoc): Promise<SxSanLuongTo> {
+      return authed<SxSanLuongTo>(`/api/san-xuat/san-luong${qs({
+        team_id: loc.team_id, tu: loc.tu || undefined, den: loc.den || undefined,
+        to_id: loc.to_id ?? undefined, tim: loc.tim?.trim() || undefined,
+        trang: loc.trang, co_trang: loc.co_trang,
+      })}`, token);
+    },
     /** Drawer một công việc: thanh kế hoạch + roster + phiên chạy + khoảng tham gia. */
     chiTiet(token: string, congViecId: number): Promise<SxWorkItemChiTiet> {
       return authed<SxWorkItemChiTiet>(`/api/san-xuat/work-items/${congViecId}`, token);
+    },
+    /** Tệp Kế hoạch SX đính kèm vào lệnh của công việc — tổ xem/tải, không sửa. Gói thu hồi → 404. */
+    tepLenh(token: string, congViecId: number): Promise<SxTepLenhNhom[]> {
+      return authed<{ nhom: SxTepLenhNhom[] }>(`/api/san-xuat/work-items/${congViecId}/tep-lenh`, token)
+        .then((r) => r.nhom);
     },
     /** Giao MỘT người vào công việc. Lần giao đầu = tổ tiếp nhận. */
     phanCong(token: string, congViecId: number, body: SxPhanCongIn): Promise<SxLenhKetQua> {
@@ -12216,7 +12430,7 @@ export const api = {
         method: "POST", body: JSON.stringify(body),
       });
     },
-    /** Bắt đầu / tiếp tục chạy: mở phiên mới + khoảng tham gia. `ly_do_tre` khi bắt đầu TRỄ. */
+    /** Bắt đầu / tiếp tục chạy: mở phiên mới + khoảng tham gia. `ly_do_so_nguoi` khi số người ≠ dự kiến; sớm/trễ không hỏi lý do. */
     batDau(token: string, congViecId: number, body: SxBatDauIn): Promise<SxLenhKetQua> {
       return authed<SxLenhKetQua>(`/api/san-xuat/work-items/${congViecId}/bat-dau`, token, {
         method: "POST", body: JSON.stringify(body),
@@ -12256,7 +12470,7 @@ export const api = {
         method: "POST", body: JSON.stringify(body),
       });
     },
-    /** Kết thúc: đóng phiên + khoảng tham gia, đánh dấu hoàn thành. `ly_do_tre` khi trễ. */
+    /** Kết thúc: đóng phiên + khoảng tham gia, đánh dấu hoàn thành. Không hỏi lý do sớm/trễ. */
     ketThuc(token: string, congViecId: number, body: SxKetThucIn): Promise<SxLenhKetQua> {
       return authed<SxLenhKetQua>(`/api/san-xuat/work-items/${congViecId}/ket-thuc`, token, {
         method: "POST", body: JSON.stringify(body),

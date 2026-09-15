@@ -16,6 +16,7 @@ from ..models.bai_ghep_cong_doan import BaiGhepCongDoanMap
 from ..models.lsx import LsxCongDoan, LsxCongDoanPhuThuoc
 from ..models.san_xuat import SanXuatCongViec, SanXuatPhuThuoc
 from ..models.san_xuat_san_luong import (
+    BG_DE_XUAT,
     BG_DIEU_CHINH,
     BG_XAC_NHAN,
     LOT_TU_BATCH,
@@ -260,6 +261,22 @@ class SanXuatSanLuongRepository:
                 .order_by(SanXuatBanGiao.id)
             )
         )
+
+    def ban_giao_cho_nhan_cua_to(self, to_ids: set[int]) -> list[tuple[SanXuatBanGiao, int]]:
+        """Bàn giao ĐANG CHỜ bên nhận xác nhận mà công việc đích thuộc `to_ids` — kèm tổ đích.
+        Nguồn của hộp "Chờ tổ bạn xác nhận" trên Bàn tổ và badge menu."""
+        if not to_ids:
+            return []
+        rows = self.db.execute(
+            select(SanXuatBanGiao, SanXuatCongViec.department_id)
+            .join(SanXuatCongViec, SanXuatCongViec.id == SanXuatBanGiao.dich_cong_viec_id)
+            .where(
+                SanXuatBanGiao.trang_thai == BG_DE_XUAT,
+                SanXuatCongViec.department_id.in_(to_ids),
+            )
+            .order_by(SanXuatBanGiao.de_xuat_luc, SanXuatBanGiao.id)
+        ).all()
+        return [(bg, dept) for bg, dept in rows]
 
     def batch_da_giao_ids(self, cong_viec_id: int) -> set[int]:
         """Id các mẻ của công việc này ĐÃ đi theo một lần bàn giao (bảng `san_xuat_ban_giao_batch`).

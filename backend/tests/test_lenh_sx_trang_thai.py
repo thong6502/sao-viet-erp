@@ -44,6 +44,7 @@ from app.models.san_xuat_kho import (
 from app.models.san_xuat_thuc_thi import PHIEN_KET_THUC, SanXuatPhienChay
 from app.services.lenh_sx import boi_canh, trang_thai
 from app.services.san_xuat import kcs, kho, release
+from tests.quyen_to_fixtures import cap_quyen_to
 
 from tests.test_san_xuat_board import (  # noqa: F401
     _authz, _hai_lsx_san_sang, _phat_hanh_vao_to, admin, customer, db, lsx_svc, orders,
@@ -977,18 +978,19 @@ def nhom_hai_lenh(db, orders, lsx_svc, admin, customer) -> tuple[int, int]:
     `la_kcs_cuoi` cho MỘT ứng viên mỗi nhóm, nên lệnh còn lại không có bước KCS nào ⇒ nó không có
     đường tự lập yêu cầu nhập kho; hàng của nó đi kèm hàng của thân chính.
 
-    Tổ KCS để `head_user_id = admin` vì `kcs.tao_batch_kcs`/`kho.*` đều qua `thuc_thi._gate:63`
-    (chỉ tổ trưởng đúng tổ). Trả `(than_chinh, phu)`.
+    Admin được cấp dòng quyền `to_sx_<tổ KCS>` (Xem + bốn quyền chi tiết, phạm vi all) vì
+    `kcs.tao_batch_kcs`/`kho.*` đều qua `thuc_thi._gate` → `gate_to` (quyền KCS/Kho trên tổ của
+    công việc). Trả `(than_chinh, phu)`.
     """
     a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     db.get(OrderLine, a.order_line_id).nhom = "Kỷ yếu"
     db.get(OrderLine, b.order_line_id).nhom = "Kỷ yếu"
     to_kcs = Department(
         name="KCS Nhóm T8", code="KCS-NHOM-T8", is_kcs=True, la_san_xuat=True,
-        head_user_id=admin.id,
     )
     db.add(to_kcs)
     db.flush()
+    cap_quyen_to(db, admin, to_kcs)
     _buoc_routing(db, a.id)[-1].department_id = to_kcs.id
     db.commit()
 

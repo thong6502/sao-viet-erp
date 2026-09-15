@@ -3,7 +3,9 @@
 Soi tầng service `services/san_xuat/ban_giao.py` (nơi chứa LUẬT), không qua HTTP:
   · cùng tổ + cùng LSX → tự `confirmed`; khác tổ/LSX → `proposed` rồi bên NHẬN xác nhận;
   · số lượng giao = tổng tốt của MẺ chọn (không gõ tay); sửa MẺ chỉ khi còn `proposed`;
-  · xác nhận là quyền tổ ĐÍCH; điều chỉnh đẻ dòng lịch sử, giảm dưới lượng đã dùng ⇒ cờ không nhất quán.
+  · xác nhận là quyền Xác nhận sản lượng ở tổ ĐÍCH (dòng quyền theo tổ, mg 0302) — báo tin đẩy cho
+    người giữ quyền đó trọn tổ bên kia, trừ người vừa bấm; điều chỉnh đẻ dòng lịch sử, giảm dưới
+    lượng đã dùng ⇒ cờ không nhất quán.
 
 `cung_to`/`lsx_id`/`department_id` là các cột SNAPSHOT của công việc — set thẳng trong test để soi
 từng nhánh luật, không phụ thuộc số công đoạn mà fixture routing sinh ra. Riêng ĐÍCH bàn giao phải
@@ -17,6 +19,7 @@ import pytest
 
 from app.models.department import Department
 from app.models.lsx import LsxCongDoan, LsxCongDoanPhuThuoc
+from app.models.role import SCOPE_OWN
 from app.models.san_xuat import CV_DANG_CHAY, CV_PHAT_HANH, SanXuatCongViec
 from app.models.san_xuat_san_luong import (
     BG_DE_XUAT,
@@ -28,7 +31,8 @@ from app.models.san_xuat_san_luong import (
 )
 from app.models.user import User
 from app.repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
-from app.services.san_xuat import ban_giao, san_luong
+from app.services.san_xuat import ban_giao, board, san_luong
+from tests.quyen_to_fixtures import cap_quyen_to
 
 from tests.test_san_xuat_thuc_thi import (  # noqa: F401
     _cvs,
@@ -68,11 +72,10 @@ def _to_dich(db, ma="TO-BG-DICH") -> tuple[Department, User]:
     u = User(username=f"head_{ma.lower()}", name="Tổ trưởng đích", password_hash="x")
     db.add(u)
     db.flush()
-    d = Department(
-        name="Tổ Đích", code=ma, la_san_xuat=True, has_piece_work=True, head_user_id=u.id
-    )
+    d = Department(name="Tổ Đích", code=ma, la_san_xuat=True, has_piece_work=True)
     db.add(d)
     db.flush()
+    cap_quyen_to(db, u, d)
     return d, u
 
 
@@ -89,6 +92,12 @@ def test_de_xuat_khac_to_cho_xac_nhan(db, orders, lsx_svc, admin, customer):
     to, cv1, cv2, _lsx = _hai_cv(db, orders, lsx_svc, admin, customer)
     to_b, ub = _to_dich(db)
     cv2.department_id = to_b.id                          # khác tổ → phải chờ xác nhận
+    for ten, kw in (("tho_chay_dich", dict(viec=("run_order",))),
+                    ("tho_own_dich", dict(viec=("confirm_output",), scope=SCOPE_OWN))):
+        u = User(username=ten, name=ten, password_hash="x", department_id=to_b.id)
+        db.add(u)
+        db.flush()
+        cap_quyen_to(db, u, to_b, **kw)
     db.commit()
     b = _batch(db, admin, cv1, tot=100)
 
@@ -98,7 +107,36 @@ def test_de_xuat_khac_to_cho_xac_nhan(db, orders, lsx_svc, admin, customer):
     )
     assert res["trang_thai_ban_giao"] == BG_DE_XUAT
     assert res["so_luong"] == 100                       # = tốt của mẻ, không gõ tay
-    assert res["notify_user_id"] == ub.id               # đẩy cho tổ trưởng ĐÍCH
+    # Đẩy cho người giữ Xác nhận sản lượng TRỌN tổ ĐÍCH — người chỉ có Thực hiện lệnh, hay chỉ có
+    # Xác nhận ở phạm vi "Của tôi", không phải người xác nhận bàn giao nên không bị báo.
+    assert res["notify_user_ids"] == [ub.id]
+
+
+def test_hop_cho_xac_nhan_cua_to_dich_va_badge(db, orders, lsx_svc, admin, customer):
+    """Bàn giao khác tổ chờ nhận hiện ở hộp "Chờ tổ bạn xác nhận" của bàn tổ ĐÍCH và cộng vào badge
+    menu — tổ đích không phải đoán mở đúng công đoạn nào. Xác nhận xong thì rời hộp. SSE mang nhãn
+    công đoạn để toast của người nhận nói được giao gì."""
+    to, cv1, cv2, _lsx = _hai_cv(db, orders, lsx_svc, admin, customer)
+    to_b, ub = _to_dich(db)
+    cv2.department_id = to_b.id
+    db.commit()
+    b = _batch(db, admin, cv1, tot=100)
+    res = ban_giao.de_xuat(
+        db, user=admin, nguon_cong_viec_id=cv1.id, dich_cong_viec_id=cv2.id, batch_ids=[b],
+    )
+    assert res["su_kien"] == "de_xuat"
+    assert res["nguon_ten"] == cv1.ten_cong_doan and res["dich_ten"] == cv2.ten_cong_doan
+
+    hop = board.cho_xac_nhan(db, ub, team_id=to_b.id)
+    assert [(x["id"], x["dich_cong_viec_id"], x["so_luong"]) for x in hop["ban_giao"]] == [
+        (res["ban_giao_id"], cv2.id, 100)
+    ]
+    assert {t["id"]: t["so_cho_xac_nhan"] for t in board.teams(db, ub, None)}[to_b.id] == 1
+    assert board.cho_xac_nhan(db, admin, team_id=to.id)["ban_giao"] == []   # tổ nguồn không phải bấm
+
+    ban_giao.xac_nhan(db, user=ub, ban_giao_id=res["ban_giao_id"])
+    assert board.cho_xac_nhan(db, ub, team_id=to_b.id)["ban_giao"] == []
+    assert {t["id"]: t["so_cho_xac_nhan"] for t in board.teams(db, ub, None)}[to_b.id] == 0
 
 
 def test_cung_to_cung_lsx_tu_xac_nhan(db, orders, lsx_svc, admin, customer):
@@ -112,7 +150,7 @@ def test_cung_to_cung_lsx_tu_xac_nhan(db, orders, lsx_svc, admin, customer):
         batch_ids=[b],
     )
     assert res["trang_thai_ban_giao"] == BG_XAC_NHAN
-    assert res["notify_user_id"] is None                # không ai phải đợi
+    assert res["notify_user_ids"] == []                 # không ai phải đợi
 
 
 def test_so_theo_me_khong_vuot_phan_con_lai(db, orders, lsx_svc, admin, customer):
@@ -172,11 +210,21 @@ def test_xac_nhan_la_quyen_to_dich(db, orders, lsx_svc, admin, customer):
         batch_ids=[b],
     )
 
-    with pytest.raises(PermissionError):                 # tổ NGUỒN không được tự xác nhận
+    with pytest.raises(PermissionError, match="Xác nhận sản lượng"):  # tổ NGUỒN không tự xác nhận
         ban_giao.xac_nhan(db, user=admin, ban_giao_id=r["ban_giao_id"])
+    # Ở tổ ĐÍCH mà chỉ có Thực hiện lệnh thì cũng không xác nhận được.
+    chi_chay = User(username="chi_chay_dich", name="Chỉ chạy", password_hash="x",
+                    department_id=to_b.id)
+    db.add(chi_chay)
+    db.flush()
+    cap_quyen_to(db, chi_chay, to_b, viec=("run_order",))
+    db.commit()
+    with pytest.raises(PermissionError, match="Xác nhận sản lượng"):
+        ban_giao.xac_nhan(db, user=chi_chay, ban_giao_id=r["ban_giao_id"])
+
     res = ban_giao.xac_nhan(db, user=ub, ban_giao_id=r["ban_giao_id"])
     assert res["trang_thai_ban_giao"] == BG_XAC_NHAN
-    assert res["notify_user_id"] == admin.id             # báo ngược tổ nguồn
+    assert res["notify_user_ids"] == [admin.id]          # báo ngược người xác nhận ở tổ nguồn
 
 
 # --- Điều chỉnh (§11.3) ---------------------------------------------------------------------

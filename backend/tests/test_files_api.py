@@ -123,3 +123,45 @@ def test_cookie_file_khong_dung_duoc_thay_bearer(client):
 
     response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {file_token}"})
     assert response.status_code == 401
+
+
+# --- header an toàn khi phục vụ tệp -------------------------------------------------------------
+# Tệp người dùng tải lên phục vụ CÙNG origin với app. Không có hai header dưới đây thì một tệp
+# `.html`/`.svg` chèn script, mở thẳng đường dẫn là script chạy với quyền của người đang đăng nhập.
+
+
+def _dat_tep(key: str, data: bytes) -> str:
+    from app.storage import get_storage, url_from_key
+
+    get_storage().save(key, data)
+    return url_from_key(key)
+
+
+def test_moi_tep_deu_mang_nosniff(client):
+    _login(client)
+    url = _dat_tep("avatars/hdr/0a1b2c3d_anh.png", b"png")
+    assert client.get(url).headers["x-content-type-options"] == "nosniff"
+
+
+def test_anh_va_pdf_mo_ngay_trong_trinh_duyet(client):
+    _login(client)
+    for ten in ("0a1b2c3d_anh.png", "0a1b2c3d_maket.pdf", "0a1b2c3d_anh.JPG"):
+        got = client.get(_dat_tep(f"avatars/hdr/{ten}", b"x"))
+        assert got.headers["content-disposition"].startswith("inline"), ten
+
+
+def test_tep_co_the_chua_script_bi_ep_tai_ve(client):
+    _login(client)
+    for ten in ("0a1b2c3d_trang.html", "0a1b2c3d_logo.svg", "0a1b2c3d_file.ai"):
+        got = client.get(_dat_tep(f"avatars/hdr/{ten}", b"<script>alert(1)</script>"))
+        assert got.status_code == 200
+        assert got.headers["content-disposition"].startswith("attachment"), ten
+
+
+def test_ten_tai_ve_bo_ma_ngau_nhien_va_giu_dau_tieng_viet(client):
+    _login(client)
+    got = client.get(_dat_tep("avatars/hdr/0a1b2c3d_Maket hộp bánh.ai", b"x"))
+    cd = got.headers["content-disposition"]
+    # RFC 5987: tên có dấu đi qua `filename*`, mã hoá UTF-8; tiền tố token lúc lưu không lọt ra.
+    assert "filename*=UTF-8''Maket%20h%E1%BB%99p%20b%C3%A1nh.ai" in cd
+    assert "0a1b2c3d" not in cd

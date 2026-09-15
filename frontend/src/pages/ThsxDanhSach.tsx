@@ -250,7 +250,7 @@ function DsRowBlock({
       <td>
         <div className="thsx-ds__act-cell" onClick={(e) => e.stopPropagation()}>
           <ThsxTrangThaiPill tt={w.trang_thai} size="xs" />
-          {(w.trang_thai === "released" || w.trang_thai === "paused") && onBatDau && (
+          {(w.trang_thai === "released" || w.trang_thai === "paused") && w.chay_duoc && onBatDau && (
             <button
               type="button"
               className="thsx-ds__actbtn thsx-ds__actbtn--play"
@@ -260,7 +260,7 @@ function DsRowBlock({
               <Icon name="play" size={11} /> Bắt đầu
             </button>
           )}
-          {w.trang_thai === "running" && (
+          {w.trang_thai === "running" && w.chay_duoc && (
             <div className="thsx-ds__act-grp">
               {onTamDung && (
                 <button

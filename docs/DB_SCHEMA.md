@@ -200,6 +200,10 @@ gets on that module.
 | `can_manage_leave_types` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nghi_phep, mg 0197) — **danh mục loại nghỉ** (phép năm, nghỉ ốm, không lương…), chính sách dùng chung cả công ty. Trước đó nó mượn chính cột `can_update`, mà `can_update` là một trong ba cột nút *Thao tác* bật cùng lúc ⇒ bật Thao tác là ô này TỰ SÁNG THEO, mở luôn quyền sửa chính sách nghỉ của cả nhà máy. |
 | `can_plan` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (giao_hang, mg 0199) — tab **Yêu cầu chờ lên kế hoạch** + nút phân công tài xế. Tách khỏi `can_create` vì gửi yêu cầu giao (Bán hàng) và xếp chuyến cho tài xế (Quản lý Giao hàng) là việc của hai người. |
 | `can_view_drivers` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (giao_hang, mg 0199) — tab **Nhân viên giao hàng**: lịch làm việc, số chuyến, tổng km của NGƯỜI KHÁC. Ô riêng vì tài xế ở phạm vi *Của tôi* không được thấy năng suất đồng nghiệp. |
+| `can_run_order` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết của **dòng quyền theo tổ** `to_sx_<id>` (mg 0302) — **Thực hiện lệnh**: giao/rút người · bắt đầu, tạm dừng, đổi máy, kết thúc · báo sự cố · nhận/trả khuôn · ghi mẻ + lô đầu vào. Phạm vi của dòng quyết định làm được trên tổ nào (`services/quyen_to.py`). |
+| `can_confirm_output` | `Boolean` → `BOOLEAN` | — | no | `false` | Dòng quyền theo tổ (mg 0302) — **Xác nhận sản lượng**: chia sản lượng (tính, chốt, mở lại, bù trừ, loại trừ chấm công) · bàn giao/nhận · hỗ trợ chéo. |
+| `can_qc` | `Boolean` → `BOOLEAN` | — | no | `false` | Dòng quyền theo tổ (mg 0302) — **KCS**: kiểm · ghi lỗi + ảnh · sửa kết quả · phản hồi lỗi · đóng thiếu nhóm. |
+| `can_warehouse` | `Boolean` → `BOOLEAN` | — | no | `false` | Dòng quyền theo tổ (mg 0302) — **Kho**: đề nghị vật tư · xác nhận nhận vật tư · yêu cầu nhập kho · phân loại BTP dư · huỷ phần chưa nhận. |
 
 **Keys & indexes**
 
@@ -221,7 +225,7 @@ data that grows as new departments come online (adding a module is a new row).
 | Column       | Type (SQLAlchemy → SQLite / Postgres)                  | Key           | Null | Default        | Meaning                                                                                    |
 | ------------ | ------------------------------------------------------ | ------------- | ---- | -------------- | ------------------------------------------------------------------------------------------ |
 | `id`         | `Integer` → `INTEGER` / `SERIAL`                       | **PK**        | no   | auto-increment | Surrogate primary key.                                                                     |
-| `key`        | `String(64)` → `VARCHAR(64)`                           | **U**, **IX** | no   | —              | Stable module identifier (e.g. `khach_hang`); referenced by `role_permissions.module_key`. |
+| `key`        | `String(64)` → `VARCHAR(64)`                           | **U**, **IX** | no   | —              | Stable module identifier (e.g. `khach_hang`); referenced by `role_permissions.module_key`. Khoá `to_sx_<id phòng ban>` (mg 0302) là **dòng quyền theo tổ**: một dòng cho mỗi phòng ban thuộc khối Sản xuất, tự thêm / đổi nhãn / gỡ theo cây Phòng ban (`services/quyen_to.dong_bo_dong_quyen_to`), nhãn = tên phòng ban. |
 | `label`      | `String(255)` → `VARCHAR(255)`                         | —             | no   | —              | Human-readable module name shown in the permission matrix.                                 |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | When the module row was created.                                                           |
 
@@ -3997,6 +4001,33 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 **Purpose:** cạnh DAG giữa hai bước LSX, cho phép nhiều tiền nhiệm và xuyên LSX trong cùng đơn hàng.
 
 **Tất cả cột:** `id`, `buoc_truoc_id`, `buoc_sau_id`, `created_at`.
+
+---
+
+### `lsx_dinh_kem`
+
+**Purpose:** Tệp đính kèm của MỘT lệnh sản xuất — maket, file in, mẫu khách duyệt, ảnh tham khảo (tab "Tệp đính kèm" ở màn chi tiết lệnh, 15/09/2026). Gắn vào cả lệnh, không gắn từng bước, không phân loại. Bytes nằm trong kho file (`storage.py`, khoá `san-xuat/lsx/<lsx_id>/<8 hex>_<tên>`), đọc lại qua `/api/files` có kiểm quyền `san_xuat`. Bảng mới, có migration `0303`.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `lsx_id` | `Integer` → `INTEGER` | FK→`lsx.id` (CASCADE), IX | no | — | Lệnh sở hữu tệp. Xoá lệnh ⇒ SQLAlchemy xoá dòng (`Lsx.dinh_kems` cascade); object trong kho do router xoá lệnh dọn. |
+| `ten_tep` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên đã làm sạch (`storage.safe_name`) để hiện. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | `/api/files/san-xuat/lsx/…` — token ngẫu nhiên trong khoá nên hai tệp trùng tên không đè nhau. |
+| `content_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | Kiểu trình duyệt gửi lên. CHỈ để màn chọn cách xem trước; `/api/files` tự quyết mở ngay hay ép tải về. |
+| `kich_thuoc` | `Integer` → `INTEGER` | — | no | `0` | Số byte. Tối đa 50MB/tệp (`services/lsx_dinh_kem.MAX_BYTES`, nginx `client_max_body_size 60m`). |
+| `nguoi_tai_id` | `Integer` → `INTEGER` | — | yes | — | Soft → `users.id`. Máy chủ chốt từ tài khoản đang đăng nhập, không có ô nhập. |
+| `tai_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Lúc tải lên. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign key: `lsx_id` → `lsx.id` (`ondelete=CASCADE`). Index: `ix_lsx_dinh_kem_lsx_id` (`lsx_id`).
+
+**Relationships**
+
+- Không giữ lịch sử riêng: thêm/xoá ghi `audit_logs` (`lsx_dinh_kem_them` / `lsx_dinh_kem_xoa`, target `lsx:{id}`) ⇒ hiện ở tab Nhật ký của lệnh. Đơn đã huỷ ⇒ chặn thêm/xoá (409), vẫn xem được.
+
+**Tất cả cột:** `id`, `lsx_id`, `ten_tep`, `file_url`, `content_type`, `kich_thuoc`, `nguoi_tai_id`, `tai_luc`.
 
 ---
 

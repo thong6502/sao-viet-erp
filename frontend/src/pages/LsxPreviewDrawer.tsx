@@ -185,7 +185,7 @@ export function LsxPreviewDrawer({
                     <th scope="col" className="khsx-th--num">Bù hao</th>
                     <th scope="col" className="khsx-th--num">Vào máy</th>
                     <th scope="col" className="khsx-th--num">Giấy nguyên</th>
-                    <th scope="col" className="khsx-th--num">Bình bài</th>
+                    <th scope="col" className="khsx-th--num">Con / tờ in</th>
                     <th scope="col" className="khsx-th--num">Kẽm · lượt</th>
                     <th scope="col">Công đoạn</th>
                   </tr>
@@ -305,7 +305,7 @@ function PreviewRow({
 }) {
   const daCo = line.lsx_id != null;
   const dvDong = donViChuoi(line, line.don_vi_tinh);
-  const { to: dvTo, tp: dvTp } = dvDong;
+  const { to: dvTo } = dvDong;
   return (
     <tr
       className={
@@ -360,9 +360,9 @@ function PreviewRow({
       </td>
       <td
         className="khsx-num khsx-num--val"
-        title={dvTp && dvTo ? `${num(line.so_con)} ${dvTp} trên 1 ${dvTo}` : undefined}
+        title={dvTo ? `${num(line.so_con)} con trên 1 ${dvTo}` : undefined}
       >
-        <span className="khsx-num__main">{num(line.so_con)}</span> <span className="khsx-unit">{dvTp}</span>
+        <span className="khsx-num__main">{num(line.so_con)}</span>
       </td>
       <td className="khsx-num khsx-num--val">
         {line.so_kem == null && line.so_luot == null ? (

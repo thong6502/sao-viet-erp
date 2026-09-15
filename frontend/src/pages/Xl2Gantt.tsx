@@ -133,7 +133,7 @@ export function Xl2Gantt({
   // (cả ở mật độ hẹp nhất "Tuần", một ngày vẫn 130px). Không chữa được bằng CSS: `LABEL_W` bị nướng
   // thẳng vào `style={{ left: LABEL_W + x }}` của thước/ruy-băng ca/vạch gióng, đổi `--xl2-label-w`
   // một mình là lệch hẳn hai tầng. Màn hẹp rút cột nhãn còn 140px — ĐÚNG cách và ĐÚNG ngưỡng mà
-  // `ThsxTimeline.tsx` (trục thời gian anh em, dùng chung `xl2Shared`) đã làm, để hai màn một thước.
+  // `ThsxTimeline.tsx` (trục thời gian anh em, nay đã gỡ khỏi bàn tổ) từng làm, để hai màn một thước.
   // Kéo-thả KHÔNG bị ảnh hưởng: `onMove` quy toạ độ theo rect của chính lane track, không theo hằng này.
   const [labelW, setLabelW] = useState(() =>
     typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches ? 140 : LABEL_W);

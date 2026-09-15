@@ -324,6 +324,15 @@ class SanXuatRepository:
             .limit(1)
         ).scalar_one_or_none()
 
+    def goi_dang_phat_hanh(self, goi_id: int) -> bool:
+        """Gói còn hiệu lực? Thu hồi rồi thì công việc vẫn nằm đó nhưng tổ không còn thấy."""
+        return self.db.execute(
+            select(SanXuatGoiPhatHanh.id).where(
+                SanXuatGoiPhatHanh.id == goi_id,
+                SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
+            )
+        ).first() is not None
+
     def cong_viec_cua_goi(self, goi_id: int) -> list[SanXuatCongViec]:
         """Mọi công việc của một gói (không lọc phiên bản) — §4.3 chia đã/chưa bắt đầu để cập nhật."""
         return list(
@@ -391,19 +400,21 @@ class SanXuatRepository:
         chi_chua_xong: bool = False,
         la_kcs: bool | None = None,
         employee_id: int | None = None,
+        rieng_ids: set[int] | None = None,
     ) -> list[SanXuatCongViec]:
         """Công việc ĐÃ PHÁT HÀNH mà tổ (`department_id`) phải làm — timeline bàn tổ. Chỉ đọc gói
         đang hiệu lực (bỏ gói đã thu hồi). Sắp theo giờ dự kiến (chưa xếp giờ dồn cuối), rồi id.
 
         `la_kcs`: lọc theo mode board (Task 4, §18 mục 6) — None = không lọc (giữ hành vi cũ).
-        `employee_id`: THỢ mở bàn thì chỉ thấy việc đang giao cho mình (§7.1) — None = trọn tổ."""
-        if not department_ids:
+        `employee_id` / `rieng_ids`: phạm vi tổ, xem `_pham_vi_to`."""
+        pham_vi = self._pham_vi_to(department_ids, employee_id, rieng_ids)
+        if pham_vi is None:
             return []
         q = (
             select(SanXuatCongViec)
             .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)
             .where(
-                SanXuatCongViec.department_id.in_(department_ids),
+                pham_vi,
                 SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
             )
         )
@@ -411,8 +422,6 @@ class SanXuatRepository:
             q = q.where(SanXuatCongViec.trang_thai != CV_HOAN_THANH)
         if la_kcs is not None:
             q = q.where(SanXuatCongViec.la_kcs.is_(la_kcs))
-        if (giao := self._duoc_giao_cho(employee_id)) is not None:
-            q = q.where(giao)
         rows = list(self.db.execute(q).scalars())
         rows.sort(key=lambda cv: (cv.du_kien_bat_dau is None, cv.du_kien_bat_dau, cv.id))
         return rows
@@ -444,6 +453,7 @@ class SanXuatRepository:
         *,
         la_kcs: bool | None = None,
         employee_id: int | None = None,
+        rieng_ids: set[int] | None = None,
         tim: str | None = None,
         trang: int = 1,
         co_trang: int = 20,
@@ -464,7 +474,8 @@ class SanXuatRepository:
         GHÉP và tên CÔNG ĐOẠN; khớp một bước là cả lệnh hiện ra (bàn tổ đi tìm LỆNH, không đi tìm
         bước rời).
         """
-        if not department_ids:
+        pham_vi = self._pham_vi_to(department_ids, employee_id, rieng_ids)
+        if pham_vi is None:
             return [], 0
         from sqlalchemy import case as sa_case, func, select as sa_select
 
@@ -472,13 +483,11 @@ class SanXuatRepository:
         som = func.min(SanXuatCongViec.du_kien_bat_dau)
         muon = func.max(SanXuatCongViec.du_kien_ket_thuc)
         dieu_kien = [
-            SanXuatCongViec.department_id.in_(department_ids),
+            pham_vi,
             SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
         ]
         if la_kcs is not None:
             dieu_kien.append(SanXuatCongViec.la_kcs.is_(la_kcs))
-        if (giao := self._duoc_giao_cho(employee_id)) is not None:
-            dieu_kien.append(giao)
 
         nhom = (
             sa_select(loai.label("loai"), nid.label("nid"),
@@ -518,13 +527,15 @@ class SanXuatRepository:
         *,
         la_kcs: bool | None = None,
         employee_id: int | None = None,
+        rieng_ids: set[int] | None = None,
     ) -> list[SanXuatCongViec]:
         """Mọi bước CỦA TỔ thuộc các lệnh/bài ghép trong danh sách khoá — một truy vấn cho cả trang.
 
         Ghép điều kiện bằng ba nhánh OR đích danh thay vì `IN` trên tuple: `IN ((a,b),…)` không
         portable giữa Postgres và SQLite, mà phân trang thì bắt buộc chạy đúng trên cả hai.
         """
-        if not department_ids or not khoa:
+        pham_vi = self._pham_vi_to(department_ids, employee_id, rieng_ids)
+        if pham_vi is None or not khoa:
             return []
         from sqlalchemy import false, or_
 
@@ -547,14 +558,12 @@ class SanXuatRepository:
             )
 
         dieu_kien = [
-            SanXuatCongViec.department_id.in_(department_ids),
+            pham_vi,
             SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
             or_(*nhanh) if nhanh else false(),
         ]
         if la_kcs is not None:
             dieu_kien.append(SanXuatCongViec.la_kcs.is_(la_kcs))
-        if (giao := self._duoc_giao_cho(employee_id)) is not None:
-            dieu_kien.append(giao)
 
         rows = list(
             self.db.execute(
@@ -621,6 +630,35 @@ class SanXuatRepository:
             out.setdefault(cv_id, []).append(ten or "")
         return out
 
+    def _pham_vi_to(
+        self,
+        department_ids: set[int],
+        employee_id: int | None,
+        rieng_ids: set[int] | None,
+    ):
+        """Điều kiện PHẠM VI TỔ của một câu đọc bàn tổ; None = không có gì để thấy.
+
+        Hình cũ (`rieng_ids is None`): mọi tổ trong `department_ids`, và nếu có `employee_id` thì chỉ
+        việc đang giao cho người đó. Hình theo quyền tổ (mg 0302): `department_ids` thấy TRỌN,
+        `rieng_ids` chỉ việc đang giao cho `employee_id` — một bàn cấp gom có thể trộn cả hai (vd
+        Tất cả ở Nhóm 2 màu nhưng chỉ Của tôi ở phần còn lại của Tổ in)."""
+        from sqlalchemy import or_
+
+        giao = self._duoc_giao_cho(employee_id)
+        if rieng_ids is None:
+            if not department_ids:
+                return None
+            dk = SanXuatCongViec.department_id.in_(department_ids)
+            return dk if giao is None else (dk & giao)
+        nhanh = []
+        if department_ids:
+            nhanh.append(SanXuatCongViec.department_id.in_(department_ids))
+        if rieng_ids and giao is not None:
+            nhanh.append(SanXuatCongViec.department_id.in_(rieng_ids) & giao)
+        if not nhanh:
+            return None
+        return nhanh[0] if len(nhanh) == 1 else or_(*nhanh)
+
     @staticmethod
     def _duoc_giao_cho(employee_id: int | None):
         """Điều kiện "việc này đang giao cho người đó" — dùng khi THỢ mở bàn tổ (§7.1). None ⇒
@@ -636,26 +674,28 @@ class SanXuatRepository:
         )
 
     def dem_cho_lam_theo_to(
-        self, department_ids: set[int], *, employee_id: int | None = None
+        self,
+        department_ids: set[int],
+        *,
+        employee_id: int | None = None,
+        rieng_ids: set[int] | None = None,
     ) -> dict[int, int]:
         """Số việc SẢN XUẤT (không tính KCS) CHƯA XONG mỗi tổ (badge navbar §2.1) — chỉ đếm gói
         đang hiệu lực. Task 4: loại việc `la_kcs=true` — badge KCS riêng ở `dem_kcs_cho_kiem_theo_to`.
 
         `employee_id`: chỉ đếm việc đang giao cho người đó — badge của THỢ phải khớp đúng số dòng
         họ mở ra thấy, nếu không navbar báo 12 mà bàn chỉ có 2."""
-        if not department_ids:
+        pham_vi = self._pham_vi_to(department_ids, employee_id, rieng_ids)
+        if pham_vi is None:
             return {}
         from sqlalchemy import func
 
         dieu_kien = [
-            SanXuatCongViec.department_id.in_(department_ids),
+            pham_vi,
             SanXuatCongViec.trang_thai != CV_HOAN_THANH,
             SanXuatCongViec.la_kcs.is_(False),
             SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
         ]
-        giao = self._duoc_giao_cho(employee_id)
-        if giao is not None:
-            dieu_kien.append(giao)
         rows = self.db.execute(
             select(SanXuatCongViec.department_id, func.count(SanXuatCongViec.id))
             .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)
@@ -665,13 +705,18 @@ class SanXuatRepository:
         return {dept_id: n for dept_id, n in rows if dept_id is not None}
 
     def dem_kcs_cho_kiem_theo_to(
-        self, department_ids: set[int], *, employee_id: int | None = None
+        self,
+        department_ids: set[int],
+        *,
+        employee_id: int | None = None,
+        rieng_ids: set[int] | None = None,
     ) -> dict[int, int]:
         """Badge KCS (§18, Task 4): số việc KCS CÒN BÀN GIAO XÁC NHẬN nhưng CHƯA KIỂM mỗi tổ — tổ
         nào cũng có thể có (KCS kiêm nhiệm). 'Còn bàn giao xác nhận' = có `san_xuat_ban_giao` ĐẾN
         việc này ở trạng thái confirmed/adjusted (đầu vào đã chốt). 'Chưa kiểm' = chưa có
         `san_xuat_kcs_batch` nào neo việc này."""
-        if not department_ids:
+        pham_vi = self._pham_vi_to(department_ids, employee_id, rieng_ids)
+        if pham_vi is None:
             return {}
         from sqlalchemy import func, exists
 
@@ -684,7 +729,7 @@ class SanXuatRepository:
             select(SanXuatCongViec.department_id, func.count(SanXuatCongViec.id))
             .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)
             .where(
-                SanXuatCongViec.department_id.in_(department_ids),
+                pham_vi,
                 SanXuatCongViec.la_kcs.is_(True),
                 SanXuatCongViec.trang_thai != CV_HOAN_THANH,
                 SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
@@ -693,30 +738,29 @@ class SanXuatRepository:
             )
             .group_by(SanXuatCongViec.department_id)
         )
-        giao = self._duoc_giao_cho(employee_id)
-        if giao is not None:
-            q = q.where(giao)
         rows = self.db.execute(q).all()
         return {dept_id: n for dept_id, n in rows if dept_id is not None}
 
     def to_co_viec_kcs(
-        self, department_ids: set[int], *, employee_id: int | None = None
+        self,
+        department_ids: set[int],
+        *,
+        employee_id: int | None = None,
+        rieng_ids: set[int] | None = None,
     ) -> set[int]:
         """Tổ nào đang có ÍT NHẤT MỘT việc KCS đang hoạt động (gói hiệu lực, chưa hoàn thành) —
         cổng sinh node "KCS · {tổ}" (§18 mục 6, Task 4). RỘNG HƠN badge
         (`dem_kcs_cho_kiem_theo_to`): không đòi hỏi đã bàn giao/chưa kiểm, chỉ cần CÓ việc KCS
         đang chạy, để node còn hiện khi KCS đang làm/đã xong-đang chờ việc khác tới."""
-        if not department_ids:
+        pham_vi = self._pham_vi_to(department_ids, employee_id, rieng_ids)
+        if pham_vi is None:
             return set()
         dieu_kien = [
-            SanXuatCongViec.department_id.in_(department_ids),
+            pham_vi,
             SanXuatCongViec.la_kcs.is_(True),
             SanXuatCongViec.trang_thai != CV_HOAN_THANH,
             SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
         ]
-        giao = self._duoc_giao_cho(employee_id)
-        if giao is not None:
-            dieu_kien.append(giao)
         rows = self.db.execute(
             select(SanXuatCongViec.department_id.distinct())
             .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)

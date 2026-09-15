@@ -31,10 +31,13 @@ interface NhomRow {
 }
 
 export function KcsChotNhom({
-  items, canAssign, eventTick, onDone,
+  items, canDong, canPhanLoai, eventTick, onDone,
 }: {
   items: SxWorkItem[];
-  canAssign: boolean;
+  /** Đóng thiếu nhóm — quyền KCS trọn tổ. */
+  canDong: boolean;
+  /** Phân loại BTP dư — quyền Kho. */
+  canPhanLoai: boolean;
   /** Bump khi có sự kiện SX (SSE) — tải lại điều kiện của nhóm đang mở. */
   eventTick?: number;
   onDone: () => void;
@@ -84,7 +87,8 @@ export function KcsChotNhom({
               <span className="kcs-chot__sl">{n.viec.length} bước KCS</span>
             </button>
             {moId === n.nhomId && (
-              <ChotNhomThan nhom={n} token={token} canAssign={canAssign} eventTick={eventTick} onDone={onDone} />
+              <ChotNhomThan nhom={n} token={token} canDong={canDong} canPhanLoai={canPhanLoai}
+                eventTick={eventTick} onDone={onDone} />
             )}
           </li>
         ))}
@@ -94,11 +98,12 @@ export function KcsChotNhom({
 }
 
 function ChotNhomThan({
-  nhom, token, canAssign, eventTick, onDone,
+  nhom, token, canDong, canPhanLoai, eventTick, onDone,
 }: {
   nhom: NhomRow;
   token: string | null;
-  canAssign: boolean;
+  canDong: boolean;
+  canPhanLoai: boolean;
   eventTick?: number;
   onDone: () => void;
 }) {
@@ -151,14 +156,14 @@ function ChotNhomThan({
     <div className="kcs-chot__than">
       {loi && <div className="banner banner--error" role="alert"><span>{loi}</span></div>}
 
-      <ThsxDongNhomPanel dieuKien={dieuKien} canAssign={canAssign} busy={busy}
+      <ThsxDongNhomPanel dieuKien={dieuKien} canAssign={canDong} busy={busy}
         onDongThieu={onDongThieu} />
 
       <section className="thsx-psec thsx-x">
         <div className="thsx-psec__h">
           <span className="thsx-psec__title"><Icon name="box" size={13} /> BTP dư</span>
         </div>
-        {canAssign && (
+        {canPhanLoai && (
           <div className="thsx-x-pb--empty">
             <span className="thsx-x-pb__none">Phân loại phần bán thành phẩm còn dư.</span>
             <Button variant="ghost" onClick={() => setPlOpen((o) => !o)} disabled={busy} aria-expanded={plOpen}>

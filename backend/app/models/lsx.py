@@ -172,6 +172,14 @@ class Lsx(Base):
         order_by="LsxCongDoan.thu_tu",
         cascade="all, delete-orphan",
     )
+    # Cùng lý do không `passive_deletes` như `cong_doans`. Xoá DÒNG thôi — object trong kho file do
+    # router xoá lệnh dọn, vì tầng DB không biết gì về storage.
+    dinh_kems: Mapped[list["LsxDinhKem"]] = relationship(
+        "LsxDinhKem",
+        back_populates="lsx",
+        order_by="LsxDinhKem.id",
+        cascade="all, delete-orphan",
+    )
 
 
 class LsxCongDoan(Base):
@@ -392,3 +400,28 @@ class LsxCongDoanPhuThuoc(Base):
     buoc_sau: Mapped["LsxCongDoan"] = relationship(
         "LsxCongDoan", foreign_keys=[buoc_sau_id], back_populates="phu_thuoc"
     )
+
+
+class LsxDinhKem(Base):
+    """Tệp đính kèm của MỘT lệnh: maket, file in, mẫu khách duyệt, ảnh tham khảo…
+
+    Gắn vào cả lệnh, không gắn từng bước, không phân loại. Bytes nằm trong kho file
+    (`san-xuat/lsx/<lsx_id>/…`), đọc lại qua `/api/files` có kiểm quyền `san_xuat`. Thêm/xoá ghi
+    audit target `lsx:{id}` nên hiện ở tab Nhật ký — bảng này không tự giữ lịch sử.
+    """
+
+    __tablename__ = "lsx_dinh_kem"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lsx_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lsx.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    ten_tep: Mapped[str] = mapped_column(String(255), nullable=False)       # tên đã làm sạch, để hiện
+    file_url: Mapped[str] = mapped_column(String(500), nullable=False)      # /api/files/san-xuat/lsx/…
+    content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    kich_thuoc: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # byte
+    # Soft → users.id. Máy chủ chốt từ tài khoản đang đăng nhập, không nhận từ client.
+    nguoi_tai_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tai_luc: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    lsx: Mapped["Lsx"] = relationship("Lsx", back_populates="dinh_kems")

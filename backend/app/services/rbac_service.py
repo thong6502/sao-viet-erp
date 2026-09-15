@@ -67,6 +67,12 @@ ACTION_MANAGE_PIECE_RATES = "manage_piece_rates"          # luong: tab Lương k
 ACTION_MANAGE_LEAVE_TYPES = "manage_leave_types"          # nghi_phep: danh mục loại nghỉ
 ACTION_PLAN = "plan"                  # giao_hang: tab Yêu cầu chờ lên kế hoạch + phân công
 ACTION_VIEW_DRIVERS = "view_drivers"  # giao_hang: tab Nhân viên giao hàng (lịch + KPI người khác)
+# Dòng quyền theo tổ `to_sx_<id>` (mg 0302). KHÔNG hỏi qua `can()` trần: phạm vi của dòng quyết
+# định tổ nào — đi qua `services/quyen_to.py`.
+ACTION_RUN_ORDER = "run_order"            # Thực hiện lệnh
+ACTION_CONFIRM_OUTPUT = "confirm_output"  # Xác nhận sản lượng
+ACTION_QC = "qc"                          # KCS
+ACTION_WAREHOUSE = "warehouse"            # Kho
 # Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn");
 # ACTION_APPROVE_EXCEPTION TÁCH RIÊNG (chỉ GĐ) — duyệt đơn đặc thù mới được chốt.
 
@@ -121,6 +127,10 @@ _ACTION_ATTR = {
     ACTION_MANAGE_LEAVE_TYPES: "can_manage_leave_types",
     ACTION_PLAN: "can_plan",
     ACTION_VIEW_DRIVERS: "can_view_drivers",
+    ACTION_RUN_ORDER: "can_run_order",
+    ACTION_CONFIRM_OUTPUT: "can_confirm_output",
+    ACTION_QC: "can_qc",
+    ACTION_WAREHOUSE: "can_warehouse",
 }
 
 
@@ -214,6 +224,12 @@ class AuthorizationService:
                 "can_manage_leave_types": p.can_manage_leave_types,
                 "can_plan": p.can_plan,
                 "can_view_drivers": p.can_view_drivers,
+                # Dòng quyền theo tổ (mg 0302) — giao diện Bàn tổ đọc qua `/teams`, nhưng ma trận
+                # "của tôi" vẫn phải trả đủ cột để không có ô nào tàng hình.
+                "can_run_order": p.can_run_order,
+                "can_confirm_output": p.can_confirm_output,
+                "can_qc": p.can_qc,
+                "can_warehouse": p.can_warehouse,
             }
             for p in self.roles.permissions_for(user.role_id)
         ]

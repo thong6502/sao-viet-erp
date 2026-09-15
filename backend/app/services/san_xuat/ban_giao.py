@@ -4,14 +4,14 @@ Một số lượng THỐNG NHẤT mỗi lần giao — không lưu hai con số
 tự `confirmed`; khác tổ/khác LSX thì `proposed` → bên NHẬN xác nhận đúng con số cuối. Điều chỉnh
 KHÔNG xoá cứng: đẻ dòng lịch sử trước/sau; giảm dưới lượng công đoạn sau đã dùng ⇒ cờ không nhất quán.
 
-Quyền (§6): ĐỀ XUẤT/SỬA là tổ trưởng tổ NGUỒN; XÁC NHẬN là tổ trưởng tổ ĐÍCH; ĐIỀU CHỈNH cho phép
-tổ trưởng một trong hai bên (người nhập sai sửa lại). Tất cả siết ở service, router chỉ gác coarse.
+Quyền (dòng quyền theo tổ, mg 0302): ĐỀ XUẤT/SỬA đòi Xác nhận sản lượng ở tổ NGUỒN; XÁC NHẬN đòi
+Xác nhận sản lượng trọn tổ ĐÍCH; ĐIỀU CHỈNH cho phép người có quyền ở một trong hai bên (người nhập
+sai sửa lại). Tất cả siết ở service, router chỉ gác coarse.
 """
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from ...models.department import Department
 from ...models.san_xuat_san_luong import (
     BG_DE_XUAT,
     BG_DIEU_CHINH,
@@ -22,24 +22,33 @@ from ...models.san_xuat_san_luong import (
 )
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
+from ..quyen_to import VIEC_XAC_NHAN, nguoi_co_quyen
 from .thuc_thi import _gate, _kiem_version, _moc
 from .san_luong import _EPS, _so_khong_am
 
 
-def _head(db: Session, department_id: int | None) -> int | None:
-    dept = db.get(Department, department_id) if department_id else None
-    return dept.head_user_id if dept else None
+def _nguoi_nhan(db: Session, user, *department_ids: int | None) -> list[int]:
+    """Người giữ quyền Xác nhận sản lượng (cả tổ) ở các tổ này — trừ chính người vừa bấm."""
+    uid = getattr(user, "id", None)
+    ket: set[int] = set()
+    for d in department_ids:
+        ket.update(nguoi_co_quyen(db, d, VIEC_XAC_NHAN))
+    ket.discard(uid)
+    return sorted(ket)
 
 
 def _gate_hai_ben(db: Session, user, nguon_cv, dich_cv) -> None:
-    """Điều chỉnh: tổ trưởng NGUỒN hoặc ĐÍCH đều được (người nhập sai sửa lại, §11.3)."""
-    uid = getattr(user, "id", None)
-    if uid is not None and uid in {
-        _head(db, nguon_cv.department_id),
-        _head(db, dich_cv.department_id) if dich_cv else None,
-    }:
-        return
-    raise PermissionError("Chỉ tổ trưởng tổ nguồn hoặc tổ đích mới được điều chỉnh bàn giao.")
+    """Điều chỉnh: người có quyền Xác nhận sản lượng ở tổ NGUỒN hoặc ĐÍCH đều được (người nhập sai
+    sửa lại, §11.3)."""
+    for cv in (nguon_cv, dich_cv):
+        if cv is None:
+            continue
+        try:
+            _gate(db, user, cv, VIEC_XAC_NHAN)
+            return
+        except PermissionError:
+            pass
+    raise PermissionError("Bạn không có quyền Xác nhận sản lượng ở tổ nguồn hoặc tổ đích.")
 
 
 def _la_cung_to(nguon_cv, dich_cv) -> bool:
@@ -55,7 +64,10 @@ def _la_cung_to(nguon_cv, dich_cv) -> bool:
     )
 
 
-def _ket_qua(bg: SanXuatBanGiao, nguon_cv, dich_cv, *, notify_user_id: int | None = None) -> dict:
+def _ket_qua(
+    bg: SanXuatBanGiao, nguon_cv, dich_cv, *,
+    notify_user_ids: list[int] | None = None, su_kien: str = "",
+) -> dict:
     return {
         "ban_giao_id": bg.id,
         "trang_thai_ban_giao": bg.trang_thai,
@@ -66,7 +78,12 @@ def _ket_qua(bg: SanXuatBanGiao, nguon_cv, dich_cv, *, notify_user_id: int | Non
         "dich_cong_viec_id": bg.dich_cong_viec_id,
         "nguon_department_id": nguon_cv.department_id if nguon_cv else None,
         "dich_department_id": dich_cv.department_id if dich_cv else None,
-        "notify_user_id": notify_user_id,
+        "notify_user_ids": list(notify_user_ids or []),
+        # Nhãn cho toast của người nhận (§18) — họ thường không mở đúng công đoạn này.
+        "su_kien": su_kien,
+        "nguon_ten": nguon_cv.ten_cong_doan if nguon_cv else "",
+        "dich_ten": dich_cv.ten_cong_doan if dich_cv else "",
+        "don_vi": bg.don_vi,
     }
 
 
@@ -131,7 +148,7 @@ def de_xuat(
     nguon_cv = repo.cong_viec(nguon_cong_viec_id)
     if nguon_cv is None:
         raise ValueError("Không tìm thấy công việc nguồn.")
-    _gate(db, user, nguon_cv)
+    _gate(db, user, nguon_cv, VIEC_XAC_NHAN)
 
     chang_sau = {c.id: c for c in repo.cong_viec_chang_sau(nguon_cv)}
     if chang_sau:
@@ -177,9 +194,9 @@ def de_xuat(
         ),
     )
     db.commit()
-    # Chờ xác nhận → báo tổ trưởng ĐÍCH; tự xác nhận → không cần báo ai đợi.
-    notify = None if cung_to else _head(db, dich_cv.department_id if dich_cv else None)
-    return _ket_qua(bg, nguon_cv, dich_cv, notify_user_id=notify)
+    # Chờ xác nhận → báo người xác nhận được ở tổ ĐÍCH; tự xác nhận → không cần báo ai đợi.
+    notify = [] if cung_to else _nguoi_nhan(db, user, dich_cv.department_id if dich_cv else None)
+    return _ket_qua(bg, nguon_cv, dich_cv, notify_user_ids=notify, su_kien="de_xuat")
 
 
 def sua_de_xuat(
@@ -200,7 +217,7 @@ def sua_de_xuat(
         raise ValueError("Chỉ sửa được đề xuất chưa xác nhận.")
     nguon_cv = repo.cong_viec(bg.nguon_cong_viec_id)
     dich_cv = repo.cong_viec(bg.dich_cong_viec_id) if bg.dich_cong_viec_id else None
-    _gate(db, user, nguon_cv)
+    _gate(db, user, nguon_cv, VIEC_XAC_NHAN)
     _kiem_version(bg, expected_version)
 
     chon, sl = _so_theo_me(repo, nguon_cv, batch_ids, ban_giao=bg)
@@ -226,7 +243,8 @@ def sua_de_xuat(
         detail=f"sl={sl_truoc:g}->{sl:g} me={','.join(map(str, chon)) or '-'}",
     )
     db.commit()
-    return _ket_qua(bg, nguon_cv, dich_cv, notify_user_id=_head(db, dich_cv.department_id if dich_cv else None))
+    return _ket_qua(bg, nguon_cv, dich_cv, su_kien="sua", notify_user_ids=_nguoi_nhan(
+        db, user, dich_cv.department_id if dich_cv else None))
 
 
 def xac_nhan(
@@ -247,7 +265,7 @@ def xac_nhan(
         raise ValueError("Bàn giao ra ngoài chưa neo công đoạn sau, không xác nhận tại tổ.")
     nguon_cv = repo.cong_viec(bg.nguon_cong_viec_id)
     dich_cv = repo.cong_viec(bg.dich_cong_viec_id)
-    _gate(db, user, dich_cv)
+    _gate(db, user, dich_cv, VIEC_XAC_NHAN)
     _kiem_version(bg, expected_version)
 
     bg.trang_thai = BG_XAC_NHAN
@@ -261,7 +279,8 @@ def xac_nhan(
         detail=f"sl={float(bg.so_luong)}",
     )
     db.commit()
-    return _ket_qua(bg, nguon_cv, dich_cv, notify_user_id=_head(db, nguon_cv.department_id if nguon_cv else None))
+    return _ket_qua(bg, nguon_cv, dich_cv, su_kien="xac_nhan", notify_user_ids=_nguoi_nhan(
+        db, user, nguon_cv.department_id if nguon_cv else None))
 
 
 def dieu_chinh(
@@ -318,8 +337,7 @@ def dieu_chinh(
         detail=f"{sl_truoc} -> {sl_sau}{' KHONG_NHAT_QUAN' if khong_nhat_quan else ''}",
     )
     db.commit()
-    # Báo bên còn lại (không phải người vừa điều chỉnh) — ưu tiên báo tổ đích, nếu chính họ sửa thì báo nguồn.
-    uid = getattr(user, "id", None)
-    dich_head = _head(db, dich_cv.department_id if dich_cv else None)
-    notify = _head(db, nguon_cv.department_id if nguon_cv else None) if uid == dich_head else dich_head
-    return _ket_qua(bg, nguon_cv, dich_cv, notify_user_id=notify)
+    # Báo cả hai bên (trừ chính người vừa điều chỉnh).
+    notify = _nguoi_nhan(db, user, nguon_cv.department_id if nguon_cv else None,
+                         dich_cv.department_id if dich_cv else None)
+    return _ket_qua(bg, nguon_cv, dich_cv, notify_user_ids=notify, su_kien="dieu_chinh")

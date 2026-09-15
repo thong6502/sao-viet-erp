@@ -11,12 +11,18 @@ tự phát, không gắn được header `Authorization`, mà access token cố 
 from __future__ import annotations
 
 import mimetypes
+import re
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
+from sqlalchemy.orm import Session
+
+from ..db import get_db
 from ..deps import FileUser, get_authorization_service
+from ..services.quyen_to import VIEC_XEM, quyen_to_cua
 from ..services.rbac_service import AuthorizationService
 from ..storage import StorageFileNotFound, get_storage, is_safe_key
 
@@ -60,10 +66,17 @@ _PREFIX_2_PERMISSION: dict[tuple[str, str], tuple[str, ...]] = {
 }
 
 
+def _xem_ban_to(db: Session, thu_muc: str, user) -> bool:
+    """Ảnh của Bàn tổ (`san-xuat/…`, ảnh lỗi KCS) còn mở cho người XEM được một tổ theo dòng quyền
+    theo tổ (mg 0302) — thợ/tổ trưởng không nhất thiết có ô tĩnh `san_xuat`."""
+    return thu_muc == "san-xuat" and quyen_to_cua(db, user).co_viec(VIEC_XEM)
+
+
 @router.get("/{key:path}")
 def download_file(
     key: str,
     user: FileUser,
+    db: Annotated[Session, Depends(get_db)],
     authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
 ) -> StreamingResponse:
     # Kiểm khoá TRƯỚC khi chạm storage: `key` tới thẳng từ URL người dùng gõ.
@@ -77,7 +90,7 @@ def download_file(
         khoa = (mot,) if mot else ()
     # `any`: có MỘT khoá đọc được là đủ — nhiều khoá ở đây nghĩa là "nhiều nhóm người cùng có lý do
     # chính đáng nhìn tấm ảnh này", không phải "phải có đủ cả hai".
-    if khoa and not any(authz.can(user, m, "read") for m in khoa):
+    if khoa and not any(authz.can(user, m, "read") for m in khoa) and not _xem_ban_to(db, doan[0], user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền xem tệp này")
 
     try:
@@ -91,4 +104,28 @@ def download_file(
         headers["Content-Length"] = str(size)
     # LocalStorage không giữ content-type → đoán theo đuôi file.
     media = content_type or mimetypes.guess_type(key)[0] or "application/octet-stream"
+    # Tệp phục vụ CÙNG origin với app: không có hai header này thì một `.html`/`.svg` chèn script,
+    # mở thẳng đường dẫn là script chạy với phiên của người đang xem. `nosniff` chặn trình duyệt tự
+    # đoán lại kiểu; `attachment` ép tải về mọi thứ không nằm trong danh sách xem-trước.
+    headers["X-Content-Type-Options"] = "nosniff"
+    headers["Content-Disposition"] = _content_disposition(key, media)
     return StreamingResponse(stream, media_type=media, headers=headers)
+
+
+# Kiểu được MỞ NGAY trong trình duyệt — đúng những gì các màn xem trước (ảnh thu nhỏ, PDF trong
+# khung). SVG cố ý KHÔNG có: nó là tài liệu chạy được script. `<img src>` vẫn vẽ được SVG vì thẻ ảnh
+# bỏ qua `Content-Disposition` và không chạy script bên trong.
+_XEM_TRONG_TRINH_DUYET = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "application/pdf",
+})
+# `storage.make_key` đặt 8 ký tự hex + "_" trước tên để hai tệp trùng tên không đè nhau.
+_MA_NGAU_NHIEN = re.compile(r"^[0-9a-f]{8}_")
+
+
+def _content_disposition(key: str, media: str) -> str:
+    ten = _MA_NGAU_NHIEN.sub("", key.rsplit("/", 1)[-1], count=1) or "tep"
+    kieu = "inline" if media.split(";", 1)[0].strip().lower() in _XEM_TRONG_TRINH_DUYET else "attachment"
+    # Header HTTP chỉ nhận latin-1 ⇒ `filename` là bản ASCII dự phòng, tên có dấu đi qua
+    # `filename*` (RFC 5987/6266) — trình duyệt hiện đại ưu tiên cái sau.
+    ascii_ten = re.sub(r'[^\x20-\x7e]|["\\]', "_", ten)
+    return f"{kieu}; filename=\"{ascii_ten}\"; filename*=UTF-8''{quote(ten, safe='')}"

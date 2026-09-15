@@ -8,8 +8,9 @@ Không có kho đích thì lot thành phẩm là một con số lơ lửng: khô
     (bảng lot là CHỈ-THÊM nên đây là chỗ duy nhất giữ được sự thật đó).
 
 Dàn cảnh (đơn → SX → phát hành → batch KCS đạt một phần) tái dùng `_batch` của test KCS — đúng khuôn
-`tests/test_san_xuat_kho.py`. Gate quyền `kho` nằm ở ROUTER, nên ở tầng service người xác nhận là
-`admin` như mọi test cùng lát.
+`tests/test_san_xuat_kho.py`. Bên KHO xác nhận nhận gác ô tĩnh `kho:create` ở ROUTER (nhân viên kho
+không cần dòng quyền theo tổ nào), nên ở tầng service người xác nhận là `admin` như mọi test cùng
+lát; người TẠO yêu cầu cũng là `admin` — `_batch` dựng tổ đã bật Kho cho vai của admin.
 """
 from __future__ import annotations
 
@@ -130,8 +131,8 @@ def test_ten_kho_van_doc_duoc_sau_khi_kho_ngung_dung(db, yc_nhap_kho, admin, kho
 # Tầng service đã có 6 test ở trên; ở đây soi đúng phần router: `kho_id` có đi từ thân yêu cầu vào
 # service không, và schema có thật sự BẮT BUỘC nó không. Không có bài này thì ai nới
 # `KhoXacNhanNhapIn.kho_id` thành `int | None = None` cả bộ vẫn xanh.
-# `admin` (Giám đốc) có `kho:create` nên qua được cổng RBAC — bit `san_xuat:assign_work` mà vai này
-# THIẾU không liên quan tới endpoint này.
+# `admin` (Giám đốc) có `kho:create` nên qua được cổng RBAC — endpoint này không hỏi dòng quyền theo
+# tổ (Bàn tổ) nào, vai admin có hay không có quyền Kho ở tổ cũng không liên quan.
 def _dang_nhap(c) -> dict[str, str]:
     tok = c.post("/api/auth/login",
                  json={"username": "admin", "password": "admin123"}).json()["access_token"]

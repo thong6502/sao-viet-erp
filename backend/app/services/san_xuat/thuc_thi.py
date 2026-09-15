@@ -3,9 +3,9 @@
 Điều phối phân công · phiên chạy · khoảng tham gia. Mỗi lệnh tuân §18: kiểm quyền tại service →
 transaction → version chống bấm trùng → ghi audit → (SSE do router phát sau commit).
 
-QUYỀN (§6): chỉ người ĐANG là `department.head_user_id` của CHÍNH tổ thực hiện mới được ghi. Quản
-lý cấp trên (scope rộng) chỉ XEM — KHÔNG ghi đè. Router đã gác bit RBAC `san_xuat:assign_work`;
-tầng này siết thêm đúng-tổ-trưởng, nên admin/GĐ (không có bit, và không phải tổ trưởng) đều bị chặn.
+QUYỀN (mg 0302): hỏi DÒNG QUYỀN THEO TỔ của tổ thực hiện (`services/quyen_to.py`) — Thực hiện lệnh
+cho lệnh ghi ở đây; các file khác truyền việc của mình qua `_gate(..., viec)`. Mức "Của tôi" chỉ qua
+khi công việc đang giao cho chính người bấm. Không còn luật cứng "phải đứng tên trưởng tổ".
 
 LƯƠNG KHOÁN (§6): chỉ nhân viên thuộc chế độ lương khoán (suy từ `departments.has_piece_work` của
 tổ nhân viên) mới được giao vào bước NỘI BỘ (`loai_buoc == 'to'`). Người không có tài khoản vẫn
@@ -46,7 +46,7 @@ from ...models.san_xuat_thuc_thi import (
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ...repositories.san_xuat_thuc_thi_repo import SanXuatThucThiRepository
-from ..gio_xuong import ve_gio_xuong
+from ..quyen_to import VIEC_THUC_HIEN, gate_to
 
 
 def _moc() -> datetime:
@@ -62,12 +62,10 @@ def _lay_cong_viec(repo: SanXuatThucThiRepository, cong_viec_id: int) -> SanXuat
     return cv
 
 
-def _gate(db: Session, user, cv: SanXuatCongViec) -> None:
-    """Chỉ tổ trưởng ĐÚNG tổ của công việc mới được ghi (§6). Không có ghi đè cho cấp trên."""
-    dept = db.get(Department, cv.department_id) if cv.department_id else None
-    uid = getattr(user, "id", None)
-    if dept is None or dept.head_user_id is None or dept.head_user_id != uid:
-        raise PermissionError("Chỉ tổ trưởng của tổ thực hiện mới được thao tác công việc này.")
+def _gate(db: Session, user, cv: SanXuatCongViec, viec: str = VIEC_THUC_HIEN) -> None:
+    """Người bấm phải có quyền `viec` trên tổ của công việc (dòng quyền theo tổ, mg 0302). Mức
+    "Của tôi" chỉ qua khi công việc đang giao cho chính họ."""
+    gate_to(db, getattr(user, "id", None), cv.department_id, viec, cong_viec_id=cv.id)
 
 
 def _kiem_version(cv: SanXuatCongViec, expected_version: int | None) -> None:
@@ -224,15 +222,15 @@ def bat_dau(
     *,
     user,
     cong_viec_id: int,
-    ly_do_tre: str | None = None,
     ly_do_so_nguoi: str | None = None,
     expected_version: int | None = None,
 ) -> dict:
     """Bắt đầu (hoặc Tiếp tục) chạy: mở phiên mới + mở khoảng tham gia cho mọi người đang trong tổ.
 
-    Luật: phải có ≥1 thợ lương khoán đang được giao (§7.1); bắt đầu SỚM không cần lý do, bắt đầu
-    TRỄ bắt buộc `ly_do_tre` (§7.2); số người THỰC TẾ khác số dự kiến (chốt lúc phát hành) bắt buộc
-    `ly_do_so_nguoi` (§7.1); không ai được có khoảng tham gia chồng giờ (§7.1)."""
+    Luật: phải có ≥1 thợ lương khoán đang được giao (§7.1); số người THỰC TẾ khác số dự kiến (chốt
+    lúc phát hành) bắt buộc `ly_do_so_nguoi` (§7.1); không ai được có khoảng tham gia chồng giờ
+    (§7.1). Sớm hay trễ so với dự kiến KHÔNG hỏi lý do (gỡ 16/09/2026) — lệch giờ đọc thẳng từ mốc
+    thực tế của phiên so với `du_kien_*`."""
     repo = SanXuatThucThiRepository(db)
     cv = _lay_cong_viec(repo, cong_viec_id)
     _gate(db, user, cv)
@@ -277,12 +275,6 @@ def bat_dau(
         )
 
     now = _moc()
-    # `du_kien_*` là GIỜ XƯỞNG còn `_moc()` là UTC THẬT — so thẳng thì cổng "trễ" khoan dung đúng
-    # bằng offset máy chủ (VN: 7 tiếng). Quy về cùng thang trước khi so (`services/gio_xuong.py`).
-    if (cv.du_kien_bat_dau is not None and ve_gio_xuong(now) > _aware(cv.du_kien_bat_dau)
-            and not (ly_do_tre or "").strip()):
-        raise ValueError("Bắt đầu trễ so với dự kiến — bắt buộc chọn lý do.")
-
     # Không ai được đang mở khoảng ở việc khác (§7.1) — kiểm TRƯỚC khi mở loạt.
     for pc in roster:
         if repo.khoang_mo_cua_nguoi(pc.employee_id) is not None:
@@ -295,7 +287,6 @@ def bat_dau(
         so_thu_tu=repo.so_phien(cv.id) + 1,
         may_id=cv.may_id,          # ẢNH CHỤP máy lúc mở phiên — đổi máy sau này đẻ phiên khác
         bat_dau=now,
-        ly_do_bat_dau_tre=(ly_do_tre or "").strip() or None,
         ly_do_so_nguoi=((ly_do_so_nguoi or "").strip() or None) if lech_so_nguoi else None,
         created_by=getattr(user, "id", None),
     )
@@ -386,12 +377,10 @@ def ket_thuc(
     *,
     user,
     cong_viec_id: int,
-    ly_do_tre: str | None = None,
     expected_version: int | None = None,
 ) -> dict:
-    """Kết thúc: đóng phiên đang mở (nếu có) + khoảng tham gia, đánh dấu hoàn thành.
-
-    Kết thúc TRỄ chỉ cần thêm lý do khi CHƯA có lý do tạm dừng nào giải thích phần chậm (§7.2)."""
+    """Kết thúc: đóng phiên đang mở (nếu có) + khoảng tham gia, đánh dấu hoàn thành. Sớm hay trễ
+    so với dự kiến đều không hỏi lý do (gỡ 16/09/2026)."""
     repo = SanXuatThucThiRepository(db)
     cv = _lay_cong_viec(repo, cong_viec_id)
     _gate(db, user, cv)
@@ -400,21 +389,10 @@ def ket_thuc(
         raise ValueError("Chỉ công việc đang chạy hoặc tạm dừng mới kết thúc được.")
 
     now = _moc()
-    # Cùng lý do như ở `bat_dau`: quy `now` (UTC thật) về giờ xưởng trước khi so với `du_kien_*`.
-    tre = cv.du_kien_ket_thuc is not None and ve_gio_xuong(now) > _aware(cv.du_kien_ket_thuc)
-    da_giai_thich = any(
-        p.loai_dong == PHIEN_TAM_DUNG and (p.ly_do or "").strip()
-        for p in repo.cac_phien(cv.id)
-    )
-    if tre and not da_giai_thich and not (ly_do_tre or "").strip():
-        raise ValueError("Kết thúc trễ — bắt buộc thêm lý do (chưa có lý do tạm dừng giải thích).")
-
     phien = repo.phien_dang_mo(cv.id)
     if phien is not None:
         phien.ket_thuc = now
         phien.loai_dong = PHIEN_KET_THUC
-        if (ly_do_tre or "").strip():
-            phien.ly_do = ly_do_tre.strip()
         for kh in repo.khoang_mo_cua_phien(phien.id):
             repo.dong_khoang(kh, now)
 

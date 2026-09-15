@@ -389,9 +389,16 @@ class RoleRepository:
         """User ids NÊN nhận tín hiệu 'việc kho mới' cho yêu cầu ở phòng `bo_phan_id`.
 
         = người XỬ LÝ kho (`can_create` HOẶC `can_view_stock`) mà PHẠM VI của vai PHỦ phòng đó:
-        `all` (mọi phòng) · `department` (phòng người nhận khớp phòng yêu cầu) · `own` (chính
-        người tạo). Tôn trọng ĐÚNG scope như danh sách yêu cầu (kho_request._scoped_filters):
-        'phòng nào thấy phòng đó', còn kho scope=all vẫn thấy mọi phòng."""
+        `all` (mọi phòng) · `department` (phòng người nhận là phòng yêu cầu hoặc phòng cha/ông của
+        nó) · và chính người tạo. Tôn trọng ĐÚNG scope như danh sách yêu cầu
+        (kho_request._scoped_filters, 16/09/2026): ai thấy yêu cầu trong danh sách thì nhận tín hiệu."""
+        phong_tren: list[int] = []
+        if bo_phan_id is not None:
+            cha = dict(self.db.execute(select(Department.id, Department.parent_id)).all())
+            cur: int | None = bo_phan_id
+            while cur is not None and cur not in phong_tren:
+                phong_tren.append(cur)
+                cur = cha.get(cur)
         stmt = (
             select(User.id)
             .join(RolePermission, RolePermission.role_id == User.role_id)
@@ -405,9 +412,9 @@ class RoleRepository:
                     RolePermission.scope == SCOPE_ALL,
                     and_(
                         RolePermission.scope == SCOPE_DEPARTMENT,
-                        User.department_id == bo_phan_id,
+                        User.department_id.in_(phong_tren),
                     ),
-                    and_(RolePermission.scope == SCOPE_OWN, User.id == creator_id),
+                    User.id == creator_id,
                 ),
             )
         )
@@ -470,6 +477,10 @@ class RoleRepository:
         can_set_threshold: bool = False,
         can_post: bool = False,
         can_close_book: bool = False,
+        can_run_order: bool = False,
+        can_confirm_output: bool = False,
+        can_qc: bool = False,
+        can_warehouse: bool = False,
         commit: bool = True,
     ) -> RolePermission:
         """Upsert the (role, module) permission row.
@@ -531,6 +542,10 @@ class RoleRepository:
         perm.can_set_threshold = can_set_threshold
         perm.can_post = can_post
         perm.can_close_book = can_close_book
+        perm.can_run_order = can_run_order
+        perm.can_confirm_output = can_confirm_output
+        perm.can_qc = can_qc
+        perm.can_warehouse = can_warehouse
         if commit:
             self.db.commit()
             self.db.refresh(perm)

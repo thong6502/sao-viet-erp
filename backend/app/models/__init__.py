@@ -114,7 +114,7 @@ from .khuon_be import KhuonBe
 from .vat_tu_giu_cho import VatTuGiuCho
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham, SanPhamTaiBan
-from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc
+from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc, LsxDinhKem
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
 from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu
 from .xep_lich import XepLichCongDoan
@@ -294,6 +294,7 @@ __all__ = [
     "LsxCongDoan",
     "LsxCongDoanVatTu",
     "LsxCongDoanPhuThuoc",
+    "LsxDinhKem",
     "CongDoanDauViec",
     "CongDoanDauViecVatTu",
     "CongDoanMay",

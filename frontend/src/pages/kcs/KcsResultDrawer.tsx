@@ -23,6 +23,7 @@ import { Select, type SelectOption } from "../../components/Select";
 import { num } from "../keHoachSxShared";
 import { nhanChang, nhanDonVi } from "../lsxBuoc";
 import { useNapTenDonVi } from "../tenDonVi";
+import { ThsxTepLenh } from "../ThsxTepLenh";
 
 export const KCS_TRANG_THAI_GUI_KHO_LABEL: Record<string, string> = {
   chua_gui: "Chưa gửi kho",
@@ -56,6 +57,8 @@ type Props =
       tenTo: string;
       item: SxWorkItem;
       conCho: number;
+      /** Bộ đếm SSE tệp đính kèm theo lệnh — thẻ "Tệp của lệnh" tự nạp lại. */
+      dinhKemDem?: Record<number, number>;
       onClose: () => void;
       onSaved: (row: KcsSavedRow) => void;
     }
@@ -83,6 +86,7 @@ type Props =
       tenTo: string;
       item: SxWorkItem;
       batch: SxKcsBatchChiTiet;
+      dinhKemDem?: Record<number, number>;
       onClose: () => void;
     };
 
@@ -278,6 +282,9 @@ export function KcsResultDrawer(props: Props) {
         <div className="rc-drawer__body">
           <KhoiNguCanh item={props.item} tenTo={props.tenTo} conCho={null} />
           <div className="kcs-drawer__block">
+            <ThsxTepLenh congViecId={props.item.id} dinhKemDem={props.dinhKemDem} />
+          </div>
+          <div className="kcs-drawer__block">
             <h3>Kết quả</h3>
             <div className="kcs-drawer__soluong">
               <label>Số đạt<input type="number" value={b.so_luong_dat} disabled /></label>
@@ -388,6 +395,14 @@ export function KcsResultDrawer(props: Props) {
           nguoi={props.mode === "diem_kiem" ? props.item.nguoi : []}
           conCho={saved ? null : conChoBanDau}
         />
+
+        {/* Kiểm đối chiếu maket/bản vẽ của lệnh. Chỉ việc của CHÍNH tổ (ghi) — điểm kiểm là việc tổ
+            khác, có thể nằm ngoài phạm vi Xem nên không gắn. */}
+        {props.mode === "ghi" && (
+          <div className="kcs-drawer__block">
+            <ThsxTepLenh congViecId={props.item.id} dinhKemDem={props.dinhKemDem} />
+          </div>
+        )}
 
         {saved ? (
           <div className="kcs-drawer__block">

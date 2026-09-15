@@ -6,12 +6,13 @@ khoảng tham gia thì dùng `SanXuatSanLuongRepository` / `SanXuatThucThiReposi
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.san_xuat import SanXuatCongViec
 from ..models.san_xuat_san_luong import SanXuatBanGiao
 from ..models.san_xuat_phan_bo import (
+    HT_CHO_HAI_BEN,
     HT_XAC_NHAN,
     PB_DA_CHOT,
     SanXuatHoTro,
@@ -69,6 +70,27 @@ class SanXuatPhanBoRepository:
                     SanXuatHoTro.trang_thai == HT_XAC_NHAN,
                 )
                 .order_by(SanXuatHoTro.id)
+            )
+        )
+
+    def ho_tro_cho_cua_to(self, to_ids: set[int]) -> list[SanXuatHoTro]:
+        """Thỏa thuận CÒN CHỜ mà bên thuộc `to_ids` chưa xác nhận — bên gốc hoặc bên thực hiện.
+        Nguồn của hộp "Chờ tổ bạn xác nhận" trên Bàn tổ và badge menu."""
+        if not to_ids:
+            return []
+        return list(
+            self.db.scalars(
+                select(SanXuatHoTro)
+                .where(
+                    SanXuatHoTro.trang_thai == HT_CHO_HAI_BEN,
+                    or_(
+                        and_(SanXuatHoTro.to_goc_id.in_(to_ids),
+                             SanXuatHoTro.xac_nhan_goc_by_id.is_(None)),
+                        and_(SanXuatHoTro.to_thuc_hien_id.in_(to_ids),
+                             SanXuatHoTro.xac_nhan_thuc_hien_by_id.is_(None)),
+                    ),
+                )
+                .order_by(SanXuatHoTro.ngay_lam_viec, SanXuatHoTro.id)
             )
         )
 

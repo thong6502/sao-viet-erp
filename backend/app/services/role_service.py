@@ -124,6 +124,10 @@ READ_IMPLYING_KEYS = (
     "can_set_threshold",
     "can_post",
     "can_close_book",
+    "can_run_order",
+    "can_confirm_output",
+    "can_qc",
+    "can_warehouse",
 )
 
 
@@ -133,6 +137,16 @@ _COT_QUYEN = [
     c.name for c in RolePermission.__table__.columns
     if c.name not in ("id", "role_id", "module_key", "scope")
 ]
+
+
+def _dong_mau_to(cai_dat: dict | None) -> dict | None:
+    """Phần mẫu trên dòng tổ → đủ các cột như một dòng ma trận (thiếu = tắt); None nếu mẫu không có."""
+    if not cai_dat:
+        return None
+    dong = {"scope": cai_dat.get("scope", "own")}
+    for cot in _COT_QUYEN:
+        dong[cot] = bool(cai_dat.get(cot, False))
+    return dong
 
 
 class RoleService:
@@ -214,15 +228,31 @@ class RoleService:
         (In/xuất phiếu · Đặt trưởng phòng · Xem lương…). Xem `deps.O_CHET_DA_XAC_MINH`.
         """
         from ..deps import O_CHET_DA_XAC_MINH
+        from .quyen_to import doc_cay, khoa_to
 
-        return [
-            {
-                "key": m.key,
-                "label": m.label,
-                "viec_chet": sorted(a for (k, a) in O_CHET_DA_XAC_MINH if k == m.key),
-            }
-            for m in self.modules.list_all()
-        ]
+        # Dòng quyền theo tổ (`to_sx_<id>`) đứng CUỐI, theo thứ tự cây + kèm cấp để ma trận thụt
+        # lề; module tĩnh giữ thứ tự cũ.
+        cay = doc_cay(self.departments.db)
+        thu_tu_to = {khoa_to(d): (i, d, cap) for i, (d, cap) in enumerate(cay.thu_tu())}
+        tinh, dong_to = [], []
+        for m in self.modules.list_all():
+            vi_tri = thu_tu_to.get(m.key)
+            if vi_tri is None:
+                if m.key.startswith("to_sx_"):
+                    continue  # dòng mồ côi (cây vừa đổi, chưa đồng bộ) — không bày ra
+                tinh.append({
+                    "key": m.key,
+                    "label": m.label,
+                    "viec_chet": sorted(a for (k, a) in O_CHET_DA_XAC_MINH if k == m.key),
+                })
+            else:
+                i, dept_id, cap = vi_tri
+                dong_to.append((i, {
+                    "key": m.key, "label": m.label, "viec_chet": [],
+                    "department_id": dept_id, "cap": cap,
+                    "la_kcs": dept_id in cay.kcs,
+                }))
+        return tinh + [d for _, d in sorted(dong_to, key=lambda x: x[0])]
 
     def role_templates(self) -> list[dict]:
         """Bảng vai mẫu, mỗi mẫu kèm ma trận ĐẦY ĐỦ theo danh mục module hiện có.
@@ -237,9 +267,10 @@ class RoleService:
         khoa_co_that = [m.key for m in self.modules.list_all()]
         ket: list[dict] = []
         for mau in danh_sach_mau():
+            quyen = mau["quyen"]
             rows = []
             for khoa in khoa_co_that:
-                cai_dat = mau["quyen"].get(khoa, {})
+                cai_dat = quyen.get(khoa, {})
                 dong = {"module_key": khoa, "scope": cai_dat.get("scope", "own")}
                 for cot in _COT_QUYEN:
                     dong[cot] = bool(cai_dat.get(cot, False))
@@ -255,6 +286,10 @@ class RoleService:
             ket.append({
                 "key": mau["key"], "label": mau["label"], "mo_ta": mau["mo_ta"],
                 "permissions": rows,
+                # Phần điền vào dòng quyền theo tổ của CHÍNH phòng mà vai thuộc về (Tổ trưởng /
+                # Công nhân). Mẫu không biết vai ở phòng nào — giao diện đang mở phòng nào thì điền
+                # vào dòng `to_sx_<phòng đó>`.
+                "quyen_to_cua_vai": _dong_mau_to(mau.get("quyen_to_cua_vai")),
             })
         return ket
 
@@ -330,6 +365,11 @@ class RoleService:
                     "can_set_threshold": bool(p.can_set_threshold) if p else False,
                     "can_post": bool(p.can_post) if p else False,
                     "can_close_book": bool(p.can_close_book) if p else False,
+                    # Dòng quyền theo tổ (mg 0302).
+                    "can_run_order": bool(p.can_run_order) if p else False,
+                    "can_confirm_output": bool(p.can_confirm_output) if p else False,
+                    "can_qc": bool(p.can_qc) if p else False,
+                    "can_warehouse": bool(p.can_warehouse) if p else False,
                 }
             )
         return rows
@@ -407,6 +447,10 @@ class RoleService:
                 can_set_threshold=normalized.get("can_set_threshold", False),
                 can_post=normalized.get("can_post", False),
                 can_close_book=normalized.get("can_close_book", False),
+                can_run_order=normalized.get("can_run_order", False),
+                can_confirm_output=normalized.get("can_confirm_output", False),
+                can_qc=normalized.get("can_qc", False),
+                can_warehouse=normalized.get("can_warehouse", False),
             )
         self.audit.create(
             actor_user_id=actor_id,

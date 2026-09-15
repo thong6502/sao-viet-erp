@@ -13701,3 +13701,153 @@ def _migrate_index_danh_muc_tra_nguoc(db) -> None:
 
 
 MIGRATIONS.append(("0301_index_danh_muc_tra_nguoc", _migrate_index_danh_muc_tra_nguoc))
+
+
+_COT_QUYEN_TO_0302 = ("can_run_order", "can_confirm_output", "can_qc", "can_warehouse")
+
+
+def chuyen_quyen_san_xuat_sang_to(db) -> None:
+    """Dựng dòng quyền THEO TỔ (`to_sx_<id>`) từ quyền `san_xuat` cũ — raw SQL, idempotent.
+
+    Luật chuyển (bản chốt 14/09/2026, spec `2026-09-14-quyen-theo-to-va-tab-san-luong.md` §7):
+      · vai có phạm vi Tất cả ở Kế hoạch sản xuất → dòng GỐC của khối, Tất cả; bốn quyền chi tiết
+        bật nếu vai có ô Gán việc (trước đây là ô duy nhất máy chủ thật sự gác);
+      · vai thuộc một phòng trong khối, có Xem Kế hoạch sản xuất → dòng của CHÍNH phòng đó:
+        có Gán việc (tổ trưởng) → Cả phòng + bốn quyền; phạm vi Cả phòng → Cả phòng; còn lại →
+        Của tôi.
+    Chỉ THÊM dòng chưa có — không ghi đè ô quản trị đã sửa. Vai không có Xem thì không cấp gì:
+    trước đây họ không mở được Bàn tổ, chuyển xong cũng vậy.
+    """
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+    if not {"departments", "modules", "roles", "role_permissions"} <= bang:
+        return
+    if not set(_COT_QUYEN_TO_0302) <= _existing_columns(insp, "role_permissions"):
+        return
+    depts = db.execute(text("SELECT id, parent_id, name, la_san_xuat FROM departments")).all()
+    by = {d[0]: d for d in depts}
+
+    def thuoc_khoi(did):
+        cur, seen = by.get(did), set()
+        while cur is not None and cur[0] not in seen:
+            seen.add(cur[0])
+            if cur[3]:
+                return True
+            cur = by.get(cur[1]) if cur[1] is not None else None
+        return False
+
+    khoi = {d[0] for d in depts if thuoc_khoi(d[0])}
+    if not khoi:
+        return
+    goc = [d for d in sorted(khoi) if by[d][1] not in khoi]
+    co_module = {k for (k,) in db.execute(
+        text("SELECT key FROM modules WHERE key LIKE 'to_sx_%'")).all()}
+    for d in sorted(khoi):
+        k = f"to_sx_{d}"
+        if k not in co_module:
+            db.execute(text(
+                "INSERT INTO modules (key, label, created_at) VALUES (:k, :l, CURRENT_TIMESTAMP)"),
+                {"k": k, "l": by[d][2]})
+
+    cu = db.execute(text(
+        "SELECT r.id, r.department_id, rp.can_read, rp.scope, rp.can_assign_work "
+        "FROM roles r JOIN role_permissions rp ON rp.role_id = r.id "
+        "WHERE rp.module_key = 'san_xuat'")).all()
+    da_co = {(r, k) for r, k in db.execute(text(
+        "SELECT role_id, module_key FROM role_permissions WHERE module_key LIKE 'to_sx_%'")).all()}
+    muon: dict[tuple[int, str], dict] = {}
+
+    def gop(role_id, dept, scope, chi_tiet):
+        thu_hang = {"own": 0, "department": 1, "all": 2}
+        k = (role_id, f"to_sx_{dept}")
+        cur = muon.get(k)
+        if cur is None:
+            muon[k] = {"scope": scope, "chi_tiet": chi_tiet}
+        else:
+            if thu_hang[scope] > thu_hang[cur["scope"]]:
+                cur["scope"] = scope
+            cur["chi_tiet"] = cur["chi_tiet"] or chi_tiet
+
+    for role_id, dept_id, can_read, scope, aw in cu:
+        if not can_read and not aw:
+            continue
+        if scope == "all":
+            for g in goc:
+                gop(role_id, g, "all", bool(aw))
+        if dept_id in khoi:
+            if aw:
+                gop(role_id, dept_id, "department", True)
+            elif scope == "all":
+                pass  # đã có dòng gốc Tất cả — rộng hơn mọi dòng con
+            else:
+                gop(role_id, dept_id, "department" if scope == "department" else "own", False)
+
+    for (role_id, key), v in muon.items():
+        if (role_id, key) in da_co:
+            continue
+        ct = bool(v["chi_tiet"])
+        db.execute(text(
+            "INSERT INTO role_permissions (role_id, module_key, can_read, can_create, can_update, "
+            "can_delete, scope, can_run_order, can_confirm_output, can_qc, can_warehouse) "
+            "VALUES (:r, :k, :t, :f, :f, :f, :s, :c, :c, :c, :c)"),
+            {"r": role_id, "k": key, "t": True, "f": False, "s": v["scope"], "c": ct})
+    db.commit()
+
+
+def _migrate_quyen_theo_to(db) -> None:
+    """Dòng quyền theo tổ + 4 quyền chi tiết của Bàn tổ (14/09/2026).
+
+    1. Bốn cột mới ở `role_permissions`: `can_run_order` (Thực hiện lệnh) · `can_confirm_output`
+       (Xác nhận sản lượng) · `can_qc` (KCS) · `can_warehouse` (Kho).
+    2. Mỗi phòng ban thuộc khối Sản xuất có một dòng `modules` khoá `to_sx_<id>` (từ nay
+       `services/quyen_to.dong_bo_dong_quyen_to` giữ nó khớp cây lúc khởi động và mỗi lần sửa phòng
+       ban).
+    3. Chép quyền `san_xuat` cũ sang các dòng đó — xem `chuyen_quyen_san_xuat_sang_to`.
+    Ba ô cũ Gán việc · Ghi sản lượng · Bàn giao/nhận GIỮ NGUYÊN trong DB (không ai đọc nữa).
+    """
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in set(insp.get_table_names()):
+        return
+    co = _existing_columns(insp, "role_permissions")
+    for cot in _COT_QUYEN_TO_0302:
+        if cot not in co:
+            db.execute(text(
+                f"ALTER TABLE role_permissions ADD COLUMN {cot} BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+    chuyen_quyen_san_xuat_sang_to(db)
+
+
+MIGRATIONS.append(("0302_quyen_theo_to", _migrate_quyen_theo_to))
+
+
+def _migrate_lsx_dinh_kem(db: Session) -> None:
+    """Tệp đính kèm của lệnh sản xuất (15/09/2026) — bảng `lsx_dinh_kem`, một dòng một tệp.
+
+    Bảng MỚI, không backfill: trước hôm nay lệnh không có chỗ gắn tệp nào để mà chép sang.
+    Idempotent: hỏi inspector trước `CREATE TABLE` + `CREATE INDEX IF NOT EXISTS`. DB trắng dựng bằng
+    `create_all` đã có bảng lẫn index (tên index trùng đúng tên `index=True` đặt) ⇒ bước này no-op.
+    """
+    ins = inspect(db.get_bind())
+    if not ins.has_table("lsx"):
+        return
+    if not ins.has_table("lsx_dinh_kem"):
+        pg = db.get_bind().dialect.name == "postgresql"
+        pk = "SERIAL PRIMARY KEY" if pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        ts = "TIMESTAMPTZ" if pg else "DATETIME"
+        db.execute(text(
+            "CREATE TABLE lsx_dinh_kem ("
+            f"  id {pk},"
+            "  lsx_id INTEGER NOT NULL REFERENCES lsx(id) ON DELETE CASCADE,"
+            "  ten_tep VARCHAR(255) NOT NULL,"
+            "  file_url VARCHAR(500) NOT NULL,"
+            "  content_type VARCHAR(100),"
+            "  kich_thuoc INTEGER NOT NULL DEFAULT 0,"
+            "  nguoi_tai_id INTEGER,"
+            f"  tai_luc {ts} NOT NULL"
+            ")"
+        ))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_lsx_dinh_kem_lsx_id ON lsx_dinh_kem (lsx_id)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0303_lsx_dinh_kem", _migrate_lsx_dinh_kem))

@@ -447,7 +447,7 @@ def test_nhan_luc_ghi_lai_lan_doi_may(client, seed_credentials, sess, admin, len
     sess.commit()
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_tre="Chờ giấy về", ly_do_so_nguoi="Tổ thiếu người",
+        ly_do_so_nguoi="Tổ thiếu người",
     )
     thuc_thi.doi_may(sess, user=admin, cong_viec_id=cv.id, may_id_moi=may_moi.id,
                      ly_do="Máy cũ kẹt giấy")
@@ -944,7 +944,7 @@ def test_vat_tu_khong_lan_sang_bai_ghep_khac(
 def _ghi_san_luong(sess, admin, cv, *, tong, tot, hong=0, ma="NV-HS-SL") -> None:
     """Ghi MỘT batch sản lượng bằng ĐÚNG đường production (`san_luong.tao_batch`).
 
-    Bước phải ĐANG CHẠY mới ghi được (`_TRANG_THAI_GHI_DUOC`), nên mở ba cửa của `thuc_thi.bat_dau`
+    Bước phải ĐANG CHẠY mới ghi được (`_TRANG_THAI_GHI_DUOC`), nên mở các cửa của `thuc_thi.bat_dau`
     y như `_chay_that` — nhưng KHÔNG kết thúc bước, vì bài cần bước còn mở để ghi tiếp batch sau.
     """
     to = sess.get(Department, cv.department_id)
@@ -954,7 +954,7 @@ def _ghi_san_luong(sess, admin, cv, *, tong, tot, hong=0, ma="NV-HS-SL") -> None
         _giao_nguoi(sess, admin, cv, ma=ma, ten="Thợ sản lượng")
         thuc_thi.bat_dau(
             sess, user=admin, cong_viec_id=cv.id,
-            ly_do_tre="Chờ giấy về", ly_do_so_nguoi="Tổ thiếu người",
+            ly_do_so_nguoi="Tổ thiếu người",
         )
     san_luong_svc.tao_batch(
         sess, user=admin, cong_viec_id=cv.id,

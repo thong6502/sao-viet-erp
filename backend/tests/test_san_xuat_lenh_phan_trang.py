@@ -16,7 +16,9 @@ from app.models.lsx import LsxCongDoan
 from app.models.san_xuat import SanXuatCongViec
 from app.models.san_xuat_thuc_thi import PC_HOAT_DONG, SanXuatPhanCong
 from app.repositories.san_xuat_repo import SanXuatRepository
+from app.models.user import User
 from app.services.san_xuat import release
+from tests.quyen_to_fixtures import cap_quyen_to
 
 # Fixtures + helper dùng chung từ test xếp lịch / phát hành — KHÔNG tự INSERT tay.
 from tests.test_xep_lich_service import (  # noqa: F401
@@ -35,9 +37,11 @@ from tests.test_xep_lich_service import (  # noqa: F401
 
 
 def _to_moi(db, ten="Tổ Bế trang", ma="TO-TRANG") -> Department:
+    """Tổ SX mới + bật đủ quyền trên dòng tổ cho vai của admin seed (như quản trị tích ma trận)."""
     d = Department(name=ten, code=ma, la_san_xuat=True)
     db.add(d)
     db.flush()
+    cap_quyen_to(db, db.query(User).filter(User.username == "admin").one(), d)
     return d
 
 

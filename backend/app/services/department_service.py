@@ -65,6 +65,12 @@ class DepartmentBranchHasUsers(DepartmentError):
         )
 
 
+def _dong_bo_quyen_to(db) -> None:
+    from .quyen_to import dong_bo_dong_quyen_to
+
+    dong_bo_dong_quyen_to(db)
+
+
 class DepartmentService:
     def __init__(
         self,
@@ -341,6 +347,7 @@ class DepartmentService:
         if la_giao_hang:
             self.departments.set_la_giao_hang(dept, True)
         self._dat_khoan_km(dept, don_gia_km, pct_tai_xe, pct_phu_xe)
+        _dong_bo_quyen_to(self.departments.db)
         self.audit.create(
             actor_user_id=actor_id,
             action="create_department",
@@ -431,6 +438,8 @@ class DepartmentService:
                 dept.pct_tai_xe if pct_tai_xe is _KEEP else pct_tai_xe,
                 dept.pct_phu_xe if pct_phu_xe is _KEEP else pct_phu_xe,
             )
+        # Đổi tên / cờ khối / cấp trên đều có thể đổi dòng quyền theo tổ (nhãn, thêm, gỡ).
+        _dong_bo_quyen_to(self.departments.db)
         self.audit.create(
             actor_user_id=actor_id,
             action="update_department",
@@ -504,3 +513,5 @@ class DepartmentService:
                 target=f"dept:{d.id}",
                 detail=f"{d.code} {d.name}",
             )
+        # Dòng quyền `to_sx_<id>` của các phòng vừa xoá đi theo (cùng các ô đã cấp trên nó).
+        _dong_bo_quyen_to(self.departments.db)

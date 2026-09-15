@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import (
     CurrentUser, get_authorization_service, require_any_permission, require_permission,
+    require_quyen_to,
 )
 from ..models.customer import Customer
 from ..models.user import User
@@ -147,7 +148,7 @@ _khai("thanh_pham", ThanhPhamIn, ThanhPhamRow, "thanh-pham", kem_don_vi="khach",
 #
 # Quyền rộng hơn CRUD: người lập đề nghị kho/YCMH và người khai bảng giá NCC đều phải CHỌN được
 # mặt hàng, nhưng không được sửa danh mục. Chỉ trả mã · tên · đơn vị — không có giá.
-_doc_mat_hang = require_any_permission(
+_doc_mat_hang = require_quyen_to("read", 
     ("dm_giay", "read"), ("dm_vat_tu", "read"), ("kho", "read"), ("thu_mua", "read"),
     ("yeu_cau_mua_hang", "read"), ("tinh_gia_thanh", "read"), ("san_xuat", "read"))
 

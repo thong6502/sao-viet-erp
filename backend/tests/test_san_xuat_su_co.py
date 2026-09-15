@@ -15,9 +15,9 @@ SỬA SO VỚI BẢN NHÁP TRONG BRIEF (31/08/2026) — bốn chỗ bản nháp 
     nó muốn chứng minh.
   · Test "dừng sản xuất bắt buộc lý do" trong bản nháp gửi `bo_phan_hong=""` nên rơi vào cửa
     "chưa ghi chỗ hỏng" trước, không bao giờ chạm tới cửa lý do. Tách làm hai bài.
-  · Admin (vai Giám đốc) KHÔNG có bit `san_xuat:can_assign_work` (`seed._full` không bật cờ đó),
-    nên bài API không khẳng định thẳng 200/403 mà so ĐƯỜNG DÂY QUYỀN với `tam-dung` — cùng khuôn
-    với `tests/test_san_xuat_doi_may.py::test_api_doi_may_gate_quyen`.
+  · Bài API không khẳng định thẳng 200/403 mà so ĐƯỜNG DÂY QUYỀN với `tam-dung` — quyền của tài
+    khoản seed là chuyện của seed (từ mg 0302 là dòng quyền theo tổ, admin không có bypass) — cùng
+    khuôn với `tests/test_san_xuat_doi_may.py::test_api_doi_may_gate_quyen`.
 """
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ from app.models.may_thiet_bi import MayThietBi
 from app.models.san_xuat import BUOC_MAY, CV_DANG_CHAY, CV_TAM_DUNG, SanXuatCongViec
 from app.models.san_xuat_thuc_thi import PHIEN_TAM_DUNG, SanXuatPhienChay
 from app.services.san_xuat import su_co, thuc_thi
+from tests.quyen_to_fixtures import cap_quyen_to
 
 from tests.test_san_xuat_board import (  # noqa: F401
     _authz, _phat_hanh_vao_to, admin, customer, db, lsx_svc, orders,
@@ -44,13 +45,14 @@ from tests.test_san_xuat_board import (  # noqa: F401
 
 # --- Dàn cảnh dùng chung (cùng khuôn tests/test_san_xuat_doi_may.py) -------------------------
 def _to_khoan(db, admin, ma="TO-SC") -> Department:
-    """Tổ sản xuất bật lương khoán, admin làm tổ trưởng — để qua GATE §6 khi gọi service."""
+    """Tổ sản xuất bật lương khoán, vai của admin được bật đủ quyền trên dòng tổ — để qua cổng ghi."""
     d = Department(
         name=f"Tổ Sự Cố {ma}", code=ma, la_san_xuat=True,
-        has_piece_work=True, head_user_id=admin.id,
+        has_piece_work=True,
     )
     db.add(d)
     db.flush()
+    cap_quyen_to(db, admin, d)
     return d
 
 
@@ -100,7 +102,8 @@ def _mot_cong_viec(
 
 @pytest.fixture
 def to_truong(admin):
-    """`_to_khoan` gán admin.id làm `head_user_id` của tổ dàn cảnh — admin CHÍNH là tổ trưởng."""
+    """Người bấm ở tổ dàn cảnh: `_to_khoan` bật đủ quyền trên dòng tổ cho vai của admin (tên fixture
+    giữ từ thời còn luật tổ trưởng — nay quyền nằm ở dòng `to_sx_<id>`, không ở `head_user_id`)."""
     return admin
 
 
@@ -332,9 +335,9 @@ def test_yeu_cau_hien_o_hop_thu_sua_chua(client, seed_credentials, db, cv_dang_c
 
 
 def test_api_su_co_cung_cua_quyen_voi_tam_dung(client, seed_credentials, db, cv_dang_chay):
-    """`su-co` phải đi qua ĐÚNG cùng cổng quyền với `tam-dung` (cùng `assign_work` + `_gate`).
-    Không khẳng định thẳng 403: vai của `seed_credentials` có bit `can_assign_work` hay không là
-    chuyện của seed, thứ cần chứng minh là hai đường cho CÙNG kết luận về quyền.
+    """`su-co` phải đi qua ĐÚNG cùng cổng quyền với `tam-dung` (cùng `require_quyen_to("run_order")`
+    + `_gate` Thực hiện lệnh). Không khẳng định thẳng 403: vai của `seed_credentials` có dòng quyền
+    theo tổ nào là chuyện của seed, thứ cần chứng minh là hai đường cho CÙNG kết luận về quyền.
 
     Bắn vào công việc CÓ THẬT (review vòng 1, Minor 3): bản trước gõ thẳng id `1` — trên DB test
     vừa dựng lại thì id đó không tồn tại, nên cả hai đường hoặc chết ở cửa quyền hoặc chết ở 404,
@@ -420,7 +423,7 @@ def test_bao_tin_gay_sau_commit_khong_lam_hong_ket_qua(db, cv_dang_chay, to_truo
     """Khâu BÁO TIN chạy sau commit thì hỏng cũng KHÔNG được kéo theo thao tác đã chốt.
 
     `bao_to_sua_chua` không phải broadcast thuần bộ nhớ (còn đọc máy + join vai tổ sửa chữa). Nó
-    ném ở đây thì `_chay` không dịch nổi ⇒ tổ trưởng thấy 500 và FE báo "thử lại", TRONG KHI sự cố
+    ném ở đây thì `_chay` không dịch nổi ⇒ người bấm thấy 500 và FE báo "thử lại", TRONG KHI sự cố
     đã ghi và việc đã tạm dừng thật — bấm lại là đẻ yêu cầu thứ hai làm rác hộp thư sửa chữa. Nuốt
     lỗi ở đây chỉ mất cái "ting" tức thì; yêu cầu vẫn nằm sẵn trong hàng chờ khi tổ sửa mở màn.
     """

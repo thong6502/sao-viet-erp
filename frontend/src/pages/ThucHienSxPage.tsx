@@ -1,20 +1,20 @@
 // THỰC HIỆN SẢN XUẤT tại TỔ — "một bàn làm việc" (module `san_xuat`, pha đứng SAU "Xếp lịch 2").
 //
-// Controller bàn tổ: nhận `teamId`, giữ cửa sổ ngày + zoom + việc + việc-đang-chọn + version lạc
-// quan; gọi `api.sanXuat.*`; dựng top → subbar → grid (danh sách trái · timeline giữa · drawer phải)
-// → foot. Điều phối drawer + dialog lý do + toast. **KHÔNG kéo–thả** (tổ trưởng chỉ đọc lịch, ghi
+// Controller bàn tổ: nhận `teamId`, giữ cửa sổ ngày (7/14/30 ngày) + việc + việc-đang-chọn + version
+// lạc quan; gọi `api.sanXuat.*`; dựng top → subbar → grid (hàng chờ trái · lịch ngày giữa · drawer
+// phải) → foot. Điều phối drawer + dialog lý do + toast. **KHÔNG kéo–thả** (tổ trưởng chỉ đọc lịch, ghi
 // phân công / phiên chạy). Real-time qua `eventTick` (SSE mắc ở AppShell) → refetch tức thì.
 //
-// Ba chỗ LÝ DO bắt buộc (bám luật BE §8): Tạm dừng luôn cần `ly_do`; Bắt đầu cần `ly_do_tre` khi
-// TRỄ; Kết thúc cần `ly_do_tre` khi trễ mà chưa có phiên tạm-dừng nào kèm lý do. Ghi hỏng: 403 →
-// "ngoài phạm vi"; 400/khác → toast + refetch chi tiết (không mất chỗ). BE là trọng tài mốc giờ.
+// Hai chỗ LÝ DO bắt buộc (bám luật BE): Tạm dừng luôn cần `ly_do`; Bắt đầu/Tiếp tục cần
+// `ly_do_so_nguoi` khi số người thực tế ≠ dự kiến (§7.1). Sớm hay trễ so với giờ dự kiến KHÔNG hỏi
+// lý do (gỡ 16/09/2026). Ghi hỏng: 403 → "ngoài phạm vi"; 400/khác → toast + refetch chi tiết.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError, api,
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon, type SxLenhNhom,
   type SxHoTroUngVien, type SxSanLuongCuaToi,
   type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
-  type SxKhoHopThu, type SxSuCoIn,
+  type SxKhoHopThu, type SxSuCoIn, type SxChoXacNhan,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
 import { kyThuatMay, type MayChon } from "../api/kyThuatMay";
@@ -25,17 +25,19 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { BangLoi, EmptyState, ngay, ngayGio } from "./keHoachSxShared";
 import { useNapTenDonVi } from "./tenDonVi";
-import { ngayToWall, type Xl2Zoom } from "./xl2Shared";
-import { wallMinutes, nowWall } from "./gantt-time";
-import { ThsxTimeline } from "./ThsxTimeline";
+import { ngayToWall } from "./xl2Shared";
+import { wallMinutes } from "./gantt-time";
+import { ThsxLichNgay } from "./ThsxLichNgay";
 import { ThsxDanhSach } from "./ThsxDanhSach";
 import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { ThsxDrawer } from "./ThsxDrawer";
 import { type ThsxExec } from "./ThsxExecPanels";
 import { ThsxHopThuBar, type Opt } from "./ThsxG5";
+import { ThsxChoXacNhanBar } from "./ThsxChoXacNhanBar";
 import { ThsxSanLuongCuaToi } from "./ThsxSanLuongCuaToi";
+import { ThsxSanLuongTab } from "./ThsxSanLuongTab";
 import {
-  buildThsxClusters, chonHinhBan, sxCoGio, sxDigest, sxNguonIcon, sxSerial,
+  chonHinhBan, sxCoGio, sxDigest, sxNguonIcon, sxSerial,
   ThsxTrangThaiPill,
 } from "./thsxShared";
 import "./thuc-hien-sx.css";
@@ -58,48 +60,43 @@ function mondayOfIso(iso: string): string {
   const [y, mo, d] = iso.slice(0, 10).split("-").map(Number);
   return mondayOf(new Date(y, mo - 1, d));
 }
-
-const ZOOMS: { key: Xl2Zoom; label: string }[] = [
-  { key: "gio", label: "Giờ" },
-  { key: "ca", label: "Ca" },
-  { key: "ngay", label: "Ngày" },
-  { key: "tuan", label: "Tuần" },
-];
-const CO_TRANG = 20; // lệnh / trang — đơn vị trang của bàn tổ là LỆNH, không phải bước
-const WIN_SPAN = 14; // 2 tuần hiển thị / bàn
-const WIN_STEP = 7;  // ◀▶ dời một tuần
-const ZOOM_KEY = "thsx.zoom";
-
-function readZoom(): Xl2Zoom {
-  const s = typeof localStorage !== "undefined" ? localStorage.getItem(ZOOM_KEY) : null;
-  return s === "gio" || s === "ca" || s === "ngay" || s === "tuan" ? s : "ca";
+/** "14/09 – 20/09" trong năm nay; khác năm nay thì kèm năm ("29/12/2026 – 04/01/2027"). Năm đầy đủ
+ *  luôn có ở tooltip. */
+function nhanKhoang(tu: string, den: string): string {
+  const namNay = String(new Date().getFullYear());
+  const dm = (s: string) => `${s.slice(8)}/${s.slice(5, 7)}`;
+  if (tu.slice(0, 4) === namNay && den.slice(0, 4) === namNay) return `${dm(tu)} – ${dm(den)}`;
+  const namTu = tu.slice(0, 4) !== den.slice(0, 4) ? `/${tu.slice(0, 4)}` : "";
+  return `${dm(tu)}${namTu} – ${dm(den)}/${den.slice(0, 4)}`;
 }
 
-// Kiểu view bàn tổ: "danh_sach" (bảng tràn màn) hay "lich" (Gantt). View "Thẻ" đã gỡ 14/09/2026 —
-// máy nào còn lưu "the" trong localStorage thì rơi về mặc định Bảng.
-type ThsxView = "danh_sach" | "lich";
+const CO_TRANG = 20; // lệnh / trang — đơn vị trang của bàn tổ là LỆNH, không phải bước
+
+// View Lịch là lưới CỘT NGÀY như Xếp lịch 3 (15/09/2026) — bỏ zoom Giờ/Ca/Ngày/Tuần. Ba nấc số ngày
+// một màn; ◀▶ dời đúng số ngày đang xem.
+const SO_NGAY_NAC = [7, 14, 30] as const;
+const SO_NGAY_KEY = "thsx.soNgay";
+const CHO_THU_KEY = "thsx.hangChoThu";
+
+function readSoNgay(): number {
+  const s = typeof localStorage !== "undefined" ? Number(localStorage.getItem(SO_NGAY_KEY)) : NaN;
+  return (SO_NGAY_NAC as readonly number[]).includes(s) ? s : 7;
+}
+
+// Kiểu view bàn tổ: "danh_sach" (bảng tràn màn), "lich" (Gantt) hay "san_luong" (tab Sản lượng, spec
+// 2026-09-14 §6). View "Thẻ" đã gỡ 14/09/2026 — máy nào còn lưu "the" thì rơi về mặc định Bảng.
+type ThsxView = "danh_sach" | "lich" | "san_luong";
 const VIEW_KEY = "thsx.view";
 
 function readView(): ThsxView {
   const s = typeof localStorage !== "undefined" ? localStorage.getItem(VIEW_KEY) : null;
-  return s === "lich" ? "lich" : "danh_sach";
+  return s === "lich" || s === "san_luong" ? s : "danh_sach";
 }
 
-type ReasonKind = "bat_dau" | "tam_dung" | "ket_thuc";
-const REASON_META: Record<ReasonKind, { title: string; confirm: string; ph: string }> = {
-  bat_dau: { title: "Bắt đầu trễ — nêu lý do", confirm: "Bắt đầu", ph: "Vì sao bắt đầu trễ so với dự kiến?" },
-  tam_dung: { title: "Tạm dừng — nêu lý do", confirm: "Tạm dừng", ph: "Lý do tạm dừng (hết giấy, hỏng máy…)" },
-  ket_thuc: { title: "Kết thúc trễ — nêu lý do", confirm: "Kết thúc", ph: "Vì sao kết thúc trễ so với dự kiến?" },
-};
-
-// Tiêu đề dialog: bắt đầu có thể vừa trễ vừa lệch số người (§7.1) → ghép động; còn lại lấy META.
-function reasonTitle(r: { kind: ReasonKind; tre: boolean; soNguoi?: unknown }): string {
-  if (r.kind !== "bat_dau") return REASON_META[r.kind].title;
-  const phan: string[] = [];
-  if (r.tre) phan.push("bắt đầu trễ");
-  if (r.soNguoi) phan.push("số người khác dự kiến");
-  return `Bắt đầu — ${phan.join(" · ")} — nêu lý do`;
-}
+// Dialog lý do: Tạm dừng (luôn hỏi) hoặc Bắt đầu/Tiếp tục khi số người lệch dự kiến (§7.1).
+type Reason =
+  | { kind: "tam_dung" }
+  | { kind: "bat_dau"; soNguoi: { thucTe: number; duKien: number } };
 
 // ============================ controller =====================================
 export function ThucHienSxPage({
@@ -109,6 +106,7 @@ export function ThucHienSxPage({
   mode = "production",
   eventTick,
   vatTuDeNghiDem,
+  dinhKemDem,
   onXemCongViec,
   onBadgeStale,
 }: {
@@ -124,6 +122,8 @@ export function ThucHienSxPage({
    *  trong nhà máy gửi đề nghị là drawer của mọi người gọi lại API. Chỉ nạp lại khi số đếm CỦA
    *  RIÊNG việc đang mở tăng — một sự kiện, nhiều nhất MỘT lượt gọi lại. */
   vatTuDeNghiDem?: Record<number, number>;
+  /** Bộ đếm SSE tệp đính kèm theo LỆNH — chuyển xuống thẻ "Tệp của lệnh" của drawer. */
+  dinhKemDem?: Record<number, number>;
   /** Báo lên AppShell việc đang mở drawer, để nó khỏi bắn toast cho chính việc đó. */
   onXemCongViec?: (id: number | null) => void;
   onBadgeStale?: () => void;
@@ -133,7 +133,6 @@ export function ThucHienSxPage({
   // nạp một lần ở đây cho cả cây con (drawer · ghi sản lượng · KCS · kho) dùng `nhanDonVi`.
   useNapTenDonVi();
   const can = useCan();
-  const canAssign = can("san_xuat", "assign_work");
   const canKhoRead = can("kho", "read");     // xem hộp thư kho §14
   const canKhoCreate = can("kho", "create"); // xác nhận nhập/nhận (nhân viên kho)
 
@@ -154,6 +153,8 @@ export function ThucHienSxPage({
   const [khoCt, setKhoCt] = useState<SxKhoChiTiet | null>(null);
   const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
   const [khoHopThu, setKhoHopThu] = useState<SxKhoHopThu | null>(null);
+  // Hộp "Chờ tổ bạn xác nhận" — bàn giao đến + hỗ trợ chéo chờ bên tổ mình (máy chủ lọc theo quyền).
+  const [choXn, setChoXn] = useState<SxChoXacNhan | null>(null);
   // Kho ĐÍCH chọn được lúc xác nhận nhập. `null` = CHƯA ĐỌC ĐƯỢC danh mục (đang tải / lỗi mạng /
   // không có quyền đọc); `[]` = đọc được nhưng danh mục RỖNG THẬT. Hai chuyện khác hẳn nhau ⇒ hai
   // câu nhắc khác nhau, đừng gộp (xem `KhoNhapHopThuRow`).
@@ -161,9 +162,12 @@ export function ThucHienSxPage({
   const [g5Tick, setG5Tick] = useState(0); // nhịp refetch riêng cho G5 sau mỗi lệnh ghi
 
   const [winTu, setWinTu] = useState<string>(() => mondayOf(new Date()));
-  const winDen = useMemo(() => addDays(winTu, WIN_SPAN - 1), [winTu]);
-  const [zoom, setZoom] = useState<Xl2Zoom>(readZoom);
-  useEffect(() => { localStorage.setItem(ZOOM_KEY, zoom); }, [zoom]);
+  const [soNgay, setSoNgay] = useState<number>(readSoNgay);
+  useEffect(() => { localStorage.setItem(SO_NGAY_KEY, String(soNgay)); }, [soNgay]);
+  const winDen = useMemo(() => addDays(winTu, soNgay - 1), [winTu, soNgay]);
+  const [choThu, setChoThu] = useState<boolean>(() =>
+    typeof localStorage !== "undefined" && localStorage.getItem(CHO_THU_KEY) === "1");
+  useEffect(() => { localStorage.setItem(CHO_THU_KEY, choThu ? "1" : "0"); }, [choThu]);
   const [view, setView] = useState<ThsxView>(readView);
   useEffect(() => { localStorage.setItem(VIEW_KEY, view); }, [view]);
 
@@ -171,22 +175,25 @@ export function ThucHienSxPage({
   const qd = useDebounced(q, 200);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  // Tab mở sẵn của drawer + nhịp remount: mở từ hộp "Chờ tổ bạn xác nhận" thì vào thẳng tab Bàn
+  // giao, kể cả khi đúng việc đó đang mở sẵn ở tab khác.
+  const [tabDau, setTabDau] = useState<"van_hanh" | "ban_giao">("van_hanh");
+  const [moLan, setMoLan] = useState(0);
   const [chiTiet, setChiTiet] = useState<SxWorkItemChiTiet | null>(null);
   const [ctLoading, setCtLoading] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  // reason.tre = ô lý do CHÍNH (trễ / tạm dừng / kết thúc trễ); treBatBuoc = có bắt buộc không.
-  // reason.soNguoi = §7.1 số người thực tế lệch dự kiến (chỉ khi bắt đầu) → ô lý do riêng.
-  const [reason, setReason] = useState<
-    { kind: ReasonKind; tre: boolean; treBatBuoc: boolean; soNguoi?: { thucTe: number; duKien: number } } | null
-  >(null);
+  const [reason, setReason] = useState<Reason | null>(null);
   const [reasonText, setReasonText] = useState("");
-  const [reasonSoNguoiText, setReasonSoNguoiText] = useState("");
 
   // ---- nạp dữ liệu ----
+  // Từ khoá chỉ gửi máy chủ ở view Bảng. View Lịch lọc trên máy nên gõ tìm KHÔNG được nạp lại:
+  // trước đây mỗi nhịp debounce bắn thêm một GET y hệt cửa sổ đang có (đo 15/09/2026).
+  const timMayChu = view === "danh_sach" ? qd.trim() : "";
   const loadItems = useCallback(() => {
-    if (!token) return;
+    // Tab Sản lượng tự nạp dữ liệu riêng — khỏi kéo trang lệnh về cho một bảng không hiện.
+    if (!token || view === "san_luong") return;
     setErr(null);
     const phang = view === "lich";
     api.sanXuat.workItems(token, {
@@ -194,7 +201,7 @@ export function ThucHienSxPage({
       nhom: phang ? "phang" : "lenh",
       // Tìm kiếm lọc Ở MÁY CHỦ, trước khi cắt trang — lọc bằng JS sau khi trang về thì ô tìm
       // kiếm chỉ soi được đúng 20 lệnh đang hiện. Chế độ phẳng kéo trọn bàn nên màn tự lọc.
-      ...(phang ? { tuNgay: winTu, denNgay: winDen } : { tim: qd.trim() || undefined, trang, coTrang: CO_TRANG }),
+      ...(phang ? { tuNgay: winTu, denNgay: winDen } : { tim: timMayChu || undefined, trang, coTrang: CO_TRANG }),
     })
       .then((r) => {
         // Hình nào là do CỜ `nhom` của máy chủ quyết, không do "có mảng lệnh hay không" —
@@ -208,7 +215,7 @@ export function ThucHienSxPage({
       .catch((e: unknown) => setErr(e instanceof ApiError
         ? (e.isForbidden ? "Tổ này ngoài phạm vi của bạn." : e.message)
         : String(e)));
-  }, [token, teamId, mode, view, qd, trang, winTu, winDen]);
+  }, [token, teamId, mode, view, timMayChu, trang, winTu, winDen]);
 
   // SSE bump (`eventTick`) nạp lại nhưng GIỮ NGUYÊN `trang` — nhảy về trang 1 giữa lúc tổ đang
   // thao tác ở trang 3 là cướp chỗ đứng của người ta.
@@ -229,21 +236,25 @@ export function ThucHienSxPage({
       .catch(() => setSlToi(null));
   }, [token, laTho, eventTick]);
 
+  // Tổ THẬT của việc đang mở: bàn nút cha gộp việc của nhiều tổ con, nên danh chọn người và xác nhận
+  // nhận vật tư đi theo tổ của việc; chưa mở việc nào thì dùng nút đang xem.
+  const toCuaViec = chiTiet?.cong_viec.department_id ?? teamId;
+
   // Ứng viên "Giao người" — endpoint riêng module (KHÔNG dùng api.employees vì gác quyền nhan_su).
   useEffect(() => {
     if (!token) return;
-    api.sanXuat.nhanVienChon(token, teamId)
+    api.sanXuat.nhanVienChon(token, toCuaViec)
       .then((r) => setCandidates(r.nhan_vien))
       .catch(() => setCandidates([]));
-  }, [token, teamId]);
+  }, [token, toCuaViec]);
 
   // Ứng viên HỖ TRỢ CHÉO (§9) — thợ tổ SX khác đang làm; đổi tổ → dọn cache lý do (danh mục chung, giữ được).
   useEffect(() => {
     if (!token) return;
-    api.sanXuat.hoTroUngVien(token, teamId)
+    api.sanXuat.hoTroUngVien(token, toCuaViec)
       .then((r) => setHoTroUngVien(r.nhan_vien))
       .catch(() => setHoTroUngVien([]));
-  }, [token, teamId]);
+  }, [token, toCuaViec]);
 
   // Máy chọn được cho "Đổi máy" §7.2 — endpoint hẹp `may-chon` (KHÔNG dùng `mayThietBi.list`: đòi
   // quyền `dm_thiet_bi` mà thợ đứng máy không có). Danh mục máy CHUNG toàn hệ thống, không theo tổ.
@@ -322,12 +333,12 @@ export function ThucHienSxPage({
   const toChiuOpts = useMemo<Opt[]>(() => {
     const seen = new Map<number, string>();
     for (const c of hoTroUngVien) {
-      if (c.to_id != null && c.to_id !== teamId && !seen.has(c.to_id)) {
+      if (c.to_id != null && c.to_id !== toCuaViec && !seen.has(c.to_id)) {
         seen.set(c.to_id, c.to_ten ?? `Tổ #${c.to_id}`);
       }
     }
     return [...seen.entries()].map(([id, ten]) => ({ id, ten }));
-  }, [hoTroUngVien, teamId]);
+  }, [hoTroUngVien, toCuaViec]);
 
   // Công đoạn thượng nguồn có thể gán "liên đới lỗi" — từ các bàn giao ĐẾN việc này.
   const congDoanRefOpts = useMemo<Opt[]>(() => {
@@ -386,6 +397,16 @@ export function ThucHienSxPage({
     return () => { alive = false; };
   }, [token, canKhoRead, eventTick, g5Tick]);
 
+  // Hộp "Chờ tổ bạn xác nhận" — nạp lại theo SSE (bàn giao/hỗ trợ đổi ở tổ kia) và sau mỗi lệnh ghi.
+  useEffect(() => {
+    if (!token || mode !== "production") { setChoXn(null); return; }
+    let alive = true;
+    api.sanXuat.choXacNhan(token, teamId)
+      .then((r) => { if (alive) setChoXn(r); })
+      .catch(() => { if (alive) setChoXn(null); });
+    return () => { alive = false; };
+  }, [token, teamId, mode, eventTick, g5Tick]);
+
   // Danh mục KHO ĐÍCH cho ô chọn lúc xác nhận nhập thành phẩm (31/08/2026). `GET /api/kho` mở cho
   // quyền `kho:read` (xem `routers/kho.py::_doc_kho`) nên nhân viên kho đọc được. CHỈ kho đang dùng
   // — không bày kho đã ngừng ra cho người ta chọn nhầm. Danh mục nền, không theo tổ ⇒ nạp một lần.
@@ -431,7 +452,9 @@ export function ThucHienSxPage({
     return { tong: filtered.length, timed, outWin, untimed };
   }, [items, match, overlaps]);
 
-  const clusters = useMemo(() => buildThsxClusters(groups.timed), [groups.timed]);
+  // Hàng chờ của view Lịch = việc KHÔNG vẽ được lên lưới đang xem (chưa định giờ / ngoài cửa sổ);
+  // việc trong cửa sổ đã là một dòng trên lưới, lặp lại ở cột trái chỉ là nhiễu.
+  const soCho = groups.untimed.length + groups.outWin.length;
   // Băng KPI đọc từ hình đang nạp: chế độ lệnh cộng `digest` của TRANG hiện tại (mỗi lệnh đã có
   // sẵn bốn con số từ máy chủ), chế độ phẳng đếm thẳng trên mảng bước.
   const digest = useMemo(() => {
@@ -450,6 +473,7 @@ export function ThucHienSxPage({
   // ---- chọn việc: mở drawer + (nếu ngoài cửa sổ) dời cửa sổ tới tuần của việc ----
   const pickViec = useCallback((w: SxWorkItem) => {
     if (sxCoGio(w) && !overlaps(w)) setWinTu(mondayOfIso(w.du_kien_bat_dau as string));
+    setTabDau("van_hanh");
     setSelectedId(w.id);
   }, [overlaps]);
   const closePanel = useCallback(() => setSelectedId(null), []);
@@ -547,6 +571,19 @@ export function ThucHienSxPage({
     void mutateInbox(() => api.sanXuat.khoXacNhanBtp(token!, lotId), "Kho đã nhận BTP.");
   }, [mutateInbox, token]);
 
+  const onMoBanGiaoCho = useCallback((dichCongViecId: number) => {
+    setTabDau("ban_giao");
+    setMoLan((n) => n + 1);
+    setSelectedId(dichCongViecId);
+  }, []);
+  const onXacNhanHoTroCho = useCallback((id: number, version: number) => {
+    void mutateInbox(() => api.sanXuat.xacNhanHoTro(token!, id, { expected_version: version }),
+      "Đã xác nhận hỗ trợ chéo.");
+  }, [mutateInbox, token]);
+  const onHuyHoTroCho = useCallback((id: number, lyDo: string, version: number) =>
+    mutateInbox(() => api.sanXuat.huyHoTro(token!, id, { ly_do: lyDo || null, expected_version: version }),
+      "Đã từ chối lời mời hỗ trợ."), [mutateInbox, token]);
+
   const ver = () => chiTiet?.version;
 
   const onGiao = useCallback((employeeId: number) => {
@@ -578,23 +615,16 @@ export function ThucHienSxPage({
     return r != null;
   }), [mutate, token, selectedId, chiTiet]);
 
-  // Bắt đầu: TRỄ (§7.2) và/hoặc số người thực tế ≠ dự kiến (§7.1) → hỏi lý do; khớp giờ+người → thẳng.
+  // Bắt đầu / Tiếp tục: số người thực tế ≠ dự kiến (§7.1) → hỏi lý do; khớp → thẳng. Sớm hay trễ
+  // so với giờ dự kiến không hỏi gì.
   const onBatDau = useCallback(() => {
     const cv = chiTiet?.cong_viec;
-    const late = !!cv?.du_kien_bat_dau && nowWall() > wallMinutes(cv.du_kien_bat_dau);
     // Roster active phải đếm y hệt backend (SanXuatPhanCong trạng thái "active").
     const rosterActive = (chiTiet?.phan_cong ?? []).filter((p) => p.trang_thai === "active").length;
     const duKien = cv?.du_kien_so_nguoi ?? null;
-    const lech = duKien != null && rosterActive !== duKien;
-    if (late || lech) {
+    if (duKien != null && rosterActive !== duKien) {
       setReasonText("");
-      setReasonSoNguoiText("");
-      setReason({
-        kind: "bat_dau",
-        tre: late,
-        treBatBuoc: late,
-        soNguoi: lech ? { thucTe: rosterActive, duKien: duKien! } : undefined,
-      });
+      setReason({ kind: "bat_dau", soNguoi: { thucTe: rosterActive, duKien } });
       return;
     }
     if (selectedId != null) void mutate(() => api.sanXuat.batDau(token!, selectedId, { expected_version: ver() }), "Đã bắt đầu.");
@@ -617,34 +647,47 @@ export function ThucHienSxPage({
   // Tạm dừng: lý do BẮT BUỘC luôn.
   const onTamDung = useCallback(() => {
     setReasonText("");
-    setReason({ kind: "tam_dung", tre: true, treBatBuoc: true });
+    setReason({ kind: "tam_dung" });
   }, []);
 
-  // Kết thúc: TRỄ → hỏi lý do (bắt buộc nếu chưa có phiên tạm-dừng nào kèm lý do); đúng giờ → thẳng.
+  // Kết thúc: không hỏi lý do, sớm hay trễ đều bấm là xong.
   const onKetThuc = useCallback(() => {
-    const cv = chiTiet?.cong_viec;
-    const late = !!cv?.du_kien_ket_thuc && nowWall() > wallMinutes(cv.du_kien_ket_thuc);
-    const daCoLyDoDung = (chiTiet?.phien_chay ?? []).some((p) => p.loai_dong === "tam_dung" && !!p.ly_do);
-    if (late) { setReasonText(""); setReason({ kind: "ket_thuc", tre: true, treBatBuoc: !daCoLyDoDung }); return; }
     if (selectedId != null) void mutate(() => api.sanXuat.ketThuc(token!, selectedId, { expected_version: ver() }), "Đã kết thúc.");
   }, [chiTiet, mutate, token, selectedId]);
+
+  // Nút chạy nhanh trên DÒNG bảng: mở drawer rồi ĐỢI chi tiết của đúng việc đó về mới bấm. Ba hàm
+  // trên đọc `chiTiet`/`selectedId` hiện hành — gọi ngay trong cú bấm là nhắm vào việc đang mở
+  // trước đó (hoặc không làm gì khi chưa mở việc nào).
+  const [choLam, setChoLam] = useState<{ id: number; viec: "bat_dau" | "tam_dung" | "ket_thuc" } | null>(null);
+  const lamNhanh = useCallback((w: SxWorkItem, viec: "bat_dau" | "tam_dung" | "ket_thuc") => {
+    pickViec(w);
+    setChoLam({ id: w.id, viec });
+  }, [pickViec]);
+  useEffect(() => {
+    if (!choLam || ctLoading || !chiTiet || chiTiet.cong_viec.id !== choLam.id) return;
+    setChoLam(null);
+    if (!chiTiet.quyen?.run_order) return;
+    if (choLam.viec === "bat_dau") {
+      // Cùng cổng với nút Bắt đầu ở chân drawer. Chưa đủ thì chỉ mở drawer — chân drawer đã nói lý do.
+      const coKhoan = (chiTiet.phan_cong ?? []).some((p) => p.trang_thai === "active" && p.la_luong_khoan);
+      const choKhuon = !!chiTiet.cong_viec.khuon && !chiTiet.cong_viec.khuon_da_nhan;
+      if (coKhoan && !choKhuon) onBatDau();
+    } else if (choLam.viec === "tam_dung") onTamDung();
+    else onKetThuc();
+  }, [choLam, ctLoading, chiTiet, onBatDau, onTamDung, onKetThuc]);
 
   const confirmReason = useCallback(() => {
     if (!reason || selectedId == null) return;
     const txt = reasonText.trim();
-    const soNguoiTxt = reasonSoNguoiText.trim();
     if (reason.kind === "tam_dung") {
       void mutate(() => api.sanXuat.tamDung(token!, selectedId, { ly_do: txt, expected_version: ver() }), "Đã tạm dừng.");
-    } else if (reason.kind === "bat_dau") {
+    } else {
       void mutate(() => api.sanXuat.batDau(token!, selectedId, {
-        ly_do_tre: reason.tre ? (txt || null) : null,
-        ly_do_so_nguoi: reason.soNguoi ? (soNguoiTxt || null) : null,
+        ly_do_so_nguoi: txt || null,
         expected_version: ver(),
       }), "Đã bắt đầu.");
-    } else {
-      void mutate(() => api.sanXuat.ketThuc(token!, selectedId, { ly_do_tre: txt || null, expected_version: ver() }), "Đã kết thúc.");
     }
-  }, [reason, reasonText, reasonSoNguoiText, mutate, token, selectedId, chiTiet]);
+  }, [reason, reasonText, mutate, token, selectedId, chiTiet]);
 
   // ---- Giai đoạn 3+4: hợp đồng các mặt GHI cho drawer (mọi mặt qua `mutate` → refetch + toast) ----
   const exec = useMemo<ThsxExec>(() => {
@@ -658,7 +701,7 @@ export function ThucHienSxPage({
       suaBanGiao: (id, b) => ok(mutate(() => api.sanXuat.suaBanGiao(token!, id, b), "Đã sửa mẻ bàn giao.")),
       xacNhanBanGiao: (id, v) => ok(mutate(() => api.sanXuat.xacNhanBanGiao(token!, id, { expected_version: v }), "Đã xác nhận bàn giao.")),
       dieuChinhBanGiao: (id, b) => ok(mutate(() => api.sanXuat.dieuChinhBanGiao(token!, id, b), "Đã điều chỉnh bàn giao.")),
-      xacNhanVatTu: (voucherId) => ok(mutate(() => api.sanXuat.xacNhanVatTu(token!, { voucher_id: voucherId, department_id: teamId }), "Đã xác nhận nhận vật tư.")),
+      xacNhanVatTu: (voucherId) => ok(mutate(() => api.sanXuat.xacNhanVatTu(token!, { voucher_id: voucherId, department_id: toCuaViec }), "Đã xác nhận nhận vật tư.")),
       // Đề nghị cấp vật tư: 400 = vi phạm nghiệp vụ, `handleErr` hiện NGUYÊN VĂN câu tiếng Việt
       // của BE (kho đã lập phiếu, đề nghị đã huỷ…) — không nuốt thành "Có lỗi xảy ra".
       deNghiVatTu: (cvId, b) => ok(mutate(() => api.sanXuat.deNghiVatTu(token!, cvId, b), "Đã gửi đề nghị cấp vật tư.")),
@@ -682,7 +725,7 @@ export function ThucHienSxPage({
       phanLoaiBtp: (b) => mutateG5(() => api.sanXuat.phanLoaiBtp(token!, b), "Đã ghi phân loại BTP."),
       dongThieu: (nhomId, b) => mutateG5(() => api.sanXuat.dongThieu(token!, nhomId, b), "Đã đóng thiếu nhóm."),
     };
-  }, [mutate, mutateG5, token, selectedId, teamId, onDoiMay, onBaoSuCo]);
+  }, [mutate, mutateG5, token, selectedId, toCuaViec, onDoiMay, onBaoSuCo]);
 
   const panelOpen = selectedId != null;
 
@@ -704,54 +747,84 @@ export function ThucHienSxPage({
     <div className="thsx">
       {/* Thanh trên */}
       <div className="thsx-top">
-        <div className="thsx-top__title">
-          <Icon name="users" size={20} />
-          <span>Bàn tổ · {tenTo ?? `#${teamId}`}</span>
+        <div className="thsx-top__hang">
+          <div className="thsx-top__title">
+            <Icon name="users" size={20} />
+            <span>Bàn tổ · {tenTo ?? `#${teamId}`}</span>
+          </div>
+          <div className="thsx-top__spacer" />
+          <div className="thsx-seg" role="group" aria-label="Kiểu xem">
+            <button type="button" className="thsx-seg__btn" title="Xem danh sách bản ghi (Bảng)"
+              aria-pressed={view === "danh_sach"} onClick={() => setView("danh_sach")}>
+              <Icon name="table" size={13} /> Bảng
+            </button>
+            <button type="button" className="thsx-seg__btn" title="Xem theo lịch (Gantt)"
+              aria-pressed={view === "lich"} onClick={() => setView("lich")}>
+              <Icon name="layout" size={13} /> Lịch
+            </button>
+            <button type="button" className="thsx-seg__btn" title="Sản lượng theo lệnh, công đoạn, người"
+              aria-pressed={view === "san_luong"} onClick={() => { setSelectedId(null); setView("san_luong"); }}>
+              <Icon name="activity" size={13} /> Sản lượng
+            </button>
+          </div>
         </div>
-        <div className="thsx-top__spacer" />
-        <div className="thsx-top__grp">
-          <button type="button" className="thsx-iconbtn" title="Tuần trước" aria-label="Tuần trước"
-            onClick={() => setWinTu((s) => addDays(s, -WIN_STEP))}>
-            <Icon name="chevron" size={16} className="thsx-rot180" />
-          </button>
-          <span className="thsx-top__win">
-            <b>{ngay(winTu)}</b> — <b>{ngay(winDen)}</b>
-          </span>
-          <button type="button" className="thsx-iconbtn" title="Tuần sau" aria-label="Tuần sau"
-            onClick={() => setWinTu((s) => addDays(s, WIN_STEP))}>
-            <Icon name="chevron" size={16} />
-          </button>
-          <button type="button" className="thsx-iconbtn" title="Về tuần này" aria-label="Về tuần này"
-            onClick={() => setWinTu(mondayOf(new Date()))}>
-            <Icon name="refresh" size={15} />
-          </button>
-        </div>
-        <div className="thsx-seg" role="group" aria-label="Kiểu xem">
-          <button type="button" className="thsx-seg__btn" title="Xem danh sách bản ghi (Bảng)"
-            aria-pressed={view === "danh_sach"} onClick={() => setView("danh_sach")}>
-            <Icon name="table" size={13} /> Bảng
-          </button>
-          <button type="button" className="thsx-seg__btn" title="Xem theo lịch (Gantt)"
-            aria-pressed={view === "lich"} onClick={() => setView("lich")}>
-            <Icon name="layout" size={13} /> Lịch
-          </button>
-        </div>
+        {/* Hàng 2 — CHỈ view Lịch: điều hướng ngày bên trái (đọc trước), số liệu bên phải. */}
         {view === "lich" && (
-          <div className="thsx-seg" role="group" aria-label="Mật độ trục thời gian">
-            {ZOOMS.map((z) => (
-              <button key={z.key} type="button" className="thsx-seg__btn"
-                aria-pressed={zoom === z.key} onClick={() => setZoom(z.key)}>
-                {z.label}
+          <div className="thsx-top__hang">
+            <div className="thsx-top__grp">
+              <button type="button" className="thsx-nutnay" onClick={() => setWinTu(mondayOf(new Date()))}>
+                Hôm nay
               </button>
-            ))}
+              <div className="thsx-kyngay">
+                <button type="button" title="Kỳ trước" aria-label="Kỳ trước"
+                  onClick={() => setWinTu((s) => addDays(s, -soNgay))}>
+                  <Icon name="chevron" size={16} className="thsx-rot90" />
+                </button>
+                <span className="thsx-kyngay__nhan thsx-num" title={`${ngay(winTu)} – ${ngay(winDen)} · ${soNgay} ngày`}>
+                  <Icon name="calendar" size={13} />
+                  {nhanKhoang(winTu, winDen)}
+                </span>
+                <button type="button" title="Kỳ sau" aria-label="Kỳ sau"
+                  onClick={() => setWinTu((s) => addDays(s, soNgay))}>
+                  <Icon name="chevron" size={16} className="thsx-rot270" />
+                </button>
+              </div>
+              <div className="thsx-songay" role="group" aria-label="Số ngày một màn">
+                {SO_NGAY_NAC.map((n) => (
+                  <button key={n} type="button" className="thsx-songay__btn"
+                    aria-pressed={soNgay === n} onClick={() => setSoNgay(n)}>
+                    {n} Ngày
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="thsx-top__spacer" />
+            <div className="thsx-kpi" aria-label="Tổng quan việc của tổ">
+              {([
+                ["", digest.tong, "việc"],
+                ["run", digest.running, "đang chạy"],
+                ["pause", digest.paused, "tạm dừng"],
+                ["cho", digest.released, "chờ làm"],
+                ["done", digest.completed, "xong"],
+              ] as const).map(([k, so, chu]) => (
+                <span key={chu} className={`thsx-kpi__pill${k ? ` thsx-kpi__pill--${k}` : ""}${so === 0 ? " thsx-kpi__pill--0" : ""}`}>
+                  {k && <i aria-hidden="true" />}
+                  <strong className="thsx-num">{so}</strong> {chu}
+                </span>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
       <ThsxSanLuongCuaToi data={slToi} />
 
-      {/* Thanh phụ: tìm + digest */}
-      <div className="thsx-subbar">
+      {view === "san_luong" ? (
+        <ThsxSanLuongTab teamId={teamId} eventTick={eventTick} />
+      ) : (<>
+      {/* Thanh phụ: tìm + digest — CHỈ view Bảng. View Lịch để số liệu trên thanh trên và ô tìm ở
+          đầu cột Hàng chờ, như Xếp lịch 3. */}
+      {view === "danh_sach" && <div className="thsx-subbar">
         <div className="thsx-search">
           <Icon name="search" size={15} className="thsx-search__ic" />
           <input type="search" className="thsx-search__in" value={q}
@@ -771,7 +844,7 @@ export function ThucHienSxPage({
           <span className="thsx-digest__chip thsx-digest__chip--released"><Icon name="clock" size={12} /> <b className="thsx-num">{digest.released}</b> chờ làm</span>
           <span className="thsx-digest__chip thsx-digest__chip--done"><Icon name="check" size={12} /> <b className="thsx-num">{digest.completed}</b> xong</span>
         </div>
-      </div>
+      </div>}
 
       {/* Hộp thư mức trang (§14) — chỉ hiện khi CÓ việc chờ; real-time qua eventTick/g5Tick.
           Cột KCS đã GỠ khỏi màn production (Task 9 §6.4) — `kcsItems` cố định rỗng, luồng phản hồi
@@ -787,41 +860,76 @@ export function ThucHienSxPage({
         onKhoXacNhanNhap={onKhoXacNhanNhap}
         onKhoXacNhanBtp={onKhoXacNhanBtp}
       />
+      <ThsxChoXacNhanBar
+        data={choXn}
+        busy={busy}
+        onMoBanGiao={onMoBanGiaoCho}
+        onXacNhanHoTro={onXacNhanHoTroCho}
+        onHuyHoTro={onHuyHoTroCho}
+      />
 
       {/* Lưới 3 cột — Tự ẩn sidebar trái khi ở chế độ Bảng để tràn 100% không gian */}
-      <div className={`thsx-grid${panelOpen ? " is-panel" : ""}${view !== "lich" ? " thsx-grid--full" : ""}`}>
-        {/* CỘT TRÁI — CHỈ hiện ở chế độ Lịch (Gantt) để kéo việc vào timeline, tránh trùng lặp */}
-        {view === "lich" && (
+      <div className={`thsx-grid${panelOpen ? " is-panel" : ""}${view !== "lich" ? " thsx-grid--full" : " thsx-grid--lich"}${view === "lich" && choThu ? " thsx-grid--cho-thu" : ""}`}>
+        {/* CỘT TRÁI — HÀNG CHỜ, chỉ ở view Lịch: việc chưa định giờ / ngoài khoảng ngày đang xem.
+            Việc trong khoảng đã là một dòng trên lưới nên không lặp lại ở đây. Thu gọn được. */}
+        {view === "lich" && (choThu ? (
+          <aside className="thsx-list thsx-list--thu">
+            <button type="button" className="thsx-cho__mo" title="Mở Hàng chờ" aria-label="Mở Hàng chờ"
+              onClick={() => setChoThu(false)}>
+              <Icon name="layers" size={15} />
+              <span className="thsx-cho__mo-dem thsx-num">{soCho}</span>
+            </button>
+          </aside>
+        ) : (
           <aside className="thsx-list">
-            <div className="thsx-list__head">
-              <Icon name="clipboard" size={16} />
-              <h2>Việc của tổ</h2>
-              <span className="thsx-list__count thsx-num">{groups.tong}</span>
+            <div className="thsx-cho__dau">
+              <div className="thsx-cho__tieu">
+                <h2>Hàng chờ</h2>
+                <span className="thsx-cho__dem thsx-num">{soCho}</span>
+                <button type="button" className="thsx-cho__thu" title="Thu gọn Hàng chờ"
+                  aria-label="Thu gọn Hàng chờ" onClick={() => setChoThu(true)}>
+                  <Icon name="chevron" size={14} className="thsx-rot90" />
+                </button>
+              </div>
+              <div className="thsx-search thsx-search--cho">
+                <Icon name="search" size={14} className="thsx-search__ic" />
+                <input type="search" className="thsx-search__in" value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Tìm mã / công đoạn / máy…" aria-label="Tìm trong việc của tổ" />
+                {q && (
+                  <button type="button" className="thsx-search__clear" aria-label="Xoá tìm" onClick={() => setQ("")}>
+                    <Icon name="x" size={13} />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="thsx-list__body">
               {err ? (
                 <div className="thsx-list__pad"><BangLoi text={err} onRetry={loadItems} /></div>
               ) : items == null ? (
                 <ListSkeleton />
-              ) : groups.tong === 0 ? (
-                <EmptyState icon={q ? "search" : "check"}
-                  title={q ? "Không khớp tìm kiếm" : "Chưa có việc phát hành"}
-                  sub={q ? "Thử đổi từ khoá." : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
+              ) : soCho === 0 ? (
+                <div className="thsx-cho__trong">
+                  <Icon name={q ? "search" : "check"} size={24} />
+                  {/* Không tách nhánh "chưa có việc phát hành": `items` chỉ là việc của KHOẢNG NGÀY đang
+                      xem, dời sang tuần trống thì tổng về 0 dù tổ vẫn còn việc ở tuần khác. */}
+                  <p>{q
+                    ? "Không có việc chờ nào khớp từ khoá."
+                    : "Tất cả việc của tổ đều đã nằm trên lịch."}</p>
+                </div>
               ) : (
                 <>
-                  <ListSection label="Trong cửa sổ" icon="calendar" viec={groups.timed}
-                    selectedId={selectedId} onPick={pickViec} />
-                  <ListSection label="Ngoài cửa sổ" icon="history" viec={groups.outWin}
-                    selectedId={selectedId} onPick={pickViec} />
                   <ListSection label="Chưa định giờ" icon="clock" viec={groups.untimed}
+                    selectedId={selectedId} onPick={pickViec} />
+                  <ListSection label="Ngoài khoảng ngày" icon="history" viec={groups.outWin}
                     selectedId={selectedId} onPick={pickViec} />
                 </>
               )}
             </div>
           </aside>
-        )}
+        ))}
 
-        {/* CỘT GIỮA — bảng (Danh sách) hoặc timeline (Gantt) */}
+        {/* CỘT GIỮA — bảng (Danh sách) hoặc lịch ngày */}
         <section className="thsx-center thsx-col--center">
           {err ? (
             <div className="thsx-centerempty"><BangLoi text={err} onRetry={loadItems} /></div>
@@ -840,26 +948,21 @@ export function ThucHienSxPage({
                   lenh={lenh ?? []}
                   selectedId={selectedId}
                   onPick={pickViec}
-                  onBatDau={(w) => { pickViec(w); onBatDau(); }}
-                  onTamDung={(w) => { pickViec(w); onTamDung(); }}
-                  onKetThuc={(w) => { pickViec(w); onKetThuc(); }}
+                  onBatDau={(w) => lamNhanh(w, "bat_dau")}
+                  onTamDung={(w) => lamNhanh(w, "tam_dung")}
+                  onKetThuc={(w) => lamNhanh(w, "ket_thuc")}
                 />
                 <ThanhTrang trang={trang} soTrang={soTrang} tong={tongLenh} onDoi={setTrang} />
               </>
             )
-          ) : clusters.length === 0 ? (
-            <div className="thsx-centerempty">
-              <EmptyState icon="calendar" title="Không có việc định giờ trong cửa sổ này"
-                sub="Dời cửa sổ ngày, hoặc chọn một việc 'chưa định giờ' ở cột trái để xem chi tiết." />
-            </div>
           ) : (
-            <ThsxTimeline
-              clusters={clusters}
-              winTu={winTu}
-              winDen={winDen}
-              zoom={zoom}
+            <ThsxLichNgay
+              tu={winTu}
+              soNgay={soNgay}
+              dangTim={qd.trim() !== ""}
+              viec={groups.timed}
               selectedId={selectedId}
-              onChonViec={setSelectedId}
+              onChon={pickViec}
             />
           )}
         </section>
@@ -873,10 +976,11 @@ export function ThucHienSxPage({
               // 1, Minor 5. State nội bộ (`doiMayOpen`/`mayChonId`/`lyDoMay`, `giaoOpen`/`moKhoang`)
               // trước đây sống qua lần đổi `selectedId` vì component không unmount, để lại form
               // "Đổi máy" còn mở hoặc còn chọn dở máy của công việc TRƯỚC khi bấm sang việc khác.
-              key={selectedId}
+              key={`${selectedId}:${moLan}`}
+              tabDau={tabDau}
+              dinhKemDem={dinhKemDem}
               chiTiet={chiTiet}
               loading={ctLoading}
-              canAssign={canAssign}
               candidates={candidates}
               hoTroUngVien={hoTroUngVien}
               mayOptions={mayOptions}
@@ -913,50 +1017,37 @@ export function ThucHienSxPage({
           <span className="thsx-lg thsx-lg--actual"><i /> Thực tế</span>
         </div>
         <div className="thsx-foot__spacer" />
-        <div className="thsx-foot__hint">
-          <Icon name="calendar" size={14} />
-          <span className="thsx-num">{ngay(winTu)} — {ngay(winDen)}</span>
-          <span className="thsx-foot__dot">·</span>
-          {ZOOMS.find((z) => z.key === zoom)?.label}
-        </div>
       </div>
+      </>)}
 
-      {/* Dialog lý do (§8): ô CHÍNH (trễ/tạm dừng) + ô §7.1 lệch số người khi bắt đầu */}
+      {/* Dialog lý do: Tạm dừng, hoặc Bắt đầu/Tiếp tục khi số người lệch dự kiến (§7.1) */}
       <ConfirmDialog
         open={!!reason}
-        title={reason ? <span><Icon name="alert" size={16} /> {reasonTitle(reason)}</span> : ""}
-        confirmLabel={reason ? REASON_META[reason.kind].confirm : "Xác nhận"}
-        confirmDisabled={
-          !!reason && (
-            (reason.tre && reason.treBatBuoc && reasonText.trim() === "") ||
-            (!!reason.soNguoi && reasonSoNguoiText.trim() === "")
-          )
-        }
+        title={reason ? (
+          <span><Icon name="alert" size={16} /> {reason.kind === "tam_dung"
+            ? "Tạm dừng — nêu lý do" : "Bắt đầu — số người khác dự kiến — nêu lý do"}</span>
+        ) : ""}
+        confirmLabel={reason?.kind === "tam_dung" ? "Tạm dừng" : "Bắt đầu"}
+        confirmDisabled={!!reason && reasonText.trim() === ""}
         busy={busy}
         onConfirm={confirmReason}
-        onCancel={() => { setReason(null); setReasonText(""); setReasonSoNguoiText(""); }}
+        onCancel={() => { setReason(null); setReasonText(""); }}
       >
         {reason && (
           <div className="thsx-dlg-fields">
-            {reason.soNguoi && (
-              <label className="thsx-dlg-field">
+            <label className="thsx-dlg-field">
+              {reason.kind === "bat_dau" && (
                 <span className="thsx-dlg-field__lb">
                   Số người thực tế <b className="thsx-num">{reason.soNguoi.thucTe}</b> ≠ dự kiến{" "}
                   <b className="thsx-num">{reason.soNguoi.duKien}</b> — nêu lý do
                 </span>
-                <textarea className="thsx-dlg-reason" autoFocus
-                  placeholder="Vì sao khác số người dự kiến? (thợ nghỉ, ghép thêm hỗ trợ…)"
-                  value={reasonSoNguoiText} onChange={(e) => setReasonSoNguoiText(e.target.value)} />
-              </label>
-            )}
-            {reason.tre && (
-              <label className="thsx-dlg-field">
-                {reason.soNguoi && <span className="thsx-dlg-field__lb">{REASON_META[reason.kind].title}</span>}
-                <textarea className="thsx-dlg-reason" autoFocus={!reason.soNguoi}
-                  placeholder={REASON_META[reason.kind].ph}
-                  value={reasonText} onChange={(e) => setReasonText(e.target.value)} />
-              </label>
-            )}
+              )}
+              <textarea className="thsx-dlg-reason" autoFocus
+                placeholder={reason.kind === "tam_dung"
+                  ? "Lý do tạm dừng (hết giấy, hỏng máy…)"
+                  : "Vì sao khác số người dự kiến? (thợ nghỉ, ghép thêm hỗ trợ…)"}
+                value={reasonText} onChange={(e) => setReasonText(e.target.value)} />
+            </label>
           </div>
         )}
       </ConfirmDialog>
@@ -1055,7 +1146,7 @@ function ThanhTrang({
     <div className="thsx-trang">
       <button type="button" className="thsx-trang__nut" disabled={trang <= 1}
         onClick={() => onDoi(Math.max(1, trang - 1))}>
-        <Icon name="chevron" size={14} className="thsx-rot270" /> Trước
+        <Icon name="chevron" size={14} className="thsx-rot90" /> Trước
       </button>
       <span className="thsx-trang__vt">
         Trang <b className="thsx-num">{trang}</b>/<b className="thsx-num">{soTrang}</b>

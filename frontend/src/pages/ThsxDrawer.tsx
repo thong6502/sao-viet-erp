@@ -27,11 +27,11 @@ import { phutChayText, slText, sxSerial, ThsxTrangThaiPill } from "./thsxShared"
 import { ThsxBaoSuCoDialog } from "./ThsxBaoSuCoDialog";
 import { ThsxExecPanels, type ThsxExec } from "./ThsxExecPanels";
 import { ThsxKcsPanel, ThsxKhoPanel, ThsxDongNhomPanel, type Opt } from "./ThsxG5";
+import { ThsxTepLenh } from "./ThsxTepLenh";
 
 interface Props {
   chiTiet: SxWorkItemChiTiet | null;
   loading: boolean;
-  canAssign: boolean;
   /** Người chọn được cho ô "Giao người" (endpoint riêng của module, gác `san_xuat:read`). */
   candidates: SxNhanVienChon[];
   /** Ứng viên HỖ TRỢ CHÉO (§9) — thợ tổ SX khác đang làm (endpoint riêng module). */
@@ -64,6 +64,10 @@ interface Props {
   onTamDung: () => void;
   onKetThuc: () => void;
   onClose: () => void;
+  /** Tab mở sẵn — hộp "Chờ tổ bạn xác nhận" mở thẳng tab Bàn giao. Chỉ đọc lúc mount. */
+  tabDau?: "van_hanh" | "ban_giao" | "kcs_kho";
+  /** Bộ đếm SSE tệp đính kèm theo lệnh (AppShell) — thẻ "Tệp của lệnh" tự nạp lại khi lệnh của nó đổi. */
+  dinhKemDem?: Record<number, number>;
 }
 
 const DONG_LABEL: Record<string, string> = {
@@ -118,11 +122,11 @@ function khoangTimeText(batDau: string | null | undefined, ketThuc: string | nul
 }
 
 export function ThsxDrawer({
-  chiTiet, loading, canAssign, candidates, hoTroUngVien, mayOptions, exec, busy,
+  chiTiet, loading, candidates, hoTroUngVien, mayOptions, exec, busy,
   kcsCt, khoCt, dieuKien, toChiuOpts, congDoanRefOpts,
-  onGiao, onRut, onBatDau, onNhanKhuon, onTraKhuon, onTamDung, onKetThuc, onClose,
+  onGiao, onRut, onBatDau, onNhanKhuon, onTraKhuon, onTamDung, onKetThuc, onClose, tabDau = "van_hanh", dinhKemDem,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<"van_hanh" | "ban_giao" | "kcs_kho">("van_hanh");
+  const [activeTab, setActiveTab] = useState<"van_hanh" | "ban_giao" | "kcs_kho">(tabDau);
   const [giaoOpen, setGiaoOpen] = useState(false);
   const [q, setQ] = useState("");
   const [moKhoang, setMoKhoang] = useState(false);
@@ -133,6 +137,11 @@ export function ThsxDrawer({
   const [suCoOpen, setSuCoOpen] = useState(false);
 
   const cv = chiTiet?.cong_viec ?? null;
+  // Quyền TRÊN CHÍNH công việc này (máy chủ tính theo dòng quyền của tổ; mức "Của tôi" chỉ bật khi
+  // việc đang giao cho mình). Vận hành = Thực hiện lệnh; KCS = KCS; nhập kho/BTP = Kho.
+  const canAssign = !!chiTiet?.quyen?.run_order;
+  const canKcs = !!chiTiet?.quyen?.qc;
+  const canKho = !!chiTiet?.quyen?.warehouse;
   const tt = chiTiet?.trang_thai ?? cv?.trang_thai ?? "released";
   const isTo = cv?.loai_buoc === "to";
   const isMay = cv?.loai_buoc === "may" || cv?.loai_buoc === "thue_ngoai";
@@ -284,7 +293,28 @@ export function ThsxDrawer({
             {/* ================= TAB 1: VẬN HÀNH & QUY CÁCH ================= */}
             {activeTab === "van_hanh" && (
               <>
-                {/* 1A · THỰC TẾ SẢN XUẤT & PRODUCTION HUB (ĐẶT LÊN ĐẦU THEO PLAN) */}
+                {/* 1A · GHI CHÚ KỸ THUẬT — ô "Ghi chú kỹ thuật cho thợ" của bước, ĐẦU TAB để thợ đọc dặn dò
+                    trước mọi thứ (16/09/2026). LUÔN hiện (kể cả trống) vì bảng danh sách không còn dòng
+                    mở rộng để xem nhanh: thợ phải biết là không có dặn dò. */}
+                {cv.ghi_chu?.trim() ? (
+                  <div className="thsx-card" style={{ background: "#fffbebe6", borderColor: "#fde68a" }}>
+                    <div className="thsx-psec__h">
+                      <Icon name="alert" size={14} style={{ color: "#d97706" }} />
+                      <span className="thsx-psec__title" style={{ color: "#b45309" }}>Ghi chú kỹ thuật</span>
+                    </div>
+                    <p className="thsx-dando">{cv.ghi_chu}</p>
+                  </div>
+                ) : (
+                  <div className="thsx-card">
+                    <div className="thsx-psec__h">
+                      <Icon name="fileText" size={14} />
+                      <span className="thsx-psec__title">Ghi chú kỹ thuật</span>
+                    </div>
+                    <p className="thsx-dando thsx-dando--trong">Không có dặn dò riêng</p>
+                  </div>
+                )}
+
+                {/* 1B · THỰC TẾ SẢN XUẤT & PRODUCTION HUB */}
                 <div className="thsx-card thsx-prod-hub">
                   <div className="thsx-psec__h">
                     <Icon name="activity" size={14} />
@@ -339,7 +369,7 @@ export function ThsxDrawer({
                   </div>
                 </div>
 
-                {/* 1B · THẺ QUY CÁCH CHẠY MÁY (BẢNG PHẲNG 2 CỘT SIÊU MẢNH - PHẲNG TĂM TẮP) */}
+                {/* 1C · THẺ QUY CÁCH CHẠY MÁY (BẢNG PHẲNG 2 CỘT SIÊU MẢNH - PHẲNG TĂM TẮP) */}
                 {cv.quy_cach && (
                   <div className="thsx-card">
                     <div className="thsx-psec__h">
@@ -363,26 +393,6 @@ export function ThsxDrawer({
                         </p>
                       </div>
                     )}
-                  </div>
-                )}
-
-                {/* 1C · GHI CHÚ KỸ THUẬT — ô "Ghi chú kỹ thuật cho thợ" của bước. LUÔN hiện (kể cả trống)
-                    vì bảng danh sách không còn dòng mở rộng để xem nhanh: thợ phải biết là không có dặn dò. */}
-                {cv.ghi_chu?.trim() ? (
-                  <div className="thsx-card" style={{ background: "#fffbebe6", borderColor: "#fde68a" }}>
-                    <div className="thsx-psec__h">
-                      <Icon name="alert" size={14} style={{ color: "#d97706" }} />
-                      <span className="thsx-psec__title" style={{ color: "#b45309" }}>Ghi chú kỹ thuật</span>
-                    </div>
-                    <p className="thsx-dando">{cv.ghi_chu}</p>
-                  </div>
-                ) : (
-                  <div className="thsx-card">
-                    <div className="thsx-psec__h">
-                      <Icon name="fileText" size={14} />
-                      <span className="thsx-psec__title">Ghi chú kỹ thuật</span>
-                    </div>
-                    <p className="thsx-dando thsx-dando--trong">Không có dặn dò riêng</p>
                   </div>
                 )}
 
@@ -534,6 +544,9 @@ export function ThsxDrawer({
                   )}
                 </section>
 
+                {/* 1F' · TỆP CỦA LỆNH — maket/bản vẽ Kế hoạch SX đính kèm; tổ xem/tải, không sửa. */}
+                <ThsxTepLenh congViecId={cv.id} dinhKemDem={dinhKemDem} />
+
                 {/* 1G · PHIÊN CHẠY & KHOẢNG THAM GIA LOG */}
                 <section className="thsx-psec">
                   <div className="thsx-psec__h">
@@ -602,7 +615,6 @@ export function ThsxDrawer({
             {activeTab === "ban_giao" && (
               <ThsxExecPanels
                 chiTiet={chiTiet}
-                canAssign={canAssign}
                 busy={busy}
                 hoTroUngVien={hoTroUngVien}
                 exec={exec}
@@ -616,7 +628,7 @@ export function ThsxDrawer({
                   <ThsxKcsPanel
                     chiTiet={chiTiet}
                     ct={kcsCt}
-                    canAssign={canAssign}
+                    canAssign={canKcs}
                     busy={busy}
                     toChiuOpts={toChiuOpts}
                     congDoanRefOpts={congDoanRefOpts}
@@ -628,7 +640,7 @@ export function ThsxDrawer({
                     chiTiet={chiTiet}
                     kho={khoCt}
                     kcsBatches={kcsCt?.batch ?? []}
-                    canAssign={canAssign}
+                    canAssign={canKho}
                     busy={busy}
                     exec={exec}
                   />
@@ -636,7 +648,7 @@ export function ThsxDrawer({
                 {cv.la_kcs_cuoi && cv.nhom_id != null && (
                   <ThsxDongNhomPanel
                     dieuKien={dieuKien}
-                    canAssign={canAssign}
+                    canAssign={canKcs}
                     busy={busy}
                     onDongThieu={exec.dongThieu}
                   />

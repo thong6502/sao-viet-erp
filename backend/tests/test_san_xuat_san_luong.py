@@ -2,7 +2,8 @@
 
 Soi tầng service `services/san_xuat/san_luong.py` (nơi chứa LUẬT), không qua HTTP:
   · `tong = tot + hong` (dung sai làm tròn), `hong > 0` bắt buộc nhóm lỗi chuẩn hoá (nhóm `loi`);
-  · chỉ ghi cho công việc ĐÃ khởi động; GATE §6 chỉ tổ trưởng đúng tổ;
+  · chỉ ghi cho công việc ĐÃ khởi động; ghi mẻ đòi quyền Thực hiện lệnh trên tổ của công việc
+    (dòng quyền theo tổ, mg 0302) — có quyền khác mà thiếu ô này vẫn bị chặn;
   · lot đầu vào từ batch công đoạn trước (§10.3) — không trỏ về chính công việc đang ghi;
   · `them_lot` bổ sung truy vết cho batch đã tạo.
 
@@ -108,12 +109,31 @@ def test_chua_bat_dau_khong_ghi_duoc(db, orders, lsx_svc, admin, customer):
         )
 
 
-def test_gate_chi_to_truong(db, orders, lsx_svc, admin, customer):
+def test_gate_nguoi_khong_co_quyen_to_bi_chan(db, orders, lsx_svc, admin, customer):
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
     nguoi_la = SimpleNamespace(id=admin.id + 99_999)
     with pytest.raises(PermissionError):
         san_luong.tao_batch(
             db, user=nguoi_la, cong_viec_id=cv.id,
+            bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=10, tot=10,
+        )
+
+
+def test_gate_ghi_me_doi_thuc_hien_lenh(db, orders, lsx_svc, admin, customer):
+    """Ghi mẻ + lô thuộc quyền Thực hiện lệnh. Người có Xem + Xác nhận sản lượng + KCS + Kho trọn tổ
+    mà thiếu đúng ô đó thì không ghi được mẻ."""
+    from app.models.user import User
+    from tests.quyen_to_fixtures import cap_quyen_to
+
+    to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
+    u = User(username="khong_chay_sl", name="Không chạy", password_hash="x", department_id=to.id)
+    db.add(u)
+    db.flush()
+    cap_quyen_to(db, u, to, viec=("confirm_output", "qc", "warehouse"))
+    db.commit()
+    with pytest.raises(PermissionError, match="Thực hiện lệnh"):
+        san_luong.tao_batch(
+            db, user=u, cong_viec_id=cv.id,
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=10, tot=10,
         )
 

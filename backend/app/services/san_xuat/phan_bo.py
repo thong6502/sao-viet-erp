@@ -58,6 +58,7 @@ from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ...repositories.san_xuat_thuc_thi_repo import SanXuatThucThiRepository
 from ..attendance_service import AttendanceService
 from ..gio_xuong import ve_gio_xuong
+from ..quyen_to import VIEC_XAC_NHAN
 from .thuc_thi import _aware, _gate, _moc
 
 _EPS = 0.0005  # dung sai làm tròn Numeric(18,3)
@@ -335,7 +336,7 @@ def tinh_phan_bo(db: Session, *, user, batch_id: int) -> dict:
     cv = pb_repo.cong_viec(batch.cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc của batch.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_XAC_NHAN)
 
     header = pb_repo.phan_bo_cua_batch(batch_id)
     if header is not None and header.trang_thai == PB_DA_CHOT:
@@ -376,7 +377,7 @@ def chot_phan_bo(
     cv = pb_repo.cong_viec(header.cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc của phân bổ.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_XAC_NHAN)
     if header.trang_thai == PB_DA_CHOT:
         raise ValueError("Phân bổ đã chốt.")
 
@@ -421,7 +422,7 @@ def mo_lai_phan_bo(
     cv = pb_repo.cong_viec(header.cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc của phân bổ.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_XAC_NHAN)
     if header.trang_thai != PB_DA_CHOT:
         raise ValueError("Chỉ mở lại được bản đã chốt.")
     if _ky_da_khoa(db, header.ky_nam, header.ky_thang):
@@ -470,7 +471,7 @@ def bu_tru(
     cv = pb_repo.cong_viec(batch.cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc của batch.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_XAC_NHAN)
 
     header = pb_repo.phan_bo_cua_batch(batch_id)
     if header is None or header.trang_thai != PB_DA_CHOT:
@@ -536,7 +537,7 @@ def loai_tru_khoi_phan_bo(
     cv = pb_repo.cong_viec(batch.cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc của batch.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_XAC_NHAN)
 
     header = pb_repo.phan_bo_cua_batch(batch_id)
     if header is not None and header.trang_thai == PB_DA_CHOT:
@@ -570,7 +571,7 @@ def go_loai_tru(db: Session, *, user, batch_id: int, employee_id: int) -> dict:
     cv = pb_repo.cong_viec(batch.cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc của batch.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_XAC_NHAN)
 
     header = pb_repo.phan_bo_cua_batch(batch_id)
     if header is not None and header.trang_thai == PB_DA_CHOT:

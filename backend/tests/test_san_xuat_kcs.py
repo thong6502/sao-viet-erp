@@ -4,11 +4,14 @@ Soi tầng service `services/san_xuat/kcs.py` (nơi chứa LUẬT), không qua H
   · §13.1 `so_luong_nhan = dat + khong_dat`; NĂNG SUẤT KCS lấy nền theo `so_luong_nhan` → đẻ kèm
     một `san_xuat_batch` (`tot = nhan`, `hong = 0`) để tái dùng NGUYÊN pipeline phân bổ; kết luận
     suy từ số (đạt / đạt một phần / không đạt);
-  · chỉ ghi cho công việc KCS (`la_kcs`) đã khởi động; GATE §6 chỉ tổ trưởng đúng tổ KCS;
-  · §13.2 mỗi lỗi ≥1 ảnh, nhóm lỗi phải thuộc nhóm `loi`; tổ trưởng tổ BỊ yêu cầu (KHÁC tổ KCS)
-    CHẤP NHẬN / TỪ CHỐI-kèm-lý-do — chung thẩm; lỗi chờ CHẶN đóng đủ nhóm (§16);
+  · chỉ ghi cho công việc KCS (`la_kcs`) đã khởi động; GATE = quyền KCS (`qc`) trên dòng quyền theo
+    tổ của tổ chạy việc (mg 0302) — mức "Của tôi" chỉ ghi được việc đang giao cho mình;
+  · §13.2 mỗi lỗi ≥1 ảnh, nhóm lỗi phải thuộc nhóm `loi`; người giữ KCS TRỌN ở tổ BỊ yêu cầu (KHÁC
+    tổ KCS) CHẤP NHẬN / TỪ CHỐI-kèm-lý-do — chung thẩm; lỗi chờ CHẶN đóng đủ nhóm (§16);
+  · kiểm đột xuất / điểm kiểm và điều chỉnh của chúng hỏi KCS TRỌN ở TỔ ĐI KIỂM — "đứng trong tổ"
+    hay "đứng tên tổ trưởng" không còn là quyền;
   · hai test API cuối chứng minh đường dây HTTP: chưa đăng nhập → 401; multipart ảnh + admin
-    (thiếu bit `assign_work`) → 403.
+    (vai không bật KCS ở tổ nào) → 403.
 
 Tái dùng dàn cảnh (đơn → SX → phát hành vào một tổ khoán) từ test sản lượng / thực thi.
 """
@@ -49,7 +52,8 @@ from app.models.user import User
 from app.repositories.audit_repo import AuditLogRepository
 from app.repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from app.repositories.san_xuat_kho_repo import SanXuatKhoRepository
-from app.services.san_xuat import kcs, kho
+from app.services.san_xuat import kcs, kho, thuc_thi
+from tests.quyen_to_fixtures import cap_quyen_to
 
 # Fixtures + helper luồng thật (kéo cả cây fixture xếp lịch).
 from tests.test_san_xuat_thuc_thi import (  # noqa: F401
@@ -80,18 +84,35 @@ def _cv_kcs(db, orders, lsx_svc, admin, customer, ma="TO-KCS"):
 
 
 def _to_chiu(db, ten="Tổ Bế Bị Đổ", ma="TO-CHIU") -> tuple[Department, User]:
-    """Một tổ SX khác + tổ trưởng riêng (để soi gate phản hồi = tổ trưởng tổ BỊ yêu cầu)."""
+    """Một tổ SX khác + MỘT người được bật đủ quyền (có KCS) trên TRỌN tổ đó — để soi gate phản hồi
+    lỗi = người giữ KCS ở tổ BỊ yêu cầu. Người này không đứng tên tổ trưởng: `head_user_id` không
+    còn là quyền."""
     u = User(username=f"tt_{ma.lower()}", name="Tổ Trưởng Bế", password_hash="x")
     db.add(u)
     db.flush()
-    d = Department(name=ten, code=ma, la_san_xuat=True, head_user_id=u.id)
+    d = Department(name=ten, code=ma, la_san_xuat=True)
     db.add(d)
     db.flush()
+    cap_quyen_to(db, u, d)
     return d, u
 
 
+def _nguoi_o_to(db, dept, username, *, scope: str | None = SCOPE_ALL, viec=("qc",)) -> User:
+    """Một tài khoản ĐỨNG TRONG tổ `dept` (`department_id` trỏ tổ) + dòng quyền theo tổ của `dept`:
+    bật Xem + `viec` với phạm vi `scope`. `scope=None` = không cấp gì — thành viên thường."""
+    u = User(username=username, name=f"Người {username}", password_hash="x", department_id=dept.id)
+    db.add(u)
+    db.flush()
+    if scope is not None:
+        cap_quyen_to(db, u, dept, scope=scope, viec=viec)
+    db.commit()
+    return u
+
+
 class _Authz:
-    """Ép cứng scope đọc — soi `chi_tiet_kcs` mà không lệ thuộc tên role seed (như test board)."""
+    """Stub tham số `authz` của service đọc. Tham số còn trong chữ ký nhưng KHÔNG còn quyết định phạm
+    vi — phạm vi nay do dòng quyền theo tổ của vai quyết định (mg 0302), nên `scope` ở đây vô tác
+    dụng; muốn soi phạm vi thì cấp dòng thật bằng `cap_quyen_to`."""
 
     def __init__(self, scope: str | None = None) -> None:
         self._scope = scope
@@ -125,10 +146,13 @@ def _ban_giao(db, *, dich_cong_viec_id, so_luong, trang_thai=BG_XAC_NHAN):
     return bg
 
 
-def _to_kiem(db, ten="Tổ Kiểm Đột Xuất", ma="TO-KIEM") -> tuple[Department, User]:
-    """Một tổ SX KHÁC được GIAO kiểm đột xuất + MỘT thành viên (`department_id` trỏ đúng tổ —
-    KHÔNG cần là tổ trưởng, vì `_gate_member` cho phép bất kỳ thành viên nào của tổ, khác gate
-    tổ-trưởng-only `_gate`/`_gate_to` của routing/phản hồi lỗi)."""
+def _to_kiem(db, ten="Tổ Kiểm Đột Xuất", ma="TO-KIEM", *, quyen: bool = True) -> tuple[Department, User]:
+    """Một tổ SX KHÁC được GIAO kiểm đột xuất + MỘT thành viên (`department_id` trỏ đúng tổ).
+
+    Luật cũ "thành viên nào của tổ cũng ghi được" (`_gate_member`) đã gỡ: kiểm đột xuất / điểm kiểm
+    đòi KCS (`qc`) trên TRỌN tổ đi kiểm. Nên mặc định thành viên này được bật ĐÚNG Xem + KCS phạm
+    vi `all` ở tổ kiểm — không kèm quyền nào khác, không đứng tên tổ trưởng. `quyen=False` = thành
+    viên thường chưa được cấp gì."""
     d = Department(name=ten, code=ma, la_san_xuat=True)
     db.add(d)
     db.flush()
@@ -136,18 +160,21 @@ def _to_kiem(db, ten="Tổ Kiểm Đột Xuất", ma="TO-KIEM") -> tuple[Departm
              department_id=d.id)
     db.add(u)
     db.flush()
+    if quyen:
+        cap_quyen_to(db, u, d, viec=("qc",))
     return d, u
 
 
 def _to_kiem_truong(db, ten="Tổ Kiểm Đột Xuất TT", ma="TO-KIEM-TT") -> tuple[Department, User]:
-    """Tổ đi kiểm đột xuất CÓ trưởng tổ (khác `_to_kiem` chỉ có thành viên thường) — dùng cho test
-    gate điều chỉnh (`_gate_to` đòi đúng `head_user_id`, khác `_gate_member` chỉ đòi cùng phòng)."""
+    """Tổ đi kiểm đột xuất + MỘT người được bật đủ bốn quyền chi tiết trên TRỌN tổ đó (không đứng
+    trong tổ, không đứng tên tổ trưởng) — dùng cho test gate điều chỉnh kết quả đột xuất."""
     u = User(username=f"tt_{ma.lower()}", name="Trưởng Tổ Kiểm", password_hash="x")
     db.add(u)
     db.flush()
-    d = Department(name=ten, code=ma, la_san_xuat=True, head_user_id=u.id)
+    d = Department(name=ten, code=ma, la_san_xuat=True)
     db.add(d)
     db.flush()
+    cap_quyen_to(db, u, d)
     return d, u
 
 
@@ -231,14 +258,28 @@ def test_chua_bat_dau_khong_ghi_duoc(db, orders, lsx_svc, admin, customer):
         )
 
 
-def test_gate_chi_to_truong_kcs(db, orders, lsx_svc, admin, customer):
+def test_gate_ghi_batch_kcs_doi_quyen_kcs_o_to(db, orders, lsx_svc, admin, customer):
+    """Ghi batch KCS routing đòi quyền KCS ở tổ chạy việc: có đủ ba quyền chi tiết còn lại mà thiếu
+    KCS vẫn bị chặn; KCS mức "Của tôi" chỉ ghi được khi việc đang giao cho chính mình."""
     to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer)
-    nguoi_la = SimpleNamespace(id=admin.id + 99_999)
+    kw = dict(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
+              so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0)
+
+    nguoi_la = SimpleNamespace(id=admin.id + 99_999)               # tài khoản không tồn tại
     with pytest.raises(PermissionError):
-        kcs.tao_batch_kcs(
-            db, user=nguoi_la, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
-            so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
-        )
+        kcs.tao_batch_kcs(db, user=nguoi_la, **kw)
+
+    khong_kcs = _nguoi_o_to(db, to, "kcs_thieu_qc",
+                            viec=("run_order", "confirm_output", "warehouse"))
+    with pytest.raises(PermissionError, match="KCS"):
+        kcs.tao_batch_kcs(db, user=khong_kcs, **kw)
+
+    cua_toi = _nguoi_o_to(db, to, "kcs_cua_toi", scope=SCOPE_OWN)
+    with pytest.raises(PermissionError):                            # chưa được giao việc này
+        kcs.tao_batch_kcs(db, user=cua_toi, **kw)
+    nv = _emp(db, to, "NV-KCS-OWN", user_id=cua_toi.id)
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=nv.id)
+    assert kcs.tao_batch_kcs(db, user=cua_toi, **kw)["kcs_batch_id"]
 
 
 # --- KCS kiêm nhiệm (mg 0250) — chặn tổng vượt bàn giao trên ROUTING (mục 2-4) ---------------
@@ -300,6 +341,7 @@ def test_routing_checklist_bat_buoc_chan_khi_thieu_ket_qua(db, orders, lsx_svc, 
 def test_ghi_loi_kem_anh_va_neo_to_chiu(db, orders, lsx_svc, admin, customer):
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     to2, tt2 = _to_chiu(db)
+    _nguoi_o_to(db, to2, "kcs_own_to_chiu", scope=SCOPE_OWN)       # KCS "Của tôi" ở tổ chịu
 
     res = kcs.ghi_loi(
         db, user=admin, kcs_batch_id=rb["kcs_batch_id"],
@@ -309,8 +351,9 @@ def test_ghi_loi_kem_anh_va_neo_to_chiu(db, orders, lsx_svc, admin, customer):
     loi = db.get(SanXuatKcsLoi, res["loi_id"])
     assert loi.trang_thai == TN_RECORDED and loi.to_chiu_id == to2.id
     assert loi.mo_ta == "Lem mực mép trái" and float(loi.so_luong) == 6
-    # Đẩy SSE tới tổ trưởng tổ BỊ yêu cầu.
-    assert res["to_chiu_head_user_id"] == tt2.id
+    # Đẩy SSE tới người giữ KCS TRỌN ở tổ BỊ yêu cầu — không tới admin (KCS ở tổ ghi lỗi, không
+    # có dòng ở tổ chịu), không tới người chỉ có KCS "Của tôi" (không nhận thông báo cấp tổ).
+    assert res["notify_user_ids"] == [tt2.id]
     anh = db.query(SanXuatKcsLoiAnh).filter_by(loi_id=loi.id).all()
     assert len(anh) == 1 and anh[0].file_name == "loi.jpg"
 
@@ -382,9 +425,14 @@ def test_phan_hoi_tu_choi_bat_buoc_ly_do(db, orders, lsx_svc, admin, customer):
 
 def test_phan_hoi_gate_dung_to_bi_yeu_cau(db, orders, lsx_svc, admin, customer):
     cv, loi_id, to2, tt2 = _mot_loi(db, orders, lsx_svc, admin, customer)
-    # admin là tổ trưởng tổ KCS, KHÔNG phải tổ bị yêu cầu → không được phản hồi.
+    # admin giữ KCS ở tổ ghi lỗi, KHÔNG có dòng quyền ở tổ bị yêu cầu → không được phản hồi.
     with pytest.raises(PermissionError):
         kcs.phan_hoi_loi(db, user=admin, loi_id=loi_id, chap_nhan=True)
+    # Đứng trong tổ bị yêu cầu, có KCS nhưng chỉ mức "Của tôi" → phản hồi thay cả tổ không được.
+    cua_toi = _nguoi_o_to(db, to2, "kcs_own_phan_hoi", scope=SCOPE_OWN)
+    with pytest.raises(PermissionError):
+        kcs.phan_hoi_loi(db, user=cua_toi, loi_id=loi_id, chap_nhan=True)
+    assert db.get(SanXuatKcsLoi, loi_id).trang_thai == TN_CHO
 
 
 def test_phan_hoi_chung_tham(db, orders, lsx_svc, admin, customer):
@@ -398,7 +446,7 @@ def test_phan_hoi_chung_tham(db, orders, lsx_svc, admin, customer):
 # --- Đọc: chi tiết + hộp thư + trần đóng nhóm (§13, §16) -------------------------------------
 def test_chi_tiet_kcs_gom_batch_loi_anh(db, orders, lsx_svc, admin, customer):
     cv, loi_id, to2, tt2 = _mot_loi(db, orders, lsx_svc, admin, customer)
-    ct = kcs.chi_tiet_kcs(db, admin, _Authz(SCOPE_ALL), cv.id)
+    ct = kcs.chi_tiet_kcs(db, admin, _Authz(), cv.id)
     assert ct["la_kcs"] is True and len(ct["batch"]) == 1
     b0 = ct["batch"][0]
     assert b0["so_luong_nhan"] == 100 and len(b0["loi"]) == 1
@@ -406,33 +454,48 @@ def test_chi_tiet_kcs_gom_batch_loi_anh(db, orders, lsx_svc, admin, customer):
     assert b0["loi"][0]["mo_ta"] == "Bong tróc mực"
 
 
-def test_chi_tiet_kcs_cho_nguoi_khong_phai_to_truong(db, orders, lsx_svc, admin, customer):
-    """Người có quyền ĐỌC phạm vi `all` nhưng KHÔNG đứng đầu tổ vẫn phải xem được chi tiết KCS.
+def test_chi_tiet_kcs_chi_can_xem_khong_can_quyen_kcs(db, orders, lsx_svc, admin, customer):
+    """Người chỉ được bật XEM trọn tổ (không một quyền chi tiết nào — quản đốc theo dõi) vẫn phải xem
+    được chi tiết KCS.
 
-    Trước đây mặt đọc này gác bằng `_gate` (cổng GHI, đòi `head_user_id`), nên quản đốc mở trang
-    KCS là 403 hàng loạt trong khi `/work-items?mode=kcs` ngay cạnh vẫn liệt kê đúng những việc đó
-    — FE phải dựng băng "Không tải được chi tiết N việc" để che.
+    Mặt đọc này gác bằng Xem của dòng quyền theo tổ, cùng phạm vi `/work-items/{id}`. Trước đây nó
+    từng gác bằng cổng GHI nên người không đứng tên tổ mở trang KCS là 403 hàng loạt trong khi
+    `/work-items?mode=kcs` ngay cạnh vẫn liệt kê đúng những việc đó.
     """
-    cv, _loi_id, _to2, tt2 = _mot_loi(db, orders, lsx_svc, admin, customer)
-    assert db.get(Department, cv.department_id).head_user_id != tt2.id
+    cv, _loi_id, _to2, _tt2 = _mot_loi(db, orders, lsx_svc, admin, customer)
+    to = db.get(Department, cv.department_id)
+    quan_doc = _nguoi_o_to(db, to, "quan_doc_chi_xem", viec=())
 
-    ct = kcs.chi_tiet_kcs(db, tt2, _Authz(SCOPE_ALL), cv.id)
+    ct = kcs.chi_tiet_kcs(db, quan_doc, _Authz(), cv.id)
     assert ct["cong_viec_id"] == cv.id and len(ct["batch"]) == 1
+    with pytest.raises(PermissionError):                   # xem được ≠ ghi được
+        kcs.tao_batch_kcs(db, user=quan_doc, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
+                          so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0)
 
 
 def test_chi_tiet_kcs_van_chan_khi_ngoai_pham_vi_to(db, orders, lsx_svc, admin, customer):
-    """Nới cổng GHI thành cổng ĐỌC không có nghĩa là mở toang: scope `own` ở tổ khác vẫn bị chặn."""
+    """Cổng ĐỌC không mở toang: có đủ quyền ở tổ KHÁC vẫn bị chặn; Xem mức "Của tôi" ở chính tổ chỉ
+    mở được việc đang giao cho mình."""
     cv, _loi_id, to2, tt2 = _mot_loi(db, orders, lsx_svc, admin, customer)
-    nguoi = SimpleNamespace(id=tt2.id, department_id=to2.id, role_id=1)
-    with pytest.raises(PermissionError):
-        kcs.chi_tiet_kcs(db, nguoi, _Authz(SCOPE_OWN), cv.id)
+    with pytest.raises(PermissionError):                   # tt2 chỉ có dòng ở tổ chịu
+        kcs.chi_tiet_kcs(db, tt2, _Authz(), cv.id)
+
+    to = db.get(Department, cv.department_id)
+    tho = _nguoi_o_to(db, to, "tho_xem_cua_toi", scope=SCOPE_OWN, viec=())
+    with pytest.raises(PermissionError):                   # chưa được giao việc này
+        kcs.chi_tiet_kcs(db, tho, _Authz(), cv.id)
+    nv = _emp(db, to, "NV-XEM-OWN", user_id=tho.id)
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=nv.id)
+    assert kcs.chi_tiet_kcs(db, tho, _Authz(), cv.id)["cong_viec_id"] == cv.id
 
 
-def test_hop_thu_loi_theo_to_truong(db, orders, lsx_svc, admin, customer):
+def test_hop_thu_loi_theo_quyen_kcs_to_bi_yeu_cau(db, orders, lsx_svc, admin, customer):
     cv, loi_id, to2, tt2 = _mot_loi(db, orders, lsx_svc, admin, customer)
-    hop = kcs.hop_thu_loi(db, tt2)                         # tổ trưởng tổ bị yêu cầu
+    hop = kcs.hop_thu_loi(db, tt2)                         # giữ KCS trọn ở tổ bị yêu cầu
     assert [l["id"] for l in hop] == [loi_id]
-    assert kcs.hop_thu_loi(db, admin) == []                # admin không phải tổ bị yêu cầu
+    assert kcs.hop_thu_loi(db, admin) == []                # admin không có dòng ở tổ bị yêu cầu
+    cua_toi = _nguoi_o_to(db, to2, "kcs_own_hop_thu", scope=SCOPE_OWN)
+    assert kcs.hop_thu_loi(db, cua_toi) == []              # KCS "Của tôi" không nhận thư cấp tổ
     kcs.phan_hoi_loi(db, user=tt2, loi_id=loi_id, chap_nhan=True)
     assert kcs.hop_thu_loi(db, tt2) == []                  # đã phản hồi → rời hộp thư
 
@@ -584,20 +647,32 @@ def test_dot_xuat_khong_sua_trang_thai_cong_viec(db, orders, lsx_svc, admin, cus
     assert lai.trang_thai == CV_DANG_CHAY
 
 
-def test_dot_xuat_gate_chi_thanh_vien_dung_to(db, orders, lsx_svc, admin, customer):
+def test_dot_xuat_gate_chi_nguoi_giu_kcs_tron_o_to_kiem(db, orders, lsx_svc, admin, customer):
+    """Kiểm đột xuất hỏi KCS trên TRỌN tổ đi kiểm (`kcs_department_id`). Luật cũ "thành viên nào của
+    tổ kiểm cũng ghi được" đã gỡ: đứng trong tổ mà vai không bật KCS thì bị chặn; KCS mức "Của tôi"
+    cũng không đủ (lượt kiểm đột xuất không gắn việc được giao của ai); có đủ quyền ở tổ BỊ kiểm
+    (admin) không thay được quyền ở tổ đi kiểm."""
     to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
     to_kiem, tv = _to_kiem(db)
+    kw = dict(cong_viec_id=cv.id, kcs_department_id=to_kiem.id, bat_dau=_T0, ket_thuc=_T1,
+              so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0, don_vi="cái")
+
     with pytest.raises(PermissionError):
-        kcs.tao_kiem_dot_xuat(
-            db, user=admin, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,   # admin NGOÀI tổ kiểm
-            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
-            don_vi="cái",
-        )
+        kcs.tao_kiem_dot_xuat(db, user=admin, **kw)                 # admin: quyền ở tổ BỊ kiểm
+    thanh_vien = _nguoi_o_to(db, to_kiem, "tv_thuong_to_kiem", scope=None)
+    with pytest.raises(PermissionError):
+        kcs.tao_kiem_dot_xuat(db, user=thanh_vien, **kw)            # đứng trong tổ, không quyền
+    cua_toi = _nguoi_o_to(db, to_kiem, "tv_own_to_kiem", scope=SCOPE_OWN)
+    with pytest.raises(PermissionError):
+        kcs.tao_kiem_dot_xuat(db, user=cua_toi, **kw)               # KCS "Của tôi" không đủ
+    assert db.query(SanXuatKcsBatch).filter_by(cong_viec_id=cv.id).count() == 0
+
+    assert kcs.tao_kiem_dot_xuat(db, user=tv, **kw)["kcs_batch_id"]  # KCS trọn tổ kiểm → ghi được
 
 
 # --- Điều chỉnh có audit (Task 6, §4.3, §5.5) -------------------------------------------------
-def test_dieu_chinh_gate_routing_chi_truong_to(db, orders, lsx_svc, admin, customer):
-    to, cv, res = _batch(db, orders, lsx_svc, admin, customer)     # admin = tổ trưởng (_to_khoan)
+def test_dieu_chinh_gate_routing_doi_quyen_kcs_o_to_chay_viec(db, orders, lsx_svc, admin, customer):
+    to, cv, res = _batch(db, orders, lsx_svc, admin, customer)     # admin giữ KCS ở tổ (_to_khoan)
 
     out = kcs.dieu_chinh_ket_qua(
         db, user=admin, kcs_batch_id=res["kcs_batch_id"],
@@ -605,40 +680,39 @@ def test_dieu_chinh_gate_routing_chi_truong_to(db, orders, lsx_svc, admin, custo
     )
     assert out["so_luong_dat"] == 95 and out["so_luong_khong_dat"] == 5
 
-    nguoi_la = SimpleNamespace(id=admin.id + 99_999)               # không phải head_user_id của tổ
+    # Đứng trong tổ, bật Xem + Thực hiện lệnh trọn tổ nhưng không bật KCS → không sửa được kết quả.
+    chay_may = _nguoi_o_to(db, to, "chay_may_khong_kcs", viec=("run_order",))
     with pytest.raises(PermissionError):
         kcs.dieu_chinh_ket_qua(
-            db, user=nguoi_la, kcs_batch_id=res["kcs_batch_id"],
+            db, user=chay_may, kcs_batch_id=res["kcs_batch_id"],
             so_luong_dat=90, so_luong_khong_dat=10, expected_version=out["version"],
         )
 
 
-def test_dieu_chinh_gate_dot_xuat_chi_truong_to(db, orders, lsx_svc, admin, customer):
-    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
-    to_kiem, u_truong = _to_kiem_truong(db)
-    thanh_vien = User(username="tv_to_kiem_tt", name="Thành viên tổ kiểm", password_hash="x",
-                       department_id=to_kiem.id)
-    db.add(thanh_vien)
-    db.flush()
-    # Ghi batch đột xuất bằng thành viên thường (`_gate_member` — đúng luồng ghi Task 5).
+def test_dieu_chinh_gate_dot_xuat_hoi_kcs_tron_o_to_di_kiem(db, orders, lsx_svc, admin, customer):
+    """Điều chỉnh kết quả đột xuất hỏi KCS TRỌN ở TỔ ĐI KIỂM — không phải tổ BỊ kiểm (không thì tổ
+    bị kiểm tự sửa được kết quả kiểm mình), cũng không phải mức "Của tôi" của thành viên tổ kiểm."""
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)   # admin: đủ quyền ở tổ BỊ kiểm
+    to_kiem, u_kcs = _to_kiem_truong(db)
+    cua_toi = _nguoi_o_to(db, to_kiem, "tv_own_dieu_chinh", scope=SCOPE_OWN)
     res = kcs.tao_kiem_dot_xuat(
-        db, user=thanh_vien, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+        db, user=u_kcs, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
         bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
         don_vi="cái",
     )
 
-    # Điều chỉnh: chỉ TRƯỞNG tổ kiểm (`_gate_to`) mới sửa được, KHÁC gate ghi (`_gate_member`).
     out = kcs.dieu_chinh_ket_qua(
-        db, user=u_truong, kcs_batch_id=res["kcs_batch_id"],
+        db, user=u_kcs, kcs_batch_id=res["kcs_batch_id"],
         so_luong_dat=8, so_luong_khong_dat=2, expected_version=res["version"],
     )
     assert out["so_luong_dat"] == 8 and out["so_luong_khong_dat"] == 2
 
-    with pytest.raises(PermissionError):                            # thành viên thường bị chặn
-        kcs.dieu_chinh_ket_qua(
-            db, user=thanh_vien, kcs_batch_id=res["kcs_batch_id"],
-            so_luong_dat=7, so_luong_khong_dat=3, expected_version=out["version"],
-        )
+    for nguoi in (admin, cua_toi):                                  # tổ bị kiểm / KCS "Của tôi"
+        with pytest.raises(PermissionError):
+            kcs.dieu_chinh_ket_qua(
+                db, user=nguoi, kcs_batch_id=res["kcs_batch_id"],
+                so_luong_dat=7, so_luong_khong_dat=3, expected_version=out["version"],
+            )
 
 
 def test_dieu_chinh_version_lech_bi_chan(db, orders, lsx_svc, admin, customer):
@@ -740,7 +814,9 @@ def test_api_hop_thu_can_dang_nhap(client):
     assert client.get("/api/san-xuat/kcs/hop-thu").status_code == 401
 
 
-def test_api_ghi_loi_multipart_admin_thieu_bit_403(client):
+def test_api_ghi_loi_multipart_admin_khong_co_quyen_kcs_403(client):
+    """Admin seed (vai "Giám đốc") không có dòng quyền theo tổ nào bật KCS → cổng router
+    `require_quyen_to("qc")` chặn ngay, chưa chạm service."""
     tok = client.post(
         "/api/auth/login", json={"username": "admin", "password": "admin123"}
     ).json()["access_token"]

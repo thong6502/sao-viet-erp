@@ -26,6 +26,8 @@ export interface NavItem {
   module: string;
   modules?: string[];
   children?: NavChild[];
+  /** Mức thụt lề (item ĐỘNG theo cây, vd bàn tổ dưới xưởng) — 0/undefined = thẳng hàng. */
+  indent?: number;
 }
 
 // Ô `self_service` ĐÃ BỎ 15/08/2026 — phần "của tôi" là quyền đương nhiên, không phải ô cấp.
@@ -514,6 +516,8 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
         className={`sidebar__link${active ? " is-active" : ""}`}
         // Tooltip = nhãn ĐẦY ĐỦ: hàng menu cắt chữ (…) khi rail hẹp, rê chuột vẫn đọc được tên module.
         title={item.label}
+        // Thụt tối đa 4 nấc: cây sâu hơn mà thụt tiếp thì rail hẹp không còn chỗ cho tên tổ.
+        style={item.indent ? { paddingLeft: `calc(var(--sp-3) + ${Math.min(item.indent, 4) * 14}px)` } : undefined}
         aria-current={activeId === item.id ? "page" : undefined}
         aria-expanded={hasChildren ? isOpen : undefined}
         onClick={() => (hasChildren ? onToggle() : onSelect(item.id))}

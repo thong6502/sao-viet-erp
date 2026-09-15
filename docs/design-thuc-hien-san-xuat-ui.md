@@ -177,9 +177,9 @@ Tất cả gọi qua helper `authed<T>(path, token, init?)` sẵn có; thêm nh�
 | Danh nhân viên để "Giao người" | `GET /api/san-xuat/teams/{team_id}/nhan-vien` | `api.sanXuat.nhanVienChon(token, teamId)` | `NhanVienChonListOut{team_id, nhan_vien: NhanVienChonOut[]}`, `NhanVienChonOut{id, code, full_name, la_luong_khoan, co_tai_khoan}`; 403 nếu ngoài phạm vi |
 | Giao 1 người | `POST /work-items/{id}/phan-cong` | `api.sanXuat.phanCong(token,id,body)` | `PhanCongIn{employee_id, expected_version?}` → `LenhKetQuaOut{cong_viec_id,department_id,trang_thai,version}` |
 | Rút 1 người | `POST /phan-cong/{pcId}/rut` | `api.sanXuat.rut(token,pcId,body)` | `GoPhanCongIn{ly_do?, expected_version?}` → `LenhKetQuaOut` |
-| Bắt đầu / Tiếp tục | `POST /work-items/{id}/bat-dau` | `api.sanXuat.batDau(token,id,body)` | `BatDauIn{ly_do_tre?, expected_version?}` → `LenhKetQuaOut` |
+| Bắt đầu / Tiếp tục | `POST /work-items/{id}/bat-dau` | `api.sanXuat.batDau(token,id,body)` | `BatDauIn{ly_do_so_nguoi?, expected_version?}` → `LenhKetQuaOut` |
 | Tạm dừng | `POST /work-items/{id}/tam-dung` | `api.sanXuat.tamDung(token,id,body)` | `TamDungIn{ly_do(BẮT BUỘC), expected_version?}` → `LenhKetQuaOut` |
-| Kết thúc | `POST /work-items/{id}/ket-thuc` | `api.sanXuat.ketThuc(token,id,body)` | `KetThucIn{ly_do_tre?, expected_version?}` → `LenhKetQuaOut` |
+| Kết thúc | `POST /work-items/{id}/ket-thuc` | `api.sanXuat.ketThuc(token,id,body)` | `KetThucIn{expected_version?}` → `LenhKetQuaOut` |
 
 **`WorkItemOut` (mọi field cho thanh + drawer):** `id, goi_id, phien_ban_so, nguon_loai("lsx"|"bai_ghep"|""),
 nguon_ma, nguon_ten, nhom, ten_cong_doan, nhom_cong_doan, loai_buoc, la_kcs, la_kcs_cuoi, may,
@@ -193,8 +193,8 @@ chip thuê-ngoài khi `loai_buoc=="thue_ngoai"`; chip KCS khi `la_kcs`. **KHÔNG
 
 **`PhienChayOut`:** `id, so_thu_tu, bat_dau, ket_thuc?, loai_dong?("tam_dung"|"doi_may"|"ket_thuc"), ly_do_bat_dau_tre?, ly_do?`.
 → Phiên `ket_thuc==null` = đang chạy. `loai_dong` cho biết phiên đóng vì tạm dừng, vì đổi máy giữa chừng, hay vì kết thúc.
-→ `doi_may` KHÁC `tam_dung` có chủ ý: chỉ `tam_dung` mới được tính là lý do giải thích phần chậm
-  khi kết thúc trễ — đổi máy không gõ chữ nào thì không được miễn.
+→ `doi_may` KHÁC `tam_dung` có chủ ý: công việc không dừng, chỉ đổi máy giữa chừng — không được đếm là
+  một lần tạm dừng. `ly_do_bat_dau_tre` chỉ còn ở phiên cũ (luật lý do trễ gỡ 16/09/2026).
 
 **`KhoangThamGiaOut`:** `id, phien_chay_id, employee_id, ho_ten, bat_dau, ket_thuc?`.
 → Ai có mặt ở phiên nào; `ket_thuc==null` = đang tham gia.
@@ -293,10 +293,10 @@ mờ + pill**, KHÔNG chỉ dựa màu nền (người mù màu vẫn phân bi�
   buộc) → toast cảnh báo + refetch `chiTiet` (không mất chỗ). **403** → toast "ngoài phạm vi".
 - **Dialog lý do (bắt buộc theo luật BE, bind đúng):**
   - **Tạm dừng** → `ly_do` **BẮT BUỘC** (BE chặn rỗng). Dialog có ô lý do, nút xác nhận disabled khi trống.
-  - **Bắt đầu TRỄ** → nếu `now > du_kien_bat_dau` thì `ly_do_tre` bắt buộc (BE chặn). FE tự so
-    `du_kien_bat_dau` với hiện tại để **hiện sẵn** ô lý do; bắt đầu sớm thì bấm thẳng, không hỏi.
-  - **Kết thúc TRỄ** → `ly_do_tre` chỉ bắt buộc khi trễ **và chưa** có phiên tạm-dừng nào kèm lý do
-    (BE: `ket_thuc` §7.2). FE nên hỏi lý do khi trễ; nếu đã có lý do tạm dừng thì BE cho qua.
+  - **Bắt đầu / Tiếp tục lệch số người** → roster `active` ≠ `du_kien_so_nguoi` thì `ly_do_so_nguoi`
+    bắt buộc (§7.1, BE chặn). Khớp số người thì bấm thẳng.
+  - **Sớm / trễ so với giờ dự kiến: KHÔNG hỏi lý do** ở Bắt đầu, Tiếp tục hay Kết thúc (gỡ 16/09/2026,
+    chủ xưởng chốt). Lệch giờ đọc thẳng từ mốc phiên chạy so với dự kiến.
 - **Điều kiện bật nút** (khớp tiền điều kiện service — chặn sớm ở FE cho đỡ round-trip, nhưng BE vẫn là trọng tài):
   - **Bắt đầu**: bật khi `trang_thai ∈ {released, paused}` **và** roster có ≥1 người `la_luong_khoan`
     (BE: `bat_dau` cần ≥1 lương khoán). Thiếu → nút mờ + gợi ý "cần ≥1 thợ lương khoán".
@@ -338,7 +338,7 @@ Vẽ khối xám mờ, nhãn "Sắp có", control `disabled`. Đừng gọi/bị
 3. **Trục thời gian: dùng lại `xl2Shared.tsx`** (`buildLinearScale`/`XL2_PX_PER_MIN`/`LABEL_W`/`BAR_H`),
    đừng chép — nhưng **đừng** import `xep-lich-2.css` (đổi tiền tố sang `.thsx`).
 4. **Version lạc quan**: luôn gửi `expected_version`; xử lý 400/403 bằng refetch + toast, không nuốt lỗi.
-5. **Lý do bắt buộc** đúng 3 chỗ (tạm dừng luôn; bắt đầu/kết thúc chỉ khi trễ) — bind đúng luật BE,
+5. **Lý do bắt buộc** đúng 2 chỗ (tạm dừng luôn; bắt đầu/tiếp tục khi lệch số người) — bind đúng luật BE,
    đừng bắt lý do ở nơi BE không đòi (gây khó chịu) cũng đừng bỏ nơi BE đòi (gây 400).
 6. **Node lá + badge + SSE**: sao đúng khuôn Kho (§6). `teams` một cú gọi ra cả list lẫn badge —
    đừng thêm API badge riêng. Nhớ nhánh cổng quyền `moduleKeys` cho `baseId="thuc-hien-sx"`.

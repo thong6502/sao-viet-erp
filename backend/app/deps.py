@@ -605,6 +605,33 @@ def require_permission(module_key: str, action: str):
     return dependency
 
 
+def require_quyen_to(viec: str = "read", *hoac: tuple[str, str]):
+    """Cổng Bàn tổ (mg 0302): cho qua nếu vai của user bật `viec` ("read" | "run_order" |
+    "confirm_output" | "qc" | "warehouse") trên ÍT NHẤT MỘT dòng quyền theo tổ — hoặc có một trong
+    các ô tĩnh `hoac` (màn khác dùng chung endpoint). ĐÚNG TỔ NÀO do service hỏi
+    (`services/quyen_to.py`); ở đây chỉ chặn sớm người không có gì.
+
+    Dòng theo tổ là dòng ĐỘNG (`to_sx_<id>`), không đăng ký vào `O_QUYEN_DUOC_GAC` — ô của nó sống
+    theo cây phòng ban, không theo registry."""
+    O_QUYEN_DUOC_GAC.update(hoac)
+
+    def dependency(
+        user: CurrentUser,
+        db: Annotated[Session, Depends(get_db)],
+        authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    ) -> User:
+        from .services.quyen_to import quyen_to_cua
+
+        if any(authz.can(user, k, a) for k, a in hoac) or quyen_to_cua(db, user).co_viec(viec):
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền thực hiện thao tác này",
+        )
+
+    return dependency
+
+
 def require_any_permission(*grants: tuple[str, str]):
     """Like `require_permission`, but allows the request if ANY of the
     (module_key, action) pairs is granted — for read endpoints that legitimately

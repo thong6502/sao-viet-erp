@@ -73,7 +73,6 @@ export interface ThsxExec {
 
 interface Props {
   chiTiet: SxWorkItemChiTiet;
-  canAssign: boolean;
   busy: boolean;
   hoTroUngVien: SxHoTroUngVien[];
   exec: ThsxExec;
@@ -170,7 +169,13 @@ export function vtCoLechThucTe(
 }
 
 // ============================ khối chính ====================================
-export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, exec }: Props) {
+export function ThsxExecPanels({ chiTiet, busy, hoTroUngVien, exec }: Props) {
+  // Nút ghi theo QUYỀN TRÊN CHÍNH công việc này (máy chủ tính theo dòng quyền của tổ): ghi mẻ là
+  // Thực hiện lệnh; chia sản lượng · bàn giao · hỗ trợ chéo là Xác nhận sản lượng; vật tư là Kho.
+  const quyen = chiTiet.quyen ?? {};
+  const canThucHien = !!quyen.run_order;
+  const canXacNhan = !!quyen.confirm_output;
+  const canKho = !!quyen.warehouse;
   const sl = chiTiet.san_luong;
   const conLai = Math.max(0, sl.tong_tot - sl.da_giao);
   const pbTheoBatch = new Map<number, SxPhanBo>();
@@ -183,15 +188,15 @@ export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, exec }:
   return (
     <>
       <SanLuongSection
-        chiTiet={chiTiet} canAssign={canAssign} busy={busy}
+        chiTiet={chiTiet} canAssign={canThucHien} canChia={canXacNhan} busy={busy}
         exec={exec} pbTheoBatch={pbTheoBatch}
         tenNguoi={tenNguoi} hoTroUngVien={hoTroUngVien} />
       <BanGiaoSection
-        chiTiet={chiTiet} canAssign={canAssign} busy={busy}
+        chiTiet={chiTiet} canAssign={canXacNhan} busy={busy}
         conLai={conLai} exec={exec} />
-      <VatTuSection chiTiet={chiTiet} canAssign={canAssign} busy={busy} exec={exec} tenNguoi={tenNguoi} />
+      <VatTuSection chiTiet={chiTiet} canAssign={canKho} busy={busy} exec={exec} tenNguoi={tenNguoi} />
       <HoTroSection
-        chiTiet={chiTiet} canAssign={canAssign} busy={busy}
+        chiTiet={chiTiet} canAssign={canXacNhan} busy={busy}
         hoTroUngVien={hoTroUngVien} exec={exec} />
     </>
   );
@@ -199,9 +204,10 @@ export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, exec }:
 
 // ─────────────────────────── SẢN LƯỢNG (§10-11) ───────────────────────────
 function SanLuongSection({
-  chiTiet, canAssign, busy, exec, pbTheoBatch, tenNguoi, hoTroUngVien,
+  chiTiet, canAssign, canChia, busy, exec, pbTheoBatch, tenNguoi, hoTroUngVien,
 }: {
-  chiTiet: SxWorkItemChiTiet; canAssign: boolean; busy: boolean;
+  /** `canAssign` = ghi mẻ (Thực hiện lệnh); `canChia` = chia/chốt sản lượng từng mẻ (Xác nhận). */
+  chiTiet: SxWorkItemChiTiet; canAssign: boolean; canChia: boolean; busy: boolean;
   exec: ThsxExec;
   pbTheoBatch: Map<number, SxPhanBo>; tenNguoi: Map<number, string>; hoTroUngVien: SxHoTroUngVien[];
 }) {
@@ -275,7 +281,7 @@ function SanLuongSection({
       ) : (
         <ul className="thsx-x-list">
           {sl.batches.map((b) => (
-            <BatchRow key={b.id} b={b} canAssign={canAssign} busy={busy}
+            <BatchRow key={b.id} b={b} canAssign={canChia} busy={busy}
               pb={pbTheoBatch.get(b.id) ?? null}
               tenNguoi={tenNguoi} hoTroUngVien={hoTroUngVien} exec={exec} />
           ))}
@@ -1943,7 +1949,7 @@ function HoTroSection({
       ) : (
         <ul className="thsx-x-list">
           {ht.map((h) => (
-            <HoTroRow key={h.id} h={h} canAssign={canAssign} busy={busy} exec={exec} />
+            <HoTroRow key={h.id} h={h} busy={busy} exec={exec} />
           ))}
         </ul>
       )}
@@ -2043,9 +2049,9 @@ function HoTroForm({
 }
 
 function HoTroRow({
-  h, canAssign, busy, exec,
+  h, busy, exec,
 }: {
-  h: SxHoTro; canAssign: boolean; busy: boolean; exec: ThsxExec;
+  h: SxHoTro; busy: boolean; exec: ThsxExec;
 }) {
   const [huyOpen, setHuyOpen] = useState(false);
   const [lyDo, setLyDo] = useState("");
@@ -2071,16 +2077,20 @@ function HoTroRow({
         )}
         {h.mo_ta && <span className="thsx-x-ht__mo">{h.mo_ta}</span>}
       </div>
-      {canAssign && h.trang_thai !== "cancelled" && (
+      {/* Nút theo cờ máy chủ tính cho CHÍNH người xem: bên mình đã đứng tên thì thôi hiện Xác nhận
+          (bấm lại không đổi gì); huỷ khi đứng được cho một trong hai tổ. */}
+      {(h.co_the_xac_nhan || h.co_the_huy) && (
         <div className="thsx-x-act thsx-x-act--row">
-          {chuaChot && (
+          {h.co_the_xac_nhan && (
             <Button variant="accent" onClick={() => void exec.xacNhanHoTro(h.id, h.version)} disabled={busy}>
               <Icon name="check" size={13} /> Xác nhận
             </Button>
           )}
-          <Button variant="ghost" onClick={() => setHuyOpen((o) => !o)} disabled={busy}>
-            <Icon name="ban" size={12} /> Huỷ
-          </Button>
+          {h.co_the_huy && (
+            <Button variant="ghost" onClick={() => setHuyOpen((o) => !o)} disabled={busy}>
+              <Icon name="ban" size={12} /> Huỷ
+            </Button>
+          )}
         </div>
       )}
       {huyOpen && (

@@ -118,6 +118,21 @@ class SanXuatKcsRepository:
             )
         )
 
+    def loi_cho_nhieu_to(self, department_ids: set[int]) -> list[SanXuatKcsLoi]:
+        """Như `loi_cho_to` cho cả tập tổ — MỘT truy vấn (quản lý cấp gom có thể phủ hàng chục tổ)."""
+        if not department_ids:
+            return []
+        return list(
+            self.db.scalars(
+                select(SanXuatKcsLoi)
+                .where(
+                    SanXuatKcsLoi.to_chiu_id.in_(department_ids),
+                    SanXuatKcsLoi.trang_thai == TN_CHO,
+                )
+                .order_by(SanXuatKcsLoi.id)
+            )
+        )
+
     def co_loi_chua_tra_loi(self, nhom_id: int) -> bool:
         """Còn lỗi KCS CHỜ phản hồi trong một nhóm thành phẩm → chặn đóng đủ nhóm (§16)."""
         row = self.db.scalar(

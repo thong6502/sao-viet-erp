@@ -37,7 +37,7 @@ from ...models.user import User
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...services.rbac_service import AuthorizationService
 from ..gio_xuong import thuc_te_hien_thi
-from .board import _to_thay_duoc
+from ..quyen_to import VIEC_XEM, quyen_to_cua
 
 _LOAI_LABEL = {
     KCS_LOAI_ROUTING: "Bước KCS",
@@ -85,7 +85,8 @@ def _hang_kcs_theo_scope(
 ) -> list[tuple[SanXuatKcsBatch, SanXuatCongViec]]:
     """Danh sách (batch, công việc) đã lọc filter + scope — NGUỒN DUY NHẤT cho cả `bao_cao_kcs`
     và `xuat_excel_kcs` (§9 mục 10: hai đầu ra phải cùng tổng)."""
-    _tos, ids_thay_duoc = _to_thay_duoc(db, user, authz)
+    # Báo cáo tổng hợp: chỉ tổ user XEM TRỌN — "Của tôi" không mở số liệu KCS của cả tổ.
+    ids_thay_duoc = quyen_to_cua(db, user).tron[VIEC_XEM]
 
     stmt = (
         select(SanXuatKcsBatch, SanXuatCongViec)

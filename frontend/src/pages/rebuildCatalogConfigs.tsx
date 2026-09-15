@@ -861,8 +861,7 @@ export const CFG_KHO_HANG: CatalogConfig = {
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
-    { key: "vi_tri", label: "Vị trí kho", type: "text", group: "Thông tin",
-      hint: "Nơi đặt kho, vd: Tầng 1 — xưởng A" },
+    { key: "vi_tri", label: "Vị trí kho", type: "text", group: "Thông tin"},
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
   ],
   // Tab thứ 2 trong drawer: khai DANH SÁCH vị trí cất (kệ/ô) của kho — để lập lô/phiếu chọn dropdown
@@ -926,18 +925,14 @@ export const CFG_KHUON_BE: CatalogConfig = {
     // `size: 200` = trần của nền danh mục. Mặc định chỉ lấy trang đầu, mà ô chọn khách thiếu dòng
     // thì người ta tưởng chưa có khách đó rồi bỏ trống — đúng thứ làm chiều lọc này vô dụng.
     { key: "khach_hang_id", label: "Khách hàng", type: "ref", refPrefix: "/api/customers",
-      refParams: { size: 200 }, group: "Nhận diện",
-      hint: "Dao làm cho khách nào. Đây là đường tìm chính khi đơn lặp lại — bỏ trống thì lần sau dễ đặt lại con dao đã có." },
+      refParams: { size: 200 }, group: "Nhận diện" },
     { key: "loai", label: "Loại", type: "select", group: "Nhận diện",
-      options: mapOpt(LOAI_KHUON),
-      hint: "Bước “Ép nhũ” chỉ thấy dao ép, bước “Bế” chỉ thấy dao bế, bước lụa chỉ thấy khung lụa." },
-    { key: "so_ke", label: "Số kệ / vị trí lưu", type: "text", group: "Lưu trữ",
-      hint: "Nơi cất khuôn, vd: Kệ B3 — xưởng sau in. Thợ đọc đúng ô này để đi lấy." },
+      options: mapOpt(LOAI_KHUON) },
+    { key: "so_ke", label: "Số kệ / vị trí lưu", type: "text", group: "Lưu trữ" },
     // Ô ngày đi kèm ĐÃ GỠ cùng mg `0293`: tình trạng là thứ DUY NHẤT kho khuôn nói về "dao đã có
     // trong tay chưa", và nó có người chịu trách nhiệm cập nhật — khác hẳn một ngày khai một lần.
     { key: "tinh_trang", label: "Tình trạng", type: "select", group: "Lưu trữ",
-      options: mapOpt(TINH_TRANG_KHUON), default: "dang_dung",
-      hint: "“Đang đặt làm” = dao chưa nằm trong tay xưởng; bước dùng dao ở Lệnh sản xuất đọc đúng chữ này để biết chưa chạy được. Lấy được dao rồi thì đổi sang “Đang dùng”." },
+      options: mapOpt(TINH_TRANG_KHUON), default: "dang_dung"},
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Lưu trữ" },
   ],
 };

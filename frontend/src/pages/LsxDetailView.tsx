@@ -1,5 +1,5 @@
 // Chi tiết 1 LỆNH SẢN XUẤT — nơi kế hoạch hoàn thiện lệnh trước khi lập kế hoạch.
-// 5 tab: Thông tin chung · Quy cách · Công đoạn (routing) · Vật tư · Nhật ký.
+// 6 tab: Thông tin chung · Quy cách · Công đoạn (routing) · Vật tư · Tệp đính kèm · Nhật ký.
 // Cột phải: checklist "còn thiếu gì" + nút "Sẵn sàng lập kế hoạch" (CTA duy nhất của màn).
 //
 // Trạng thái `nhap ↔ cho_bo_sung` do SERVER lật sau mỗi lần lưu — client luôn lấy lại từ response,
@@ -16,6 +16,7 @@ import {
   type LsxBoDauViec,
   type LsxCongDoanBody,
   type LsxDetail,
+  type LsxDinhKem,
   type LsxQuyCachBody,
   type LsxTongQuanOut,
   type LsxUpdateBody,
@@ -25,6 +26,7 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DinhKemTep } from "../components/DinhKemTep";
 import { Icon } from "../components/Icons";
 import { MucInHang } from "../components/MucIn";
 import { Timeline } from "../components/Timeline";
@@ -49,17 +51,23 @@ import {
 // Tab "Số lượng & bù hao" ĐÃ BỎ: mọi số ở đó nay là dẫn xuất của chuỗi ngược (số tờ in, tờ
 // nguyên, bù hao) và đã hiện ở thanh bên. Ô duy nhất còn gõ được là SL ra của bước CUỐI, nằm
 // trong drawer bước; con/tờ chuyển sang tab Quy cách.
-type TabKey = "chung" | "quycach" | "routing" | "vattu" | "nhatky";
+type TabKey = "chung" | "quycach" | "routing" | "vattu" | "dinhkem" | "nhatky";
 
 // "Vật tư" đứng ngay SAU Công đoạn: bốn tab cũ đi theo mạch lệnh-gì → làm-ra-sao → qua-những-bước
 // -nào → ai-đã-đụng-vào. Câu "ăn những gì" thuộc về chỗ sau chuỗi bước, trước sổ nhật ký.
+// "Tệp đính kèm" (maket, ảnh mẫu, file khách gửi) là tư liệu của cả lệnh — đứng cuối phần nội dung,
+// ngay trước sổ nhật ký.
 const TABS: { key: TabKey; label: string }[] = [
   { key: "chung", label: "Thông tin chung" },
   { key: "quycach", label: "Quy cách" },
   { key: "routing", label: "Công đoạn" },
   { key: "vattu", label: "Vật tư" },
+  { key: "dinhkem", label: "Tệp đính kèm" },
   { key: "nhatky", label: "Nhật ký" },
 ];
+
+/** Khớp `MAX_BYTES` của `services/lsx_dinh_kem.py` — máy chủ vẫn là nơi chặn thật. */
+const DINH_KEM_MAX_BYTES = 50 * 1024 * 1024;
 
 const ACTION_LABEL: Record<string, string> = {
   create_lsx: "Tạo lệnh",
@@ -68,6 +76,8 @@ const ACTION_LABEL: Record<string, string> = {
   update_lsx_danh_muc: "Cập nhật theo danh mục",
   lsx_trang_thai: "Đổi trạng thái",
   delete_lsx: "Xoá lệnh",
+  lsx_dinh_kem_them: "Đính kèm tệp",
+  lsx_dinh_kem_xoa: "Xoá tệp đính kèm",
 };
 
 /** Một dòng gọn cho băng vàng: bước này lệch những gì. Bảng cũ → mới đầy đủ nằm trong dialog —
@@ -184,6 +194,7 @@ export function LsxDetailView({
   onChanged,
   navigate,
   eventTick,
+  dinhKemTick,
 }: {
   lsxId: number;
   onBack: () => void;
@@ -192,6 +203,9 @@ export function LsxDetailView({
   /** Tick SSE của `AppShell` — nhảy mỗi sự kiện real-time. Màn DANH SÁCH tự refetch theo nó; màn
    *  này thì KHÔNG được tự refetch (xem nút "Làm mới"), chỉ dùng để biết có gì mới. */
   eventTick?: number;
+  /** Số lần tệp đính kèm của RIÊNG lệnh này đổi (SSE). Danh sách tệp không có ô nhập dở dang nên tự
+   *  nạp lại ngay, khác phần còn lại của màn phải chờ bấm "Làm mới". */
+  dinhKemTick?: number;
 }) {
   const { token } = useAuth();
   const canUpdate = useCan()("san_xuat", "update");
@@ -220,6 +234,10 @@ export function LsxDetailView({
   const [dongBo, setDongBo] = useState(false);
   const [dongBoErr, setDongBoErr] = useState<string | null>(null);
   const [acts, setActs] = useState<LsxActivity[] | null>(null);
+  const [tepDk, setTepDk] = useState<LsxDinhKem[] | null>(null);
+  const [loiTepDk, setLoiTepDk] = useState<string | null>(null);
+  // Hai lượt nạp chồng nhau (SSE của chính mình về trong lúc đang nạp) — chỉ lượt MỚI NHẤT được ghi.
+  const napTepSeq = useRef(0);
   /* GỠ 07/09/2026 cùng ô Giấy: hai ô `xemTruoc` / `xemTruocLoi`. Chúng chỉ có việc khi quy cách ở
      lệnh còn sửa được — nay cụm thông số là ảnh chụp CHỈ XEM của phiếu tính giá nên không còn gì
      để tính lại trước lúc bấm Lưu, và `api.lsx.xemTruocQuyCach` không còn ai gọi. */
@@ -384,6 +402,48 @@ export function LsxDetailView({
     ).catch(() => setGiayRefs(null));
     api.lsx.phuThuocOptions(token, lsxId).then(setPhuThuocRefs).catch(() => setPhuThuocRefs([]));
   }, [token, lsxId]);
+
+  // Nạp NGAY khi mở lệnh (không đợi mở tab) để nhãn tab có số tệp; nạp lại khi SSE báo đổi.
+  const napTepDk = useCallback(() => {
+    if (!token) return;
+    const luot = ++napTepSeq.current;
+    setLoiTepDk(null);
+    api.lsx
+      .dinhKem(token, lsxId)
+      .then((r) => {
+        if (luot === napTepSeq.current) setTepDk(r.items);
+      })
+      .catch((e: unknown) => {
+        if (luot === napTepSeq.current) {
+          setLoiTepDk(e instanceof ApiError ? e.message : "Không tải được danh sách tệp");
+        }
+      });
+  }, [token, lsxId]);
+  useEffect(() => {
+    napTepDk();
+    // Có thêm/xoá tệp thì sổ nhật ký đã cũ — lần mở tab Nhật ký kế tiếp nạp lại.
+    setActs(null);
+  }, [napTepDk, dinhKemTick]);
+
+  const taiDinhKem = useCallback(
+    async (file: File) => {
+      if (!token) throw new ApiError("Phiên đăng nhập đã hết", 401);
+      const tep = await api.lsx.taiDinhKem(token, lsxId, file);
+      // Chèn ngay tệp vừa lưu; lượt nạp do SSE về sau sẽ đồng bộ lại thứ tự và tệp của người khác.
+      setTepDk((ds) => [tep, ...(ds ?? []).filter((x) => x.id !== tep.id)]);
+      setActs(null);
+    },
+    [token, lsxId],
+  );
+  const xoaDinhKem = useCallback(
+    async (tep: { id: number }) => {
+      if (!token) throw new ApiError("Phiên đăng nhập đã hết", 401);
+      await api.lsx.xoaDinhKem(token, lsxId, tep.id);
+      setTepDk((ds) => (ds ?? []).filter((x) => x.id !== tep.id));
+      setActs(null);
+    },
+    [token, lsxId],
+  );
 
   // Nhật ký nạp LƯỜI — chỉ khi mở tab.
   useEffect(() => {
@@ -887,11 +947,13 @@ export function LsxDetailView({
           ) : (
             <div
               className="khsx-kpi-tile"
-              title={dvTp && dvTo ? `${num(d.so_con)} ${dvTp} trên 1 ${dvTo}` : undefined}
+              title={dvTo ? `${num(d.so_con)} con trên 1 ${dvTo}` : undefined}
             >
-              <span className="khsx-kpi-tile__label">Bình bài</span>
+              {/* Nhãn "Con / tờ in", KHÔNG "Bình bài" (14/09/2026): chữ nghề của bên tính giá đọc như lệnh
+                  đã có bài ghép, trong khi đây chỉ là số sản phẩm trên một tờ in chép từ phiếu. */}
+              <span className="khsx-kpi-tile__label">Con / tờ in</span>
               <span className="khsx-kpi-tile__val">
-                {num(d.so_con)} <small>{dvTp}</small>
+                {num(d.so_con)}
               </span>
             </div>
           )}
@@ -981,6 +1043,11 @@ export function LsxDetailView({
                 onClick={() => setTab(t.key)}
               >
                 {t.label}
+                {t.key === "dinhkem" && tepDk !== null && tepDk.length > 0 && (
+                  <span className="khsx-tabs__count" aria-label={`${tepDk.length} tệp`}>
+                    {tepDk.length}
+                  </span>
+                )}
                 {((t.key === "routing" && routingDirty) ||
                   ((t.key === "chung" || t.key === "quycach") && dirty)) && (
                   <span className="khsx-tabs__dot" aria-label="có thay đổi chưa lưu" />
@@ -1176,7 +1243,7 @@ export function LsxDetailView({
                           form đang gõ, nên sửa khổ xong hai chỗ hiện hai số cho tới lúc bấm Lưu.
                         · "Số bài in" — trùng ô cùng tên ở khối "Máy tự tính". Với hàng cắt rời nó
                           chỉ hiện "1" (không nói gì), còn với sách thì câu diễn giải đầy đủ
-                          ("5 TỜ CHẠY MÁY = 1 cuốn") đã nằm sẵn dưới ô Bình bài — xem `giaiThichSach`. */}
+                          ("5 TỜ CHẠY MÁY = 1 cuốn") đã nằm sẵn dưới ô Con / tờ in — xem `giaiThichSach`. */}
                     <KV k="Tên sản phẩm" v={s("ten")} />
                     <KV k="Loại sản phẩm" v={s("loai_san_pham_ten")} />
                     <KV k="Đơn vị tính" v={s("don_vi_tinh")} />
@@ -1290,7 +1357,7 @@ export function LsxDetailView({
                 </div>
                 <div className="khsx-spec__card-body">
                   <div className="khsx-kvgrid">
-                    {/* Bình bài (`so_con`) CŨNG chỉ xem từ 05/09/2026. Nó không phải "thông số
+                    {/* Con / tờ in (`so_con`) CŨNG chỉ xem từ 05/09/2026. Nó không phải "thông số
                         trình bày": đổi con/tờ là `_ap_chuoi_nguoc` viết lại số tờ kế hoạch ⇒ đổi
                         lượng giấy cần (đo trên LSX26-0008: 16 → 8 con làm giấy nguyên 368 → 505
                         tờ). Bài ghép mới là chỗ ép lại con/tờ, ở đó có bàn giấy và máy thật. */}
@@ -1299,9 +1366,9 @@ export function LsxDetailView({
                           vào nhãn thì ô đầu tiên cao gấp đôi mấy ô cạnh nó, cả lưới lệch. */}
                       <span
                         className="khsx-kv__key"
-                        title={dvTp && dvTo ? `Số ${dvTp} trên 1 ${dvTo}` : undefined}
+                        title={dvTo ? `Số con trên 1 ${dvTo}` : undefined}
                       >
-                        Bình bài
+                        Con / tờ in
                       </span>
                       <span className="khsx-kv__val khsx-num">
                         {num(Number(form.so_con) || 0)}
@@ -1322,7 +1389,7 @@ export function LsxDetailView({
                     <KVSoDv k="Số bài in" dv={dvTay} v={n("so_to_per_sp") || 1} />
                     {/* GỠ 07/09/2026: ô "Cách bình" (`con_auto`). Nó chỉ nói ENGINE đã bình bài kiểu
                         nào — máy tự xếp hay ép đúng số con khai ở phiếu tính giá — mà kết quả của cả
-                        hai kiểu đã nằm ngay ô "Bình bài" phía trên. Ở lệnh thì không ai chọn được
+                        hai kiểu đã nằm ngay ô "Con / tờ in" phía trên. Ở lệnh thì không ai chọn được
                         kiểu nữa (quy cách chỉ xem), nên dòng này chỉ là một chữ không dẫn đi đâu. */}
                   </div>
                 </div>
@@ -1454,6 +1521,32 @@ export function LsxDetailView({
               </div>
             </section>
           )}
+
+          {/* Luôn MOUNT, chỉ ẩn khi không chọn: đổi sang tab khác giữa lúc đang tải tệp lên thì hàng
+              chờ vẫn chạy tiếp, không mất các tệp chưa gửi. */}
+          <section
+            className="khsx-panel"
+            role="tabpanel"
+            id="khsx-panel-dinhkem"
+            aria-labelledby="khsx-tab-dinhkem"
+            tabIndex={0}
+            hidden={tab !== "dinhkem"}
+          >
+            <div className="khsx-spec__card">
+              <div className="khsx-spec__card-body">
+                <DinhKemTep
+                  items={tepDk}
+                  loiNap={loiTepDk}
+                  onNapLai={napTepDk}
+                  canEdit={canUpdate && !orderCancelled}
+                  lyDoKhoa={orderCancelled ? "Đơn đã hủy — chỉ xem và tải về, không thêm hay xoá tệp được." : null}
+                  maxBytes={DINH_KEM_MAX_BYTES}
+                  taiLen={taiDinhKem}
+                  xoa={xoaDinhKem}
+                />
+              </div>
+            </div>
+          </section>
 
           {tab === "nhatky" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-nhatky" aria-labelledby="khsx-tab-nhatky" tabIndex={0}>

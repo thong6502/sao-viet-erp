@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, false, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.stock_request import (
@@ -52,6 +52,22 @@ def _build_line(ln: dict, loai: str) -> StockRequestLine:
         don_gia=ln.get("don_gia") if loai == "NHAP" else None,
         ghi_chu=ln.get("ghi_chu"),
     )
+
+
+def _dieu_kien_pham_vi(nguoi_tao_id: int | None, bo_phan_ids: list[int] | None):
+    """Phạm vi xem của người dùng (router `_scoped_filters`): yêu cầu CHÍNH MÌNH tạo luôn lọt, cộng
+    thêm yêu cầu có bộ phận nằm trong `bo_phan_ids` (phạm vi `department`). Cả hai None = không lọc.
+
+    Cần vế "của mình" vì bộ phận không phải lúc nào cũng là phòng người tạo: Bàn tổ gắn bộ phận là
+    TỔ của công đoạn, nên người ngồi phòng khác gửi hộ tổ từng không thấy yêu cầu của chính mình."""
+    if nguoi_tao_id is None and bo_phan_ids is None:
+        return None
+    ve = []
+    if nguoi_tao_id is not None:
+        ve.append(StockRequest.nguoi_tao_id == nguoi_tao_id)
+    if bo_phan_ids:
+        ve.append(StockRequest.bo_phan_id.in_(bo_phan_ids))
+    return or_(*ve) if ve else false()
 
 
 class StockRequestRepository:
@@ -141,7 +157,8 @@ class StockRequestRepository:
         return self.db.get(StockRequestLine, line_id)
 
     def count_by_loai(self, trang_thai: list[str], *, nguoi_tao_id: int | None = None,
-                      bo_phan_id: int | None = None) -> dict[str, int]:
+                      bo_phan_id: int | None = None, pham_vi_nguoi_tao_id: int | None = None,
+                      pham_vi_bo_phan_ids: list[int] | None = None) -> dict[str, int]:
         """Đếm yêu cầu chờ xử lý theo CHIỀU cho badge: `nhap` · `xuat` · `dieu_chuyen`.
         `nhap`/`xuat` KHÔNG tính điều chuyển (đã tách sang bucket riêng); vế XUẤT nguồn nội bộ luôn
         bị ẩn. LỌC THEO SCOPE (nguoi_tao_id/bo_phan_id) GIỐNG `list` để badge khớp đúng list.
@@ -161,6 +178,9 @@ class StockRequestRepository:
             conds.append(StockRequest.nguoi_tao_id == nguoi_tao_id)
         if bo_phan_id is not None:
             conds.append(StockRequest.bo_phan_id == bo_phan_id)
+        pv = _dieu_kien_pham_vi(pham_vi_nguoi_tao_id, pham_vi_bo_phan_ids)
+        if pv is not None:
+            conds.append(pv)
         rows = self.db.execute(
             select(StockRequest.loai, StockRequest.dieu_chuyen, func.count())
             .where(*conds)
@@ -233,7 +253,8 @@ class StockRequestRepository:
 
     def _base_conds(self, *, loai=None, trang_thai=None, q=None, nguoi_tao_id=None,
                     bo_phan_id=None, kho_id=None, dieu_chuyen=None,
-                    ngay_can_tu=None, ngay_can_den=None, tao_tu=None, tao_den=None):
+                    ngay_can_tu=None, ngay_can_den=None, tao_tu=None, tao_den=None,
+                    pham_vi_nguoi_tao_id=None, pham_vi_bo_phan_ids=None):
         """Điều kiện lọc CHUNG cho `list` và `count_by_status` — để badge tab khớp đúng list.
         `ngay_can_tu/den` lọc theo NGÀY CẦN (cột Date); `tao_tu/den` lọc theo NGÀY TẠO (created_at)."""
         # ẨN vế XUẤT nguồn của điều chuyển (bút toán nội bộ): nó tự ghi sổ khi kho đích nhập, người
@@ -249,6 +270,9 @@ class StockRequestRepository:
             conds.append(StockRequest.nguoi_tao_id == nguoi_tao_id)
         if bo_phan_id is not None:
             conds.append(StockRequest.bo_phan_id == bo_phan_id)
+        pv = _dieu_kien_pham_vi(pham_vi_nguoi_tao_id, pham_vi_bo_phan_ids)
+        if pv is not None:
+            conds.append(pv)
         if kho_id is not None:
             conds.append(StockRequest.kho_id == kho_id)
         if ngay_can_tu is not None:
@@ -272,6 +296,7 @@ class StockRequestRepository:
              bo_phan_id: int | None = None, kho_id: int | None = None,
              dieu_chuyen: bool | None = None,
              ngay_can_tu=None, ngay_can_den=None, tao_tu=None, tao_den=None,
+             pham_vi_nguoi_tao_id: int | None = None, pham_vi_bo_phan_ids: list[int] | None = None,
              order: str = "id", page: int = 1, size: int = 50):
         """Danh sách yêu cầu (BE-paging). `nguoi_tao_id` / `bo_phan_id` áp SCOPE: người yêu cầu
         (scope `own`) chỉ thấy yêu cầu của chính mình — đó là lý do họ không nhìn thấy kho.
@@ -281,6 +306,7 @@ class StockRequestRepository:
             loai=loai, trang_thai=trang_thai, q=q, nguoi_tao_id=nguoi_tao_id,
             bo_phan_id=bo_phan_id, kho_id=kho_id, dieu_chuyen=dieu_chuyen,
             ngay_can_tu=ngay_can_tu, ngay_can_den=ngay_can_den, tao_tu=tao_tu, tao_den=tao_den,
+            pham_vi_nguoi_tao_id=pham_vi_nguoi_tao_id, pham_vi_bo_phan_ids=pham_vi_bo_phan_ids,
         )
         base = select(StockRequest).options(selectinload(StockRequest.lines))
         count_stmt = select(func.count()).select_from(StockRequest)
@@ -299,13 +325,15 @@ class StockRequestRepository:
     def count_by_status(self, *, loai=None, q=None, nguoi_tao_id=None, bo_phan_id=None,
                         kho_id=None, dieu_chuyen=None, base_trang_thai=None,
                         ngay_can_tu=None, ngay_can_den=None, tao_tu=None,
-                        tao_den=None) -> dict[str, int]:
+                        tao_den=None, pham_vi_nguoi_tao_id=None,
+                        pham_vi_bo_phan_ids=None) -> dict[str, int]:
         """Đếm yêu cầu theo TỪNG TRẠNG THÁI (cùng bộ lọc như `list`, TRỪ tab) → FE cộng theo tab
         cho badge. `base_trang_thai`: giới hạn tập nền (vd Hộp yêu cầu chỉ tính trạng thái INBOX)."""
         conds = self._base_conds(
             loai=loai, trang_thai=base_trang_thai, q=q, nguoi_tao_id=nguoi_tao_id,
             bo_phan_id=bo_phan_id, kho_id=kho_id, dieu_chuyen=dieu_chuyen,
             ngay_can_tu=ngay_can_tu, ngay_can_den=ngay_can_den, tao_tu=tao_tu, tao_den=tao_den,
+            pham_vi_nguoi_tao_id=pham_vi_nguoi_tao_id, pham_vi_bo_phan_ids=pham_vi_bo_phan_ids,
         )
         rows = self.db.execute(
             select(StockRequest.trang_thai, func.count()).where(*conds)

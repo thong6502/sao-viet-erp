@@ -719,6 +719,21 @@ class LsxActivityOut(BaseModel):
     items: list[LsxActivityItem]
 
 
+class LsxDinhKemOut(BaseModel):
+    """Một tệp đính kèm của lệnh. `nguoi_tai_ten` do máy chủ ghép từ tài khoản — không có ô nhập."""
+    id: int
+    ten_tep: str
+    file_url: str
+    content_type: str | None = None
+    kich_thuoc: int
+    nguoi_tai_ten: str | None = None
+    tai_luc: datetime
+
+
+class LsxDinhKemListOut(BaseModel):
+    items: list[LsxDinhKemOut]
+
+
 # --- Hàng đèn tổng quan (Đợt 1 redesign 18/08/2026) ---------------------------
 class DenItem(BaseModel):
     """Một chấm trên hàng đèn của bảng lệnh.
