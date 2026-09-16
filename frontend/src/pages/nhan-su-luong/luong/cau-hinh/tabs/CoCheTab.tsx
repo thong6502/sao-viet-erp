@@ -86,10 +86,6 @@ export function CoCheTab({
   // Cờ Giao hàng dùng TRỰC TIẾP (không kế thừa cây) — khớp `_chup_don_gia_km` ở BE đọc cờ RIÊNG
   // của phòng tài xế. Tài xế phải thuộc đúng phòng bật cờ thì mới có khoán km.
   const laGiaoHang = depts.find((d) => d.id === deptId)?.la_giao_hang ?? false;
-  // CHẾ ĐỘ KHOÁN (14/09/2026) — khớp `PayrollService._che_do_khoan`: công tắc Lương khoán của tổ
-  // HOẶC cờ Giao hàng của CHÍNH tổ (không kế thừa). Đọc bản NHÁP của công tắc để ghi chú đổi ngay
-  // khi người ta gạt, trước cả lúc lưu.
-  const cheDoKhoan = khoanOn || laGiaoHang;
 
   return (
     <>
@@ -339,7 +335,14 @@ export function CoCheTab({
                     <span>
                       <Switch
                         on={c.is_enabled}
-                        disabled={readOnly || busy}
+                        // Tổ Giao hàng KHÔNG bật được Lương khoán (chủ chốt 16/09/2026): hai cờ
+                        // là hai nguồn tiền đem so với bù lỗ, bật cả hai thì máy cộng chung một
+                        // vế. Backend cũng chặn — chỗ này chỉ để người khai hiểu ngay vì sao.
+                        disabled={
+                          readOnly
+                          || busy
+                          || (def.key === "luong_khoan" && laGiaoHang && !c.is_enabled)
+                        }
                         label={def.name}
                         onChange={(v) => patchComp(def.key, { is_enabled: v })}
                       />
@@ -348,15 +351,32 @@ export function CoCheTab({
                       <span className="cl-comp__name">{def.name}</span>
                       <span className="cl-comp__desc">
                         {def.desc}
-                        {def.key === "tang_ca" && cheDoKhoan && (
+                        {def.key === "luong_khoan" && laGiaoHang && (
                           <>
                             {" "}
-                            <b>
-                              Tổ này ăn khoán{khoanOn ? "" : " km (Giao hàng)"}: KHÔNG có tiền
-                              tăng ca
-                            </b>{" "}
-                            (làm thêm giờ đã trả qua tiền khoán) — công tắc này còn quyết cơm tăng
-                            ca và phần thêm khi làm nguyên ngày Chủ nhật / lễ.
+                            <b>Tổ này có cờ Bộ phận Giao hàng nên không bật được.</b> Tài xế /
+                            phụ xe đã ăn khoán km theo chuyến giao; bật thêm khoán sản lượng là
+                            hai khoản cộng chung MỘT vế khi đem so với lương bù lỗ — ai gán nhầm
+                            một phiếu sản lượng cho tài xế là tháng đó họ mất tiền tăng ca. Muốn
+                            tổ này ăn sản lượng thì bỏ cờ Giao hàng ở màn Phòng ban trước.
+                          </>
+                        )}
+                        {def.key === "tang_ca" && laGiaoHang && (
+                          <>
+                            {" "}
+                            <b>Tổ Giao hàng: tài xế / phụ xe CÓ tiền giờ tăng ca</b> (hệ số bình
+                            thường) — tiền đó nằm trong vế thời gian (lương bù lỗ theo công + tăng
+                            ca) đem so với khoán km, tháng nào lấy km thì không trả. Tắt công tắc
+                            này là họ mất luôn tiền tăng ca, cơm tăng ca và phần thêm ngày Chủ
+                            nhật / lễ.
+                          </>
+                        )}
+                        {def.key === "tang_ca" && khoanOn && !laGiaoHang && (
+                          <>
+                            {" "}
+                            <b>Tổ này ăn khoán sản lượng: KHÔNG có tiền tăng ca</b> (làm thêm giờ
+                            đã trả qua tiền khoán) — công tắc này còn quyết cơm tăng ca và phần
+                            thêm khi làm nguyên ngày Chủ nhật / lễ.
                           </>
                         )}
                       </span>

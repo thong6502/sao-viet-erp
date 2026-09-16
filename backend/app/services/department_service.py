@@ -59,6 +59,16 @@ class GiaoHangConChuyenChay(DepartmentError):
     """
 
 
+class GiaoHangKemKhoanSanLuong(DepartmentError):
+    """Một tổ KHÔNG được vừa có cờ Giao hàng vừa bật Lương khoán / sản lượng (chủ chốt 16/09/2026).
+
+    Hai cờ là hai NGUỒN TIỀN đem so với lương bù lỗ: cờ Giao hàng lấy tiền km của chuyến giao, công
+    tắc Lương khoán lấy tiền sản lượng của phiếu phân bổ sản xuất. Bật cả hai thì engine cộng hai
+    khoản thành MỘT vế rồi mới so — tài xế được gán nhầm một phiếu sản lượng là vế khoán vọt lên,
+    tháng đó mất trắng tiền tăng ca và phần bù lỗ mà không ai thấy. Chặn ở cửa khai cho hết đường.
+    """
+
+
 class KhoanKmInvalid(DepartmentError):
     """Ba ô khoán km sai luật — hai tỷ lệ không cộng đủ 100, hoặc đơn giá âm (mg 0231)."""
 
@@ -332,6 +342,12 @@ class DepartmentService:
         actor_id: int | None,
     ) -> Department:
         name = name.strip()
+        if la_giao_hang and has_piece_work:
+            raise GiaoHangKemKhoanSanLuong(
+                "Một tổ không vừa là Bộ phận Giao hàng vừa ăn Lương khoán / sản lượng: hai bên là "
+                "hai nguồn tiền khác nhau (tiền km và tiền sản lượng), bật cả hai thì máy cộng "
+                "chung rồi mới so với lương bù lỗ. Chọn một."
+            )
         if self.departments.get_by_name(name) is not None:
             raise DepartmentNameTaken("Tên phòng ban đã tồn tại")
         if parent_id is not None and self.departments.get_by_id(parent_id) is None:
@@ -414,6 +430,17 @@ class DepartmentService:
             raise DepartmentNotFound("Không tìm thấy phòng cha")
         # No cycle (parent ∉ this unit's subtree) + child level ranks below parent (PBI-4007).
         self._validate_hierarchy(dept_id=dept_id, parent_id=parent_id, level_id=level_id)
+        # Cờ Giao hàng ⟷ Lương khoán loại trừ nhau (chủ chốt 16/09/2026) — soi TRẠNG THÁI SAU
+        # lượt sửa này, vì hai ô có thể gửi lên trong cùng một lượt hoặc chỉ gửi một ô.
+        gh_sau = bool(la_giao_hang) if la_giao_hang is not _KEEP else bool(dept.la_giao_hang)
+        khoan_sau = bool(has_piece_work) if has_piece_work is not None else bool(dept.has_piece_work)
+        if gh_sau and khoan_sau:
+            raise GiaoHangKemKhoanSanLuong(
+                "Tổ này đang ăn Lương khoán / sản lượng nên không bật được cờ Bộ phận Giao hàng "
+                "(và ngược lại): hai bên là hai nguồn tiền khác nhau, bật cả hai thì máy cộng "
+                "chung rồi mới so với lương bù lỗ. Tắt bớt một bên ở Lương → Cấu hình lương → Cơ "
+                "chế lương theo bộ phận."
+            )
         # Tắt cờ Giao hàng: kiểm TRƯỚC mọi thao tác ghi, chặn là chặn cả lượt sửa.
         if (la_giao_hang is not _KEEP and not bool(la_giao_hang) and dept.la_giao_hang
                 and self.deliveries is not None):

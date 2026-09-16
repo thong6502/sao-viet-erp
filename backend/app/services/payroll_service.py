@@ -461,11 +461,23 @@ class PayrollService:
         # ⚠️ GỠ 17/08/2026 — trước đây Khoán ⟷ Tăng ca LOẠI TRỪ nhau (bật khoán thì tự tắt tăng
         # ca, chốt 22/07/2026). Chủ ĐẢO lại: "Tổ khoán VẪN CÓ tăng ca". Hai công tắc nay ĐỘC LẬP.
         # Đừng dựng lại luật loại trừ ở đây — engine cũng đã gỡ vế `has_piece_work` khỏi `ot_pay`.
+        # TỔ GIAO HÀNG KHÔNG BẬT ĐƯỢC LƯƠNG KHOÁN (chủ chốt 16/09/2026): cờ Giao hàng lấy tiền km
+        # của chuyến giao, công tắc này lấy tiền sản lượng của phiếu phân bổ — bật cả hai thì phép
+        # so bù lỗ cộng chung hai khoản thành một vế, tài xế bị gán nhầm một phiếu sản lượng là mất
+        # trắng tiền tăng ca tháng đó. Cửa bên Phòng ban chặn chiều ngược lại.
+        _dept = self.departments.get_by_id(department_id) if self.departments is not None else None
         for it in items:
             key = it.get("component_key")
             if key not in SALARY_COMPONENT_KEYS:
                 raise PayrollValidationError(f"Thành phần lương không hợp lệ: {key}")
             enabled = bool(it.get("is_enabled", True))
+            if (key == COMP_LUONG_KHOAN and enabled and _dept is not None
+                    and bool(getattr(_dept, "la_giao_hang", False))):
+                raise PayrollValidationError(
+                    "Tổ này có cờ Bộ phận Giao hàng nên không bật được Lương khoán / sản lượng: "
+                    "tài xế đã ăn khoán km rồi, bật thêm là hai khoản cộng chung một vế khi so với "
+                    "lương bù lỗ. Bỏ cờ Giao hàng ở Phòng ban nếu tổ này thật sự làm sản lượng."
+                )
             self.payroll.upsert_dept_component(
                 department_id=department_id, component_key=key, is_enabled=enabled,
                 value=it.get("value"), updated_at=datetime.now(timezone.utc),

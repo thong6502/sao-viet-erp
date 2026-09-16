@@ -53,6 +53,7 @@ from ..services.department_service import (
     DepartmentBranchHasUsers,
     DepartmentCycle,
     GiaoHangConChuyenChay,
+    GiaoHangKemKhoanSanLuong,
     KhoanKmInvalid,
     DepartmentNameTaken,
     InvalidHead,
@@ -166,7 +167,8 @@ def create_department(
         )
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except (DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid) as e:
+    except (DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid,
+            GiaoHangKemKhoanSanLuong) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
@@ -243,7 +245,7 @@ def update_department(
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except (InvalidHead, DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid,
-            GiaoHangConChuyenChay) as e:
+            GiaoHangConChuyenChay, GiaoHangKemKhoanSanLuong) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None

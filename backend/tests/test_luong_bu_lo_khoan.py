@@ -791,6 +791,46 @@ def test_CHAN_nghi_phep_CO_LUONG_cua_nguoi_khoan_va_tai_xe(client):
     assert xin(co_luong, next(ngay)).status_code == 201
 
 
+def test_CHAN_to_GIAO_HANG_bat_LUONG_KHOAN_va_nguoc_lai(client):
+    """⭐ Một tổ không vừa có cờ Giao hàng vừa ăn Lương khoán / sản lượng (chủ chốt 16/09/2026).
+
+    Hai cờ là hai NGUỒN TIỀN đem so với bù lỗ (tiền km ⟷ tiền sản lượng). Bật cả hai thì phép so
+    cộng chung hai khoản thành một vế: ai gán nhầm một phiếu sản lượng cho tài xế là tháng đó anh ta
+    mất trắng tiền tăng ca. Chặn cả HAI CHIỀU + cả cửa tạo phòng ban."""
+    h = _h(client)
+
+    # (1) tổ Giao hàng ⇒ Cấu hình lương không bật được Lương khoán
+    gh = client.post("/api/departments", json={"name": "Tổ giao hàng chặn khoán",
+                                               "la_giao_hang": True}, headers=h)
+    assert gh.status_code == 201, gh.text
+    pb = gh.json()["id"]
+    r = client.put(f"/api/luong/dept-components/{pb}",
+                   json={"items": [{"component_key": "luong_khoan", "is_enabled": True}]},
+                   headers=h)
+    assert r.status_code == 400, r.text
+    assert "Giao hàng" in r.text and "Lương khoán" in r.text, r.text
+    # Tắt thì vẫn ghi được (không khoá cứng cả ô).
+    r = client.put(f"/api/luong/dept-components/{pb}",
+                   json={"items": [{"component_key": "luong_khoan", "is_enabled": False}]},
+                   headers=h)
+    assert r.status_code == 200, r.text
+
+    # (2) chiều ngược lại: tổ đang ăn khoán sản lượng ⇒ không bật được cờ Giao hàng
+    kh = client.post("/api/departments", json={"name": "Tổ khoán chặn giao hàng",
+                                               "has_piece_work": True}, headers=h)
+    assert kh.status_code == 201, kh.text
+    r = client.put(f"/api/departments/{kh.json()['id']}",
+                   json={"name": "Tổ khoán chặn giao hàng", "la_giao_hang": True}, headers=h)
+    assert r.status_code == 400, r.text
+    assert "Giao hàng" in r.text, r.text
+
+    # (3) cửa TẠO phòng ban cũng chặn, không để lọt trạng thái sai ngay từ đầu
+    r = client.post("/api/departments", json={"name": "Tổ vừa km vừa sản lượng",
+                                              "la_giao_hang": True, "has_piece_work": True},
+                    headers=h)
+    assert r.status_code == 400, r.text
+
+
 def test_CO_TO_IN_khai_o_phong_ban_qua_API(client):
     """Cờ "Tổ in" khai ở màn Phòng ban (mg 0304): tạo có cờ, PUT không gửi thì GIỮ NGUYÊN (cùng luật
     với cờ Giao hàng — luồng sửa chỉ đụng tên phòng không được âm thầm gỡ cờ)."""
