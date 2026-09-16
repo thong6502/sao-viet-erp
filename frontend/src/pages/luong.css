@@ -1331,6 +1331,58 @@
   line-height: 1.55;
 }
 .cl-warn { color: var(--amber-deep); }
+
+/* Thẻ CHỈ TIÊU NGÀY của tổ khoán (Cấu hình lương → Cơ chế lương theo bộ phận, 16/09/2026).
+   Số đang áp dụng đứng ở góc phải tiêu đề thay cho banner; một hàng nhập thẳng hàng theo đáy ô. */
+.cl-chitieu__now {
+  flex: none;
+  text-align: right;
+}
+.cl-chitieu__now-val {
+  font-family: var(--ff-num);
+  font-size: 20px;
+  font-weight: var(--fw-bold);
+  line-height: 1.15;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.cl-chitieu__now-val small {
+  margin-left: 4px;
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash);
+}
+.cl-chitieu__now-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ash);
+}
+.cl-chitieu__form {
+  display: grid;
+  grid-template-columns: 170px 210px minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: end;
+}
+/* Ô ngày của Chrome cao hơn ô chữ 2px, nút mặc định thấp hơn 4px ⇒ ép cả hàng một chiều cao cho thẳng mép. */
+.cl-chitieu__form .rc-input,
+.cl-chitieu__form > .btn { height: 38px; }
+.cl-chitieu__trung { display: block; margin-top: 6px; }
+.cl-chitieu__table { margin-top: var(--sp-4); }
+.cl-chitieu__table td { vertical-align: middle; }
+/* Ngày + nhãn "đang áp dụng" đứng cùng một dòng, không rớt nhãn xuống dưới. */
+.cl-chitieu__table td:first-child { white-space: nowrap; }
+.cl-chitieu__ngay {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  margin-right: 8px;
+}
+.cl-chitieu__rong { color: var(--ash); }
+@media (max-width: 900px) {
+  .cl-chitieu__form { grid-template-columns: 1fr 1fr; }
+  .cl-chitieu__form > :nth-child(3) { grid-column: span 2; }
+  .cl-chitieu__form > .btn { justify-self: start; }
+}
 .cl-banner-sub {
   display: block;
   margin-top: 3px;

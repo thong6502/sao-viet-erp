@@ -47,6 +47,9 @@ from ..repositories.user_repo import UserRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.payroll_component_repo import PayrollComponentRepository
 from ..schemas.payroll import (
+    ChiTieuNgayIn,
+    ChiTieuNgayListOut,
+    ChiTieuNgayOut,
     CongBoIn,
     ComponentDeleteOut,
     BulkAssignIn,
@@ -409,6 +412,52 @@ def delete_pit_bracket(bracket_id: int, svc: Service,
 
 
 # --- bảng phạt đi trễ / về sớm (sửa được) -----------------------------------
+
+
+# --- CHỈ TIÊU NGÀY của tổ khoán / sản lượng (16/09/2026) --------------------------------------
+# Chỗ KHAI BÁO thôi — chủ dặn *"chưa cần phải đâu vào đâu cả, chỉ cần tạo ra đã"*: engine tính lương
+# không đọc số này. Cùng quyền với cấu hình thành phần lương theo bộ phận (xem: ConfigViewer · sửa:
+# `luong:update`), vì nó nằm ngay trên màn đó.
+
+
+def _chi_tieu_out(d: dict) -> ChiTieuNgayListOut:
+    return ChiTieuNgayListOut(
+        department_id=d["department_id"],
+        hien_hanh=(ChiTieuNgayOut.model_validate(d["hien_hanh"]) if d["hien_hanh"] is not None
+                   else None),
+        items=[ChiTieuNgayOut.model_validate(m) for m in d["items"]],
+    )
+
+
+@router.get("/khoan/chi-tieu-ngay/{dept_id}", response_model=ChiTieuNgayListOut)
+def xem_chi_tieu_ngay(dept_id: int, svc: Service, user: ConfigViewer) -> ChiTieuNgayListOut:
+    try:
+        return _chi_tieu_out(svc.chi_tieu_ngay(dept_id))
+    except PayrollError as exc:
+        _raise(exc)
+
+
+@router.put("/khoan/chi-tieu-ngay/{dept_id}", response_model=ChiTieuNgayListOut)
+def khai_chi_tieu_ngay(dept_id: int, body: ChiTieuNgayIn, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]
+                       ) -> ChiTieuNgayListOut:
+    """Thêm mốc chỉ tiêu ngày; cùng ngày áp dụng thì sửa số của mốc đó."""
+    try:
+        return _chi_tieu_out(svc.khai_chi_tieu_ngay(
+            dept_id, ap_dung_tu=body.ap_dung_tu, so_tien=body.so_tien, ghi_chu=body.ghi_chu,
+            actor=user))
+    except PayrollError as exc:
+        _raise(exc)
+
+
+@router.delete("/khoan/chi-tieu-ngay/{dept_id}/{muc_id}", response_model=ChiTieuNgayListOut)
+def xoa_chi_tieu_ngay(dept_id: int, muc_id: int, svc: Service,
+                      user: Annotated[User, Depends(require_permission(MODULE, "update"))]
+                      ) -> ChiTieuNgayListOut:
+    try:
+        return _chi_tieu_out(svc.xoa_chi_tieu_ngay(dept_id, muc_id, actor=user))
+    except PayrollError as exc:
+        _raise(exc)
 
 
 @router.get("/late-penalty-brackets", response_model=LatePenaltyBracketsOut)

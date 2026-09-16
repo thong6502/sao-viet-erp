@@ -5906,6 +5906,31 @@ export interface DeptComponents {
   items: DeptComponent[];
 }
 
+/** CHỈ TIÊU NGÀY của tổ lương khoán / sản lượng (16/09/2026): tiền sản lượng MỘT thợ phải làm ra
+ *  trong MỘT công. Mỗi dòng là một mốc "áp dụng từ ngày". CHƯA nối vào tính lương. */
+export interface ChiTieuNgay {
+  id: number;
+  department_id: number;
+  /** `YYYY-MM-DD` */
+  ap_dung_tu: string;
+  /** đ/công */
+  so_tien: number;
+  ghi_chu: string | null;
+  updated_at: string | null;
+}
+export interface ChiTieuNgayList {
+  department_id: number;
+  /** Mốc đang hiệu lực HÔM NAY; null = chưa khai, hoặc mọi mốc đều áp dụng từ ngày tương lai. */
+  hien_hanh: ChiTieuNgay | null;
+  /** Mới nhất đứng đầu. */
+  items: ChiTieuNgay[];
+}
+export interface ChiTieuNgayInput {
+  ap_dung_tu: string;
+  so_tien: number;
+  ghi_chu?: string | null;
+}
+
 // --- Danh mục khoản thu nhập & thu nhập chịu thuế TNCN (chốt chủ 2026-07-27) ---
 // Trước đây mọi phụ cấp gộp vào MỘT ô `allowance` nên engine không biết khoản nào miễn thuế →
 // thu thừa TNCN. Giờ mỗi khoản một dòng danh mục, có cờ `is_taxable` bật/tắt tại chỗ.
@@ -11413,6 +11438,17 @@ export const api = {
     },
     setDeptComponents(token: string, deptId: number, items: DeptComponentInput[]): Promise<DeptComponents> {
       return authed<DeptComponents>(`/api/luong/dept-components/${deptId}`, token, { method: "PUT", body: JSON.stringify({ items }) });
+    },
+    // --- Cấu hình lương: chỉ tiêu ngày của tổ khoán / sản lượng (chưa nối vào tính lương) ---
+    chiTieuNgay(token: string, deptId: number): Promise<ChiTieuNgayList> {
+      return authed<ChiTieuNgayList>(`/api/luong/khoan/chi-tieu-ngay/${deptId}`, token);
+    },
+    /** Cùng tổ + CÙNG ngày áp dụng ⇒ sửa số của mốc đó (không đẻ mốc trùng ngày). */
+    khaiChiTieuNgay(token: string, deptId: number, input: ChiTieuNgayInput): Promise<ChiTieuNgayList> {
+      return authed<ChiTieuNgayList>(`/api/luong/khoan/chi-tieu-ngay/${deptId}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    xoaChiTieuNgay(token: string, deptId: number, mucId: number): Promise<ChiTieuNgayList> {
+      return authed<ChiTieuNgayList>(`/api/luong/khoan/chi-tieu-ngay/${deptId}/${mucId}`, token, { method: "DELETE" });
     },
     // --- Danh mục khoản thu nhập (Cấu hình lương, tab "Danh mục khoản thu nhập") ---
     components: {

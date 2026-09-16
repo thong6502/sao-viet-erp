@@ -594,6 +594,38 @@ class LatePenaltyBracket(Base):
     amount: Mapped[float] = mapped_column(_MONEY, nullable=False)             # tiền phạt/lần (đồng)
 
 
+class KhoanChiTieuNgay(Base):
+    """CHỈ TIÊU NGÀY của tổ ăn lương khoán / sản lượng (chủ 16/09/2026): số tiền sản lượng MỘT thợ
+    phải làm ra trong MỘT công (đ/công).
+
+    Khai theo TỔ, mỗi dòng là một MỐC "áp dụng từ ngày" — đổi chỉ tiêu thì thêm mốc mới, mốc cũ giữ
+    nguyên nên sau này đem so sản lượng các tháng trước vẫn đúng chỉ tiêu của tháng đó. Chỉ tiêu
+    hiệu lực tại ngày D = mốc có `ap_dung_tu` lớn nhất mà ≤ D.
+
+    ⚠️ CHƯA NỐI VÀO TÍNH LƯƠNG — chủ dặn *"chưa cần phải đâu vào đâu cả, chỉ cần tạo ra đã"*:
+    engine KHÔNG đọc bảng này, bảng lương / phiếu lương không đổi một đồng. Chỉ lưu + phơi + sửa ở
+    Cấu hình lương → Cơ chế lương theo bộ phận. Bảng do `create_all` tạo (bảng mới, không migration).
+    """
+
+    __tablename__ = "khoan_chi_tieu_ngay"
+    __table_args__ = (
+        UniqueConstraint("department_id", "ap_dung_tu", name="uq_khoan_chi_tieu_ngay_to_ngay"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    department_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("departments.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    ap_dung_tu: Mapped[date] = mapped_column(Date, nullable=False)
+    # Tiền sản lượng một thợ phải làm ra trong MỘT công.
+    so_tien: Mapped[float] = mapped_column(_MONEY, nullable=False)
+    ghi_chu: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
 # --- Danh mục KHOẢN THU NHẬP (chủ 2026-07-27) --------------------------------
 # Thay cho ô "Phụ cấp KHÁC" gộp một cục: mỗi khoản là một dòng danh mục, HCNS tự thêm/xoá/bật tắt,
 # và mỗi khoản mang cờ `is_taxable` — nguồn DUY NHẤT trả lời "khoản này có tính thuế TNCN không".

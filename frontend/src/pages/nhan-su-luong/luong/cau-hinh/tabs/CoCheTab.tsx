@@ -9,6 +9,7 @@ import type {
 } from "../../../../../api/client";
 import { KhoanRatesEditor } from "../../../../../components/KhoanRatesEditor";
 import { KhoanKmEditor } from "../components/KhoanKmEditor";
+import { ChiTieuNgayEditor } from "../components/ChiTieuNgayEditor";
 import { DeptChips } from "../components/DeptChips";
 import { NumInput, ParamField, Switch } from "../components/fields";
 import { COMPONENT_ROWS, OT_FIELDS } from "../shared/constants";
@@ -33,6 +34,7 @@ export function CoCheTab({
   readOnly,
   busy,
   navigate,
+  khoanDaLuu = false,
 }: {
   token: string;
   p: PayrollParams;
@@ -46,6 +48,9 @@ export function CoCheTab({
   readOnly: boolean;
   busy: boolean;
   navigate?: (id: string) => void;
+  /** Công tắc Lương khoán của tổ đã BẬT VÀ ĐÃ LƯU — backend chỉ nhận chỉ tiêu ngày cho tổ đó.
+   *  Khác `khoanOn` (bản nháp): gạt bật mà chưa bấm Lưu thì chưa khai chỉ tiêu được. */
+  khoanDaLuu?: boolean;
 }) {
   const deptName = depts.find((d) => d.id === deptId)?.name ?? "";
   const empCounts = useMemo(() => {
@@ -397,6 +402,22 @@ export function CoCheTab({
           )}
         </div>
       </div>
+
+      {/* CHỈ TIÊU NGÀY (16/09/2026) — chỗ khai báo, CHƯA nối vào tính lương. Chỉ tổ đang ăn khoán
+          sản lượng mới có; gạt bật khoán mà chưa Lưu thì nhắc Lưu trước (backend đọc trạng thái đã lưu). */}
+      {khoanOn && deptId != null && (khoanDaLuu ? (
+        <ChiTieuNgayEditor
+          token={token}
+          departmentId={deptId}
+          deptName={deptName}
+          readOnly={readOnly}
+        />
+      ) : (
+        <div className="banner banner--info">
+          Bấm <b>Lưu thay đổi</b> để bật Lương khoán / sản lượng cho {deptName} trước, rồi khai{" "}
+          <b>chỉ tiêu ngày</b> của tổ ở ngay khối này.
+        </div>
+      ))}
 
       {HIEN_DON_GIA_KHOAN && khoanOn && deptId != null && (
         <div className="cl-card">

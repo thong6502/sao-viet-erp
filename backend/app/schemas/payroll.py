@@ -176,6 +176,33 @@ class LatePenaltyBracketsOut(BaseModel):
     items: list[LatePenaltyBracketOut]
 
 
+# --- chỉ tiêu ngày của tổ khoán / sản lượng (16/09/2026, chưa nối vào lương) ---
+
+
+class ChiTieuNgayIn(BaseModel):
+    ap_dung_tu: date
+    so_tien: float = Field(gt=0)                    # đ/công
+    ghi_chu: str | None = Field(default=None, max_length=255)
+
+
+class ChiTieuNgayOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    department_id: int
+    ap_dung_tu: date
+    so_tien: float
+    ghi_chu: str | None = None
+    updated_at: datetime | None = None
+
+
+class ChiTieuNgayListOut(BaseModel):
+    department_id: int
+    # Mốc đang hiệu lực HÔM NAY (null = tổ chưa khai, hoặc mọi mốc đều áp dụng từ ngày tương lai).
+    hien_hanh: ChiTieuNgayOut | None = None
+    items: list[ChiTieuNgayOut]          # mới nhất trước
+
+
 # --- salary_rate_rules ------------------------------------------------------
 
 

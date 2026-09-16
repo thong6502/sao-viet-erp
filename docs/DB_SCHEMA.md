@@ -2786,6 +2786,32 @@ theo từng NV ở `employee_salaries`). Bảng do `create_all` tạo.
 
 ---
 
+### `khoan_chi_tieu_ngay`
+
+**Purpose:** CHỈ TIÊU NGÀY của tổ ăn lương khoán / sản lượng (chủ 16/09/2026) — số tiền sản lượng MỘT
+thợ phải làm ra trong MỘT công (đ/công). Khai theo TỔ ở màn Cấu hình lương → Cơ chế lương theo bộ
+phận; mỗi dòng là một MỐC "áp dụng từ ngày", đổi chỉ tiêu thì thêm mốc mới (mốc cũ giữ nguyên). Chỉ
+tiêu hiệu lực tại ngày D = mốc có `ap_dung_tu` lớn nhất ≤ D. **CHƯA nối vào tính lương** — engine không
+đọc bảng này. Chỉ tổ đang bật Lương khoán / sản lượng mới khai được. Bảng do `create_all` tạo.
+
+| Column          | Type            | Key                                | Null | Default | Meaning                                                   |
+| --------------- | --------------- | ---------------------------------- | ---- | ------- | --------------------------------------------------------- |
+| `id`            | `Integer`       | **PK**                             | no   | auto    | PK.                                                       |
+| `department_id` | `Integer`       | **FK→departments.id**, **IX**      | no   | —       | Tổ sở hữu; xoá phòng thì xoá mốc (CASCADE).               |
+| `ap_dung_tu`    | `Date`          | **U(department_id, ap_dung_tu)**   | no   | —       | Áp dụng từ ngày. Khai lại CÙNG ngày = sửa số của mốc đó.  |
+| `so_tien`       | `Numeric(14,2)` | —                                  | no   | —       | Chỉ tiêu: tiền sản lượng một thợ phải làm ra / 1 công (> 0). |
+| `ghi_chu`       | `String(255)`   | —                                  | yes  | —       | Ghi chú tự do (lý do đổi chỉ tiêu…).                      |
+| `created_by`    | `Integer`       | **FK→users.id**                    | yes  | —       | Người khai mốc (SET NULL khi xoá tài khoản).              |
+| `updated_at`    | `DateTime(tz)`  | —                                  | no   | now     | Lần ghi gần nhất.                                         |
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign keys: `department_id FK→departments.id` (CASCADE), `created_by FK→users.id` (SET NULL).
+- Unique: `(department_id, ap_dung_tu)` — `uq_khoan_chi_tieu_ngay_to_ngay`.
+- Index: `ix_khoan_chi_tieu_ngay_department_id`.
+
+---
+
 ### `salary_rate_rules`
 
 > **DORMANT 07/09/2026** — engine không tra bảng này (không còn `_lookup_rule`), route `/api/luong/rules` đã gỡ, seed không đẻ dòng. Giữ bảng để không mất dữ liệu cũ; drop bằng migration sau nếu cần.

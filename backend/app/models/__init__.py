@@ -42,6 +42,7 @@ from .order import (
 from .payroll import (
     EmployeeSalary,
     EmployeeSalaryComponent,
+    KhoanChiTieuNgay,
     LatePenaltyBracket,
     PayrollComponent,
     PayrollLine,
@@ -261,6 +262,7 @@ __all__ = [
     "PayrollLineComponent",
     "PitTaxBracket",
     "LatePenaltyBracket",
+    "KhoanChiTieuNgay",
     "PieceRate",
     "PlateDieRate",
     "Norm",

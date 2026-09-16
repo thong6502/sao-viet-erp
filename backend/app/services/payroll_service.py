@@ -537,6 +537,62 @@ class PayrollService:
         if actor is not None:
             self._audit(actor, "payroll_pit_bracket_changed", f"pit_bracket:{bracket_id}", "xoá bậc")
 
+    # --- CHỈ TIÊU NGÀY của tổ khoán / sản lượng (16/09/2026) — CHƯA nối vào lương -----------
+
+    def chi_tieu_ngay(self, department_id: int, *, on: date | None = None) -> dict:
+        """Các mốc chỉ tiêu ngày của MỘT tổ + mốc đang hiệu lực tại ngày `on` (mặc định hôm nay).
+
+        Chỉ để hiện và khai báo — engine tính lương KHÔNG gọi hàm này (chủ chốt: *"chưa cần phải
+        đâu vào đâu cả, chỉ cần tạo ra đã"*)."""
+        if self.departments is not None and self.departments.get_by_id(department_id) is None:
+            raise PayrollNotFound("Không tìm thấy phòng ban.")
+        moc = self.payroll.list_chi_tieu_ngay(department_id)
+        ngay = on or date.today()
+        hien_hanh = next((m for m in moc if m.ap_dung_tu <= ngay), None)
+        return {"department_id": department_id, "hien_hanh": hien_hanh, "items": moc}
+
+    def khai_chi_tieu_ngay(self, department_id: int, *, ap_dung_tu: date, so_tien, ghi_chu=None,
+                           actor=None) -> dict:
+        """Thêm mốc chỉ tiêu ngày — cùng tổ, CÙNG ngày áp dụng thì SỬA số của mốc đó (không đẻ mốc
+        trùng ngày). Chỉ tổ đang bật Lương khoán / sản lượng mới khai được: chỉ tiêu ngày là chỉ tiêu
+        tiền SẢN LƯỢNG, tổ công nhật hay tổ Giao hàng (ăn km, đã chặn bật khoán) không có nghĩa."""
+        dept = self.departments.get_by_id(department_id) if self.departments is not None else None
+        if self.departments is not None and dept is None:
+            raise PayrollNotFound("Không tìm thấy phòng ban.")
+        if not self._component_enabled(COMP_LUONG_KHOAN, department_id):
+            raise PayrollValidationError(
+                "Tổ này chưa bật Lương khoán / sản lượng nên chưa khai chỉ tiêu ngày được. Bật công "
+                "tắc Lương khoán / sản lượng của tổ và bấm Lưu trước."
+            )
+        if so_tien is None or float(so_tien) <= 0:
+            raise PayrollValidationError("Chỉ tiêu ngày phải là số tiền lớn hơn 0.")
+        ghi_chu = (ghi_chu or "").strip() or None
+        cu = self.payroll.get_chi_tieu_ngay_theo_moc(department_id, ap_dung_tu)
+        if cu is not None:
+            self.payroll.update_chi_tieu_ngay(
+                cu, so_tien=float(so_tien), ghi_chu=ghi_chu, updated_at=datetime.now(timezone.utc))
+            viec = "sửa"
+        else:
+            self.payroll.create_chi_tieu_ngay(
+                department_id=department_id, ap_dung_tu=ap_dung_tu, so_tien=float(so_tien),
+                ghi_chu=ghi_chu, created_by=getattr(actor, "id", None))
+            viec = "thêm"
+        if actor is not None:
+            self._audit(actor, "payroll_chi_tieu_ngay_changed", f"department:{department_id}",
+                        f"{viec} mốc {ap_dung_tu:%d/%m/%Y}: {float(so_tien):,.0f} đ/công")
+        return self.chi_tieu_ngay(department_id)
+
+    def xoa_chi_tieu_ngay(self, department_id: int, muc_id: int, *, actor=None) -> dict:
+        m = self.payroll.get_chi_tieu_ngay(muc_id)
+        if m is None or m.department_id != department_id:
+            raise PayrollNotFound("Không tìm thấy mốc chỉ tiêu ngày.")
+        moc = m.ap_dung_tu
+        self.payroll.delete_chi_tieu_ngay(m)
+        if actor is not None:
+            self._audit(actor, "payroll_chi_tieu_ngay_changed", f"department:{department_id}",
+                        f"xoá mốc {moc:%d/%m/%Y}")
+        return self.chi_tieu_ngay(department_id)
+
     # --- bảng phạt đi trễ / về sớm (sửa được) -------------------------------
 
     def get_late_penalty_brackets(self):
