@@ -5,8 +5,8 @@ import {
   DollarSign,
   Download,
   Users,
-  Clock,
   TrendingDown,
+  TrendingUp,
   Search,
   RefreshCw,
   Lock,
@@ -28,12 +28,17 @@ import { fmtDateTime } from "../../../../utils/format";
 import { EmptyRow, EmptyState } from "../../../../components/EmptyState";
 import { RowActionButton } from "../../../../components/RowActionButton";
 import {
+  bhThueRows,
   bonusTitle,
   bonusTotal,
+  chiTiet,
   curYm,
   errText,
   hoaHongTotal,
   money,
+  phatRows,
+  phuCapRows,
+  phuCapTotal,
 } from "../shared/helpers";
 import { PayslipCard } from "../components/PayslipCard";
 import { SoiKhoanKm } from "../components/SoiKhoanKm";
@@ -96,6 +101,11 @@ export function BangLuongTab({
   const [soiKm, setSoiKm] = useState<PayrollLine | null>(null);
   const [params, setParams] = useState<PayrollParams | null>(null);
   const [year, month] = ym.split("-").map(Number);
+
+  // Chế độ xem: "detailed" (19 cột chi tiết) vs "compact" (8 cột rút gọn)
+  const [viewMode, setViewMode] = useState<"detailed" | "compact">("detailed");
+  // Dòng đang chọn (highlight row khi cuộn ngang)
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   useEffect(() => {
     api.luong
@@ -165,20 +175,141 @@ export function BangLuongTab({
       (l.employee_code ?? "").toLowerCase().includes(kw)
     );
   });
-  const totalNet = shown.reduce((s, l) => s + l.net_pay, 0);
+
+  // Helper tính giá trị từng cột số liệu (dùng chung cho hiển thị dòng, tóm tắt, và tfoot)
+  const getLuongCongVal = (l: PayrollLine) => {
+    if (l.lay_bu_lo) {
+      return (l.khoan ?? 0) + (l.khoan_km ?? 0) + (l.luong_cong ?? 0);
+    }
+    return l.bu_lo_theo_cong != null && !l.luong_cong ? 0 : (l.luong_cong ?? 0);
+  };
+  const getKhoanSpVal = (l: PayrollLine) => (l.lay_bu_lo ? 0 : (l.khoan ?? 0));
+  const getKhoanKmVal = (l: PayrollLine) => (l.lay_bu_lo ? 0 : (l.khoan_km ?? 0));
+  const getTangCaVal = (l: PayrollLine) => (l.ot_pay ?? 0) + (l.luong_ngay_le ?? 0);
+  const getCaDemVal = (l: PayrollLine) => (l.night_pay ?? 0) + (l.night_premium_pay ?? 0);
+  const getTamUngVal = (l: PayrollLine) =>
+    (l.luong_dot_1_total ?? 0) +
+    (l.advance_total ?? 0) +
+    (l.no_ung_ky_truoc ?? 0) -
+    // Phần CHƯA trừ hết kỳ này (tạm ứng trừ SAU CÙNG) đã chuyển sang kỳ sau ⇒ không phải tiền
+    // trừ của kỳ này. Phiếu lương in nó thành dòng ÂM, bảng phải khớp.
+    (l.no_ung_chuyen_ky_sau ?? 0);
+
+  const getPhatVal = (l: PayrollLine) =>
+    phatRows(l).reduce((s, [, v]) => s + v, 0);
+  const getBhThueVal = (l: PayrollLine) =>
+    bhThueRows(l).reduce((s, [, v]) => s + v, 0);
+
+  const getLineIncome = (l: PayrollLine) =>
+    getLuongCongVal(l) +
+    (l.chuyen_can ?? 0) +
+    phuCapTotal(l) +
+    getKhoanSpVal(l) +
+    getKhoanKmVal(l) +
+    (l.thuong_to_truong ?? 0) +
+    getTangCaVal(l) +
+    getCaDemVal(l) +
+    bonusTotal(l) +
+    hoaHongTotal(l);
+
+  const getLineDeductions = (l: PayrollLine) =>
+    getPhatVal(l) + getBhThueVal(l) + getTamUngVal(l);
+
+  const totals = useMemo(() => {
+    let actualCong = 0;
+    let luongCong = 0;
+    let chuyenCan = 0;
+    let allowance = 0;
+    let khoanSp = 0;
+    let khoanKm = 0;
+    let thuongTt = 0;
+    let tangCa = 0;
+    let caDem = 0;
+    let thuong = 0;
+    let hoaHong = 0;
+    let phat = 0;
+    let bhThue = 0;
+    let tamUng = 0;
+    let net = 0;
+    let gross = 0;
+    let deductions = 0;
+
+    for (const l of shown) {
+      const cLuongCong = getLuongCongVal(l);
+      const cChuyenCan = l.chuyen_can ?? 0;
+      const cAllowance = phuCapTotal(l);
+      const cKhoanSp = getKhoanSpVal(l);
+      const cKhoanKm = getKhoanKmVal(l);
+      const cThuongTt = l.thuong_to_truong ?? 0;
+      const cTangCa = getTangCaVal(l);
+      const cCaDem = getCaDemVal(l);
+      const cThuong = bonusTotal(l);
+      const cHoaHong = hoaHongTotal(l);
+
+      const cViPham = getPhatVal(l);
+      const cBhxh = getBhThueVal(l);
+      const cTamUng = getTamUngVal(l);
+
+      const cIncome =
+        cLuongCong +
+        cChuyenCan +
+        cAllowance +
+        cKhoanSp +
+        cKhoanKm +
+        cThuongTt +
+        cTangCa +
+        cCaDem +
+        cThuong +
+        cHoaHong;
+      const cDeduct = cViPham + cBhxh + cTamUng;
+
+      actualCong += l.actual_cong ?? 0;
+      luongCong += cLuongCong;
+      chuyenCan += cChuyenCan;
+      allowance += cAllowance;
+      khoanSp += cKhoanSp;
+      khoanKm += cKhoanKm;
+      thuongTt += cThuongTt;
+      tangCa += cTangCa;
+      caDem += cCaDem;
+      thuong += cThuong;
+      hoaHong += cHoaHong;
+      phat += cViPham;
+      bhThue += cBhxh;
+      tamUng += cTamUng;
+      net += l.net_pay ?? 0;
+      gross += cIncome;
+      deductions += cDeduct;
+    }
+
+    return {
+      actualCong,
+      luongCong,
+      chuyenCan,
+      allowance,
+      khoanSp,
+      khoanKm,
+      thuongTt,
+      tangCa,
+      caDem,
+      thuong,
+      hoaHong,
+      phat,
+      bhThue,
+      tamUng,
+      net,
+      gross,
+      deductions,
+    };
+  }, [shown]);
+
+  const totalNet = totals.net;
+  const totalGross = totals.gross;
+  const totalDeductions = totals.deductions;
   const totalStaff = shown.length;
   const officialCount = shown.filter((l) => !l.is_probation).length;
   const probationCount = shown.filter((l) => l.is_probation).length;
-  const totalWorkdays = shown.reduce((s, l) => s + (l.actual_cong ?? 0), 0);
-  const totalDeductions = shown.reduce(
-    (s, l) =>
-      s +
-      (l.vi_pham ?? 0) +
-      (l.bhxh ?? 0) +
-      (l.advance_total ?? 0) +
-      (l.luong_dot_1_total ?? 0),
-    0,
-  );
+  const totalWorkdays = totals.actualCong;
 
   const status = period?.status;
   const isDraft = !period || status === "draft";
@@ -259,6 +390,26 @@ export function BangLuongTab({
                 {f === "all" ? "Tất cả" : f === "ct" ? "Chính thức" : "Thử việc"}
               </button>
             ))}
+          </div>
+
+          {/* Toggle chế độ xem: Chi tiết vs Tóm tắt */}
+          <div className="lg-seg lg-view-seg" role="group" aria-label="Chế độ xem bảng lương">
+            <button
+              type="button"
+              className={viewMode === "detailed" ? "is-active" : ""}
+              onClick={() => setViewMode("detailed")}
+              title="Xem đầy đủ 19 cột chi tiết"
+            >
+              Xem chi tiết
+            </button>
+            <button
+              type="button"
+              className={viewMode === "compact" ? "is-active" : ""}
+              onClick={() => setViewMode("compact")}
+              title="Xem rút gọn 8 cột tổng quan"
+            >
+              Xem tóm tắt
+            </button>
           </div>
         </div>
 
@@ -505,7 +656,7 @@ export function BangLuongTab({
               <span className="lg-kpi-card-icon">
                 <DollarSign size={15} />
               </span>
-              <span className="lg-kpi-card-label">Tổng thực lĩnh</span>
+              <span className="lg-kpi-card-label">Tổng thực lĩnh (Net)</span>
             </div>
             <div className="lg-kpi-card-val">{money(totalNet)}đ</div>
             <div className="lg-kpi-card-sub">
@@ -513,33 +664,16 @@ export function BangLuongTab({
             </div>
           </div>
 
-          <div className="lg-kpi-card lg-kpi-card--staff">
+          <div className="lg-kpi-card lg-kpi-card--gross">
             <div className="lg-kpi-card-header">
               <span className="lg-kpi-card-icon">
-                <Users size={15} />
+                <TrendingUp size={15} />
               </span>
-              <span className="lg-kpi-card-label">Quy mô nhân sự</span>
+              <span className="lg-kpi-card-label">Tổng thu nhập gộp (+)</span>
             </div>
-            <div className="lg-kpi-card-val">{totalStaff} người</div>
+            <div className="lg-kpi-card-val">{money(totalGross)}đ</div>
             <div className="lg-kpi-card-sub">
-              {officialCount} chính thức · {probationCount} thử việc
-            </div>
-          </div>
-
-          <div className="lg-kpi-card lg-kpi-card--workday">
-            <div className="lg-kpi-card-header">
-              <span className="lg-kpi-card-icon">
-                <Clock size={15} />
-              </span>
-              <span className="lg-kpi-card-label">Tổng ngày công</span>
-            </div>
-            <div className="lg-kpi-card-val">
-              {totalWorkdays.toLocaleString("vi-VN")} công
-            </div>
-            <div className="lg-kpi-card-sub">
-              Trung bình{" "}
-              {(totalStaff ? totalWorkdays / totalStaff : 0).toFixed(1)}{" "}
-              công/người
+              Tổng thu nhập trước giảm trừ
             </div>
           </div>
 
@@ -548,10 +682,64 @@ export function BangLuongTab({
               <span className="lg-kpi-card-icon">
                 <TrendingDown size={15} />
               </span>
-              <span className="lg-kpi-card-label">Khấu trừ & Tạm ứng</span>
+              <span className="lg-kpi-card-label">Khấu trừ &amp; Tạm ứng (−)</span>
             </div>
             <div className="lg-kpi-card-val">−{money(totalDeductions)}đ</div>
-            <div className="lg-kpi-card-sub">Bảo hiểm, phạt và ứng lương</div>
+            <div className="lg-kpi-card-sub">BHXH · đoàn phí · thuế, phạt và tạm ứng</div>
+          </div>
+
+          <div className="lg-kpi-card lg-kpi-card--staff">
+            <div className="lg-kpi-card-header">
+              <span className="lg-kpi-card-icon">
+                <Users size={15} />
+              </span>
+              <span className="lg-kpi-card-label">Quy mô &amp; Ngày công</span>
+            </div>
+            <div className="lg-kpi-card-val">{totalStaff} người</div>
+            <div className="lg-kpi-card-sub">
+              {officialCount} CT · {probationCount} TV · {totalWorkdays.toLocaleString("vi-VN")} ngày công
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Thanh công thức trực quan */}
+      {period && (
+        <div className="lg-formula-bar" role="region" aria-label="Quy tắc tính lương">
+          <div className="lg-formula-title">
+            <span className="lg-formula-badge">Quy tắc tính</span>
+          </div>
+          <div className="lg-formula-equation">
+            <span
+              className="lg-formula-item lg-formula-item--net"
+              title="Thực lĩnh = Lương công + Thu nhập & Phụ cấp − Giảm trừ & Tạm ứng"
+            >
+              Thực lĩnh (=)
+            </span>
+            <span className="lg-formula-op">=</span>
+            <span
+              className="lg-formula-item lg-formula-item--base"
+              title="Lương theo ngày công thực tế (hoặc mức bù lỗ tối thiểu của tổ khoán)"
+            >
+              Lương công
+            </span>
+            <span className="lg-formula-op">+</span>
+            <span
+              className="lg-formula-item lg-formula-item--income"
+              title="Bao gồm: Chuyên cần + Phụ cấp + Khoán SP + Khoán km + Thưởng TT + Tăng ca + Ca đêm + Thưởng + Hoa hồng"
+            >
+              Các khoản thu nhập (+)
+            </span>
+            <span className="lg-formula-op">−</span>
+            <span
+              className="lg-formula-item lg-formula-item--deduct"
+              title="Bao gồm: Phạt &amp; giảm trừ (đi trễ, biên bản, 5S, ĐT vượt trội, khoản trừ danh mục) + BHXH · đoàn phí · thuế TNCN + Lương đợt 1 và Tạm ứng"
+            >
+              Các khoản giảm trừ (−)
+            </span>
+          </div>
+          <div className="lg-formula-tip">
+            💡 Nhấp vào dòng bất kỳ để highlight dòng khi cuộn ngang
           </div>
         </div>
       )}
@@ -603,7 +791,7 @@ export function BangLuongTab({
                 <div className="lg-source-item">
                   <div className="lg-source-item-head">
                     <span className="lg-source-bullet lg-source-bullet--active"></span>
-                    <span className="lg-source-name">Khấu trừ & Tạm ứng</span>
+                    <span className="lg-source-name">Khấu trừ &amp; Tạm ứng</span>
                   </div>
                   <span className="lg-source-text">
                     Tự động trừ các khoản tạm ứng đã phê duyệt trong tháng, tính
@@ -688,224 +876,460 @@ export function BangLuongTab({
         </div>
       ) : (
         <div className="ns__tablewrap lg-table">
-          <table className="ns__table">
-            <thead>
-              <tr>
-                <th className="lg-sticky-code">Mã</th>
-                <th className="lg-sticky-name">Họ tên</th>
-                <th>Phòng/Tổ</th>
-                <th className="lg-num">Công</th>
-                <th className="lg-num">Lương công</th>
-                <th className="lg-num">Chuyên cần</th>
-                <th className="lg-num">Phụ cấp</th>
-                <th className="lg-num">Khoán</th>
-                {/* Khoán km đứng cạnh Khoán vì cùng loại: tiền máy tự tính từ sản lượng/km, cộng
-                    phẳng lên lương chấm công. Cột RIÊNG chứ không gộp — bài học hoa hồng. */}
-                <th className="lg-num">Khoán km</th>
-                {/* Thưởng/phạt tổ trưởng cũng đứng ở cụm "khoán": cùng gốc sản lượng, máy tự
-                    tính lúc đóng nhóm thành phẩm. Cột này CÓ THỂ ÂM (bậc phạt) — cột duy nhất
-                    trong cụm được phép âm, nên tô đỏ khi âm để không ai đọc nhầm là thưởng. */}
-                <th className="lg-num">Thưởng TT</th>
-                <th className="lg-num">Tăng ca</th>
-                <th className="lg-num">Ca đêm</th>
-                <th className="lg-num">Vi phạm</th>
-                <th className="lg-num">Thưởng</th>
-                {/* Hoa hồng đứng CẠNH Thưởng vì trước 24/08/2026 nó nằm lẫn bên trong cột đó —
-                    để sát nhau thì người quen bảng cũ nhìn ra ngay số đã tách đi đâu. */}
-                <th className="lg-num">Hoa hồng</th>
-                <th className="lg-num">BHXH</th>
-                <th className="lg-num">Đợt 1 / Tạm ứng</th>
-                <th className="lg-num lg-net">Thực lĩnh</th>
-                {/* Tên cột thống nhất toàn hệ là "Thao tác" (không phải "Hành động"), và có CHỮ
-                    chứ không để trống — ô trống thì người đọc bảng 16 cột không biết cột cuối
-                    làm gì. `lg-actcol` canh phải để tiêu đề đứng thẳng cột nút. */}
-                <th className="lg-actcol lg-sticky-act">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((l) => (
-                <tr key={l.id}>
-                  <td className="ns__code lg-sticky-code">{l.employee_code}</td>
-                  <td className="lg-sticky-name">
-                    {l.employee_name}{" "}
-                    {l.chua_khai_luong && (
-                      <span
-                        className="rc-pill rc-pill--off"
-                        title="Có công nhưng chưa khai mức lương ở Lương → Lương nhân viên — đang tính 0đ, kỳ này chưa chốt được"
-                      >
-                        chưa khai lương
-                      </span>
-                    )}{" "}
-                    {l.is_probation && (
-                      <span className="ns-badge ns-badge--muted">TV</span>
-                    )}
-                  </td>
-                  <td>{l.department_name ?? "—"}</td>
-                  {/* Công ngày LỄ / CHỦ NHẬT là gốc của hệ số Đ98.1.b/c — trước 09/09/2026 màn chỉ
-                      nói tổng công nên không ai thấy trong đó có bao nhiêu công hệ số. Không thêm
-                      cột (bảng đã rất rộng): đeo dấu • và nói rõ ở tooltip, file Excel có cột riêng. */}
-                  <td className="lg-num" title={
-                    (l.special_cong ?? 0) > 0
-                      ? `Tổng ${l.actual_cong} công, trong đó ${l.special_cong} công ngày lễ / nghỉ tuần (ăn hệ số)`
-                      : undefined
-                  }>
-                    {l.actual_cong}
-                    {(l.special_cong ?? 0) > 0 ? <span className="lg-cong-le"> •</span> : null}
-                  </td>
-                  <td className="lg-num">{money(l.luong_cong)}</td>
-                  <td className="lg-num">{money(l.chuyen_can)}</td>
-                  <td className="lg-num">{money(l.allowance)}</td>
-                  <td className="lg-num">{l.khoan ? money(l.khoan) : "—"}</td>
-                  <td className="lg-num">
-                    {l.khoan_km ? (
-                      // Bấm được ⇒ phải TRÔNG như bấm được. Số gạch chân kiểu link, không phải
-                      // một con số trơ mà người dùng phải đoán là có thể bấm.
-                      <button
-                        type="button"
-                        className="lg-linkbtn"
-                        title="Xem từng chuyến giao đã sinh ra số này"
-                        onClick={() => setSoiKm(l)}
-                      >
-                        {money(l.khoan_km)}
-                      </button>
-                    ) : (
-                      <span title="Không có chuyến giao trong kỳ, hoặc tổ chưa bật Bộ phận Giao hàng">
-                        —
-                      </span>
-                    )}
-                  </td>
-                  <td
-                    className={`lg-num${(l.thuong_to_truong ?? 0) < 0 ? " lg-minus" : ""}`}
-                    title={
-                      l.thuong_to_truong
-                        ? "Thưởng/phạt tổ trưởng theo tỷ lệ lỗi KCS, tính lúc đóng nhóm thành phẩm"
-                        : "Kỳ này tổ trưởng không có nhóm nào đóng, hoặc tổ chưa khai bậc thưởng"
-                    }
-                  >
-                    {l.thuong_to_truong ? money(l.thuong_to_truong) : "—"}
-                  </td>
-                  <td
-                    className="lg-num"
-                    title={[
-                      l.ot_minutes ? `${(l.ot_minutes / 60).toFixed(1)}h tăng ca` : "",
-                      // Chế độ khoán (14/09/2026): có giờ mà tiền tăng ca = 0 là ĐÚNG luật, phải nói
-                      // ra kẻo HCNS tưởng bảng lương tính sót.
-                      l.che_do_khoan
-                        ? "Chế độ khoán — KHÔNG có tiền tăng ca (làm thêm giờ đã trả qua tiền khoán); vẫn có cơm tăng ca"
-                        : "",
-                      l.che_do_khoan && l.ot_pay
-                        ? "Số ở ô này là phần thêm làm nguyên ngày Chủ nhật / lễ (và ngày nghỉ 1×), không phải tiền tăng ca"
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  >
-                    {l.ot_pay ? money(l.ot_pay) : "—"}
-                    {/* Khoán mà ô này có số ⇒ đó là tiền làm ngày CN/lễ, nói ngay trên ô chứ không
-                        bắt người ta rê chuột mới biết. */}
-                    {l.che_do_khoan && l.ot_pay ? (
-                      <span className="lg-ot-khoan">CN / lễ</span>
-                    ) : null}
-                  </td>
-                  <td
-                    className="lg-num"
-                    title={[
-                      l.night_days ? `${l.night_days} ngày ca đêm` : "",
-                      l.night_pay
-                        ? `phụ cấp ca (tay) ${money(l.night_pay)}`
-                        : "",
-                      l.night_premium_pay
-                        ? `premium giờ×hệ số ${money(l.night_premium_pay)}`
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  >
-                    {l.night_pay || l.night_premium_pay
-                      ? money((l.night_pay ?? 0) + (l.night_premium_pay ?? 0))
-                      : "—"}
-                  </td>
-                  <td className={`lg-num ${l.vi_pham ? "lg-minus" : ""}`}>
-                    {l.vi_pham ? "−" + money(l.vi_pham) : "—"}
-                  </td>
-                  {/* "Thưởng" = khoản PHÁT SINH kỳ này (`source='line'`) + 6 cột thưởng cũ đã
-                      ngừng ghi. Khoản từ hồ sơ KHÔNG tính ở đây — nó nằm ở cột "Phụ cấp"
-                      (`allowance`); cộng cả hai là đếm đôi trên bảng. */}
-                  <td className="lg-num" title={bonusTitle(l)}>
-                    {bonusTotal(l) ? money(bonusTotal(l)) : "—"}
-                  </td>
-                  <td
-                    className="lg-num"
-                    title={
-                      hoaHongTotal(l)
-                        ? "Hoa hồng kinh doanh — máy tự tính theo hoá đơn bán trong kỳ"
-                        : "Chưa khai % hoa hồng ở hồ sơ lương của nhân viên kinh doanh"
-                    }
-                  >
-                    {hoaHongTotal(l) ? money(hoaHongTotal(l)) : "—"}
-                  </td>
-                  <td className="lg-num lg-minus">
-                    {l.bhxh ? "−" + money(l.bhxh) : "—"}
-                  </td>
-                  <td
-                    className={`lg-num ${l.advance_total || l.luong_dot_1_total ? "lg-minus" : ""}`}
-                  >
-                    {l.luong_dot_1_total ? (
-                      <div title="Thanh toán lương đợt 1">
-                        −{money(l.luong_dot_1_total)}
-                      </div>
-                    ) : null}
-                    {l.advance_total ? (
-                      <div title="Tạm ứng đã nhận">
-                        −{money(l.advance_total)}
-                      </div>
-                    ) : null}
-                    {(l.no_ung_ky_truoc ?? 0) > 0 ? (
-                      <div title="Nợ tạm ứng kỳ trước chuyển sang (trừ sau cùng, sau BHXH · đoàn phí · thuế)">
-                        −{money(l.no_ung_ky_truoc ?? 0)}{" "}
-                        <span className="lg-muted">nợ kỳ trước</span>
-                      </div>
-                    ) : null}
-                    {(l.no_ung_chuyen_ky_sau ?? 0) > 0 ? (
-                      <div
-                        className="lg-muted"
-                        title="Chưa trừ hết — chuyển sang kỳ sau (tạm ứng trừ sau cùng)"
-                      >
-                        còn nợ {money(l.no_ung_chuyen_ky_sau ?? 0)}
-                      </div>
-                    ) : null}
-                    {!l.advance_total && !l.luong_dot_1_total && !(l.no_ung_ky_truoc ?? 0) ? "—" : null}
-                  </td>
-                  <td className="lg-num lg-net">{money(l.net_pay)}</td>
-                  <td className="lg-rowact lg-sticky-act">
-                    {canManage && !locked && (
-                      <RowActionButton
-                        dense
-                        label="Sửa dòng lương"
-                        icon="pencil"
-                        onClick={() => setEditing(l)}
-                      />
-                    )}
-                    <RowActionButton
-                      dense
-                      label="In phiếu lương"
-                      icon="printer"
-                      onClick={() => setPrinting(l)}
-                    />
-                  </td>
+          <table className={`ns__table ${viewMode === "compact" ? "ns__table--compact" : ""}`}>
+            {viewMode === "detailed" ? (
+              <thead>
+                {/* Tầng 1: Super Headers phân nhóm cột theo logic kế toán */}
+                <tr className="lg-th-super">
+                  <th colSpan={3} className="lg-th-group lg-th-group--info">
+                    Thông tin nhân sự
+                  </th>
+                  <th colSpan={2} className="lg-th-group lg-th-group--base">
+                    Công &amp; Lương cơ sở
+                  </th>
+                  <th colSpan={9} className="lg-th-group lg-th-group--income">
+                    Thu nhập &amp; Phụ cấp (+)
+                  </th>
+                  <th colSpan={3} className="lg-th-group lg-th-group--deduct">
+                    Giảm trừ &amp; Tạm ứng (−)
+                  </th>
+                  <th rowSpan={2} className="lg-num lg-net lg-th-group--net">
+                    Thực lĩnh (=)
+                  </th>
+                  <th rowSpan={2} className="lg-actcol lg-sticky-act">
+                    Thao tác
+                  </th>
                 </tr>
-              ))}
-              {/* colSpan=19 = ĐÚNG số cột đang hiện trong bảng. */}
+                {/* Tầng 2: Tiêu đề từng cột cụ thể */}
+                <tr className="lg-th-sub">
+                  <th className="lg-sticky-code">Mã</th>
+                  <th className="lg-sticky-name">Họ tên</th>
+                  <th>Phòng/Tổ</th>
+                  <th className="lg-num">Công</th>
+                  <th className="lg-num">Lương công</th>
+                  <th className="lg-num lg-th-sub--income">Chuyên cần</th>
+                  <th className="lg-num lg-th-sub--income">Phụ cấp</th>
+                  <th className="lg-num lg-th-sub--income">Khoán SP</th>
+                  <th className="lg-num lg-th-sub--income">Khoán km</th>
+                  <th className="lg-num lg-th-sub--income">Thưởng TT</th>
+                  <th className="lg-num lg-th-sub--income">Tăng ca</th>
+                  <th className="lg-num lg-th-sub--income">Ca đêm</th>
+                  <th className="lg-num lg-th-sub--income">Thưởng</th>
+                  <th className="lg-num lg-th-sub--income lg-border-group-end">Hoa hồng</th>
+                  <th className="lg-num lg-th-sub--deduct">Phạt / giảm trừ</th>
+                  <th className="lg-num lg-th-sub--deduct">BH · Đoàn phí · Thuế</th>
+                  <th className="lg-num lg-th-sub--deduct lg-border-group-end">Đợt 1 / Tạm ứng</th>
+                </tr>
+              </thead>
+            ) : (
+              <thead>
+                <tr>
+                  <th className="lg-sticky-code">Mã NV</th>
+                  <th className="lg-sticky-name">Họ tên</th>
+                  <th>Phòng/Tổ</th>
+                  <th className="lg-num">Ngày công</th>
+                  <th className="lg-num lg-th-income-header">Tổng thu nhập (+)</th>
+                  <th className="lg-num lg-th-deduct-header">Tổng giảm trừ (−)</th>
+                  <th className="lg-num lg-net lg-th-group--net">Thực lĩnh (=)</th>
+                  <th className="lg-actcol lg-sticky-act">Thao tác</th>
+                </tr>
+              </thead>
+            )}
+            <tbody>
+              {viewMode === "detailed"
+                ? shown.map((l) => {
+                    const isSelected = selectedId === l.id;
+                    return (
+                      <tr
+                        key={l.id}
+                        className={isSelected ? "is-selected" : ""}
+                        onClick={() => setSelectedId(isSelected ? null : l.id)}
+                      >
+                        <td className="ns__code lg-sticky-code">{l.employee_code}</td>
+                        <td className="lg-sticky-name">
+                          {l.employee_name}{" "}
+                          {l.chua_khai_luong && (
+                            <span
+                              className="rc-pill rc-pill--off"
+                              title="Có công nhưng chưa khai mức lương ở Lương → Lương nhân viên — đang tính 0đ, kỳ này chưa chốt được"
+                            >
+                              chưa khai lương
+                            </span>
+                          )}{" "}
+                          {/* Ô "Mức đóng BHXH" khai riêng từng người (16/09/2026): mốc lương CŨ còn
+                              trống thì engine tạm đóng theo mức nền — gắn nhãn để HCNS khai lại. */}
+                          {l.chua_khai_muc_bh && (
+                            <span
+                              className="rc-pill rc-pill--off"
+                              title="Chưa khai Mức đóng BHXH ở hồ sơ lương — đang tạm đóng theo lương cơ bản + trách nhiệm. Khai lại ở Lương → Lương nhân viên → Sửa lương."
+                            >
+                              chưa khai mức BHXH
+                            </span>
+                          )}{" "}
+                          {l.is_probation && (
+                            <span className="ns-badge ns-badge--muted">TV</span>
+                          )}
+                        </td>
+                        <td>{l.department_name ?? "—"}</td>
+                        {/* Công ngày LỄ / CHỦ NHẬT là gốc của hệ số Đ98.1.b/c */}
+                        <td
+                          className="lg-num"
+                          title={
+                            [
+                              (l.special_cong ?? 0) > 0
+                                ? `trong đó ${l.special_cong} công ngày lễ / nghỉ tuần (ăn hệ số)`
+                                : "",
+                              l.luong_ngay_le && (l.le_nghi_cong ?? 0) > 0
+                                ? `${l.le_nghi_cong} công ngày lễ nghỉ (trả riêng ngoài khoán)`
+                                : "",
+                            ]
+                              .filter(Boolean)
+                              .map((s, i) => (i === 0 ? `Tổng ${l.actual_cong} công, ${s}` : s))
+                              .join(" · ") || undefined
+                          }
+                        >
+                          {l.actual_cong}
+                          {(l.special_cong ?? 0) > 0 || l.luong_ngay_le ? (
+                            <span className="lg-cong-le"> •</span>
+                          ) : null}
+                        </td>
+                        {/* Lương công */}
+                        <td
+                          className="lg-num"
+                          title={
+                            [
+                              // THỬ VIỆC ở tổ khoán KHÔNG đem so với sản lượng (chủ chốt 16/09/2026,
+                              // PRD §00.9) ⇒ câu "lấy số lớn hơn" bên dưới sai với họ: hai cột khoán
+                              // của dòng này luôn 0, nói "khoán 0 → lấy bù lỗ" là kế toán tưởng tổ
+                              // chưa nhập sản lượng.
+                              l.bu_lo_theo_cong != null && l.is_probation
+                                ? `Thử việc — trả theo BÙ LỖ, KHÔNG trả theo sản lượng: bù lỗ theo công ${money(l.bu_lo_theo_cong)} (mức nền đã nhân % thử việc, phụ cấp đủ 100%). Sản lượng / km kỳ này vẫn được ghi nhận bên Sản xuất, chỉ không trả tiền theo.`
+                                : "",
+                              l.bu_lo_theo_cong != null && !l.is_probation
+                                ? `${l.la_giao_hang ? "Tài xế / phụ xe" : "Tổ khoán"} — lấy số lớn hơn giữa ${l.la_giao_hang ? "tiền km" : "tiền khoán"} và ${l.la_giao_hang ? "vế thời gian (bù lỗ theo công gồm phụ cấp + tiền tăng ca)" : "bù lỗ theo công (gồm phụ cấp)"}. Bù lỗ ${money(l.bu_lo_theo_cong)}${l.la_giao_hang ? ` + tăng ca ${money(l.ot_pay)}` : ""} · ${l.la_giao_hang ? "km" : "khoán"} ${money(l.la_giao_hang ? (l.khoan_km ?? 0) : l.khoan)} → ${l.lay_bu_lo ? "lấy bù lỗ, ô này là phần bù thêm" : l.bu_lo_theo_cong || l.khoan || l.khoan_km ? "lấy khoán, không bù" : "chưa có ngày đi làm để so"}`
+                                : "",
+                              l.luong_ngay_le
+                                ? `Công ngày lễ trả riêng ngoài khoán ${money(l.luong_ngay_le)} (cột Tăng ca · CN / lễ)`
+                                : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ") || undefined
+                          }
+                        >
+                          {l.lay_bu_lo
+                            ? money(l.khoan + (l.khoan_km ?? 0) + l.luong_cong)
+                            : l.bu_lo_theo_cong != null && !l.luong_cong
+                              ? "—"
+                              : l.luong_cong ? money(l.luong_cong) : "—"}
+                          {l.bu_lo_theo_cong != null && (l.lay_bu_lo || l.bu_lo_theo_cong || l.khoan) ? (
+                            <span className="lg-ot-khoan">{l.lay_bu_lo ? "bù lỗ" : "lấy khoán"}</span>
+                          ) : null}
+                        </td>
+                        <td className={`lg-num ${l.chuyen_can ? "" : "lg-zero"}`}>
+                          {l.chuyen_can ? money(l.chuyen_can) : "—"}
+                        </td>
+                        <td
+                          className={`lg-num ${phuCapTotal(l) ? "" : "lg-zero"}`}
+                          title={
+                            [
+                              chiTiet(phuCapRows(l), ""),
+                              l.phu_cap_thang != null && l.phu_cap_thang > 0
+                                ? `Phụ cấp tháng ${money(l.phu_cap_thang)} ÷ ${l.standard_cong} × ${l.cong_phu_cap ?? 0} công (kể cả khoản hồ sơ)`
+                                : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ") || undefined
+                          }
+                        >
+                          {phuCapTotal(l) ? money(phuCapTotal(l)) : "—"}
+                        </td>
+                        <td
+                          className={`lg-num ${l.khoan && !l.lay_bu_lo ? "" : "lg-zero"}`}
+                          title={
+                            l.lay_bu_lo && l.khoan
+                              ? `Tiền khoán kỳ này ${money(l.khoan)} — thấp hơn bù lỗ theo công nên KHÔNG lấy (đã trả theo bù lỗ ở cột Lương công)`
+                              : undefined
+                          }
+                        >
+                          {l.khoan && !l.lay_bu_lo ? money(l.khoan) : "—"}
+                        </td>
+                        <td className="lg-num">
+                          {l.khoan_km && !l.lay_bu_lo ? (
+                            <button
+                              type="button"
+                              className="lg-linkbtn"
+                              title="Xem từng chuyến giao đã sinh ra số này"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSoiKm(l);
+                              }}
+                            >
+                              {money(l.khoan_km)}
+                            </button>
+                          ) : (
+                            <span
+                              className="lg-zero"
+                              title={
+                                l.lay_bu_lo && l.khoan_km
+                                  ? `Tiền km kỳ này ${money(l.khoan_km)} — thấp hơn vế thời gian (bù lỗ theo công + tiền tăng ca) nên KHÔNG lấy; phần chênh đã trả ở cột Lương công / Tăng ca`
+                                  : "Không có chuyến giao trong kỳ, hoặc tổ chưa bật Bộ phận Giao hàng"
+                              }
+                            >
+                              —
+                            </span>
+                          )}
+                        </td>
+                        <td
+                          className={`lg-num ${l.thuong_to_truong ? ((l.thuong_to_truong ?? 0) < 0 ? "lg-minus" : "") : "lg-zero"}`}
+                          title={
+                            l.thuong_to_truong
+                              ? "Thưởng/phạt tổ trưởng theo tỷ lệ lỗi KCS, tính lúc đóng nhóm thành phẩm"
+                              : "Kỳ này tổ trưởng không có nhóm nào đóng, hoặc tổ chưa khai bậc thưởng"
+                          }
+                        >
+                          {l.thuong_to_truong ? money(l.thuong_to_truong) : "—"}
+                        </td>
+                        <td
+                          className={`lg-num ${(l.ot_pay || l.luong_ngay_le) ? "" : "lg-zero"}`}
+                          title={[
+                            l.ot_minutes ? `${(l.ot_minutes / 60).toFixed(1)}h tăng ca` : "",
+                            // TỔ GIAO HÀNG tách khỏi câu của tổ khoán sản lượng (16/09/2026, PRD
+                            // §00.10): tài xế / phụ xe CÓ tiền giờ tăng ca, và tiền đó là một vế
+                            // của phép so với khoán km — nói "khoán không có tiền tăng ca" ở đây
+                            // là sai với đúng cái ô đang hiện tiền.
+                            l.che_do_khoan && !l.la_giao_hang
+                              ? "Chế độ khoán — KHÔNG có tiền tăng ca (làm thêm giờ đã trả qua tiền khoán); vẫn có cơm tăng ca"
+                              : "",
+                            l.che_do_khoan && l.la_giao_hang
+                              ? "Tài xế / phụ xe: CÓ tiền giờ tăng ca (hệ số bình thường) — nằm trong vế thời gian đem so với khoán km, tháng lấy km thì không trả"
+                              : "",
+                            l.che_do_khoan && !l.la_giao_hang && (l.ot_pay || l.luong_ngay_le)
+                              ? "Số ở ô này là tiền ngày Chủ nhật / lễ, không phải tiền tăng ca"
+                              : "",
+                            l.che_do_khoan && l.ot_pay
+                              ? `${l.la_giao_hang ? "giờ tăng ca + phần thêm ngày CN / lễ" : "làm nguyên ngày CN / lễ"}${(l.special_cong ?? 0) > 0 ? ` ${l.special_cong} công` : ""}: ${money(l.ot_pay)}`
+                              : "",
+                            l.luong_ngay_le
+                              ? `công ngày lễ nghỉ (ngoài khoán)${(l.le_nghi_cong ?? 0) > 0 ? ` ${l.le_nghi_cong} ngày` : ""}: ${money(l.luong_ngay_le)}`
+                              : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        >
+                          {l.ot_pay || l.luong_ngay_le
+                            ? money((l.ot_pay ?? 0) + (l.luong_ngay_le ?? 0))
+                            : "—"}
+                          {l.che_do_khoan && (l.ot_pay || l.luong_ngay_le) ? (
+                            <span className="lg-ot-khoan">CN / lễ</span>
+                          ) : null}
+                        </td>
+                        <td
+                          className={`lg-num ${(l.night_pay || l.night_premium_pay) ? "" : "lg-zero"}`}
+                          title={[
+                            l.night_days ? `${l.night_days} ngày ca đêm` : "",
+                            l.night_pay
+                              ? `phụ cấp ca (tay) ${money(l.night_pay)}`
+                              : "",
+                            l.night_premium_pay
+                              ? `premium giờ×hệ số ${money(l.night_premium_pay)}`
+                              : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        >
+                          {l.night_pay || l.night_premium_pay
+                            ? money((l.night_pay ?? 0) + (l.night_premium_pay ?? 0))
+                            : "—"}
+                        </td>
+                        <td className={`lg-num ${bonusTotal(l) ? "" : "lg-zero"}`} title={bonusTitle(l)}>
+                          {bonusTotal(l) ? money(bonusTotal(l)) : "—"}
+                        </td>
+                        <td
+                          className={`lg-num ${hoaHongTotal(l) ? "" : "lg-zero"}`}
+                          title={
+                            hoaHongTotal(l)
+                              ? "Hoa hồng kinh doanh — máy tự tính theo hoá đơn bán trong kỳ"
+                              : "Chưa khai % hoa hồng ở hồ sơ lương của nhân viên kinh doanh"
+                          }
+                        >
+                          {hoaHongTotal(l) ? money(hoaHongTotal(l)) : "—"}
+                        </td>
+                        {/* Nhóm Giảm trừ & Tạm ứng */}
+                        <td
+                          className={`lg-num ${getPhatVal(l) ? "lg-minus" : "lg-zero"}`}
+                          title={chiTiet(phatRows(l))}
+                        >
+                          {getPhatVal(l) ? "−" + money(getPhatVal(l)) : "—"}
+                        </td>
+                        <td
+                          className={`lg-num ${getBhThueVal(l) ? "lg-minus" : "lg-zero"}`}
+                          title={chiTiet(bhThueRows(l))}
+                        >
+                          {getBhThueVal(l) ? "−" + money(getBhThueVal(l)) : "—"}
+                        </td>
+                        <td
+                          className={`lg-num ${l.advance_total || l.luong_dot_1_total || (l.no_ung_ky_truoc ?? 0) ? "lg-minus" : "lg-zero"}`}
+                        >
+                          {l.luong_dot_1_total ? (
+                            <div className="lg-subcell" title="Thanh toán lương đợt 1">
+                              Đợt 1: −{money(l.luong_dot_1_total)}
+                            </div>
+                          ) : null}
+                          {l.advance_total ? (
+                            <div className="lg-subcell" title="Tạm ứng đã nhận">
+                              Ứng: −{money(l.advance_total)}
+                            </div>
+                          ) : null}
+                          {(l.no_ung_ky_truoc ?? 0) > 0 ? (
+                            <div
+                              className="lg-subcell lg-muted"
+                              title="Nợ tạm ứng kỳ trước chuyển sang (trừ sau cùng, sau BHXH · đoàn phí · thuế)"
+                            >
+                              Nợ cũ: −{money(l.no_ung_ky_truoc ?? 0)}
+                            </div>
+                          ) : null}
+                          {(l.no_ung_chuyen_ky_sau ?? 0) > 0 ? (
+                            <div
+                              className="lg-subcell lg-muted"
+                              title="Chưa trừ hết — chuyển sang kỳ sau (tạm ứng trừ sau cùng)"
+                            >
+                              còn nợ {money(l.no_ung_chuyen_ky_sau ?? 0)}
+                            </div>
+                          ) : null}
+                          {!l.advance_total && !l.luong_dot_1_total && !(l.no_ung_ky_truoc ?? 0) ? "—" : null}
+                        </td>
+                        <td className="lg-num lg-net">{money(l.net_pay)}</td>
+                        <td
+                          className="lg-rowact lg-sticky-act"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {canManage && !locked && (
+                            <RowActionButton
+                              dense
+                              label="Sửa dòng lương"
+                              icon="pencil"
+                              onClick={() => setEditing(l)}
+                            />
+                          )}
+                          <RowActionButton
+                            dense
+                            label="In phiếu lương"
+                            icon="printer"
+                            onClick={() => setPrinting(l)}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })
+                : shown.map((l) => {
+                    const isSelected = selectedId === l.id;
+                    const rowIncome = getLineIncome(l);
+                    const rowDeduct = getLineDeductions(l);
+
+                    const incomeTooltip = [
+                      getLuongCongVal(l) > 0 ? `Lương công: ${money(getLuongCongVal(l))}` : "",
+                      (l.chuyen_can ?? 0) > 0 ? `Chuyên cần: ${money(l.chuyen_can)}` : "",
+                      phuCapTotal(l) > 0 ? chiTiet(phuCapRows(l), "") : "",
+                      getKhoanSpVal(l) > 0 ? `Khoán SP: ${money(getKhoanSpVal(l))}` : "",
+                      getKhoanKmVal(l) > 0 ? `Khoán km: ${money(getKhoanKmVal(l))}` : "",
+                      (l.thuong_to_truong ?? 0) !== 0 ? `Thưởng TT: ${money(l.thuong_to_truong)}` : "",
+                      getTangCaVal(l) > 0 ? `Tăng ca/Lễ: ${money(getTangCaVal(l))}` : "",
+                      getCaDemVal(l) > 0 ? `Ca đêm: ${money(getCaDemVal(l))}` : "",
+                      bonusTotal(l) > 0 ? `Thưởng: ${money(bonusTotal(l))}` : "",
+                      hoaHongTotal(l) > 0 ? `Hoa hồng: ${money(hoaHongTotal(l))}` : "",
+                    ].filter(Boolean).join(" · ") || "0đ";
+
+                    const deductTooltip = [
+                      chiTiet(phatRows(l)),
+                      chiTiet(bhThueRows(l)),
+                      (l.luong_dot_1_total ?? 0) > 0 ? `Đợt 1: −${money(l.luong_dot_1_total)}` : "",
+                      (l.advance_total ?? 0) > 0 ? `Tạm ứng: −${money(l.advance_total)}` : "",
+                      (l.no_ung_ky_truoc ?? 0) > 0 ? `Nợ cũ: −${money(l.no_ung_ky_truoc)}` : "",
+                      (l.no_ung_chuyen_ky_sau ?? 0) > 0
+                        ? `Chưa trừ hết, chuyển kỳ sau: +${money(l.no_ung_chuyen_ky_sau)}`
+                        : "",
+                    ].filter(Boolean).join(" · ") || "0đ";
+
+                    return (
+                      <tr
+                        key={l.id}
+                        className={isSelected ? "is-selected" : ""}
+                        onClick={() => setSelectedId(isSelected ? null : l.id)}
+                      >
+                        <td className="ns__code lg-sticky-code">{l.employee_code}</td>
+                        <td className="lg-sticky-name">
+                          {l.employee_name}{" "}
+                          {l.chua_khai_luong && (
+                            <span
+                              className="rc-pill rc-pill--off"
+                              title="Có công nhưng chưa khai mức lương ở Lương → Lương nhân viên — đang tính 0đ, kỳ này chưa chốt được"
+                            >
+                              chưa khai lương
+                            </span>
+                          )}{" "}
+                          {/* Ô "Mức đóng BHXH" khai riêng từng người (16/09/2026): mốc lương CŨ còn
+                              trống thì engine tạm đóng theo mức nền — gắn nhãn để HCNS khai lại. */}
+                          {l.chua_khai_muc_bh && (
+                            <span
+                              className="rc-pill rc-pill--off"
+                              title="Chưa khai Mức đóng BHXH ở hồ sơ lương — đang tạm đóng theo lương cơ bản + trách nhiệm. Khai lại ở Lương → Lương nhân viên → Sửa lương."
+                            >
+                              chưa khai mức BHXH
+                            </span>
+                          )}{" "}
+                          {l.is_probation && (
+                            <span className="ns-badge ns-badge--muted">TV</span>
+                          )}
+                        </td>
+                        <td>{l.department_name ?? "—"}</td>
+                        <td className="lg-num">
+                          {l.actual_cong}
+                          {(l.special_cong ?? 0) > 0 || l.luong_ngay_le ? (
+                            <span className="lg-cong-le"> •</span>
+                          ) : null}
+                        </td>
+                        <td className="lg-num lg-plus-val" title={incomeTooltip}>
+                          +{money(rowIncome)}
+                        </td>
+                        <td
+                          className={`lg-num ${rowDeduct > 0 ? "lg-minus" : "lg-zero"}`}
+                          title={deductTooltip}
+                        >
+                          {rowDeduct > 0 ? "−" + money(rowDeduct) : "—"}
+                        </td>
+                        <td className="lg-num lg-net">{money(l.net_pay)}</td>
+                        <td
+                          className="lg-rowact lg-sticky-act"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {canManage && !locked && (
+                            <RowActionButton
+                              dense
+                              label="Sửa dòng lương"
+                              icon="pencil"
+                              onClick={() => setEditing(l)}
+                            />
+                          )}
+                          <RowActionButton
+                            dense
+                            label="In phiếu lương"
+                            icon="printer"
+                            onClick={() => setPrinting(l)}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+              {/* colSpan đúng theo chế độ xem đang chọn */}
               {shown.length === 0 && (
                 <EmptyRow
-                  colSpan={19}
+                  colSpan={viewMode === "detailed" ? 19 : 8}
                   trangThai={
                     listErr ? "loi" : listLoading ? "dang-tai" : "rong"
                   }
                   loi={listErr}
                   onThuLai={load}
                   icon="users"
-                  // "Chưa có…" chứ không "Không có…": dữ liệu chưa tới, không phải phán quyết.
                   title={
                     lines.length
                       ? "Chưa có ai khớp bộ lọc"
@@ -935,11 +1359,42 @@ export function BangLuongTab({
               )}
             </tbody>
             <tfoot>
-              <tr className="lg-foot">
-                <td colSpan={17}>Tổng thực lĩnh ({shown.length} người)</td>
-                <td className="lg-num lg-net">{money(totalNet)}</td>
-                <td className="lg-sticky-act"></td>
-              </tr>
+              {viewMode === "detailed" ? (
+                <tr className="lg-foot">
+                  <td className="lg-sticky-code lg-foot-cell">Tổng ({shown.length})</td>
+                  <td className="lg-sticky-name lg-foot-cell"></td>
+                  <td className="lg-foot-cell"></td>
+                  <td className="lg-num lg-foot-val">{totals.actualCong.toLocaleString("vi-VN")}</td>
+                  <td className="lg-num lg-foot-val">{totals.luongCong ? money(totals.luongCong) : "—"}</td>
+                  <td className="lg-num lg-foot-val">{totals.chuyenCan ? money(totals.chuyenCan) : "—"}</td>
+                  <td className="lg-num lg-foot-val">{totals.allowance ? money(totals.allowance) : "—"}</td>
+                  <td className="lg-num lg-foot-val">{totals.khoanSp ? money(totals.khoanSp) : "—"}</td>
+                  <td className="lg-num lg-foot-val">{totals.khoanKm ? money(totals.khoanKm) : "—"}</td>
+                  <td className={`lg-num lg-foot-val ${totals.thuongTt < 0 ? "lg-minus" : ""}`}>
+                    {totals.thuongTt ? money(totals.thuongTt) : "—"}
+                  </td>
+                  <td className="lg-num lg-foot-val">{totals.tangCa ? money(totals.tangCa) : "—"}</td>
+                  <td className="lg-num lg-foot-val">{totals.caDem ? money(totals.caDem) : "—"}</td>
+                  <td className="lg-num lg-foot-val">{totals.thuong ? money(totals.thuong) : "—"}</td>
+                  <td className="lg-num lg-foot-val">{totals.hoaHong ? money(totals.hoaHong) : "—"}</td>
+                  <td className="lg-num lg-foot-val lg-minus">{totals.phat ? "−" + money(totals.phat) : "—"}</td>
+                  <td className="lg-num lg-foot-val lg-minus">{totals.bhThue ? "−" + money(totals.bhThue) : "—"}</td>
+                  <td className="lg-num lg-foot-val lg-minus">{totals.tamUng ? "−" + money(totals.tamUng) : "—"}</td>
+                  <td className="lg-num lg-net lg-foot-val">{money(totals.net)}</td>
+                  <td className="lg-sticky-act lg-foot-cell"></td>
+                </tr>
+              ) : (
+                <tr className="lg-foot">
+                  <td className="lg-sticky-code lg-foot-cell">Tổng ({shown.length})</td>
+                  <td className="lg-sticky-name lg-foot-cell"></td>
+                  <td className="lg-foot-cell"></td>
+                  <td className="lg-num lg-foot-val">{totals.actualCong.toLocaleString("vi-VN")}</td>
+                  <td className="lg-num lg-plus-val lg-foot-val">+{money(totals.gross)}</td>
+                  <td className="lg-num lg-minus lg-foot-val">{totals.deductions ? "−" + money(totals.deductions) : "—"}</td>
+                  <td className="lg-num lg-net lg-foot-val">{money(totals.net)}</td>
+                  <td className="lg-sticky-act lg-foot-cell"></td>
+                </tr>
+              )}
             </tfoot>
           </table>
         </div>
@@ -950,8 +1405,6 @@ export function BangLuongTab({
           token={token}
           line={editing}
           readOnly={!isDraft}
-          // Khối "Khoản phát sinh" lưu NGAY từng thao tác ⇒ đóng màn cũng phải tải lại bảng,
-          // không thì cột phụ cấp / TNCN của dòng đó còn là số trước khi thêm khoản.
           onClose={() => {
             setEditing(null);
             load();

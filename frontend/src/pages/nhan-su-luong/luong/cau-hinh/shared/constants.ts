@@ -140,7 +140,7 @@ export const OT_FIELDS: {
   {
     key: "holiday_work_multiplier",
     label: "Làm nguyên công — ngày lễ",
-    hint: "Đi làm trọn công ngày lễ: cộng THÊM TRỌN hệ số này (KHÔNG trừ 100%). Nghỉ lễ ở nhà vẫn có lương 100% (Đ112), đi làm được cộng thêm 300% ⇒ tổng 400%. Khác ngày nghỉ tuần: nghỉ CN ở nhà không có lương nên chỉ tổng 200%.",
+    hint: "Đi làm trọn công ngày lễ: TỔNG bằng hệ số này — máy cộng thêm phần (hệ số − 100%), vì 100% tiền lương ngày lễ đã nằm trong lương theo công. Lễ rơi đúng ngày nghỉ tuần = hệ số này + hệ số ngày nghỉ tuần (mặc định 300% + 200% = 500%).",
     floor: 3,
   },
 ];

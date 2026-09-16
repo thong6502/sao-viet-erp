@@ -194,3 +194,29 @@ def test_bang_rong_van_xuat_duoc():
     wb = load_workbook(BytesIO(xuat_bang_luong([], nam=2026, thang=5, nhan_vien={},
                                                bh_tach=BH3, tam_ung=[])))
     assert len(wb.sheetnames) == 3
+
+
+def test_LAY_BU_LO_file_gop_khoan_vao_cot_luong_cong_khong_in_hai_lan():
+    """⭐ Chủ chốt 16/09/2026: *"đã lấy bù lỗ rồi thì không cần hiển thị khoán nữa"*.
+
+    Tháng LẤY bù lỗ: cột "Lương công" in TRỌN số bù lỗ (khoán + km + phần bù thêm), hai cột
+    "Lương khoán" / "Khoán km" để 0 — hai khoản THAY NHAU, in cả hai là kế toán đọc thành cộng dồn.
+    CỘNG THU không đổi (chỉ dồn ba ô thành một), nên hai đẳng thức của file vẫn đúng.
+    """
+    tai_xe = _dong(luong_cong=5_500_000, khoan=0, khoan_km=8_000_000, lay_bu_lo=True,
+                   bu_lo_theo_cong=13_500_000, che_do_khoan=True,
+                   gross=13_500_000 + 1_200_000 + 500_000 + 1_000_000 + 300_000 - 0,
+                   net_pay=1)
+    g = dong_so(tai_xe, NV[1], BH3(tai_xe))
+    assert _so(g, "Lương công") == 13_500_000
+    assert _so(g, "Lương khoán") == 0 and _so(g, "Khoán km") == 0
+    # Tổng khối thu KHÔNG đổi so với cách in cũ (khoán 8tr + bù thêm 5,5tr).
+    cu = _dong(luong_cong=5_500_000, khoan=0, khoan_km=8_000_000, lay_bu_lo=False,
+               bu_lo_theo_cong=13_500_000, che_do_khoan=True)
+    assert _so(g, "CỘNG THU") == _so(dong_so(cu, NV[1], BH3(cu)), "CỘNG THU")
+
+    # Tháng LẤY KHOÁN thì giữ nguyên cách in cũ: khoán ở cột khoán, lương công là phần bù (0).
+    khoan_cao = _dong(luong_cong=0, khoan=20_000_000, khoan_km=0, lay_bu_lo=False,
+                      bu_lo_theo_cong=13_500_000, che_do_khoan=True)
+    g2 = dong_so(khoan_cao, NV[1], BH3(khoan_cao))
+    assert _so(g2, "Lương công") == 0 and _so(g2, "Lương khoán") == 20_000_000

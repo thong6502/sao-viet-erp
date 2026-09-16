@@ -93,6 +93,70 @@ export function legacyBonusRows(l: PayrollLine): [string, number][] {
   ).filter(([, v]) => (v ?? 0) !== 0);
 }
 
+/** TỪNG khoản PHẠT / KHẤU TRỪ của một dòng lương — ĐÚNG những dòng mà phiếu lương in ở cột
+ *  "Các khoản TRỪ", để bảng lương và phiếu lương kể cùng một câu chuyện.
+ *
+ *  ⚠️ Trước 16/09/2026 cột "Vi phạm" trên bảng chỉ đọc `vi_pham`: ai bị "Phạt biên bản" /
+ *  "Đi trễ" / "Điện thoại vượt trội" / "Đồng phục · 5S" hay khoản danh mục loại TRỪ thì bảng
+ *  hiện dấu gạch trong khi tiền vẫn bị trừ khỏi thực nhận — chủ phát hiện 16/09/2026 (NV
+ *  "Test Luồng 0809" bị phạt biên bản 50.000 mà bảng không hiện). Trừ gì phải hiện nấy. */
+export function phatRows(l: PayrollLine): [string, number][] {
+  const rows: [string, number][] = [
+    ["Đi trễ / nghỉ KP", l.di_tre ?? 0],
+    ["Điện thoại vượt trội", l.dt_vuot_troi ?? 0],
+    ["Phạt biên bản", l.phat_bien_ban ?? 0],
+    ["Đồng phục / phạt 5S", l.phat_5s_dong_phuc ?? 0],
+    ["Giảm trừ khác", l.vi_pham ?? 0],
+    // Khoản danh mục loại TRỪ (mua đồng phục, ứng vật tư…) — trừ thẳng vào thực nhận, KHÔNG
+    // thuộc trần 30% Điều 102, nhưng vẫn là tiền bị trừ nên vẫn phải hiện ra bảng.
+    ...(l.components ?? [])
+      .filter((c) => c.kind === "tru")
+      .map(
+        (c) =>
+          [c.note ? `${c.name} (${c.note})` : c.name, c.amount] as [
+            string,
+            number,
+          ],
+      ),
+  ];
+  return rows.filter(([, v]) => (v ?? 0) !== 0);
+}
+
+/** BHXH bắt buộc + đoàn phí công đoàn + thuế TNCN — ba khoản trừ theo luật, gộp MỘT cột cho đỡ
+ *  rộng. Trước 16/09/2026 cột đó chỉ hiện `bhxh`, còn đoàn phí và thuế TNCN không cột nào kể. */
+export function bhThueRows(l: PayrollLine): [string, number][] {
+  return (
+    [
+      ["BHXH/BHYT/BHTN", l.bhxh ?? 0],
+      ["Đoàn phí công đoàn", l.cong_doan ?? 0],
+      ["Thuế TNCN", l.pit ?? 0],
+    ] as [string, number][]
+  ).filter(([, v]) => v !== 0);
+}
+
+/** Cột "Phụ cấp" của bảng lương — ĐỦ những khoản phụ cấp engine cộng vào `gross`.
+ *
+ *  ⚠️ Trước 16/09/2026 cột này chỉ đọc `allowance`, bỏ quên cơm ca · cơm tăng ca · phụ cấp ca
+ *  (ba khoản này nằm NGOÀI `allowance`, phiếu lương in riêng từng dòng) ⇒ cộng hết các cột thu
+ *  của bảng vẫn thiếu tiền so với thực lĩnh — NV002 kỳ 09/2026 lệch đúng 100.000đ cơm tăng ca. */
+export function phuCapRows(l: PayrollLine): [string, number][] {
+  const rows: [string, number][] = [
+    ["Phụ cấp khác", l.allowance ?? 0],
+    ["Cơm ca", l.meal_allowance_pay ?? 0],
+    ["Cơm tăng ca", l.com_tang_ca_pay ?? 0],
+    ["Phụ cấp ca (theo ca làm)", l.shift_allowance_pay ?? 0],
+  ];
+  return rows.filter(([, v]) => v !== 0);
+}
+export function phuCapTotal(l: PayrollLine): number {
+  return phuCapRows(l).reduce((s, [, v]) => s + v, 0);
+}
+
+/** Tooltip liệt kê từng khoản của một cột GỘP. `dau` = dấu đứng trước số (cột TRỪ để "−"). */
+export function chiTiet(rows: [string, number][], dau = "−"): string {
+  return rows.map(([k, v]) => `${k}: ${dau}${money(v)}`).join(" · ");
+}
+
 /** Từng khoản THƯỞNG của kỳ này (cột "Thưởng" trên bảng + tooltip).
  *
  * ⚠️ KHÔNG lấy khoản `source='employee'`: nó đã nằm trong `allowance` → hiện ở cột "Phụ cấp";
@@ -104,6 +168,12 @@ export function legacyBonusRows(l: PayrollLine): [string, number][] {
  * tự tính từ phân hệ khác thì phải mang đúng tên nó trên bảng. */
 export function bonusRows(l: PayrollLine): [string, number][] {
   return [
+    // Điều chỉnh lương (±) — engine CỘNG vào `gross`, phiếu lương in một dòng riêng. Bảng lương
+    // không có cột riêng nên gửi nhờ cột "Thưởng" (16/09/2026); không thì cộng hết các cột thu
+    // vẫn không ra `gross`, và tiền cộng/trừ tay biến mất khỏi bảng.
+    ...((l.dieu_chinh_luong ?? 0) !== 0
+      ? ([["Điều chỉnh lương", l.dieu_chinh_luong ?? 0]] as [string, number][])
+      : []),
     ...(l.components ?? [])
       .filter((c) => c.kind !== "tru" && c.source === "line")
       .map(

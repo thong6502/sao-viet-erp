@@ -61,6 +61,19 @@ def _khoan_tru(ln) -> float:
                if getattr(c, "kind", "") == "tru")
 
 
+def _lay_bu_lo(ln) -> bool:
+    """Tháng này người đó LẤY bù lỗ theo công (tổ khoán / tổ Giao hàng) — xem `PayrollService._compute`."""
+    return bool(getattr(ln, "lay_bu_lo", False))
+
+
+def _luong_cong_hien(ln) -> float:
+    """Số in ở cột "Lương công": tháng lấy bù lỗ = trọn bù lỗ (khoán + km + phần bù thêm)."""
+    if not _lay_bu_lo(ln):
+        return float(getattr(ln, "luong_cong", 0) or 0)
+    return (float(getattr(ln, "khoan", 0) or 0) + float(getattr(ln, "khoan_km", 0) or 0)
+            + float(getattr(ln, "luong_cong", 0) or 0))
+
+
 #: (nhãn, nhóm, lấy số, định dạng). Giữ NGUYÊN thứ tự — đây là thứ tự bảng của kế toán.
 COT = [
     ("STT", "tt", None, None),
@@ -87,7 +100,11 @@ COT = [
     ("Mức lương tháng", "thu", lambda ln, nv: _f(ln.monthly_salary), TIEN),
     ("Lương đóng BHXH", "thu", lambda ln, nv: _f(getattr(ln, "insurance_base", 0)), TIEN),
 
-    ("Lương công", "thu", lambda ln, nv: _f(ln.luong_cong), TIEN),
+    # LƯƠNG CÔNG — tháng LẤY BÙ LỖ thì ô này là TRỌN số bù lỗ theo công (đã gồm phần tiền khoán /
+    # km), và hai cột "Lương khoán" / "Khoán km" để 0: hai khoản THAY NHAU, in cả hai là kế toán đọc
+    # thành cộng dồn (chủ chốt 16/09/2026 — cùng cách với phiếu lương và bảng lương trên màn hình).
+    # Tổng "CỘNG THU" KHÔNG đổi: chỉ dồn ba ô thành một.
+    ("Lương công", "thu", lambda ln, nv: _f(_luong_cong_hien(ln)), TIEN),
     ("Điều chỉnh lương", "thu", lambda ln, nv: _f(getattr(ln, "dieu_chinh_luong", 0)), TIEN),
     ("Chuyên cần", "thu", lambda ln, nv: _f(ln.chuyen_can), TIEN),
     ("Phụ cấp", "thu", lambda ln, nv: _f(ln.allowance), TIEN),
@@ -97,8 +114,11 @@ COT = [
     ("Cơm ca", "thu", lambda ln, nv: _f(getattr(ln, "meal_allowance_pay", 0)), TIEN),
     ("Cơm tăng ca", "thu", lambda ln, nv: _f(getattr(ln, "com_tang_ca_pay", 0)), TIEN),
     ("Phụ cấp ca", "thu", lambda ln, nv: _f(getattr(ln, "shift_allowance_pay", 0)), TIEN),
-    ("Lương khoán", "thu", lambda ln, nv: _f(getattr(ln, "khoan", 0)), TIEN),
-    ("Khoán km", "thu", lambda ln, nv: _f(getattr(ln, "khoan_km", 0)), TIEN),
+    ("Lương khoán", "thu", lambda ln, nv: 0 if _lay_bu_lo(ln) else _f(getattr(ln, "khoan", 0)), TIEN),
+    ("Khoán km", "thu", lambda ln, nv: 0 if _lay_bu_lo(ln) else _f(getattr(ln, "khoan_km", 0)), TIEN),
+    # Công lễ nghỉ của người khoán / tài xế — trả riêng, ngoài khoán (15/09/2026). Nằm TRONG khối
+    # "CỘNG THU" (từ "Lương công" tới "Khoản phát sinh") nên tổng không lệch `gross`.
+    ("Công lễ (ngoài khoán)", "thu", lambda ln, nv: _f(getattr(ln, "luong_ngay_le", 0)), TIEN),
     ("Thưởng/phạt tổ trưởng", "thu", lambda ln, nv: _f(getattr(ln, "thuong_to_truong", 0)), TIEN),
     ("Hoa hồng", "thu", lambda ln, nv: _f(getattr(ln, "hoa_hong", 0)), TIEN),
     ("Thưởng thành tích", "thu", lambda ln, nv: _f(getattr(ln, "thuong_thanh_tich", 0)), TIEN),

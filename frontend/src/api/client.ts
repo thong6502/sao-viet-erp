@@ -3152,6 +3152,8 @@ export interface Department {
    *  "NV phụ trách" ở màn Khách hàng; chưa tick phòng nào thì backend lùi về quy tắc theo quyền. */
   la_kinh_doanh?: boolean;
   la_giao_hang?: boolean;
+  /** Tổ IN (mg 0304) — thợ in ăn khoán: ngày CN / lễ đi làm không có công gốc, trả hết ở phần thêm. */
+  la_to_in?: boolean;
   /** Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật. Đơn giá là số TÀI XẾ
    *  ĐƯỢC HƯỞNG, không phải cước cả xe. Hai ô % bắt buộc cộng đúng 100 (máy chủ chặn). */
   don_gia_km?: number;
@@ -4591,6 +4593,9 @@ export interface EmployeeInitialSalaryInput {
   /** Lương cơ bản (đóng BH) — mức đóng BHXH/BHYT/BHTN bám số này. */
   luong_vi_tri: number;
   luong_trach_nhiem?: number;
+  /** MỨC ĐÓNG BHXH khai riêng của NGƯỜI NÀY (16/09/2026) — BHXH 8% + BHYT 1,5% + BHTN 1%
+   *  tính trên số này; đoàn phí công đoàn vẫn theo mức nền. Bắt buộc ở cả hai form nhập. */
+  insurance_base?: number;
   /** "Lương trả 1 lần" (đợt 1) — mức điền sẵn khi lập phiếu thanh toán lương đợt 1. */
   luong_dot_1?: number;
   allowance?: number;
@@ -4899,6 +4904,9 @@ export interface TimesheetDay {
    *  `plain > holiday > restday`, khớp nhánh tính tiền bên Lương). Ô lịch cần chúng để nói
    *  "→ tính N công"; không có cờ thì ngày Chủ nhật đi làm hiện y hệt ngày thường. */
   restday?: boolean;     // ngày NGHỈ TUẦN (CN) có đi làm → tiền ×`he_so_ngay.nghi_tuan`
+  // Lễ rơi ĐÚNG ngày nghỉ tuần có đi làm → ×`he_so_ngay.le_nghi_tuan` (cả `holiday` lẫn `restday`
+  // cùng bật, vì tiền cộng cả hai chế độ).
+  le_nghi_tuan?: boolean;
   plain?: boolean;       // ngày `off1x` có đi làm → 1× phẳng, KHÔNG hệ số
   planned_off?: boolean; // ngày nghỉ theo lịch phân ca (dấu kế hoạch, không sinh hệ số)
 }
@@ -4932,8 +4940,11 @@ export interface TimesheetRow {
  *  ⚠️ Lễ và Chủ nhật CỐ Ý khác nhau: lễ = 1 (tiền lễ Đ112) + hệ số làm lễ ⇒ mặc định 4×;
  *  Chủ nhật = đúng hệ số nghỉ tuần ⇒ mặc định 2×. Đừng "dọn" cho giống nhau. */
 export interface HeSoNgay {
+  /** Ngày lễ đi làm — TỔNG (khách chốt 15/09/2026: 300%, không còn 1 + 3 = 4×). */
   le: number;
   nghi_tuan: number;
+  /** Lễ rơi ĐÚNG ngày nghỉ tuần: cộng cả hai chế độ (200% + 300% = 500%). */
+  le_nghi_tuan: number;
   off1x: number;
 }
 
@@ -5333,6 +5344,9 @@ export interface EmployeeSalaryInput {
   /** Gõ riêng 2 ô mức hợp đồng của chính NV — khai thì amount_mode tự thành 'manual'. */
   luong_vi_tri?: number;
   luong_trach_nhiem?: number;
+  /** MỨC ĐÓNG BHXH khai riêng của NGƯỜI NÀY (16/09/2026) — BHXH 8% + BHYT 1,5% + BHTN 1%
+   *  tính trên số này; đoàn phí công đoàn vẫn theo mức nền. Bắt buộc ở cả hai form nhập. */
+  insurance_base?: number;
   /** Lương trả 1 lần (đợt 1) — mức trả trong 1 lần, dùng để điền sẵn phiếu đợt 1. */
   luong_dot_1?: number;
   /** Phụ cấp KHÁC khai tay của riêng NV — gõ một lần, tháng nào cũng cộng đúng số này. */
@@ -5463,6 +5477,26 @@ export interface PayrollLine {
    *  ⇒ KHÔNG có tiền tăng ca (làm thêm giờ đã trả qua tiền khoán); vẫn có cơm tăng ca + phần thêm làm
    *  nguyên ngày CN/lễ. Màn hình dùng để nói vì sao có giờ tăng ca mà tiền tăng ca = 0. */
   che_do_khoan?: boolean;
+  /** Người này thuộc tổ bật cờ **Bộ phận Giao hàng** (chụp lúc Tính lại). Từ 16/09/2026 tổ Giao hàng
+   *  ăn luật RIÊNG trong chế độ khoán: CÓ tiền giờ tăng ca, và tiền đó nằm trong vế thời gian đem so
+   *  với khoán km (PRD bù lỗ §00.10) — nên màn hình phải tách được họ khỏi thợ khoán sản lượng. */
+  la_giao_hang?: boolean;
+  /** LƯƠNG BÙ LỖ (tổ khoán sản xuất, 14/09/2026, chụp lúc Tính lại): số bù lỗ theo công đã đem so
+   *  với tiền khoán — lương sản lượng = MAX(khoán, bù lỗ). `null` = dòng không thuộc luật này.
+   *  Khi có số, `luong_cong` là PHẦN BÙ THÊM cho đủ bù lỗ (0 nếu khoán cao hơn) — đừng in nó là
+   *  "lương theo công". */
+  bu_lo_theo_cong?: number | null;
+  /** true = khoán thấp hơn bù lỗ theo công, tháng này đang trả bù lỗ. */
+  lay_bu_lo?: boolean;
+  /** Công ngày lễ nghỉ hưởng lương của người ăn khoán / tài xế — trả RIÊNG, ngoài khoán, CÓ trong
+   *  `gross` (15/09/2026). 0 với người công nhật: lễ của họ nằm sẵn trong `luong_cong`. */
+  luong_ngay_le?: number;
+  /** Số công ngày lễ nghỉ hưởng lương của kỳ — để phiếu / bảng lương ghi "N ngày" cạnh tiền lễ. */
+  le_nghi_cong?: number;
+  /** Phụ cấp đi theo công (15/09/2026): số tháng đã khai (ô Phụ cấp khác + khoản hồ sơ) và số công
+   *  hưởng — `allowance` = phu_cap_thang ÷ công chuẩn × cong_phu_cap. null = kỳ cũ (cộng phẳng). */
+  phu_cap_thang?: number | null;
+  cong_phu_cap?: number | null;
   /** Công thiếu nhưng có đơn nghỉ theo giờ đã duyệt (được miễn phạt, giữ chuyên cần). */
   excused_cong?: number;
   chuyen_can: number;
@@ -5473,6 +5507,8 @@ export interface PayrollLine {
   phu_cap_tham_nien?: number;
   /** Có công mà mức lương = 0 — chưa khai ở Lương nhân viên (router điền; chốt kỳ bị chặn). */
   chua_khai_luong?: boolean;
+  /** Chưa khai ô "Mức đóng BHXH" ở mốc lương hiện hành (16/09/2026) — đang tạm đóng theo mức nền. */
+  chua_khai_muc_bh?: boolean;
   /** Phần còn lại = allowance − thâm niên (backend tính). */
   phu_cap_khac?: number;
   khoan: number;
@@ -9805,6 +9841,8 @@ export const api = {
       khoanKm?: { don_gia_km?: number; pct_tai_xe?: number; pct_phu_xe?: number },
       /** Cờ tổ KCS đích danh. Cùng luật `undefined` = KHÔNG gửi ⇒ backend giữ nguyên. */
       isKcs?: boolean,
+      /** Cờ Tổ in (mg 0304). Cùng luật `undefined` = KHÔNG gửi ⇒ backend giữ nguyên. */
+      laToIn?: boolean,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
@@ -9820,6 +9858,7 @@ export const api = {
           ...(laGiaoHang === undefined ? {} : { la_giao_hang: laGiaoHang }),
           ...(khoanKm ?? {}),
           ...(isKcs === undefined ? {} : { is_kcs: isKcs }),
+          ...(laToIn === undefined ? {} : { la_to_in: laToIn }),
         }),
       });
     },

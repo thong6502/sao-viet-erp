@@ -391,13 +391,16 @@ def get_leave_service(
     calendar: Annotated[CalendarService, Depends(get_calendar_service)],
     late_early: Annotated[LateEarlyRepository, Depends(get_late_early_repository)],
     attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
+    payroll: Annotated[PayrollService, Depends(get_payroll_service)],
 ) -> LeaveService:
     # calendar → loại ngày lễ khỏi quota + tuần T2–T7 (Thứ 7 nay trừ phép).
     # late_early (REPO) → phiếu đi muộn/về sớm có tick "trừ phép" cũng tiêu quỹ phép năm.
     # attendance (REPO) → chặn duyệt/hủy đơn của tháng ĐÃ CHỐT CÔNG (12/08/2026). Thiếu dây này
     # thì duyệt đơn nghỉ cho tháng đã chốt vẫn lọt, bảng công đổi mà bảng lương giữ số cũ.
+    # payroll (SERVICE) → hỏi "tổ này ăn khoán không" để chặn nghỉ phép CÓ LƯƠNG của người khoán /
+    # tài xế (khách chốt 15/09/2026). Một chiều: PayrollService không biết gì về Nghỉ phép.
     return LeaveService(leaves, employees, audit, calendar=calendar, late_early=late_early,
-                        attendance=attendance)
+                        attendance=attendance, payroll=payroll)
 
 
 def get_late_early_service(

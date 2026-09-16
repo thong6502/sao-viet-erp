@@ -242,6 +242,21 @@ class DepartmentRepository:
         self.db.refresh(dept)
         return dept
 
+    def set_la_to_in(self, dept: Department, value: bool) -> Department:
+        """Đánh dấu / bỏ dấu TỔ IN (mg 0304). Đích danh — KHÔNG cascade cây con, như `is_kcs`."""
+        dept.la_to_in = bool(value)
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def dept_ids_to_in(self) -> set[int]:
+        """Id tổ bật cờ TỔ IN — CHỈ tổ TỰ bật, KHÔNG kế thừa cây (cùng luật `dept_ids_giao_hang`).
+
+        Lương hỏi đúng câu này để biết ngày CN / lễ của người đó có công gốc hay không."""
+        return set(self.db.execute(
+            select(Department.id).where(Department.la_to_in.is_(True))
+        ).scalars().all())
+
     def dept_ids_giao_hang(self) -> set[int]:
         """Id phòng/tổ thuộc bộ phận GIAO HÀNG — CHỈ phòng TỰ bật cờ, KHÔNG kế thừa theo cây.
 

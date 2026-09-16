@@ -212,6 +212,7 @@ class DepartmentService:
                     "la_kinh_doanh": dept.la_kinh_doanh,
                     "is_kcs": dept.is_kcs,
                     "la_giao_hang": dept.la_giao_hang,
+                    "la_to_in": dept.la_to_in,
                     "don_gia_km": float(dept.don_gia_km or 0),
                     "pct_tai_xe": float(dept.pct_tai_xe if dept.pct_tai_xe is not None else 60),
                     "pct_phu_xe": float(dept.pct_phu_xe if dept.pct_phu_xe is not None else 40),
@@ -250,6 +251,7 @@ class DepartmentService:
             "la_kinh_doanh": dept.la_kinh_doanh,
             "is_kcs": dept.is_kcs,
             "la_giao_hang": dept.la_giao_hang,
+            "la_to_in": dept.la_to_in,
             "don_gia_km": float(dept.don_gia_km or 0),
             "pct_tai_xe": float(dept.pct_tai_xe if dept.pct_tai_xe is not None else 60),
             "pct_phu_xe": float(dept.pct_phu_xe if dept.pct_phu_xe is not None else 40),
@@ -323,6 +325,7 @@ class DepartmentService:
         la_kinh_doanh: bool = False,
         is_kcs: bool = False,
         la_giao_hang: bool = False,
+        la_to_in: bool = False,
         don_gia_km: float = 0.0,
         pct_tai_xe: float = 60.0,
         pct_phu_xe: float = 40.0,
@@ -354,6 +357,8 @@ class DepartmentService:
             self.departments.set_is_kcs(dept, True)
         if la_giao_hang:
             self.departments.set_la_giao_hang(dept, True)
+        if la_to_in:
+            self.departments.set_la_to_in(dept, True)
         self._dat_khoan_km(dept, don_gia_km, pct_tai_xe, pct_phu_xe)
         self.audit.create(
             actor_user_id=actor_id,
@@ -380,6 +385,7 @@ class DepartmentService:
         la_kinh_doanh: object = _KEEP,
         is_kcs: object = _KEEP,
         la_giao_hang: object = _KEEP,
+        la_to_in: object = _KEEP,
         don_gia_km: object = _KEEP,
         pct_tai_xe: object = _KEEP,
         pct_phu_xe: object = _KEEP,
@@ -447,6 +453,10 @@ class DepartmentService:
         # giao hàng, và tab Nhân viên giao hàng trống trơn mà không ai báo.
         if la_giao_hang is not _KEEP:
             self.departments.set_la_giao_hang(dept, bool(la_giao_hang))
+        # Cờ Tổ in: cùng luật "KHÔNG gửi = giữ nguyên" như cờ Giao hàng ngay trên — tắt nhầm là
+        # ngày CN / lễ của thợ in đổi tiền mà không ai báo.
+        if la_to_in is not _KEEP:
+            self.departments.set_la_to_in(dept, bool(la_to_in))
         if don_gia_km is not _KEEP or pct_tai_xe is not _KEEP or pct_phu_xe is not _KEEP:
             self._dat_khoan_km(
                 dept,

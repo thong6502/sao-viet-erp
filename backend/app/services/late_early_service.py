@@ -154,9 +154,20 @@ class LateEarlyService:
 
     def _resolve_leave(self, employee, work_date: date, minutes: int,
                        leave_type_id, *, exclude_id: int | None = None) -> tuple[int | None, float]:
-        """Quy phần vắng ra ngày phép + CHẶN khi hết phép. Trả (leave_type_id, leave_cong)."""
+        """Quy phần vắng ra ngày phép + CHẶN khi hết phép. Trả (leave_type_id, leave_cong).
+
+        Tick "trừ phép" = nghỉ CÓ LƯƠNG, nên người ăn khoán / khoán km bị chặn y như đơn nghỉ nguyên
+        ngày (khách chốt 15/09/2026, PRD bù lỗ §00 F)."""
         if leave_type_id is None:
             return None, 0.0
+        chan = getattr(self.leaves, "chan_phep_khoan", None)
+        if chan is not None:
+            try:
+                chan(employee, leave_type_id)
+            except Exception as e:                    # LeaveValidationError → lỗi của MÀN phiếu giờ
+                if e.__class__.__name__ == "LeaveValidationError":
+                    raise LateEarlyValidationError(str(e)) from None
+                raise
         leave_cong = self._leave_cong_for(employee, work_date, minutes)
         if self.leaves is None:
             return int(leave_type_id), leave_cong

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date, timedelta
 from typing import Annotated
 
@@ -263,6 +264,20 @@ def _insurance_lines(ln, params) -> list[InsuranceLineOut]:
 def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepository,
                svc: PayrollService | None = None) -> list[LineOut]:
     dept_names = {d.id: d.name for d in departments.list_all()} if lines else {}
+    gh_ids = set(departments.dept_ids_giao_hang()) if lines else set()
+    # Ai CHƯA khai ô "Mức đóng BHXH" (16/09/2026) — đọc mốc lương hiện hành của kỳ, 1 truy vấn cho
+    # cả mẻ. Không suy từ số tiền trên dòng: khai đúng bằng mức nền là chuyện thường, suy kiểu đó
+    # sẽ báo nhầm cả những người đã khai.
+    chua_khai_bh: set[int] = set()
+    if lines and svc is not None:
+        _p = svc.payroll.get_period(lines[0].period_id)
+        if _p is not None:
+            _cuoi = date(_p.year, _p.month, monthrange(_p.year, _p.month)[1])
+            for _eid, _s in svc.payroll.latest_salaries_map(_cuoi).items():
+                # Tick "BH đóng ở nơi khác" ⇒ không cần khai mức đóng (chủ chốt 16/09/2026).
+                if (float(getattr(_s, "insurance_base", None) or 0) <= 0
+                        and not bool(getattr(_s, "insurance_elsewhere", False))):
+                    chua_khai_bh.add(_eid)
     # Tỷ lệ + trần BH: lấy MỘT lần cho cả mẻ. Không có `svc` (đường xuất Excel) → bỏ qua phần tách.
     params = svc.get_params() if svc is not None else None
     # NV của cả mẻ trong 1 truy vấn — bảng lương 300 dòng thì hỏi từng dòng là 300 round-trip.
@@ -279,6 +294,10 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
         # Có công mà mức lương = 0 ⇒ chưa khai lương (bản rà A2) — màn hình gắn nhãn, chốt kỳ chặn (L13).
         o.chua_khai_luong = (float(ln.monthly_salary or 0) <= 0 and float(ln.actual_cong or 0) > 0)
         o.night_premium_pay = float(getattr(ln, "night_premium_pay", 0) or 0)
+        emp_ln = emp_map.get(ln.employee_id)
+        o.la_giao_hang = bool(emp_ln is not None and emp_ln.department_id in gh_ids)
+        # Thử việc không đóng BH nên không nhắc khai.
+        o.chua_khai_muc_bh = bool(not ln.is_probation and ln.employee_id in chua_khai_bh)
         # "Phụ cấp khác" = phần còn lại của TỔNG phụ cấp sau khi tách 2 khoản khai ở tổ →
         # 3 dòng trên phiếu cộng lại đúng bằng `allowance` (dòng lương cũ: khác = allowance).
         o.phu_cap_khac = max(0.0, float(ln.allowance) - float(ln.phu_cap_tham_nien))
@@ -795,10 +814,37 @@ def _canh_bao_chot(lines: list[LineOut]) -> str | None:
     # CHẾ ĐỘ KHOÁN có giờ tăng ca mà tiền khoán kỳ này = 0 (14/09/2026): giờ tăng ca của họ không
     # nhân hệ số vì "đã trả qua tiền khoán" — khoán = 0 (chưa chốt phân bổ sản xuất, không có chuyến)
     # thì phần làm thêm mất trắng mà không ai thấy. Chỉ NÓI, không chặn.
+    # LƯƠNG BÙ LỖ (14/09/2026): người tổ khoán có công mà tiền khoán kỳ này = 0 ⇒ đang trả TRỌN bù lỗ
+    # theo công. Hay gặp nhất là phân bổ sản xuất chưa chốt — chốt muộn thì Tính lại sẽ đổi số, nên
+    # phải nói trước khi chốt kỳ. Chỉ NÓI, không chặn.
+    # ⚠️ TRỪ NGƯỜI THỬ VIỆC: từ 16/09/2026 họ LUÔN ăn bù lỗ, tiền khoán để 0 vì LUẬT chứ không
+    # phải vì phân bổ chưa chốt (PRD §00.9) ⇒ réo tên họ mỗi kỳ là câu nhắc sai, HCNS đi tìm một
+    # phiếu phân bổ không bao giờ có.
+    bu_lo_khong_khoan = [l for l in lines if getattr(l, "bu_lo_theo_cong", None) is not None
+                         and float(l.bu_lo_theo_cong or 0) > 0 and float(l.khoan or 0) <= 0
+                         and not getattr(l, "la_giao_hang", False)
+                         and not getattr(l, "is_probation", False)]
+    # TÀI XẾ / PHỤ XE: có công mà tiền km = 0 ⇒ đang trả bù lỗ theo công (khách chốt 15/09/2026 chiều:
+    # tài xế CÓ bù lỗ). Hay gặp nhất là chuyến giao chưa ghi kết quả. Chỉ NÓI. Tách khỏi câu trên bằng
+    # cờ Giao hàng của tổ — không đọc ra được từ số tiền nữa vì hai bên nay cùng có bù lỗ.
+    tai_xe_khong_km = [l for l in lines if getattr(l, "la_giao_hang", False)
+                       and float(getattr(l, "actual_cong", 0) or 0) > 0
+                       and float(l.khoan or 0) + float(getattr(l, "khoan_km", 0) or 0) <= 0
+                       # Tài xế / phụ xe THỬ VIỆC: km = 0 vì luật bù lỗ, không phải chuyến chưa ghi.
+                       and not getattr(l, "is_probation", False)]
+    # Ai đã có câu bù lỗ / tài xế ở trên thì không nhắc thêm câu giờ tăng ca — một người, một lời nhắc.
+    da_nhac = {id(l) for l in bu_lo_khong_khoan + tai_xe_khong_km}
     khoan_trong = [l for l in lines if getattr(l, "che_do_khoan", False)
+                   and id(l) not in da_nhac
                    and int(l.ot_minutes or 0) > 0
                    and float(l.khoan or 0) + float(getattr(l, "khoan_km", 0) or 0) <= 0]
-    if not khong and not no and not khoan_trong:
+    # Ô "Mức đóng BHXH" BẮT BUỘC khai từ 16/09/2026 (chủ chốt) — mốc lương CŨ còn trống thì engine
+    # tạm đóng theo cơ bản + trách nhiệm, nên phải réo tên trước khi chốt kỳ, không thì tháng sau
+    # vẫn không ai khai. Chỉ NÓI, không chặn.
+    thieu_muc_bh = [l for l in lines if getattr(l, "chua_khai_muc_bh", False)
+                    and float(getattr(l, "insurance_base", 0) or 0) > 0]
+    if (not khong and not no and not khoan_trong and not bu_lo_khong_khoan and not tai_xe_khong_km
+            and not thieu_muc_bh):
         return None
     ten = lambda xs: ", ".join((x.employee_name or f"NV #{x.employee_id}") for x in xs[:3]) + (
         f" và {len(xs) - 3} người nữa" if len(xs) > 3 else "")
@@ -811,6 +857,18 @@ def _canh_bao_chot(lines: list[LineOut]) -> str | None:
         parts.append(f"{len(khoan_trong)} người ăn khoán có giờ tăng ca nhưng tiền khoán kỳ này = 0 "
                      f"({ten(khoan_trong)}) — giờ tăng ca của họ không có tiền (tính vào sản lượng), "
                      "kiểm lại phân bổ sản xuất / chuyến giao")
+    if bu_lo_khong_khoan:
+        parts.append(f"{len(bu_lo_khong_khoan)} người tổ khoán có công nhưng tiền khoán kỳ này = 0 "
+                     f"({ten(bu_lo_khong_khoan)}) — đang trả bù lỗ theo công, kiểm lại phân bổ sản "
+                     "xuất đã chốt chưa")
+    if thieu_muc_bh:
+        parts.append(f"{len(thieu_muc_bh)} người chưa khai Mức đóng BHXH ở hồ sơ lương "
+                     f"({ten(thieu_muc_bh)}) — đang tạm đóng theo lương cơ bản + trách nhiệm, khai lại "
+                     "ở Lương → Lương nhân viên → Sửa lương")
+    if tai_xe_khong_km:
+        parts.append(f"{len(tai_xe_khong_km)} tài xế / phụ xe có công nhưng tiền km kỳ này = 0 "
+                     f"({ten(tai_xe_khong_km)}) — đang trả bù lỗ theo công, kiểm lại chuyến giao đã "
+                     "ghi kết quả chưa")
     return "Lưu ý trước khi chốt: " + "; ".join(parts) + "."
 
 

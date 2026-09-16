@@ -58,7 +58,7 @@ function bang(soNv: number): Timesheet {
     days_in_month: SO_NGAY,
     standard_cong: 26,
     holidays: [],
-    he_so_ngay: { le: 2, nghi_tuan: 1.5, off1x: 1 },
+    he_so_ngay: { le: 2, nghi_tuan: 1.5, le_nghi_tuan: 3.5, off1x: 1 },
     rows: Array.from({ length: soNv }, (_, i) => hang(i + 1)),
   };
 }

@@ -70,6 +70,21 @@ def _chuyen_to(eid: int, dept_id: int) -> None:
         db.close()
 
 
+def _chinh_thuc(client, h, eid: int) -> None:
+    """Đưa hồ sơ `_nv()` (mặc định THỬ VIỆC) sang CHÍNH THỨC + khai Mức đóng BHXH.
+
+    Từ 16/09/2026 thử việc ở tổ khoán / Giao hàng ăn luật RIÊNG (luôn lấy vế thời gian, không đem so
+    khoán — PRD §00.9) ⇒ bài nào khoá luật MAX thì người phải CHÍNH THỨC, không thì đo nhầm luật.
+    Khai luôn Mức đóng BHXH để cảnh báo trước chốt không réo thêm tên."""
+    r = client.post(f"/api/employees/{eid}/transitions",
+                    json={"kind": "confirm", "effective_date": "2020-01-01"}, headers=h)
+    assert r.status_code in (200, 201), r.text
+    r = client.post(f"/api/luong/salaries/{eid}",
+                    json={"effective_from": "2026-01-02", "luong_vi_tri": 10_000_000,
+                          "insurance_base": 10_000_000}, headers=h)
+    assert r.status_code in (200, 201), r.text
+
+
 def _khai_com_tc_va_tat_khop_ca(client, h) -> None:
     """Khai cơm tăng ca. TẮT luôn luật "ca phải khớp giờ công chuẩn": gọi Cấu hình lương TRƯỚC khi
     tạo ca là dựng dòng tham số với luật đó BẬT, rồi ca 08:00–17:00 (9 giờ) của helper bị chặn —
@@ -123,7 +138,9 @@ def test_KHOAN_VAN_AN_phan_them_khi_lam_NGUYEN_NGAY_chu_nhat_va_le(client):
         for khoan in (False, True):
             le = _tinh(svc, params, actual_cong=27, holiday_cong=1, che_do_khoan=khoan)
             cn = _tinh(svc, params, actual_cong=27, restday_cong=1, che_do_khoan=khoan)
-            assert le["ot_pay"] == 3_000_000, khoan        # lễ: trọn 300% trên 1 công
+            # Lễ: TỔNG 300% = 1 công gốc (trong lương theo công) + phần thêm 200% — khách chốt
+            # 15/09/2026 chiều, ĐẢO cách cũ "phần thêm ăn trọn 300%" (tổng 400%).
+            assert le["ot_pay"] == 2_000_000, khoan
             assert cn["ot_pay"] == 1_000_000, khoan        # CN: phần thêm 100%
     finally:
         db.close()
@@ -247,8 +264,12 @@ def test_cong_tac_LUONG_KHOAN_cua_to_quyet_che_do(client):
 def test_TINH_LAI_to_khoan_va_to_giao_hang_khong_tien_tang_ca_van_co_com_va_co_canh_bao(client):
     """⭐ Ba người cùng làm một ngày thường + 3h tăng ca có phiếu: tổ thường · tổ khoán · tổ Giao hàng.
 
-    Tổ khoán và tổ Giao hàng: tiền tăng ca = 0, vẫn 1 suất cơm, dòng lương chụp `che_do_khoan`.
-    Cả hai chưa có đồng khoán nào trong kỳ ⇒ bảng lương phải cảnh báo trước khi chốt.
+    - Tổ khoán sản lượng: tiền tăng ca = 0 (chốt 14/09/2026, không đổi).
+    - Tổ GIAO HÀNG: **CÓ** tiền giờ tăng ca, hệ số bình thường — chủ chốt 16/09/2026 (PRD §00.10):
+      vế thời gian = bù lỗ + tăng ca rồi mới đem so khoán km. Tháng này chưa có đồng km nào nên vế
+      thời gian thắng ⇒ trả đủ tăng ca, bằng đúng người tổ thường cùng giờ, cùng mức nền.
+    - Cả hai vẫn 1 suất cơm tăng ca, dòng lương vẫn chụp `che_do_khoan`, và vẫn được cảnh báo trước
+      khi chốt vì chưa có tiền khoán / km nào.
     """
     h = _h(client)
     _khai_com_tc_va_tat_khop_ca(client, h)
@@ -259,6 +280,7 @@ def test_TINH_LAI_to_khoan_va_to_giao_hang_khong_tien_tang_ca_van_co_com_va_co_c
     nguoi = {}
     for vai, to in (("thuong", None), ("khoan", to_khoan), ("gh", to_gh)):
         eid = _nv(client, h, ten=f"NV TC {vai}")
+        _chinh_thuc(client, h, eid)
         if to is not None:
             _chuyen_to(eid, to)
         _ca_hanh_chinh(client, h, eid)
@@ -273,11 +295,20 @@ def test_TINH_LAI_to_khoan_va_to_giao_hang_khong_tien_tang_ca_van_co_com_va_co_c
         assert d["com_tang_ca_pay"] == MUC, d            # cơm tăng ca: ai cũng có
     assert thuong["ot_pay"] > 0 and thuong["che_do_khoan"] is False
     assert khoan["ot_pay"] == 0 and khoan["che_do_khoan"] is True
-    assert gh["ot_pay"] == 0 and gh["che_do_khoan"] is True
+    # ⭐ 16/09/2026: tài xế / phụ xe ăn tiền giờ tăng ca như người công nhật (cùng 3h, cùng mức nền).
+    assert gh["che_do_khoan"] is True
+    assert abs(gh["ot_pay"] - thuong["ot_pay"]) <= 1, (gh["ot_pay"], thuong["ot_pay"])
 
+    # 14–15/09/2026: tổ khoán có công mà khoán = 0 ⇒ đang trả trọn bù lỗ (câu bù lỗ); tài xế có công mà
+    # km = 0 ⇒ cũng trả bù lỗ nhưng nhắc bằng câu riêng (tách theo cờ Giao hàng của tổ).
     canh_bao = bang["canh_bao_chot"] or ""
-    assert "2 người ăn khoán có giờ tăng ca nhưng tiền khoán kỳ này = 0" in canh_bao, canh_bao
-    assert "NV TC khoan" in canh_bao and "NV TC gh" in canh_bao
+    assert "1 người tổ khoán có công nhưng tiền khoán kỳ này = 0 (NV TC khoan)" in canh_bao, canh_bao
+    assert "1 tài xế / phụ xe có công nhưng tiền km kỳ này = 0 (NV TC gh)" in canh_bao, canh_bao
+    assert "có giờ tăng ca nhưng tiền khoán kỳ này = 0" not in canh_bao, canh_bao
+    assert khoan["bu_lo_theo_cong"] > 0 and khoan["lay_bu_lo"] is True
+    # 15/09/2026 chiều: tài xế CÓ bù lỗ như thợ khoán ⇒ tháng không có chuyến thì nhận trọn bù lỗ.
+    assert gh["bu_lo_theo_cong"] > 0 and gh["lay_bu_lo"] is True
+    assert thuong["bu_lo_theo_cong"] is None
 
 
 def test_TINH_LAI_to_khoan_lam_NGUYEN_NGAY_chu_nhat_van_bang_to_thuong(client):

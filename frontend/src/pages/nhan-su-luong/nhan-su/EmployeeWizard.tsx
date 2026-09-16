@@ -70,6 +70,9 @@ export function EmployeeWizard({
   // 20/07 "chỉ lương cơ bản"). Các khoản phụ cấp là số cố định khai riêng từng nhân viên.
   const [luongViTri, setLuongViTri] = useState(0);
   const [luongTrachNhiem, setLuongTrachNhiem] = useState(0);
+  // MỨC ĐÓNG BHXH khai riêng từng người (chủ chốt 16/09/2026) — BẮT BUỘC, không suy từ mức nền nữa.
+  // `null` = chưa gõ ⇒ ô gợi ý theo mức nền, chặn Lưu cho tới khi HCNS xác nhận số.
+  const [mucDongBh, setMucDongBh] = useState<number | null>(null);
   // "Lương trả 1 lần" (đợt 1): mức trả trong MỘT lần — số điền sẵn khi lập phiếu đợt 1 ở màn Lương.
   const [luongDot1, setLuongDot1] = useState(0);
   // % hoa hồng NV kinh doanh — nhập theo PHẦN TRĂM ở UI, gửi lên là PHÂN SỐ. Chỉ để KHAI:
@@ -130,6 +133,12 @@ export function EmployeeWizard({
       setError("Lương cơ bản của nhân viên phải lớn hơn 0.");
       return;
     }
+    // Tick "BH đóng ở nơi khác" ⇒ không bắt buộc khai mức đóng (chủ chốt 16/09/2026).
+    if (canSalary && !insuranceElsewhere && (mucDongBh ?? salaryBase) <= 0) {
+      setStep(2);
+      setError("Mức đóng BHXH là bắt buộc — mỗi người một mức, không được để 0.");
+      return;
+    }
     setBusy(true);
     try {
       // Giữ id đã tạo để nếu lỗi giữa chừng, bấm Lưu lại KHÔNG tạo nhân viên trùng.
@@ -150,6 +159,7 @@ export function EmployeeWizard({
               form.hire_date || new Date().toISOString().slice(0, 10),
             luong_vi_tri: luongViTri,
             luong_trach_nhiem: luongTrachNhiem,
+            insurance_base: mucDongBh ?? salaryBase,
             luong_dot_1: luongDot1,
             chuyen_can: chuyenCan,
             insurance_elsewhere: insuranceElsewhere,
@@ -433,8 +443,9 @@ export function EmployeeWizard({
                   <div className="ns-wizard__salary-intro ns-wizard__full">
                     <strong>Mức lương riêng của nhân viên</strong>
                     <span>
-                      BHXH/BHYT/BHTN đóng trên mức nền (cơ bản + trách nhiệm).
-                      Các khoản phụ cấp là số cố định, cộng phẳng mỗi tháng.
+                      BHXH/BHYT/BHTN đóng trên ô “Mức đóng BHXH” khai riêng cho
+                      từng người. Các khoản phụ cấp là số cố định, cộng phẳng mỗi
+                      tháng.
                     </span>
                   </div>
                   <Field label="Lương cơ bản *">
@@ -461,6 +472,26 @@ export function EmployeeWizard({
                     <span>Mức nền theo hợp đồng</span>
                     <strong>{money(salaryBase)}</strong>
                   </div>
+                  <Field
+                    label={
+                      insuranceElsewhere ? "Mức đóng BHXH" : "Mức đóng BHXH *"
+                    }
+                    hint={
+                      insuranceElsewhere
+                        ? "Nơi khác đã đóng BHXH/BHYT/BHTN cho người này — công ty không trừ, ô này để trống cũng được."
+                        : "Số ghi trên hợp đồng bảo hiểm của người này — BHXH, BHYT, BHTN trừ trên số này. Ô gợi ý sẵn mức nền, sửa lại nếu hợp đồng bảo hiểm ghi khác."
+                    }
+                  >
+                    <input
+                      type="number"
+                      min={0}
+                      step={100000}
+                      value={mucDongBh ?? salaryBase}
+                      onChange={(e) =>
+                        setMucDongBh(Number(e.target.value))
+                      }
+                    />
+                  </Field>
                   <Field label="Thưởng chuyên cần">
                     <input
                       type="number"

@@ -256,7 +256,9 @@ class SalaryPreviewOut(BaseModel):
     allowance: float
     phu_cap_ca: float = 0
     phu_cap_tham_nien: float = 0
-    insurance_base: float    # = luong_vi_tri (mức đóng BH)
+    insurance_base: float    # mức đóng BH: ô khai tay của NV, chưa khai thì = mức nền
+    # Chưa khai ô "Mức đóng BHXH" (16/09/2026) — màn hình nhắc HCNS khai, engine tạm dùng mức nền.
+    chua_khai_muc_bh: bool = False
     luong_vi_tri: float = 0
     luong_trach_nhiem: float = 0
 
@@ -387,6 +389,13 @@ class LineOut(BaseModel):
     employee_code: str | None = None       # router fills
     employee_name: str | None = None
     department_name: str | None = None
+    # Chưa khai ô "Mức đóng BHXH" ở mốc lương hiện hành ⇒ đang tạm đóng theo cơ bản + trách nhiệm
+    # (chủ chốt 16/09/2026). Router điền; màn hình gắn nhãn, cảnh báo trước chốt réo tên.
+    chua_khai_muc_bh: bool = False
+    # Tổ của người này có bật cờ Giao hàng không — router điền. Cảnh báo trước chốt cần phân biệt
+    # "thợ khoán chưa chốt phân bổ" với "tài xế chưa ghi kết quả chuyến": từ 15/09/2026 CẢ HAI đều
+    # có bù lỗ theo công nên không còn đọc ra được từ số tiền.
+    la_giao_hang: bool = False
     payroll_group: str | None = None
     bank_account: str | None = None
     bank_name: str | None = None
@@ -409,6 +418,19 @@ class LineOut(BaseModel):
     #: CHẾ ĐỘ KHOÁN (14/09/2026) — giờ tăng ca của người này KHÔNG có tiền (tổ khoán sản lượng /
     #: tổ Giao hàng). Màn hình dùng để nói vì sao có giờ tăng ca mà tiền tăng ca = 0.
     che_do_khoan: bool = False
+    #: LƯƠNG BÙ LỖ (tổ khoán sản xuất, 14/09/2026) — số bù lỗ theo công đã đem so với tiền khoán.
+    #: None = dòng không thuộc luật này. Khi có số, `luong_cong` là PHẦN BÙ THÊM cho đủ bù lỗ (0 nếu
+    #: khoán cao hơn) — đừng đọc nó là "lương theo công".
+    bu_lo_theo_cong: float | None = None
+    #: True = khoán thấp hơn bù lỗ theo công, tháng này đang trả bù lỗ.
+    lay_bu_lo: bool = False
+    #: Công ngày lễ nghỉ hưởng lương của người ăn khoán / tài xế — trả RIÊNG, CỘNG vào gross (15/09/2026).
+    luong_ngay_le: float = 0
+    #: Số công ngày lễ nghỉ hưởng lương của kỳ — để phiếu / bảng lương ghi "N ngày" cạnh tiền lễ.
+    le_nghi_cong: float = 0
+    #: Phụ cấp đi theo công (15/09/2026): số tháng đã khai + số công hưởng. None = kỳ cũ (cộng phẳng).
+    phu_cap_thang: float | None = None
+    cong_phu_cap: float | None = None
     excused_cong: float = 0        # công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ) — giải trình chuyên cần
     chuyen_can: float
     allowance: float               # TỔNG phụ cấp tháng (đã gồm 3 dòng dưới)

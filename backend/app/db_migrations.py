@@ -13663,3 +13663,106 @@ def _migrate_payroll_line_che_do_khoan(db: Session) -> None:
 
 
 MIGRATIONS.append(("0299_payroll_line_che_do_khoan", _migrate_payroll_line_che_do_khoan))
+
+
+def _migrate_payroll_line_bu_lo(db: Session) -> None:
+    """Chụp LƯƠNG BÙ LỖ lên dòng lương (14/09/2026, `docs/prd-luong-bu-lo-khoan-san-xuat.md`).
+
+    Tổ khoán sản xuất: "khoán lớn hơn bù lỗ thì lấy khoán, bé hơn thì lấy bù lỗ" — thay nhau, không
+    cộng dồn. `bu_lo_theo_cong` giữ số bù lỗ đã đem so, `lay_bu_lo` nói tháng đó lấy bên nào; kỳ đã
+    chốt in lại đúng dù mức lương đổi về sau.
+
+    THUẦN CỘNG THÊM: `bu_lo_theo_cong` NULL + `lay_bu_lo` false ⇒ kỳ cũ giữ nguyên, không hồi tố.
+    Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "bu_lo_theo_cong" not in cols:
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN bu_lo_theo_cong NUMERIC(14, 2)"))
+    if "lay_bu_lo" not in cols:
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN lay_bu_lo BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0300_payroll_line_bu_lo", _migrate_payroll_line_bu_lo))
+
+
+def _migrate_payroll_line_luong_ngay_le(db: Session) -> None:
+    """Công ngày lễ nghỉ hưởng lương của người ăn khoán / tài xế trả RIÊNG (15/09/2026,
+    `docs/prd-luong-bu-lo-khoan-san-xuat.md` §0 #1).
+
+    Bảng lương thật cộng "+2" ngày lễ vào Tổng NC của người sản lượng, ngoài tiền khoán / km. Trước bản
+    này công lễ nằm trong bù lỗ theo công ⇒ khoán cao hơn bù lỗ là mất (T05: tổ khoán −19,9tr, tài xế
+    −3,0tr).
+
+    THUẦN CỘNG THÊM: DEFAULT 0 ⇒ kỳ cũ giữ nguyên số, không hồi tố. Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "luong_ngay_le" not in cols:
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN luong_ngay_le NUMERIC(14, 2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+MIGRATIONS.append(("0301_payroll_line_luong_ngay_le", _migrate_payroll_line_luong_ngay_le))
+
+
+def _migrate_payroll_line_le_nghi_cong(db: Session) -> None:
+    """Chụp SỐ công ngày lễ nghỉ hưởng lương lên dòng lương (15/09/2026) — để phiếu / bảng lương ghi
+    được "Công ngày lễ — 1 ngày" cạnh tiền (`luong_ngay_le`, mg 0301). THUẦN CỘNG THÊM, DEFAULT 0.
+    Idempotent."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "le_nghi_cong" not in cols:
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN le_nghi_cong NUMERIC(6, 2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+MIGRATIONS.append(("0302_payroll_line_le_nghi_cong", _migrate_payroll_line_le_nghi_cong))
+
+
+def _migrate_payroll_line_phu_cap_theo_cong(db: Session) -> None:
+    """Phụ cấp đi theo công (chủ chốt 15/09/2026): chụp `phu_cap_thang` (số khai) + `cong_phu_cap` (số công
+    hưởng) lên dòng lương để phiếu / bảng lương nói được phụ cấp đã chia thế nào.
+
+    THUẦN CỘNG THÊM: NULL cho mọi dòng cũ = kỳ tính trước bản vá, phụ cấp còn cộng phẳng. Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "phu_cap_thang" not in cols:
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN phu_cap_thang NUMERIC(14, 2)"))
+    if "cong_phu_cap" not in cols:
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN cong_phu_cap NUMERIC(6, 2)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0303_payroll_line_phu_cap_theo_cong", _migrate_payroll_line_phu_cap_theo_cong))
+
+
+def _migrate_department_la_to_in(db: Session) -> None:
+    """Cờ TỔ IN trên phòng ban (khách chốt 15/09/2026, `docs/prd-luong-bu-lo-khoan-san-xuat.md` §00 G).
+
+    Thợ in ăn khoán: ngày CN / lễ đi làm KHÔNG có công gốc — 2 / 3 / 5 công trả hết ở phần THÊM, bù
+    lỗ theo công không đếm ngày đó. Lương đọc cờ của CHÍNH tổ (không kế thừa cây), y như cờ Giao hàng.
+    THUẦN CỘNG THÊM, mặc định false ⇒ không tổ nào đổi tiền cho tới khi HCNS bật. Idempotent."""
+    insp = inspect(db.get_bind())
+    if "departments" not in set(insp.get_table_names()):
+        return
+    if "la_to_in" not in _existing_columns(insp, "departments"):
+        db.execute(text(
+            "ALTER TABLE departments ADD COLUMN la_to_in BOOLEAN NOT NULL DEFAULT false"))
+    db.commit()
+
+
+MIGRATIONS.append(("0304_department_la_to_in", _migrate_department_la_to_in))
