@@ -98,10 +98,15 @@ export function EmployeeDetailPanel({
       .catch((e) => setError(errMsg(e)));
   }, [token, employeeId]);
 
+  // Về tab Thông tin CHỈ khi đổi sang hồ sơ khác. `reload` còn đổi theo token (tự làm mới 15 phút
+  // một lần) — gộp chung một effect thì đang sửa dở cũng bị đá về tab đầu, mất hết ô đã gõ.
   useEffect(() => {
     setTab("info");
     setEditInfo(false);
     setEditSalary(false);
+  }, [employeeId]);
+
+  useEffect(() => {
     reload();
   }, [reload]);
 

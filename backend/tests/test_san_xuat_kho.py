@@ -7,8 +7,9 @@ Soi tầng service `services/san_xuat/kho.py` (nơi chứa LUẬT), không qua H
   · §14.2 BTP dư phân loại `nhập kho BTP` / `mẫu lưu` / `phế`; riêng `nhập kho BTP` chờ kho xác nhận
     nhận (chặn đóng nhóm §16); mẫu lưu / phế là chung cục ngay;
   · registry hàng get-or-create theo danh tính → hai yêu cầu cùng một batch dùng CHUNG một hàng;
-  · GATE §6: bên KCS/tổ (tạo yêu cầu, huỷ, phân loại BTP) gate tổ trưởng đúng tổ; một test API cuối:
-    hộp thư kho chưa đăng nhập → 401.
+  · GATE §6: bên KCS/tổ (tạo yêu cầu, huỷ, phân loại BTP) đòi quyền Kho (`warehouse`) trên dòng
+    quyền theo tổ của tổ chạy việc (mg 0302) — có KCS mà không có Kho vẫn bị chặn; một test API
+    cuối: hộp thư kho chưa đăng nhập → 401.
 
 Tái dùng dàn cảnh (đơn → SX → phát hành) + helper `_batch` (batch KCS đạt một phần) từ test KCS.
 """
@@ -19,6 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.kho_hang import KhoHang
+from app.models.role import SCOPE_OWN
 from app.models.san_xuat_kho import (
     HANG_THANH_PHAM,
     PL_MAU_LUU,
@@ -39,6 +41,7 @@ from tests.test_san_xuat_kcs import (  # noqa: F401
     _batch,
     _cv_kcs,
     _cv_production,
+    _nguoi_o_to,
     _to_kiem,
     admin,
     customer,
@@ -91,12 +94,20 @@ def test_hai_yeu_cau_mot_batch_dung_chung_registry(db, orders, lsx_svc, admin, c
     assert repo.hang(r1["hang_id"]).loai_hang == HANG_THANH_PHAM
 
 
-def test_gate_chi_to_truong_kcs_tao_yeu_cau(db, orders, lsx_svc, admin, customer):
+def test_gate_tao_yeu_cau_nhap_kho_doi_quyen_kho(db, orders, lsx_svc, admin, customer):
+    """Yêu cầu nhập kho là việc của quyền Kho ở tổ chạy việc — người ghi được KCS (và đủ mọi quyền
+    chi tiết khác) mà vai không bật Kho vẫn bị chặn."""
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
-    nguoi_la = SimpleNamespace(id=admin.id + 99_999)
+    nguoi_la = SimpleNamespace(id=admin.id + 99_999)                   # tài khoản không tồn tại
     with pytest.raises(PermissionError):
         kho.tao_yeu_cau_nhap_thanh_pham(
             db, user=nguoi_la, kcs_batch_id=rb["kcs_batch_id"], so_luong=10)
+    kcs_khong_kho = _nguoi_o_to(db, to, "kcs_khong_kho_yc",
+                                viec=("run_order", "confirm_output", "qc"))
+    with pytest.raises(PermissionError, match="Kho"):
+        kho.tao_yeu_cau_nhap_thanh_pham(
+            db, user=kcs_khong_kho, kcs_batch_id=rb["kcs_batch_id"], so_luong=10)
+    assert len(SanXuatKhoRepository(db).cac_yc_cua_batch(rb["kcs_batch_id"])) == 0
 
 
 # --- §14.1 Kho xác nhận từng phần -----------------------------------------------------------
@@ -294,12 +305,22 @@ def test_phan_loai_btp_sai_loai_bi_chan(db, orders, lsx_svc, admin, customer):
             db, user=admin, cong_viec_id=cv.id, so_luong=5, phan_loai="linh_tinh")
 
 
-def test_gate_phan_loai_btp(db, orders, lsx_svc, admin, customer):
+def test_gate_phan_loai_btp_doi_quyen_kho(db, orders, lsx_svc, admin, customer):
+    """Phân loại BTP dư đòi quyền Kho ở tổ chạy việc: có KCS mà không có Kho bị chặn; Kho mức "Của
+    tôi" chỉ phân loại được việc đang giao cho mình."""
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     nguoi_la = SimpleNamespace(id=admin.id + 99_999)
     with pytest.raises(PermissionError):
         kho.phan_loai_btp_du(
             db, user=nguoi_la, cong_viec_id=cv.id, so_luong=5, phan_loai=PL_NHAP_BTP)
+    kcs_khong_kho = _nguoi_o_to(db, to, "kcs_khong_kho_btp", viec=("qc",))
+    with pytest.raises(PermissionError, match="Kho"):
+        kho.phan_loai_btp_du(
+            db, user=kcs_khong_kho, cong_viec_id=cv.id, so_luong=5, phan_loai=PL_NHAP_BTP)
+    kho_cua_toi = _nguoi_o_to(db, to, "kho_cua_toi_btp", scope=SCOPE_OWN, viec=("warehouse",))
+    with pytest.raises(PermissionError):                                # chưa được giao việc này
+        kho.phan_loai_btp_du(
+            db, user=kho_cua_toi, cong_viec_id=cv.id, so_luong=5, phan_loai=PL_NHAP_BTP)
 
 
 # --- §14.2 Kho xác nhận BTP + trần đóng nhóm (§16) ------------------------------------------

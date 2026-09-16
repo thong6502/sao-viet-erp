@@ -27,7 +27,8 @@ from ...models.san_xuat_san_luong import (
 )
 from ...repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
-from .thuc_thi import _aware, _gate, _moc
+from ..gio_xuong import moc_tu_client
+from .thuc_thi import _gate, _moc
 
 # Dung sai làm tròn cho ràng buộc tong = tot + hong: cột Numeric(18,3) nên nửa bậc số lẻ cuối là
 # 0.0005 — quá ngưỡng này coi như nhập lệch chứ không phải sai số làm tròn.
@@ -201,7 +202,12 @@ def tao_batch(
 
     if bat_dau is None or ket_thuc is None:
         raise ValueError("Batch phải có khoảng thời gian bắt đầu và kết thúc.")
-    if _aware(ket_thuc) < _aware(bat_dau):
+    # Ô `datetime-local` gửi chuỗi KHÔNG offset ⇒ naive = GIỜ TƯỜNG xưởng. Quy về UTC THẬT ngay ở
+    # cửa vào để cửa sổ mẻ đo cùng thước với khoảng tham gia và chấm công (§7.3/§12.1), xem
+    # `services/gio_xuong.moc_tu_client`.
+    bat_dau = moc_tu_client(bat_dau)
+    ket_thuc = moc_tu_client(ket_thuc)
+    if ket_thuc < bat_dau:
         raise ValueError("Kết thúc batch không được trước khi bắt đầu.")
 
     don_vi_batch = (don_vi or cv.don_vi_ra or "").strip()
@@ -229,8 +235,8 @@ def tao_batch(
 
     batch = SanXuatBatch(
         cong_viec_id=cv.id,
-        bat_dau=_aware(bat_dau),
-        ket_thuc=_aware(ket_thuc),
+        bat_dau=bat_dau,
+        ket_thuc=ket_thuc,
         tong=tong_f,
         tot=tot_f,
         hong=hong_f,

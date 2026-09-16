@@ -23,7 +23,6 @@ from .repositories.leave_repo import LeaveRepository
 from .repositories.overtime_repo import OvertimeRepository
 from .repositories.payroll_component_repo import PayrollComponentRepository
 from .repositories.payroll_repo import PayrollRepository
-from .repositories.piece_work_repo import PieceWorkRepository
 from .repositories.production_output_repo import ProductionOutputRepository
 from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
@@ -439,12 +438,6 @@ def get_payroll_repository(
     return PayrollRepository(db)
 
 
-def get_piece_work_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> PieceWorkRepository:
-    return PieceWorkRepository(db)
-
-
 def get_cong_doan_repository(
     db: Annotated[Session, Depends(get_db)],
 ) -> CongDoanRepository:
@@ -452,12 +445,11 @@ def get_cong_doan_repository(
 
 
 def get_piece_work_service(
-    piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
     db: Annotated[Session, Depends(get_db)],
 ) -> PieceWorkService:
     # Tiền khoán theo NGƯỜI = Phiếu phân bổ ĐÃ CHỐT (Giai đoạn 4, §12). `list_nguoi_by_period` trả
     # rỗng tới khi tổ trưởng chốt một phân bổ ⇒ nối seam này KHÔNG đổi lương cho tới lúc đó.
-    return PieceWorkService(piece, outputs=ProductionOutputRepository(db))
+    return PieceWorkService(outputs=ProductionOutputRepository(db))
 
 
 def get_payroll_component_repository(
@@ -614,6 +606,33 @@ def require_permission(module_key: str, action: str):
                 detail="Bạn không có quyền thực hiện thao tác này",
             )
         return user
+
+    return dependency
+
+
+def require_quyen_to(viec: str = "read", *hoac: tuple[str, str]):
+    """Cổng Bàn tổ (mg 0302): cho qua nếu vai của user bật `viec` ("read" | "run_order" |
+    "confirm_output" | "qc" | "warehouse") trên ÍT NHẤT MỘT dòng quyền theo tổ — hoặc có một trong
+    các ô tĩnh `hoac` (màn khác dùng chung endpoint). ĐÚNG TỔ NÀO do service hỏi
+    (`services/quyen_to.py`); ở đây chỉ chặn sớm người không có gì.
+
+    Dòng theo tổ là dòng ĐỘNG (`to_sx_<id>`), không đăng ký vào `O_QUYEN_DUOC_GAC` — ô của nó sống
+    theo cây phòng ban, không theo registry."""
+    O_QUYEN_DUOC_GAC.update(hoac)
+
+    def dependency(
+        user: CurrentUser,
+        db: Annotated[Session, Depends(get_db)],
+        authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    ) -> User:
+        from .services.quyen_to import quyen_to_cua
+
+        if any(authz.can(user, k, a) for k, a in hoac) or quyen_to_cua(db, user).co_viec(viec):
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền thực hiện thao tác này",
+        )
 
     return dependency
 

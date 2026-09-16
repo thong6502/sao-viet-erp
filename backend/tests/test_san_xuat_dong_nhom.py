@@ -4,10 +4,12 @@ Soi tầng service `services/san_xuat/dong_nhom.py` (nơi chứa LUẬT), không
   · cổng đóng ĐỦ tính-lúc-đọc: mọi việc xong · không lệch bàn giao · KCS cuối phân loại hết số
     NHẬN (KHÔNG so mục tiêu đơn) · phân bổ đã chốt · hết lỗi KCS chờ · hết BTP chờ kho;
   · `tu_dong_dong_neu_du` chỉ đóng khi HỘI ĐỦ, idempotent (đã đóng ⇒ no-op);
-  · đóng THIẾU: chỉ trưởng KCS, bắt buộc lý do nhóm `dong_thieu`, vẫn phải sạch điều kiện toàn vẹn
-    (mọi điều kiện TRỪ "mọi việc xong"); version chống bấm trùng.
+  · đóng THIẾU: đòi quyền KCS TRỌN ở tổ của một bước KCS (cuối) của nhóm — trên dòng quyền theo
+    tổ, KHÔNG còn luật "trưởng KCS" (`head_user_id`); vẫn phải sạch điều kiện toàn vẹn (mọi điều
+    kiện TRỪ "mọi việc xong"); version chống bấm trùng.
 
-Tái dùng dàn cảnh KCS (đơn → SX → phát hành → batch KCS) để có nhóm thật + tổ trưởng = admin.
+Tái dùng dàn cảnh KCS (đơn → SX → phát hành → batch KCS) để có nhóm thật + vai admin được bật đủ
+quyền trên tổ chạy nhóm.
 """
 from __future__ import annotations
 
@@ -16,6 +18,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models.department import Department
+from app.models.role import SCOPE_OWN
 from app.models.san_xuat import (
     CV_HOAN_THANH,
     NHOM_DONG_DU,
@@ -25,11 +29,13 @@ from app.models.san_xuat_kcs import SanXuatKcsBatch, SanXuatKcsLoi, TN_CHO
 from app.models.san_xuat_kho import PL_NHAP_BTP
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.schemas.san_xuat import DongNhomDieuKienOut, DongNhomKetQuaOut
-from app.services.san_xuat import dong_nhom, kcs, kho
+from app.services.san_xuat import dong_nhom, kcs, kho, thuc_thi
 
 # Dàn cảnh + fixtures luồng thật từ test KCS (kéo cả cây fixture xếp lịch).
 from tests.test_san_xuat_kcs import (  # noqa: F401
     _batch,
+    _emp,
+    _nguoi_o_to,
     admin,
     customer,
     db,
@@ -173,11 +179,41 @@ def test_dong_thieu_van_chan_khi_con_loi_kcs(db, orders, lsx_svc, admin, custome
         dong_nhom.dong_thieu(db, user=admin, nhom_id=cv.nhom_id)
 
 
-def test_dong_thieu_gate_chi_truong_kcs(db, orders, lsx_svc, admin, customer):
-    _to, cv, _res = _batch(db, orders, lsx_svc, admin, customer)
+def test_dong_thieu_gate_doi_quyen_kcs_tron_o_to_kcs(db, orders, lsx_svc, admin, customer):
+    """Đóng thiếu là thao tác CẤP NHÓM, không gắn việc của riêng ai ⇒ đòi KCS TRỌN ở tổ bước KCS:
+    đủ mọi quyền chi tiết khác mà thiếu KCS bị chặn; KCS mức "Của tôi" (kể cả khi đang được giao
+    chính bước KCS) cũng bị chặn."""
+    to, cv, _res = _batch(db, orders, lsx_svc, admin, customer)
     nguoi_la = SimpleNamespace(id=admin.id + 99_999)
     with pytest.raises(PermissionError):
         dong_nhom.dong_thieu(db, user=nguoi_la, nhom_id=cv.nhom_id)
+
+    khong_kcs = _nguoi_o_to(db, to, "dong_thieu_khong_kcs",
+                            viec=("run_order", "confirm_output", "warehouse"))
+    with pytest.raises(PermissionError):
+        dong_nhom.dong_thieu(db, user=khong_kcs, nhom_id=cv.nhom_id)
+
+    cua_toi = _nguoi_o_to(db, to, "dong_thieu_kcs_own", scope=SCOPE_OWN)
+    nv = _emp(db, to, "NV-DONG-THIEU-OWN", user_id=cua_toi.id)
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=nv.id)
+    with pytest.raises(PermissionError):
+        dong_nhom.dong_thieu(db, user=cua_toi, nhom_id=cv.nhom_id)
+    assert SanXuatRepository(db).nhom(cv.nhom_id).trang_thai != NHOM_DONG_THIEU
+
+
+def test_dong_thieu_qua_voi_kcs_tron_o_nut_cha_cua_to_kcs(db, orders, lsx_svc, admin, customer):
+    """Dòng quyền ở nút CHA phủ cả cây con: người được bật KCS trọn ở cấp gom (không đứng trong tổ,
+    không đứng tên tổ trưởng) đóng thiếu được nhóm chạy ở tổ con."""
+    to, cv, _res = _batch(db, orders, lsx_svc, admin, customer)
+    cha = Department(name="Xưởng Gom KCS", code="XUONG-GOM-KCS", la_san_xuat=True)
+    db.add(cha)
+    db.flush()
+    to.parent_id = cha.id
+    db.commit()
+    quan_doc = _nguoi_o_to(db, cha, "quan_doc_xuong_gom")         # Xem + KCS trọn ở nút cha
+
+    ket = dong_nhom.dong_thieu(db, user=quan_doc, nhom_id=cv.nhom_id)
+    assert ket["kieu"] == "thieu" and ket["trang_thai"] == NHOM_DONG_THIEU
 
 
 def test_dong_thieu_version_lech_bi_chan(db, orders, lsx_svc, admin, customer):

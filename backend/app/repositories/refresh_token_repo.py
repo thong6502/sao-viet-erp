@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from ..models.refresh_token import RefreshToken
@@ -87,13 +87,10 @@ class RefreshTokenRepository:
         return result.rowcount or 0
 
     def purge_expired(self) -> int:
-        """Delete rows past their expiry (housekeeping)."""
-        rows = list(
-            self.db.execute(
-                select(RefreshToken).where(RefreshToken.expires_at <= _utcnow())
-            ).scalars()
+        """Delete rows past their expiry (housekeeping). One bulk DELETE — the old
+        load-every-row-then-delete-each loop cost one statement per expired token."""
+        result = self.db.execute(
+            delete(RefreshToken).where(RefreshToken.expires_at <= _utcnow())
         )
-        for row in rows:
-            self.db.delete(row)
         self.db.commit()
-        return len(rows)
+        return result.rowcount or 0

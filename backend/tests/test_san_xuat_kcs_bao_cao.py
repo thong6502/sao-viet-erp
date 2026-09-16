@@ -10,17 +10,19 @@ Soi tầng service mới `services/san_xuat/kcs_bao_cao.py` (KHÔNG đụng `kcs
     lỗi;
   · §9 mục 10: JSON (`bao_cao_kcs`) và Excel (`xuat_excel_kcs`) đọc CHUNG `_hang_kcs_theo_scope`
     — cùng filter phải trả cùng tổng (test 8);
-  · RBAC: `GET /kcs/bao-cao` gác `read`, `GET /kcs/bao-cao/export.xlsx` gác `export` RIÊNG (test 7,
-    đi qua HTTP thật vì đây là chỗ RBAC thật sự áp — service không tự gác quyền).
+  · PHẠM VI: báo cáo chỉ gom tổ người xem được bật Xem TRỌN trên dòng quyền theo tổ (mg 0302) —
+    Xem mức "Của tôi" không mở số liệu KCS của cả tổ;
+  · RBAC: `GET /kcs/bao-cao` gác Xem ở ít nhất một tổ (`require_quyen_to("read")`),
+    `GET /kcs/bao-cao/export.xlsx` gác ô tĩnh `san_xuat:export` RIÊNG (test 7, đi qua HTTP thật vì
+    đây là chỗ cổng router thật sự áp).
 
 Tái dùng dàn cảnh + helper của test KCS (`_batch`, `_cv_kcs`, `_cv_production`, `_to_kiem`, `_anh`)
-và `_authz`/`_FakeAuthz` của test board (ép scope không phụ thuộc tên role seed).
+và `_authz` của test board (tham số `authz` còn trong chữ ký service nhưng không quyết định phạm vi).
 """
 from __future__ import annotations
 
 from datetime import date, timedelta
 from io import BytesIO
-from types import SimpleNamespace
 
 from openpyxl import load_workbook
 
@@ -30,14 +32,15 @@ from app.models.department import Department
 from app.models.lsx import Lsx
 from app.models.role import SCOPE_ALL, SCOPE_OWN
 from app.models.san_xuat_kcs import KCS_LOAI_DOT_XUAT, KCS_LOAI_ROUTING, SanXuatKcsBatch
-from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
+from app.repositories.rbac_repo import RoleRepository
 from app.models.user import User
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
 from app.services.san_xuat import kcs, kcs_bao_cao
+from tests.quyen_to_fixtures import cap_quyen_to
 
-# _authz (scope THẬT theo role admin) + _FakeAuthz (ép cứng scope, không phụ thuộc tên role seed).
-from tests.test_san_xuat_board import _FakeAuthz, _authz
+# Stub đủ tham số `authz` cho chữ ký service (phạm vi do dòng quyền theo tổ quyết định).
+from tests.test_san_xuat_board import _authz
 
 # Fixtures + helper dàn cảnh dùng chung — TỪ test KCS (theo đúng mẫu test_san_xuat_kho.py).
 from tests.test_san_xuat_kcs import (  # noqa: F401
@@ -161,29 +164,30 @@ def test_batch_routing_loc_theo_kcs_department_id_dung_to_dang_chay(db, orders, 
     assert out_y["tong_luot"] == 0                     # tổ khác — KHÔNG thấy
 
 
-def _tra_to_truong(db, to) -> None:
-    """Trả tổ về cho một tổ trưởng KHÁC admin.
-
-    `_to_khoan` (helper dùng chung) gán `head_user_id=admin.id` cho MỌI tổ nó dựng, mà scope `own`
-    còn cho tổ trưởng thấy tổ mình đứng đầu ngoài phòng mình ("kiêm nhiệm" — `board._to_thay_duoc`).
-    Để nguyên thì tổ Y cũng thuộc phạm vi của user_x và phép thử scope không thử được gì."""
-    u = User(username=f"tt_{to.code.lower()}", name="Tổ Trưởng Khác", password_hash="x")
+def _nguoi_xem_x_tron_y_cua_toi(db, to_x, to_y) -> User:
+    """Một người đứng ở tổ X: vai bật Xem TRỌN tổ X, còn tổ Y chỉ Xem mức "Của tôi" — không một
+    quyền chi tiết nào. (`_to_khoan` dựng tổ nào cũng bật đủ quyền cho vai của admin, nên phép thử
+    phạm vi phải dùng người khác admin, không thì tổ Y cũng lọt vào.)"""
+    u = User(username=f"xem_bc_{to_x.code.lower()}", name="Người xem báo cáo", password_hash="x",
+             department_id=to_x.id)
     db.add(u)
     db.flush()
-    to.head_user_id = u.id
+    cap_quyen_to(db, u, to_x, viec=())
+    cap_quyen_to(db, u, to_y, scope=SCOPE_OWN, viec=())
     db.commit()
+    return u
 
 
-# --- §4.1: scope `own` chỉ thấy báo cáo tổ mình -------------------------------------------------
-def test_scope_own_chi_thay_bao_cao_to_minh(db, orders, lsx_svc, admin, customer):
+# --- §4.1: báo cáo chỉ gom tổ người xem thấy TRỌN -----------------------------------------------
+def test_bao_cao_chi_gom_to_nguoi_xem_thay_tron(db, orders, lsx_svc, admin, customer):
     to_x, _cv_x, _res_x = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC-X")
     to_y, _cv_y, _res_y = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC-Y")
-    _tra_to_truong(db, to_y)
+    nguoi = _nguoi_xem_x_tron_y_cua_toi(db, to_x, to_y)
 
-    user_x = SimpleNamespace(id=admin.id, department_id=to_x.id)
-    out = kcs_bao_cao.bao_cao_kcs(db, user_x, _FakeAuthz(SCOPE_OWN))
+    out = kcs_bao_cao.bao_cao_kcs(db, nguoi, _authz(db))
 
-    assert out["tong_luot"] == 1                        # chỉ tổ X, KHÔNG cộng tổ Y
+    assert out["tong_luot"] == 1                        # chỉ tổ X; tổ Y "Của tôi" KHÔNG cộng vào
+    assert kcs_bao_cao.bao_cao_kcs(db, admin, _authz(db))["tong_luot"] == 2   # admin thấy trọn cả hai
 
 
 # --- Filter riêng lẻ: loai / cong_doan_id / tu-den / tu_khoa -----------------------------------
@@ -202,6 +206,9 @@ def test_filter_loai_tu_den_cong_doan_id_tu_khoa_thu_hep_dung(db, orders, lsx_sv
     cv_b.ten_cong_doan = "Be-Test-FL"
     db.commit()
     to_kiem, u_kiem = _to_kiem(db, ma="KCS-FL-KIEM")
+    # Batch đột xuất thuộc TỔ ĐI KIỂM (mục 3.4) — admin phải được bật Xem trọn tổ đó thì báo cáo
+    # của admin mới gom được nó (tổ kiểm dựng mới, vai admin chưa có dòng nào ở đây).
+    cap_quyen_to(db, admin, to_kiem, viec=())
     ngay_dx = _T0 + timedelta(days=5)
     kcs.tao_kiem_dot_xuat(
         db, user=u_kiem, cong_viec_id=cv_b.id, kcs_department_id=to_kiem.id,
@@ -235,24 +242,39 @@ def test_export_yeu_cau_quyen_export_rieng_voi_read(client):
     assert login.status_code == 200, login.text
     headers_admin = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
+    def _nguoi(sess, username, to, vai):
+        u = UserRepository(sess).create(
+            username=username, name="NV Đọc Báo Cáo KCS", password_hash=hash_password("x"),
+        )
+        UserRepository(sess).set_assignment(u, department_id=to.id, role_id=vai.id, is_active=True)
+        return u
+
     db2 = SessionLocal()
     try:
-        dept = DepartmentRepository(db2).get_by_name("Sản xuất")
-        assert dept is not None
-        role = RoleRepository(db2).create(name="KCS Bao Cao Chi Doc", department_id=dept.id)
+        to = Department(name="Tổ KCS Báo Cáo API", code="KCS-BC-API", la_san_xuat=True)
+        db2.add(to)
+        db2.flush()
+        # Người 1: vai chỉ bật Xem trên dòng quyền theo tổ — không có ô tĩnh `san_xuat:export`.
+        vai_to = RoleRepository(db2).create(name="KCS Bao Cao Xem To", department_id=to.id)
+        u_to = _nguoi(db2, "kcs-bc-xem-to", to, vai_to)
+        cap_quyen_to(db2, u_to, to, viec=())
+        # Người 2: kiểu CŨ — ô tĩnh `san_xuat:read` phạm vi all, KHÔNG dòng quyền theo tổ nào.
+        vai_cu = RoleRepository(db2).create(name="KCS Bao Cao Doc Cu", department_id=to.id)
         RoleRepository(db2).set_permission(
-            role_id=role.id, module_key="san_xuat", can_read=True, scope=SCOPE_ALL,
+            role_id=vai_cu.id, module_key="san_xuat", can_read=True, scope=SCOPE_ALL,
         )
-        u = UserRepository(db2).create(
-            username="kcs-bc-doc", name="NV Đọc Báo Cáo KCS", password_hash=hash_password("x"),
-        )
-        UserRepository(db2).set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
-        headers_doc = {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
+        u_cu = _nguoi(db2, "kcs-bc-doc-cu", to, vai_cu)
+        db2.commit()
+        headers_doc = {"Authorization": f"Bearer {create_access_token(str(u_to.id))}"}
+        headers_cu = {"Authorization": f"Bearer {create_access_token(str(u_cu.id))}"}
     finally:
         db2.close()
 
     r_json = client.get("/api/san-xuat/kcs/bao-cao", headers=headers_doc)
-    assert r_json.status_code == 200, r_json.text   # read đủ cho JSON
+    assert r_json.status_code == 200, r_json.text   # Xem ở một tổ đủ cho JSON
+
+    r_json_cu = client.get("/api/san-xuat/kcs/bao-cao", headers=headers_cu)
+    assert r_json_cu.status_code == 403, r_json_cu.text   # ô tĩnh `san_xuat:read` không còn mở Bàn tổ
 
     r_xlsx_doc = client.get("/api/san-xuat/kcs/bao-cao/export.xlsx", headers=headers_doc)
     assert r_xlsx_doc.status_code == 403, r_xlsx_doc.text   # KHÔNG có can_export → chặn
@@ -266,13 +288,11 @@ def test_export_yeu_cau_quyen_export_rieng_voi_read(client):
 def test_export_ap_dung_scope_giong_dashboard(db, orders, lsx_svc, admin, customer):
     to_x, _cv_x, _res_x = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC8-X")
     to_y, _cv_y, _res_y = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC8-Y")
-    _tra_to_truong(db, to_y)
+    nguoi = _nguoi_xem_x_tron_y_cua_toi(db, to_x, to_y)
+    authz = _authz(db)
 
-    user_x = SimpleNamespace(id=admin.id, department_id=to_x.id)
-    authz_own = _FakeAuthz(SCOPE_OWN)
-
-    out = kcs_bao_cao.bao_cao_kcs(db, user_x, authz_own)
-    content, _fn = kcs_bao_cao.xuat_excel_kcs(db, user_x, authz_own)
+    out = kcs_bao_cao.bao_cao_kcs(db, nguoi, authz)
+    content, _fn = kcs_bao_cao.xuat_excel_kcs(db, nguoi, authz)
     wb = load_workbook(BytesIO(content))
     ws1 = wb["Kết quả KCS"]
 

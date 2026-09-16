@@ -237,3 +237,49 @@ describe("Thành phẩm — hàng đặt riêng của MỘT khách (docs/prd-tha
     expect(CFG_VAT_TU.moduleQuyen).toBe("dm_vat_tu");
   });
 });
+
+describe("Giấy — ô Công thức tính giá ĐIỀN SẴN khi thêm mới", () => {
+  // Trước 11/09/2026 ô này để trống lúc tạo mới, và engine âm thầm chạy công thức dự phòng
+  // (`thanh_phan_engine._tinh_thanh_phan`) — người khai không nhìn thấy thứ đang tính tiền giấy
+  // của mình. Nay drawer điền sẵn ĐÚNG công thức dự phòng đó để họ thấy, sửa hoặc xoá.
+  const CT_CAN = "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen * don_gia_giay";
+  const CT_TO = "don_gia_giay * to_nguyen";
+
+  it("chưa chọn ĐVT, hoặc ĐVT bán theo CÂN ⇒ định lượng × khổ × số tờ × đơn giá", () => {
+    const f = truong(CFG_GIAY, "cong_thuc_gia");
+    // Ô ĐVT không có `default` ⇒ lúc mở drawer nó TRỐNG. Giấy ở đây bán theo cân (đơn giá danh
+    // mục là đ/kg), nên trống thì đoán theo cân — chọn ĐVT xong vẫn đổi lại được.
+    expect(f.macDinhTheo?.({})).toBe(CT_CAN);
+    expect(f.macDinhTheo?.({ don_vi_gia: "kg" })).toBe(CT_CAN);
+    expect(f.macDinhTheo?.({ don_vi_gia: "tan" })).toBe(CT_CAN);
+  });
+
+  it("ĐVT đếm theo TỜ (tờ · ram · cái) ⇒ chỉ đơn giá × số tờ", () => {
+    // Cùng luật với engine: khai đ/tờ mà vẫn nhân định lượng × diện tích là tiền giấy lệch hàng
+    // chục lần, không ai soi ra vì phiếu vẫn ra một con số trông hợp lý.
+    const f = truong(CFG_GIAY, "cong_thuc_gia");
+    expect(f.macDinhTheo?.({ don_vi_gia: "to" })).toBe(CT_TO);
+    expect(f.macDinhTheo?.({ don_vi_gia: "ram" })).toBe(CT_TO);
+    expect(f.macDinhTheo?.({ don_vi_gia: "cai" })).toBe(CT_TO);
+  });
+
+  it("ô Công thức tính định mức cũng điền sẵn — nhưng ra LƯỢNG, không có đơn giá", () => {
+    // Cùng chuỗi mg `0197` đã backfill cho giấy bán theo cân (`_CT_LUONG_GIAY_CAN` ở seed): nó là
+    // thứ DUY NHẤT còn đổi được tờ → kg cho bảng cân đối vật tư. Ô này KHÔNG được nhắc tới tiền,
+    // nên chuỗi dừng ở `to_nguyen`, không nhân `don_gia_giay`.
+    const f = truong(CFG_GIAY, "cong_thuc_luong");
+    const CT_KG = "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen";
+    expect(f.macDinhTheo?.({})).toBe(CT_KG);
+    expect(f.macDinhTheo?.({ don_vi_gia: "kg" })).toBe(CT_KG);
+    expect(f.macDinhTheo?.({ don_vi_gia: "tan" })).toBe(CT_KG);
+  });
+
+  it("giấy đếm theo TỜ thì định mức cũng ra TỜ, không ra kg", () => {
+    // Định mức đem so với TỒN KHO, mà kho cộng dồn theo ĐVT gốc của mặt hàng. Giấy khai ĐVT `tờ`
+    // mà định mức trả về kg thì bảng cân đối trừ kg vào một kho đang đếm tờ.
+    const f = truong(CFG_GIAY, "cong_thuc_luong");
+    for (const dv of ["to", "ram", "cai"]) {
+      expect(f.macDinhTheo?.({ don_vi_gia: dv })).toBe("to_nguyen");
+    }
+  });
+});

@@ -1,6 +1,6 @@
 // Chart primitives dùng chung (Recharts) — theo skill dataviz:
-//   - bar MẢNH, bo đầu 4px neo baseline, grid ngang mờ, trục mono nhỏ recessive;
-//   - tooltip mặc định trên mọi mark (card nhỏ, số mono);
+//   - bar MẢNH, bo đầu 4px neo baseline, grid ngang mờ, trục chữ nhỏ recessive;
+//   - tooltip mặc định trên mọi mark (card nhỏ);
 //   - palette categorical CỐ ĐỊNH thứ tự, đã qua validator (lightness/chroma/CVD/contrast)
 //     trên surface --canvas #fbfaf5 — KHÔNG dùng token brand ít chroma (moss/steel đọc thành xám).
 import type { ReactNode } from "react";
@@ -23,10 +23,8 @@ import {
  *  tương phản cao + donut/legend luôn có nhãn và % (secondary encoding). */
 export const CHART_SERIES = ["#c5400a", "#2a2723", "#a87708", "#2e7d46", "#5f4d9e", "#a04a2a"];
 
-/* Hai trục hai font: trục phân loại là CHỮ (--ff-sans), trục giá trị là SỐ (--ff-num,
-   chữ số đều bề rộng nên vạch chia không so le). Trước đây dùng chung một const. */
-const AXIS_TICK_CAT = { fontFamily: "var(--ff-sans)", fontSize: 10, fill: "var(--ash-2)" } as const;
-const AXIS_TICK_NUM = { fontFamily: "var(--ff-num)", fontSize: 10, fill: "var(--ash-2)" } as const;
+/* Trục phân loại lẫn trục giá trị cùng một font app (--ff-sans). */
+const AXIS_TICK = { fontFamily: "var(--ff-sans)", fontSize: 10, fill: "var(--ash-2)" } as const;
 
 function TipCard({ children }: { children: ReactNode }) {
   return (
@@ -77,7 +75,7 @@ export function MonthBars({
           dataKey="label"
           tickLine={false}
           axisLine={{ stroke: "var(--rule-soft)" }}
-          tick={AXIS_TICK_CAT}
+          tick={AXIS_TICK}
           dy={4}
           interval={0}
         />
@@ -86,7 +84,7 @@ export function MonthBars({
           tickCount={4}
           tickLine={false}
           axisLine={false}
-          tick={AXIS_TICK_NUM}
+          tick={AXIS_TICK}
           tickFormatter={formatAxis}
         />
         <Tooltip
@@ -97,7 +95,7 @@ export function MonthBars({
             return (
               <TipCard>
                 <strong style={{ fontFamily: "var(--ff-sans)" }}>{d.label}</strong>
-                <div style={{ fontFamily: "var(--ff-num)", color: "var(--ink)" }}>
+                <div style={{ fontFamily: "var(--ff-sans)", color: "var(--ink)" }}>
                   {formatValue(d.value)}
                 </div>
                 {d.sub && <div style={{ color: "var(--ash)" }}>{d.sub}</div>}
@@ -171,7 +169,7 @@ export function MixDonut({
                 return (
                   <TipCard>
                     <strong>{d.label}</strong>
-                    <div style={{ fontFamily: "var(--ff-num)" }}>
+                    <div style={{ fontFamily: "var(--ff-sans)" }}>
                       {formatValue(d.value)} · {Math.round((d.value / total) * 100)}%
                     </div>
                   </TipCard>
@@ -194,13 +192,13 @@ export function MixDonut({
           {stacked ? (
             <>
               <span className="stat__label">{centerBottom}</span>
-              <span style={{ fontFamily: "var(--ff-num)", fontSize: 22, fontWeight: 600, color: "var(--ink)" }}>
+              <span style={{ fontFamily: "var(--ff-sans)", fontSize: 22, fontWeight: 600, color: "var(--ink)" }}>
                 {centerTop}
               </span>
             </>
           ) : (
             <>
-              <span style={{ fontFamily: "var(--ff-num)", fontSize: 17, fontWeight: 600, color: "var(--ink)" }}>
+              <span style={{ fontFamily: "var(--ff-sans)", fontSize: 17, fontWeight: 600, color: "var(--ink)" }}>
                 {centerTop}
               </span>
               <span className="stat__label">{centerBottom}</span>
@@ -237,7 +235,7 @@ export function MixDonut({
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink)" }}>
               {d.label}
             </span>
-            <span style={{ fontFamily: "var(--ff-num)", color: stacked ? "var(--ink)" : "var(--ash)", fontWeight: stacked ? 600 : 400 }}>
+            <span style={{ fontFamily: "var(--ff-sans)", color: stacked ? "var(--ink)" : "var(--ash)", fontWeight: stacked ? 600 : 400 }}>
               {Math.round((d.value / total) * 100)}%
             </span>
           </li>

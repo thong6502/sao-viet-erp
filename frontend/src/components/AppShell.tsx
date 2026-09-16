@@ -32,6 +32,7 @@ import { BaiGhep2Page } from "../pages/BaiGhep2Page";
 import { XepLich2Page } from "../pages/XepLich2Page";
 import { XepLich3Page } from "../pages/XepLich3Page";
 import { ThucHienSxPage } from "../pages/ThucHienSxPage";
+import { nhanDonVi } from "../pages/lsxBuoc";
 import { ThucHienKcsPage } from "../pages/kcs/ThucHienKcsPage";
 import { SuaChuaMayPage } from "../pages/SuaChuaMayPage";
 import { PhieuBaoTriPage } from "../pages/PhieuBaoTriPage";
@@ -75,7 +76,7 @@ import {
   type NavItem,
 } from "./Sidebar";
 import { Topbar } from "./Topbar";
-import { coTheMoKenhSse } from "./appShellRealtime";
+import { coQuyenBanTo, coTheMoKenhSse, khoaBanTo } from "./appShellRealtime";
 import { docDeepLinkLsx } from "./appShellDeepLink";
 
 /** A cross-module navigation intent: which screen to open + optional payload so the
@@ -214,6 +215,9 @@ export function AppShell() {
   // React thì cái sau ghi đè `congViecId` của cái trước, và nếu cái bị đè đúng là việc đang mở thì
   // drawer im luôn. Dạng bản đồ cũng khỏi cần cửa sổ "mấy sự kiện chưa xem" ở phía nhận.
   const [vatTuDeNghiDem, setVatTuDeNghiDem] = useState<Record<number, number>>({});
+  // Cùng khuôn đếm-theo-id cho tệp đính kèm của lệnh: chỉ màn chi tiết ĐÚNG lệnh đó nạp lại danh
+  // sách tệp, các màn khác (và chính danh sách lệnh) không bị kéo gọi API theo.
+  const [lsxDinhKemDem, setLsxDinhKemDem] = useState<Record<number, number>>({});
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: "ok" | "warn" | "info" }[]>([]);
   const toastSeq = useRef(0);
   const lastPending = useRef(0);
@@ -642,10 +646,10 @@ export function AppShell() {
   }, [token, readable]);
   useEffect(() => { reloadKho(); }, [reloadKho]);
 
-  // Danh sách tổ cho node lá "Thực hiện sản xuất" (chỉ người có quyền `san_xuat`). MỘT cú gọi ra
-  // cả list (đổ node lá) lẫn badge (`so_viec_cho`). Gọi lại sau mỗi sự kiện bàn tổ đổi (SSE).
+  // Danh sách bàn tổ (chỉ người có Xem ở ít nhất một dòng quyền theo tổ). MỘT cú gọi ra cả list
+  // (đổ node lá, đã theo thứ tự cây) lẫn badge (`so_viec_cho`). Gọi lại sau mỗi sự kiện bàn tổ đổi (SSE).
   const reloadTeams = useCallback(() => {
-    if (!token || readable === null || !readable.has("san_xuat")) return;
+    if (!token || readable === null || !coQuyenBanTo(readable)) return;
     api.sanXuat
       .teams(token)
       .then((r) => setTeamList(r.teams))
@@ -659,7 +663,8 @@ export function AppShell() {
     setBadges((prev) => {
       const next = { ...prev };
       for (const t of teamList) {
-        next[`thuc-hien-sx:${t.id}`] = t.so_viec_cho;
+        // Việc chờ làm + việc giữa hai tổ đang chờ tổ này đứng tên (bàn giao đến, hỗ trợ chéo).
+        next[`thuc-hien-sx:${t.id}`] = t.so_viec_cho + (t.so_cho_xac_nhan ?? 0);
         next[`thuc-hien-sx-kcs:${t.id}`] = t.so_viec_kcs_cho;
       }
       return next;
@@ -671,7 +676,7 @@ export function AppShell() {
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
     if (!token || readable === null || !coTheMoKenhSse(readable)) return;
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("cham_cong") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || coQuyenBanTo(readable) || readable.has("kho") || readable.has("tang_ca") || readable.has("cham_cong") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
       readable.has("phieu_chi") || readable.has("phieu_thu") || readable.has("ke_hoach_vat_tu") ||
       // Tài xế thường CHỈ có ô `giao_hang` — không mở cổng ở đây thì họ không kết nối
       // SSE, và mọi thông báo chuyến gửi cho họ rơi vào hư không.
@@ -695,22 +700,32 @@ export function AppShell() {
       }
       // Đề nghị cấp vật tư của MỘT công đoạn vừa đổi. `hub.broadcast` gửi cho MỌI kết nối chứ
       // không theo phạm vi, nên cả hai cổng lọc nằm ở đây:
-      //   1) toast gác quyền đọc `san_xuat` — không thì kế toán, lái xe cũng ăn toast của tổ in;
+      //   1) toast gác quyền Xem bàn tổ — không thì kế toán, lái xe cũng ăn toast của tổ in;
       //   2) KHÔNG bump `quoteTick` (tick chung của mọi màn) — chỉ đẩy đích danh `cong_viec_id`
       //      xuống bàn tổ để đúng drawer đang mở việc đó nạp lại. Bump tick chung ở đây là biến
       //      một lần tổ gửi đề nghị thành một lượt gọi API cho MỌI màn đang mở của cả nhà máy.
       if (e.type === "san_xuat_vat_tu_de_nghi_changed") {
-        if (readable.has("san_xuat")) {
+        if (coQuyenBanTo(readable)) {
           const cv = e.cong_viec_id;
           setVatTuDeNghiDem((m) => ({ ...m, [cv]: (m[cv] ?? 0) + 1 }));
           // Cổng thứ 3: KHÔNG toast cho việc người này đang mở (drawer vừa tươi, và nếu chính họ
           // bấm thì `mutate` đã toast rồi) và gộp trong 2 giây — không thì mỗi lần bất kỳ tổ nào
-          // trong nhà máy bấm gửi là mọi người có `san_xuat:read` ăn một toast.
+          // trong nhà máy bấm gửi là mọi người xem được bàn tổ ăn một toast.
           const gio = Date.now();
           if (cv !== cvDangMo.current && gio - lastVatTuToast.current > 2000) {
             lastVatTuToast.current = gio;
             pushToast("📦 Đề nghị cấp vật tư của công đoạn vừa cập nhật", "info");
           }
+        }
+        return;
+      }
+      // Tệp đính kèm của lệnh: không toast (không phải việc gửi tới ai), không bump tick chung.
+      // Hai nơi đọc: tab Tệp của Kế hoạch SX và thẻ "Tệp của lệnh" trong drawer Bàn tổ (tổ không
+      // có module `san_xuat`, vào bằng quyền theo tổ).
+      if (e.type === "lsx_dinh_kem_changed") {
+        if (readable.has("san_xuat") || coQuyenBanTo(readable)) {
+          const id = e.lsx_id;
+          setLsxDinhKemDem((m) => ({ ...m, [id]: (m[id] ?? 0) + 1 }));
         }
         return;
       }
@@ -822,17 +837,46 @@ export function AppShell() {
             .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan-2": r.xep_duoc.length + r.bi_chan.length })))
             .catch(() => {});
         }
-      } else if (readable.has("san_xuat") && e.type === "san_xuat_cong_viec_changed") {
+      } else if (coQuyenBanTo(readable) && e.type === "san_xuat_cong_viec_changed") {
         // Bàn tổ đổi (giao người / bắt đầu / tạm dừng / kết thúc / phát hành) → badge tổ nhảy
         // NGAY; `quoteTick` đã bump ở đầu handler nên bàn đang mở tự refetch (không refresh).
         // `teams` mang cả `so_viec_cho` nên reloadTeams lo luôn badge — không gọi API badge riêng.
         reloadTeams();
-      } else if (readable.has("san_xuat") && e.type === "san_xuat_kcs_changed") {
+      } else if (coQuyenBanTo(readable) && e.type === "san_xuat_kcs_changed") {
         // KCS ghi/điều chỉnh kết quả (routing/đột xuất) → badge "KCS chờ" + "việc chờ" của tổ liên
         // quan đổi NGAY; `quoteTick` đã bump ở đầu handler nên bàn KCS đang mở tự refetch (không
         // refresh). `teams` mang cả hai badge nên reloadTeams lo hết — không cần đọc `team_id` từ
         // payload để lọc: reloadTeams() luôn tải lại TOÀN BỘ danh sách tổ, không phải API theo tổ.
         reloadTeams();
+      } else if (
+        coQuyenBanTo(readable) &&
+        (e.type === "san_xuat_ban_giao_changed" || e.type === "san_xuat_ho_tro_changed")
+      ) {
+        // Việc giữa hai tổ đổi (bàn giao · hỗ trợ chéo) → badge "chờ xác nhận" của tổ nhảy NGAY;
+        // `quoteTick` đã bump nên hộp "Chờ tổ bạn xác nhận" của bàn đang mở tự nạp lại.
+        reloadTeams();
+      } else if (e.type === "san_xuat_ban_giao") {
+        // Đẩy ĐÍCH DANH (máy chủ đã lọc người giữ Xác nhận sản lượng trọn tổ bên kia, trừ người bấm).
+        const sl = e.so_luong != null ? `${e.so_luong.toLocaleString("vi-VN")} ${nhanDonVi(e.don_vi)}`.trim() : "";
+        const tuyen = `${e.nguon_ten || "?"} → ${e.dich_ten || "?"}`;
+        if (e.su_kien === "xac_nhan") {
+          pushToast(`✓ Tổ nhận đã xác nhận bàn giao ${tuyen}${sl ? " · " + sl : ""}`, "ok");
+        } else if (e.su_kien === "dieu_chinh") {
+          pushToast(`✏️ Bàn giao ${tuyen} vừa được điều chỉnh${sl ? " thành " + sl : ""}`, "warn");
+        } else if (e.su_kien === "sua") {
+          pushToast(`✏️ Bàn giao ${tuyen} vừa sửa${sl ? " còn " + sl : ""} — chờ tổ bạn xác nhận`, "info");
+        } else {
+          pushToast(`🔔 Bàn giao mới ${tuyen}${sl ? " · " + sl : ""} — chờ tổ bạn xác nhận`, "info");
+        }
+      } else if (e.type === "san_xuat_ho_tro") {
+        const ai = `${e.ho_ten || "?"} (${e.to_goc_ten || "?"}) → ${e.ten_cong_doan || "?"} · ${e.to_thuc_hien_ten || "?"}`;
+        if (e.trang_thai === "confirmed") {
+          pushToast(`✓ Hỗ trợ chéo đã đủ hai tổ xác nhận: ${ai}`, "ok");
+        } else if (e.trang_thai === "cancelled") {
+          pushToast(`✕ Thỏa thuận hỗ trợ chéo đã huỷ: ${ai}`, "warn");
+        } else {
+          pushToast(`🔔 Lời mời hỗ trợ chéo: ${ai} — chờ tổ bạn xác nhận`, "info");
+        }
       } else if (e.type === "san_xuat_duoc_giao_viec") {
         // Đẩy đích danh tới người vừa được giao việc (chỉ người có tài khoản nhận) — toast cá nhân.
         pushToast("🔔 Bạn được giao việc sản xuất mới", "info");
@@ -1193,7 +1237,7 @@ export function AppShell() {
     // 4) — không nằm trong NAV tĩnh của Sidebar nên MODULES_BY_NAV_ID không có, phải khai tay ở
     // đây như node "thuc-hien-sx" gốc, nếu không bàn KCS sẽ luôn hiện "không có quyền truy cập".
     (baseId === "thuc-hien-sx" || baseId === "thuc-hien-sx-kcs"
-      ? ["san_xuat"]
+      ? khoaBanTo(readable)
       : isKhoView ? ["kho"] : undefined);
   const allowed =
     AUTHENTICATED_NAV_IDS.has(baseId) ||
@@ -1212,19 +1256,26 @@ export function AppShell() {
     }));
   }
   // Tổ đã khai báo → node lá ĐỘNG dưới SECTION "Sản xuất" (id section = "san-xuat"). Bấm 1 tổ → mở
-  // bàn "Thực hiện sản xuất" lọc theo tổ. teamList chỉ có dữ liệu khi có quyền `san_xuat`, nên
-  // thiếu quyền thì không đổ node nào.
+  // bàn "Thực hiện sản xuất" lọc theo tổ. teamList chỉ có dữ liệu khi có Xem ở một dòng quyền theo
+  // tổ, nên thiếu quyền thì không đổ node nào. Máy chủ trả theo thứ tự cây kèm `cap` — thụt lề tính
+  // từ nút NÔNG nhất người này thấy, để ai chỉ thấy vài tổ lá thì menu vẫn thẳng hàng.
   if (teamList.length) {
+    const cacKhoaTo = khoaBanTo(readable);
+    const capGoc = Math.min(...teamList.map((t) => t.cap ?? 0));
     // Node "KCS · {tổ}" đứng NGAY SAU node sản xuất của CÙNG tổ đó, CHỈ khi tổ đang có việc KCS
     // đang hoạt động (`co_viec_kcs`, Task 4 §18 mục 6) — điều kiện RỘNG HƠN badge (bàn giao/chưa
     // kiểm): còn hiện khi KCS đang làm dở, chỉ ẩn khi tổ không còn việc KCS nào đang chạy.
     dynamicItems["san-xuat"] = teamList.flatMap((t): NavItem[] => {
       const items: NavItem[] = [
-        { id: `thuc-hien-sx:${t.id}`, label: t.ten, icon: "users", module: "san_xuat" },
+        {
+          id: `thuc-hien-sx:${t.id}`, label: t.ten, icon: "users", module: "to_sx",
+          modules: cacKhoaTo, indent: (t.cap ?? 0) - capGoc,
+        },
       ];
       if (t.co_viec_kcs) {
         items.push({
-          id: `thuc-hien-sx-kcs:${t.id}`, label: `KCS · ${t.ten}`, icon: "users", module: "san_xuat",
+          id: `thuc-hien-sx-kcs:${t.id}`, label: `KCS · ${t.ten}`, icon: "users", module: "to_sx",
+          modules: cacKhoaTo, indent: (t.cap ?? 0) - capGoc,
         });
       }
       return items;
@@ -1302,9 +1353,11 @@ export function AppShell() {
           key={`thsx-${teamId}`}
           teamId={teamId}
           tenTo={t?.ten}
+          laTho={t?.la_tho ?? false}
           mode="production"
           eventTick={quoteTick}
           vatTuDeNghiDem={vatTuDeNghiDem}
+          dinhKemDem={lsxDinhKemDem}
           onXemCongViec={datCvDangMo}
           onBadgeStale={reloadTeams}
         />
@@ -1322,7 +1375,9 @@ export function AppShell() {
           key={`kcs-${teamId}`}
           teamId={teamId}
           tenTo={t?.ten}
+          quyen={t?.quyen}
           eventTick={quoteTick}
+          dinhKemDem={lsxDinhKemDem}
           onBadgeStale={reloadTeams}
         />
       );
@@ -1402,6 +1457,7 @@ export function AppShell() {
             openOrderId={navParams?.openSxOrderId ?? null}
             openLsxId={navParams?.openLsxId ?? null}
             eventTick={quoteTick}
+            dinhKemDem={lsxDinhKemDem}
             onBadgeStale={reloadBadges}
           />
         );

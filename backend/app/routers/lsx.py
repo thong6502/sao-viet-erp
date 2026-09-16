@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,8 @@ from ..schemas.lsx import (
     HangChoOut,
     LsxActivityItem,
     LsxActivityOut,
+    LsxDinhKemListOut,
+    LsxDinhKemOut,
     LsxGiaoNhanIn,
     LsxListItem,
     LsxListOut,
@@ -52,6 +54,8 @@ from ..schemas.lsx import (
 )
 from ..services import lsx_tong_quan
 from ..services.actor_display import actor_labels
+from ..services.lsx_dinh_kem import MAX_BYTES as DINH_KEM_MAX_BYTES
+from ..services.lsx_dinh_kem import LsxDinhKemService, TepBiChan, TepQuaLon, don_kho
 from ..services.lsx_service import (
     LsxConflict,
     LsxNotFound,
@@ -579,9 +583,12 @@ def delete_item(
     svc = _svc(db)
     try:
         _guard_scope(db, svc.get(lsx_id), user, authz)
+        # Chụp danh sách tệp TRƯỚC khi xoá: CASCADE mất dòng là mất luôn đường tới object trong kho.
+        tep = LsxDinhKemService(db).urls_cua_lenh(lsx_id)
         order_id = svc.xoa(lsx_id=lsx_id, actor=user)
     except Exception as exc:
         raise _map(exc)
+    don_kho(tep)
     hub.broadcast({"type": "lsx_changed", "order_id": order_id})
     return {"ok": True}
 
@@ -610,3 +617,71 @@ def activity(
         )
         for r in rows
     ])
+
+
+# --- Tệp đính kèm -------------------------------------------------------------
+# Luật nằm ở `services/lsx_dinh_kem.py`. Sự kiện SSE RIÊNG (`lsx_dinh_kem_changed`), không dùng
+# `lsx_changed`: thêm tệp không đổi dữ liệu lệnh, bắn `lsx_changed` là làm sáng nút "Làm mới" và
+# kéo hàng chờ của cả khối Sản xuất nạp lại vô cớ.
+
+def _lenh_trong_pham_vi(db: Session, lsx_id: int, user: User, authz: AuthorizationService) -> Lsx:
+    try:
+        lsx = _svc(db).get(lsx_id)
+        _guard_scope(db, lsx, user, authz)
+    except Exception as exc:
+        raise _map(exc)
+    return lsx
+
+
+@router.get("/{lsx_id}/dinh-kem", response_model=LsxDinhKemListOut)
+def list_dinh_kem(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> LsxDinhKemListOut:
+    lsx = _lenh_trong_pham_vi(db, lsx_id, user, authz)
+    return LsxDinhKemListOut(items=LsxDinhKemService(db).danh_sach(lsx))
+
+
+@router.post("/{lsx_id}/dinh-kem", response_model=LsxDinhKemOut, status_code=status.HTTP_201_CREATED)
+def upload_dinh_kem(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    file: UploadFile = File(...),
+) -> LsxDinhKemOut:
+    """MỘT tệp mỗi request — FE gửi nhiều tệp song song, tệp nào lỗi chỉ tệp đó lỗi."""
+    lsx = _lenh_trong_pham_vi(db, lsx_id, user, authz)
+    # Đọc tối đa MAX+1 byte: đủ để biết vượt cỡ mà không nạp nguyên một tệp khổng lồ vào RAM.
+    data = file.file.read(DINH_KEM_MAX_BYTES + 1)
+    try:
+        out = LsxDinhKemService(db).them(
+            lsx, actor=user, ten_goc=file.filename, data=data, content_type=file.content_type,
+        )
+    except TepQuaLon as exc:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(exc)) from None
+    except TepBiChan as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "lsx_dinh_kem_changed", "lsx_id": lsx_id})
+    return LsxDinhKemOut.model_validate(out)
+
+
+@router.delete("/{lsx_id}/dinh-kem/{dinh_kem_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_dinh_kem(
+    lsx_id: int,
+    dinh_kem_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> Response:
+    lsx = _lenh_trong_pham_vi(db, lsx_id, user, authz)
+    try:
+        LsxDinhKemService(db).xoa(lsx, dinh_kem_id=dinh_kem_id, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "lsx_dinh_kem_changed", "lsx_id": lsx_id})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -16,6 +16,11 @@ class ModuleOut(BaseModel):
     #: cảnh báo đúng mấy ô này, KHÔNG suy ngược từ "cái gì máy chủ không gác thì chết": rất nhiều ô
     #: được thi hành ở giao diện (ẩn/hiện nút) nên máy chủ không thấy mà vẫn có tác dụng thật.
     viec_chet: list[str] = []
+    #: Dòng quyền THEO TỔ (`to_sx_<id>`, mg 0302): phòng ban của dòng + cấp trong cây khối Sản xuất
+    #: (ma trận thụt lề theo cây). Module tĩnh để trống.
+    department_id: int | None = None
+    cap: int = 0
+    la_kcs: bool = False
 
 
 class DepartmentOut(BaseModel):
@@ -327,6 +332,9 @@ class RoleTemplateOut(BaseModel):
     label: str
     mo_ta: str
     permissions: list["PermissionRow"]
+    #: Ô điền vào dòng quyền theo tổ của phòng mà vai thuộc về (`to_sx_<phòng>`); None = mẫu không
+    #: đụng dòng tổ. `module_key` để trống — giao diện tự gắn theo phòng đang mở.
+    quyen_to_cua_vai: dict | None = None
 
 
 class PermissionRow(BaseModel):
@@ -386,6 +394,11 @@ class PermissionRow(BaseModel):
     can_set_threshold: bool = False    # kho — khai ngưỡng tồn / cận tồn / tối đa
     can_post: bool = False             # kho — GHI SỔ phiếu (chốt tồn); tách khỏi lập nháp (SoD)
     can_close_book: bool = False       # kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export
+    # Dòng quyền theo tổ `to_sx_<id>` (mg 0302).
+    can_run_order: bool = False        # Thực hiện lệnh
+    can_confirm_output: bool = False   # Xác nhận sản lượng
+    can_qc: bool = False               # KCS
+    can_warehouse: bool = False        # Kho
 
 
 class PermissionMatrixIn(BaseModel):

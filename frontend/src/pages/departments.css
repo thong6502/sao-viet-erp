@@ -266,7 +266,7 @@
 }
 
 .depts__dock-kbd {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 10px;
   padding: 1px 5px;
   background: rgba(0, 0, 0, 0.06);
@@ -708,7 +708,7 @@
 }
 .depts__salary-table th.num,
 .depts__salary-table td.num {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;

@@ -45,9 +45,12 @@ from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
 from ...services.rbac_service import AuthorizationService
-from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi
-from .board import _item_dict, _to_thay_duoc
-from .thuc_thi import _aware, _gate, _moc
+from ..gio_xuong import moc_tu_client, thuc_te_hien_thi
+from ..quyen_to import (
+    MUC_CUA_TOI, VIEC_KCS, VIEC_XEM, gate_to_tron, nguoi_co_quyen, quyen_to_cua,
+)
+from .board import _item_dict, _loc_viec_cua_tho, _pham_vi_doc
+from .thuc_thi import _gate, _moc
 
 # Dung sai làm tròn (cột Numeric(18,3)) — như san_luong.
 _EPS = 0.0005
@@ -70,31 +73,20 @@ def _so_khong_am(x, ten: str) -> float:
 
 
 def _gate_to(db: Session, user, department_id: int | None) -> None:
-    """Chỉ tổ trưởng ĐÚNG tổ `department_id` mới được thao tác (dùng cho phản hồi trách nhiệm lỗi:
-    người phản hồi là tổ trưởng tổ BỊ yêu cầu, KHÁC tổ KCS ghi lỗi §13.2)."""
-    dept = db.get(Department, department_id) if department_id else None
-    uid = getattr(user, "id", None)
-    if dept is None or dept.head_user_id is None or dept.head_user_id != uid:
-        raise PermissionError("Chỉ tổ trưởng của tổ được yêu cầu mới được phản hồi lỗi này.")
+    """Quyền KCS trên TRỌN tổ `department_id` — thao tác cấp tổ không gắn việc của riêng ai (kiểm đột
+    xuất / điểm kiểm của tổ đi kiểm, phản hồi lỗi của tổ bị yêu cầu §13.2)."""
+    gate_to_tron(db, getattr(user, "id", None), department_id, VIEC_KCS)
 
 
-def _gate_member(db: Session, user, department_id: int | None) -> None:
-    """Chỉ THÀNH VIÊN của tổ `department_id` (không cần là trưởng) mới thao tác được — dùng RIÊNG
-    cho kiểm đột xuất KCS kiêm nhiệm: bất kỳ ai trong tổ được giao kiểm cũng ghi được. KHÁC
-    `_gate`/`_gate_to` (chỉ tổ trưởng) đang gác routing/phản hồi lỗi — hai gate đó GIỮ NGUYÊN."""
-    if department_id is None or getattr(user, "department_id", None) != department_id:
-        raise PermissionError("Chỉ thành viên của tổ được giao kiểm đột xuất mới được thao tác.")
-
-
-def _gate_dieu_chinh(db: Session, user, kcs: SanXuatKcsBatch, cv) -> None:
-    """Trưởng tổ KCS mới sửa được kết quả (§4.3) — với routing là tổ đang chạy việc (`cv.department_id`,
-    `_gate`), với đột xuất VÀ điểm kiểm là tổ đi kiểm (`kcs.kcs_department_id`, `_gate_to`) — KHÁC
+def _gate_ghi_kcs(db: Session, user, kcs: SanXuatKcsBatch, cv) -> None:
+    """Ghi/sửa trên MỘT lượt kiểm (kết quả, lỗi, ảnh — §4.3): với routing hỏi tổ đang chạy việc
+    (`cv.department_id`), với đột xuất VÀ điểm kiểm hỏi tổ đi kiểm (`kcs.kcs_department_id`) — KHÁC
     tổ bị kiểm. So `!= routing` chứ đừng liệt kê từng loại: thêm loại mới mà quên chỗ này là mở
     cửa cho tổ BỊ kiểm tự sửa kết quả của mình."""
     if kcs.loai != KCS_LOAI_ROUTING:
         _gate_to(db, user, kcs.kcs_department_id)
     else:
-        _gate(db, user, cv)
+        _gate(db, user, cv, VIEC_KCS)
 
 
 def _validate_so_luong(nhan, dat, khong_dat, co_mau) -> tuple[float, float, float, float | None]:
@@ -179,7 +171,7 @@ def tao_batch_kcs(
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc.")
-    _gate(db, user, cv)
+    _gate(db, user, cv, VIEC_KCS)
     if not cv.la_kcs:
         raise ValueError("Chỉ công việc KCS mới ghi được batch kiểm tra.")
     if cv.trang_thai not in _TRANG_THAI_GHI_DUOC:
@@ -191,7 +183,11 @@ def tao_batch_kcs(
 
     if bat_dau is None or ket_thuc is None:
         raise ValueError("Batch kiểm tra phải có khoảng thời gian bắt đầu và kết thúc.")
-    if _aware(ket_thuc) < _aware(bat_dau):
+    # Người kiểm GÕ hai mốc này ở ô `datetime-local` (naive = giờ tường xưởng) → UTC THẬT, cùng
+    # thang với khoảng tham gia/chấm công vì batch sản lượng kèm theo chạy qua pipeline phân bổ.
+    bat_dau = moc_tu_client(bat_dau)
+    ket_thuc = moc_tu_client(ket_thuc)
+    if ket_thuc < bat_dau:
         raise ValueError("Kết thúc kiểm tra không được trước khi bắt đầu.")
 
     don_vi_kcs = (don_vi or cv.don_vi_ra or "").strip()
@@ -216,8 +212,8 @@ def tao_batch_kcs(
     # LỖI SẢN PHẨM ghi ở lỗi KCS, KHÔNG phải hỏng do KCS). Pipeline phân bổ đọc batch.tot → chia đúng.
     batch = SanXuatBatch(
         cong_viec_id=cv.id,
-        bat_dau=_aware(bat_dau),
-        ket_thuc=_aware(ket_thuc),
+        bat_dau=bat_dau,
+        ket_thuc=ket_thuc,
         tong=nhan,
         tot=nhan,
         hong=0,
@@ -232,8 +228,8 @@ def tao_batch_kcs(
         cong_viec_id=cv.id,
         batch_id=batch.id,
         nhom_id=cv.nhom_id,
-        bat_dau=_aware(bat_dau),
-        ket_thuc=_aware(ket_thuc),
+        bat_dau=bat_dau,
+        ket_thuc=ket_thuc,
         so_luong_nhan=nhan,
         co_mau=co_mau_f,
         so_luong_dat=dat,
@@ -299,7 +295,7 @@ def tao_kiem_dot_xuat(
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc.")
-    _gate_member(db, user, kcs_department_id)
+    _gate_to(db, user, kcs_department_id)
     if loai == KCS_LOAI_DIEM_KIEM:
         # Điểm kiểm phải là điểm kiểm THẬT — thẻ việc mang checklist chụp lúc phát hành. Không có
         # thì công đoạn này chưa ai gắn tiêu chí; ghi vào là đẻ kết quả kiểm không có tiêu chí nào.
@@ -315,7 +311,11 @@ def tao_kiem_dot_xuat(
     )
     if bat_dau is None or ket_thuc is None:
         raise ValueError("Batch kiểm tra phải có khoảng thời gian bắt đầu và kết thúc.")
-    if _aware(ket_thuc) < _aware(bat_dau):
+    # Người kiểm GÕ hai mốc này ở ô `datetime-local` (naive = giờ tường xưởng) → UTC THẬT, cùng
+    # thang với khoảng tham gia/chấm công vì batch sản lượng kèm theo chạy qua pipeline phân bổ.
+    bat_dau = moc_tu_client(bat_dau)
+    ket_thuc = moc_tu_client(ket_thuc)
+    if ket_thuc < bat_dau:
         raise ValueError("Kết thúc kiểm tra không được trước khi bắt đầu.")
     don_vi_kcs = (don_vi or cv.don_vi_ra or "").strip()
     if not don_vi_kcs:
@@ -335,8 +335,8 @@ def tao_kiem_dot_xuat(
         cong_viec_id=cv.id,
         batch_id=None,
         nhom_id=cv.nhom_id,
-        bat_dau=_aware(bat_dau),
-        ket_thuc=_aware(ket_thuc),
+        bat_dau=bat_dau,
+        ket_thuc=ket_thuc,
         so_luong_nhan=nhan,
         co_mau=co_mau_f,
         so_luong_dat=dat,
@@ -423,7 +423,7 @@ def dieu_chinh_ket_qua(
     if cv is None:
         raise ValueError("Không tìm thấy công việc của batch kiểm tra.")
 
-    _gate_dieu_chinh(db, user, kcs, cv)
+    _gate_ghi_kcs(db, user, kcs, cv)
 
     if expected_version != kcs.version:
         raise ValueError("Phiên bản không khớp — kết quả vừa được cập nhật, hãy tải lại.")
@@ -514,7 +514,7 @@ def ghi_loi(
     cv = repo.cong_viec(kcs.cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc của batch kiểm tra.")
-    _gate(db, user, cv)
+    _gate_ghi_kcs(db, user, kcs, cv)
 
     anh = anh or []
     if not anh:
@@ -563,7 +563,8 @@ def ghi_loi(
         "kcs_batch_id": kcs.id,
         "cong_viec_id": cv.id,
         "to_chiu_id": loi.to_chiu_id,
-        "to_chiu_head_user_id": to_chiu.head_user_id if to_chiu else None,
+        # Người nhận thông báo = người giữ quyền KCS trên trọn tổ liên đới (router đẩy SSE).
+        "notify_user_ids": nguoi_co_quyen(db, to_chiu.id, VIEC_KCS) if to_chiu else [],
         "trang_thai": loi.trang_thai,
         "version": loi.version,
         "department_id": cv.department_id,
@@ -582,7 +583,7 @@ def them_anh_loi(db: Session, *, user, loi_id: int, anh: list[dict]) -> dict:
     cv = repo.cong_viec(kcs.cong_viec_id) if kcs else None
     if cv is None:
         raise ValueError("Không tìm thấy công việc của lỗi.")
-    _gate(db, user, cv)
+    _gate_ghi_kcs(db, user, kcs, cv)
     if not anh:
         raise ValueError("Chưa có ảnh để thêm.")
     for r in anh:
@@ -604,7 +605,7 @@ def xoa_anh_loi(db: Session, *, user, anh_id: int) -> dict:
     cv = repo.cong_viec(kcs.cong_viec_id) if kcs else None
     if cv is None:
         raise ValueError("Không tìm thấy công việc của ảnh.")
-    _gate(db, user, cv)
+    _gate_ghi_kcs(db, user, kcs, cv)
     if repo.dem_anh(a.loi_id) <= 1:
         raise ValueError("Mỗi lỗi phải giữ ít nhất một ảnh bằng chứng — không thể xoá ảnh cuối.")
     file_url = a.file_url
@@ -720,9 +721,9 @@ def _batches_ra(
             "id": b.id,
             "batch_id": b.batch_id,
             "nhom_id": b.nhom_id,
-            # Người kiểm GÕ hai mốc này (`KcsBatchIn`) → thang LỊCH như batch sản lượng.
-            "bat_dau": lich_hien_thi(b.bat_dau),
-            "ket_thuc": lich_hien_thi(b.ket_thuc),
+            # Mốc THỰC THI (UTC thật từ mg 0298) — `thuc_te_hien_thi` đưa về giờ tường xưởng.
+            "bat_dau": thuc_te_hien_thi(b.bat_dau),
+            "ket_thuc": thuc_te_hien_thi(b.ket_thuc),
             "so_luong_nhan": float(b.so_luong_nhan or 0),
             "co_mau": float(b.co_mau) if b.co_mau is not None else None,
             "so_luong_dat": float(b.so_luong_dat or 0),
@@ -748,18 +749,16 @@ def chi_tiet_kcs(
 ) -> dict:
     """Danh sách batch kiểm tra + lỗi + ảnh của MỘT công việc KCS (mặt đọc cho panel drawer §13).
 
-    Gác theo phạm vi ĐỌC (`_to_thay_duoc`) — CÙNG phạm vi với `board.chi_tiet_cong_viec`, không
-    phải `_gate`. `_gate` là cổng GHI: nó đòi user đứng `head_user_id` của đúng tổ. Đem cổng ghi
-    gác một mặt đọc thì ai không phải tổ trưởng tổ đó — kể cả quản đốc scope `all` — mở trang KCS
-    là 403 hàng loạt, dù `/work-items?mode=kcs` ngay bên cạnh đã cho họ thấy chính những việc ấy.
+    Gác theo phạm vi XEM của dòng quyền theo tổ — CÙNG phạm vi với `board.chi_tiet_cong_viec`,
+    không phải cổng ghi KCS: người chỉ xem được vẫn mở được trang KCS của việc mình thấy.
     """
     repo = SanXuatKcsRepository(db)
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc.")
-    _tos, ids = _to_thay_duoc(db, user, authz)
-    if cv.department_id not in ids:
-        raise PermissionError("Ngoài phạm vi tổ được phép xem.")
+    _q, muc = _pham_vi_doc(db, user, cv.department_id)
+    if muc == MUC_CUA_TOI and not _loc_viec_cua_tho(db, user, [cv]):
+        raise PermissionError("Chỉ xem được việc đã giao cho mình.")
 
     batches = repo.cac_kcs_batch(cong_viec_id)
     theo_batch = _batches_ra(db, repo, batches)
@@ -777,24 +776,24 @@ def diem_kiem_kcs(db: Session, user, authz: AuthorizationService) -> dict:
     """Bàn ĐIỂM KIỂM của tổ KCS — ba tầng Giai đoạn → Công đoạn → checklist
     (docs/design-kcs-theo-cong-doan.md mục 4).
 
-    Phạm vi ĐỌC là MỌI tổ user thấy được (`_to_thay_duoc`), không phải một `team_id`: tổ KCS đi
+    Phạm vi ĐỌC là MỌI tổ user thấy TRỌN (dòng quyền theo tổ), không phải một `team_id`: tổ KCS đi
     kiểm việc của tổ KHÁC, khoá theo tổ KCS thì bàn rỗng. Gác đọc chứ không gác ghi — cổng ghi
-    (`_gate_member` trong `tao_kiem_dot_xuat`) vẫn đòi người ghi thuộc đúng tổ KCS.
+    (`_gate_to` trong `tao_kiem_dot_xuat`) vẫn đòi quyền KCS trên tổ đi kiểm.
 
     Giai đoạn xếp theo thứ tự khai ở danh mục (`models/cong_doan.py` `NHOM`); bước không tra được
     giai đoạn rơi vào nhóm "" đứng CUỐI — không bịa nó thành "Dịch vụ khác". Nhóm rỗng bị bỏ hẳn,
     không bày tiêu đề giai đoạn trống."""
     repo = SanXuatRepository(db)
     kcs_repo = SanXuatKcsRepository(db)
-    tos, ids = _to_thay_duoc(db, user, authz)
-    rows = repo.diem_kiem(ids)
+    q = quyen_to_cua(db, user)
+    rows = repo.diem_kiem(set(q.tron[VIEC_XEM]))
 
     cv_ids = {cv.id for cv in rows}
     lsx_map = repo.lsx_nhan({cv.lsx_id for cv in rows if cv.lsx_id})
     bg_map = repo.bai_ghep_nhan({cv.bai_ghep_id for cv in rows if cv.bai_ghep_id})
     may_map = repo.may_nhan({cv.may_id for cv in rows if cv.may_id})
     nhom_map = repo.nhom_nhan({cv.nhom_id for cv in rows if cv.nhom_id})
-    to_ten = {d.id: d.name for d in tos}
+    to_ten = q.cay.ten
     nguoi_map = repo.nguoi_lam_theo_cong_viec(cv_ids)
     batch_map = kcs_repo.cac_kcs_batch_nhieu(cv_ids)
     theo_batch = _batches_ra(
@@ -824,19 +823,14 @@ def diem_kiem_kcs(db: Session, user, authz: AuthorizationService) -> dict:
 
 
 def hop_thu_loi(db: Session, user) -> list[dict]:
-    """Hộp thư lỗi CHỜ phản hồi gửi tới các tổ mà `user` làm tổ trưởng (§13.2). Người dùng có thể
-    làm tổ trưởng nhiều tổ → gộp lỗi của mọi tổ đó."""
-    uid = getattr(user, "id", None)
-    if uid is None:
+    """Hộp thư lỗi CHỜ phản hồi gửi tới các tổ mà `user` giữ quyền KCS trên trọn tổ (§13.2) — gộp
+    lỗi của mọi tổ đó."""
+    if getattr(user, "id", None) is None:
         return []
-    to_ids = [
-        d.id for d in db.query(Department).filter(Department.head_user_id == uid).all()
-    ]
+    to_ids = quyen_to_cua(db, user).tron[VIEC_KCS]
     if not to_ids:
         return []
     repo = SanXuatKcsRepository(db)
-    rows: list[SanXuatKcsLoi] = []
-    for tid in to_ids:
-        rows.extend(repo.loi_cho_to(tid))
+    rows: list[SanXuatKcsLoi] = repo.loi_cho_nhieu_to(set(to_ids))
     anh_map = repo.anh_cua_loi_nhieu([l.id for l in rows])
     return [_loi_ra(l, anh_map.get(l.id, [])) for l in rows]

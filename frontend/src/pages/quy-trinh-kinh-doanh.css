@@ -59,7 +59,7 @@
 }
 
 .qtkd__count {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-sm, 0.875rem);
   color: var(--ash, #6b7280);
   background: var(--paper-contrast, #f3f4f6);

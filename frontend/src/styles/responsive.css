@@ -744,14 +744,14 @@
    Vì sao `!important`: KHÔNG do thứ tự chèn (file này nạp SAU mọi CSS trang — main.tsx:9, không
    có React.lazy) mà do đặc hiệu, vd `.khsx .khvt-po-note span` 0-2-1 (ke-hoach-sx.css:5534). */
 @media screen and (max-width: 768px) {
-  /* Bàn tổ (Thực hiện SX) — thước Gantt: nhãn ngày 11px, mốc giờ 10px. Mốc cách nhau 84-99px
-     nên lên 12px vẫn không đụng nhau. Chip trạng thái trong thẻ việc 10px. */
-  .thsx-ruler__day,
-  .thsx-ruler__tick,
+  /* Bàn tổ (Thực hiện SX) — lịch ngày: thứ ở nấc 30 ngày 10px, chip "N việc" 9-10px, chip KCS
+     10px (khai số trần nên sàn `--fs-2xs` của responsive-chu.css không với tới). Chip trạng thái
+     trong thẻ việc 10px. */
+  .thsx-ln__thu,
+  .thsx-ln__dem,
+  .thsx-ln__kcs,
   .thsx-tt span,
-  .thsx-lg,
-  .thsx-cluster__head span,
-  .thsx-cluster__head b {
+  .thsx-lg {
     font-size: 12px !important;
   }
 
@@ -3041,24 +3041,9 @@
    admin: admin thiếu ô quyền `san_xuat:assign_work` (`ThucHienSxPage.tsx:118`)
    nên quá nửa nút của thợ không hề render, soi bằng admin là soi thiếu. */
 
-/* 65.1 — Mũi tên tuần chỉ SAI HƯỚNG. Không phải lỗi bố cục, là lỗi ĐỌC HIỂU, và
-   với người thợ không đọc chữ thì đây là chỗ duy nhất báo "lùi/tiến".
-   Đo bằng `getComputedStyle(svg).transform` chứ không tin mắt:
-     "Tuần trước" → `matrix(-1, 0, 0, -1, 0, 0)` = xoay 180°
-     "Tuần sau"   → `none`
-   cả hai cùng vẽ `path d="m6 9 6 6 6-6"` (`Icons.tsx:228`) = chữ V chỉ XUỐNG. Tức
-   trên màn hình là một mũi tên LÊN và một mũi tên XUỐNG nằm hai bên khoảng NGÀY,
-   trong khi nghĩa phải là TRÁI/PHẢI. Xuống→trái là +90°, xuống→phải là −90°.
-   Đặc hiệu (0,4,1) nên thắng `.thsx-rot180` (0,1,0), không cần `!important`.
-   Màn RỘNG sai y hệt nhưng ngoài phạm vi đợt này — đã chuyển nợ Task 20. */
-@media screen and (max-width: 768px) {
-  .shell__content .thsx-top__grp .thsx-iconbtn[aria-label="Tuần trước"] svg {
-    transform: rotate(90deg);
-  }
-  .shell__content .thsx-top__grp .thsx-iconbtn[aria-label="Tuần sau"] svg {
-    transform: rotate(-90deg);
-  }
-}
+/* 65.1 — (đã gỡ 15/09/2026) Luật xoay mũi tên "Tuần trước/sau" cho điện thoại. Thanh
+   trên của view Lịch nay dùng nút "Kỳ trước/Kỳ sau" mang sẵn `.thsx-rot90`/`.thsx-rot270`
+   (V chỉ xuống → trái/phải) ở MỌI bề ngang, nên không còn gì phải chữa riêng ở đây. */
 
 /* 65.2 — Khuôn 4: ba ô nuốt chữ, mà điện thoại KHÔNG có hover để đọc `title`.
    Đo thật ở 375px:
@@ -4787,7 +4772,7 @@
    `.cl-card__head` (`luong.css:886`) là hàng `space-between` KHÔNG khai `flex-wrap`. Ở tab con
    "Danh mục khoản thu nhập", nút "+ Thêm khoản" bị bóp còn 57px và gãy làm ba dòng
    ("+ / Thêm / khoản"), cao 66px (ảnh `t18-dm-01.png`). Cho wrap thì nút về 119px, cao 44px —
-   đúng sàn chạm ngón. Lớp này còn được `LeaderBonusEditor.tsx:140` dùng; đã vào xem sau khi vá.
+   đúng sàn chạm ngón.
 
    (5) KHUÔN 4 — HỒ SƠ CỦA TÔI: ELLIPSIS NUỐT MẤT NỘI DUNG.
    Bảng đề nghị: `ho-so-cua-toi.css:256` đặt `table-layout: fixed`, `:272` chốt cột "Thao tác"

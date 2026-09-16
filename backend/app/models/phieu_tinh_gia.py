@@ -112,7 +112,7 @@ class PhieuThanhPhan(Base):
     loai_san_pham_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # → loai_san_pham.id (soft) — loại của sản phẩm này
 
     # --- Giấy ---
-    giay_id: Mapped[int | None] = mapped_column(Integer, nullable=True)             # → giay_nguyen.id (soft)
+    giay_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → giay_nguyen.id (soft)
     kho_nguyen: Mapped[str | None] = mapped_column(String(100), nullable=True)      # nhãn hiển thị "rộng×dài" (giay_ten fallback)
     kho_nguyen_dai: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)   # mm — khổ giấy nguyên ① dài (ĐÈ danh mục khi > 0) · số lẻ được
     kho_nguyen_rong: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)  # mm — rộng ①
@@ -134,7 +134,7 @@ class PhieuThanhPhan(Base):
     kho_in_rong: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)    # mm ★
     so_con: Mapped[int] = mapped_column(Integer, nullable=False, default=1)         # con/tờ ④ (auto bình bài; override được)
     con_auto: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)   # True: engine tự bình bài; False: dùng so_con
-    may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)              # → may_thiet_bi.id (soft)
+    may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)   # → may_thiet_bi.id (soft)
     don_gia_cong_in: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)  # mực GỘP trong đơn giá
 
     # --- Mực in: TẬP MÃ MỰC mỗi mặt, không phải con số ---
@@ -210,7 +210,7 @@ class PhieuThanhPham(Base):
         Integer, ForeignKey("phieu_thanh_phan.id", ondelete="CASCADE"), index=True, nullable=False
     )
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → cong_doan.id (soft)
+    cong_doan_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → cong_doan.id (soft)
     ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     don_gia: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # 0 = dùng SL đặt
@@ -309,7 +309,7 @@ class PhieuVatTu(Base):
         Integer, ForeignKey("phieu_thanh_phan.id", ondelete="CASCADE"), index=True, nullable=False
     )
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    vat_tu_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → vat_tu_in_an.id (soft)
+    vat_tu_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → vat_tu_in_an.id (soft)
     ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     don_gia: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)  # 0 = lấy danh mục
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # 0 = dùng SL đặt

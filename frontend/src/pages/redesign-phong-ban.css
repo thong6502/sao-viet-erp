@@ -2907,7 +2907,7 @@
 /* Badge % KIÊM nút về 100%: bề rộng cố định để thanh không nhảy khi số đổi
    (100% → 45% là 1 ký tự ít hơn, đủ làm cả cụm nút giật sang). */
 .rdx-canvas-zoom-badge {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;

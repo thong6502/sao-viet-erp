@@ -1453,7 +1453,7 @@ export function InboxRequestDrawer({
                             </td>
                             {canViewStock && (
                               <td className="kho-num">
-                                <div style={{ fontFamily: "var(--ff-num)", fontWeight: "var(--fw-bold)" }}>
+                                <div style={{ fontFamily: "var(--ff-sans)", fontWeight: "var(--fw-bold)" }}>
                                   {fmtQty(l.ton_kha_dung ?? 0)} <span className="kho-alloc__unit">{dvtGoc}</span>
                                 </div>
                                 {l.ton_kha_dung != null && (
@@ -2841,6 +2841,11 @@ export function VoucherDrawer({
     setPopupBlocked(!printStockVoucher(data));
   }
 
+  // Cột giá chỉ hiện khi backend THẬT SỰ trả giá: nơi gọi truyền `canViewCost` true (màn đề nghị,
+  // ngăn Thực hiện SX) để người tạo yêu cầu thấy giá, nhưng người xem khác thì backend trả `null`
+  // ⇒ không dựng hai cột Đơn giá/Thành tiền trống. Có quyền thì `gia_von` luôn là số (kho_voucher.py).
+  const hienGia = canViewCost && v?.gia_von != null;
+
   async function act(fn: () => Promise<StockVoucher>, fallback: string) {
     setBusy(true);
     setError(null);
@@ -3023,8 +3028,8 @@ export function VoucherDrawer({
                           <th style={{ minWidth: 300 }}>Vật tư</th>
                           <th style={{ width: 60, textAlign: "center" }}>ĐVT</th>
                           <th className="kho-num" style={{ width: 110 }}>Số lượng</th>
-                          {canViewCost && <th className="kho-num" style={{ width: 120 }}>Đơn giá</th>}
-                          {canViewCost && <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>}
+                          {hienGia && <th className="kho-num" style={{ width: 120 }}>Đơn giá</th>}
+                          {hienGia && <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -3032,7 +3037,7 @@ export function VoucherDrawer({
                           <tr key={l.id}>
                             <td style={{ minWidth: 300 }}>
                               <div className="kho-lines__name" style={{ fontWeight: "var(--fw-bold)", color: "var(--ink)" }}>{l.hang_ten ?? "—"}</div>
-                              <div className="kho-lines__code" style={{ fontFamily: "var(--ff-num)", fontSize: 12, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
+                              <div className="kho-lines__code" style={{ fontFamily: "var(--ff-sans)", fontSize: 12, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
                             </td>
                             <td className="kho-lines__code" style={{ textAlign: "center" }}>{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
                             <td className="kho-num">
@@ -3048,12 +3053,12 @@ export function VoucherDrawer({
                                 fmtQty(l.so_luong)
                               )}
                             </td>
-                            {canViewCost && (
+                            {hienGia && (
                               <td className="kho-num">
                                 {l.don_gia != null ? money(l.don_gia) : ""}
                               </td>
                             )}
-                            {canViewCost && (
+                            {hienGia && (
                               <td className="kho-num" style={{ fontWeight: "var(--fw-bold)" }}>
                                 {l.thanh_tien != null ? money(l.thanh_tien) : ""}
                               </td>

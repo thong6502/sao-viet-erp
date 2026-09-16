@@ -1,0 +1,544 @@
+/* Khung "Tệp đính kèm" dùng chung (DinhKemTep.tsx). Tiền tố `dkt-` — không dựa class của màn nào. */
+
+.dkt {
+  display: grid;
+  gap: var(--sp-4, 16px);
+  min-width: 0;
+}
+
+/* ---- 1. Thùng Upload Hợp Nhất (Hero Dropzone - Khi CHƯA có tệp) ----------------------------- */
+.dkt-hero-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 24px;
+  border: 2px dashed var(--rule-soft, #cbd5e1);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  cursor: pointer;
+}
+.dkt-hero-drop:hover {
+  border-color: var(--rust, #c2410c);
+  background: linear-gradient(180deg, #ffffff 0%, #fff7ed 100%);
+  box-shadow: 0 4px 20px rgba(194, 65, 12, 0.06);
+}
+.dkt-hero-drop.is-keo {
+  border-color: var(--rust, #c2410c);
+  background: var(--rust-soft, #fff7ed);
+  box-shadow: 0 0 0 6px rgba(194, 65, 12, 0.12);
+  transform: scale(1.01);
+}
+
+.dkt-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: rgba(194, 65, 12, 0.08);
+  color: var(--rust, #c2410c);
+  margin-bottom: 16px;
+  transition: all 0.25s ease;
+}
+.dkt-hero-drop:hover .dkt-hero__badge {
+  transform: translateY(-2px) scale(1.05);
+  background: var(--rust, #c2410c);
+  color: #ffffff;
+  box-shadow: 0 6px 16px rgba(194, 65, 12, 0.25);
+}
+
+.dkt-hero__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink, #0f172a);
+}
+.dkt-hero__desc {
+  margin: 6px 0 20px;
+  font-size: 13px;
+  color: var(--ash, #64748b);
+  max-width: 480px;
+  line-height: 1.5;
+}
+
+.dkt-hero__btn {
+  margin-bottom: 20px;
+}
+
+.dkt-hero__formats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.dkt-fmt-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(100, 116, 139, 0.08);
+  color: var(--ash-2, #475569);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.dkt-fmt-hint {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-left: 2px;
+}
+
+/* ---- 2. Vùng Upload thu gọn (Compact Dropbar - Khi ĐÃ có tệp) -------------------------------- */
+.dkt-compact-drop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  border: 1.5px dashed var(--rule-soft, #cbd5e1);
+  border-radius: 10px;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+}
+.dkt-compact-drop:hover {
+  border-color: var(--rust, #c2410c);
+  background: #fff7ed;
+}
+.dkt-compact-drop.is-keo {
+  border-color: var(--rust, #c2410c);
+  background: #fff7ed;
+  box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.1);
+}
+
+.dkt-compact__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.dkt-compact__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(194, 65, 12, 0.08);
+  color: var(--rust, #c2410c);
+  flex: none;
+}
+.dkt-compact__text {
+  min-width: 0;
+}
+.dkt-compact__lead {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink, #0f172a);
+}
+.dkt-compact__hint {
+  margin: 1px 0 0;
+  font-size: 11px;
+  color: var(--ash, #64748b);
+}
+.dkt-compact__btn {
+  flex: none;
+}
+
+/* ---- Khóa chỉnh sửa ------------------------------------------------------------------------- */
+.dkt-khoa {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--r-3, 8px);
+  background: var(--amber-soft, #fffbeb);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--amber-deep, #92400e);
+  font-size: var(--fs-sm, 13px);
+  font-weight: 500;
+}
+.dkt-khoa svg { flex: none; }
+
+/* ---- Action Buttons -------------------------------------------------------------------------- */
+.dkt-nut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: var(--r-3, 6px);
+  background: #ffffff;
+  color: var(--ink, #1e293b);
+  font: inherit;
+  font-size: var(--fs-xs, 12px);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.dkt-nut:hover {
+  border-color: #cbd5e1;
+  background: var(--paper, #f8fafc);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.dkt-nut:focus-visible { outline: 2px solid var(--rust, #c2410c); outline-offset: 2px; }
+
+.dkt-nut--xem {
+  color: #0284c7;
+  border-color: #e0f2fe;
+  background: #f0f9ff;
+}
+.dkt-nut--xem:hover {
+  border-color: #7dd3fc;
+  background: #e0f2fe;
+}
+
+.dkt-nut--tai {
+  color: #059669;
+  border-color: #d1fae5;
+  background: #ecfdf5;
+}
+.dkt-nut--tai:hover {
+  border-color: #6ee7b7;
+  background: #d1fae5;
+}
+
+.dkt-nut--xoa {
+  color: var(--signal, #dc2626);
+  border-color: #fee2e2;
+  background: #fef2f2;
+}
+.dkt-nut--xoa:hover {
+  border-color: #fca5a5;
+  background: #fee2e2;
+}
+
+/* ---- Hàng chờ tải lên ------------------------------------------------------------------------ */
+.dkt-hang {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--r-4, 10px);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.dkt-hang__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dkt-hang__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(194, 65, 12, 0.2);
+  border-top-color: var(--rust, #c2410c);
+  border-radius: 50%;
+  animation: dktSpin 0.7s linear infinite;
+}
+@keyframes dktSpin {
+  to { transform: rotate(360deg); }
+}
+.dkt-hang__tong {
+  margin: 0;
+  font-size: var(--fs-xs, 12px);
+  font-weight: 600;
+  color: var(--ink, #1e293b);
+}
+.dkt-hang__list,
+.dkt-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dkt-viec {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--r-3, 6px);
+  background: #ffffff;
+}
+.dkt-viec--loi {
+  border-color: #fca5a5;
+  background: #fff;
+  box-shadow: inset 3px 0 0 var(--signal, #dc2626);
+}
+.dkt-viec__info { flex: 1 1 240px; min-width: 0; }
+.dkt-viec__ten {
+  margin: 0;
+  font-size: var(--fs-sm, 13px);
+  font-weight: 500;
+  color: var(--ink, #0f172a);
+  overflow-wrap: anywhere;
+}
+.dkt-viec__trang-thai {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 0;
+  font-size: var(--fs-xs, 12px);
+  color: var(--ash, #64748b);
+}
+.dkt-viec--loi .dkt-viec__trang-thai { color: var(--signal, #dc2626); }
+.dkt-viec__co { color: var(--ash-2, #475569); }
+.dkt-viec__nut { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---- Trạng thái Tải / Lỗi -------------------------------------------------------------------- */
+.dkt-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 0;
+  font-size: 13px;
+  color: var(--ash, #64748b);
+}
+
+.dkt-loi-nap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--r-3, 6px);
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  color: #b91c1c;
+  font-size: var(--fs-sm, 13px);
+}
+
+/* ---- Danh sách tệp đã lưu -------------------------------------------------------------------- */
+.dkt-sec {
+  display: grid;
+  gap: 10px;
+}
+.dkt-sec__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 2px;
+}
+.dkt-sec__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink, #1e293b);
+  letter-spacing: 0.01em;
+}
+
+.dkt-tep {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-hair, #e2e8f0);
+  border-radius: var(--r-4, 10px);
+  background: #ffffff;
+  transition: all 0.2s ease;
+}
+.dkt-tep:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+
+.dkt-tep__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--rule-hair, #e2e8f0);
+  border-radius: 8px;
+  background: var(--paper, #f8fafc);
+  color: var(--ink, #1e293b);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex: none;
+}
+button.dkt-tep__thumb { cursor: zoom-in; }
+button.dkt-tep__thumb:focus-visible { outline: 2px solid var(--rust, #c2410c); outline-offset: 2px; }
+.dkt-tep__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s ease;
+}
+button.dkt-tep__thumb:hover img {
+  transform: scale(1.08);
+}
+
+/* Color themed thumbnail badges */
+.dkt-thumb--pdf { background: #fef2f2; color: #dc2626; border-color: #fca5a5; }
+.dkt-thumb--img { background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
+.dkt-thumb--doc { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+.dkt-thumb--xls { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
+.dkt-thumb--cad { background: #fff7ed; color: #ea580c; border-color: #ffedd5; }
+.dkt-thumb--zip { background: #faf5ff; color: #9333ea; border-color: #e9d5ff; }
+.dkt-thumb--other { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
+
+.dkt-tep__info { min-width: 0; }
+.dkt-tep__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dkt-tep__ten {
+  margin: 0;
+  font-size: var(--fs-sm, 13px);
+  font-weight: 600;
+  color: var(--ink, #0f172a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dkt-tep:hover .dkt-tep__ten {
+  color: var(--rust, #c2410c);
+}
+
+.dkt-tag {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  flex: none;
+}
+.dkt-tag.dkt-thumb--pdf { background: #fee2e2; color: #b91c1c; }
+.dkt-tag.dkt-thumb--img { background: #d1fae5; color: #047857; }
+.dkt-tag.dkt-thumb--doc { background: #dbeafe; color: #1d4ed8; }
+.dkt-tag.dkt-thumb--xls { background: #dcfce7; color: #15803d; }
+.dkt-tag.dkt-thumb--cad { background: #ffedd5; color: #c2410c; }
+.dkt-tag.dkt-thumb--zip { background: #f3e8ff; color: #7e22ce; }
+.dkt-tag.dkt-thumb--other { background: #e2e8f0; color: #475569; }
+
+.dkt-tep__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0 0;
+  font-size: var(--fs-xs, 12px);
+  color: var(--ash, #64748b);
+}
+.dkt-meta-sep {
+  color: #cbd5e1;
+  font-size: 8px;
+}
+
+.dkt-tep__nut {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .dkt-hero-drop {
+    padding: 28px 16px;
+  }
+  .dkt-compact-drop {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dkt-tep {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .dkt-tep__thumb { width: 44px; height: 44px; }
+  .dkt-tep__nut {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+  .dkt-nut { min-height: 36px; padding: 0 12px; }
+}
+
+/* ---- Xem trước ảnh / PDF --------------------------------------------------------------------- */
+.dkt-xem {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4, 16px);
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(4px);
+}
+.dkt-xem__hop {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 100%);
+  height: min(90vh, 100%);
+  overflow: hidden;
+  border-radius: var(--r-6, 16px);
+  background: #0f172a;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.dkt-xem__dau {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  padding: 10px 12px 10px 20px;
+  background: #1e293b;
+  color: #f8fafc;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.dkt-xem__ten {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-sm, 14px);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.dkt-nut--toi {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f8fafc;
+}
+.dkt-nut--toi:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.15);
+}
+.dkt-xem__than {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #020617;
+  padding: 12px;
+}
+.dkt-xem__than img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+}
+.dkt-xem__than iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+  border-radius: 4px;
+}

@@ -265,6 +265,21 @@
 .rdx-perm__rows--noscope .rdx-perm__row {
   grid-template-columns: minmax(0, 1fr) 92px 92px;
 }
+/* Nhóm Tổ sản xuất: không có cột Thao tác (bốn quyền chi tiết thay nó). */
+.rdx-perm__rows--to .rdx-perm__colhead,
+.rdx-perm__rows--to .rdx-perm__row {
+  grid-template-columns: minmax(0, 1fr) 92px 148px;
+}
+.rdx-perm__tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  vertical-align: 1px;
+}
 .rdx-perm__colhead {
   padding-top: var(--sp-3);
   padding-bottom: var(--sp-3);
@@ -448,6 +463,10 @@
   .rdx-perm__rows--noscope .rdx-perm__colhead,
   .rdx-perm__rows--noscope .rdx-perm__row {
     grid-template-columns: minmax(0, 1fr) 56px 56px;
+  }
+  .rdx-perm__rows--to .rdx-perm__colhead,
+  .rdx-perm__rows--to .rdx-perm__row {
+    grid-template-columns: minmax(0, 1fr) 56px 116px;
   }
 }
 

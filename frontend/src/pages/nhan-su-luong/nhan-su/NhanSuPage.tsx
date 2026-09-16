@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { STATUS_LABEL } from "./shared/constants";
-import { errMsg, getAvatarClass, isEndingSoon } from "./shared/helpers";
+import { errMsg, getAvatarClass } from "./shared/helpers";
 import { KpiStrip, StatusBadge } from "./components/badges";
 import { RequestQueueModal } from "./modals/RequestQueueModal";
 import { JobGradesModal } from "./modals/JobGradesModal";
@@ -68,11 +68,20 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   const [listError, setListError] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
+  /** Chữ đã NGỪNG gõ 300ms mới đem đi hỏi máy chủ — gõ "Nguyễn" là 6 lượt tải nếu không chờ. */
+  const [qDebounced, setQDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setQDebounced(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
   const [statusFilter, setStatusFilter] = useState("");
   const [deptFilter, setDeptFilter] = useState<number | "">("");
   const [accountFilter, setAccountFilter] = useState(""); // "" | "yes" | "no"
   const [sort, setSort] = useState("code");
-  const [endingSoon, setEndingSoon] = useState(false); // KPI "sắp hết thử việc" (lọc client)
+  // KPI "sắp hết thử việc" — lọc ở MÁY CHỦ. Trước đây lọc trên trình duyệt trong đúng trang 20
+  // người đang tải: ai sắp hết thử việc mà nằm ở trang 2 thì không bao giờ hiện, và "Tổng" vẫn
+  // đếm cả người không khớp.
+  const [endingSoon, setEndingSoon] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -108,10 +117,11 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
     setLoading(true);
     api.employees
       .list(token, {
-        q: q || undefined,
+        q: qDebounced || undefined,
         status: statusFilter || undefined,
         department_id: deptFilter === "" ? undefined : deptFilter,
         has_account: accountFilter === "" ? undefined : accountFilter === "yes",
+        ending_soon: endingSoon || undefined,
         sort,
         page,
         size,
@@ -127,7 +137,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
       .finally(() => {
         if (luot === luotTai.current) setLoading(false);
       });
-  }, [token, q, statusFilter, deptFilter, accountFilter, sort, page]);
+  }, [token, qDebounced, statusFilter, deptFilter, accountFilter, endingSoon, sort, page]);
 
   /** Tải file .xlsx do MÁY CHỦ dựng.
    *
@@ -141,10 +151,14 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
     if (!token) return;
     setExporting(true);
     try {
+      // ĐỦ mọi bộ lọc của bảng — trước đây thiếu "Tài khoản" và "Sắp hết thử việc" nên file ra
+      // nhiều người hơn con số "Tổng" trên màn.
       const url = await api.employees.exportXlsxBlobUrl(token, {
-        q: q || undefined,
+        q: q.trim() || undefined,
         status: statusFilter || undefined,
         department_id: deptFilter === "" ? undefined : deptFilter,
+        has_account: accountFilter === "" ? undefined : accountFilter === "yes",
+        ending_soon: endingSoon || undefined,
         sort,
       });
       const a = document.createElement("a");
@@ -191,9 +205,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   }, [token]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / size)) : 1;
-  const rows = (data?.items ?? []).filter(
-    (e) => !endingSoon || isEndingSoon(e),
-  );
+  const rows = data?.items ?? [];
 
   return (
     <main className="ns ns2">
@@ -257,22 +269,27 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
               statusFilter={statusFilter}
               endingSoon={endingSoon}
               onPickAll={() => {
+                setPage(1);
                 setEndingSoon(false);
                 setStatusFilter("");
               }}
               onPickProbation={() => {
+                setPage(1);
                 setEndingSoon(false);
                 setStatusFilter("probation");
               }}
               onPickProbationEnded={() => {
+                setPage(1);
                 setEndingSoon(false);
                 setStatusFilter("probation_ended");
               }}
               onPickActive={() => {
+                setPage(1);
                 setEndingSoon(false);
                 setStatusFilter("active");
               }}
               onPickEndingSoon={() => {
+                setPage(1);
                 setStatusFilter("probation");
                 setEndingSoon(true);
               }}
@@ -729,9 +746,11 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
         <RequestQueueModal
           token={token!}
           onClose={() => setReqOpen(false)}
-          onDecided={() => {
-            loadReqs();
-            if (selectedId) load();
+          onCount={setReqCount}
+          // Duyệt là ghi vào hồ sơ (tên, phòng… đều là cột của bảng) ⇒ tải lại danh sách. Trước
+          // đây chỉ tải lại khi ĐANG mở một hồ sơ, nên duyệt từ màn danh sách thì bảng vẫn chữ cũ.
+          onDecided={(approved) => {
+            if (approved) load();
           }}
         />
       )}

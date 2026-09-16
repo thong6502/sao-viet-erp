@@ -103,7 +103,7 @@
   display: inline-flex;
   align-items: center;
   padding: 2px 6px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 600;
   color: var(--ash-2);
@@ -529,7 +529,6 @@
   padding: 14px 16px;
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
-  border-left: 4px solid var(--rule);
   border-radius: var(--r-5);
   box-shadow: 0 2px 8px -1px rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
   cursor: pointer;
@@ -544,12 +543,6 @@
   box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.08);
 }
 .tdsx-kb__card:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
-
-/* Status accent borders */
-.tdsx-kb__card--rush { border-left-color: var(--rust) !important; }
-.tdsx-kb__card--late { border-left-color: var(--signal) !important; }
-.tdsx-kb__card--running { border-left-color: var(--moss) !important; }
-.tdsx-kb__card--paused { border-left-color: var(--amber) !important; }
 
 /* Header row of card: Code + Rush/Step Pill */
 .tdsx-kb__card-head {
@@ -568,7 +561,7 @@
   color: var(--ink);
 }
 .tdsx-kb__ma {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-size: var(--fs-xs);
   letter-spacing: -0.01em;
@@ -649,7 +642,7 @@
 }
 .tdsx-kb__sl-pill svg { color: var(--ash-2); }
 .tdsx-kb__sl-pill strong {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: 700;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -804,7 +797,7 @@
   font-size: 13px;
   font-weight: 700;
   color: var(--ink);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
 }
 .tdsx-tm__control-range svg { color: var(--ash-2); }
 .tdsx-tm__today-btn {
@@ -932,7 +925,7 @@
   display: flex;
   align-items: center;
   padding-left: 8px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash-2);
   border-left: 1px dashed var(--rule-soft);
@@ -1099,7 +1092,7 @@
   align-items: center;
   gap: 5px;
   font-size: 11.5px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: 600;
   color: inherit;
   white-space: nowrap;
@@ -1151,7 +1144,7 @@
 }
 .tdsx-picker__row:last-child { border-bottom: 0; }
 .tdsx-picker__row:hover { background: var(--rust-soft); }
-.tdsx-picker__ma { font-family: var(--ff-num); font-weight: var(--fw-bold); }
+.tdsx-picker__ma { font-family: var(--ff-sans); font-weight: var(--fw-bold); }
 
 /* =============================== TAB THEO CA ================================================= */
 .tdsx-tc { margin-top: var(--sp-3); }
@@ -1246,7 +1239,7 @@
   color: var(--ink);
 }
 .tdsx-tc__cakhung {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 12px;
   color: var(--ash-2);
   background: var(--canvas);
@@ -1303,7 +1296,7 @@
 }
 
 .tdsx-tc__can {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: 600;
   color: var(--ash-2);
@@ -1392,7 +1385,7 @@
   background: var(--heat-0);
 }
 .tdsx-tc__vma {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-size: 12px;
   color: var(--ink);
@@ -1456,7 +1449,7 @@
 .tdsx-gt__label:hover { background: var(--rust-soft); }
 .tdsx-gt__label:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
 .tdsx-gt__row1 { display: flex; align-items: center; gap: var(--sp-2); }
-.tdsx-gt__ma { font-family: var(--ff-num); font-weight: var(--fw-bold); font-size: var(--fs-sm); color: var(--ink); }
+.tdsx-gt__ma { font-family: var(--ff-sans); font-weight: var(--fw-bold); font-size: var(--fs-sm); color: var(--ink); }
 .tdsx-gt__meta {
   font-size: var(--fs-xs);
   color: var(--ash);
@@ -1466,7 +1459,7 @@
 }
 .tdsx-gt__han { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-2xs); color: var(--ash); }
 .tdsx-gt__kehoach {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-2xs);
   color: var(--steel);
   overflow: hidden;

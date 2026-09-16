@@ -15,7 +15,7 @@ export interface FieldDef {
   // mã như `don_vi_gia` (quy đổi làm việc trên mã `kg`/`to`, không trên id).
   // `self-ref-multi` = như `ref-multi` nhưng nguồn chọn là CHÍNH danh mục đang mở (NVL thay thế) —
   // CatalogDrawer tự loại dòng đang sửa khỏi danh sách, người khai không tự chọn được chính mình.
-  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "self-ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do" | "may-cua-cong-doan";
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "self-ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do" | "may-cua-cong-doan" | "viec-phat-sinh";
   /** Ô `select`: danh sách chọn. Nhận cả HÀM (như `hint`/`an`) cho menu mà nhãn đến MUỘN hơn
    *  lúc khai config — 5 chặng dòng giấy nạp từ `/api/don-vi/tram`, mảng dựng sẵn ở tầm module sẽ
    *  đóng băng lúc bảng còn rỗng. Hàm được gọi MỖI lần vẽ, nên vẽ lại là menu tự đầy. */
@@ -49,6 +49,17 @@ export interface FieldDef {
   group?: string;               // nhóm section trong drawer
   showIf?: (form: Record<string, unknown>) => boolean;  // ẩn/hiện field theo giá trị khác
   default?: unknown;            // prefill khi TẠO MỚI (giá trị thật, không phải placeholder "0")
+  /** Prefill khi TẠO MỚI, TÍNH TỪ form đang gõ — và tính LẠI mỗi khi form đổi, CHỪNG NÀO người
+   *  khai chưa tự sửa ô này (sửa rồi, kể cả xoá trắng, thì máy thôi đụng vào).
+   *
+   *  Khác `default` ở chỗ giá trị đúng phụ thuộc ô khác mà ô đó lại chọn SAU khi drawer đã mở:
+   *  công thức tiền giấy nhân định lượng × diện tích khi ĐVT là kg, nhưng chỉ `đơn giá × số tờ`
+   *  khi bán theo tờ — điền một chuỗi rồi mặc kệ là điền sai cho nửa số mặt hàng, mà sai kiểu đó
+   *  vẫn ra một con số trông hợp lý nên không ai soi ra.
+   *
+   *  KHÔNG chạy khi đang SỬA: bản ghi cũ để trống ô là một quyết định đã có, tự điền vào lúc mở
+   *  ra xem là sửa dữ liệu sau lưng người dùng. */
+  macDinhTheo?: (form: Record<string, unknown>) => unknown;
   jsonKey?: string;             // field lưu LỒNG trong cột JSON này (vd "fields_theo_loai")
 }
 
@@ -185,6 +196,10 @@ export interface BacRow { sl_tu?: number | null; sl_den?: number | null; gia_tri
 
 /** Một khoản chuẩn bị của máy (thay giấy 15p · thay mực 18p). Tổng là ô CHỈ ĐỌC, tự cộng. */
 export interface ChuanBiKhoanRow { ten?: string; phut?: number }
+
+/** Một VIỆC PHÁT SINH của công việc khoán (Thay kẽm · 100 đ · bản kẽm). `id` có khi dòng đã lưu —
+ *  gửi ngược lên để server sửa đúng dòng đó thay vì đẻ dòng mới. `don_vi` là MÃ đơn vị. */
+export interface ViecPhatSinhRow { id?: number; ten?: string; don_gia?: number | null; don_vi?: string }
 
 /** Việc con bên trong một gói bảo trì. */
 export interface HangMucConRow { id?: string; ten?: string }

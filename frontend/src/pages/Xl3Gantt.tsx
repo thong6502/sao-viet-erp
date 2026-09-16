@@ -1,9 +1,10 @@
 // XẾP LỊCH 3 — LƯỚI GANTT (GỌN GÀNG · TINH TẾ · CHUYÊN NGHIỆP)
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, Layers, Sparkles, Target, Truck } from "lucide-react";
 import type { Xl3Dong } from "../api/client";
 import {
-  classHan, gio, khoiChay, khoiThucTe, khungBao, khungDaVaoViec, khungLuoi, nhanNgay, ngayNgan,
-  pxSangGio, themNgay, thoiLuong, treHan, veDen, veTu, x,
+  classHan, gio, gioChu, khoiChay, khoiThucTe, khungBao, khungDaVaoViec, khungLuoi, nacCuaSo, nhanNgay, ngayGio, ngayNgan,
+  pxSangGio, themNgay, treHan, veDen, veTu, x,
 } from "./xl3Shared";
 
 export interface Xl3GanttProps {
@@ -17,7 +18,8 @@ export interface Xl3GanttProps {
   chonId: number | null;
   suaDuoc: boolean;
   onChon(lsxId: number): void;
-  onDatMoc(lsxId: number, batDauAt: string, expectedUpdatedAt: string | null): void;
+  /** Trả Promise thì thanh ĐỨNG YÊN chỗ vừa thả cho tới khi lưu xong — không nháy về chỗ cũ. */
+  onDatMoc(lsxId: number, batDauAt: string, expectedUpdatedAt: string | null): void | Promise<void>;
   keoTuHangCho: number | null;
 }
 
@@ -51,6 +53,7 @@ export function Xl3Gantt({
   const nNgay = soNgay ?? 7;
   const nghi = useMemo(() => new Set(ngayNghi ?? []), [ngayNghi]);
   const { nhanW, ngayW, dongH } = khungLuoi(useBeNgangCuaSo(), nNgay);
+  const nac = nacCuaSo(nNgay);
   const rongLuoi = ngayW * nNgay;
   const ngays = Array.from({ length: nNgay }, (_, i) => themNgay(tu, i));
   const luoiRef = useRef<HTMLDivElement | null>(null);
@@ -91,6 +94,13 @@ export function Xl3Gantt({
   >(null);
   const keoRef = useRef(keo);
   keoRef.current = keo;
+  // Vừa thả một thanh đã KÉO ⇒ nuốt cú `click` trình duyệt bắn ngay sau `mouseup`, không thì dòng
+  // nhận click và popup chi tiết bật lên sau mỗi lần kéo. Tự tắt ở lượt kế tiếp của vòng sự kiện:
+  // thả ra ngoài dòng thì không có click nào để nuốt, cờ không được treo sang cú bấm thật sau đó.
+  const vuaKeoRef = useRef(false);
+  // Thanh vừa thả, ĐANG LƯU: giữ nó ở chỗ thả. Xoá trạng thái kéo mà không giữ thì thanh vẽ lại
+  // theo mốc CŨ trong lúc chờ máy chủ — người dùng thấy nó bật về rồi mới nhảy sang.
+  const [choLuu, setChoLuu] = useState<{ lsxId: number; trai: number } | null>(null);
 
   const xTrongLuoi = useCallback((clientX: number): number => {
     const box = luoiRef.current?.getBoundingClientRect();
@@ -115,11 +125,14 @@ export function Xl3Gantt({
       const k = keoRef.current;
       setKeo(null);
       if (!k || !k.diChuyen) return;
+      vuaKeoRef.current = true;
+      window.setTimeout(() => { vuaKeoRef.current = false; }, 0);
       const d = dong.find((r) => r.lsx_id === k.lsxId);
       if (!d) return;
       const gioMoi = pxSangGio(k.trai, tu, 15, ngayW);
       if (gioMoi.slice(0, 16) === (d.bat_dau_at ?? "").slice(0, 16)) return;
-      onDatMoc(k.lsxId, gioMoi, d.updated_at);
+      setChoLuu({ lsxId: k.lsxId, trai: k.trai });
+      Promise.resolve(onDatMoc(k.lsxId, gioMoi, d.updated_at)).finally(() => setChoLuu(null));
     };
     window.addEventListener("mousemove", di);
     window.addEventListener("mouseup", tha);
@@ -145,7 +158,7 @@ export function Xl3Gantt({
           const hasLoad = st && st.count > 0;
           const ngaySo = d.slice(8, 10); // Lấy số ngày (VD: "10")
 
-          if (nNgay >= 30) {
+          if (nac === 30) {
             return (
               <div
                 key={d}
@@ -160,7 +173,7 @@ export function Xl3Gantt({
             );
           }
 
-          if (nNgay >= 14) {
+          if (nac === 14) {
             return (
               <div
                 key={d}
@@ -215,8 +228,48 @@ export function Xl3Gantt({
         )}
 
         {dong.length === 0 && (
-          <div className="xl3-trong-box">
-            <p>Khung thời gian này chưa có lệnh nào được xếp. Kéo thả một thẻ từ Hàng chờ vào lưới để đặt giờ.</p>
+          <div className="xl3-gantt__empty-container">
+            {/* Hàng lưới rỗng tạo background chuẩn cho khung Gantt */}
+            {Array.from({ length: 6 }).map((_, idx) => (
+              <div key={idx} className="xl3-hang xl3-hang--trong" style={{ height: dongH }}>
+                <div className="xl3-hang__nhan" style={{ width: nhanW }} />
+                <div className="xl3-hang__luoi" style={{ width: rongLuoi }}>
+                  {ngays.map((n, i) => (
+                    <span
+                      key={n}
+                      className={`xl3-cot${nghi.has(n) ? " xl3-cot--nghi" : ""}`}
+                      style={{ left: i * ngayW, width: ngayW }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {/* Box thông báo trống căn chỉnh chuẩn giữa vùng lịch */}
+            <div className="xl3-trong-box-wrap" style={{ paddingLeft: nhanW }}>
+              <div className="xl3-trong-box">
+                <div className="xl3-trong-icon-wrap">
+                  <CalendarDays size={24} />
+                </div>
+                <h3>Khung thời gian chưa có lệnh xếp</h3>
+                <p>
+                  Kéo thả một thẻ từ <strong>Hàng chờ</strong> ở bên trái vào ô thời gian tương ứng trên lưới để đặt giờ sản xuất.
+                </p>
+                <div className={`xl3-trong-hint${keoTuHangCho ? " xl3-trong-hint--active" : ""}`}>
+                  {keoTuHangCho ? (
+                    <>
+                      <Sparkles size={14} />
+                      <span>Thả thẻ vào lưới để đặt mốc xếp lịch</span>
+                    </>
+                  ) : (
+                    <>
+                      <Layers size={14} />
+                      <span>Kéo thẻ từ Hàng chờ vào đây</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -224,7 +277,7 @@ export function Xl3Gantt({
           const dangKeo = keo !== null && keo.lsxId === d.lsx_id && keo.diChuyen;
           const bao = khungBao(d, tu, rongLuoi, ngayW);
           const daVaoViec = khungDaVaoViec(d, tu, rongLuoi, ngayW);
-          const traiKeo = dangKeo ? keo!.trai : null;
+          const traiKeo = dangKeo ? keo!.trai : choLuu?.lsxId === d.lsx_id ? choLuu.trai : null;
           const rongThat = bao
             ? ((Date.parse(veDen(d) ?? "") - Date.parse(d.bat_dau_at ?? "")) / NGAY_MS) * ngayW
             : 0;
@@ -235,7 +288,7 @@ export function Xl3Gantt({
               key={d.lsx_id}
               className={`xl3-hang${chonId === d.lsx_id ? " xl3-hang--chon" : ""}`}
               style={{ height: dongH }}
-              onClick={() => onChon(d.lsx_id)}
+              onClick={() => { if (!vuaKeoRef.current) onChon(d.lsx_id); }}
             >
               {/* Cột nhãn trái (260px màn rộng, co còn 184px khi màn hẹp — xem `khungLuoi`) */}
               <div className="xl3-hang__nhan" style={{ width: nhanW }}>
@@ -254,13 +307,25 @@ export function Xl3Gantt({
                   </div>
                 )}
 
-                <div className="xl3-hang__phu" title={`${d.customer_name ?? "Khách lẻ"}${d.so_luong_dat ? ` · ${d.so_luong_dat.toLocaleString("vi-VN")} ${d.don_vi_tinh ?? "sp"}` : ""}${d.may_ten ? ` · ${d.may_ten}` : ""}`}>
-                  <span className="xl3-hang__khach">{d.customer_name ?? "Khách lẻ"}</span>
-                  {d.so_luong_dat > 0 && (
-                    <span className="xl3-hang__sl"> · {d.so_luong_dat.toLocaleString("vi-VN")} {d.don_vi_tinh ?? "sp"}</span>
+                <div className="xl3-hang__dong-khach">
+                  <div className="xl3-hang__phu" title={`${d.customer_name ?? "Khách lẻ"}${d.may_ten ? ` · ${d.may_ten}` : ""}`}>
+                    <span className="xl3-hang__khach">{d.customer_name ?? "Khách lẻ"}</span>
+                    {d.may_ten && <span className="xl3-hang__may"> · {d.may_ten}</span>}
+                  </div>
+                  {tre !== null && tre > 0 && (
+                    <span className="xl3-hang__tre" title={`Dự kiến xong sau hạn SX ${tre} ngày`}>Trễ hạn</span>
                   )}
-                  {d.may_ten && <span className="xl3-hang__may"> · {d.may_ten}</span>}
                 </div>
+
+                {/* Sản lượng · số tờ in · con/tờ — ba số người điều độ đọc để ước độ nặng của lệnh. */}
+                {(() => {
+                  const sl = [
+                    d.so_luong_dat > 0 ? `${d.so_luong_dat.toLocaleString("vi-VN")} ${d.don_vi_tinh ?? "sp"}` : null,
+                    d.so_to_ke_hoach > 0 ? `${d.so_to_ke_hoach.toLocaleString("vi-VN")} tờ` : null,
+                    `${d.so_con} con/tờ`,
+                  ].filter(Boolean).join(" · ");
+                  return <div className="xl3-hang__sl" title={sl}>{sl}</div>;
+                })()}
               </div>
 
               {/* Lưới Gantt Bar Chuẩn Studio */}
@@ -273,11 +338,49 @@ export function Xl3Gantt({
                   />
                 ))}
 
-                {d.han_hoan_thanh_sx && (() => {
-                  const hx = x(`${d.han_hoan_thanh_sx}T23:59`, tu, ngayW);
-                  return hx !== null && hx >= 0 && hx <= rongLuoi ? (
-                    <span className="xl3-han" style={{ left: hx }} title={`Mục tiêu hoàn thành SX ${ngayNgan(d.han_hoan_thanh_sx)}`} />
-                  ) : null;
+                {/* Hai vạch hạn, CÓ CHỮ: vạch trơn chỉ nói "có một mốc", không nói mốc gì — người
+                    điều độ phải rê chuột từng vạch mới biết đâu là hạn SX, đâu là ngày giao khách.
+                    Cùng một ngày thì gộp một vạch, không thì hai chữ đè lên nhau. */}
+                {(() => {
+                  const cungNgay = d.han_hoan_thanh_sx && d.han_hoan_thanh_sx === d.han_giao_khach;
+                  const vach = (ngay: string | null, loai: "sx" | "kh", chu: string, title: string) => {
+                    if (!ngay) return null;
+                    const hx = x(`${ngay}T23:59`, tu, ngayW);
+                    if (hx === null || hx < 0 || hx > rongLuoi) return null;
+                    // Vạch sát mép phải: lật chữ sang TRÁI vạch, không thì chữ tràn ra ngoài lưới.
+                    const lat = hx > rongLuoi - 85;
+                    return (
+                      <div
+                        key={loai}
+                        className={`xl3-han xl3-han--${loai}${lat ? " xl3-han--lat" : ""}`}
+                        style={{ left: hx }}
+                        title={title}
+                      >
+                        <span className="xl3-han-tag">
+                          {cungNgay ? (
+                            <>
+                              <Target size={10} className="xl3-han-svg" />
+                              <Truck size={10} className="xl3-han-svg" />
+                            </>
+                          ) : loai === "kh" ? (
+                            <Truck size={10} className="xl3-han-svg" />
+                          ) : (
+                            <Target size={10} className="xl3-han-svg" />
+                          )}
+                          <span className="xl3-han-text">{chu}</span>
+                        </span>
+                      </div>
+                    );
+                  };
+                  return (
+                    <>
+                      {!cungNgay && vach(d.han_giao_khach, "kh", "giao khách", `Hạn giao khách ${ngayNgan(d.han_giao_khach)} (Nghiêm ngặt)`)}
+                      {vach(
+                        d.han_hoan_thanh_sx, "sx", cungNgay ? "hạn SX · giao khách" : "hạn SX",
+                        `Hạn hoàn thành SX ${ngayNgan(d.han_hoan_thanh_sx)}${cungNgay ? " — cũng là ngày giao khách" : ""}`,
+                      )}
+                    </>
+                  );
                 })()}
 
                 {/* ĐOẠN ĐÃ VÀO VIỆC — cố định, không kéo được. Nó là chuyện đã rồi; cho kéo thì
@@ -310,7 +413,7 @@ export function Xl3Gantt({
                       left: traiKeo ?? bao.trai,
                       width: traiKeo !== null ? Math.max(12, rongThat) : bao.rong,
                     }}
-                    title={`${d.ma} · ${d.ten ?? ""} · ${d.thuc_bat_dau_lenh ? "phần còn lại " : ""}${gio(d.bat_dau_at)} → ${gio(veDen(d))} · Chạy ${thoiLuong(d.chay_phut)}, nghỉ ${thoiLuong(d.nghi_ngoai_ca_phut)}`}
+                    title={`${d.ma} · ${d.ten ?? ""} · ${d.thuc_bat_dau_lenh ? "phần còn lại " : ""}${gio(d.bat_dau_at)} → ${gio(veDen(d))} · Làm ${gioChu(d.chay_phut)}, nghỉ & ngoài ca ${gioChu(d.nghi_ngoai_ca_phut)}`}
                     onMouseDown={(e) => {
                       if (!suaDuoc || e.button !== 0) return;
                       e.preventDefault();
@@ -344,11 +447,25 @@ export function Xl3Gantt({
                   </div>
                 )}
 
-                {tre !== null && tre > 0 && bao && (
-                  <span className="xl3-tre-chip" style={{ left: bao.trai + bao.rong + 6 }}>
-                    trễ {tre} ngày
-                  </span>
-                )}
+                {/* Nhãn NGÀY XONG cạnh đuôi thanh — mục tiêu của cả màn là "đặt giờ bắt đầu → ra ngày
+                    kết thúc", nên ngày kết thúc phải đọc được không cần rê chuột. Ẩn khi đang kéo
+                    (số cũ, sai ngay) và khi thanh tràn mép phải (đuôi nằm ngoài cửa sổ). Không đủ
+                    chỗ bên phải thì lật sang trái đầu thanh; không đủ cả hai thì để lưới cắt. */}
+                {bao && !bao.tranPhai && !dangKeo && (() => {
+                  const muon = tre !== null && tre > 0;
+                  const rongChu = muon ? 200 : 110;
+                  const phai = bao.trai + bao.rong + 6;
+                  const lat = phai + rongChu > rongLuoi && bao.trai - 6 - rongChu >= 0;
+                  return (
+                    <span
+                      className={`xl3-xong${muon ? " xl3-xong--tre" : ""}${lat ? " xl3-xong--lat" : ""}`}
+                      style={{ left: lat ? bao.trai - 6 : phai }}
+                    >
+                      {muon && <>⚠ trễ {tre} ngày · </>}
+                      xong <b>{ngayGio(veDen(d))}</b>
+                    </span>
+                  );
+                })()}
               </div>
             </div>
           );

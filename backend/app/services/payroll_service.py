@@ -1026,7 +1026,7 @@ class PayrollService:
 
     def _compute(self, *, employee, salary, params, actual_cong, standard_cong,
                  vi_pham=0.0, other_bonus=0.0, khoan=0.0, khoan_km=0.0, khoan_defect=0.0,
-                 thuong_to_truong=0.0, hoa_hong=0.0, pit_override=None,
+                 hoa_hong=0.0, pit_override=None,
                  ot_minutes=0, night_days=0, holiday_cong=0.0, restday_cong=0.0, plain_cong=0.0,
                  paid_leave_cong=0.0, excused_cong=0.0, le_nghi_cong=0.0,
                  ot_holiday_minutes=0, ot_restday_minutes=0,
@@ -1442,14 +1442,9 @@ class PayrollService:
         # `khoan_km` cộng như `khoan` — không prorate theo công, không nhân hệ số thử việc. Từ 15/09/2026
         # tài xế KHÔNG còn ăn lương chấm công cộng thêm: `luong_cong` của họ = 0 (xem khối tài xế ở trên).
         # Và nó CHỊU TNCN: không nằm trong `mien_ngoai_danh_muc` nên tự động vào thu nhập chịu thuế.
-        # `thuong_to_truong` CÓ THỂ ÂM (bậc phạt) và cộng ĐẠI SỐ vào gross — cùng lối `dieu_chinh_luong`.
-        # Không đưa vào khối `vi_pham` dù phần âm là "phạt": khối đó là khấu trừ kỷ luật SAU thuế,
-        # bị kẹp trần 30% (Điều 102). Thưởng/phạt chất lượng là ĐIỀU CHỈNH THU NHẬP khoán — trả
-        # nhiều hơn hay ít hơn cho cùng lượng hàng làm ra — nên phải chảy vào thu nhập chịu thuế
-        # cùng chỗ với `khoan`, không phải vào trần khấu trừ.
         # `luong_ngay_le` (công lễ nghỉ của người khoán / tài xế) cộng như `khoan` — xem khối bù lỗ ở trên.
         gross_pre = (luong_cong + luong_ngay_le + chuyen_can + allowance + float(khoan) + float(khoan_km)
-                     + float(thuong_to_truong) + float(hoa_hong)
+                     + float(hoa_hong)
                      + ot_pay + night_pay + night_premium_pay + float(other_bonus)
                      + meal_allowance_pay + shift_allowance_pay + com_tang_ca_pay
                      + extra_income + extra_thu_line)
@@ -1604,7 +1599,6 @@ class PayrollService:
             "he_so_phu_cap": he_so_phu_cap,
             "khoan": _round(khoan),
             "khoan_km": _round(khoan_km),
-            "thuong_to_truong": _round(thuong_to_truong),
             # Hoa hồng KD — cột riêng (07/09/2026): cộng thẳng vào gross, chịu thuế, không sửa tay.
             "hoa_hong": _round(hoa_hong),
             "ot_minutes": int(ot_minutes),
@@ -1712,20 +1706,6 @@ class PayrollService:
                 khoan_km_map = KhoanKmService(self.components.db).theo_ky(year, month)
             except Exception:                                   # noqa: BLE001 — xem ghi chú trên
                 khoan_km_map = {}
-        # Thưởng/phạt tổ trưởng theo chất lượng (mg 0266) — dòng đã GHI SẴN lúc đóng nhóm thành
-        # phẩm (`services/san_xuat/thuong_to_truong.py`), ở đây chỉ CỘNG LẠI theo người, không
-        # tính lại: bậc thưởng hay tổ trưởng đổi sau khi nhóm đóng không được làm lệch số đã chốt.
-        # Cùng khuôn `khoan_km_map`, kể cả khối `try` cho DB tối giản của unit test.
-        thuong_tt_map: dict[int, float] = {}
-        if self.components is not None:
-            from ..repositories.thuong_to_truong_repo import ThuongToTruongRepository
-            try:
-                for r in ThuongToTruongRepository(self.components.db).theo_ky(year, month):
-                    thuong_tt_map[r.employee_id] = (
-                        thuong_tt_map.get(r.employee_id, 0.0) + float(r.so_tien or 0)
-                    )
-            except Exception:                                   # noqa: BLE001 — xem ghi chú trên
-                thuong_tt_map = {}
         # Trừ lỗi khoán theo NGƯỜI (Điều 102: gộp vào trần khấu trừ 30%).
         defect_map = self.piece.defect_map(year, month) if self.piece is not None else {}
         brackets = self.get_pit_brackets()
@@ -1761,13 +1741,11 @@ class PayrollService:
             # Khoán km cũng phải nằm TRƯỚC cổng: tài xế nghỉ việc giữa kỳ vẫn còn tiền các
             # chuyến đã chạy. Bỏ ra khỏi `has_work` là họ không có dòng lương nào — cùng bẫy đã
             # cắn với hoa hồng.
-            # Thưởng/phạt tổ trưởng cũng phải nằm TRƯỚC cổng, cùng lý do với hoa hồng và khoán km:
-            # tổ trưởng nghỉ việc giữa kỳ vẫn còn tiền của những nhóm đã đóng trước đó.
-            # "Có việc thật" = có công (kể cả phép có lương), khoán, km, thưởng tổ, hoa hồng, hoặc
-            # HCNS đã sửa tay dòng đó. `bool(m)` cũ KHÔNG dùng được: bảng công tạo entry cho MỌI
-            # hàng kể cả 0 công, nên cổng dưới bị vô hiệu (bản rà liên thông A2, 08/09/2026).
+            # "Có việc thật" = có công (kể cả phép có lương), khoán, km, hoa hồng, hoặc HCNS đã sửa
+            # tay dòng đó. `bool(m)` cũ KHÔNG dùng được: bảng công tạo entry cho MỌI hàng kể cả 0
+            # công, nên cổng dưới bị vô hiệu (bản rà liên thông A2, 08/09/2026).
             has_work = (float(m.get("cong") or 0) > 0 or emp.id in khoan_map
-                        or emp.id in khoan_km_map or emp.id in thuong_tt_map
+                        or emp.id in khoan_km_map
                         or hoa_hong_tien > 0
                         or (existing is not None and _dong_co_sua_tay(existing)))
             # NGOÀI biên chế cả tháng (đã nghỉ việc, chưa vào làm, nghỉ dài hạn / đình chỉ, khoảng
@@ -1798,7 +1776,6 @@ class PayrollService:
                 employee=emp, salary=salary, params=params, actual_cong=actual_cong,
                 standard_cong=std, vi_pham=vi_pham, other_bonus=other_bonus, khoan=khoan,
                 khoan_km=float(khoan_km_map.get(emp.id, 0.0)),
-                thuong_to_truong=float(thuong_tt_map.get(emp.id, 0.0)),
                 hoa_hong=hoa_hong_tien,
                 pit_override=(float(existing.pit) if (existing is not None and existing.pit_manual)
                               else None),
@@ -1857,7 +1834,7 @@ class PayrollService:
                 chuyen_can=vals["chuyen_can"], allowance=vals["allowance"],
                 phu_cap_thang=vals["phu_cap_thang"], cong_phu_cap=vals["cong_phu_cap"],
                 phu_cap_tham_nien=vals["phu_cap_tham_nien"], khoan=vals["khoan"],
-                khoan_km=vals["khoan_km"], thuong_to_truong=vals["thuong_to_truong"],
+                khoan_km=vals["khoan_km"],
                 hoa_hong=vals["hoa_hong"],
                 ot_minutes=vals["ot_minutes"], ot_pay=vals["ot_pay"],
                 night_days=vals["night_days"], night_pay=vals["night_pay"],
@@ -2220,7 +2197,6 @@ class PayrollService:
         gross_pre = _round(extra_thu + float(ln.luong_cong) + float(getattr(ln, "luong_ngay_le", 0) or 0)
                            + float(ln.chuyen_can) + float(ln.allowance)
                            + float(ln.khoan) + float(getattr(ln, "khoan_km", 0) or 0)
-                           + float(getattr(ln, "thuong_to_truong", 0) or 0)
                            # Hoa hồng là CỘT (07/09/2026). Trước đó nó là dòng `auto` mà vế này
                            # không cộng ⇒ "Sửa 1 ô" làm bốc hơi hoa hồng (bản rà D1).
                            + float(getattr(ln, "hoa_hong", 0) or 0)

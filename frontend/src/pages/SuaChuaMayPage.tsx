@@ -33,14 +33,14 @@ interface FormState {
   bo_phan_hong: string;
   mo_ta: string;
   muc_do: string;
-  nguoi_bao_ten: string;
+  // KHÔNG có `nguoi_bao_ten`: người báo do server chốt (xem `SuaChuaIn` bên backend).
   nguyen_nhan_phuong_an: string;
   ghi_chu: string;
 }
 
 const FORM_RONG: FormState = {
   may_id: "", bo_phan_hong: "", mo_ta: "", muc_do: "trung_binh",
-  nguoi_bao_ten: "", nguyen_nhan_phuong_an: "", ghi_chu: "",
+  nguyen_nhan_phuong_an: "", ghi_chu: "",
 };
 
 interface YcFormState {
@@ -402,7 +402,7 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
   onClose: () => void;
   onSaved: (p: SuaChua) => void;
 }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [form, setForm] = useState<FormState>(FORM_RONG);
   const [luu, setLuu] = useState(false);
   const [dangDoi, setDangDoi] = useState(false);
@@ -414,9 +414,7 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
 
   const dong = hienTai?.trang_thai === "da_sua_xong";
   const khoaSua = !suaDuoc || dong;
-  // Phiếu SINH TỪ lời báo của bộ phận khác. Không phải mọi ô đều của tổ sửa chữa: tên người báo
-  // là snapshot TÀI KHOẢN đã bấm gửi yêu cầu — nó là đường duy nhất để hỏi lại khi phiếu thiếu
-  // chi tiết, gõ đè một cái là đứt.
+  // Phiếu SINH TỪ lời báo của bộ phận khác — mức độ/triệu chứng có lời nhắc riêng.
   const tuNguon = !!hienTai?.yeu_cau_ma;
 
   useEffect(() => {
@@ -426,7 +424,6 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
       bo_phan_hong: phieu.bo_phan_hong ?? "",
       mo_ta: phieu.mo_ta ?? "",
       muc_do: phieu.muc_do ?? "trung_binh",
-      nguoi_bao_ten: phieu.nguoi_bao_ten ?? "",
       nguyen_nhan_phuong_an: phieu.nguyen_nhan_phuong_an ?? "",
       ghi_chu: phieu.ghi_chu ?? "",
     } : FORM_RONG);
@@ -454,18 +451,16 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
 
   const luuPhieu = async () => {
     if (!token) return;
-    if (!form.may_id) { setLoi("Chưa chọn máy."); return; }
+    if (!hienTai && !form.may_id) { setLoi("Chưa chọn máy."); return; }
     if (!form.bo_phan_hong.trim()) { setLoi("Chưa ghi bộ phận hỏng."); return; }
     setLuu(true);
     setLoi(null);
     const body = {
-      may_id: Number(form.may_id),
+      // Máy chỉ gửi lúc LẬP phiếu — sửa phiếu thì máy đã chốt, server bỏ qua.
+      ...(hienTai ? {} : { may_id: Number(form.may_id) }),
       bo_phan_hong: form.bo_phan_hong.trim(),
       mo_ta: form.mo_ta.trim() || null,
       muc_do: form.muc_do,
-      // Phiếu có nguồn thì KHÔNG gửi ô này lên. Backend chặn đổi, nhưng gửi kèm giá trị cũ
-      // là thừa một cửa để lỡ tay ghi đè.
-      ...(tuNguon ? {} : { nguoi_bao_ten: form.nguoi_bao_ten.trim() || null }),
       nguyen_nhan_phuong_an: form.nguyen_nhan_phuong_an.trim() || null,
       ghi_chu: form.ghi_chu.trim() || null,
     };
@@ -557,14 +552,30 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
           )}
 
           {/* HAI khối chứ không một, vì HAI NGƯỜI khác nhau viết ra chúng: người phát hiện máy
-              hỏng kể chuyện, tổ sửa chữa kết luận. Gộp làm một khối 7 ô trắng như nhau thì ô
-              "Người báo" của phiếu sinh từ yêu cầu cũng gõ đè được — sửa xong là không còn ai
-              biết ai đã báo, mà đó chính là người duy nhất trả lời được câu "hỏng thế nào". */}
+              hỏng kể chuyện, tổ sửa chữa kết luận. */}
           <section className="rc-sec">
             <div className="rc-sec__title">Lời báo hỏng</div>
             <div className="rc-grid">
-              <ChonMay giaTri={form.may_id} may={may} loiMay={loiMay} khoa={khoaSua}
-                onChange={(v) => set("may_id", v)} />
+              {/* Máy CHỈ chọn lúc tự lập phiếu mới. Phiếu đã có thì máy là máy đã báo hỏng — chép từ
+                  yêu cầu hoặc chốt lúc lập — server không nhận đổi (`SUA_DUOC_SUA_CHUA`). */}
+              {hienTai ? (
+                <div className="rc-field">
+                  <span className="rc-field__label">Máy</span>
+                  <div className="ktm-nguon">
+                    <span className="ktm-nguon__ten">
+                      <Icon name="settings" size={13} />
+                      {hienTai.may_ma ? `${hienTai.may_ma} · ${hienTai.may_ten ?? ""}` : "—"}
+                    </span>
+                    <span className="ktm-nguon__vi">
+                      <Icon name="lock" size={11} />
+                      {tuNguon ? `Máy ghi trong ${hienTai.yeu_cau_ma}.` : "Máy chọn lúc lập phiếu."}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <ChonMay giaTri={form.may_id} may={may} loiMay={loiMay} khoa={khoaSua}
+                  onChange={(v) => set("may_id", v)} />
+              )}
 
               <label className="rc-field">
                 <span className="rc-field__label">Bộ phận hỏng *</span>
@@ -593,34 +604,29 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
                 )}
               </label>
 
-              {/* KHOÁ TẠI CHỖ, KHÔNG giấu đi: vẫn đọc được ai báo và nói luôn vì sao không sửa
-                  được. Giấu ô đi thì tổ sửa chữa tưởng phiếu thiếu dữ liệu. */}
-              {tuNguon ? (
-                <div className="rc-field">
-                  <span className="rc-field__label">Người báo</span>
-                  <div className="ktm-nguon">
-                    <span className="ktm-nguon__ten">
-                      <Icon name="users" size={13} />
-                      {hienTai?.nguoi_bao_ten || hienTai?.yeu_cau_nguoi_bao || "—"}
-                      {hienTai?.yeu_cau_bo_phan && <em>· {hienTai.yeu_cau_bo_phan}</em>}
-                    </span>
-                    <span className="ktm-nguon__vi">
-                      <Icon name="lock" size={11} />
-                      Tài khoản đã gửi {hienTai?.yeu_cau_ma}. Đổi ở đây là mất dấu ai báo máy hỏng.
-                    </span>
-                  </div>
+              {/* Người báo KHÔNG phải ô nhập ở bất kỳ phiếu nào (14/09/2026): server chốt lúc tạo
+                  — tài khoản đã gửi yêu cầu, hoặc tài khoản lập phiếu. Hiện tại chỗ, khoá, nói luôn
+                  lấy từ đâu; giấu ô đi thì tổ sửa chữa tưởng phiếu thiếu dữ liệu. */}
+              <div className="rc-field">
+                <span className="rc-field__label">Người báo</span>
+                <div className="ktm-nguon">
+                  <span className="ktm-nguon__ten">
+                    <Icon name="users" size={13} />
+                    {hienTai
+                      ? (hienTai.nguoi_bao_ten || hienTai.yeu_cau_nguoi_bao || "—")
+                      : (user?.name?.trim() || user?.username || "—")}
+                    {hienTai?.yeu_cau_bo_phan && <em>· {hienTai.yeu_cau_bo_phan}</em>}
+                  </span>
+                  <span className="ktm-nguon__vi">
+                    <Icon name="lock" size={11} />
+                    {tuNguon
+                      ? `Tài khoản đã gửi ${hienTai?.yeu_cau_ma}.`
+                      : hienTai
+                        ? "Tài khoản đã lập phiếu này."
+                        : "Ghi theo tài khoản đang đăng nhập."}
+                  </span>
                 </div>
-              ) : (
-                <label className="rc-field">
-                  <span className="rc-field__label">Người báo</span>
-                  {/* Phiếu tổ kỹ thuật TỰ lập: ô chữ, không tự điền người đang đăng nhập — thợ
-                      đứng máy báo miệng, tổ kỹ thuật nhập hộ. */}
-                  <input className="rc-input" value={form.nguoi_bao_ten} disabled={khoaSua}
-                    placeholder="Ai báo máy hỏng"
-                    onChange={(e) => set("nguoi_bao_ten", e.target.value)} />
-                  <span className="rc-field__hint">Tên người phát hiện, không phải người đang gõ.</span>
-                </label>
-              )}
+              </div>
 
               <label className="rc-field rc-field--full">
                 <span className="rc-field__label">Triệu chứng</span>
@@ -807,10 +813,6 @@ function KhungYeuCau({
             </span>
           )}
         </div>
-        <p className="rc__sub">
-          Bộ phận nào thấy máy hỏng cũng báo được ngay tại đây — kèm ảnh chụp là tốt nhất.
-          <strong> Tổ sửa chữa đọc rồi mới lập phiếu; nếu không lập, họ phải ghi lý do.</strong>
-        </p>
       </div>
 
       <div className="rc__unified-bar">

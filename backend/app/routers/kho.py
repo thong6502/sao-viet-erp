@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from ..db import get_db
-from ..deps import require_any_permission, require_permission
+from ..deps import require_permission, require_quyen_to
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
@@ -37,7 +37,7 @@ router = APIRouter(prefix="/api/kho", tags=["kho"])
 MODULE = "dm_kho_hang"
 # Đọc danh sách kho: người khai (module này) + mọi vai làm nghiệp vụ kho / mua hàng / sản xuất —
 # họ phải chọn kho ở phiếu, không thì dropdown rỗng mà không hiểu vì sao.
-_doc_kho = require_any_permission(
+_doc_kho = require_quyen_to("read", 
     (MODULE, "read"), ("kho", "read"), ("thu_mua", "read"), ("san_xuat", "read"))
 
 

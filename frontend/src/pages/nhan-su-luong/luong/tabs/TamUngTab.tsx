@@ -235,7 +235,7 @@ export function TamUngTab({
                 const pc = pcTheoTamUng.get(a.id) ?? null;
                 return (
                   <tr key={a.id}>
-                    <td className="font-mono">{a.code ?? "—"}</td>
+                    <td>{a.code ?? "—"}</td>
                     <td>
                       <b>{a.employee_name ?? `NV#${a.employee_id}`}</b>
                     </td>
@@ -243,7 +243,7 @@ export function TamUngTab({
                       <span className={`ns-badge ${kCls}`}>{kLabel}</span>
                     </td>
                     <td>{a.advance_date}</td>
-                    <td className="lg-num font-mono">{money(a.amount)}đ</td>
+                    <td className="lg-num">{money(a.amount)}đ</td>
                     <td>{a.reason ?? "—"}</td>
                     <td>
                       <span className={`ns-badge ${cls}`}>{label}</span>

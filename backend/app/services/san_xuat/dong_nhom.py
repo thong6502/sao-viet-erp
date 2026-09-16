@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from ...models.department import Department
 from ...models.san_xuat import (
     CV_HOAN_THANH,
     NHOM_DONG_DU,
@@ -32,7 +31,7 @@ from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ...repositories.san_xuat_phan_bo_repo import SanXuatPhanBoRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
-from . import thuong_to_truong
+from ..quyen_to import VIEC_KCS, quyen_cua_uid
 from .kcs import _EPS
 
 # Điều kiện KHÔNG thuộc "hoàn thành" — đóng thiếu vẫn phải thoả (§13.3).
@@ -183,7 +182,6 @@ def tu_dong_dong_neu_du(
         target=f"san_xuat_nhom:{nhom.id}",
         detail=f"su_kien={su_kien or 'auto'} order={nhom.order_id}",
     )
-    thuong_to_truong.ghi(db, nhom_id=nhom.id, actor=actor)
     db.commit()
     return {
         "nhom_id": nhom.id,
@@ -195,13 +193,11 @@ def tu_dong_dong_neu_du(
 
 
 def _gate_truong_kcs(db: Session, user, kcs_cvs: list) -> None:
-    """Chỉ trưởng KCS (head_user_id của MỘT tổ KCS cuối trong nhóm) mới được đóng thiếu (§13.3)."""
-    uid = getattr(user, "id", None)
-    for cv in kcs_cvs:
-        dept = db.get(Department, cv.department_id) if cv.department_id else None
-        if dept is not None and dept.head_user_id is not None and dept.head_user_id == uid:
-            return
-    raise PermissionError("Chỉ trưởng KCS của nhóm mới được đóng thiếu nhóm này.")
+    """Đóng thiếu (§13.3) đòi quyền KCS trên TRỌN MỘT tổ KCS cuối trong nhóm."""
+    q = quyen_cua_uid(db, getattr(user, "id", None))
+    if q is not None and any(q.co_tron(VIEC_KCS, cv.department_id) for cv in kcs_cvs):
+        return
+    raise PermissionError("Cần quyền KCS ở tổ KCS cuối của nhóm mới được đóng thiếu nhóm này.")
 
 
 def dong_thieu(
@@ -241,10 +237,6 @@ def dong_thieu(
         target=f"san_xuat_nhom:{nhom.id}",
         detail=f"order={nhom.order_id}",
     )
-    # Đóng THIẾU cũng phát thưởng: tổ vẫn đã làm ra chừng đó hàng với chừng đó lỗi. Bậc thưởng
-    # xét trên SẢN LƯỢNG THỰC — làm thiếu thì rơi xuống khoảng sản lượng thấp hơn, đó đã là hệ
-    # quả đúng; chặn hẳn ở đây là phạt hai lần cho cùng một chuyện.
-    thuong_to_truong.ghi(db, nhom_id=nhom.id, actor=user)
     db.commit()
     return {
         "nhom_id": nhom.id,

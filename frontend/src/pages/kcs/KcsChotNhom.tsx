@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError, api,
   type SxDongNhomDieuKien, type SxDongThieuIn, type SxKhoChiTiet,
-  type SxPhanLoaiBtpIn, type SxThuongToTruong, type SxWorkItem,
+  type SxPhanLoaiBtpIn, type SxWorkItem,
 } from "../../api/client";
 import { useAuth } from "../../auth/useAuth";
 import { Button } from "../../components/Button";
@@ -20,7 +20,7 @@ import { Icon } from "../../components/Icons";
 import { num } from "../keHoachSxShared";
 import { nhanDonVi } from "../lsxBuoc";
 import { useNapTenDonVi } from "../tenDonVi";
-import { ThsxDongNhomPanel, ThsxThuongToTruongPanel, PhanLoaiBtpForm, PL_LABEL } from "../ThsxG5";
+import { ThsxDongNhomPanel, PhanLoaiBtpForm, PL_LABEL } from "../ThsxG5";
 import "../thuc-hien-sx.css";
 
 interface NhomRow {
@@ -31,10 +31,13 @@ interface NhomRow {
 }
 
 export function KcsChotNhom({
-  items, canAssign, eventTick, onDone,
+  items, canDong, canPhanLoai, eventTick, onDone,
 }: {
   items: SxWorkItem[];
-  canAssign: boolean;
+  /** Đóng thiếu nhóm — quyền KCS trọn tổ. */
+  canDong: boolean;
+  /** Phân loại BTP dư — quyền Kho. */
+  canPhanLoai: boolean;
   /** Bump khi có sự kiện SX (SSE) — tải lại điều kiện của nhóm đang mở. */
   eventTick?: number;
   onDone: () => void;
@@ -84,7 +87,8 @@ export function KcsChotNhom({
               <span className="kcs-chot__sl">{n.viec.length} bước KCS</span>
             </button>
             {moId === n.nhomId && (
-              <ChotNhomThan nhom={n} token={token} canAssign={canAssign} eventTick={eventTick} onDone={onDone} />
+              <ChotNhomThan nhom={n} token={token} canDong={canDong} canPhanLoai={canPhanLoai}
+                eventTick={eventTick} onDone={onDone} />
             )}
           </li>
         ))}
@@ -94,17 +98,17 @@ export function KcsChotNhom({
 }
 
 function ChotNhomThan({
-  nhom, token, canAssign, eventTick, onDone,
+  nhom, token, canDong, canPhanLoai, eventTick, onDone,
 }: {
   nhom: NhomRow;
   token: string | null;
-  canAssign: boolean;
+  canDong: boolean;
+  canPhanLoai: boolean;
   eventTick?: number;
   onDone: () => void;
 }) {
   const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
   const [kho, setKho] = useState<SxKhoChiTiet | null>(null);
-  const [thuongTT, setThuongTT] = useState<SxThuongToTruong[] | null>(null);
   const [loi, setLoi] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [plOpen, setPlOpen] = useState(false);
@@ -115,11 +119,8 @@ function ChotNhomThan({
     Promise.all([
       api.sanXuat.dieuKienDongNhom(token, nhom.nhomId),
       api.sanXuat.khoChiTietNhom(token, nhom.nhomId).catch(() => null),
-      // `catch(() => null)` như khối kho: bảng thưởng là thông tin BÊN LỀ việc chốt nhóm — nó hỏng
-      // thì vẫn phải chốt được, không kéo cả màn về màn báo lỗi.
-      api.sanXuat.thuongToTruongNhom(token, nhom.nhomId).catch(() => null),
     ])
-      .then(([dk, k, tt]) => { setDieuKien(dk); setKho(k); setThuongTT(tt); setLoi(null); })
+      .then(([dk, k]) => { setDieuKien(dk); setKho(k); setLoi(null); })
       .catch((e) => setLoi(e instanceof ApiError ? e.message : "Không đọc được điều kiện đóng nhóm."));
   }, [token, nhom.nhomId]);
 
@@ -155,16 +156,14 @@ function ChotNhomThan({
     <div className="kcs-chot__than">
       {loi && <div className="banner banner--error" role="alert"><span>{loi}</span></div>}
 
-      <ThsxDongNhomPanel dieuKien={dieuKien} canAssign={canAssign} busy={busy}
+      <ThsxDongNhomPanel dieuKien={dieuKien} canAssign={canDong} busy={busy}
         onDongThieu={onDongThieu} />
-
-      <ThsxThuongToTruongPanel rows={thuongTT} />
 
       <section className="thsx-psec thsx-x">
         <div className="thsx-psec__h">
           <span className="thsx-psec__title"><Icon name="box" size={13} /> BTP dư</span>
         </div>
-        {canAssign && (
+        {canPhanLoai && (
           <div className="thsx-x-pb--empty">
             <span className="thsx-x-pb__none">Phân loại phần bán thành phẩm còn dư.</span>
             <Button variant="ghost" onClick={() => setPlOpen((o) => !o)} disabled={busy} aria-expanded={plOpen}>

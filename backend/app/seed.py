@@ -76,7 +76,9 @@ MODULES: list[tuple[str, str]] = [
     # Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH SẢN XUẤT. Khoá RIÊNG chứ không tick thêm bit vào
     # `xep_lich_2`: hai màn còn chạy song song tới lúc nghiệm thu, tách khoá thì tắt/bật từng màn
     # theo vai được. mg `0292` chép quyền cho DB đã có dữ liệu; ở đây là đường của DB TRẮNG.
-    ("xep_lich_3", "Xếp lịch 3"),
+    # NHÃN "Xếp lịch" (14/09/2026): menu đã gọi màn này là "Xếp lịch", ô quyền phải cùng tên để
+    # người cấp quyền dò theo màn hình. `seed_modules` tự đồng bộ nhãn vào DB lúc khởi động.
+    ("xep_lich_3", "Xếp lịch"),
     # HAI MÀN CHỈ ĐỌC (31/08/2026). Phạm vi của chúng bám `orders.sale_user_id` — phạm vi của
     # người BÁN — khác hẳn `san_xuat` vốn bám `lsx.nguoi_phu_trach_id` (người LÀM). Đó là lý do
     # phải là hai khoá riêng chứ không tick thêm bit vào `san_xuat`: sửa nghĩa scope của
@@ -489,13 +491,15 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "cham_cong": _cham_cong_self(),
         },
     ),
-    # Tổ trưởng SX: xem tổ mình (scope own) + GÁN thợ (can_assign_work) → hộp việc FULL + nút gán.
+    # Tổ trưởng SX. Thao tác ở Bàn tổ KHÔNG còn nằm ở đây: nó do dòng quyền theo tổ `to_sx_<id>` quyết
+    # (mg 0302, 14/09/2026) — quản trị tích trên ma trận cho đúng tổ. Ba ô Gán việc · Ghi sản lượng ·
+    # Bàn giao/nhận đã gỡ, không cấp lại.
     (
         "Sản xuất",
         "Tổ trưởng SX",
         {
             "dashboard": _read(SCOPE_OWN),
-            "san_xuat": {**_read(SCOPE_OWN), "can_assign_work": True, "can_record_output": True, "can_handover": True},
+            "san_xuat": _read(SCOPE_OWN),
             # ⚠️ KHÔNG cấp `lenh_san_xuat`/`theo_doi_san_xuat` ở đây (chốt 31/08/2026 — xem LUẬT
             # CẤP QUYỀN ghi ở khối `MODULES` phía trên, chỗ khai hai khoá này): tổ trưởng không
             # đọc `don_hang_ban`, còn `san_xuat` của vai này chỉ ở scope `own` — scope `own` trên
@@ -3141,6 +3145,10 @@ def seed_all(db: Session) -> None:
     """
     seed_modules(db)
     seed_departments(db)
+    # Dòng quyền theo tổ (`to_sx_<id>`, mg 0302) khớp cây phòng ban hiện tại — KHÔNG gated demo:
+    # phòng ban sửa ở DB thật cũng phải có dòng quyền tương ứng lúc khởi động.
+    from .services.quyen_to import dong_bo_dong_quyen_to
+    dong_bo_dong_quyen_to(db)
     seed_unit_levels(db)
     seed_roles(db)
     seed_admin(db)
@@ -3187,6 +3195,11 @@ def seed_all(db: Session) -> None:
         # Vai trò của TỪNG TỔ (chép từ phòng "Sản xuất") — không có thì màn Phòng ban mở tổ ra
         # thấy tab Vai trò trống trơn và không gán lại vai cho thợ được. Xem `seed_vai_theo_to`.
         seed_vai_theo_to(db)
+        # Cây tổ vừa dựng ⇒ dòng quyền theo tổ + chép quyền `san_xuat` của các vai sang đó (cùng
+        # luật với migration 0302 — DB trắng chạy migration TRƯỚC khi có tổ nên nó không làm gì).
+        from .db_migrations import chuyen_quyen_san_xuat_sang_to
+        dong_bo_dong_quyen_to(db)
+        chuyen_quyen_san_xuat_sang_to(db)
         # Khối VĂN PHÒNG: mỗi vai trò có một người thật cầm (tài khoản + hồ sơ + lương). Cũng
         # phải chạy TRƯỚC `backfill_employee_profiles` vì lý do y hệt hàm trên.
         seed_van_phong_staff(db)

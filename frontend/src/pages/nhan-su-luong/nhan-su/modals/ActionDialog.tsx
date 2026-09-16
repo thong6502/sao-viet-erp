@@ -33,7 +33,7 @@ export function ActionDialog({
   const today = new Date().toISOString().slice(0, 10);
   const can = useCan();
   const canCreateGrade = can("nhan_su", "create");
-  const jg = useJobGrades(token);
+  const jg = useJobGrades(token, kind === "transfer" || kind === "promote");
   const [effective, setEffective] = useState(today);
   const [note, setNote] = useState("");
   const [newDept, setNewDept] = useState<number | "">("");

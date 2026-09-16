@@ -174,7 +174,7 @@ nhả chuột mới sắp lại (hàng nhảy dưới con trỏ là mất phươ
 ngoài mép. Không có lane máy, không có lane tổ.
 
 - Nhãn hàng (264px, bốn dòng): (1) mã lệnh + nhãn "gấp" nếu `is_rush`, **canh phải là máy chính**
-  (`may_ten`, mono chữ hoa nhỏ); (2) tên sản phẩm + tình trạng vật tư trong ngoặc — `(đủ)` /
+  (`may_ten`, chữ hoa nhỏ); (2) tên sản phẩm + tình trạng vật tư trong ngoặc — `(đủ)` /
   `(thiếu VT)` / `(chưa giữ)`; (3) khách hàng, **canh phải là chip `TRỄ HẠN`** khi mốc kết thúc vượt
   `han_hoan_thanh_sx`; (4) sản lượng · số tờ in · con/tờ.
 - **Thanh hai lớp**: nền nhạt là toàn bộ khoảng lệnh chiếm chỗ; các khối đậm bên trong là những đoạn

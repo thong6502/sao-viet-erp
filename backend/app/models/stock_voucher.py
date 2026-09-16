@@ -22,6 +22,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -119,6 +120,10 @@ class StockVoucherLine(Base):
     """
 
     __tablename__ = "stock_voucher_lines"
+    # Tra theo mặt hàng gốc: kiểm-xoá Giấy/Vật tư, thẻ kho theo mặt hàng. Mg `0301`.
+    __table_args__ = (
+        Index("ix_stock_voucher_lines_hang", "hang_loai", "hang_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     voucher_id: Mapped[int] = mapped_column(

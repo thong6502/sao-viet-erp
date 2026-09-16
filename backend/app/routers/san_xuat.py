@@ -1,7 +1,9 @@
 """Router Thực hiện sản xuất — bàn của TỔ (Giai đoạn 2 mặt đọc + Giai đoạn 1 navbar node lá).
 
-Prefix `/api/san-xuat`. RBAC tái dùng MODULE = "san_xuat" (không đẻ quyền mới): tổ trưởng có
-quyền `read` trên module này + scope phòng/tổ mình; cấp xưởng scope `all` thấy mọi tổ.
+Prefix `/api/san-xuat`. Quyền theo DÒNG QUYỀN THEO TỔ `to_sx_<id phòng ban>` (spec 2026-09-14):
+Xem + phạm vi + bốn quyền chi tiết (Thực hiện lệnh · Xác nhận sản lượng · KCS · Kho). Router chỉ
+gác THÔ bằng `require_quyen_to(việc)` (có việc đó ở ÍT NHẤT một tổ); cổng theo đúng tổ + mức "Của
+tôi" nằm ở service (`quyen_to.gate_to`). Module `san_xuat` giữ cho Kế hoạch SX, không gác Bàn tổ.
 
 Lát này CHỈ ĐỌC:
   · GET /teams        — danh sách tổ sản xuất (node lá) + badge số việc chờ, cho navbar + màn.
@@ -29,7 +31,7 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import get_authorization_service, require_permission
+from ..deps import get_authorization_service, require_permission, require_quyen_to
 from ..models.user import User
 from ..realtime import hub
 from ..repositories.san_xuat_repo import SanXuatRepository
@@ -75,6 +77,7 @@ from ..schemas.san_xuat import (
     HuyPhanChuaNhanIn,
     LenhKetQuaOut,
     HoTroUngVienListOut,
+    ChoXacNhanOut,
     GoLoaiTruIn,
     LoaiTruIn,
     LoaiTruKetQuaOut,
@@ -88,6 +91,8 @@ from ..schemas.san_xuat import (
     PhanBoTomTatOut,
     PhanBoTrangThaiOut,
     PhanCongIn,
+    SanLuongCuaToiOut,
+    SanLuongToOut,
     SanLuongKetQuaOut,
     SuCoIn,
     SuCoKetQuaOut,
@@ -97,8 +102,8 @@ from ..schemas.san_xuat import (
     VatTuDeNghiIn,
     VatTuNhanKetQuaOut,
     VatTuXacNhanIn,
+    TepLenhOut,
     WorkItemChiTietOut,
-    ThuongToTruongOut,
     WorkItemsOut,
 )
 from ..services.rbac_service import AuthorizationService
@@ -113,11 +118,13 @@ from ..services.san_xuat import (
     phan_bo,
     san_luong,
     su_co,
+    tep_lenh,
     thuc_thi,
-    thuong_to_truong,
     vat_tu_de_nghi,
     vat_tu_nhan,
 )
+from ..services.san_xuat.san_luong_cua_toi import san_luong_cua_toi as san_luong_cua_toi_svc
+from ..services.san_xuat import san_luong_to as san_luong_to_svc
 from ..services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
 from ..services.stock_request_service import StockRequestError
 
@@ -155,12 +162,16 @@ def _phat_sse_ban_giao(res: dict) -> None:
                 "ban_giao_id": res.get("ban_giao_id"),
                 "trang_thai": res.get("trang_thai_ban_giao"),
             })
-    uid = res.get("notify_user_id")
-    if uid:
+    for uid in res.get("notify_user_ids") or []:
         hub.publish(uid, {
             "type": "san_xuat_ban_giao",
             "ban_giao_id": res.get("ban_giao_id"),
             "trang_thai": res.get("trang_thai_ban_giao"),
+            "su_kien": res.get("su_kien"),
+            "nguon_ten": res.get("nguon_ten"),
+            "dich_ten": res.get("dich_ten"),
+            "so_luong": res.get("so_luong"),
+            "don_vi": res.get("don_vi"),
         })
 
 
@@ -176,7 +187,7 @@ def _phat_sse_vat_tu(res: dict) -> None:
 
 
 def _phat_sse_ho_tro(res: dict) -> None:
-    """Thỏa thuận hỗ trợ đổi (§9) → refresh chỗ hiển thị + đẩy tới CẢ HAI tổ trưởng liên quan (§18)."""
+    """Thỏa thuận hỗ trợ đổi (§9) → refresh chỗ hiển thị + đẩy tới người giữ quyền Xác nhận ở CẢ HAI tổ (§18)."""
     hub.broadcast({
         "type": "san_xuat_ho_tro_changed",
         "cong_viec_id": res.get("cong_viec_id"),
@@ -188,6 +199,11 @@ def _phat_sse_ho_tro(res: dict) -> None:
             "type": "san_xuat_ho_tro",
             "ho_tro_id": res.get("ho_tro_id"),
             "trang_thai": res.get("trang_thai"),
+            "su_kien": res.get("su_kien"),
+            "ho_ten": res.get("ho_ten"),
+            "ten_cong_doan": res.get("ten_cong_doan"),
+            "to_goc_ten": res.get("to_goc_ten"),
+            "to_thuc_hien_ten": res.get("to_thuc_hien_ten"),
         })
 
 
@@ -204,7 +220,7 @@ def _phat_sse_phan_bo(res: dict) -> None:
 
 
 def _phat_sse_kcs(res: dict, notify_uids: list[int | None] | None = None) -> None:
-    """KCS đổi (§13) → refresh panel KCS + ĐẨY tới người cần hành động (§18): tổ trưởng phụ trách khi
+    """KCS đổi (§13) → refresh panel KCS + ĐẨY tới người cần hành động (§18): người giữ quyền KCS ở tổ chịu khi
     có lỗi mới, người ghi KCS khi lỗi được phản hồi. Lỗi KCS là tương tác GIỮA hai tổ nên phải tới
     NGAY, không bắt refresh."""
     hub.broadcast({
@@ -322,7 +338,7 @@ def _don_anh(keys: list[str]) -> None:
 def teams(
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
 ) -> TeamsOut:
     """Tổ sản xuất user được thấy + badge số việc chưa xong (navbar §2.1, màn bàn tổ §11)."""
     return TeamsOut(teams=board.teams(db, user, authz))
@@ -333,12 +349,12 @@ def nhan_vien_cua_to(
     team_id: int,
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
 ) -> NhanVienChonListOut:
     """Danh nhân viên chọn được để giao vào việc của tổ (ô "Giao người" §7.1). 403 nếu ngoài phạm vi.
 
-    Gác bằng `san_xuat:read` (KHÔNG mượn `nhan_su`): tổ trưởng đổ được danh chọn của tổ mình mà
-    không cần quyền nhân sự. Ghi thật vẫn do `phan-cong` gác `assign_work` + `_gate` đúng-tổ-trưởng.
+    Gác bằng Xem của dòng tổ (KHÔNG mượn `nhan_su`): người điều hành tổ đổ được danh chọn mà không
+    cần quyền nhân sự. Ghi thật vẫn do `phan-cong` gác quyền Thực hiện lệnh đúng tổ ở service.
     """
     try:
         return NhanVienChonListOut.model_validate(
@@ -353,12 +369,12 @@ def ho_tro_ung_vien_cua_to(
     team_id: int,
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
 ) -> HoTroUngVienListOut:
     """Ứng viên mời HỖ TRỢ CHÉO (§9) cho tổ: thợ ở các tổ SX khác. 403 nếu tổ ngoài phạm vi.
 
-    Cùng gác `san_xuat:read` như ô "Giao người". Ghi thỏa thuận vẫn do `/work-items/{id}/ho-tro`
-    gác `assign_work` + service kiểm đúng-tổ-trưởng.
+    Cùng gác Xem như ô "Giao người". Ghi thỏa thuận vẫn do `/work-items/{id}/ho-tro` gác quyền
+    Xác nhận sản lượng đúng tổ ở service.
     """
     try:
         return HoTroUngVienListOut.model_validate(
@@ -372,18 +388,79 @@ def ho_tro_ung_vien_cua_to(
 def work_items(
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
     team_id: int = Query(..., ge=1),
     mode: Literal["production", "kcs"] = Query("production"),
+    nhom: Literal["lenh", "phang"] = Query("lenh"),
+    tim: str | None = Query(None, max_length=200),
+    trang: int = Query(1, ge=1),
+    co_trang: int = Query(20, ge=1, le=100),
+    tu_ngay: date | None = Query(None),
+    den_ngay: date | None = Query(None),
 ) -> WorkItemsOut:
-    """Công việc đã phát hành của MỘT tổ, lọc theo `mode` (§18 /work-items, Task 4).
+    """Việc đã phát hành của MỘT tổ, lọc theo `mode` (§18 /work-items, Task 4).
+
+    `nhom="lenh"` (mặc định) trả ĐẦU MỤC LỆNH SX / BÀI GHÉP, mỗi lệnh bọc các công đoạn của tổ —
+    đơn vị việc vẫn là CÔNG ĐOẠN, lệnh chỉ là tầng nhãn để tổ trưởng biết công đoạn này của lệnh
+    nào. Cắt trang Ở MÁY CHỦ và đếm trang bằng LỆNH nên một lệnh không bao giờ bị xé đôi;
+    `co_trang` chặn trần ngay tại đây (`le=100`) chứ không bóp im lặng trong service.
+
+    `tim` là ô tìm kiếm của bàn — lọc Ở SQL trước khi cắt trang, chứ không lọc bằng JS sau khi
+    trang đã về (lọc sau thì ô tìm kiếm chỉ soi được đúng 20 lệnh đang hiện).
+
+    `nhom="phang"` giữ nguyên mảng bước phẳng cho Gantt, thêm cửa sổ `tu_ngay`/`den_ngay`.
+
     403 nếu tổ ngoài phạm vi quyền."""
     try:
         return WorkItemsOut.model_validate(
-            board.work_items(db, user, authz, team_id=team_id, mode=mode)
+            board.work_items(db, user, authz, team_id=team_id, mode=mode, nhom=nhom, tim=tim,
+                             trang=trang, co_trang=co_trang, tu_ngay=tu_ngay, den_ngay=den_ngay)
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+
+@router.get("/toi/san-luong", response_model=SanLuongCuaToiOut)
+def san_luong_cua_toi(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
+    nam: int = Query(..., ge=2000, le=2200),
+    thang: int = Query(..., ge=1, le=12),
+) -> SanLuongCuaToiOut:
+    """Luỹ kế sản lượng tháng của CHÍNH người đăng nhập (§6): thợ tự trả lời "tháng này tôi làm
+    được bao nhiêu" mà không phải chờ bảng lương.
+
+    KHÔNG nhận `employee_id` — nhân sự luôn suy từ token trong service. Nhận từ URL là biến đây
+    thành cửa xem sản lượng của bất kỳ ai chỉ bằng cách đổi một con số.
+    """
+    return SanLuongCuaToiOut.model_validate(
+        san_luong_cua_toi_svc(db, user, nam=nam, thang=thang)
+    )
+
+
+@router.get("/san-luong", response_model=SanLuongToOut)
+def san_luong_to(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
+    team_id: int = Query(...),
+    tu: date | None = Query(None),
+    den: date | None = Query(None),
+    to_id: int | None = Query(None),
+    tim: str | None = Query(None, max_length=100),
+    trang: int = Query(1, ge=1),
+    co_trang: int = Query(20, ge=1, le=100),
+) -> SanLuongToOut:
+    """Tab Sản lượng của bàn tổ: lệnh → công đoạn → người, lọc theo ngày bắt đầu mẻ (giờ xưởng),
+    đơn vị trong vùng và mã/tên lệnh. Phạm vi theo dòng quyền tổ; 403 nếu tổ ngoài phạm vi xem."""
+    try:
+        return SanLuongToOut.model_validate(san_luong_to_svc.san_luong(
+            db, user, team_id=team_id, tu=tu, den=den, to_id=to_id, tim=tim,
+            trang=trang, co_trang=co_trang,
+        ))
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get("/work-items/{cong_viec_id}", response_model=WorkItemChiTietOut)
@@ -391,7 +468,7 @@ def work_item_detail(
     cong_viec_id: int,
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
 ) -> WorkItemChiTietOut:
     """Drawer một công việc (§5.1): thanh kế hoạch + roster + phiên chạy + khoảng tham gia."""
     try:
@@ -404,9 +481,24 @@ def work_item_detail(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
+@router.get("/work-items/{cong_viec_id}/tep-lenh", response_model=TepLenhOut)
+def work_item_tep_lenh(
+    cong_viec_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
+) -> TepLenhOut:
+    """Tệp Kế hoạch SX đính kèm vào lệnh của công việc — tổ xem/tải sau khi phát hành, không sửa."""
+    try:
+        return TepLenhOut(nhom=tep_lenh.tep_cua_cong_viec(db, user, cong_viec_id=cong_viec_id))
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
 # --- Mặt GHI (§7.1–§7.2) --------------------------------------------------------------------
-# Gác RBAC coarse bằng bit `assign_work` (tổ trưởng SX có đủ 3 bit); ranh giới an ninh THỰC là
-# `_gate` đúng-tổ-trưởng ở service. Không có bit "chạy" riêng nên phiên chạy dùng chung bit này.
+# Gác THÔ bằng `require_quyen_to(việc)`; ranh giới an ninh THỰC là `_gate` → `quyen_to.gate_to` ở
+# service (đúng tổ của công việc, mức "Của tôi" chỉ qua khi việc đang giao cho mình).
 def _chay(fn):
     """Chạy lệnh ghi, dịch lỗi nghiệp vụ: quyền → 403, ràng buộc → 400."""
     try:
@@ -422,7 +514,7 @@ def phan_cong(
     cong_viec_id: int,
     body: PhanCongIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Giao MỘT người vào công việc (§7.1). Lần giao đầu = tổ tiếp nhận (§5.2)."""
     res = _chay(lambda: thuc_thi.phan_cong(
@@ -438,7 +530,7 @@ def go_phan_cong(
     phan_cong_id: int,
     body: GoPhanCongIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Rút một người khỏi công việc (§7.2), đóng khoảng tham gia đang mở của họ."""
     res = _chay(lambda: thuc_thi.go_phan_cong(
@@ -455,11 +547,11 @@ def tao_de_nghi_vat_tu(
     cong_viec_id: int,
     body: VatTuDeNghiIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("warehouse"))],
 ) -> dict:
     """Tổ đề nghị cấp vật tư cho công đoạn (spec-de-nghi-cap-vat-tu-cong-doan §6).
 
-    Bit `assign_work` chỉ là cổng THÔ — ranh giới thật ("đúng tổ trưởng của tổ nào") nằm trong
+    Quyền Kho ở router chỉ là cổng THÔ — ranh giới thật (Kho ở đúng tổ của công việc) nằm trong
     service, giống hệt `phan-cong`. KHÔNG đòi `kho:request`: kho không duyệt yêu cầu này.
     """
     try:
@@ -481,7 +573,7 @@ def sua_de_nghi_vat_tu(
     de_nghi_id: int,
     body: VatTuDeNghiIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("warehouse"))],
 ) -> dict:
     """`de_nghi_id` là id ĐỀ NGHỊ SẢN XUẤT, không phải id yêu cầu kho — đừng nhầm hai không gian id."""
     try:
@@ -502,12 +594,12 @@ def bat_dau(
     cong_viec_id: int,
     body: BatDauIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Bắt đầu / tiếp tục chạy (§7.2): mở phiên mới + khoảng tham gia cho cả tổ."""
     res = _chay(lambda: thuc_thi.bat_dau(
         db, user=user, cong_viec_id=cong_viec_id,
-        ly_do_tre=body.ly_do_tre, ly_do_so_nguoi=body.ly_do_so_nguoi,
+        ly_do_so_nguoi=body.ly_do_so_nguoi,
         expected_version=body.expected_version,
     ))
     _phat_sse(res)
@@ -518,7 +610,7 @@ def bat_dau(
 def nhan_khuon(
     cong_viec_id: int,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Tổ xác nhận đã cầm con dao trong tay (chốt 04/09/2026) — thứ DUY NHẤT mở cổng Bắt đầu cho
     bước cần dụng cụ. Cùng cửa quyền với Bắt đầu: nói "dao đã ở đây" là quyết định điều hành."""
@@ -531,7 +623,7 @@ def nhan_khuon(
 def tra_khuon(
     cong_viec_id: int,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Trả dao về kệ — KHÔNG chặn gì, chỉ để hệ thống khỏi mất dấu con dao sau khi nó rời kệ."""
     res = _chay(lambda: thuc_thi.tra_khuon(db, user=user, cong_viec_id=cong_viec_id))
@@ -544,10 +636,10 @@ def doi_may(
     cong_viec_id: int,
     body: DoiMayIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Đổi máy giữa chừng (§7.2 mở rộng 31/08/2026). CÙNG cửa quyền với Bắt đầu
-    (`can_assign_work` + tổ trưởng của CHÍNH tổ, siết ở `_gate`) — đổi máy là quyết định điều
+    (quyền Thực hiện lệnh ở CHÍNH tổ, siết ở `_gate`) — đổi máy là quyết định điều
     hành, không phải ghi nhận. Dùng `_chay` (như mọi route ghi khác ở đây) để `_gate` ném
     `PermissionError` cũng dịch ra 403 — không thì lệch đường dây so với `bat-dau`."""
     res = _chay(lambda: thuc_thi.doi_may(
@@ -564,7 +656,7 @@ def tam_dung(
     cong_viec_id: int,
     body: TamDungIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Tạm dừng (§7.2): đóng phiên + khoảng tham gia. Bắt buộc lý do."""
     res = _chay(lambda: thuc_thi.tam_dung(
@@ -580,11 +672,11 @@ def bao_su_co(
     cong_viec_id: int,
     body: SuCoIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Báo sự cố máy ngay tại tổ (31/08/2026) → ghi vào hộp thư "Báo máy hỏng" của tổ sửa chữa.
 
-    CÙNG cửa quyền với `tam-dung` (`assign_work` + tổ trưởng của CHÍNH tổ, siết ở `_gate`): nhánh
+    CÙNG cửa quyền với `tam-dung` (Thực hiện lệnh ở CHÍNH tổ, siết ở `_gate`): nhánh
     "Dừng sản xuất" chính là một cú tạm dừng, không thể dễ hơn.
 
     KHÔNG gọi `_phat_sse` ở đây — khác mọi route ghi bên trên: đường này phải đẩy HAI tin (bàn tổ
@@ -603,12 +695,12 @@ def ket_thuc(
     cong_viec_id: int,
     body: KetThucIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Kết thúc (§7.2): đóng phiên + khoảng tham gia, đánh dấu hoàn thành."""
     res = _chay(lambda: thuc_thi.ket_thuc(
         db, user=user, cong_viec_id=cong_viec_id,
-        ly_do_tre=body.ly_do_tre, expected_version=body.expected_version,
+        expected_version=body.expected_version,
     ))
     _phat_sse(res)
     _thu_dong_nhom(db, res, user=user, su_kien="ket_thuc")
@@ -621,7 +713,7 @@ def tao_batch(
     cong_viec_id: int,
     body: BatchIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Ghi một batch sản lượng + lot đầu vào (§11.1). Ràng buộc tổng = tốt + hỏng."""
     res = _chay(lambda: san_luong.tao_batch(
@@ -640,7 +732,7 @@ def them_lot(
     batch_id: int,
     body: ThemLotIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
     """Bổ sung một lot đầu vào cho batch đã tạo (§10.3 truy vết nguyên liệu/BTP)."""
     res = _chay(lambda: san_luong.them_lot(
@@ -658,12 +750,12 @@ def de_xuat_ban_giao(
     cong_viec_id: int,
     body: BanGiaoDeXuatIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
     """Bên NGUỒN đề xuất giao sản lượng tốt sang công đoạn sau (§11.2). Cùng tổ+LSX ⇒ xác nhận luôn."""
     res = _chay(lambda: ban_giao.de_xuat(
         db, user=user, nguon_cong_viec_id=cong_viec_id,
-        dich_cong_viec_id=body.dich_cong_viec_id, so_luong=body.so_luong, don_vi=body.don_vi,
+        dich_cong_viec_id=body.dich_cong_viec_id, don_vi=body.don_vi, batch_ids=body.batch_ids,
     ))
     _phat_sse_ban_giao(res)
     return res
@@ -674,12 +766,12 @@ def sua_ban_giao(
     ban_giao_id: int,
     body: BanGiaoSuaIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
-    """Bên NGUỒN sửa số lượng khi bàn giao còn chờ xác nhận (§11.2)."""
+    """Bên NGUỒN sửa lại mẻ đi theo lần giao khi còn chờ xác nhận (§11.2); số lượng tính lại."""
     res = _chay(lambda: ban_giao.sua_de_xuat(
         db, user=user, ban_giao_id=ban_giao_id,
-        so_luong=body.so_luong, expected_version=body.expected_version,
+        batch_ids=body.batch_ids, expected_version=body.expected_version,
     ))
     _phat_sse_ban_giao(res)
     return res
@@ -690,7 +782,7 @@ def xac_nhan_ban_giao(
     ban_giao_id: int,
     body: BanGiaoXacNhanIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
     """Bên ĐÍCH xác nhận đúng con số cuối (§11.2)."""
     res = _chay(lambda: ban_giao.xac_nhan(
@@ -706,7 +798,7 @@ def dieu_chinh_ban_giao(
     ban_giao_id: int,
     body: BanGiaoDieuChinhIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
     """Điều chỉnh số lượng đã xác nhận (§11.3): đẻ dòng lịch sử, cờ không nhất quán nếu giảm quá."""
     res = _chay(lambda: ban_giao.dieu_chinh(
@@ -724,9 +816,9 @@ def dieu_chinh_ban_giao(
 def xac_nhan_vat_tu(
     body: VatTuXacNhanIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("warehouse"))],
 ) -> dict:
-    """Tổ trưởng xác nhận đã nhận vật tư của một phiếu xuất đã ghi sổ, nguyên trạng (§10.1)."""
+    """Người có quyền Kho ở tổ nhận xác nhận đã nhận vật tư của một phiếu xuất đã ghi sổ (§10.1)."""
     res = _chay(lambda: vat_tu_nhan.xac_nhan_vat_tu(
         db, user=user, voucher_id=body.voucher_id,
         department_id=body.department_id, ghi_chu=body.ghi_chu,
@@ -735,15 +827,30 @@ def xac_nhan_vat_tu(
     return res
 
 
+@router.get("/teams/{team_id}/cho-xac-nhan", response_model=ChoXacNhanOut)
+def cho_xac_nhan_cua_to(
+    team_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_quyen_to("read"))],
+) -> ChoXacNhanOut:
+    """Hộp "Chờ tổ bạn xác nhận" của bàn `team_id`: bàn giao đến chờ nhận + thỏa thuận hỗ trợ
+    chéo chờ bên tổ mình (kể cả khi tổ mình chỉ là tổ CHO MƯỢN người, không thấy công đoạn đó).
+    Chỉ tính tổ trong vùng mà user giữ Xác nhận sản lượng trọn tổ. 403 nếu bàn ngoài phạm vi xem."""
+    try:
+        return ChoXacNhanOut.model_validate(board.cho_xac_nhan(db, user, team_id=team_id))
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
 # --- Hỗ trợ chéo giữa hai tổ (§9) ------------------------------------------------------------
 @router.post("/work-items/{cong_viec_id}/ho-tro", response_model=HoTroKetQuaOut)
 def de_xuat_ho_tro(
     cong_viec_id: int,
     body: HoTroDeXuatIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
-    """Tổ trưởng đề xuất một thỏa thuận hỗ trợ chéo (§9.1). Bên còn lại xác nhận sau."""
+    """Đề xuất một thỏa thuận hỗ trợ chéo (§9.1), đòi Xác nhận sản lượng. Bên còn lại xác nhận sau."""
     res = _chay(lambda: ho_tro.de_xuat_ho_tro(
         db, user=user, cong_viec_id=cong_viec_id,
         employee_id=body.employee_id, ngay_lam_viec=body.ngay_lam_viec,
@@ -758,9 +865,9 @@ def xac_nhan_ho_tro(
     ho_tro_id: int,
     body: HoTroXacNhanIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
-    """Tổ trưởng bên còn lại xác nhận thỏa thuận (§9.1). Đủ hai bên → confirmed + kiểm trần ≤ 100%."""
+    """Người có Xác nhận sản lượng ở bên còn lại xác nhận thỏa thuận (§9.1). Đủ hai bên → confirmed + kiểm trần ≤ 100%."""
     res = _chay(lambda: ho_tro.xac_nhan_ho_tro(
         db, user=user, ho_tro_id=ho_tro_id, expected_version=body.expected_version,
     ))
@@ -773,9 +880,9 @@ def huy_ho_tro(
     ho_tro_id: int,
     body: HoTroHuyIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
-    """Huỷ thỏa thuận hỗ trợ (tổ trưởng một trong hai bên) (§9.2)."""
+    """Huỷ thỏa thuận hỗ trợ (người giữ quyền Xác nhận ở một trong hai tổ) (§9.2)."""
     res = _chay(lambda: ho_tro.huy_ho_tro(
         db, user=user, ho_tro_id=ho_tro_id,
         ly_do=body.ly_do, expected_version=body.expected_version,
@@ -789,7 +896,7 @@ def huy_ho_tro(
 def tinh_phan_bo(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
     """Tính/refresh bản NHÁP phân bổ của một batch (§12.2). Phơi cảnh báo nếu chưa đủ điều kiện chốt."""
     res = _chay(lambda: phan_bo.tinh_phan_bo(db, user=user, batch_id=batch_id))
@@ -802,7 +909,7 @@ def chot_phan_bo(
     phan_bo_id: int,
     body: PhanBoChotIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
     """CHỐT phân bổ (§12.3): tính lại nghiêm, chặn nếu thiếu hệ số/trọng số hoặc bàn giao không nhất quán."""
     res = _chay(lambda: phan_bo.chot_phan_bo(
@@ -818,7 +925,7 @@ def mo_lai_phan_bo(
     phan_bo_id: int,
     body: PhanBoMoLaiIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
     """Mở lại phân bổ đã chốt để sửa (§12.3) — CHỈ khi kỳ lương chưa khoá."""
     res = _chay(lambda: phan_bo.mo_lai_phan_bo(
@@ -833,7 +940,7 @@ def bu_tru(
     batch_id: int,
     body: BuTruIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
     """Đẻ dòng bù trừ sau khi kỳ lương gốc đã khoá (§12.3): ghi chênh lệch vào kỳ bù đang mở."""
     res = _chay(lambda: phan_bo.bu_tru(
@@ -854,7 +961,7 @@ def loai_tru_khoi_phan_bo(
     batch_id: int,
     body: LoaiTruIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
     """Loại một người khỏi lương của batch kèm lý do (§7.3): xử lý người tham gia nhưng thiếu chấm
     công hợp lệ. Engine bỏ họ khỏi vòng chia + cờ 'thiếu chấm công' tan → cho chốt."""
@@ -870,7 +977,7 @@ def go_loai_tru(
     batch_id: int,
     body: GoLoaiTruIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
     """Gỡ loại trừ (§7.3): trả người này về vòng chia lại (cờ chặn chốt có thể nổi lên lại)."""
     res = _chay(lambda: phan_bo.go_loai_tru(
@@ -881,17 +988,17 @@ def go_loai_tru(
 
 
 # --- KCS: batch kiểm tra · lỗi · phản hồi trách nhiệm (Giai đoạn 5, §13) ---------------------
-# Cùng bit `assign_work`; ranh giới an ninh THỰC ở service: ghi batch/lỗi gác đúng-tổ-trưởng-KCS
-# (`_gate`), còn phản hồi trách nhiệm gác đúng-tổ-trưởng-tổ-BỊ-yêu-cầu (`_gate_to`) — KHÁC tổ KCS.
+# Gác THÔ bằng quyền KCS; ranh giới an ninh THỰC ở service: ghi batch/lỗi gác quyền KCS ở tổ của
+# công việc (`_gate`), còn phản hồi trách nhiệm gác KCS trọn tổ BỊ yêu cầu (`_gate_to`) — KHÁC tổ KCS.
 @router.get("/work-items/{cong_viec_id}/kcs", response_model=KcsChiTietOut)
 def chi_tiet_kcs(
     cong_viec_id: int,
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
 ) -> dict:
     """Batch kiểm tra + lỗi + ảnh của MỘT công việc KCS (panel drawer §13). 403 nếu ngoài PHẠM VI
-    ĐỌC — cùng phạm vi với `GET /work-items/{id}`, không đòi phải là tổ trưởng tổ đó."""
+    ĐỌC — cùng phạm vi với `GET /work-items/{id}`, không đòi quyền ghi KCS."""
     try:
         return kcs.chi_tiet_kcs(db, user, authz, cong_viec_id)
     except PermissionError as exc:
@@ -904,7 +1011,7 @@ def chi_tiet_kcs(
 def diem_kiem_kcs(
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
 ) -> dict:
     """Bàn ĐIỂM KIỂM của tổ KCS: mọi bước ĐÃ KHỞI ĐỘNG có checklist, gom theo giai đoạn
     (docs/design-kcs-theo-cong-doan.md mục 4). KHÔNG nhận `team_id` — tổ KCS kiểm việc của tổ
@@ -915,9 +1022,9 @@ def diem_kiem_kcs(
 @router.get("/kcs/hop-thu", response_model=KcsHopThuOut)
 def hop_thu_loi(
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
 ) -> dict:
-    """Hộp thư lỗi KCS đang CHỜ phản hồi gửi tới các tổ mà user làm tổ trưởng (§13.2)."""
+    """Hộp thư lỗi KCS đang CHỜ phản hồi gửi tới các tổ user giữ quyền KCS trọn tổ (§13.2)."""
     return {"loi": kcs.hop_thu_loi(db, user)}
 
 
@@ -926,7 +1033,7 @@ def tao_batch_kcs(
     cong_viec_id: int,
     body: KcsBatchIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("qc"))],
 ) -> dict:
     """Ghi một batch kiểm tra KCS (§13.1): số nhận = đạt + không đạt; đẻ kèm batch sản lượng nền cho
     phân bổ năng suất KCS. Chỉ công việc KCS đã bắt đầu."""
@@ -949,7 +1056,7 @@ def tao_batch_kcs(
 def ghi_loi_kcs(
     kcs_batch_id: int,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("qc"))],
     to_chiu_id: int | None = Form(default=None),
     cong_doan_ref_id: int | None = Form(default=None),
     so_luong: float = Form(default=0),
@@ -958,7 +1065,7 @@ def ghi_loi_kcs(
     files: list[UploadFile] = File(...),
 ) -> dict:
     """Ghi MỘT lỗi phát hiện trong batch KCS (§13.2) + ≥1 ảnh bằng chứng (bắt buộc, gửi kèm multipart).
-    Đẩy SSE tới tổ trưởng tổ bị yêu cầu nhận trách nhiệm."""
+    Đẩy SSE tới người giữ quyền KCS ở tổ bị yêu cầu nhận trách nhiệm."""
     anh, keys = _luu_anh_kcs(kcs_batch_id, files)
     try:
         res = kcs.ghi_loi(
@@ -972,14 +1079,14 @@ def ghi_loi_kcs(
     except ValueError as exc:
         _don_anh(keys)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    _phat_sse_kcs(res, notify_uids=[res.get("to_chiu_head_user_id")])
+    _phat_sse_kcs(res, notify_uids=res.get("notify_user_ids"))
     return res
 
 
 @router.post("/kcs/kiem", response_model=KcsDotXuatKetQuaOut, status_code=status.HTTP_201_CREATED)
 def tao_kiem_ngoai_routing(
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("qc"))],
     cong_viec_id: int = Form(...),
     kcs_department_id: int = Form(...),
     loai: str = Form(...),
@@ -1034,7 +1141,7 @@ def tao_kiem_ngoai_routing(
 def them_anh_loi_kcs(
     loi_id: int,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("qc"))],
     files: list[UploadFile] = File(...),
 ) -> dict:
     """Bổ sung ảnh bằng chứng cho một lỗi KCS đã ghi (§13.2)."""
@@ -1054,7 +1161,7 @@ def them_anh_loi_kcs(
 def xoa_anh_loi_kcs(
     anh_id: int,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("qc"))],
 ) -> Response:
     """Xoá MỘT ảnh bằng chứng nhưng GIỮ ≥1 ảnh/lỗi (§13.2). Xoá cả file trong storage."""
     res = _chay(lambda: kcs.xoa_anh_loi(db, user=user, anh_id=anh_id))
@@ -1069,9 +1176,9 @@ def phan_hoi_loi_kcs(
     loi_id: int,
     body: KcsPhanHoiLoiIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("qc"))],
 ) -> dict:
-    """Tổ trưởng tổ BỊ yêu cầu CHẤP NHẬN/TỪ CHỐI trách nhiệm lỗi (§13.2, chung thẩm). Đẩy SSE tới
+    """Người giữ quyền KCS ở tổ BỊ yêu cầu CHẤP NHẬN/TỪ CHỐI trách nhiệm lỗi (§13.2, chung thẩm). Đẩy SSE tới
     người ghi KCS. Từ chối bắt buộc lý do."""
     res = _chay(lambda: kcs.phan_hoi_loi(
         db, user=user, loi_id=loi_id, chap_nhan=body.chap_nhan,
@@ -1087,7 +1194,7 @@ def dieu_chinh_kcs(
     kcs_batch_id: int,
     body: KcsDieuChinhIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("qc"))],
 ) -> dict:
     """Điều chỉnh kết quả batch KCS đã ghi (§4.3, §5.5) — không xoá, ghi audit trước/sau, kiểm
     expected_version. Chặn khi kho đã đụng vào (xác nhận dù một phần) hoặc còn yêu cầu chưa hủy."""
@@ -1117,7 +1224,7 @@ def _xlsx_response(content: bytes, filename: str) -> Response:
 def bao_cao_kcs(
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
     tu: date | None = Query(default=None),
     den: date | None = Query(default=None),
     kcs_department_id: int | None = Query(default=None),
@@ -1157,9 +1264,9 @@ def export_bao_cao_kcs(
 
 
 # --- KHO SẢN XUẤT (§14) ---------------------------------------------------------------------
-# Bên KCS/tổ (tạo yêu cầu, phân loại BTP, huỷ phần chưa nhận) gate `assign_work` + ranh giới THẬT là
-# `_gate` đúng-tổ-trưởng ở service. Bên KHO (xác nhận nhận) gate module RIÊNG "kho" — nhân viên kho
-# không phải tổ trưởng SX (khớp `kho_request.receive`).
+# Bên KCS/tổ (tạo yêu cầu, phân loại BTP, huỷ phần chưa nhận) gác quyền Kho của dòng tổ + ranh giới
+# THẬT là `_gate` đúng tổ ở service. Bên KHO (xác nhận nhận) gate module RIÊNG "kho" — nhân viên kho
+# không giữ dòng quyền tổ SX (khớp `kho_request.receive`).
 KHO_MODULE = "kho"
 
 
@@ -1176,7 +1283,7 @@ def hop_thu_kho(
 def chi_tiet_kho_nhom(
     nhom_id: int,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read", (KHO_MODULE, "read")))],
 ) -> dict:
     """Toàn cảnh kho của một nhóm thành phẩm cho panel §14 (yêu cầu nhập kho + lot + BTP đã phân loại)."""
     return kho.chi_tiet_kho_nhom(db, nhom_id)
@@ -1187,7 +1294,7 @@ def chi_tiet_kho_nhom(
 def tao_yeu_cau_nhap_thanh_pham(
     body: NhapKhoYeuCauIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("warehouse"))],
 ) -> dict:
     """KCS tạo yêu cầu nhập kho thành phẩm một phần từ một batch ĐẠT (§14.1). Tổng yêu cầu ≤ số KCS đã
     chấp nhận. Broadcast để nhân viên kho thấy ngay trong hộp thư."""
@@ -1204,7 +1311,7 @@ def tao_yeu_cau_nhap_thanh_pham(
 def tao_yeu_cau_kho_mot_nut(
     kcs_batch_id: int,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("warehouse"))],
 ) -> dict:
     """Gửi kho MỘT NÚT (§5.6) — server tự tính số đạt chưa gửi, không nhận số từ client. Chỉ batch
     routing + công việc KCS cuối. 409 nếu không còn số đạt chưa gửi."""
@@ -1242,7 +1349,7 @@ def huy_phan_chua_nhan(
     yc_id: int,
     body: HuyPhanChuaNhanIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("warehouse"))],
 ) -> dict:
     """KCS huỷ PHẦN CHƯA NHẬN của yêu cầu để phân loại lại (§14.1). Phần kho đã xác nhận giữ nguyên."""
     res = _chay(lambda: kho.huy_phan_chua_nhan(
@@ -1257,7 +1364,7 @@ def huy_phan_chua_nhan(
 def phan_loai_btp_du(
     body: PhanLoaiBtpIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("warehouse"))],
 ) -> dict:
     """Phân loại BTP dư của một công việc trước khi đóng nhóm (§14.2): nhập kho BTP / mẫu lưu / phế.
     `nhập kho BTP` broadcast để nhân viên kho thấy chờ xác nhận nhận."""
@@ -1289,25 +1396,11 @@ def kho_xac_nhan_btp(
 def dieu_kien_dong_nhom(
     nhom_id: int,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_quyen_to("read", (KHO_MODULE, "read")))],
 ) -> dict:
     """Checklist cổng đóng nhóm (§16): từng điều kiện đạt/chưa + đủ-đóng-đủ / đủ-đóng-thiếu để FE
     hiện "vì sao chưa đóng" và bật nút đóng thiếu."""
     return _chay(lambda: dong_nhom.dieu_kien_dong_nhom(db, nhom_id))
-
-
-@router.get("/kho/nhom/{nhom_id}/thuong-to-truong", response_model=list[ThuongToTruongOut])
-def thuong_to_truong_nhom(
-    nhom_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> list[dict]:
-    """Thưởng/PHẠT tổ trưởng của nhóm (§8): dòng đã ghi nếu nhóm đã đóng, không thì XEM TRƯỚC.
-
-    Gate `san_xuat:read` chứ không phải quyền lương: đây là điểm CHẤT LƯỢNG của TỔ (sản lượng, tỷ
-    lệ lỗi, % bậc trúng) — thứ tổ trưởng phải cãi được ngay tại xưởng, không phải đợi bảng lương.
-    Tiền của CÁ NHÂN vẫn nằm sau quyền lương như cũ."""
-    return _chay(lambda: thuong_to_truong.xem(db, nhom_id))
 
 
 @router.post("/kho/nhom/{nhom_id}/dong-thieu", response_model=DongNhomKetQuaOut)
@@ -1315,7 +1408,7 @@ def dong_thieu_nhom(
     nhom_id: int,
     body: DongThieuIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    user: Annotated[User, Depends(require_quyen_to("qc"))],
 ) -> dict:
     """Trưởng KCS đóng THIẾU nhóm còn dở (§13.3): vẫn phải sạch mọi điều kiện toàn vẹn TRỪ hoàn
     thành. Ranh giới THẬT là tổ-trưởng-KCS ở service (403 nếu không phải).

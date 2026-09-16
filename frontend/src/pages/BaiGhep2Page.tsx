@@ -731,7 +731,6 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
   // drawer hiện số MỚI (rơi về ảnh cũ nếu bước vừa bị tách khỏi bài).
   const buocMo = drawer ? (sd.gop.find((g) => g.step_key === drawer.step_key) ?? drawer) : null;
   const viTriBuoc = buocMo ? sd.gop.findIndex((g) => g.step_key === buocMo.step_key) : -1;
-  const commonStepLabor = sd.gop.reduce((sum, g) => sum + (g.khoan_tien ?? 0), 0);
 
   return (
     <div className="khsx-detail bg2-detail">
@@ -754,7 +753,7 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
         <Kpi label="Bước chung" value={num(d.so_to.so_buoc_chung)} />
         <Kpi label="Vật tư" value={materials ? num(totalMaterials) : "Xem tab"} />
         <Kpi label="Hạn" value={ngay(d.han_hoan_thanh_sx)} danger={classHan(d.han_hoan_thanh_sx)} />
-        {commonStepLabor > 0 && <Kpi label="Khoán bước chung" value={`${num(commonStepLabor)} đ`} accent />}
+        {/* Ô "Khoán bước chung" GỠ 11/09/2026: bài ghép chọn ĐẦU VIỆC, không chốt TIỀN. */}
       </section>
 
       {d.thieu.length > 0 && <div className="bg2-status-line" role="status"><strong>Còn thiếu:</strong> {d.thieu.map((x) => BAI_GHEP_THIEU_LABELS[x] ?? x).join(" · ")}</div>}

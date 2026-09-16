@@ -73,6 +73,7 @@ from app.services.lsx_service import LsxService
 from app.services.order_service import OrderService
 from app.services.san_xuat import release, thuc_thi
 from app.services.sequence_service import SequenceService
+from tests.quyen_to_fixtures import cap_quyen_to
 from tests.test_lenh_sx_tien_do import _dung_lenh
 from tests.test_san_xuat_board import _to_moi
 from tests.test_xep_lich_service import _hai_lsx_san_sang
@@ -515,14 +516,12 @@ def _giao_nguoi(sess, admin, cv, *, ma: str, ten: str) -> int:
     `la_luong_khoan`, mở khoảng tham gia khi việc đang chạy và soi luật bước nội bộ. Dựng tay một
     dòng mà production không bao giờ ghi như thế là bài test canh một hình dạng không tồn tại.
 
-    `_gate` (`thuc_thi.py:63`) chỉ cho TỔ TRƯỞNG đúng tổ ghi, mà `_to_moi` của fixture tạo tổ
-    KHÔNG có `head_user_id` — nên phải trao quyền tổ trưởng cho `admin` trước, đúng như dữ liệu
-    thật (mọi tổ sản xuất đều có tổ trưởng).
+    `_gate` (`thuc_thi.py`) hỏi dòng quyền theo tổ (mg 0302), mà `_to_moi` của fixture tạo tổ
+    chưa ai được cấp — nên cấp cho `admin` dòng của tổ đó trước, đúng như quản trị bấm ma trận.
     """
     to = sess.get(Department, cv.department_id)
-    if to.head_user_id != admin.id:
-        to.head_user_id = admin.id
-        sess.commit()
+    cap_quyen_to(sess, admin, to)
+    sess.commit()
     emp = Employee(code=ma, full_name=ten, department_id=to.id)
     sess.add(emp)
     sess.commit()
@@ -543,13 +542,12 @@ def _giao_nguoi(sess, admin, cv, *, ma: str, ten: str) -> int:
 def _chay_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     """Cho một bước chạy rồi kết thúc bằng ĐÚNG hai lệnh production, không đặt cột nào bằng tay.
 
-    Ba cửa của `thuc_thi.bat_dau` phải mở đúng thứ tự, không cửa nào đi vòng được:
+    Hai cửa của `thuc_thi.bat_dau` phải mở đúng thứ tự, không cửa nào đi vòng được:
       · `has_piece_work` của TỔ — `_la_luong_khoan` soi cờ này lúc `phan_cong` chụp roster, không
         bật thì `bat_dau` chặn “phải có ít nhất một thợ lương khoán”. Bật TRƯỚC khi giao người,
         vì cờ được CHỤP vào dòng phân công chứ không tra lại lúc bắt đầu.
       · `ly_do_so_nguoi` — roster một người thường lệch `so_nhan_cong_tieu_chuan` của snapshot.
-      · `ly_do_tre` — `du_kien_bat_dau` của lệnh dựng sẵn nằm ở quá khứ.
-    Truyền cả hai lý do vô điều kiện là an toàn: không lệch/không trễ thì service tự bỏ qua.
+    Truyền lý do vô điều kiện là an toàn: không lệch thì service tự bỏ qua.
     """
     to = sess.get(Department, cv.department_id)
     to.has_piece_work = True
@@ -557,7 +555,7 @@ def _chay_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     _giao_nguoi(sess, admin, cv, ma=ma, ten=ten)
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_tre="Chờ giấy về", ly_do_so_nguoi="Tổ thiếu người",
+        ly_do_so_nguoi="Tổ thiếu người",
     )
-    thuc_thi.ket_thuc(sess, user=admin, cong_viec_id=cv.id, ly_do_tre="Máy kẹt giữa ca")
+    thuc_thi.ket_thuc(sess, user=admin, cong_viec_id=cv.id)
     sess.expire_all()

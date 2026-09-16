@@ -713,6 +713,9 @@ export function DepartmentsPage({
   async function refresh(keepId: number | null) {
     const list = await loadDepartments();
     setDepartments(list);
+    // Thêm / đổi tên / dời / xoá phòng ban làm máy chủ sinh-đổi-gỡ dòng quyền theo tổ ⇒ nạp lại
+    // danh sách dòng để ma trận vai không lệch cây.
+    if (token) api.rbac.modules(token).then(setModules).catch(() => undefined);
     // Keep the open department if it still exists; otherwise fall back to the list view.
     if (keepId != null && list.some((d) => d.id === keepId)) setSelectedId(keepId);
     else setSelectedId(null);
@@ -1060,13 +1063,24 @@ export function DepartmentsPage({
    *  Trộn thì áp mẫu "Công nhân" lên một vai đang đầy quyền vẫn còn nguyên quyền cũ — đúng thứ
    *  vai mẫu sinh ra để tránh. Chỉ đổi state; chưa bấm Lưu thì chưa có gì xuống DB. */
   function apMauSuaVai(t: RoleTemplate) {
-    setEditRoleMatrix(t.permissions.map((r) => ({ ...r })));
+    setEditRoleMatrix(maTranTheoMau(t));
     setEditRoleError(null);
   }
 
   /** Áp mẫu vào ma trận THÊM vai mới. */
   function apMauThemVai(t: RoleTemplate) {
-    setAddRoleMatrix(t.permissions.map((r) => ({ ...r })));
+    setAddRoleMatrix(maTranTheoMau(t));
+  }
+
+  /** Ma trận của mẫu + phần mẫu dành cho dòng quyền theo tổ CỦA PHÒNG đang mở (vai thêm/sửa ở
+   *  màn này luôn thuộc phòng đó). Phòng ngoài khối sản xuất thì không có dòng — bỏ qua phần đó. */
+  function maTranTheoMau(t: RoleTemplate): PermissionRow[] {
+    const khoaTo = selectedId != null ? `to_sx_${selectedId}` : null;
+    return t.permissions.map((r) =>
+      khoaTo && t.quyen_to_cua_vai && r.module_key === khoaTo
+        ? { ...r, ...t.quyen_to_cua_vai, module_key: r.module_key }
+        : { ...r },
+    );
   }
 
   function toggleEditRole(moduleKey: string, action: ActionKey, value: boolean) {

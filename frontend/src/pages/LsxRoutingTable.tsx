@@ -151,8 +151,8 @@ export function LsxRoutingTable({
   onDauViecOptions: (
     congDoanId: number, departmentId: number,
   ) => Promise<import("../api/client").LsxDauViecOption[]>;
-  /** Sửa bước → hỏi server giờ chạy + tiền công mới (chỉ backend quy đổi được SL vào sang đơn vị
-   *  đích của bước, và chỉ nó chạy được công thức tiền công). */
+  /** Sửa bước → hỏi server giờ chạy mới (chỉ backend quy đổi được SL vào sang đơn vị đích của
+   *  bước, và chỉ nó chạy được công thức giờ). */
   onXemTruocBuoc: (
     stepKey: string,
     dang: { mayId?: number | null; loaiBuoc?: string | null;
@@ -311,8 +311,8 @@ export function LsxRoutingTable({
           so_nhan_cong_tieu_chuan: chosen?.so_nguoi_tieu_chuan ?? 1,
         });
         setLive(options.length
-          ? `Đã nạp ${options.length} đầu việc khoán`
-          : "Công đoạn/tổ này chưa gắn đầu việc khoán");
+          ? `Đã nạp ${options.length} đầu việc`
+          : "Công đoạn/tổ này chưa gắn đầu việc nào");
       } catch {
         if (seq === doiToSeq.current) setLive("Không tải được bảng khoán");
       }
@@ -374,8 +374,8 @@ export function LsxRoutingTable({
           // RESET khoán: giữ `khoan_rate_id` cũ thì nó trỏ đầu việc của công đoạn CŨ → lưu thì backend
           // tự GỠ nó như đầu việc mồ côi + báo lưu ý (không chặn nữa). Reset ngay ở đây để luồng đổi
           // công đoạn thông thường KHỎI dính lưu ý đó; `napDauViec` ngay dưới điền lại đầu việc đúng
-          // của công đoạn mới (đúng 1 thì tự chọn) — cùng một bản luật nạp khoán.
-          khoan_rate_id: null, khoan_chon_duoc: [], khoan_dien_giai: null, khoan_ly_do: null,
+          // của công đoạn mới (đúng 1 thì tự chọn) — cùng một bản luật nạp đầu việc.
+          khoan_rate_id: null, khoan_chon_duoc: [],
           nang_suat: "", don_vi_nang_suat: "",
           so_nhan_cong_tieu_chuan: 1,
           // Thời gian chuẩn bị + chạy KHÔNG còn nằm ở bước: kế thừa sống từ máy đang gán.
@@ -388,7 +388,7 @@ export function LsxRoutingTable({
         const snapshot = rowsRef.current.map(
           (r) => (r.key === key ? { ...r, ...applied } : r));
         void xemTruocChuoi(snapshot);
-        // Nạp lại đầu việc khoán theo (công đoạn mới, tổ mới) — đúng 1 thì điền sẵn, khỏi mất khoán.
+        // Nạp lại đầu việc theo (công đoạn mới, tổ mới) — đúng 1 thì điền sẵn, khỏi mất đầu việc.
         void napDauViec(key, m.cong_doan_id, m.department_id, seq);
       } catch (e: unknown) {
         // Mất mạng / không có quyền đọc danh mục → ít nhất vẫn đổi được tên, đừng chặn người dùng.
@@ -446,10 +446,6 @@ export function LsxRoutingTable({
     if (!khoaXemTruoc) return;
     const [key, loaiBuoc, mayId, rateId, soLuot] = khoaXemTruoc.split("|");
     const seq = ++doiMaySeq.current;
-    // Xoá tiền công của bộ số CŨ trước khi hỏi: trong lúc chờ mạng, drawer lùi về số của dropdown
-    // đầu việc (đúng đầu việc đang chọn, chỉ chưa tính số lượt) — thà lệch một nhịp còn hơn dán số
-    // của lựa chọn trước dưới lựa chọn mới.
-    patch(key, { khoan_xem_truoc: null });
     void (async () => {
       try {
         const xt = await onXemTruocBuoc(key, {
@@ -459,7 +455,7 @@ export function LsxRoutingTable({
           soLuotChay: Math.max(Math.trunc(Number(soLuot)) || 1, 1),
         });
         if (seq !== doiMaySeq.current) return;
-        patch(key, { thoi_luong_dien_giai: xt.thoi_luong_dien_giai, khoan_xem_truoc: xt.khoan });
+        patch(key, { thoi_luong_dien_giai: xt.thoi_luong_dien_giai });
       } catch {
         /* mất mạng / không đủ quyền → số giữ nguyên bản cũ, bấm Lưu vẫn ra đúng. */
       }

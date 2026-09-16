@@ -48,6 +48,12 @@ class RefreshTokenService:
         self, user: User, *, family_id: str | None = None, user_agent: str | None = None
     ) -> str:
         """Mint a new refresh token for the user; return the raw (un-hashed) value."""
+        if family_id is None:
+            # Every rotation (access token lives 15 min) leaves a revoked row behind and nothing
+            # ever deleted them — the table only grew. Purge on a fresh LOGIN, not on rotation:
+            # logins are rare enough to afford the sweep, and a row past expiry is dead either
+            # way (replaying it is "unknown token" → 401, same as the reuse check it served).
+            self.tokens.purge_expired()
         raw = generate_refresh_token()
         self.tokens.create(
             user_id=user.id,

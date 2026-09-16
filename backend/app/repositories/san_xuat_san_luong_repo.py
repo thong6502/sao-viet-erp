@@ -12,12 +12,16 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models.san_xuat import CV_HOAN_THANH, SanXuatCongViec, SanXuatPhuThuoc
+from ..models.bai_ghep_cong_doan import BaiGhepCongDoanMap
+from ..models.lsx import LsxCongDoan, LsxCongDoanPhuThuoc
+from ..models.san_xuat import SanXuatCongViec, SanXuatPhuThuoc
 from ..models.san_xuat_san_luong import (
+    BG_DE_XUAT,
     BG_DIEU_CHINH,
     BG_XAC_NHAN,
     LOT_TU_BATCH,
     SanXuatBanGiao,
+    SanXuatBanGiaoBatch,
     SanXuatBanGiaoDieuChinh,
     SanXuatBatch,
     SanXuatBatchLotVao,
@@ -61,34 +65,83 @@ class SanXuatSanLuongRepository:
         rows = self.db.scalars(select(SanXuatCongViec).where(SanXuatCongViec.id.in_(ids)))
         return {r.id: r for r in rows}
 
-    def cong_viec_sau_goi_y(self, cv: SanXuatCongViec) -> list[SanXuatCongViec]:
-        """Công việc KHÁC cùng gói phát hành + cùng LSX/bài ghép — GỢI Ý đích bàn giao (§11.2).
+    def cong_viec_chang_sau(self, cv: SanXuatCongViec) -> list[SanXuatCongViec]:
+        """Công việc của CHẶNG SAU theo routing lệnh — đích bàn giao DUY NHẤT hợp lệ (§11.2).
 
-        Loại chính nó và các việc đã hoàn thành; nếu công việc hiện tại có giờ dự kiến thì chỉ giữ
-        các chặng bắt đầu SAU nó (giao xuôi). Sắp theo giờ dự kiến (chưa có giờ xuống cuối). Tổ
-        trưởng chọn đích trong danh sách này — không tự đoán "chặng kế tiếp" duy nhất."""
-        stmt = select(SanXuatCongViec).where(
-            SanXuatCongViec.goi_id == cv.goi_id,
-            SanXuatCongViec.id != cv.id,
-            SanXuatCongViec.trang_thai != CV_HOAN_THANH,
-        )
-        if cv.lsx_id is not None:
-            stmt = stmt.where(SanXuatCongViec.lsx_id == cv.lsx_id)
-        elif cv.bai_ghep_id is not None:
-            stmt = stmt.where(SanXuatCongViec.bai_ghep_id == cv.bai_ghep_id)
+        Lệnh nào cũng đã khai chuỗi công đoạn, nên đích không phải thứ để tổ trưởng chọn trong mọi
+        việc cùng lệnh (bản cũ liệt kê hết, chọn nhầm là nhảy cóc chặng). Cách suy:
+
+          1. Các bước LỆNH mà công việc này đại diện: bước riêng ⇒ chính `step_key`; bước chạy
+             chung của bài ghép ⇒ mọi bước lệnh nó gộp (`bai_ghep_cong_doan_map`).
+          2. Bước sau của từng bước = cạnh `lsx_cong_doan_phu_thuoc` đi ra (có thể sang lệnh khác
+             — bước ghép). Bước KHÔNG khai cạnh đi ra thì lấy bước có `thu_tu` kế tiếp trong
+             lệnh — cùng luật số lượng bám thứ tự bảng.
+          3. Bước sau ⇒ công việc CÙNG GÓI: khớp `step_key` (bước riêng) hoặc bước chung bài
+             ghép đã gộp nó.
+
+        Nhiều phần tử khi bước sau bị TÁCH lần chạy ("lần k/N") hoặc routing rẽ nhánh — lúc đó
+        tổ mới phải chọn. Rỗng ⇔ bước cuối của lệnh (giao ra kho). Giữ cả việc đã hoàn thành: đó
+        vẫn là chặng sau thật, bên gọi tự quyết mặc định."""
+        if cv.bai_ghep_cong_doan_id is not None:
+            keys = set(self.db.scalars(
+                select(BaiGhepCongDoanMap.lsx_step_key).where(
+                    BaiGhepCongDoanMap.bai_ghep_cong_doan_id == cv.bai_ghep_cong_doan_id
+                )
+            ))
         else:
+            keys = {cv.step_key} if cv.step_key else set()
+        if not keys:
             return []
-        rows = list(self.db.scalars(stmt))
-        moc = cv.du_kien_bat_dau.timestamp() if cv.du_kien_bat_dau else None
-        if moc is not None:
-            rows = [
-                r for r in rows
-                if r.du_kien_bat_dau is None or r.du_kien_bat_dau.timestamp() >= moc
-            ]
+        buoc = list(self.db.scalars(select(LsxCongDoan).where(LsxCongDoan.step_key.in_(keys))))
+        if not buoc:
+            return []
+
+        canh: dict[int, list[str]] = {}
+        for truoc_id, sau_key in self.db.execute(
+            select(LsxCongDoanPhuThuoc.buoc_truoc_id, LsxCongDoan.step_key)
+            .join(LsxCongDoan, LsxCongDoan.id == LsxCongDoanPhuThuoc.buoc_sau_id)
+            .where(LsxCongDoanPhuThuoc.buoc_truoc_id.in_([b.id for b in buoc]))
+        ):
+            canh.setdefault(truoc_id, []).append(sau_key)
+
+        sau_keys: set[str] = set()
+        thu_tu_lenh: dict[int, list[LsxCongDoan]] = {}
+        for b in buoc:
+            if canh.get(b.id):
+                sau_keys.update(canh[b.id])
+                continue
+            if b.lsx_id not in thu_tu_lenh:
+                thu_tu_lenh[b.lsx_id] = list(self.db.scalars(
+                    select(LsxCongDoan)
+                    .where(LsxCongDoan.lsx_id == b.lsx_id)
+                    .order_by(LsxCongDoan.thu_tu, LsxCongDoan.id)
+                ))
+            ds = thu_tu_lenh[b.lsx_id]
+            i = next(i for i, x in enumerate(ds) if x.id == b.id)
+            if i + 1 < len(ds):
+                sau_keys.add(ds[i + 1].step_key)
+        sau_keys -= keys
+        if not sau_keys:
+            return []
+
+        bg_cd_ids = set(self.db.scalars(
+            select(BaiGhepCongDoanMap.bai_ghep_cong_doan_id).where(
+                BaiGhepCongDoanMap.lsx_step_key.in_(sau_keys)
+            )
+        ))
+        dieu_kien = SanXuatCongViec.step_key.in_(sau_keys)
+        if bg_cd_ids:
+            dieu_kien = dieu_kien | SanXuatCongViec.bai_ghep_cong_doan_id.in_(bg_cd_ids)
+        rows = [
+            r for r in self.db.scalars(
+                select(SanXuatCongViec).where(SanXuatCongViec.goi_id == cv.goi_id, dieu_kien)
+            )
+            if r.id != cv.id
+        ]
         rows.sort(key=lambda c: (
             c.du_kien_bat_dau is None,
             c.du_kien_bat_dau.timestamp() if c.du_kien_bat_dau else 0.0,
-            c.ten_cong_doan,
+            c.step_key or "", c.phan_doan_so, c.id,
         ))
         return rows
 
@@ -208,6 +261,54 @@ class SanXuatSanLuongRepository:
                 .order_by(SanXuatBanGiao.id)
             )
         )
+
+    def ban_giao_cho_nhan_cua_to(self, to_ids: set[int]) -> list[tuple[SanXuatBanGiao, int]]:
+        """Bàn giao ĐANG CHỜ bên nhận xác nhận mà công việc đích thuộc `to_ids` — kèm tổ đích.
+        Nguồn của hộp "Chờ tổ bạn xác nhận" trên Bàn tổ và badge menu."""
+        if not to_ids:
+            return []
+        rows = self.db.execute(
+            select(SanXuatBanGiao, SanXuatCongViec.department_id)
+            .join(SanXuatCongViec, SanXuatCongViec.id == SanXuatBanGiao.dich_cong_viec_id)
+            .where(
+                SanXuatBanGiao.trang_thai == BG_DE_XUAT,
+                SanXuatCongViec.department_id.in_(to_ids),
+            )
+            .order_by(SanXuatBanGiao.de_xuat_luc, SanXuatBanGiao.id)
+        ).all()
+        return [(bg, dept) for bg, dept in rows]
+
+    def batch_da_giao_ids(self, cong_viec_id: int) -> set[int]:
+        """Id các mẻ của công việc này ĐÃ đi theo một lần bàn giao (bảng `san_xuat_ban_giao_batch`).
+        Mẻ không có trong tập = mẻ chưa giao, form bàn giao tick sẵn."""
+        return set(self.db.scalars(
+            select(SanXuatBanGiaoBatch.batch_id)
+            .join(SanXuatBatch, SanXuatBatch.id == SanXuatBanGiaoBatch.batch_id)
+            .where(SanXuatBatch.cong_viec_id == cong_viec_id)
+        ))
+
+    def lien_ket_me(self, ban_giao_id: int) -> list[SanXuatBanGiaoBatch]:
+        """Các dòng mẻ↔bàn giao của MỘT lần giao — để sửa lại danh sách mẻ khi còn `proposed`."""
+        return list(self.db.scalars(
+            select(SanXuatBanGiaoBatch).where(SanXuatBanGiaoBatch.ban_giao_id == ban_giao_id)
+        ))
+
+    def delete(self, obj) -> None:
+        self.db.delete(obj)
+
+    def me_cua_ban_giao_nhieu(self, ban_giao_ids) -> dict[int, list[int]]:
+        """`{ban_giao_id: [batch_id…]}` — các mẻ đi theo từng lần giao, MỘT truy vấn cho cả tập."""
+        ids = [i for i in set(ban_giao_ids) if i]
+        if not ids:
+            return {}
+        out: dict[int, list[int]] = {}
+        for bg_id, batch_id in self.db.execute(
+            select(SanXuatBanGiaoBatch.ban_giao_id, SanXuatBanGiaoBatch.batch_id)
+            .where(SanXuatBanGiaoBatch.ban_giao_id.in_(ids))
+            .order_by(SanXuatBanGiaoBatch.batch_id)
+        ):
+            out.setdefault(bg_id, []).append(batch_id)
+        return out
 
     def tong_thuc_nhan_nhieu(self, cong_viec_ids) -> dict[int, dict[str, float]]:
         """{cong_viec_id: {đơn vị: tổng ĐÃ NHẬN về}} cho một TẬP công việc — MỘT truy vấn GỘP.

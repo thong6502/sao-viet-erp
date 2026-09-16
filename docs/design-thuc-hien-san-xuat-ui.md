@@ -9,6 +9,19 @@
 > 1. **Node lá tổ** trong Khối "Sản xuất" của navbar (badge = số việc chờ, bấm mở bàn lọc theo tổ).
 > 2. **Bàn làm việc** (một khung dùng chung mọi tổ): timeline theo thời gian + drawer một công việc.
 
+> **Cập nhật 11/09/2026 — đọc trước khi dựa vào tài liệu này.** Hai điều đã đổi so với bản chốt:
+> 1. **Bản ghi của bàn tổ là LỆNH SX / BÀI GHÉP**, không phải công đoạn rời. Đơn vị việc vẫn là
+>    CÔNG ĐOẠN (vẫn Bắt đầu / Ghi sản lượng trên nó); lệnh chỉ là tầng nhãn bọc ngoài, và **phân
+>    trang đếm theo LỆNH** nên một lệnh không bao giờ bị xé đôi. View Lịch/Gantt giữ mảng bước
+>    phẳng (`nhom="phang"`).
+> 2. **Sản xuất thôi giữ TIỀN.** Không còn đơn giá khoán / tiền khoán / thưởng tổ trưởng ở bất kỳ
+>    mặt đọc nào của module; tổ chỉ ghi SỐ LƯỢNG, quy ra tiền là việc của kế toán lương. Kế hoạch
+>    **vẫn chọn đầu việc chi tiết** — sản xuất chỉ mang TÊN đầu việc theo mẻ.
+>
+> Chi tiết: `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
+> (`la_luong_khoan` trong tài liệu này là CHẾ ĐỘ LƯƠNG của nhân viên bên HR — thứ đó vẫn sống,
+> đừng nhầm với tiền khoán đã gỡ.)
+
 ---
 
 ## 1. Bối cảnh — cái gì đã có, cái gì phải dựng
@@ -157,15 +170,16 @@ Tất cả gọi qua helper `authed<T>(path, token, init?)` sẵn có; thêm nh�
 
 | Hành động UI | Endpoint (đã có ở BE) | Method client dự kiến | Body / trả về (đúng schema) |
 |---|---|---|---|
-| Nạp danh sách tổ + badge | `GET /api/san-xuat/teams` | `api.sanXuat.teams(token)` | `TeamsOut{ teams: TeamOut[] }`, `TeamOut{id,ten,ma,la_kcs,so_viec_cho}` |
-| Nạp timeline 1 tổ | `GET /api/san-xuat/work-items?team_id=` | `api.sanXuat.workItems(token, teamId)` | `WorkItemsOut{team_id, cong_viec: WorkItemOut[]}`; 403 nếu ngoài phạm vi |
+| Nạp danh sách tổ + badge | `GET /api/san-xuat/teams` | `api.sanXuat.teams(token)` | `TeamsOut{ teams: TeamOut[] }`, `TeamOut{id,ten,ma,la_kcs,la_tho,so_viec_cho,so_viec_kcs_cho,co_viec_kcs}` — `la_tho` là vai của NGƯỜI ĐANG XEM ở tổ đó, không phải thuộc tính của tổ |
+| Nạp bàn 1 tổ | `GET /api/san-xuat/work-items?team_id=&nhom=&tim=&trang=&co_trang=` | `api.sanXuat.workItems(token, {teamId, nhom, tim, trang, coTrang})` | `nhom="lenh"` (mặc định) → `{team_id, nhom, trang:{trang,co_trang,tong}, lenh: LenhNhomOut[]}`; `nhom="phang"` → `{team_id, nhom, cong_viec: WorkItemOut[]}` cho Gantt. Tìm kiếm lọc **ở máy chủ** trước khi cắt trang. 403 nếu ngoài phạm vi |
+| Luỹ kế sản lượng tháng của chính mình | `GET /api/san-xuat/toi/san-luong?nam=&thang=` | `api.sanXuat.sanLuongCuaToi(token, nam, thang)` | `{nam, thang, employee_id, theo_don_vi:[{don_vi,tong}], so_me}` — **không nhận `employee_id`**, BE luôn suy từ token |
 | Mở drawer 1 việc | `GET /api/san-xuat/work-items/{id}` | `api.sanXuat.chiTiet(token, id)` | `WorkItemChiTietOut{cong_viec, trang_thai, version, phan_cong[], phien_chay[], khoang_tham_gia[]}` |
 | Danh nhân viên để "Giao người" | `GET /api/san-xuat/teams/{team_id}/nhan-vien` | `api.sanXuat.nhanVienChon(token, teamId)` | `NhanVienChonListOut{team_id, nhan_vien: NhanVienChonOut[]}`, `NhanVienChonOut{id, code, full_name, la_luong_khoan, co_tai_khoan}`; 403 nếu ngoài phạm vi |
 | Giao 1 người | `POST /work-items/{id}/phan-cong` | `api.sanXuat.phanCong(token,id,body)` | `PhanCongIn{employee_id, expected_version?}` → `LenhKetQuaOut{cong_viec_id,department_id,trang_thai,version}` |
 | Rút 1 người | `POST /phan-cong/{pcId}/rut` | `api.sanXuat.rut(token,pcId,body)` | `GoPhanCongIn{ly_do?, expected_version?}` → `LenhKetQuaOut` |
-| Bắt đầu / Tiếp tục | `POST /work-items/{id}/bat-dau` | `api.sanXuat.batDau(token,id,body)` | `BatDauIn{ly_do_tre?, expected_version?}` → `LenhKetQuaOut` |
+| Bắt đầu / Tiếp tục | `POST /work-items/{id}/bat-dau` | `api.sanXuat.batDau(token,id,body)` | `BatDauIn{ly_do_so_nguoi?, expected_version?}` → `LenhKetQuaOut` |
 | Tạm dừng | `POST /work-items/{id}/tam-dung` | `api.sanXuat.tamDung(token,id,body)` | `TamDungIn{ly_do(BẮT BUỘC), expected_version?}` → `LenhKetQuaOut` |
-| Kết thúc | `POST /work-items/{id}/ket-thuc` | `api.sanXuat.ketThuc(token,id,body)` | `KetThucIn{ly_do_tre?, expected_version?}` → `LenhKetQuaOut` |
+| Kết thúc | `POST /work-items/{id}/ket-thuc` | `api.sanXuat.ketThuc(token,id,body)` | `KetThucIn{expected_version?}` → `LenhKetQuaOut` |
 
 **`WorkItemOut` (mọi field cho thanh + drawer):** `id, goi_id, phien_ban_so, nguon_loai("lsx"|"bai_ghep"|""),
 nguon_ma, nguon_ten, nhom, ten_cong_doan, nhom_cong_doan, loai_buoc, la_kcs, la_kcs_cuoi, may,
@@ -179,8 +193,8 @@ chip thuê-ngoài khi `loai_buoc=="thue_ngoai"`; chip KCS khi `la_kcs`. **KHÔNG
 
 **`PhienChayOut`:** `id, so_thu_tu, bat_dau, ket_thuc?, loai_dong?("tam_dung"|"doi_may"|"ket_thuc"), ly_do_bat_dau_tre?, ly_do?`.
 → Phiên `ket_thuc==null` = đang chạy. `loai_dong` cho biết phiên đóng vì tạm dừng, vì đổi máy giữa chừng, hay vì kết thúc.
-→ `doi_may` KHÁC `tam_dung` có chủ ý: chỉ `tam_dung` mới được tính là lý do giải thích phần chậm
-  khi kết thúc trễ — đổi máy không gõ chữ nào thì không được miễn.
+→ `doi_may` KHÁC `tam_dung` có chủ ý: công việc không dừng, chỉ đổi máy giữa chừng — không được đếm là
+  một lần tạm dừng. `ly_do_bat_dau_tre` chỉ còn ở phiên cũ (luật lý do trễ gỡ 16/09/2026).
 
 **`KhoangThamGiaOut`:** `id, phien_chay_id, employee_id, ho_ten, bat_dau, ket_thuc?`.
 → Ai có mặt ở phiên nào; `ket_thuc==null` = đang tham gia.
@@ -246,7 +260,7 @@ Bọc `.thsx`, đặt biến cục bộ giống `.xl2` (label-w, bar-h, lane-h).
 | Chữ chính / mờ / rất mờ | `--ink` / `--ash` / `--ash-2` |
 | Đường kẻ | `--rule` / `--rule-soft` / `--rule-hair` |
 | Accent / bề mặt tô (đang chọn, hover hàng, header) | `--rust` / `--rust-deep` / `--rust-soft` |
-| Font chữ / font SỐ-MÃ (giờ, SL, mã) | `--ff-sans` / `--ff-num` + `font-variant-numeric: tabular-nums` |
+| Font (cả chữ lẫn giờ, SL, mã) | `--ff-sans` |
 | Cỡ chữ | `--fs-2xs`…`--fs-xl` · Đậm `--fw-medium`/`--fw-bold` |
 | Giãn cách (4px scale) | `--sp-1`…`--sp-8` |
 | Bo góc | `--r-2`/`--r-3`/`--r-6` · pill `--r-pill` |
@@ -279,10 +293,10 @@ mờ + pill**, KHÔNG chỉ dựa màu nền (người mù màu vẫn phân bi�
   buộc) → toast cảnh báo + refetch `chiTiet` (không mất chỗ). **403** → toast "ngoài phạm vi".
 - **Dialog lý do (bắt buộc theo luật BE, bind đúng):**
   - **Tạm dừng** → `ly_do` **BẮT BUỘC** (BE chặn rỗng). Dialog có ô lý do, nút xác nhận disabled khi trống.
-  - **Bắt đầu TRỄ** → nếu `now > du_kien_bat_dau` thì `ly_do_tre` bắt buộc (BE chặn). FE tự so
-    `du_kien_bat_dau` với hiện tại để **hiện sẵn** ô lý do; bắt đầu sớm thì bấm thẳng, không hỏi.
-  - **Kết thúc TRỄ** → `ly_do_tre` chỉ bắt buộc khi trễ **và chưa** có phiên tạm-dừng nào kèm lý do
-    (BE: `ket_thuc` §7.2). FE nên hỏi lý do khi trễ; nếu đã có lý do tạm dừng thì BE cho qua.
+  - **Bắt đầu / Tiếp tục lệch số người** → roster `active` ≠ `du_kien_so_nguoi` thì `ly_do_so_nguoi`
+    bắt buộc (§7.1, BE chặn). Khớp số người thì bấm thẳng.
+  - **Sớm / trễ so với giờ dự kiến: KHÔNG hỏi lý do** ở Bắt đầu, Tiếp tục hay Kết thúc (gỡ 16/09/2026,
+    chủ xưởng chốt). Lệch giờ đọc thẳng từ mốc phiên chạy so với dự kiến.
 - **Điều kiện bật nút** (khớp tiền điều kiện service — chặn sớm ở FE cho đỡ round-trip, nhưng BE vẫn là trọng tài):
   - **Bắt đầu**: bật khi `trang_thai ∈ {released, paused}` **và** roster có ≥1 người `la_luong_khoan`
     (BE: `bat_dau` cần ≥1 lương khoán). Thiếu → nút mờ + gợi ý "cần ≥1 thợ lương khoán".
@@ -324,7 +338,7 @@ Vẽ khối xám mờ, nhãn "Sắp có", control `disabled`. Đừng gọi/bị
 3. **Trục thời gian: dùng lại `xl2Shared.tsx`** (`buildLinearScale`/`XL2_PX_PER_MIN`/`LABEL_W`/`BAR_H`),
    đừng chép — nhưng **đừng** import `xep-lich-2.css` (đổi tiền tố sang `.thsx`).
 4. **Version lạc quan**: luôn gửi `expected_version`; xử lý 400/403 bằng refetch + toast, không nuốt lỗi.
-5. **Lý do bắt buộc** đúng 3 chỗ (tạm dừng luôn; bắt đầu/kết thúc chỉ khi trễ) — bind đúng luật BE,
+5. **Lý do bắt buộc** đúng 2 chỗ (tạm dừng luôn; bắt đầu/tiếp tục khi lệch số người) — bind đúng luật BE,
    đừng bắt lý do ở nơi BE không đòi (gây khó chịu) cũng đừng bỏ nơi BE đòi (gây 400).
 6. **Node lá + badge + SSE**: sao đúng khuôn Kho (§6). `teams` một cú gọi ra cả list lẫn badge —
    đừng thêm API badge riêng. Nhớ nhánh cổng quyền `moduleKeys` cho `baseId="thuc-hien-sx"`.

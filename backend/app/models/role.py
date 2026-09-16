@@ -281,3 +281,25 @@ class RolePermission(Base):
     can_view_drivers: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # --- Dòng quyền THEO TỔ (mg 0302, 14/09/2026) — bốn quyền chi tiết của dòng `to_sx_<id>` ------
+    # Mỗi phòng ban thuộc khối Sản xuất sinh một dòng quyền riêng (xem `services/quyen_to.py`).
+    # Bốn cột dưới đây CHỈ có nghĩa trên các dòng đó; phạm vi (`scope`) của dòng quyết định làm
+    # được trên tổ nào — tính từ vị trí người xem, trong vùng tổ đó + các đơn vị trực thuộc.
+    # Thực hiện lệnh: giao/rút người · bắt đầu/tạm dừng/đổi máy/kết thúc · báo sự cố · nhận/trả
+    # khuôn · ghi mẻ + lô đầu vào.
+    can_run_order: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Xác nhận sản lượng: chia sản lượng (tính/chốt/mở lại/bù trừ/loại trừ) · bàn giao/nhận ·
+    # hỗ trợ chéo.
+    can_confirm_output: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # KCS: kiểm · ghi lỗi + ảnh · sửa kết quả · phản hồi lỗi · đóng thiếu nhóm.
+    can_qc: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Kho: đề nghị vật tư · xác nhận nhận vật tư · yêu cầu nhập kho · phân loại + xác nhận BTP.
+    can_warehouse: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

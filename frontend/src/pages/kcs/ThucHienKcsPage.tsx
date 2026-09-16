@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError, api,
   type CongDoanLite, type SxDiemKiemGiaiDoan, type SxDiemKiemItem,
-  type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxWorkItem,
+  type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxTeam, type SxWorkItem,
 } from "../../api/client";
 import { ChipKhuon, ChipLoaiBuoc } from "../../components/ChipBuoc";
 import { useAuth } from "../../auth/useAuth";
@@ -75,10 +75,14 @@ function ngayVN(iso: string): string {
 }
 
 export function ThucHienKcsPage({
-  teamId, tenTo, eventTick, onBadgeStale,
+  teamId, tenTo, quyen, eventTick, onBadgeStale, dinhKemDem,
 }: {
   teamId: number;
   tenTo?: string;
+  /** Bộ đếm SSE tệp đính kèm theo lệnh (AppShell) — chuyển xuống thẻ "Tệp của lệnh" của drawer. */
+  dinhKemDem?: Record<number, number>;
+  /** Mức của người đang xem trên tổ này theo từng việc (`quyen` của `GET /teams`). */
+  quyen?: SxTeam["quyen"];
   eventTick?: number;
   onBadgeStale?: () => void;
 }) {
@@ -91,10 +95,13 @@ export function ThucHienKcsPage({
   // xuất được báo cáo KCS của tổ mình thì cần cấp `can_export` cho vai đó (mở rộng RBAC, NGOÀI
   // phạm vi Task 9 — xem report Concerns).
   const canExport = can("san_xuat", "export");
-  // Mặt GHI của khối "Chốt nhóm" (đóng thiếu · phân loại BTP dư) — cùng ô quyền với bàn tổ. Backend
-  // còn siết thêm một tầng nữa: `dong_thieu` đòi ĐÚNG trưởng tổ KCS của nhóm (§13.3), nên bit này
-  // chỉ để KHÔNG bày nút cho người chắc chắn không dùng được.
-  const canAssign = can("san_xuat", "assign_work");
+  // Nút ghi theo dòng quyền của CHÍNH tổ này. Ghi kết quả việc chờ kiểm: KCS ở bất kỳ mức nào (mức
+  // "Của tôi" máy chủ còn soi việc có giao cho mình không). Kiểm đột xuất · điểm kiểm · đóng thiếu
+  // nhóm: KCS trọn tổ. Phân loại BTP dư: Kho. Bit ở đây chỉ để KHÔNG bày nút cho người chắc chắn
+  // không dùng được — cổng thật ở máy chủ.
+  const canKcs = !!quyen?.qc;
+  const canKcsTron = quyen?.qc === "all";
+  const canKho = !!quyen?.warehouse;
 
   const [filters, setFilters] = useState<KcsDashFilters>(KCS_DASH_FILTERS_RONG);
 
@@ -122,11 +129,13 @@ export function ThucHienKcsPage({
     if (!token) return;
     setLoading(true);
     setLoadError(null);
-    api.sanXuat.workItems(token, teamId, "kcs")
+    // Bàn KCS đọc MẢNG BƯỚC phẳng (mỗi bước kéo thêm một `kcsChiTiet`), chưa lên tầng lệnh.
+    api.sanXuat.workItems(token, { teamId, mode: "kcs", nhom: "phang" })
       .then(async (r) => {
+        const cong_viec = r.cong_viec ?? [];
         let failCount = 0;
         const entries = await Promise.all(
-          r.cong_viec.map((cv): Promise<[number, SxKcsChiTiet]> =>
+          cong_viec.map((cv): Promise<[number, SxKcsChiTiet]> =>
             api.sanXuat.kcsChiTiet(token, cv.id)
               .then((ct): [number, SxKcsChiTiet] => [cv.id, ct])
               .catch((): [number, SxKcsChiTiet] => {
@@ -138,7 +147,7 @@ export function ThucHienKcsPage({
               }),
           ),
         );
-        setItems(r.cong_viec);
+        setItems(cong_viec);
         setChiTietMap(Object.fromEntries(entries));
         setChiTietFailCount(failCount);
         setLoading(false);
@@ -314,9 +323,11 @@ export function ThucHienKcsPage({
         <div className="rc__headrow">
           <h1 className="rc__title">KCS · {tenTo ?? "Tổ"}</h1>
           <div className="rc__spacer" />
-          <button type="button" className="btn btn--ghost" onClick={() => setDrawer({ mode: "dot_xuat" })}>
-            Kiểm đột xuất
-          </button>
+          {canKcsTron && (
+            <button type="button" className="btn btn--ghost" onClick={() => setDrawer({ mode: "dot_xuat" })}>
+              Kiểm đột xuất
+            </button>
+          )}
           {canExport && (
             <button type="button" className="btn btn--accent" onClick={xuatExcel} disabled={exporting}>
               {exporting ? "Đang xuất…" : "Xuất Excel"}
@@ -383,7 +394,8 @@ export function ThucHienKcsPage({
               </thead>
               <tbody>
                 {choRows.map((r) => (
-                  <tr key={r.item.id} className="kcs-row--clickable" onClick={() => setDrawer({ mode: "ghi", item: r.item, conCho: r.conCho })}>
+                  <tr key={r.item.id} className={canKcs ? "kcs-row--clickable" : undefined}
+                    onClick={canKcs ? () => setDrawer({ mode: "ghi", item: r.item, conCho: r.conCho }) : undefined}>
                     <td>{r.item.nguon_ma}</td>
                     <td>{r.item.nguon_ten}{r.item.nhom ? ` · ${r.item.nhom}` : ""}</td>
                     <td>
@@ -400,9 +412,11 @@ export function ThucHienKcsPage({
                     <td className="num">{num(r.daKiem)}</td>
                     <td className="num">{num(r.conCho)}</td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      <button type="button" className="btn btn--accent" onClick={() => setDrawer({ mode: "ghi", item: r.item, conCho: r.conCho })}>
-                        Ghi kết quả
-                      </button>
+                      {canKcs && (
+                        <button type="button" className="btn btn--accent" onClick={() => setDrawer({ mode: "ghi", item: r.item, conCho: r.conCho })}>
+                          Ghi kết quả
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -464,7 +478,8 @@ export function ThucHienKcsPage({
                   </thead>
                   <tbody>
                     {gd.cong_viec.map((cv) => (
-                      <tr key={cv.id} className="kcs-row--clickable" onClick={() => setDrawer({ mode: "diem_kiem", item: cv })}>
+                      <tr key={cv.id} className={canKcsTron ? "kcs-row--clickable" : undefined}
+                        onClick={canKcsTron ? () => setDrawer({ mode: "diem_kiem", item: cv }) : undefined}>
                         <td>
                           {cv.ten_cong_doan}
                           <ChipLoaiBuoc loai_buoc={cv.loai_buoc} nha_cung_cap={cv.nha_cung_cap} />
@@ -478,9 +493,11 @@ export function ThucHienKcsPage({
                         <td className="num">{num(cv.tong_dat)}</td>
                         <td className="num">{num(cv.tong_loi)}</td>
                         <td onClick={(e) => e.stopPropagation()}>
-                          <button type="button" className="btn btn--accent" onClick={() => setDrawer({ mode: "diem_kiem", item: cv })}>
-                            Ghi điểm kiểm
-                          </button>
+                          {canKcsTron && (
+                            <button type="button" className="btn btn--accent" onClick={() => setDrawer({ mode: "diem_kiem", item: cv })}>
+                              Ghi điểm kiểm
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -497,7 +514,7 @@ export function ThucHienKcsPage({
       {/* KHÔNG gỡ khối khi `loading` — mỗi lần ghi xong `load()` bật lại cờ đó, gỡ ra là mất luôn
           nhóm người dùng đang mở. `items` giữ nguyên bản cũ trong lúc tải nên khối vẫn đúng. */}
       {!loadError && items != null && (
-        <KcsChotNhom items={items} canAssign={canAssign} eventTick={eventTick} onDone={daLuuNhom} />
+        <KcsChotNhom items={items} canDong={canKcsTron} canPhanLoai={canKho} eventTick={eventTick} onDone={daLuuNhom} />
       )}
 
       <section className="kcs-section">
@@ -565,6 +582,7 @@ export function ThucHienKcsPage({
       {drawer?.mode === "ghi" && (
         <KcsResultDrawer
           mode="ghi" teamId={teamId} tenTo={tenTo ?? ""} item={drawer.item} conCho={drawer.conCho}
+          dinhKemDem={dinhKemDem}
           onClose={() => setDrawer(null)} onSaved={daLuu}
         />
       )}
@@ -583,6 +601,7 @@ export function ThucHienKcsPage({
       {drawer?.mode === "xem" && (
         <KcsResultDrawer
           mode="xem" teamId={teamId} tenTo={tenTo ?? ""} item={drawer.item} batch={drawer.batch}
+          dinhKemDem={dinhKemDem}
           onClose={() => setDrawer(null)}
         />
       )}

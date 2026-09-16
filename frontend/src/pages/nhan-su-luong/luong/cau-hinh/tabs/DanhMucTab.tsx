@@ -6,9 +6,6 @@
 // Cờ `is_taxable` CHỈ sống ở tầng này; tầng 2/3 chép lại, không sửa được.
 // LƯU NGAY từng thao tác (không gom vào thanh lưu sticky): xoá là lệnh dứt điểm và câu báo
 // phải khớp ĐÚNG việc backend vừa làm — xoá hẳn hay chỉ ngừng áp dụng.
-//
-// (Khối chú thích này trước nằm lạc ở cuối `components/LeaderBonusEditor.tsx` — di về đúng chỗ
-//  ngày 04/09/2026 khi viết lại màn thưởng/phạt tổ trưởng.)
 import { useCallback, useEffect, useState } from "react";
 import {
   api,

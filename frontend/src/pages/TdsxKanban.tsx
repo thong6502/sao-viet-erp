@@ -265,17 +265,8 @@ function TheCard({ card, onOpen }: { card: TdsxKanbanCard; onOpen: () => void })
   const chipHien = chips.length > CHIP_HIEN_TOI_DA ? chips.slice(0, CHIP_RUT_GON_CON_LAI) : chips;
   const chipConLai = chips.length - chipHien.length;
 
-  const is_running = chips.some((c) => c.trang_thai === "running");
-  const is_paused = chips.some((c) => c.trang_thai === "paused");
-
-  let cardAccentCls = "";
-  if (card.is_rush) cardAccentCls = " tdsx-kb__card--rush";
-  else if (qua_han) cardAccentCls = " tdsx-kb__card--late";
-  else if (is_running) cardAccentCls = " tdsx-kb__card--running";
-  else if (is_paused) cardAccentCls = " tdsx-kb__card--paused";
-
   return (
-    <button type="button" className={`tdsx-kb__card${cardAccentCls}`} onClick={onOpen}>
+    <button type="button" className="tdsx-kb__card" onClick={onOpen}>
       {/* Row 1: Code + Priority / Step Badge */}
       <div className="tdsx-kb__card-head">
         <span className="tdsx-kb__code-tag">

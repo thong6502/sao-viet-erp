@@ -9,17 +9,29 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
+from .lsx import LsxDinhKemOut
+
 
 class TeamOut(BaseModel):
     id: int
     ten: str
     ma: str
     la_kcs: bool
+    # Vai của NGƯỜI ĐANG XEM ở tổ này, không phải thuộc tính của tổ: cùng một tổ, tổ trưởng thấy
+    # `false` còn thợ trong tổ thấy `true`. FE dựa vào đây để bật băng "Sản lượng của tôi" (§6).
+    la_tho: bool = False
     so_viec_cho: int
     # Task 4 (mg 0250) — badge/cổng cho board KCS kiêm nhiệm, đọc theo `SanXuatCongViec.la_kcs`
     # (cấp CÔNG VIỆC), KHÁC `la_kcs` phía trên (đó là `Department.is_kcs`, cấp TỔ).
     so_viec_kcs_cho: int
     co_viec_kcs: bool
+    # Bàn giao đến + thỏa thuận hỗ trợ chéo đang chờ tổ trong vùng xác nhận (người xem giữ Xác nhận
+    # sản lượng trọn tổ) — cộng vào badge menu cùng `so_viec_cho`.
+    so_cho_xac_nhan: int = 0
+    # Quyền theo tổ (mg 0302): cấp thụt lề trên cây khối Sản xuất + mức từng việc trên CHÍNH nút
+    # này (`{"read"|"run_order"|"confirm_output"|"qc"|"warehouse": "all"|"own"}`, vắng = không có).
+    cap: int = 0
+    quyen: dict[str, str] = {}
 
 
 class TeamsOut(BaseModel):
@@ -57,6 +69,7 @@ class KhuonChipOut(BaseModel):
 
 class WorkItemOut(BaseModel):
     id: int
+    department_id: int | None = None  # tổ thật của việc (bàn nút cha gộp nhiều tổ con)
     goi_id: int
     phien_ban_so: int
     nguon_loai: str          # "lsx" | "bai_ghep" | ""
@@ -111,11 +124,42 @@ class WorkItemOut(BaseModel):
     khuon: KhuonChipOut | None = None
     khuon_da_nhan: bool = False
     khuon_da_tra: bool = False
+    # Người xem giữ Thực hiện lệnh trên việc này (máy chủ tính theo dòng quyền tổ) — nút chạy nhanh
+    # trên dòng bảng hiện theo cờ này.
+    chay_duoc: bool = False
+
+
+class TrangOut(BaseModel):
+    """Vị trí trang + tổng số LỆNH (không phải tổng số bước) — đơn vị trang của bàn tổ là LỆNH."""
+    trang: int
+    co_trang: int
+    tong: int
+
+
+class LenhNhomOut(BaseModel):
+    """Một LỆNH SX (hoặc BÀI GHÉP) trên bàn tổ, kèm các công đoạn CỦA TỔ trong lệnh ấy.
+
+    Đơn vị VIỆC vẫn là CÔNG ĐOẠN: `cong_viec` là các bước tổ thực sự bấm Bắt đầu / Ghi sản lượng,
+    giữ nguyên `WorkItemOut`. Lệnh chỉ là ĐẦU MỤC bọc ngoài, để tổ trưởng biết công đoạn đó của
+    lệnh nào. Bài ghép là MỘT dòng, không xẻ theo lệnh thành viên: nó chạy một lần trên một tờ."""
+    nguon_loai: str               # "lsx" | "bai_ghep"
+    nguon_ma: str
+    nguon_ten: str
+    lsx_id: int | None = None
+    bai_ghep_id: int | None = None
+    som_nhat: datetime | None = None   # giờ dự kiến bước SỚM NHẤT của tổ trong lệnh
+    muon_nhat: datetime | None = None
+    so_viec: int
+    digest: dict[str, int]             # released / running / paused / completed
+    cong_viec: list[WorkItemOut]
 
 
 class WorkItemsOut(BaseModel):
     team_id: int
-    cong_viec: list[WorkItemOut]
+    nhom: str = "lenh"                 # "lenh" (mặc định) | "phang" (Gantt)
+    trang: TrangOut | None = None      # chỉ có ở nhom="lenh"
+    lenh: list[LenhNhomOut] = []
+    cong_viec: list[WorkItemOut] = []  # chỉ có ở nhom="phang" — hình CŨ, Gantt không phải sửa
 
 
 class NhanVienChonOut(BaseModel):
@@ -146,6 +190,46 @@ class HoTroUngVienListOut(BaseModel):
     nhan_vien: list[HoTroUngVienOut]
 
 
+class ChoXacNhanBanGiaoOut(BaseModel):
+    """Một bàn giao đến đang chờ tổ nhận xác nhận (§11.2)."""
+    id: int
+    nguon_cong_viec_id: int
+    nguon_ten: str
+    nguon_to_ten: str | None = None
+    dich_cong_viec_id: int
+    dich_ten: str
+    dich_to_ten: str | None = None
+    lsx_ma: str | None = None
+    so_luong: float
+    don_vi: str
+    de_xuat_luc: datetime | None = None
+    version: int
+
+
+class ChoXacNhanHoTroOut(BaseModel):
+    """Một thỏa thuận hỗ trợ chéo đang chờ bên tổ của người xem (§9.1)."""
+    id: int
+    cong_viec_id: int
+    ten_cong_doan: str
+    lsx_ma: str | None = None
+    ho_ten: str
+    to_goc_ten: str | None = None
+    to_thuc_hien_ten: str | None = None
+    ngay_lam_viec: date
+    ty_le_phan_tram: float
+    mo_ta: str | None = None
+    # Bên nào đang chờ CHÍNH người xem đứng tên: tổ cho mượn người (gốc) hay tổ đang làm (thực hiện).
+    cho_ben_goc: bool
+    cho_ben_thuc_hien: bool
+    version: int
+
+
+class ChoXacNhanOut(BaseModel):
+    team_id: int
+    ban_giao: list[ChoXacNhanBanGiaoOut]
+    ho_tro: list[ChoXacNhanHoTroOut]
+
+
 # --- Mặt GHI: phân công / phiên chạy (Giai đoạn 2, §7) ---------------------------------------
 class PhanCongIn(BaseModel):
     employee_id: int
@@ -158,7 +242,8 @@ class GoPhanCongIn(BaseModel):
 
 
 class BatDauIn(BaseModel):
-    ly_do_tre: str | None = None       # bắt buộc khi bắt đầu TRỄ (§7.2)
+    # Sớm/trễ so với dự kiến không hỏi lý do nữa (gỡ 16/09/2026) — client cũ còn gửi `ly_do_tre`
+    # thì pydantic bỏ qua im lặng.
     ly_do_so_nguoi: str | None = None  # bắt buộc khi số người thực tế ≠ dự kiến (§7.1)
     expected_version: int | None = None
 
@@ -176,7 +261,6 @@ class TamDungIn(BaseModel):
 
 
 class KetThucIn(BaseModel):
-    ly_do_tre: str | None = None       # cần khi trễ mà chưa có lý do tạm dừng (§7.2)
     expected_version: int | None = None
 
 
@@ -230,7 +314,7 @@ class PhienChayOut(BaseModel):
     bat_dau: datetime
     ket_thuc: datetime | None = None
     loai_dong: str | None = None
-    ly_do_bat_dau_tre: str | None = None
+    ly_do_bat_dau_tre: str | None = None  # chỉ còn ở phiên cũ — luật lý do trễ đã gỡ 16/09/2026
     ly_do: str | None = None
 
 
@@ -258,6 +342,141 @@ class NguoiThamGiaBatchOut(BaseModel):
     ho_ten: str
 
 
+class SanLuongMotDonViOut(BaseModel):
+    don_vi: str | None = None
+    tong: float
+
+
+class SanLuongCuaToiOut(BaseModel):
+    """Luỹ kế sản lượng tháng của CHÍNH người đăng nhập. KHÔNG có ô tiền — spec 2026-09-11.
+
+    Gộp theo ĐƠN VỊ chứ không cộng thành một số: tháng nào thợ chạy cả bước đếm tờ lẫn bước đếm
+    cái thì cộng chung lại ra một con số vô nghĩa. `employee_id` là null khi tài khoản chưa nối
+    hồ sơ nhân sự."""
+
+    nam: int
+    thang: int
+    employee_id: int | None = None
+    theo_don_vi: list[SanLuongMotDonViOut] = []
+    so_me: int = 0
+
+
+class SlToTotHongOut(BaseModel):
+    """Tốt · hỏng của một ĐƠN VỊ — không bao giờ cộng lẫn hai đơn vị."""
+
+    don_vi: str | None = None
+    tot: float = 0
+    hong: float = 0
+
+
+class SlToCuaToiOut(BaseModel):
+    """Phần ĐÃ CHỐT của chính người xem, theo đơn vị trả lương."""
+
+    don_vi: str | None = None
+    da_chot: float = 0
+
+
+class SlToNguoiOut(BaseModel):
+    """Một người trong công đoạn: đã chốt tách riêng tạm tính (bản chia còn nháp/mở lại)."""
+
+    employee_id: int
+    ho_ten: str
+    don_vi: str | None = None
+    la_ho_tro: bool = False
+    da_chot: float = 0
+    tam_tinh: float = 0
+
+
+class SlToCongDoanOut(BaseModel):
+    cong_viec_id: int
+    ten_cong_doan: str
+    to_id: int | None = None
+    to_ten: str = ""
+    #: True = tổ này chỉ thấy "của tôi": không có số tổ, không có tầng người.
+    cua_toi: bool = False
+    so_me: int = 0
+    #: Số mẻ chưa có bản chia (chỉ đếm ở tổ thấy trọn).
+    chua_chia: int = 0
+    san_luong: list[SlToTotHongOut] = []
+    phan_cua_toi: list[SlToCuaToiOut] = []
+    nguoi: list[SlToNguoiOut] = []
+
+
+class SlToLenhOut(BaseModel):
+    nguon_loai: str
+    nguon_id: int | None = None
+    ma: str = ""
+    ten: str = ""
+    so_me: int = 0
+    ngay_dau: date | None = None
+    ngay_cuoi: date | None = None
+    san_luong: list[SlToTotHongOut] = []
+    phan_cua_toi: list[SlToCuaToiOut] = []
+    cong_doan: list[SlToCongDoanOut] = []
+
+
+class SlToTongOut(SlToTotHongOut):
+    so_me: int = 0
+
+
+class SlToDonViOut(BaseModel):
+    id: int
+    ten: str
+    cap: int = 0
+
+
+class SanLuongToOut(BaseModel):
+    """Tab SẢN LƯỢNG của bàn tổ (spec 2026-09-14 §6). Ngày = ngày BẮT ĐẦU mẻ, giờ xưởng; tổng tính
+    trên CẢ bộ lọc, không chỉ trang đang xem. KHÔNG có ô tiền."""
+
+    team_id: int
+    tu: date
+    den: date
+    to_id: int | None = None
+    trang: int
+    co_trang: int
+    tong_lenh: int
+    co_pham_vi_tron: bool = False
+    co_pham_vi_rieng: bool = False
+    cac_to: list[SlToDonViOut] = []
+    tong: list[SlToTongOut] = []
+    tong_cua_toi: list[SlToCuaToiOut] = []
+    lenh: list[SlToLenhOut] = []
+    cap_nhat_luc: datetime | None = None
+
+
+class MeSuCoOut(BaseModel):
+    """Một lần DỪNG MÁY rơi vào cửa sổ mẻ — suy từ phiên `loai_dong='tam_dung'`, không bảng mới."""
+
+    bat_dau: datetime | None = None
+    ket_thuc: datetime | None = None
+    ly_do: str | None = None
+
+
+class ChiaDongOut(BaseModel):
+    """Một người trong bản CHIA SẢN LƯỢNG của mẻ. KHÔNG có ô tiền nào: sản xuất ghi số lượng, quy
+    số lượng ra tiền là việc của kế toán lương (spec 2026-09-11)."""
+
+    employee_id: int
+    ho_ten: str
+    so_luong: float
+    phut_thuc_te: float | None = None
+    he_so_bac: float | None = None
+    la_ho_tro: bool = False
+
+
+class ChiaDuKienOut(BaseModel):
+    """Bản chia NHÁP tính lúc ĐỌC cho mẻ chưa có bản chia nào (§5.1) — không lưu DB, không phải
+    chốt gì cả. Mẻ đã có bản chia (nháp đã bấm tính hoặc đã chốt) thì khoá này là `null`, số thật
+    đọc ở khối `phan_bo`."""
+
+    q: float
+    don_vi: str | None = None
+    can_chot: bool = True
+    canh_bao: list[str] = []
+    dong: list[ChiaDongOut] = []
+
+
 class BatchOut(BaseModel):
     id: int
     bat_dau: datetime
@@ -269,8 +488,19 @@ class BatchOut(BaseModel):
     mo_ta_loi: str | None = None
     ghi_chu: str | None = None
     version: int
+    # Đọc trọn mẻ (§5.2): máy ĐÃ CHẠY mẻ này (lấy từ PHIÊN, không phải `cv.may_id`), ca, đầu
+    # việc kế hoạch đã chọn, kíp mấy người, và các lần dừng máy rơi vào cửa sổ mẻ.
+    may_ten: str | None = None
+    ca_ten: str | None = None
+    dau_viec_ten: str | None = None
+    so_nguoi: int = 0
+    su_co: list[MeSuCoOut] = []
     nguoi_tham_gia: list[NguoiThamGiaBatchOut]
+    chia_du_kien: ChiaDuKienOut | None = None
     lot_vao: list[LotVaoOut]
+    # Mẻ đã đi theo một lần bàn giao chưa (`san_xuat_ban_giao_batch`) — form bàn giao chỉ liệt kê
+    # mẻ chưa giao.
+    da_ban_giao: bool = False
 
 
 class SanLuongOut(BaseModel):
@@ -297,16 +527,22 @@ class BanGiaoOut(BaseModel):
     trang_thai: str                     # proposed | confirmed | adjusted
     khong_nhat_quan: bool
     version: int
+    batch_ids: list[int] = []           # các mẻ của công đoạn nguồn đi theo lần giao này
 
 
-class BanGiaoDichGoiYOut(BaseModel):
-    """Gợi ý ĐÍCH khi tạo bàn giao — chặng sau cùng gói/LSX (§11.2). Ngoài danh sách này, tổ
-    trưởng vẫn được chọn "giao ra ngoài" (đích trống)."""
+class BanGiaoChangSauOut(BaseModel):
+    """CHẶNG SAU theo routing lệnh — đích bàn giao hợp lệ duy nhất (§11.2). Nhiều dòng khi bước
+    sau tách lần chạy hoặc routing rẽ nhánh; rỗng = bước cuối lệnh, giao ra kho."""
     cong_viec_id: int
     ten_cong_doan: str
     to_id: int | None = None
     to_ten: str | None = None
     du_kien_bat_dau: datetime | None = None
+    phan_doan_so: int = 1
+    phan_doan_tong: int = 1
+    loai_buoc: str
+    nha_cung_cap: str | None = None
+    trang_thai: str
 
 
 class VatTuNhanOut(BaseModel):
@@ -331,6 +567,9 @@ class HoTroChiTietOut(BaseModel):
     mo_ta: str | None = None
     da_xac_nhan_goc: bool
     da_xac_nhan_thuc_hien: bool
+    # Người đang xem bấm được gì trên CHÍNH dòng này — máy chủ tính theo quyền trọn tổ ở từng bên.
+    co_the_xac_nhan: bool = False
+    co_the_huy: bool = False
     version: int
 
 
@@ -346,7 +585,6 @@ class PhanBoDongOut(BaseModel):
     trong_so: float | None = None
     phut_thuc_te: float | None = None
     he_so_bac: float | None = None
-    don_gia: float
 
 
 class BuTruDongOut(BaseModel):
@@ -354,7 +592,6 @@ class BuTruDongOut(BaseModel):
     employee_id: int
     ho_ten: str
     so_luong_tra_luong: float
-    don_gia: float
     ky_bu_nam: int
     ky_bu_thang: int
     mo_ta: str | None = None
@@ -368,7 +605,9 @@ class LoaiTruDongOut(BaseModel):
 
 
 class PhanBoChiTietOut(BaseModel):
-    """Header phân bổ MỘT batch + bảng chia theo người + dòng bù trừ (§12)."""
+    """Header CHIA SẢN LƯỢNG của MỘT batch + bảng chia theo người + dòng bù trừ (§12).
+
+    KHÔNG có ô tiền nào (11/09/2026): sản xuất ghi số lượng, kế toán lương định giá."""
     phan_bo_id: int
     batch_id: int
     trang_thai: str                      # draft | finalized | reopened
@@ -378,11 +617,6 @@ class PhanBoChiTietOut(BaseModel):
     ky_thang: int
     q_tra_luong: float
     don_vi_tra_luong: str | None = None
-    don_gia: float
-    # Đơn giá ở trên là số GỘP TỪ CÔNG THỨC tiền công của bước (`khoan_json.don_gia_hd`) hay đơn giá
-    # thẳng của đầu việc? Tổ trưởng nhìn "620 đ" trong khi danh mục ghi "40 đ/nhịp" mà không có chú
-    # thích thì tưởng hệ tính sai — con số đúng nhưng không giải thích được cũng là một lỗi.
-    don_gia_tu_cong_thuc: bool = False
     q_ban_dia: float | None = None
     don_vi_ban_dia: str | None = None
     tong_ty_le_ho_tro: float
@@ -462,17 +696,31 @@ class VatTuCapOut(BaseModel):
     du_lieu_cu: bool = False
 
 
+class TepLenhNhomOut(BaseModel):
+    """Tệp đính kèm của MỘT lệnh, nhìn từ Bàn tổ (chỉ đọc). Bài ghép thì mỗi lệnh thành viên một nhóm."""
+    lsx_id: int
+    lsx_ma: str
+    lsx_ten: str | None = None
+    items: list[LsxDinhKemOut]
+
+
+class TepLenhOut(BaseModel):
+    nhom: list[TepLenhNhomOut]
+
+
 class WorkItemChiTietOut(BaseModel):
     cong_viec: WorkItemOut
     trang_thai: str
     version: int
+    # Bốn quyền chi tiết của NGƯỜI ĐANG XEM trên chính việc này (mg 0302) — drawer bật/tắt nút.
+    quyen: dict[str, bool] = {}
     phan_cong: list[PhanCongItemOut]
     phien_chay: list[PhienChayOut]
     khoang_tham_gia: list[KhoangThamGiaOut]
     san_luong: SanLuongOut
     ban_giao_di: list[BanGiaoOut]
     ban_giao_den: list[BanGiaoOut]
-    ban_giao_goi_y: list[BanGiaoDichGoiYOut]
+    ban_giao_chang_sau: list[BanGiaoChangSauOut]
     vat_tu: list[VatTuNhanOut]
     vat_tu_cap: VatTuCapOut = VatTuCapOut()
     ho_tro: list[HoTroChiTietOut]
@@ -525,13 +773,14 @@ class SanLuongKetQuaOut(BaseModel):
 
 
 class BanGiaoDeXuatIn(BaseModel):
-    dich_cong_viec_id: int | None = None  # None = giao ra ngoài (nhập kho BTP, pha sau)
-    so_luong: float
+    dich_cong_viec_id: int | None = None  # None = giao ra kho — chỉ bước cuối lệnh
     don_vi: str | None = None
+    # Mẻ đi theo lần giao (bắt buộc khi còn mẻ chưa giao). Số lượng suy ra từ mẻ, không nhận số gõ.
+    batch_ids: list[int] = []
 
 
 class BanGiaoSuaIn(BaseModel):
-    so_luong: float
+    batch_ids: list[int] = []             # danh sách mẻ MỚI của lần giao còn chờ xác nhận
     expected_version: int | None = None
 
 
@@ -1051,23 +1300,6 @@ class DongNhomDieuKienOut(BaseModel):
     muc_tieu: float | None = None
     da_dat: float | None = None
     con_thieu: float | None = None
-
-
-class ThuongToTruongOut(BaseModel):
-    """Một dòng thưởng/PHẠT tổ trưởng của nhóm (§8) — đọc lại VẾT đã ghi lúc đóng nhóm.
-
-    Bày cả `san_luong`/`so_luong_loi`/`ty_le_loi`/`rate_pct` chứ không chỉ `so_tien`: con số cuối
-    một mình thì tổ trưởng không cãi được, mà cãi được mới là điều kiện để tin."""
-    department_id: int
-    department: str | None = None
-    san_luong: float = 0
-    tien_khoan: float = 0
-    so_luong_loi: float = 0
-    ty_le_loi: float = 0
-    rate_pct: float = 0
-    so_tien: float = 0
-    ghi_chu: str | None = None
-    da_ghi: bool = False           # False = XEM TRƯỚC (nhóm chưa đóng), True = đã ghi thành vết
 
 
 class DongThieuIn(BaseModel):

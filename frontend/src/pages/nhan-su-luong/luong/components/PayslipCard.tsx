@@ -150,11 +150,6 @@ export function PayslipCard({
             ? [["Khoán km giao hàng", l.khoan_km ?? 0] as [string, number]]
             : []),
         ] as [string, number][])),
-    // Thưởng/PHẠT tổ trưởng — cộng ĐẠI SỐ vào `gross`, in như `Điều chỉnh lương`: có số mới có
-    // dòng, và dòng âm là tiền BỊ TRỪ ngay trong khối thu nhập (không phải khấu trừ kỷ luật).
-    ...((l.thuong_to_truong ?? 0) !== 0
-      ? ([["Thưởng/phạt tổ trưởng (chất lượng)", l.thuong_to_truong ?? 0]] as [string, number][])
-      : []),
     // CHẾ ĐỘ KHOÁN (14/09/2026): KHÔNG có tiền tăng ca — chủ nhắc: "không có tiền tăng ca luôn,
     // tăng ca thì làm nhiều sản lượng hơn, ăn ở sản lượng rồi". Engine để tiền GIỜ tăng ca = 0 nên
     // `ot_pay` của dòng khoán CHỈ còn phần thêm làm nguyên ngày CN/lễ + tiền 1× ngày nghỉ off1x ⇒

@@ -7,6 +7,10 @@ Fixture `db` (+ `admin`/`customer`/`orders`/`lsx_svc`) KHÔNG khai lại ở đ�
 `tests.test_san_xuat_thuc_thi`, nơi dựng đúng luồng thật (đơn → SX → sẵn sàng → phát hành vào tổ)
 mà `_kh_service`/`nhu_cau_cua_cong_viec` cần để có LSX/routing thật. Khai một fixture `db` cục bộ
 KHÁC ở đây là hai định nghĩa `db` chồng nhau trong cùng module — cái sau âm thầm che cái trước.
+
+Quyền ghi: `_mot_cv` → `_to_khoan` đã bật Xem + đủ bốn quyền chi tiết (trong đó có Kho) trên dòng
+`to_sx_<id tổ>` cho vai của `admin`, nên các test gọi `V.tao/sua(..., user=admin)` qua cổng Kho mà
+không phải cấp thêm. Bài chặn / bài "không cần `kho:request`" tự dựng người riêng.
 """
 from __future__ import annotations
 
@@ -236,7 +240,6 @@ def test_tao_luu_ca_dong_xin_0_va_chi_gui_kho_dong_duong(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT3")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     assert len(kh) >= 1
@@ -257,7 +260,6 @@ def test_tao_co_dong_duong_thi_de_yeu_cau_kho_approved(db, orders, lsx_svc, admi
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT4")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -290,7 +292,6 @@ def test_ngay_can_tinh_theo_gio_vn_khong_phai_utc(db, orders, lsx_svc, admin, cu
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-TZ")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -321,7 +322,6 @@ def test_ngay_can_naive_la_gio_nha_may_khong_cong_them_7h(db, orders, lsx_svc, a
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-TZ2")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -343,7 +343,6 @@ def test_khop_ke_hoach_thi_khong_doi_ly_do(db, orders, lsx_svc, admin, customer)
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT8")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -361,7 +360,6 @@ def test_lech_ke_hoach_ma_thieu_ly_do_thi_chan(db, orders, lsx_svc, admin, custo
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT5")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": kh[0]["hang_loai"], "hang_id": kh[0]["hang_id"],
@@ -371,15 +369,30 @@ def test_lech_ke_hoach_ma_thieu_ly_do_thi_chan(db, orders, lsx_svc, admin, custo
     assert "lý do" in str(e.value).lower()
 
 
-def test_khong_phai_to_truong_thi_chan(db, orders, lsx_svc, admin, customer):
+def test_khong_co_quyen_kho_o_to_thi_chan(db, orders, lsx_svc, admin, customer):
+    """Đề nghị vật tư gác đúng quyền KHO trên dòng tổ của công đoạn. Người có Xem + ba quyền chi
+    tiết còn lại (Thực hiện lệnh, Xác nhận sản lượng, KCS) ở chính tổ đó, TRỌN phạm vi, vẫn bị
+    chặn — và không có gì được ghi (cả đề nghị lẫn yêu cầu kho)."""
+    from app.models.user import User
     from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.quyen_to_fixtures import cap_quyen_to
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT6")
-    to.head_user_id = None          # không ai là tổ trưởng ⇒ kể cả admin cũng không ghi được
+    nguoi = User(username="khong_quyen_kho_to", name="Có mọi quyền trừ Kho", password_hash="x")
+    db.add(nguoi)
+    db.flush()
+    cap_quyen_to(db, nguoi, to, viec=("run_order", "confirm_output", "qc"))
     db.commit()
-    with pytest.raises(PermissionError):
-        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=[])
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+
+    with pytest.raises(PermissionError) as e:
+        V.tao(db, user=nguoi, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    assert "Kho" in str(e.value)
+    db.rollback()
+    assert db.query(SanXuatVatTuDeNghi).filter_by(cong_viec_id=cv.id).count() == 0
 
 
 def test_dang_co_de_nghi_sua_duoc_thi_khong_tao_them(db, orders, lsx_svc, admin, customer):
@@ -388,7 +401,6 @@ def test_dang_co_de_nghi_sua_duoc_thi_khong_tao_them(db, orders, lsx_svc, admin,
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT7")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -423,7 +435,6 @@ def test_tao_khoa_cong_doan_truoc_khi_doc_lan_ke_tiep(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-LOCK")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -481,7 +492,6 @@ def test_cong_chan_de_nghi_con_mo_dung_truoc_khi_de_yeu_cau_kho(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-2CLICK")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -542,7 +552,6 @@ def test_tao_chay_trong_mot_giao_dich_hong_giua_chung_khong_de_lai_gi(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-1TX")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -592,7 +601,6 @@ def test_tao_hong_giua_chung_thi_khong_day_tin_nao_cho_kho(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-TIN")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -649,7 +657,6 @@ def test_giu_nguyen_don_vi_ke_hoach_thi_quy_goc_theo_ti_le_cua_lenh(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT9")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     k0 = next(k for k in kh if k["hang_loai"] == "giay")
@@ -701,7 +708,6 @@ def test_yeu_cau_kho_gui_bang_don_vi_thich_hop_khong_phai_to_cung_khong_phai_tan
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTB")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -736,7 +742,6 @@ def test_xin_luong_rat_nho_van_tao_duoc_yeu_cau_kho(db, orders, lsx_svc, admin, 
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTE")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     k0 = next(k for k in kh if k["hang_loai"] == "giay")
@@ -783,7 +788,6 @@ def test_doi_don_vi_khong_quy_duoc_thi_bao_loi_ro_chu_khong_ghi_0(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTA")
-    to.head_user_id = admin.id
     db.commit()
     k0 = _kh_service(db).nhu_cau_cua_cong_viec(cv)[0]
     lines = [{"hang_loai": k0["hang_loai"], "hang_id": k0["hang_id"],
@@ -803,7 +807,6 @@ def test_so_am_thi_chan(db, orders, lsx_svc, admin, customer):
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTC")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": kh[0]["hang_loai"], "hang_id": kh[0]["hang_id"],
@@ -832,7 +835,6 @@ def test_lan_dau_khong_dong_duong_van_bi_chan_tao_them_khong_kep_cung(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTD")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": kh[0]["hang_loai"], "hang_id": kh[0]["hang_id"],
@@ -858,7 +860,6 @@ def test_dong_ngoai_ke_hoach_xin_0_thi_khong_luu(db, orders, lsx_svc, admin, cus
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTG")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     ngoai_id = max(k["hang_id"] for k in kh) + 999_999   # chắc chắn KHÔNG có trong kế hoạch
@@ -886,7 +887,6 @@ def _tao_de_nghi(db, orders, lsx_svc, admin, customer, ma):
     from app.services.san_xuat import vat_tu_de_nghi as V
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma=ma)
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -1005,7 +1005,6 @@ def test_sua_de_nghi_toan_0_thanh_so_duong_de_yeu_cau_kho_va_bao_kho_dung_mot_la
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-0LEN")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     ve0 = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"], "dvt": k["dvt"],
@@ -1109,7 +1108,6 @@ def test_xin_1_to_khong_bi_am_tham_bo_dong(db, orders, lsx_svc, admin, customer)
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTF")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     k0 = next(k for k in kh if k["hang_loai"] == "giay")
@@ -1295,7 +1293,7 @@ def test_sua_qua_kho_huy_roi_nhap_so_duong_thi_chan_khong_ghi_nua_voi(
     assert dongs_sau == dongs_truoc
 
 
-# --- Task 6: route chỉ gác `assign_work`, không đòi `kho:request` (ruling 6/21) ----------------
+# --- Task 6: route gác quyền Kho theo tổ, không đòi `kho:request` (ruling 6/21, mg 0302) -------
 # `sua()` phải để `StockRequestError` xuyên thẳng ra ngoài (không bọc thành `VatTuDeNghiError`) —
 # đã CHỐT ở đây rồi, KHÔNG cần thêm test: `test_sua_qua_kho_huy_roi_nhap_so_duong_thi_chan_khong_ghi_nua_voi`
 # (ngay phía trên) gọi thẳng `V.sua()` và `pytest.raises(StockRequestError)` — router Task 6 chỉ
@@ -1303,27 +1301,29 @@ def test_sua_qua_kho_huy_roi_nhap_so_duong_thi_chan_khong_ghi_nua_voi(
 
 
 def test_khong_can_quyen_kho_de_tao_de_nghi(db, orders, lsx_svc, admin, customer):
-    """`tao()`/`sua()` không hề hỏi RBAC — ranh giới an ninh DUY NHẤT là `_gate_to_truong` (đúng
-    `department.head_user_id`). Mọi test khác trong file này gọi `V.tao(..., user=admin)`, mà
-    `admin` (Giám đốc) lại CÓ `kho.can_request=True` qua `_full()` (`app/seed.py`) — nên tự chúng
-    không chứng minh được "route Task 6 không cần bit kho:request". Test này dựng một tổ trưởng
-    THẬT SỰ trắng RBAC (`role_id=None`, không một bit quyền nào — không riêng gì kho) và xác nhận
-    `tao()` vẫn tạo được đề nghị + yêu cầu kho bình thường."""
+    """`tao()`/`sua()` không hỏi ô tĩnh nào của RBAC — ranh giới DUY NHẤT là quyền Kho trên dòng
+    `to_sx_<id tổ>` (`thuc_thi._gate(..., VIEC_KHO)`). Mọi test khác trong file này gọi
+    `V.tao(..., user=admin)`, mà `admin` (Giám đốc) lại CÓ `kho.can_request=True` qua `_full()`
+    (`app/seed.py`) — nên tự chúng không chứng minh được "route Task 6 không cần bit kho:request".
+    Test này dựng một người THẬT SỰ trắng RBAC (`role_id=None`), rồi chỉ cấp đúng Xem + Kho trên
+    dòng tổ (vai tự dựng không có một ô tĩnh nào — không riêng gì kho, cũng không có ba quyền chi
+    tiết kia) và xác nhận `tao()` vẫn tạo được đề nghị + yêu cầu kho bình thường."""
     from app.models.user import User
     from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.quyen_to_fixtures import cap_quyen_to
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTKHO")
-    to_truong = User(username="to_truong_khong_quyen_kho", name="Tổ trưởng không quyền kho",
-                      password_hash="x")
-    db.add(to_truong)
+    nguoi_kho = User(username="chi_quyen_kho_theo_to", name="Chỉ có quyền Kho ở tổ",
+                     password_hash="x")
+    db.add(nguoi_kho)
     db.flush()
-    to.head_user_id = to_truong.id
+    cap_quyen_to(db, nguoi_kho, to, viec=("warehouse",))
     db.commit()
 
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
               "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
-    ra = V.tao(db, user=to_truong, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    ra = V.tao(db, user=nguoi_kho, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
     assert ra["de_nghi_id"] and ra["stock_request_id"]
 
 
@@ -1369,7 +1369,6 @@ def test_doi_chieu_gom_ca_ba_con_so(db, orders, lsx_svc, admin, customer):
     from app.services.san_xuat import vat_tu_de_nghi as V
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC1")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -1405,7 +1404,6 @@ def test_cong_doan_co_de_nghi_thi_khong_lay_phieu_theo_lsx(db, orders, lsx_svc, 
     from app.services.san_xuat import vat_tu_de_nghi as V
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC2")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -1483,7 +1481,6 @@ def test_vat_tu_cap_khong_bi_schema_nuot(db, orders, lsx_svc, admin, customer):
     from app.services.san_xuat import vat_tu_de_nghi as V
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC4")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -1601,7 +1598,6 @@ def test_doi_chieu_so_lech_bang_thang_goc_khong_phai_thang_to_khai(
     from app.services.san_xuat import board
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC11")
-    to.head_user_id = admin.id
     db.commit()
 
     dn = SanXuatVatTuDeNghi(cong_viec_id=cv.id, lan_so=1, loai=DN_LAN_DAU, can_luc=_T0,
@@ -1633,7 +1629,6 @@ def test_hang_gom_lan_hai_dvt_thi_hien_bang_thang_goc(db, orders, lsx_svc, admin
     from app.services.san_xuat import board
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC12")
-    to.head_user_id = admin.id
     db.commit()
 
     dn1 = SanXuatVatTuDeNghi(cong_viec_id=cv.id, lan_so=1, loai=DN_LAN_DAU, can_luc=_T0,
@@ -1703,7 +1698,6 @@ def test_bo_sung_chi_gui_mot_mat_hang_khong_bi_chan_vi_dong_ke_hoach_khac(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX1")
-    to.head_user_id = admin.id
     db.commit()
     assert cv.lsx_cong_doan_id, "công việc phải neo vào một bước lệnh thì mới có kế hoạch vật tư"
     muc = _khai_them_vat_tu_vao_buoc(db, cv, ma="VT-MUC-FX1", ten="Mực đen", so_luong=5)
@@ -1765,7 +1759,6 @@ def test_dong_ngoai_ke_hoach_thieu_don_vi_ra_loi_doc_duoc(db, orders, lsx_svc, a
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX2")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     ngoai_id = max(k["hang_id"] for k in kh) + 999_999      # chắc chắn KHÔNG có trong kế hoạch
@@ -1813,7 +1806,6 @@ def test_mat_hang_ke_hoach_thieu_don_vi_khong_khoa_ca_cong_doan(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX4")
-    to.head_user_id = admin.id
     db.commit()
     # `dvt=""` ⇒ cả `don_vi_gia` lẫn `don_vi_snapshot` đều rỗng: đúng ca danh mục chưa khai đơn vị.
     thieu = _khai_them_vat_tu_vao_buoc(
@@ -1866,7 +1858,6 @@ def test_dong_thieu_don_vi_gui_kem_so_0_khong_doi_ly_do_va_giu_ghi_chu(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX6")
-    to.head_user_id = admin.id
     db.commit()
     tran = _khai_them_vat_tu_vao_buoc(
         db, cv, ma="VT-NODVT-3", ten="Keo gáy chưa khai đơn vị", so_luong=5, dvt="",
@@ -1915,7 +1906,6 @@ def test_xin_so_duong_cho_mat_hang_thieu_don_vi_van_bao_loi_doc_duoc(
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX5")
-    to.head_user_id = admin.id
     db.commit()
     thieu = _khai_them_vat_tu_vao_buoc(
         db, cv, ma="VT-NODVT-2", ten="Keo gáy chưa khai đơn vị", so_luong=5, dvt="",
@@ -1997,7 +1987,6 @@ def test_board_tra_can_luc_naive_du_db_tra_aware(db, orders, lsx_svc, admin, cus
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTTZ")
-    to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],

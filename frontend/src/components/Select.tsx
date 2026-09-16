@@ -1,7 +1,7 @@
 // Reusable dropdown that matches the paper + ink + rust system (replaces the native
 // <select>, which can't be styled to the design language). Keyboard-accessible listbox:
 // open with Enter/Space/↓, move with ↑/↓, choose with Enter, dismiss with Esc; click-away
-// closes. Each option can carry a mono `hint` shown after the label.
+// closes. Each option can carry a `hint` shown after the label.
 //
 // `portal`: render the popover in a portal at document.body (position: fixed at the trigger)
 // so it is NOT clipped by a scrolling parent — use it inside modals. Inline (default) keeps

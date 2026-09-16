@@ -63,17 +63,13 @@
   --score-bad-fg: var(--signal);
 
   /* Typography */
-  /* MỘT font chữ cho toàn app (styles/fonts.css): Be Vietnam Pro. Mọi nhãn / tiêu đề /
-     nội dung đều dùng --ff-sans. Nhãn HOA giãn cách là hiệu ứng của
+  /* MỘT font cho toàn app (styles/fonts.css): Be Vietnam Pro. Mọi nhãn / tiêu đề /
+     nội dung / SỐ / MÃ đều dùng --ff-sans. Nhãn HOA giãn cách là hiệu ứng của
      `text-transform: uppercase` + `letter-spacing`, KHÔNG phải của font — nên không cần
      font thứ hai cho việc đó. */
   --ff-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  /* CHỈ dùng cho SỐ và MÃ (tiền, số lượng, giờ, %, mã phiếu). Be Vietnam Pro có chữ số
-     RỘNG KHÁC NHAU (số "1" = 385 so với số "4" = 710 trên 1000em) và KHÔNG có feature
-     `tnum`, nên cột số dùng sans sẽ so le và CSS không cứu được. Luôn đi kèm
-     `font-variant-numeric: tabular-nums`. ĐỪNG dùng cho chữ — đó là việc của --ff-sans.
-     (Token cũ --ff-mono đã bỏ vì bị dùng tràn sang chữ ở 356 chỗ.) */
-  --ff-num: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  /* Token --ff-num (JetBrains Mono cho số/mã) đã GỠ 13/09/2026: số và mã cũng dùng
+     --ff-sans. Be Vietnam Pro không có feature `tnum` nên `tabular-nums` không có tác dụng. */
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-bold: 600;

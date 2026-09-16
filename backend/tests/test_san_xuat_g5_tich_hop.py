@@ -57,8 +57,8 @@ def _ghi_loi_cho(db, *, admin, kcs_batch_id, to_chiu_id):
 
 # --- §16 + §17: chốt chặn router hội tụ khi gỡ điều kiện CUỐI --------------------------------
 def test_phan_hoi_loi_la_chot_cuoi_thi_router_tu_dong_dong_du(db, orders, lsx_svc, admin, customer):
-    """Lỗi KCS chờ là chốt DUY NHẤT còn treo; tổ bị yêu cầu phản hồi CHẤP NHẬN → endpoint gọi
-    `_thu_dong_nhom` → nhóm tự đóng ĐỦ (không cần trưởng KCS đóng tay)."""
+    """Lỗi KCS chờ là chốt DUY NHẤT còn treo; người giữ KCS ở tổ bị yêu cầu phản hồi CHẤP NHẬN →
+    endpoint gọi `_thu_dong_nhom` → nhóm tự đóng ĐỦ (không cần ai đóng thiếu bằng tay)."""
     _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     _hoan_thanh_het(db, cv.nhom_id)
     to2, tt2 = _to_chiu(db)

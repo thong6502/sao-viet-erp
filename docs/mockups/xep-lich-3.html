@@ -1,6 +1,6 @@
 <title>Bàn xếp lịch lệnh</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&display=swap">
 <style>
 :root{
   --paper:#f8fafc; --canvas:#ffffff; --ink:#0f172a; --ash:#475569; --mute:#94a3b8;
@@ -13,7 +13,6 @@
   --run-1:#0f172a; --run-2:#334155; --run-3:#4a5560; --run-4:#64748b;
   --off:#eef2f7; --span:#e5eaf1;
   --ff:"Be Vietnam Pro",ui-sans-serif,system-ui,-apple-system,sans-serif;
-  --num:"JetBrains Mono",ui-monospace,"SF Mono",monospace;
   --lw:264px;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
@@ -42,7 +41,7 @@
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff);font-size:14px;line-height:1.5}
 .wrap{max-width:1480px;margin:0 auto;padding:22px 18px 40px}
 .lab{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:500}
-.n{font-family:var(--num);font-variant-numeric:tabular-nums}
+.n{font-family:var(--ff)}
 
 /* --- Băng đầu màn: tiêu đề trái · mức thu phóng + phân trang cửa sổ bên phải --- */
 .top{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;padding-bottom:11px;border-bottom:1px solid var(--rule)}
@@ -59,12 +58,12 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff);fon
   font-family:var(--ff);font-size:12.5px;color:var(--ink);padding:6px 11px;cursor:pointer;white-space:nowrap}
 .ghost:hover{border-color:var(--ink)}
 .ghost.pill{border-radius:99px;padding:6px 14px}
-.dt{font-family:var(--num);font-size:12.5px;color:var(--ink);background:var(--canvas);
+.dt{font-family:var(--ff);font-size:12.5px;color:var(--ink);background:var(--canvas);
   border:1px solid var(--rule);border-radius:6px;padding:5px 8px}
 .ghost:focus-visible,.dt:focus-visible,.seg button:focus-visible,.btn:focus-visible,.card:focus-visible,.span:focus-visible{outline:2px solid var(--rust);outline-offset:2px}
 /* Dải số liệu VĂN XUÔI (bản người dùng chốt) — đọc thành câu, không phải mã vạch chữ hoa. */
 .stats{display:flex;gap:24px;flex-wrap:wrap;padding:10px 2px 0;font-size:12.5px;color:var(--ash)}
-.stats b{font-family:var(--num);font-weight:500;color:var(--ink)}
+.stats b{font-family:var(--ff);font-weight:500;color:var(--ink)}
 .stats .s b{color:var(--signal)}
 
 .main{display:grid;grid-template-columns:242px minmax(0,1fr);gap:16px;margin-top:14px;align-items:start}
@@ -76,11 +75,11 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff);fon
 .card{border:1px solid var(--rule-soft);border-left:3px solid var(--steel);border-radius:0 6px 6px 0;padding:8px 10px;margin-bottom:8px;cursor:grab;touch-action:none}
 .card:hover{border-color:var(--rule);background:var(--rule-hair)}
 .card.gap{border-left-color:var(--rust)}
-.card .ma{font-family:var(--num);font-size:12.5px;font-weight:500}
+.card .ma{font-family:var(--ff);font-size:12.5px;font-weight:500}
 .card .ten{font-size:12.5px;color:var(--ink);margin:1px 0}
 .card .kh{font-size:11.5px;color:var(--ash)}
 .card .meta{font-size:11.5px;color:var(--mute);margin-top:4px}
-.card .meta b{font-family:var(--num);font-weight:500;color:var(--ash)}
+.card .meta b{font-family:var(--ff);font-weight:500;color:var(--ash)}
 
 .board{position:relative;background:var(--canvas);border:1px solid var(--rule-soft);border-radius:8px;overflow:hidden}
 .scroll{overflow-x:auto}
@@ -93,7 +92,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff);fon
 .days{display:grid}
 .dcell{padding:7px 6px;border-left:1px solid var(--rule-hair);text-align:center}
 .dcell .dow{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
-.dcell .dd{font-family:var(--num);font-size:13.5px;font-weight:500}
+.dcell .dd{font-family:var(--ff);font-size:13.5px;font-weight:500}
 .dcell.off{background:var(--off)}
 .dcell.off .dow,.dcell.off .dd{color:var(--mute)}
 .dcell.today .dd{color:var(--rust)}
@@ -104,13 +103,13 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff);fon
 .rl{padding:8px 12px;border-right:1px solid var(--rule-hair);min-width:0}
 .rl .l{display:flex;align-items:center;gap:6px;min-width:0}
 .rl .l>.g{flex:1}
-.rl .ma{font-family:var(--num);font-size:12.5px;font-weight:500}
-.rl .may{font-family:var(--num);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.rl .ma{font-family:var(--ff);font-size:12.5px;font-weight:500}
+.rl .may{font-family:var(--ff);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
 .rl .ten{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rl .ten em{font-style:normal;color:var(--mute);font-size:11.5px}
 .rl .kh{font-size:11.5px;color:var(--ash);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rl .sl{font-size:11.5px;color:var(--mute)}
-.rl .sl b{font-family:var(--num);font-weight:500;color:var(--ash)}
+.rl .sl b{font-family:var(--ff);font-weight:500;color:var(--ash)}
 .tag{font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border-radius:3px;background:var(--rust-soft);color:var(--rust-deep);font-weight:500;white-space:nowrap}
 .tag.bad{background:var(--signal-soft);color:var(--signal)}
 
@@ -132,13 +131,13 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff);fon
 .seg-run{position:absolute;top:3px;bottom:3px;border-radius:2px}
 .s1{background:var(--run-1)} .s2{background:var(--run-2)} .s3{background:var(--run-3)} .s4{background:var(--run-4)}
 .span.late .seg-run{background:var(--signal)}
-.arr{position:absolute;top:50%;transform:translateY(-50%);font-family:var(--num);font-size:12px;
+.arr{position:absolute;top:50%;transform:translateY(-50%);font-family:var(--ff);font-size:12px;
   line-height:1;color:var(--ink);z-index:2;pointer-events:none;
   background:var(--canvas);border-radius:2px;padding:1px 2px}
 .arr.l{left:1px} .arr.r{right:1px}
 
 .blab{position:absolute;top:31px;font-size:11.5px;white-space:nowrap;color:var(--ash);pointer-events:none;padding-left:7px}
-.blab b{font-family:var(--num);font-weight:500;color:var(--ink)}
+.blab b{font-family:var(--ff);font-weight:500;color:var(--ink)}
 .blab.late,.blab.late b{color:var(--signal)}
 .dl{position:absolute;top:15px;bottom:9px;width:0;border-left:1.5px dashed var(--signal-line)}
 .dl.kh{border-left-style:dotted;border-left-color:var(--mute)}
@@ -149,12 +148,12 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff);fon
 .legend i{display:inline-block;width:20px;height:9px;border-radius:2px;vertical-align:-1px;margin-right:6px}
 .legend u{display:inline-block;width:0;height:11px;border-left:1.5px dashed var(--signal-line);vertical-align:-2px;margin-right:8px}
 .legend .ca{color:var(--mute)}
-.legend .ca b{font-family:var(--num);font-weight:500}
+.legend .ca b{font-family:var(--ff);font-weight:500}
 
 .detail{margin-top:16px;background:var(--canvas);border:1px solid var(--rule-soft);border-radius:8px;padding:14px 16px}
 .dhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:11px;border-bottom:1px solid var(--rule-hair)}
 .dhead h3{margin:0;font-size:15.5px;font-weight:600}
-.dhead .ma{font-family:var(--num);font-weight:500}
+.dhead .ma{font-family:var(--ff);font-weight:500}
 .pill{font-size:11.5px;padding:2px 9px;border-radius:99px;background:var(--moss-soft);color:var(--moss)}
 .pill.warn{background:var(--amber-soft);color:var(--amber)}
 .pill.bad{background:var(--signal-soft);color:var(--signal)}
@@ -169,7 +168,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--ff);fon
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;font-weight:400;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);padding:0 10px 6px 0}
 td{padding:7px 10px 7px 0;border-top:1px solid var(--rule-hair)}
-td.num{font-family:var(--num);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.num{font-family:var(--ff);white-space:nowrap}
 tfoot td{border-top:1px solid var(--rule);font-weight:500}
 .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:8px}
 .foot{margin-top:9px;font-size:11.5px;color:var(--mute)}

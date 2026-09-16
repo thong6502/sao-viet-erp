@@ -62,6 +62,15 @@ from ..shift_notify import push_shift_changes
 # nghỉ hay không).
 MOC_TU_DANH_DAU_HET_THU_VIEC = date(2026, 8, 22)
 
+# "Sắp hết thử việc" = đang thử việc và ngày hết thử việc rơi trong N ngày tới (kể cả hôm nay).
+# MỘT luật cho cả ô KPI lẫn bộ lọc danh sách/xuất Excel — hai nơi tự tính là hai con số lệch nhau.
+SAP_HET_THU_VIEC_NGAY = 30
+
+
+def khoang_sap_het_thu_viec(hom_nay: date | None = None) -> tuple[date, date]:
+    tu = hom_nay or date.today()
+    return tu, tu + timedelta(days=SAP_HET_THU_VIEC_NGAY)
+
 # Status transitions: kind → (allowed from-statuses, resulting status, event_type).
 # `probation_end` là đường DUY NHẤT máy tự đi (xem `tu_danh_dau_het_thu_viec`); mọi kind còn lại
 # vẫn phải có người bấm.
@@ -286,11 +295,39 @@ class EmployeeService:
 
     # --- reads --------------------------------------------------------------
 
-    def list_employees(self, **kwargs) -> tuple[list[Employee], int]:
-        return self.employees.list(**kwargs)
+    def list_employees(self, *, ending_soon: bool = False, **kwargs) -> tuple[list[Employee], int]:
+        return self.employees.list(
+            probation_end_range=khoang_sap_het_thu_viec() if ending_soon else None, **kwargs
+        )
 
     def list_scoped_all(self, *, scope: str, actor) -> list[Employee]:
         return self.employees.list_scoped_all(scope=scope, actor=actor)
+
+    def employee_kpis(self, *, scope: str, actor) -> dict[str, int]:
+        """Dải KPI màn Nhân sự trên TOÀN phạm vi quyền (không theo bộ lọc hay trang đang xem)."""
+        by_status, sap_het = self.employees.count_by_status(
+            scope=scope, actor=actor, probation_end_range=khoang_sap_het_thu_viec(),
+        )
+        return {
+            "total": sum(by_status.values()),
+            "active": by_status.get(STATUS_ACTIVE, 0),
+            "probation": by_status.get(STATUS_PROBATION, 0),
+            "probation_ended": by_status.get(STATUS_PROBATION_ENDED, 0),
+            "on_leave": by_status.get(STATUS_ON_LEAVE, 0),
+            "resigned": by_status.get(STATUS_RESIGNED, 0),
+            "probation_ending_soon": sap_het,
+        }
+
+    def current_shift(self, employee: Employee) -> tuple[int | None, str | None]:
+        """(id, tên) CA NỀN đang hiệu lực hôm nay — cùng luật `base_shift_id_on` với Chấm công.
+
+        `default_shift_id` là mốc MỚI NHẤT kể cả mốc tương lai nên không dùng thẳng được. Trước đây
+        tab Thông tin tự tải cả lịch sử mốc + cả danh mục ca để tự suy — hai lời gọi thừa mỗi lần mở
+        hồ sơ, và danh mục ca đòi quyền Khai ca nên HCNS không có quyền đó thấy "chưa gán" oan."""
+        shift_id = self.employees.base_shift_id_on(employee, date.today())
+        if shift_id is None:
+            return None, None
+        return shift_id, self.employees.shift_name(shift_id)
 
     def get_employee(self, *, employee_id: int, scope: str, actor) -> Employee:
         employee = self.employees.get_by_id(employee_id)
@@ -674,12 +711,10 @@ class EmployeeService:
             return rows
         # PHẠM VI (07/09/2026, bản rà C5): danh sách này kèm "giá trị hiện tại" của CCCD / số tài
         # khoản / người phụ thuộc — không lọc là ai có `nhan_su:read` cũng đọc được của cả công ty.
-        out = []
-        for r in rows:
-            nv = self.employees.get_by_id(r.employee_id)
-            if nv is not None and self.employees.can_access(employee=nv, scope=scope, actor=actor):
-                out.append(r)
-        return out
+        duoc_xem = self.employees.ids_accessible(
+            {r.employee_id for r in rows}, scope=scope, actor=actor,
+        )
+        return [r for r in rows if r.employee_id in duoc_xem]
 
     def decide_update_request(self, *, request_id: int, actor, approve: bool, scope: str,
                               note=None, can_edit_salary: bool = True):

@@ -28,6 +28,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from ..models.cong_doan import CongDoan, CongDoanDauViec
 from ..models.lsx import LB_TO, Lsx, LsxCongDoan
 from ..models.xep_lich_van_de import TT_NGOAI_LE
 from .xep_lich_van_de_service import (
@@ -164,6 +165,17 @@ def _den_danh_muc(db: Session, ids: list[int]) -> dict[int, dict]:
         select(Lsx).where(Lsx.id.in_(ids)).options(
             selectinload(Lsx.cong_doans).selectinload(LsxCongDoan.vat_tus))
     ).scalars().all()
+    # Nạp trước MỌI công đoạn danh mục mà các bước trỏ tới, kèm đúng ba quan hệ `_soi_danh_muc`
+    # đọc (đầu việc → vật tư của đầu việc, máy làm được). Thiếu lượt này thì MỖI BƯỚC của mỗi lệnh
+    # tốn 4 câu: `db.get(CongDoan)` + ba lần lazy-load — đo dev 14/09/2026, 3 lệnh: 69 câu chỉ
+    # riêng hàm này. `db.get` bên trong sau đó ăn identity map. Giữ `cds` sống tới hết vòng lặp:
+    # identity map giữ tham chiếu YẾU, thả biến ra là object bị dọn và `db.get` lại đi hỏi DB.
+    cd_ids = {cd.cong_doan_id for lsx in rows for cd in lsx.cong_doans if cd.cong_doan_id}
+    cds = db.execute(
+        select(CongDoan).where(CongDoan.id.in_(cd_ids)).options(
+            selectinload(CongDoan.dau_viec_dinh_muc).selectinload(CongDoanDauViec.vat_tus),
+            selectinload(CongDoan.may_lam_duoc))
+    ).scalars().all() if cd_ids else []
     for lsx in rows:
         try:
             buocs = svc._soi_danh_muc(lsx)
@@ -173,6 +185,7 @@ def _den_danh_muc(db: Session, ids: list[int]) -> dict[int, dict]:
         ra[lsx.id] = _den(
             MUC_VANG, f"{len(buocs)} công đoạn đang giữ số cũ — danh mục đã đổi"
         ) if buocs else _den(MUC_OK)
+    del cds
     return ra
 
 
@@ -201,6 +214,47 @@ def _dung_vat_tu(db: Session):
         don_vi=DonViDoRepository(db),
     )
     return GiuChoService(db, kh), kh.can_doi()
+
+
+def den_vat_tu_va_bang(db: Session, lsx_ids: list[int]) -> tuple[dict[int, dict], dict | None]:
+    """CHỈ đèn Vật tư `{lsx_id: đèn}` + bảng cân đối vừa dựng — nguồn 2 của `tong_quan_va_bang`.
+
+    Vì sao đứng riêng: màn Lệnh SX (danh sách + hồ sơ một lệnh, qua `trang_thai.den_va_bang`) chỉ
+    đọc đúng đèn này. Trước 14/09/2026 nó đi qua `tong_quan_va_bang` và trả giá cho cả hai nguồn
+    kia rồi vứt: `XepLichVanDeService` (engine lịch + bảy bộ dò, bên trong bộ dò thiếu vật tư lại
+    chạy `can_doi()` lượt THỨ HAI) và soi danh mục (N+1 theo từng bước của từng lệnh). Đo trên
+    LSX26-0003 (7 bước): hồ sơ một lệnh 143 câu SQL, trong đó ~73 câu thuộc hai nguồn bị vứt.
+
+    Đèn ra Y HỆT `tong_quan_va_bang` vì đó chính là chỗ nó gọi — một nguồn sự thật, không phải bản
+    chép. Nguồn hỏng thì đèn về `ok` kèm chữ, cùng lý do ghi ở `tong_quan_va_bang`.
+    """
+    ids = [i for i in dict.fromkeys(lsx_ids) if i]
+    if not ids:
+        return {}, None
+    giu = bang = None
+    giu_theo_lsx: dict[int, list] = {}
+    loi_vt = ""
+    try:
+        giu, bang = _dung_vat_tu(db)
+        # Dòng giữ chỗ của CẢ TRANG trong MỘT câu. Không có nó thì `trang_thai()` bên dưới tự đi
+        # lấy — tức một câu SELECT cho MỖI lệnh, và hàm này lại là nguồn đèn vật tư của màn danh
+        # sách lệnh. Bài canh: `test_lenh_sx_api.test_so_cau_sql_hang_tren_truc_lenh`.
+        giu_theo_lsx = giu.repo.cua_nhieu_chu_the([(i, None) for i in ids])
+    except Exception as exc:                                            # noqa: BLE001
+        loi_vt = f"Chưa đọc được vật tư ({type(exc).__name__})"
+
+    ra: dict[int, dict] = {}
+    for i in ids:
+        if giu is None:
+            ra[i] = _den(MUC_OK, loi_vt)
+            continue
+        try:
+            ra[i] = _den_vat_tu(
+                giu.trang_thai(lsx_id=i, bang=bang, dang_theo_chu_the=giu_theo_lsx), i
+            )
+        except Exception as exc:                                        # noqa: BLE001
+            ra[i] = _den(MUC_OK, f"Chưa đọc được vật tư ({type(exc).__name__})")
+    return ra, bang
 
 
 def tong_quan(db: Session, lsx_ids: list[int]) -> list[dict]:
@@ -252,17 +306,7 @@ def tong_quan_va_bang(db: Session, lsx_ids: list[int]) -> tuple[list[dict], dict
         loi_lich = f"Chưa đọc được lịch ({type(exc).__name__})"
 
     # --- Nguồn 2: giữ chỗ vật tư, một bảng cân đối dùng chung cả trang ---
-    giu = bang = None
-    giu_theo_lsx: dict[int, list] = {}
-    loi_vt = ""
-    try:
-        giu, bang = _dung_vat_tu(db)
-        # Dòng giữ chỗ của CẢ TRANG trong MỘT câu. Không có nó thì `trang_thai()` bên dưới tự đi
-        # lấy — tức một câu SELECT cho MỖI lệnh, và hàm này lại là nguồn đèn vật tư của màn danh
-        # sách lệnh. Bài canh: `test_lenh_sx_api.test_so_cau_sql_hang_tren_truc_lenh`.
-        giu_theo_lsx = giu.repo.cua_nhieu_chu_the([(i, None) for i in ids])
-    except Exception as exc:                                            # noqa: BLE001
-        loi_vt = f"Chưa đọc được vật tư ({type(exc).__name__})"
+    den_vt_theo_lsx, bang = den_vat_tu_va_bang(db, ids)
 
     # --- Nguồn 3: danh mục đổi dưới chân lệnh (ảnh chụp khoán + dòng vật tư của bước) ---
     try:
@@ -272,15 +316,7 @@ def tong_quan_va_bang(db: Session, lsx_ids: list[int]) -> tuple[list[dict], dict
 
     out: list[dict] = []
     for i in ids:
-        if giu is not None:
-            try:
-                den_vt = _den_vat_tu(
-                    giu.trang_thai(lsx_id=i, bang=bang, dang_theo_chu_the=giu_theo_lsx), i
-                )
-            except Exception as exc:                                    # noqa: BLE001
-                den_vt = _den(MUC_OK, f"Chưa đọc được vật tư ({type(exc).__name__})")
-        else:
-            den_vt = _den(MUC_OK, loi_vt)
+        den_vt = den_vt_theo_lsx[i]
         if loi_lich:
             den_may = den_nguoi = _den(MUC_OK, loi_lich)
         else:

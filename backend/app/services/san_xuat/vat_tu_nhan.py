@@ -1,6 +1,6 @@
 """Thực hiện sản xuất — XÁC NHẬN VẬT TƯ đã nhận (Giai đoạn 3, §10.1).
 
-Tổ trưởng xác nhận đã nhận vật tư của MỘT phiếu xuất ĐÃ GHI SỔ, NGUYÊN TRẠNG — không đẻ con số
+Người giữ quyền Kho trên trọn tổ nhận xác nhận đã nhận vật tư của MỘT phiếu xuất ĐÃ GHI SỔ, NGUYÊN TRẠNG — không đẻ con số
 "tổ nhận" đối nghịch "kho giao". Nếu số lệch, kho sửa chứng từ TRƯỚC. Chỉ phần đã xác nhận mới coi
 là tồn khả dụng cho công đoạn (đọc ở nơi khác). Một phiếu chỉ xác nhận một lần (`voucher_id` UNIQUE).
 """
@@ -13,15 +13,16 @@ from ...models.san_xuat_san_luong import SanXuatVatTuNhan
 from ...models.stock_voucher import VOUCHER_POSTED, VOUCHER_XUAT
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
+from ..quyen_to import VIEC_KHO, gate_to_tron
 from .thuc_thi import _moc
 
 
-def _gate_to_truong(db: Session, user, department_id: int) -> Department:
-    """Chỉ tổ trưởng ĐÚNG tổ nhận mới được xác nhận (§6, giống `_gate` của công việc)."""
+def _gate_kho_to_nhan(db: Session, user, department_id: int) -> Department:
+    """Xác nhận nhận vật tư theo TỔ nhận: đòi quyền Kho trên trọn tổ (không gắn việc riêng của ai)."""
+    gate_to_tron(db, getattr(user, "id", None), department_id, VIEC_KHO)
     dept = db.get(Department, department_id) if department_id else None
-    uid = getattr(user, "id", None)
-    if dept is None or dept.head_user_id is None or dept.head_user_id != uid:
-        raise PermissionError("Chỉ tổ trưởng của tổ nhận mới được xác nhận vật tư.")
+    if dept is None:
+        raise ValueError("Không tìm thấy tổ nhận.")
     return dept
 
 
@@ -35,7 +36,7 @@ def xac_nhan_vat_tu(
 ) -> dict:
     """Xác nhận đã nhận vật tư của một phiếu xuất đã ghi sổ (§10.1). Phiếu phải là XUẤT + posted."""
     repo = SanXuatSanLuongRepository(db)
-    _gate_to_truong(db, user, department_id)
+    _gate_kho_to_nhan(db, user, department_id)
 
     voucher = repo.voucher(voucher_id)
     if voucher is None:

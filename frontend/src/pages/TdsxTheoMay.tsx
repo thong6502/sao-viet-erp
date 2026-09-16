@@ -34,8 +34,8 @@ const LABEL_W = 200;
 /** Block hẹp hơn mức này (px) thì rút nhãn chỉ còn mã lệnh — đúng cách `Xl2Gantt` rút gọn theo
  *  `isWide`/`isMedium`, không đẻ quy ước mới. */
 const BLOCK_HEP_PX = 90;
-/** Dưới mức này thì KHÔNG in chữ nào. `.tdsx-tm__inner` chừa 4px mỗi mép, chữ `--fs-2xs` hệ
- *  monospace rộng ~6,5px/ký tự ⇒ 44px chỉ vừa 4-5 ký tự. Trước đây mọi block hẹp đều in NGUYÊN
+/** Dưới mức này thì KHÔNG in chữ nào. `.tdsx-tm__inner` chừa 4px mỗi mép, chữ số `--fs-2xs` của
+ *  Be Vietnam Pro rộng ~7px/ký tự ⇒ 44px chỉ vừa 4-5 ký tự. Trước đây mọi block hẹp đều in NGUYÊN
  *  `LSX26-0029` rồi để `text-overflow` cắt: block 20px thật sự hiện ra "5-", block 24px ra "6-" —
  *  rác, tệ hơn là để trống (tooltip `title` vẫn có đủ mã + trạng thái). */
 const BLOCK_RAT_HEP_PX = 44;

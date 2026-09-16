@@ -1,8 +1,9 @@
 """Thực hiện sản xuất — Giai đoạn 4: HỖ TRỢ CHÉO (§9) + PHÂN BỔ SẢN LƯỢNG → lương khoán (§12).
 
 Soi thẳng tầng service (nơi chứa LUẬT), không qua HTTP:
-  · Hỗ trợ chéo: tỷ lệ do người nhập, cần HAI tổ trưởng xác nhận, trần tổng ≤ 100% cùng công đoạn +
-    ngày; huỷ giữ dòng đổi trạng thái.
+  · Hỗ trợ chéo: tỷ lệ do người nhập, cần xác nhận của CẢ HAI bên — mỗi bên là người giữ quyền Xác
+    nhận sản lượng TRỌN tổ đó (dòng quyền theo tổ, mg 0302); một người giữ quyền trọn cả hai tổ thì
+    đề xuất là đủ luôn; trần tổng ≤ 100% cùng công đoạn + ngày; huỷ giữ dòng đổi trạng thái.
   · Phân bổ: quy đổi bản địa↔trả lương ĐỒNG NHẤT; người hỗ trợ nhận đúng tỷ lệ (ghi cho tổ gốc); phần
     còn lại chia theo phút × hệ số bậc ẢNH CHỤP; Σ khớp Q chính xác; thiếu hệ số/trọng số hoặc bàn
     giao không nhất quán ⇒ CHẶN chốt (không chặn ghi); chốt → feed lương; kỳ khoá → bù trừ.
@@ -20,14 +21,17 @@ import pytest
 from app.models.attendance import CHECK_IN, CHECK_OUT, AttendanceLog, WorkShift
 from app.models.department import Department
 from app.models.payroll import PERIOD_LOCKED, PayrollPeriod
+from app.models.role import SCOPE_OWN
 from app.models.san_xuat import CV_DANG_CHAY
-from app.models.san_xuat_phan_bo import SanXuatPhanBo
+from app.models.san_xuat_phan_bo import SanXuatHoTro, SanXuatPhanBo
 from app.models.san_xuat_san_luong import SanXuatBanGiao, SanXuatBatch
 from app.models.san_xuat_thuc_thi import SanXuatKhoangThamGia
 from app.models.user import User
 from app.repositories.production_output_repo import ProductionOutputRepository
+from app.repositories.san_xuat_phan_bo_repo import SanXuatPhanBoRepository
 from app.services.attendance_service import VN_TZ
-from app.services.san_xuat import ho_tro, phan_bo, san_luong
+from app.services.san_xuat import board, ho_tro, phan_bo, san_luong
+from tests.quyen_to_fixtures import cap_quyen_to
 
 # Fixtures + helper luồng thật (kéo cả cây fixture xếp lịch).
 from tests.test_san_xuat_thuc_thi import (  # noqa: F401
@@ -52,6 +56,11 @@ def _user(db, username) -> User:
     db.add(u)
     db.flush()
     return u
+
+
+def _utc(dt: datetime) -> datetime:
+    """SQLite trả cột `DateTime(timezone=True)` về NAIVE — ép nhãn UTC để so thời điểm."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def _khoang(db, cv, emp, bat_dau, ket_thuc, heso) -> SanXuatKhoangThamGia:
@@ -83,7 +92,7 @@ def _cham_cong(db, emp, *, ngay=_NGAY, vao_h=8, ra_h=17) -> None:
 
 
 def _canh_phan_bo(db, orders, lsx_svc, admin, customer, *, tot=100.0, ma="TO-PB"):
-    """Tổ khoán (admin làm tổ trưởng) + công việc ĐANG CHẠY có đơn giá + một batch sản lượng tốt."""
+    """Tổ khoán (vai admin đủ quyền trên dòng tổ) + công việc ĐANG CHẠY có đơn giá + một batch tốt."""
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma=ma)
     cv.trang_thai = CV_DANG_CHAY
     cv.don_vi_ra = "tờ"
@@ -99,15 +108,17 @@ def _canh_phan_bo(db, orders, lsx_svc, admin, customer, *, tot=100.0, ma="TO-PB"
 
 
 def _canh_ho_tro(db, orders, lsx_svc, admin, customer):
-    """Tổ thực hiện (admin làm tổ trưởng) + tổ gốc (tổ trưởng khác) + một người hỗ trợ thuộc tổ gốc."""
+    """Tổ thực hiện (vai admin đủ quyền) + tổ gốc (`u_goc` đủ quyền, admin không có gì) + một người
+    hỗ trợ thuộc tổ gốc."""
     to_th, cv, _batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-TH")
     u_goc = _user(db, "to_truong_goc")
     to_goc = Department(
         name="Tổ Gốc", code="TO-GOC", la_san_xuat=True,
-        has_piece_work=True, head_user_id=u_goc.id,
+        has_piece_work=True,
     )
     db.add(to_goc)
     db.flush()
+    cap_quyen_to(db, u_goc, to_goc)
     emp = _emp(db, to_goc, "NV-GOC-1", ten="Thợ Hỗ Trợ")
     db.commit()
     return to_th, cv, to_goc, u_goc, emp
@@ -121,12 +132,57 @@ def test_de_xuat_roi_hai_ben_xac_nhan_thanh_confirmed(db, orders, lsx_svc, admin
         db, user=admin, cong_viec_id=cv.id, employee_id=emp.id,
         ngay_lam_viec=_NGAY, ty_le_phan_tram=20,
     )
-    assert r["trang_thai"] == "pending_both"          # mới xác nhận bên thực hiện (admin)
+    assert r["trang_thai"] == "pending_both"          # admin chỉ đứng được cho bên thực hiện
     assert r["to_goc_id"] == to_goc.id and r["to_thuc_hien_id"] == to_th.id
 
+    # Còn chờ ⇒ chỉ báo bên CHƯA xác nhận (tổ gốc), không báo lại người vừa đề xuất.
+    assert r["notify_user_ids"] == [u_goc.id]
+    assert r["su_kien"] == "de_xuat" and r["ho_ten"] == "Thợ Hỗ Trợ" and r["to_goc_ten"] == "Tổ Gốc"
+
     r2 = ho_tro.xac_nhan_ho_tro(db, user=u_goc, ho_tro_id=r["ho_tro_id"])
-    assert r2["trang_thai"] == "confirmed"            # đủ hai tổ trưởng
-    assert set(r2["notify_user_ids"]) == {admin.id, u_goc.id}
+    assert r2["trang_thai"] == "confirmed"            # đủ xác nhận của hai bên
+    # Đủ hai bên ⇒ báo người giữ Xác nhận sản lượng trọn tổ ở CẢ HAI tổ, trừ chính người vừa bấm.
+    assert r2["notify_user_ids"] == [admin.id]
+
+
+def test_to_cho_muon_thay_loi_moi_tren_ban_cua_minh(db, orders, lsx_svc, admin, customer):
+    """Tổ GỐC (cho mượn người) không xem được công đoạn của tổ kia — lời mời phải hiện ở hộp "Chờ tổ
+    bạn xác nhận" trên bàn của CHÍNH tổ gốc + badge menu; bên đề xuất không thấy lại nó ở hộp."""
+    to_th, cv, to_goc, u_goc, emp = _canh_ho_tro(db, orders, lsx_svc, admin, customer)
+    r = ho_tro.de_xuat_ho_tro(
+        db, user=admin, cong_viec_id=cv.id, employee_id=emp.id,
+        ngay_lam_viec=_NGAY, ty_le_phan_tram=10, mo_ta="Thiếu người ca sáng",
+    )
+    hop = board.cho_xac_nhan(db, u_goc, team_id=to_goc.id)
+    assert [(h["id"], h["cho_ben_goc"], h["cho_ben_thuc_hien"]) for h in hop["ho_tro"]] == [
+        (r["ho_tro_id"], True, False)
+    ]
+    assert hop["ho_tro"][0]["ten_cong_doan"] == cv.ten_cong_doan
+    assert hop["ho_tro"][0]["to_thuc_hien_ten"] == to_th.name
+    assert {t["id"]: t["so_cho_xac_nhan"] for t in board.teams(db, u_goc, None)}[to_goc.id] == 1
+    assert board.cho_xac_nhan(db, admin, team_id=to_th.id)["ho_tro"] == []
+
+    ho_tro.xac_nhan_ho_tro(db, user=u_goc, ho_tro_id=r["ho_tro_id"])
+    assert board.cho_xac_nhan(db, u_goc, team_id=to_goc.id)["ho_tro"] == []
+
+
+def test_bam_xac_nhan_lai_ben_da_dung_ten_bi_bao_va_nut_theo_co(db, orders, lsx_svc, admin, customer):
+    """Bên thực hiện đã đứng tên lúc đề xuất: drawer không bật nút Xác nhận cho họ (vẫn huỷ được),
+    và gọi thẳng thì bị báo rõ chứ không trả "đã xác nhận" mà không đổi gì."""
+    _to_th, cv, _to_goc, _u_goc, emp = _canh_ho_tro(db, orders, lsx_svc, admin, customer)
+    r = ho_tro.de_xuat_ho_tro(
+        db, user=admin, cong_viec_id=cv.id, employee_id=emp.id,
+        ngay_lam_viec=_NGAY, ty_le_phan_tram=10,
+    )
+    dong = board.chi_tiet_cong_viec(db, admin, None, cong_viec_id=cv.id)["ho_tro"]
+    assert [(d["id"], d["co_the_xac_nhan"], d["co_the_huy"]) for d in dong] == [
+        (r["ho_tro_id"], False, True)
+    ]
+    ver = db.get(SanXuatHoTro, r["ho_tro_id"]).version
+    with pytest.raises(ValueError, match="đã xác nhận"):
+        ho_tro.xac_nhan_ho_tro(db, user=admin, ho_tro_id=r["ho_tro_id"])
+    db.rollback()
+    assert db.get(SanXuatHoTro, r["ho_tro_id"]).version == ver
 
 
 def test_de_xuat_cung_to_bi_chan(db, orders, lsx_svc, admin, customer):
@@ -150,14 +206,42 @@ def test_ty_le_ngoai_khoang_bi_chan(db, orders, lsx_svc, admin, customer):
             )
 
 
-def test_khong_phai_to_truong_khong_de_xuat_duoc(db, orders, lsx_svc, admin, customer):
-    _to_th, cv, _to_goc, _u_goc, emp = _canh_ho_tro(db, orders, lsx_svc, admin, customer)
-    nguoi_la = SimpleNamespace(id=admin.id + 99_999)
-    with pytest.raises(PermissionError):
-        ho_tro.de_xuat_ho_tro(
-            db, user=nguoi_la, cong_viec_id=cv.id, employee_id=emp.id,
-            ngay_lam_viec=_NGAY, ty_le_phan_tram=10,
-        )
+def test_khong_co_xac_nhan_tron_to_o_ben_nao_khong_de_xuat_duoc(db, orders, lsx_svc, admin, customer):
+    """Tài khoản lạ, người chỉ có Xác nhận sản lượng phạm vi "Của tôi", người có Thực hiện lệnh mà
+    thiếu Xác nhận — không ai đứng được cho bên nào nên không đề xuất được."""
+    to_th, cv, _to_goc, _u_goc, emp = _canh_ho_tro(db, orders, lsx_svc, admin, customer)
+    xn_own = _user(db, "xn_own_th")
+    cap_quyen_to(db, xn_own, to_th, scope=SCOPE_OWN, viec=("confirm_output",))
+    chi_chay = _user(db, "chi_chay_th")
+    cap_quyen_to(db, chi_chay, to_th, viec=("run_order",))
+    db.commit()
+    for u in (SimpleNamespace(id=admin.id + 99_999), xn_own, chi_chay):
+        with pytest.raises(PermissionError):
+            ho_tro.de_xuat_ho_tro(
+                db, user=u, cong_viec_id=cv.id, employee_id=emp.id,
+                ngay_lam_viec=_NGAY, ty_le_phan_tram=10,
+            )
+
+
+def test_quyen_tron_ca_hai_to_de_xuat_la_xac_nhan_luon(db, orders, lsx_svc, admin, customer):
+    """Người có Xác nhận sản lượng `all` ở nút cha chung của hai tổ đứng được cho CẢ HAI bên — đề
+    xuất xong là `confirmed`, khỏi chờ ai."""
+    to_th, cv, to_goc, _u_goc, emp = _canh_ho_tro(db, orders, lsx_svc, admin, customer)
+    xuong = Department(name="Xưởng Hỗ Trợ", code="XUONG-HT", la_san_xuat=True)
+    db.add(xuong)
+    db.flush()
+    to_th.parent_id = to_goc.parent_id = xuong.id
+    quan_doc = _user(db, "quan_doc_ht")
+    cap_quyen_to(db, quan_doc, xuong, viec=("confirm_output",))
+    db.commit()
+
+    r = ho_tro.de_xuat_ho_tro(
+        db, user=quan_doc, cong_viec_id=cv.id, employee_id=emp.id,
+        ngay_lam_viec=_NGAY, ty_le_phan_tram=20,
+    )
+    assert r["trang_thai"] == "confirmed"
+    ht = db.get(SanXuatHoTro, r["ho_tro_id"])
+    assert ht.xac_nhan_goc_by_id == quan_doc.id and ht.xac_nhan_thuc_hien_by_id == quan_doc.id
 
 
 def test_tran_tong_ty_le_vuot_100_bi_chan(db, orders, lsx_svc, admin, customer):
@@ -311,16 +395,16 @@ def test_chot_roi_feed_luong(db, orders, lsx_svc, admin, customer):
     rows = ProductionOutputRepository(db).list_nguoi_by_period(2026, 8)
     assert rows and all(x.tinh_khoan for x in rows)
     assert abs(sum(x.quantity for x in rows) - 100.0) < 1e-6           # feed đúng tổng Q
-    assert all(abs(x.unit_price - 10.0) < 1e-9 for x in rows)          # đơn giá ẢNH CHỤP
+    # Đơn giá LUÔN 0 từ 11/09/2026: sản xuất ghi SỐ LƯỢNG, kế toán lương đổi ra tiền.
+    assert all(x.unit_price == 0.0 for x in rows)
 
 
-def test_cong_thuc_ra_tien_thi_luong_an_don_gia_hieu_dung(db, orders, lsx_svc, admin, customer):
-    """⭐ Bước khai ô tiền công bằng CÔNG THỨC RA TIỀN ⇒ lương nhân `don_gia_hd`, KHÔNG nhân `don_gia`.
+def test_engine_chia_khong_con_bat_ky_o_tien_nao(db, orders, lsx_svc, admin, customer):
+    """Sản xuất ghi SỐ LƯỢNG. Ảnh chụp có đơn giá lẫn `don_gia_hd` thì engine vẫn phải làm như
+    không thấy — không khoá tiền nào được lọt xuống dòng chia, và seam lương nhận đơn giá 0.
 
-    `don_gia` gốc (40 đ/nhịp) chỉ còn là một số liệu BÊN TRONG công thức người ta viết; nhân nó với
-    sản lượng ở tầng này là bỏ qua cả công thức — đúng thứ chủ cấm ngày 08/09/2026. Ảnh chụp mang
-    theo `don_gia_hd` (đóng băng lúc phát hành, xem `snapshot._SoPhatHanh`) và tầng lương phải
-    ăn số đó.
+    Chủ xưởng chốt 11/09/2026: *"bên sản xuất với kế hoạch thì không cần liên quan tới lương khoán
+    đâu, đó là việc của kế toán lương, bên sản xuất chỉ ghi nhận số lượng thôi"*.
     """
     to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-HD")
     cv.khoan_json = {
@@ -334,21 +418,32 @@ def test_cong_thuc_ra_tien_thi_luong_an_don_gia_hieu_dung(db, orders, lsx_svc, a
     _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
     db.commit()
 
+    kq_tinh = phan_bo._tinh_batch(db, cv, batch, SanXuatPhanBoRepository(db))
+    assert not hasattr(kq_tinh, "don_gia")
+    assert kq_tinh.dong, "phải có dòng chia để bài này nói được điều gì"
+    for d in kq_tinh.dong:
+        assert "don_gia" not in d
+    # Đơn vị trả lương = đơn vị RA của bước, không phải đơn vị TIỀN của đầu việc ("nhịp").
+    assert kq_tinh.don_vi_pay == cv.don_vi_ra
+
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
     phan_bo.chot_phan_bo(db, user=admin, phan_bo_id=kq["phan_bo_id"])
-
     rows = ProductionOutputRepository(db).list_nguoi_by_period(2026, 8)
     assert rows
-    assert all(abs(x.unit_price - 620.0) < 1e-9 for x in rows)
-    # 100 tờ × 620 đ — không phải 100 × 40; tổng đúng bằng tiền công thức của phần sản lượng này.
-    assert abs(sum(x.unit_price * x.quantity for x in rows) - 62000.0) < 1e-6
+    assert all(x.unit_price == 0.0 for x in rows)
+    assert abs(sum(x.quantity for x in rows) - 100.0) < 1e-6
 
 
-def test_don_gia_hieu_dung_keo_theo_NHAN_don_vi_ra_cua_buoc(db, orders, lsx_svc, admin, customer):
-    """Nhãn đơn vị trả lương đi THEO đơn giá đang dùng: `don_gia_hd` tính trên đơn vị RA của bước.
+def test_module_phan_bo_khong_con_ham_don_gia():
+    assert not hasattr(phan_bo, "_don_gia_don_vi")
 
-    Giữ nhãn `nhịp` của đầu việc trong khi số lại đếm theo `tờ` là dán sai đơn vị lên tiền — tổ
-    trưởng đối chiếu phiếu sẽ không hiểu vì sao 620 đ/nhịp mà nhân với số tờ.
+
+def test_don_vi_chia_la_don_vi_RA_cua_buoc(db, orders, lsx_svc, admin, customer):
+    """Đơn vị của sản lượng đem chia = đơn vị RA của bước (thứ `batch.tot` đếm), KHÔNG phải đơn vị
+    TIỀN của đầu việc.
+
+    Giữ nhãn `nhịp` của đầu việc trong khi số lại đếm theo `tờ` là dán sai đơn vị lên sản lượng —
+    tổ trưởng đối chiếu phiếu sẽ không hiểu con số ấy đếm cái gì.
     """
     to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-DV")
     cv.khoan_json = {"don_gia": 40, "don_vi": "nhịp",
@@ -363,7 +458,6 @@ def test_don_gia_hieu_dung_keo_theo_NHAN_don_vi_ra_cua_buoc(db, orders, lsx_svc,
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
     header = db.get(SanXuatPhanBo, kq["phan_bo_id"])
     assert header.don_vi_tra_luong == "tờ"
-    assert float(header.don_gia) == pytest.approx(620.0)
 
 
 # --- §7.3 Thiếu chấm công + loại trừ khỏi lương batch ---------------------------------------
@@ -487,3 +581,54 @@ def test_bu_tru_ky_goc_chua_khoa_bi_chan(db, orders, lsx_svc, admin, customer):
             db, user=admin, batch_id=batch.id, employee_id=e.id,
             so_luong_tra_luong=3, ky_bu_nam=2026, ky_bu_thang=9,
         )
+
+
+# --- Thang giờ của cửa sổ mẻ (mg 0298) ------------------------------------------------------
+def test_moc_tu_client_quy_gio_tuong_ve_utc_that():
+    """Ô `datetime-local` gửi chuỗi KHÔNG offset ⇒ Pydantic dựng datetime NAIVE = giờ TƯỜNG xưởng.
+
+    Dán thẳng nhãn UTC lên đó là lệch đúng bằng offset máy chủ. `moc_tu_client` phải đọc nó như giờ
+    địa phương rồi quy về UTC thật; mốc ĐÃ kèm offset thì giữ nguyên thời điểm."""
+    from app.services.gio_xuong import moc_tu_client
+
+    naive = datetime(2026, 9, 11, 21, 47)
+    assert moc_tu_client(naive) == naive.astimezone().astimezone(timezone.utc)
+    assert moc_tu_client(naive).tzinfo is timezone.utc
+
+    aware = datetime(2026, 9, 11, 21, 47, tzinfo=VN_TZ)
+    assert moc_tu_client(aware) == aware                     # cùng thời điểm, chỉ đổi nhãn
+    assert moc_tu_client(None) is None
+
+
+def test_me_go_gio_tuong_van_giao_duoc_voi_cham_cong(db, orders, lsx_svc, admin, customer):
+    """HỒI QUY 11/09/2026 — mẻ gõ giờ tường KHÔNG được làm cổng §7.3 ra 0 phút.
+
+    Trước mg 0298 cửa sổ mẻ nằm ở thang LỊCH (giờ tường dán nhãn UTC) còn khoảng tham gia và chấm
+    công ở UTC THẬT ⇒ giao nhau RỖNG ⇒ cờ `thieu_cham_cong` chặn Chốt dù tổ chấm công đủ."""
+    to, cv, _b = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-TZ")
+    # 14:00–15:00 giờ VN ngày _NGAY — nằm gọn trong ca HC-PB 08:00–17:00 của `_cham_cong`.
+    dau_utc = datetime(_NGAY.year, _NGAY.month, _NGAY.day, 14, 0, tzinfo=VN_TZ).astimezone(timezone.utc)
+    cuoi_utc = dau_utc + timedelta(hours=1)
+    # Đúng thứ trình duyệt gửi lên: giờ TƯỜNG của máy chủ tại hai mốc ấy, bỏ tzinfo.
+    dau_go = dau_utc.astimezone().replace(tzinfo=None)
+    cuoi_go = cuoi_utc.astimezone().replace(tzinfo=None)
+
+    r = san_luong.tao_batch(
+        db, user=admin, cong_viec_id=cv.id,
+        bat_dau=dau_go, ket_thuc=cuoi_go, tong=100.0, tot=100.0,
+    )
+    batch = db.get(SanXuatBatch, r["batch_id"])
+    assert _utc(batch.bat_dau) == dau_utc and _utc(batch.ket_thuc) == cuoi_utc
+
+    e = _emp(db, to, "NV-PB-TZ")
+    _cham_cong(db, e)
+    db.commit()
+    _khoang(db, cv, e, dau_utc, cuoi_utc, heso=1.0)
+    db.commit()
+
+    kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
+    assert kq["thieu_cham_cong"] == [] and kq["can_chot"] is True
+    dong = SanXuatPhanBoRepository(db).cac_dong(kq["phan_bo_id"])
+    assert [float(d.phut_thuc_te) for d in dong] == [60.0]
+    header = db.get(SanXuatPhanBo, kq["phan_bo_id"])
+    assert header.ngay == _NGAY                              # ngày theo giờ xưởng, không phải ngày UTC

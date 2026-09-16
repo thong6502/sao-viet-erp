@@ -6,8 +6,8 @@ loai="diem_kiem")`, không qua HTTP. Ba điều PHẢI đứng vững:
 
   · bộ lọc của bàn là CHECKLIST (`kcs_tieu_chi_json IS NOT NULL`), KHÔNG phải `la_kcs` — điểm kiểm
     nằm rải ở mọi công đoạn của mọi tổ, còn `la_kcs` chỉ nói thẻ việc thuộc tổ KCS;
-  · phạm vi bàn là MỌI tổ người xem thấy được (tổ KCS đi kiểm việc của tổ KHÁC), không khoá theo
-    một `team_id`;
+  · phạm vi bàn là MỌI tổ người xem được bật Xem TRỌN trên dòng quyền theo tổ (tổ KCS đi kiểm việc
+    của tổ KHÁC), không khoá theo một `team_id`; ghi đòi KCS trọn ở tổ đi kiểm;
   · kiểm "không đạt" ở giữa chuỗi KHÔNG chặn bước sau: không đẻ `san_xuat_batch`, không đụng
     `trang_thai` của việc, không mở cửa kho.
 
@@ -15,15 +15,14 @@ Tái dùng dàn cảnh của `test_san_xuat_kcs.py` (đơn → SX → phát hàn
 """
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
-from app.models.role import SCOPE_ALL, SCOPE_OWN
+from app.models.role import SCOPE_OWN
 from app.models.san_xuat import CV_HOAN_THANH, CV_PHAT_HANH
 from app.models.san_xuat_kcs import KCS_LOAI_DIEM_KIEM, SanXuatKcsBatch
 from app.models.san_xuat_san_luong import SanXuatBatch
 from app.services.san_xuat import kcs
+from tests.quyen_to_fixtures import cap_quyen_to
 
 from tests.test_san_xuat_kcs import (  # noqa: F401
     _T0,
@@ -67,7 +66,7 @@ def test_ban_lay_viec_co_checklist_du_khong_phai_la_kcs(db, orders, lsx_svc, adm
     _to, cv = _diem_kiem(db, orders, lsx_svc, admin, customer)
     assert cv.la_kcs is False                              # việc SX thường, không thuộc tổ KCS
 
-    ban = kcs.diem_kiem_kcs(db, admin, _Authz(SCOPE_ALL))
+    ban = kcs.diem_kiem_kcs(db, admin, _Authz())
     ds = _phang(ban)
     assert [c["id"] for c in ds] == [cv.id]
     assert ban["giai_doan"][0]["nhom"] == "print"
@@ -81,7 +80,7 @@ def test_ban_bo_qua_viec_khong_co_checklist(db, orders, lsx_svc, admin, customer
     chứ đừng ghi `[]` cho công đoạn không có tiêu chí nào."""
     _to, cv = _cv_production(db, orders, lsx_svc, admin, customer, ma="TO-SX-KHONG-TC")
     assert cv.kcs_tieu_chi_json is None
-    assert _phang(kcs.diem_kiem_kcs(db, admin, _Authz(SCOPE_ALL))) == []
+    assert _phang(kcs.diem_kiem_kcs(db, admin, _Authz())) == []
 
 
 def test_ban_bo_qua_viec_chua_khoi_dong(db, orders, lsx_svc, admin, customer):
@@ -90,7 +89,7 @@ def test_ban_bo_qua_viec_chua_khoi_dong(db, orders, lsx_svc, admin, customer):
     _to, cv = _diem_kiem(db, orders, lsx_svc, admin, customer)
     cv.trang_thai = CV_PHAT_HANH
     db.commit()
-    assert _phang(kcs.diem_kiem_kcs(db, admin, _Authz(SCOPE_ALL))) == []
+    assert _phang(kcs.diem_kiem_kcs(db, admin, _Authz())) == []
 
 
 def test_ban_gom_theo_giai_doan_dung_thu_tu(db, orders, lsx_svc, admin, customer):
@@ -103,18 +102,24 @@ def test_ban_gom_theo_giai_doan_dung_thu_tu(db, orders, lsx_svc, admin, customer
     _t4, cv4 = _diem_kiem(db, orders, lsx_svc, admin, customer, ma="TO-D", nhom=None)
     assert cv3_khac.nhom_cong_doan == "print" and cv4.nhom_cong_doan is None
 
-    ban = kcs.diem_kiem_kcs(db, admin, _Authz(SCOPE_ALL))
+    ban = kcs.diem_kiem_kcs(db, admin, _Authz())
     assert [gd["nhom"] for gd in ban["giai_doan"]] == ["prepress", "print", "finishing", ""]
     assert all(gd["cong_viec"] for gd in ban["giai_doan"])   # không bày nhóm rỗng
 
 
 def test_ban_theo_pham_vi_doc_cua_nguoi_xem(db, orders, lsx_svc, admin, customer):
-    """Scope `own` ở một tổ khác ⇒ bàn rỗng (không phải 403): bàn là danh sách, không phải một
-    tài nguyên bị từ chối."""
-    _to, _cv = _diem_kiem(db, orders, lsx_svc, admin, customer)
-    to_kiem, tv = _to_kiem(db)
-    nguoi = SimpleNamespace(id=tv.id, department_id=to_kiem.id, role_id=1)
-    assert _phang(kcs.diem_kiem_kcs(db, nguoi, _Authz(SCOPE_OWN))) == []
+    """Bàn phủ các tổ người xem được bật Xem TRỌN. Chỉ có quyền ở tổ đi kiểm, hoặc chỉ Xem mức "Của
+    tôi" ở tổ có việc ⇒ bàn rỗng (không phải 403: bàn là danh sách, không phải một tài nguyên bị từ
+    chối). Bật Xem trọn tổ có việc thì dòng hiện ra."""
+    to, cv = _diem_kiem(db, orders, lsx_svc, admin, customer)
+    to_kiem, tv = _to_kiem(db)                             # tv: KCS trọn tổ kiểm, chưa dòng nào ở `to`
+    assert _phang(kcs.diem_kiem_kcs(db, tv, _Authz())) == []
+
+    cap_quyen_to(db, tv, to, scope=SCOPE_OWN, viec=())
+    assert _phang(kcs.diem_kiem_kcs(db, tv, _Authz())) == []
+
+    cap_quyen_to(db, tv, to, viec=())                      # nâng lên Xem trọn tổ có việc
+    assert [c["id"] for c in _phang(kcs.diem_kiem_kcs(db, tv, _Authz()))] == [cv.id]
 
 
 # --- Mặt GHI: loại `diem_kiem` --------------------------------------------------------------
@@ -193,7 +198,7 @@ def test_ban_tra_kem_ket_qua_da_ghi(db, orders, lsx_svc, admin, customer):
         loi_mo_ta="Lem biên", anh=_anh(),
     )
 
-    dong = _phang(kcs.diem_kiem_kcs(db, admin, _Authz(SCOPE_ALL)))[0]
+    dong = _phang(kcs.diem_kiem_kcs(db, admin, _Authz()))[0]
     assert dong["tong_dat"] == 7 and dong["tong_loi"] == 3
     assert len(dong["batch"]) == 1
     b0 = dong["batch"][0]

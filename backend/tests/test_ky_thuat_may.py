@@ -1065,15 +1065,23 @@ def test_don_vi_chu_ky_la_bi_chan_o_cua_nhap():
         svc.sua_bao_tri(p.id, {"chu_ky_don_vi": "quy"})
 
 
-def test_khong_chuyen_duoc_phieu_sang_may_khong_co_that():
-    """Trước đây `_validate_sua_chua` chỉ xem ô máy có trống không — gửi id máy đã xoá thì lọt, và
-    cột Máy trên bảng trống trơn không ai lần ra được."""
+def test_sua_phieu_sua_chua_KHONG_doi_duoc_may():
+    """Máy của phiếu là máy đã báo hỏng — chép từ yêu cầu, hoặc chọn lúc tự lập — rồi CHỐT.
+    Đổi máy giữa chừng là lời báo nói máy A mà việc sửa, ảnh, lịch sử lại nằm ở máy B. Gửi máy
+    khác (có thật hay không) đều bị bỏ qua, phần sửa khác vẫn lưu."""
     db, svc = _svc()
     may = _may(db, ma="IN-26")
-    p = svc.tao_sua_chua({"may_id": may.id, "bo_phan_hong": "Trục cán"})
-    with pytest.raises(KyThuatMayValidationError):
-        svc.sua_sua_chua(p.id, {"may_id": may.id + 999})
-    assert svc.get_sua_chua(p.id).may_id == may.id
+    may2 = _may(db, ma="BE-26")
+    tu_lap = svc.tao_sua_chua({"may_id": may.id, "bo_phan_hong": "Trục cán"})
+    yc = _yc(svc, may2)
+    tu_yc, _ = svc.tao_phieu_tu_yeu_cau(yc.id, {"may_id": may.id})
+    assert tu_yc.may_id == may2.id        # tiếp nhận không chen máy khác vào được
+
+    for p, may_goc in ((tu_lap, may.id), (tu_yc, may2.id)):
+        for may_moi in (may2.id if may_goc == may.id else may.id, may_goc + 999):
+            svc.sua_sua_chua(p.id, {"may_id": may_moi, "ghi_chu": "đổi máy"})
+            lai = svc.get_sua_chua(p.id)
+            assert (lai.may_id, lai.ghi_chu) == (may_goc, "đổi máy")
 
 
 def test_sua_phieu_bao_tri_khong_doi_duoc_may_goi_loai():
@@ -1383,18 +1391,15 @@ def test_khong_doi_duoc_nguoi_bao_cua_phieu_sinh_tu_yeu_cau():
     tho = _user(db, username="tho-khoa", ten="Nguyễn Văn Giám")
     kt = _user(db, username="kt-khoa", ten="Trần Kỹ Thuật")
     yc = _yc(svc, may, actor_id=tho.id)
-    phieu, _ = svc.tao_phieu_tu_yeu_cau(yc.id, {}, actor_id=kt.id)
+    # Tổ sửa chữa gửi kèm tên lúc tiếp nhận cũng không chen được vào chỗ người báo.
+    phieu, _ = svc.tao_phieu_tu_yeu_cau(yc.id, {"nguoi_bao_ten": "Tổ sửa chữa"}, actor_id=kt.id)
     assert phieu.nguoi_bao_ten == "Nguyễn Văn Giám"
 
-    with pytest.raises(KyThuatMayValidationError) as e:
-        svc.sua_sua_chua(phieu.id, {"nguoi_bao_ten": "Ai đó khác"}, actor_id=kt.id)
-    assert yc.ma in str(e.value)          # nói LUÔN lấy từ đâu, khỏi đoán
+    # Cả tên lẫn id (cửa hậu đổi chủ phiếu) đều bị bỏ qua, không phải lỗi: lưu phần khác vẫn đi.
+    phieu = svc.sua_sua_chua(phieu.id, {"nguoi_bao_ten": "Ai đó khác", "nguoi_bao_id": 999},
+                             actor_id=kt.id)
     db.refresh(phieu)
-    assert phieu.nguoi_bao_ten == "Nguyễn Văn Giám"
-
-    # Cửa hậu qua id cũng đóng: gán `nguoi_bao_id` là phiếu đổi chủ mà tên vẫn y nguyên.
-    with pytest.raises(KyThuatMayValidationError):
-        svc.sua_sua_chua(phieu.id, {"nguoi_bao_id": 999}, actor_id=kt.id)
+    assert (phieu.nguoi_bao_ten, phieu.nguoi_bao_id) == ("Nguyễn Văn Giám", None)
 
 
 def test_phieu_sinh_tu_yeu_cau_van_sua_duoc_phan_cua_TO_SUA_CHUA():
@@ -1420,12 +1425,44 @@ def test_phieu_sinh_tu_yeu_cau_van_sua_duoc_phan_cua_TO_SUA_CHUA():
     assert phieu.nguoi_bao_ten == "Lê Văn Máy"
 
 
-def test_phieu_TO_KY_THUAT_TU_LAP_van_sua_duoc_nguoi_bao():
-    """Không có lời báo phía sau thì tên người báo là ô chữ tổ kỹ thuật nhập hộ — ghi nhầm phải sửa
-    được, chứ không lấy luật của phiếu-sinh-từ-yêu-cầu áp cho mọi phiếu."""
+def test_phieu_TO_KY_THUAT_TU_LAP_nguoi_bao_la_tai_khoan_dang_lap():
+    """14/09/2026: bỏ ô chữ "nhập hộ". Phiếu tự lập ghi người báo = tài khoản đang lập (id là hồ sơ
+    nhân sự nối với tài khoản), tên client gửi lên bị bỏ qua cả lúc tạo lẫn lúc sửa."""
+    from app.models.employee import Employee
+
     db, svc = _svc()
     may = _may(db, ma="KHOA-03")
+    kt = _user(db, username="kt-tulap", ten="Phạm Văn Kỹ")
+    nv = Employee(code="NV-KT01", full_name="Phạm Văn Kỹ", user_id=kt.id)
+    db.add(nv)
+    db.commit()
+
     phieu = svc.tao_sua_chua({"may_id": may.id, "bo_phan_hong": "Trục cán",
-                              "nguoi_bao_ten": "Gõ nhầm"})
-    phieu = svc.sua_sua_chua(phieu.id, {"nguoi_bao_ten": "Phạm Văn Đúng"})
-    assert phieu.nguoi_bao_ten == "Phạm Văn Đúng"
+                              "nguoi_bao_ten": "Ký hộ người khác", "nguoi_bao_id": 999},
+                             actor_id=kt.id)
+    assert (phieu.nguoi_bao_ten, phieu.nguoi_bao_id) == ("Phạm Văn Kỹ", nv.id)
+
+    phieu = svc.sua_sua_chua(phieu.id, {"nguoi_bao_ten": "Phạm Văn Đúng", "ghi_chu": "Chờ bạc đạn"},
+                             actor_id=kt.id)
+    assert (phieu.nguoi_bao_ten, phieu.ghi_chu) == ("Phạm Văn Kỹ", "Chờ bạc đạn")
+
+
+def test_api_sua_chua_bo_qua_nguoi_bao_client_gui(client):
+    """Qua HTTP cũng vậy: gõ tên vào thân request không thành người báo."""
+    h = _headers(client)
+    may = client.post("/api/may-thiet-bi", json={"ma": "BAO-01", "ten": "Máy báo",
+                                                "loai_may": "In offset"}, headers=h).json()
+    r = client.post("/api/ky-thuat-may/sua-chua",
+                    json={"may_id": may["id"], "bo_phan_hong": "Lô mực",
+                          "nguoi_bao_ten": "CN Trần Văn Hải"}, headers=h)
+    assert r.status_code == 201, r.text
+    assert r.json()["nguoi_bao_ten"] not in (None, "CN Trần Văn Hải")
+    ten_goc = r.json()["nguoi_bao_ten"]
+
+    may2 = client.post("/api/may-thiet-bi", json={"ma": "BAO-02", "ten": "Máy khác",
+                                                 "loai_may": "In offset"}, headers=h).json()
+    r = client.put(f"/api/ky-thuat-may/sua-chua/{r.json()['id']}",
+                   json={"nguoi_bao_ten": "Người khác", "may_id": may2["id"]}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["nguoi_bao_ten"] == ten_goc
+    assert r.json()["may_id"] == may["id"]          # máy cũng chốt, PUT không đổi được

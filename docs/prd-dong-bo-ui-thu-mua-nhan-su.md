@@ -81,7 +81,7 @@
 | Trước | Sau |
 |---|---|
 | `ns__title` + `ns__sub`, không eyebrow (5 màn NS&L) | `.eyebrow` + `ns__title` + `ns__sub` |
-| `<div className="ns__eyebrow">` — **class không có CSS ở bất kỳ file nào**, render chữ thường 15px (`NoiQuyPage.tsx:176`) | `<p className="eyebrow">` — micro-label 10px mono HOA, `global.css:25-33` |
+| `<div className="ns__eyebrow">` — **class không có CSS ở bất kỳ file nào**, render chữ thường 15px (`NoiQuyPage.tsx:176`) | `<p className="eyebrow">` — micro-label 10px `--ff-sans` HOA, `global.css:25-33` |
 
 Cảnh báo dev: thêm eyebrow đẩy `ns__title` xuống ~14-16px → phải soát lại canh dòng cụm nút header ở `NhanSuPage.tsx:510-531`.
 

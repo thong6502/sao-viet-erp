@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_any_permission
+from ..deps import require_quyen_to
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.bu_hao_repo import BuHaoRepository
 from ..schemas.bu_hao import BuHaoIn, BuHaoListOut, BuHaoRow
@@ -32,7 +32,7 @@ MODULE = "dm_bu_hao"
 #
 # MỘT dependency dùng cho CẢ list LẪN detail: trước 15/08/2026 nhiều router mở list bằng OR-gate
 # nhưng khoá detail bằng quyền chặt, nên người ta liệt kê được mà bấm vào thì 403.
-_DOC = require_any_permission(
+_DOC = require_quyen_to("read", 
     (MODULE, "read"), ("dm_cong_doan", "read"), ("tinh_gia_thanh", "read"), ("san_xuat", "read"),
 )
 

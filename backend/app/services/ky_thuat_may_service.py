@@ -53,7 +53,8 @@ from ..models.ky_thuat_may import (
 )
 from ..models.may_thiet_bi import MayThietBi
 from ..realtime import hub
-from ..repositories.ky_thuat_may_repo import KyThuatMayRepository
+from ..repositories.employee_repo import EmployeeRepository
+from ..repositories.ky_thuat_may_repo import SUA_DUOC_SUA_CHUA, KyThuatMayRepository
 
 NHAT_KY_LOAI_SUA_CHUA = "ky_thuat_sua_chua"
 NHAT_KY_LOAI_BAO_TRI = "ky_thuat_bao_tri"
@@ -305,10 +306,25 @@ class KyThuatMayService:
             )
 
     def tao_sua_chua(self, data: dict, *, actor_id: int | None = None) -> SuaChuaMay:
+        """Tổ kỹ thuật TỰ lập phiếu: người báo là CHÍNH tài khoản đang lập (14/09/2026).
+
+        Trước đây là ô chữ "nhập hộ người báo miệng" — gõ tên ai cũng được, sửa lại lúc nào cũng
+        được, nên phiếu không còn là vết ai-báo-lúc-nào. Thợ thấy máy hỏng thì tự bấm "Báo sự cố" ở
+        bàn tổ (hoặc "Báo máy hỏng"), tên đi theo tài khoản của họ qua đường yêu cầu.
+        `nguoi_bao_id` trỏ `employees.id` ⇒ lấy hồ sơ nối với tài khoản; chưa nối thì chỉ giữ tên.
+        """
+        nv = EmployeeRepository(self.db).get_by_user_id(actor_id) if actor_id else None
+        return self._tao_sua_chua(data, actor_id=actor_id,
+                                  nguoi_bao_id=nv.id if nv else None,
+                                  nguoi_bao_ten=self._ten_user(actor_id))
+
+    def _tao_sua_chua(self, data: dict, *, actor_id: int | None, nguoi_bao_id: int | None,
+                      nguoi_bao_ten: str | None) -> SuaChuaMay:
         self._validate_sua_chua(data)
         may = self._may(int(data["may_id"]))
         data = {**data, "muc_do": data.get("muc_do") or MUC_DO_TRUNG_BINH}
-        phieu = self.repo.create_sua_chua(data, ma=self.repo.next_ma_sua_chua())
+        phieu = self.repo.create_sua_chua(data, ma=self.repo.next_ma_sua_chua(),
+                                          nguoi_bao_id=nguoi_bao_id, nguoi_bao_ten=nguoi_bao_ten)
         self._ghi(NHAT_KY_LOAI_SUA_CHUA, phieu.id, "create",
                   f"{phieu.ma} · {may.ma} · {phieu.bo_phan_hong}", actor_id)
         return phieu
@@ -317,28 +333,11 @@ class KyThuatMayService:
         phieu = self.get_sua_chua(phieu_id)
         if phieu.trang_thai == TT_SC_DA_SUA_XONG:
             raise KyThuatMayValidationError("Phiếu đã đóng — không sửa được nữa.")
-        # NGƯỜI BÁO của phiếu sinh từ yêu cầu là SNAPSHOT tài khoản đã bấm gửi lời báo — chặn ở
-        # ĐÂY chứ không chỉ khoá ô trên màn (20/08/2026): khoá mỗi FE thì gọi thẳng API vẫn ghi đè
-        # được, mà ghi đè xong là hết đường lần ra ai đã báo máy hỏng — đúng người duy nhất trả
-        # lời được "hỏng thế nào" khi phiếu thiếu chi tiết. Chỉ chặn khi THẬT SỰ đổi giá trị: bản
-        # FE cũ gửi kèm đúng tên đang có thì cho qua, khỏi chặn oan một cú lưu hợp lệ.
-        doi_nguoi_bao = (
-            ("nguoi_bao_ten" in data and (data["nguoi_bao_ten"] or None) != phieu.nguoi_bao_ten)
-            or ("nguoi_bao_id" in data and data["nguoi_bao_id"] != phieu.nguoi_bao_id)
-        )
-        if doi_nguoi_bao:
-            nguon = self.repo.yeu_cau_map([phieu.id]).get(phieu.id)
-            if nguon:
-                raise KyThuatMayValidationError(
-                    f"Người báo lấy từ {nguon['ma']} — không đổi trên phiếu được."
-                )
-        if "may_id" in data or "bo_phan_hong" in data:
-            self._validate_sua_chua({**{"may_id": phieu.may_id,
-                                        "bo_phan_hong": phieu.bo_phan_hong}, **data})
-        # Đổi sang máy KHÔNG CÓ THẬT thì trước đây lọt: `_validate_sua_chua` chỉ xem ô có trống
-        # không. Phiếu neo vào id máy đã xoá là cột Máy trống trơn và không ai lần ra được máy nào.
-        if data.get("may_id") and int(data["may_id"]) != phieu.may_id:
-            self._may(int(data["may_id"]))
+        # NGƯỜI BÁO không sửa được ở BẤT KỲ phiếu nào (14/09/2026) — `ASSIGNABLE_SUA_CHUA` không có
+        # hai khoá người báo nên `update_sua_chua` bỏ qua dù client/người gọi có gửi lên.
+        # MÁY cũng không đổi được (`SUA_DUOC_SUA_CHUA` bỏ `may_id`) — kiểm bộ phận hỏng trên máy CŨ.
+        if "bo_phan_hong" in data:
+            self._validate_sua_chua({"may_id": phieu.may_id, "bo_phan_hong": data["bo_phan_hong"]})
         phieu = self.repo.update_sua_chua(phieu, data)
         self._ghi(NHAT_KY_LOAI_SUA_CHUA, phieu.id, "update", f"{phieu.ma} · sửa nội dung", actor_id)
         return phieu
@@ -545,15 +544,18 @@ class KyThuatMayService:
             "bo_phan_hong": yc.bo_phan_hong,
             "mo_ta": yc.mo_ta,
             "muc_do": yc.muc_do,
-            # CHỈ chép TÊN người báo, KHÔNG chép id: `SuaChuaMay.nguoi_bao_id` trỏ `employees.id`
-            # còn `YeuCauSuaChua.nguoi_bao_id` trỏ `users.id`. Chép id sang là gán phiếu cho một
-            # nhân sự khác tình cờ mang cùng con số.
-            "nguoi_bao_ten": yc.nguoi_bao_ten,
         }
+        # MÁY lấy từ yêu cầu, không đè được: vòng lặp trước đây nhận MỌI khoá ⇒ gọi service kèm
+        # `may_id` là phiếu sang máy khác với máy người ta báo (HTTP lọt không nổi chỉ nhờ
+        # `TaoPhieuTuYeuCauIn` không khai field đó).
         for k, v in (data or {}).items():
-            if v not in (None, ""):
+            if k in SUA_DUOC_SUA_CHUA and v not in (None, ""):
                 goc[k] = v
-        phieu = self.tao_sua_chua(goc, actor_id=actor_id)
+        # Người báo là người GỬI yêu cầu, không phải tổ sửa chữa đang tiếp nhận. CHỈ chép TÊN,
+        # KHÔNG chép id: `SuaChuaMay.nguoi_bao_id` trỏ `employees.id` còn `YeuCauSuaChua.nguoi_bao_id`
+        # trỏ `users.id`. Chép id sang là gán phiếu cho một nhân sự khác tình cờ mang cùng con số.
+        phieu = self._tao_sua_chua(goc, actor_id=actor_id,
+                                   nguoi_bao_id=None, nguoi_bao_ten=yc.nguoi_bao_ten)
 
         so_anh = self.repo.chuyen_anh_sang_phieu(yc.id, phieu.id)
         yc.trang_thai = TT_YC_DA_TAO_PHIEU

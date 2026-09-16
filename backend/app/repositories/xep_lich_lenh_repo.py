@@ -11,8 +11,10 @@ from datetime import datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from ..models.department import Department
 from ..models.don_vi_do import DonViDo
 from ..models.lsx import Lsx, LsxCongDoan, LsxCongDoanPhuThuoc
+from ..models.may_thiet_bi import MayThietBi
 from ..models.san_xuat import (
     GOI_DANG_PHAT_HANH, SanXuatCongViec, SanXuatCongViecLichSu, SanXuatGoiPhatHanh,
 )
@@ -171,6 +173,14 @@ class XepLichLenhRepository:
             out.setdefault(lsx_id, []).append((cd_id, key, may_id))
         return out
 
+    def may_theo_ids(self, may_ids: list[int]) -> dict[int, MayThietBi]:
+        """`{may_id: MayThietBi}` cho cả lô — MỘT truy vấn. Id không còn trong danh mục thì vắng mặt."""
+        if not may_ids:
+            return {}
+        return {m.id: m for m in self.db.execute(
+            select(MayThietBi).where(MayThietBi.id.in_(sorted(set(may_ids))))
+        ).scalars()}
+
     def thuc_te_buoc(self, lsx_ids: list[int]) -> dict[int, list[tuple]]:
         """`{lsx_id: [(lsx_cong_doan_id, step_key, trang_thai, kh_bd, kh_kt, xong_luc, thuc_bd)]}`.
 
@@ -259,6 +269,14 @@ class XepLichLenhRepository:
                       SanXuatCongViecLichSu.phien_ban_so)
         ).scalars())
         return cvs, ls
+
+    def ten_to(self, dept_ids: list[int]) -> dict[int, str]:
+        """`{department_id: tên tổ}` cho cả lô — MỘT truy vấn. Id không còn trong danh mục thì vắng mặt."""
+        if not dept_ids:
+            return {}
+        return {i: ten for i, ten in self.db.execute(
+            select(Department.id, Department.name).where(Department.id.in_(sorted(set(dept_ids))))
+        )}
 
     # ---------------------------------------------------------------- đơn vị đo
 

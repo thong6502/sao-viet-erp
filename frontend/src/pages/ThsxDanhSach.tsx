@@ -1,17 +1,16 @@
 // VIEW "DANH SÁCH BẢN GHI" của bàn tổ (Workstation Studio Table View)
 // Thiết kế gọn gàng, hiện đại, tối ưu chiều cao hàng, các thẻ quy cách nằm ngang sắc nét.
-import { useState } from "react";
-import { Icon, type IconName } from "../components/Icons";
-import type { SxVatTuDinhMuc, SxWorkItem, SxQuyCachThe } from "../api/client";
+import { Icon } from "../components/Icons";
+import type { SxLenhNhom, SxVatTuDinhMuc, SxWorkItem, SxQuyCachThe } from "../api/client";
 import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { num, ngayGio } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
+import { ThsxLenhGroups } from "./ThsxLenhGroups";
 import { slText, sxNguonIcon, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 
 interface Props {
-  timed: SxWorkItem[];
-  outWin: SxWorkItem[];
-  untimed: SxWorkItem[];
+  /** MỘT TRANG lệnh/bài ghép (máy chủ đã cắt, đếm theo lệnh); bảng bước nằm trong từng lệnh. */
+  lenh: SxLenhNhom[];
   selectedId: number | null;
   onPick: (w: SxWorkItem) => void;
   onBatDau?: (w: SxWorkItem) => void;
@@ -68,50 +67,32 @@ function phutChayGon(w: SxWorkItem): { main: string; sub?: string } | null {
 }
 
 export function ThsxDanhSach({
-  timed, outWin, untimed, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
+  lenh, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
 }: Props) {
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-
-  const toggleExpand = (id: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   return (
     <div className="thsx-ds__scroll">
-      <DsSection
-        label="Trong cửa sổ" icon="calendar" viec={timed}
-        selectedId={selectedId} expandedIds={expandedIds} onToggleExpand={toggleExpand}
-        onPick={onPick} onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
-      />
-      <DsSection
-        label="Ngoài cửa sổ" icon="history" viec={outWin}
-        selectedId={selectedId} expandedIds={expandedIds} onToggleExpand={toggleExpand}
-        onPick={onPick} onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
-      />
-      <DsSection
-        label="Chưa định giờ" icon="clock" viec={untimed}
-        selectedId={selectedId} expandedIds={expandedIds} onToggleExpand={toggleExpand}
-        onPick={onPick} onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
+      <ThsxLenhGroups
+        lenh={lenh}
+        selectedId={selectedId}
+        render={(viec) => (
+          <DsBang
+            viec={viec}
+            selectedId={selectedId}
+            onPick={onPick} onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
+          />
+        )}
       />
     </div>
   );
 }
 
-function DsSection({
-  label, icon, viec, selectedId, expandedIds, onToggleExpand, onPick, onBatDau, onTamDung, onKetThuc,
+/** Bảng bước CỦA MỘT LỆNH. Nhãn "đang chạy / tạm dừng" của khúc đầu bảng đã dời lên dòng lệnh
+ *  (`LenhDigest`), ở đây chỉ còn bảng — khỏi đếm hai lần trên cùng một màn. */
+function DsBang({
+  viec, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
 }: {
-  label: string;
-  icon: IconName;
   viec: SxWorkItem[];
   selectedId: number | null;
-  expandedIds: Set<number>;
-  onToggleExpand: (id: number, e: React.MouseEvent) => void;
   onPick: (w: SxWorkItem) => void;
   onBatDau?: (w: SxWorkItem) => void;
   onTamDung?: (w: SxWorkItem) => void;
@@ -119,29 +100,8 @@ function DsSection({
 }) {
   if (viec.length === 0) return null;
 
-  const runningCount = viec.filter((v) => v.trang_thai === "running").length;
-  const pausedCount = viec.filter((v) => v.trang_thai === "paused").length;
-
   return (
     <div className="thsx-ds__sec">
-      <div className="thsx-ds__sech">
-        <div className="thsx-ds__sech-title">
-          <Icon name={icon} size={14} /> <span>{label}</span>
-          <span className="thsx-ds__secn thsx-num">{viec.length}</span>
-        </div>
-        <div className="thsx-ds__sech-meta">
-          {runningCount > 0 && (
-            <span className="thsx-ds__sec-badge thsx-ds__sec-badge--run">
-              <Icon name="play" size={11} /> {runningCount} đang chạy
-            </span>
-          )}
-          {pausedCount > 0 && (
-            <span className="thsx-ds__sec-badge thsx-ds__sec-badge--pause">
-              <Icon name="pause" size={11} /> {pausedCount} tạm dừng
-            </span>
-          )}
-        </div>
-      </div>
       <div className="thsx-ds__tbl-wrap">
         <table className="thsx-ds__tbl">
           <thead>
@@ -158,14 +118,11 @@ function DsSection({
           <tbody>
             {viec.map((w) => {
               const isSelected = w.id === selectedId;
-              const isExpanded = expandedIds.has(w.id);
               return (
                 <DsRowBlock
                   key={w.id}
                   w={w}
                   selected={isSelected}
-                  expanded={isExpanded}
-                  onToggleExpand={(e) => onToggleExpand(w.id, e)}
                   onPick={() => onPick(w)}
                   onBatDau={onBatDau ? () => onBatDau(w) : undefined}
                   onTamDung={onTamDung ? () => onTamDung(w) : undefined}
@@ -181,12 +138,10 @@ function DsSection({
 }
 
 function DsRowBlock({
-  w, selected, expanded, onToggleExpand, onPick, onBatDau, onTamDung, onKetThuc,
+  w, selected, onPick, onBatDau, onTamDung, onKetThuc,
 }: {
   w: SxWorkItem;
   selected: boolean;
-  expanded: boolean;
-  onToggleExpand: (e: React.MouseEvent) => void;
   onPick: () => void;
   onBatDau?: () => void;
   onTamDung?: () => void;
@@ -199,205 +154,147 @@ function DsRowBlock({
   const statusCls = `thsx-ds__row--${w.trang_thai}`;
 
   return (
-    <>
-      <tr
-        className={`thsx-ds__row ${statusCls}${selected ? " thsx-ds__row--sel" : ""}${w.la_kcs ? " thsx-ds__row--kcs" : ""}`}
-        tabIndex={0}
-        role="button"
-        aria-pressed={selected}
-        onClick={onPick}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); } }}
-      >
-        {/* Nguồn & Mã */}
-        <td>
-          <div className="thsx-ds__src-cell">
+    <tr
+      className={`thsx-ds__row ${statusCls}${selected ? " thsx-ds__row--sel" : ""}${w.la_kcs ? " thsx-ds__row--kcs" : ""}`}
+      tabIndex={0}
+      role="button"
+      aria-pressed={selected}
+      onClick={onPick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); } }}
+    >
+      {/* Nguồn & Mã */}
+      <td>
+        <div className="thsx-ds__src-cell">
+          <div className="thsx-ds__src-main">
+            <span className="thsx-ds__src">
+              <Icon name={sxNguonIcon(w.nguon_loai)} size={13} className="thsx-ds__src-ic" />
+              <span className="thsx-num">{sxSerial(w.nguon_ma)}</span>
+            </span>
+            {w.nguon_ten && (
+              <div className="thsx-ds__srcten" title={w.nguon_ten}>
+                {w.nguon_ten}
+              </div>
+            )}
+          </div>
+        </div>
+      </td>
+
+      {/* Công đoạn & Quy cách */}
+      <td>
+        <div className="thsx-ds__cd-cell">
+          <div className="thsx-ds__cd-head">
+            <span className="thsx-ds__cd-name">{w.ten_cong_doan || "—"}</span>
+            {w.la_kcs && <span className="thsx-lrow__kcs thsx-ds__kcs">KCS</span>}
+            <ChipLoaiBuoc loai_buoc={w.loai_buoc} nha_cung_cap={w.nha_cung_cap} />
+            <ChipKhuon can_khuon={!!w.khuon} khuon={{ ...(w.khuon ?? {}), da_nhan: w.khuon_da_nhan }} />
+          </div>
+          {renderQuyCachLine(w.quy_cach)}
+        </div>
+      </td>
+
+      {/* Máy */}
+      <td>
+        {w.may ? (
+          <span className="thsx-ds__may-chip">
+            <Icon name="printer" size={11} />
+            <span>{w.may}</span>
+          </span>
+        ) : (
+          <span className="thsx-ds__empty-val">—</span>
+        )}
+      </td>
+
+      {/* Giờ hẹn & Thời lượng */}
+      <td>
+        <div className="thsx-ds__time-cell">
+          <span className="thsx-ds__time-val thsx-num">
+            {w.du_kien_bat_dau ? ngayGio(w.du_kien_bat_dau) : "—"}
+          </span>
+          {durInfo && (
+            <span className="thsx-ds__dur-inline thsx-num" title={durInfo.sub}>
+              <Icon name="clock" size={10} /> {durInfo.main}
+            </span>
+          )}
+        </div>
+      </td>
+
+      {/* Sản lượng & Tiến độ */}
+      <td>
+        <div className="thsx-ds__sl-cell">
+          <div className="thsx-ds__sl-main thsx-num" title={w.sl_dien_giai || undefined}>
+            {slText(w)}
+          </div>
+          {mucTieu > 0 ? (
+            <div className="thsx-ds__prog-wrap">
+              <div className="thsx-ds__prog-bar">
+                <div className="thsx-ds__prog-fill" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="thsx-ds__prog-txt thsx-num">
+                <span>{num(daLam)}/{num(mucTieu)}</span>
+                <b>{pct}%</b>
+              </div>
+            </div>
+          ) : null}
+          {w.thuc_nhan != null && (
+            <div className="thsx-ds__recv-badge thsx-num">
+              Đã nhận: {num(w.thuc_nhan)}
+            </div>
+          )}
+        </div>
+      </td>
+
+      {/* Định mức vật tư */}
+      <td>{renderVatTuInline(w.dinh_muc_vat_tu)}</td>
+
+      {/* Trạng thái & Thao tác nhanh */}
+      <td>
+        <div className="thsx-ds__act-cell" onClick={(e) => e.stopPropagation()}>
+          <ThsxTrangThaiPill tt={w.trang_thai} size="xs" />
+          {(w.trang_thai === "released" || w.trang_thai === "paused") && w.chay_duoc && onBatDau && (
             <button
               type="button"
-              className={`thsx-ds__exp-btn${expanded ? " is-expanded" : ""}`}
-              title={expanded ? "Thu gọn chi tiết" : "Xem nhanh quy cách & dặn dò"}
-              aria-label="Toggle chi tiết dòng"
-              onClick={onToggleExpand}
+              className="thsx-ds__actbtn thsx-ds__actbtn--play"
+              title="Bắt đầu thực hiện công việc"
+              onClick={onBatDau}
             >
-              <Icon name="chevron" size={11} className="thsx-ds__chevron" />
+              <Icon name="play" size={11} /> Bắt đầu
             </button>
-            <div className="thsx-ds__src-main">
-              <span className="thsx-ds__src">
-                <Icon name={sxNguonIcon(w.nguon_loai)} size={13} className="thsx-ds__src-ic" />
-                <span className="thsx-num">{sxSerial(w.nguon_ma)}</span>
-              </span>
-              {w.nguon_ten && (
-                <div className="thsx-ds__srcten" title={w.nguon_ten}>
-                  {w.nguon_ten}
-                </div>
+          )}
+          {w.trang_thai === "running" && w.chay_duoc && (
+            <div className="thsx-ds__act-grp">
+              {onTamDung && (
+                <button
+                  type="button"
+                  className="thsx-ds__actbtn thsx-ds__actbtn--pause"
+                  title="Tạm dừng công việc"
+                  onClick={onTamDung}
+                >
+                  <Icon name="pause" size={11} /> Tạm dừng
+                </button>
+              )}
+              {onKetThuc && (
+                <button
+                  type="button"
+                  className="thsx-ds__actbtn thsx-ds__actbtn--check"
+                  title="Hoàn thành & Kết thúc"
+                  onClick={onKetThuc}
+                >
+                  <Icon name="check" size={11} /> Kết thúc
+                </button>
               )}
             </div>
-          </div>
-        </td>
-
-        {/* Công đoạn & Quy cách */}
-        <td>
-          <div className="thsx-ds__cd-cell">
-            <div className="thsx-ds__cd-head">
-              <span className="thsx-ds__cd-name">{w.ten_cong_doan || "—"}</span>
-              {w.la_kcs && <span className="thsx-lrow__kcs thsx-ds__kcs">KCS</span>}
-              <ChipLoaiBuoc loai_buoc={w.loai_buoc} nha_cung_cap={w.nha_cung_cap} />
-              <ChipKhuon can_khuon={!!w.khuon} khuon={{ ...(w.khuon ?? {}), da_nhan: w.khuon_da_nhan }} />
-            </div>
-            {renderQuyCachLine(w.quy_cach)}
-          </div>
-        </td>
-
-        {/* Máy */}
-        <td>
-          {w.may ? (
-            <span className="thsx-ds__may-chip">
-              <Icon name="printer" size={11} />
-              <span>{w.may}</span>
-            </span>
-          ) : (
-            <span className="thsx-ds__empty-val">—</span>
           )}
-        </td>
-
-        {/* Giờ hẹn & Thời lượng */}
-        <td>
-          <div className="thsx-ds__time-cell">
-            <span className="thsx-ds__time-val thsx-num">
-              {w.du_kien_bat_dau ? ngayGio(w.du_kien_bat_dau) : "—"}
-            </span>
-            {durInfo && (
-              <span className="thsx-ds__dur-inline thsx-num" title={durInfo.sub}>
-                <Icon name="clock" size={10} /> {durInfo.main}
-              </span>
-            )}
-          </div>
-        </td>
-
-        {/* Sản lượng & Tiến độ */}
-        <td>
-          <div className="thsx-ds__sl-cell">
-            <div className="thsx-ds__sl-main thsx-num" title={w.sl_dien_giai || undefined}>
-              {slText(w)}
-            </div>
-            {mucTieu > 0 ? (
-              <div className="thsx-ds__prog-wrap">
-                <div className="thsx-ds__prog-bar">
-                  <div className="thsx-ds__prog-fill" style={{ width: `${pct}%` }} />
-                </div>
-                <div className="thsx-ds__prog-txt thsx-num">
-                  <span>{num(daLam)}/{num(mucTieu)}</span>
-                  <b>{pct}%</b>
-                </div>
-              </div>
-            ) : null}
-            {w.thuc_nhan != null && (
-              <div className="thsx-ds__recv-badge thsx-num">
-                Đã nhận: {num(w.thuc_nhan)}
-              </div>
-            )}
-          </div>
-        </td>
-
-        {/* Định mức vật tư */}
-        <td>{renderVatTuInline(w.dinh_muc_vat_tu)}</td>
-
-        {/* Trạng thái & Thao tác nhanh */}
-        <td>
-          <div className="thsx-ds__act-cell" onClick={(e) => e.stopPropagation()}>
-            <ThsxTrangThaiPill tt={w.trang_thai} size="xs" />
-            {(w.trang_thai === "released" || w.trang_thai === "paused") && onBatDau && (
-              <button
-                type="button"
-                className="thsx-ds__actbtn thsx-ds__actbtn--play"
-                title="Bắt đầu thực hiện công việc"
-                onClick={onBatDau}
-              >
-                <Icon name="play" size={11} /> Bắt đầu
-              </button>
-            )}
-            {w.trang_thai === "running" && (
-              <div className="thsx-ds__act-grp">
-                {onTamDung && (
-                  <button
-                    type="button"
-                    className="thsx-ds__actbtn thsx-ds__actbtn--pause"
-                    title="Tạm dừng công việc"
-                    onClick={onTamDung}
-                  >
-                    <Icon name="pause" size={11} /> Tạm dừng
-                  </button>
-                )}
-                {onKetThuc && (
-                  <button
-                    type="button"
-                    className="thsx-ds__actbtn thsx-ds__actbtn--check"
-                    title="Hoàn thành & Kết thúc"
-                    onClick={onKetThuc}
-                  >
-                    <Icon name="check" size={11} /> Kết thúc
-                  </button>
-                )}
-              </div>
-            )}
-            <button
-              type="button"
-              className="thsx-ds__actbtn thsx-ds__actbtn--view"
-              title="Mở chi tiết công việc ở panel phải"
-              onClick={onPick}
-            >
-              <Icon name="chevron" size={11} className="thsx-rot270" />
-            </button>
-          </div>
-        </td>
-      </tr>
-
-      {/* Dòng mở rộng (Expanded Detail Row) */}
-      {expanded && (
-        <tr className="thsx-ds__exp-row">
-          <td colSpan={7}>
-            <div className="thsx-ds__exp-panel">
-              <div className="thsx-ds__exp-grid">
-                {/* Dặn dò kỹ thuật */}
-                <div className="thsx-ds__exp-block">
-                  <div className="thsx-ds__exp-lbl">
-                    <Icon name="fileText" size={12} /> Ghi chú kỹ thuật:
-                  </div>
-                  <div className={`thsx-ds__exp-txt${!w.ghi_chu ? " thsx-ds__empty-val" : ""}`}>
-                    {w.ghi_chu || "Không có dặn dò riêng"}
-                  </div>
-                </div>
-
-                {/* Chi tiết Quy cách & Dụng cụ */}
-                <div className="thsx-ds__exp-block">
-                  <div className="thsx-ds__exp-lbl">
-                    <Icon name="layers" size={12} /> Quy cách & Dụng cụ:
-                  </div>
-                  <div className="thsx-ds__exp-specs">
-                    {w.quy_cach?.ghi_chu_ky_thuat && (
-                      <span className="thsx-ds__exp-tag">
-                        <b>Kỹ thuật:</b> {w.quy_cach.ghi_chu_ky_thuat}
-                      </span>
-                    )}
-                    {w.khuon && (
-                      <span className="thsx-ds__exp-tag">
-                        <b>Khuôn:</b> {w.khuon.ten || w.khuon.ma || "—"}
-                        {w.khuon.so_ke ? ` (Kệ: ${w.khuon.so_ke})` : ""}
-                        {w.khuon_da_nhan ? " [Đã nhận]" : " [CHƯA NHẬN]"}
-                      </span>
-                    )}
-                    {w.du_kien_so_nguoi != null && (
-                      <span className="thsx-ds__exp-tag">
-                        <b>Định mức nhân sự:</b> {w.du_kien_so_nguoi} người
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
+          <button
+            type="button"
+            className="thsx-ds__actbtn thsx-ds__actbtn--view"
+            title="Mở chi tiết công việc ở panel phải"
+            onClick={onPick}
+          >
+            <Icon name="chevron" size={11} className="thsx-rot270" />
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }
 

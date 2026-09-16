@@ -407,28 +407,28 @@ def test_phat_hanh_chup_khuon_va_nha_gia_cong(db, orders, lsx_svc, admin, custom
     assert cvs[ngoai.step_key].nha_cung_cap == "Cơ sở Minh Phát"
 
 
-def test_phat_hanh_ghim_don_gia_hieu_dung_cho_buoc_co_cong_thuc_ra_tien(
+def test_phat_hanh_khong_ghim_bat_ky_o_tien_nao_vao_cong_viec(
     db, orders, lsx_svc, admin, customer,
 ):
-    """⭐ Phát hành ĐÓNG BĂNG `don_gia_hd` cho bước khai ô tiền công bằng công thức RA TIỀN.
+    """⭐ Phát hành KHÔNG đóng băng đơn giá nào vào công việc (11/09/2026).
 
-    Vì sao chốt đúng lúc này: công thức ăn `sl_vao`/`sl_ra` của bước, hai số ấy còn đổi suốt lúc
-    lập kế hoạch, và phát hành là khoảnh khắc kế hoạch đóng băng — cùng lúc mọi ảnh chụp khác của
-    công việc được chụp. Không có số này thì tầng phân bổ nhân `don_gia` gốc với sản lượng, tức là
-    bỏ qua cả công thức người ta viết.
+    Trước đó bước khai ô tiền công bằng công thức RA TIỀN được gắn thêm `don_gia_hd` (đơn giá hiệu
+    dụng) để tầng phân bổ nhân với sản lượng từng người. Cả cơ chế ấy đã gỡ: sản xuất ghi SỐ LƯỢNG,
+    kế toán lương đổi ra tiền. Bài này canh cho khoá đó khỏi mọc lại.
 
-    Bước khai kiểu CŨ (không gọi chip) phải KHÔNG có khoá này — đó là dấu để tầng lương biết đường
-    nào mà đi.
+    Ảnh chụp của bước đi qua NGUYÊN VẸN — kể cả ảnh chụp KIỂU CŨ còn khoá tiền như ở đây (JSON
+    không migrate): phát hành không thêm, không bớt khoá nào.
     """
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     steps = _steps(db, a.id)
     tien = _them_buoc(db, a.id, thu_tu=97, ten="Bế hộp",
                       department_id=steps[0].department_id)
-    tien.khoan_json = {"don_gia": 40, "don_vi": "nhịp",
+    tien.khoan_json = {"rate_id": 7, "ten": "Bế hộp bánh",
+                       "don_gia": 40, "don_vi": "nhịp",
                        "cong_thuc": "50000 + don_gia_khoan * sl_ra"}
     luong = _them_buoc(db, a.id, thu_tu=98, ten="Dán hộp",
                        department_id=steps[0].department_id)
-    luong.khoan_json = {"don_gia": 40, "don_vi": "cai", "cong_thuc": "sl_ra / 10"}
+    luong.khoan_json = {"rate_id": 8, "ten": "Dán hộp"}
     db.flush()
 
     goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
@@ -436,10 +436,8 @@ def test_phat_hanh_ghim_don_gia_hieu_dung_cho_buoc_co_cong_thuc_ra_tien(
     cvs = {cv.step_key: cv for cv in
            db.query(SanXuatCongViec).filter_by(goi_id=goi.id, lsx_id=a.id).all()}
 
-    # 1000 cái ra × (50.000 + 40 × 1000) ⇒ 90 đ trên mỗi cái. Nhân lại đủ 90.000 đ của công thức.
-    kh = cvs[tien.step_key].khoan_json
-    assert kh["don_gia_hd"] == pytest.approx(90.0)
-    assert kh["don_gia"] == 40          # đơn giá GỐC vẫn còn để đối chiếu ảnh chụp, không bị đè
-    assert kh["don_gia_hd"] * 1000 == pytest.approx(50000 + 40 * 1000)
-
-    assert "don_gia_hd" not in cvs[luong.step_key].khoan_json
+    assert "don_gia_hd" not in cvs[tien.step_key].khoan_json
+    assert cvs[tien.step_key].khoan_json == tien.khoan_json
+    # Đầu việc kế hoạch đã chọn vẫn theo bước vào sản xuất — đó là TÊN việc cho kế toán lương.
+    assert cvs[luong.step_key].khoan_json["rate_id"] == 8
+    assert cvs[luong.step_key].khoan_json["ten"] == "Dán hộp"

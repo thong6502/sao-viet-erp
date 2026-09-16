@@ -82,11 +82,13 @@ export function EmployeeWizard({
   // Không đọc được (thiếu quyền `luong`) thì nói chung chung, không bịa số.
   const [probationRatio, setProbationRatio] = useState<number | null>(null);
   useEffect(() => {
+    // Câu gợi ý này chỉ nằm trong bước Lương — không có quyền khai lương thì khỏi hỏi (vốn cũng 403).
+    if (!canSalary) return;
     api.luong
       .getParams(token)
       .then((p) => setProbationRatio(p.probation_ratio))
       .catch(() => setProbationRatio(null));
-  }, [token]);
+  }, [token, canSalary]);
   // Khoản thu nhập chọn từ DANH MỤC (Tầng 1 → Tầng 2). Giữ ở state cục bộ tới lúc tạo xong hồ
   // sơ mới gán được — API gán khoản cần `employee_id` mà lúc này chưa có.
   const [comps, setComps] = useState<PayrollComponent[] | null>(null);

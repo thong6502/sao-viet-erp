@@ -1,8 +1,7 @@
 """Tổ trưởng đề nghị cấp vật tư cho công đoạn của mình (spec-de-nghi-cap-vat-tu-cong-doan §5).
 
-Ranh giới an ninh THỰC nằm ở đây, không ở router: router chỉ gác bit thô `san_xuat:assign_work`
-(mọi tổ trưởng SX đều có), còn "đúng tổ nào" thì chỉ tầng này biết. Tái dùng `_gate_to_truong` của
-`vat_tu_nhan.py` — hai cổng cùng nghĩa mà viết hai lần là mời chúng lệch nhau.
+Ranh giới an ninh THỰC nằm ở đây, không ở router: router chỉ gác "có quyền Kho ở một tổ nào đó",
+còn "đúng tổ nào" thì chỉ tầng này biết — hỏi quyền Kho trên tổ của công đoạn (`thuc_thi._gate`).
 
 BA thang đơn vị chạy song song trong `tao()` — xem docstring của hàm đó.
 """
@@ -23,7 +22,8 @@ from ...repositories.san_xuat_vat_tu_repo import SanXuatVatTuRepository
 from ...repositories.stock_request_repo import StockRequestRepository
 from ...realtime import hub
 from ..ke_hoach_vat_tu_service import KeHoachVatTuError
-from .vat_tu_nhan import _gate_to_truong
+from ..quyen_to import VIEC_KHO
+from .thuc_thi import _gate
 
 _EPS = 0.0005      # cùng dung sai làm tròn với `san_luong.tao_batch`
 # Việt Nam không có giờ mùa hè (DST) → offset cố định là đủ, không cần `ZoneInfo`. Cùng quy ước với
@@ -407,7 +407,7 @@ def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
     # ngay bên dưới. Khoá này CHỈ có tác dụng nhờ `commit=False` ở lời gọi `req_svc.create` bên
     # dưới — bất kỳ `commit()` nào chen vào giữa cũng nhả khoá và mở lại nguyên ca đua trên.
     repo.khoa_cong_viec(cong_viec_id)
-    _gate_to_truong(db, user, cv.department_id)
+    _gate(db, user, cv, VIEC_KHO)
 
     vt_repo = SanXuatVatTuRepository(db)
     cac = vt_repo.cac_de_nghi(cong_viec_id)
@@ -514,7 +514,7 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc.")
-    _gate_to_truong(db, user, cv.department_id)
+    _gate(db, user, cv, VIEC_KHO)
 
     vt_repo = SanXuatVatTuRepository(db)
     dn = vt_repo.de_nghi(de_nghi_id)

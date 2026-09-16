@@ -206,7 +206,6 @@ export function BangLuongTab({
     phuCapTotal(l) +
     getKhoanSpVal(l) +
     getKhoanKmVal(l) +
-    (l.thuong_to_truong ?? 0) +
     getTangCaVal(l) +
     getCaDemVal(l) +
     bonusTotal(l) +
@@ -222,7 +221,6 @@ export function BangLuongTab({
     let allowance = 0;
     let khoanSp = 0;
     let khoanKm = 0;
-    let thuongTt = 0;
     let tangCa = 0;
     let caDem = 0;
     let thuong = 0;
@@ -240,7 +238,6 @@ export function BangLuongTab({
       const cAllowance = phuCapTotal(l);
       const cKhoanSp = getKhoanSpVal(l);
       const cKhoanKm = getKhoanKmVal(l);
-      const cThuongTt = l.thuong_to_truong ?? 0;
       const cTangCa = getTangCaVal(l);
       const cCaDem = getCaDemVal(l);
       const cThuong = bonusTotal(l);
@@ -256,7 +253,6 @@ export function BangLuongTab({
         cAllowance +
         cKhoanSp +
         cKhoanKm +
-        cThuongTt +
         cTangCa +
         cCaDem +
         cThuong +
@@ -269,7 +265,6 @@ export function BangLuongTab({
       allowance += cAllowance;
       khoanSp += cKhoanSp;
       khoanKm += cKhoanKm;
-      thuongTt += cThuongTt;
       tangCa += cTangCa;
       caDem += cCaDem;
       thuong += cThuong;
@@ -289,7 +284,6 @@ export function BangLuongTab({
       allowance,
       khoanSp,
       khoanKm,
-      thuongTt,
       tangCa,
       caDem,
       thuong,
@@ -726,7 +720,7 @@ export function BangLuongTab({
             <span className="lg-formula-op">+</span>
             <span
               className="lg-formula-item lg-formula-item--income"
-              title="Bao gồm: Chuyên cần + Phụ cấp + Khoán SP + Khoán km + Thưởng TT + Tăng ca + Ca đêm + Thưởng + Hoa hồng"
+              title="Bao gồm: Chuyên cần + Phụ cấp + Khoán SP + Khoán km + Tăng ca + Ca đêm + Thưởng + Hoa hồng"
             >
               Các khoản thu nhập (+)
             </span>
@@ -887,7 +881,7 @@ export function BangLuongTab({
                   <th colSpan={2} className="lg-th-group lg-th-group--base">
                     Công &amp; Lương cơ sở
                   </th>
-                  <th colSpan={9} className="lg-th-group lg-th-group--income">
+                  <th colSpan={8} className="lg-th-group lg-th-group--income">
                     Thu nhập &amp; Phụ cấp (+)
                   </th>
                   <th colSpan={3} className="lg-th-group lg-th-group--deduct">
@@ -911,7 +905,6 @@ export function BangLuongTab({
                   <th className="lg-num lg-th-sub--income">Phụ cấp</th>
                   <th className="lg-num lg-th-sub--income">Khoán SP</th>
                   <th className="lg-num lg-th-sub--income">Khoán km</th>
-                  <th className="lg-num lg-th-sub--income">Thưởng TT</th>
                   <th className="lg-num lg-th-sub--income">Tăng ca</th>
                   <th className="lg-num lg-th-sub--income">Ca đêm</th>
                   <th className="lg-num lg-th-sub--income">Thưởng</th>
@@ -1080,16 +1073,6 @@ export function BangLuongTab({
                           )}
                         </td>
                         <td
-                          className={`lg-num ${l.thuong_to_truong ? ((l.thuong_to_truong ?? 0) < 0 ? "lg-minus" : "") : "lg-zero"}`}
-                          title={
-                            l.thuong_to_truong
-                              ? "Thưởng/phạt tổ trưởng theo tỷ lệ lỗi KCS, tính lúc đóng nhóm thành phẩm"
-                              : "Kỳ này tổ trưởng không có nhóm nào đóng, hoặc tổ chưa khai bậc thưởng"
-                          }
-                        >
-                          {l.thuong_to_truong ? money(l.thuong_to_truong) : "—"}
-                        </td>
-                        <td
                           className={`lg-num ${(l.ot_pay || l.luong_ngay_le) ? "" : "lg-zero"}`}
                           title={[
                             l.ot_minutes ? `${(l.ot_minutes / 60).toFixed(1)}h tăng ca` : "",
@@ -1232,7 +1215,6 @@ export function BangLuongTab({
                       phuCapTotal(l) > 0 ? chiTiet(phuCapRows(l), "") : "",
                       getKhoanSpVal(l) > 0 ? `Khoán SP: ${money(getKhoanSpVal(l))}` : "",
                       getKhoanKmVal(l) > 0 ? `Khoán km: ${money(getKhoanKmVal(l))}` : "",
-                      (l.thuong_to_truong ?? 0) !== 0 ? `Thưởng TT: ${money(l.thuong_to_truong)}` : "",
                       getTangCaVal(l) > 0 ? `Tăng ca/Lễ: ${money(getTangCaVal(l))}` : "",
                       getCaDemVal(l) > 0 ? `Ca đêm: ${money(getCaDemVal(l))}` : "",
                       bonusTotal(l) > 0 ? `Thưởng: ${money(bonusTotal(l))}` : "",
@@ -1323,7 +1305,7 @@ export function BangLuongTab({
               {/* colSpan đúng theo chế độ xem đang chọn */}
               {shown.length === 0 && (
                 <EmptyRow
-                  colSpan={viewMode === "detailed" ? 19 : 8}
+                  colSpan={viewMode === "detailed" ? 18 : 8}
                   trangThai={
                     listErr ? "loi" : listLoading ? "dang-tai" : "rong"
                   }
@@ -1370,9 +1352,6 @@ export function BangLuongTab({
                   <td className="lg-num lg-foot-val">{totals.allowance ? money(totals.allowance) : "—"}</td>
                   <td className="lg-num lg-foot-val">{totals.khoanSp ? money(totals.khoanSp) : "—"}</td>
                   <td className="lg-num lg-foot-val">{totals.khoanKm ? money(totals.khoanKm) : "—"}</td>
-                  <td className={`lg-num lg-foot-val ${totals.thuongTt < 0 ? "lg-minus" : ""}`}>
-                    {totals.thuongTt ? money(totals.thuongTt) : "—"}
-                  </td>
                   <td className="lg-num lg-foot-val">{totals.tangCa ? money(totals.tangCa) : "—"}</td>
                   <td className="lg-num lg-foot-val">{totals.caDem ? money(totals.caDem) : "—"}</td>
                   <td className="lg-num lg-foot-val">{totals.thuong ? money(totals.thuong) : "—"}</td>

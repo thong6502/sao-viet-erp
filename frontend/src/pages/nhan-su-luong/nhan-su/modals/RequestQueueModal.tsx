@@ -1,5 +1,5 @@
 // Hàng đợi duyệt "yêu cầu cập nhật hồ sơ" (tách từ pages/NhanSuPage.tsx).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type UpdateRequest } from "../../../../api/client";
 import { EmptyState } from "../../../../components/EmptyState";
 import { RowActionButton } from "../../../../components/RowActionButton";
@@ -12,11 +12,17 @@ export function RequestQueueModal({
   token,
   onClose,
   onDecided,
+  onCount,
 }: {
   token: string;
   onClose: () => void;
-  onDecided: () => void;
+  /** `approved`: duyệt thì hồ sơ đã đổi ⇒ trang cha tải lại danh sách; từ chối thì không. */
+  onDecided: (approved: boolean) => void;
+  /** Số yêu cầu còn chờ sau mỗi lần tải — trang cha cập nhật nhãn nút mà khỏi tự gọi lại API. */
+  onCount?: (n: number) => void;
 }) {
+  const onCountRef = useRef(onCount);
+  onCountRef.current = onCount;
   const [items, setItems] = useState<UpdateRequest[] | null>(null);
   const [busy, setBusy] = useState(false);
   /** Lỗi TẢI hàng đợi. Trước đây `.catch` nuốt lỗi rồi `setItems([])` ⇒ máy chủ chết mà bảng
@@ -28,7 +34,10 @@ export function RequestQueueModal({
     setListError(null);
     api.employees
       .updateRequests(token, "pending")
-      .then((r) => setItems(r.items))
+      .then((r) => {
+        setItems(r.items);
+        onCountRef.current?.(r.items.length);
+      })
       .catch((e) => {
         setItems([]);
         setListError(errMsg(e));
@@ -45,7 +54,7 @@ export function RequestQueueModal({
       if (approve) await api.employees.approveRequest(token, id);
       else await api.employees.rejectRequest(token, id, "Từ chối");
       load();
-      onDecided();
+      onDecided(approve);
     } catch (e) {
       // Trước đây lỗi duyệt rơi vào hư không: người duyệt bấm, không thấy gì đổi, tưởng máy
       // đơ. Hay gặp nhất là ô dài hơn cột (BE trả câu "… tối đa N ký tự").

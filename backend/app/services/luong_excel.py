@@ -119,7 +119,6 @@ COT = [
     # Công lễ nghỉ của người khoán / tài xế — trả riêng, ngoài khoán (15/09/2026). Nằm TRONG khối
     # "CỘNG THU" (từ "Lương công" tới "Khoản phát sinh") nên tổng không lệch `gross`.
     ("Công lễ (ngoài khoán)", "thu", lambda ln, nv: _f(getattr(ln, "luong_ngay_le", 0)), TIEN),
-    ("Thưởng/phạt tổ trưởng", "thu", lambda ln, nv: _f(getattr(ln, "thuong_to_truong", 0)), TIEN),
     ("Hoa hồng", "thu", lambda ln, nv: _f(getattr(ln, "hoa_hong", 0)), TIEN),
     ("Thưởng thành tích", "thu", lambda ln, nv: _f(getattr(ln, "thuong_thanh_tich", 0)), TIEN),
     ("Thưởng doanh số", "thu", lambda ln, nv: _f(getattr(ln, "thuong_doanh_so", 0)), TIEN),
