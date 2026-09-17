@@ -4,14 +4,17 @@ Spec: `docs/superpowers/specs/2026-09-14-quyen-theo-to-va-tab-san-luong.md`.
 
 MỘT DÒNG QUYỀN CHO MỖI NÚT của khối Sản xuất trong cây Phòng ban (kể cả cấp gom), khoá
 `to_sx_<id phòng ban>`. Dòng tự sinh / đổi tên / xoá theo phòng ban (`dong_bo_dong_quyen_to`).
-Mỗi dòng có Xem (`can_read`) · Phạm vi (`scope`) · 4 quyền chi tiết (`can_run_order`,
-`can_confirm_output`, `can_qc`, `can_warehouse`).
+Mỗi dòng có Xem (`can_read`) · Phạm vi (`scope`) · 3 quyền chi tiết (`can_run_order`,
+`can_confirm_output`, `can_warehouse`).
+
+KCS KHÔNG còn là quyền theo tổ (mg `0306`, `docs/design-kcs-theo-lenh.md`): người thuộc tổ
+`is_kcs` kiểm được mọi tổ — xem `services/san_xuat/kcs.gate_kcs`.
 
 PHẠM VI tính từ VỊ TRÍ NGƯỜI XEM, trong VÙNG của dòng (vùng = nút đó + mọi đơn vị trực thuộc):
   · `own`        — chỉ phần của chính mình (việc mình đang được giao) trong vùng.
   · `department` — phòng mình + các đơn vị trực thuộc của phòng mình, phần nằm trong vùng.
   · `all`        — toàn bộ vùng, dù mình đứng ở nấc nào.
-Phạm vi áp cho cả Xem lẫn 4 quyền chi tiết; nhiều dòng chồng nhau thì lấy phần RỘNG nhất.
+Phạm vi áp cho cả Xem lẫn 3 quyền chi tiết; nhiều dòng chồng nhau thì lấy phần RỘNG nhất.
 
 KHÔNG còn luật cứng "phải đứng tên trưởng tổ" — `head_user_id` chỉ còn là thông tin tổ chức.
 """
@@ -28,7 +31,6 @@ from ..repositories.quyen_to_repo import KHOA_TIEN_TO, QuyenToRepository
 VIEC_XEM = "read"
 VIEC_THUC_HIEN = "run_order"
 VIEC_XAC_NHAN = "confirm_output"
-VIEC_KCS = "qc"
 VIEC_KHO = "warehouse"
 
 #: việc → cột `role_permissions`.
@@ -36,10 +38,9 @@ COT_VIEC: dict[str, str] = {
     VIEC_XEM: "can_read",
     VIEC_THUC_HIEN: "can_run_order",
     VIEC_XAC_NHAN: "can_confirm_output",
-    VIEC_KCS: "can_qc",
     VIEC_KHO: "can_warehouse",
 }
-VIEC_CHI_TIET = (VIEC_THUC_HIEN, VIEC_XAC_NHAN, VIEC_KCS, VIEC_KHO)
+VIEC_CHI_TIET = (VIEC_THUC_HIEN, VIEC_XAC_NHAN, VIEC_KHO)
 
 MUC_TAT_CA = "all"   # thấy / làm trên mọi việc của tổ
 MUC_CUA_TOI = "own"  # chỉ việc mình đang được giao
@@ -48,7 +49,6 @@ _THONG_BAO_THIEU = {
     VIEC_XEM: "Bạn không có quyền xem tổ này",
     VIEC_THUC_HIEN: "Bạn không có quyền Thực hiện lệnh ở tổ này",
     VIEC_XAC_NHAN: "Bạn không có quyền Xác nhận sản lượng ở tổ này",
-    VIEC_KCS: "Bạn không có quyền KCS ở tổ này",
     VIEC_KHO: "Bạn không có quyền Kho ở tổ này",
 }
 

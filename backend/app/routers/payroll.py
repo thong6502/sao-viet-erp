@@ -275,7 +275,6 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
         if emp is not None:
             o.employee_code = emp.code
             o.employee_name = emp.full_name
-            o.payroll_group = emp.payroll_group
             o.bank_account = emp.bank_account
             o.bank_name = emp.bank_name
             o.department_name = dept_names.get(emp.department_id)
@@ -480,7 +479,7 @@ def set_salary(employee_id: int, body: SalaryIn, svc: Service, authz: Authz,
     try:
         s = svc.set_salary(employee_id=employee_id, actor=user, scope=_emp_scope_for(authz, user),
                            effective_from=body.effective_from,
-                           amount_mode=body.amount_mode, base_amount=body.base_amount,
+                           base_amount=body.base_amount,
                            insurance_base=body.insurance_base, allowance=body.allowance, note=body.note,
                            chuyen_can=body.chuyen_can,
                            luong_vi_tri=body.luong_vi_tri, luong_trach_nhiem=body.luong_trach_nhiem,

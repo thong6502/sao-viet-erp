@@ -2826,6 +2826,76 @@ select.tg-input--sm {
 .tg-khuon__kl .tg-khuon__num {
   width: 90px;
 }
+
+/* ---- ⑥ CHI PHÍ KHÁC: mỗi dòng một cặp (tên gõ tay · số tiền) + nút xoá ----
+   KHÔNG dùng `justify-content: space-between` như `.tg-khuon__row` gốc: ở đây vế trái là một Ô
+   NHẬP co giãn chứ không phải nhãn chữ, đẩy hai đầu ra xa thì ô tên bị bóp lại còn một mẩu trên
+   màn hẹp. Cho ô tên ăn hết phần thừa, ô tiền + nút xoá giữ nguyên bề ngang. */
+.tg-cpk__row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tg-cpk__ten {
+  flex: 1 1 140px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+}
+.tg-cpk__ten::placeholder {
+  color: var(--ash-2);
+}
+/* Hiện THƯỜNG TRỰC (không đợi hover): màn này còn chạy trên máy bảng, ở đó không có hover nên
+   nút ẩn là nút không tồn tại. */
+.tg-cpk__xoa {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tg-cpk__xoa:hover {
+  border-color: var(--rule);
+  color: var(--rust-deep);
+  background: var(--rule-hair);
+}
+/* Số đ/ĐVT xuống HẲN một dòng riêng (cả bề ngang) — nhét cùng hàng thì ba ô trên bị ép thêm. */
+.tg-cpk__don {
+  flex: 0 0 100%;
+  margin-top: -2px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
+}
+.tg-cpk__them {
+  margin-top: var(--sp-2);
+  padding: 5px 12px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ash-2);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tg-cpk__them:hover {
+  border-color: var(--ash-2);
+  background: var(--rule-hair);
+  color: var(--ink);
+}
 .rc-modal__right-col .tg-step-card__details {
   display: flex;
   flex-direction: column;

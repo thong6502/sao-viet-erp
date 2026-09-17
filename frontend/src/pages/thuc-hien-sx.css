@@ -16,7 +16,11 @@
   height: 100%;
   min-height: 0;
   min-width: 0;
-  overflow: hidden; /* chỉ timeline được cuộn ngang */
+  /* Ngang: chỉ timeline được cuộn. Dọc: `auto` chứ không `hidden` — khung thấp (đo 16/09/2026 ở
+     602×295: thanh trên 70 + subbar 105 + hộp thư 302 = 477px trong khung 239px) thì bảng việc bị
+     ép cao 0 và bị xén, trang không cuộn tới được. Khung đủ cao thì không tràn, không hiện thanh cuộn. */
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--paper);
   color: var(--ink);
   font-family: var(--ff-sans);
@@ -304,7 +308,8 @@
 /* ---------------- Lưới 3 cột ----------------------------------------------- */
 .thsx-grid {
   flex: 1 1 auto;
-  min-height: 0;
+  /* Sàn cho bảng việc — co tới đây rồi thì `.thsx` cuộn dọc thay vì bóp bảng về 0 (xem `.thsx`). */
+  min-height: 260px;
   display: grid;
   grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) 0px;
   gap: 0;
@@ -520,15 +525,6 @@
 }
 .thsx-lrow__may svg,
 .thsx-lrow__gio svg { color: var(--ash-2); }
-.thsx-lrow__kcs {
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  color: var(--plum-deep);
-  background: var(--plum-soft);
-  border-radius: var(--r-pill);
-  padding: 0 6px;
-  letter-spacing: 0.04em;
-}
 
 /* ================= CỘT GIỮA — LỊCH NGÀY (15/09/2026) =======================
    Lưới CỘT NGÀY cùng khuôn với Xếp lịch 3 (`xep-lich-3.css` `.xl3-gantt`), thay Gantt trục giờ
@@ -725,16 +721,6 @@
 .thsx-ln__tt--running,
 .thsx-ln__tt--completed { color: var(--moss); }
 .thsx-ln__tt--paused { color: var(--amber-deep); }
-.thsx-ln__kcs {
-  flex: none;
-  padding: 0 6px;
-  border-radius: var(--r-pill);
-  background: var(--plum-soft);
-  color: var(--plum-deep);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.04em;
-}
 .thsx-ln__cd,
 .thsx-ln__phu,
 .thsx-ln__sl-so {
@@ -880,7 +866,6 @@
 }
 .thsx-ln__thanh--completed .thsx-ln__thanh-d1 > svg { color: var(--moss); }
 .thsx-ln__thanh--completed .thsx-ln__thanh-d2 { color: var(--moss-deep); }
-.thsx-ln__thanh--kcs { box-shadow: inset 0 -3px 0 var(--plum), 0 1px 2px rgba(15, 23, 42, 0.06); }
 .thsx-ln__thanh--tran-trai {
   border-left-width: 1px;
   border-top-left-radius: 0;
@@ -1643,7 +1628,6 @@
   padding: 1px 7px;
   white-space: nowrap;
 }
-.thsx-tag--khoan { color: var(--moss-deep); background: var(--moss-soft); }
 .thsx-tag--nhat { color: var(--ash); background: var(--rule-hair); }
 .thsx-tag--noacc { color: var(--amber-deep); background: var(--amber-soft); }
 
@@ -1822,15 +1806,6 @@
 .thsx-x .thsx-psec__title { display: inline-flex; align-items: center; gap: 5px; }
 .thsx-x .thsx-psec__title svg { color: var(--ash-2); }
 .thsx-rot-90 { transform: rotate(-90deg); transition: transform 0.12s ease; }
-
-/* dòng số tổng quan sản lượng */
-.thsx-x-stat {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-  font-size: var(--fs-xs); color: var(--ash);
-  margin-bottom: var(--sp-2);
-}
-.thsx-x-stat__it b { color: var(--ink); }
-.thsx-x-stat__sep { color: var(--rule); }
 
 .thsx-x-sub {
   font-size: 10px; font-weight: var(--fw-bold);
@@ -2099,7 +2074,6 @@
 /* ======================================================================== */
 /* GIAI ĐOẠN 5 — KCS §13 · Kho §14 · Đóng nhóm §16/§13.3                     */
 /* ======================================================================== */
-.thsx-x-stat__it--bad b { color: var(--rust-deep); }
 .thsx-x-pill--bad { color: var(--rust-deep); background: var(--rust-soft); border-color: color-mix(in srgb, var(--rust) 22%, transparent); }
 .thsx-note--ok {
   display: flex; align-items: center; gap: 6px; margin-top: var(--sp-2);
@@ -2130,50 +2104,27 @@
 }
 .thsx-x-loi__reject svg { flex: none; }
 
-/* --- KCS: lưới ảnh bằng chứng --- */
-.thsx-x-anh { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.thsx-x-anh__it {
-  position: relative; width: 52px; height: 52px; flex: none;
-  border-radius: var(--r-2); overflow: hidden; border: 1px solid var(--rule-soft);
-  display: block;
-}
-.thsx-x-anh__it img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.thsx-x-anh__del {
-  position: absolute; top: 2px; right: 2px;
-  width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;
-  border: 0; border-radius: 50%; cursor: pointer;
-  background: color-mix(in srgb, var(--ink) 62%, transparent); color: var(--paper);
-}
-.thsx-x-anh__del:hover:not(:disabled) { background: var(--rust-deep); }
-.thsx-x-anh__del:disabled { opacity: 0.35; cursor: not-allowed; }
-.thsx-x-anh__add {
-  width: 52px; height: 52px; flex: none; cursor: pointer;
-  border: 1px dashed var(--rule); border-radius: var(--r-2);
-  display: inline-flex; align-items: center; justify-content: center;
-  color: var(--ash-2); background: var(--canvas);
-}
-.thsx-x-anh__add:hover { border-color: var(--rust); color: var(--rust); }
-
 /* --- Kho: dòng phụ của yêu cầu nhập + nút chữ --- */
 .thsx-x-bg__sub {
   display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px;
   margin-top: 4px; font-size: var(--fs-2xs); color: var(--ash);
 }
 .thsx-x-bg__sub b { color: var(--ink); }
+/* Lịch sử điều chỉnh bàn giao (§11.3) — mỗi lần một dòng: lúc · ai · trước → sau · mô tả. */
+.thsx-x-bg__ls {
+  list-style: none; margin: 6px 0 0; padding: 6px 0 0 10px;
+  border-top: 1px dashed var(--rule-hair); border-left: 2px solid var(--rule-soft);
+  display: flex; flex-direction: column; gap: 3px;
+  font-size: var(--fs-2xs); color: var(--ash); overflow-wrap: anywhere;
+}
+.thsx-x-bg__ls b { color: var(--ink); }
+.thsx-x-bg__lech { color: var(--rust-deep); }
 .thsx-x-linkbtn {
   border: 0; background: transparent; cursor: pointer; padding: 0; margin-left: auto;
   font: inherit; font-size: var(--fs-2xs); color: var(--rust-deep); text-decoration: underline;
 }
 .thsx-x-linkbtn:hover:not(:disabled) { color: var(--rust); }
 .thsx-x-linkbtn:disabled { color: var(--ash); cursor: not-allowed; text-decoration: none; }
-
-/* --- Phân loại BTP: nút phân đoạn --- */
-.thsx-x-seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--rule-hair); border-radius: var(--r-2); }
-.thsx-x-seg__btn {
-  border: 0; background: transparent; cursor: pointer; font: inherit;
-  font-size: var(--fs-xs); color: var(--ash); padding: 4px 12px; border-radius: var(--r-2);
-}
-.thsx-x-seg__btn[aria-pressed="true"] { background: var(--paper); color: var(--ink); font-weight: var(--fw-medium); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 10%, transparent); }
 
 /* --- Đóng nhóm: checklist điều kiện cổng --- */
 .thsx-x-check { list-style: none; margin: var(--sp-2) 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -2753,48 +2704,108 @@
   font-weight: 600;
 }
 
-/* Glassmorphism Segmented Tab Switcher */
+/* Bộ chọn tab của ngăn chi tiết: MỘT rãnh xám chứa ba ô, ô đang chọn là miếng trắng nổi.
+   Rê chuột chỉ làm đậm chữ — không tô nền, kẻo trông như có hai tab cùng được chọn. */
 .thsx-drawer-tabs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
   flex: none;
+  padding: 8px 12px;
+  background: var(--canvas);
+  border-bottom: 1px solid #e2e8f0;
 }
+.thsx-drawer-tabs__track {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  /* Phòng hờ màn quá hẹp: cuộn ngang trong rãnh, không bóp/cắt chữ. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.thsx-drawer-tabs__track::-webkit-scrollbar { display: none; }
 .thsx-drawer-tab {
-  flex: 1;
+  /* Chia đều khi đủ chỗ; thiếu chỗ thì tab nào cũng giữ tối thiểu bằng chữ của nó. */
+  flex: 1 1 0;
+  min-width: max-content;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 7px 12px;
+  font: inherit;
   font-size: 12px;
   font-weight: 600;
   color: #64748b;
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
   white-space: nowrap;
 }
-.thsx-drawer-tab:hover {
-  color: #0f172a;
-  background: rgba(15, 23, 42, 0.05);
-}
+/* Nhắc lại sàn bề ngang với độ đặc hiệu (0,3,0): ở ≤768px `responsive.css` §13
+   `.shell__content button:has(> svg:only-child)` (0,2,2) bắt nhầm tab — chữ là text node nên svg
+   vẫn là "con duy nhất" — rồi hạ `min-width` xuống 44px, tab bị bóp và chữ tràn. */
+.thsx-drawer-tabs__track > .thsx-drawer-tab[role="tab"] { min-width: max-content; }
+.thsx-drawer-tab > svg { flex: none; }
+.thsx-drawer-tab:hover:not(.is-active) { color: #0f172a; }
 .thsx-drawer-tab.is-active {
-  color: #0284c7;
+  color: #0f172a;
   background: #ffffff;
-  border-color: #cbd5e1;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.06);
+}
+.thsx-drawer-tab.is-active > svg { color: #0284c7; }
+.thsx-drawer-tab:focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: -2px;
 }
 .thsx-drawer-tab__dot {
+  flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: #ef4444;
+}
+/* Chấm đỏ "còn việc chờ tổ bấm" (§11.5) trên dòng công đoạn, đầu lệnh, nhãn lịch, hàng chờ. Tự tắt
+   khi hết việc chờ — không phải dấu "chưa đọc". Viền trắng để nổi trên nền dòng đang chọn. */
+.thsx-cho-dot {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px #ffffff;
+}
+/* Ô "N chờ xác nhận" trên thanh lọc: bấm để bảng chỉ còn lệnh có việc chờ (máy chủ lọc). */
+.thsx-cho-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.thsx-cho-chip:hover { background: #fee2e2; }
+.thsx-cho-chip__dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; flex: none; }
+.thsx-cho-chip.is-on { color: #ffffff; background: #b91c1c; border-color: #b91c1c; }
+.thsx-cho-chip.is-on .thsx-cho-chip__dot { background: #ffffff; }
+.thsx-cho-chip:focus-visible { outline: 2px solid #0284c7; outline-offset: 2px; }
+/* Điện thoại: bốn nhãn + icon không vừa một hàng — bỏ icon, thu lề để chữ vừa khít, khỏi cuộn. */
+@media (max-width: 480px) {
+  .thsx-drawer-tabs { padding-inline: 8px; }
+  /* Lề 4px: bốn tab (thêm tab Nhận, §11.5) vừa khít 375px; máy hẹp hơn thì rãnh cuộn ngang. */
+  .thsx-drawer-tab { padding-inline: 4px; }
+  .thsx-drawer-tab > svg { display: none; }
 }
 
 /* Thẻ Cards siêu gọn gàng (Option A) */
@@ -2951,6 +2962,13 @@
   font-weight: 700;
   box-shadow: 0 1px 3px rgba(2, 132, 199, 0.2);
   flex: none;
+  overflow: hidden;
+}
+.thsx-roster-avatar-glow img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 /* Pinned Glassmorphic Footer Bar */

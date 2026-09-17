@@ -13,9 +13,11 @@ from datetime import timedelta
 
 from app.models.attendance import WorkShift
 from app.models.may_thiet_bi import MayThietBi
+from app.models.san_xuat import CV_TAM_DUNG
 from app.models.san_xuat_thuc_thi import SanXuatPhienChay
-from app.services.gio_xuong import ve_gio_xuong
+from app.services.gio_xuong import thuc_te_hien_thi, ve_gio_xuong
 from app.services.san_xuat import board
+from app.services.san_xuat.thuc_thi import _aware
 
 # Fixtures + helper luồng thật.
 from tests.test_san_xuat_phan_bo import (  # noqa: F401
@@ -104,6 +106,48 @@ def test_me_mang_theo_ca_va_su_co_dung_may(db, orders, lsx_svc, admin, customer)
     assert [s["ly_do"] for s in me["su_co"]] == ["kẹt giấy"]
 
 
+def test_dung_may_tinh_tu_luc_tam_dung_toi_luc_chay_lai(db, orders, lsx_svc, admin, customer):
+    """Khoảng [bat_dau, ket_thuc] của phiên đóng bằng Tạm dừng là lúc máy CHẠY. Máy DỪNG từ
+    `ket_thuc` của phiên đó tới lúc phiên kế mở. Lấy nhầm khoảng chạy thì mẻ 09:09–09:11 hiện
+    "Dừng máy 09:09–00:21" cho lần hết giấy lúc nửa đêm (DB dev 17/09/2026)."""
+    _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-DUNG")
+    bd = _aware(batch.bat_dau)
+    dung_tu, chay_lai = bd + timedelta(minutes=20), bd + timedelta(minutes=35)
+    _phien(db, cv, bat_dau=bd, ket_thuc=dung_tu, loai_dong="tam_dung", ly_do="kẹt giấy", stt=1)
+    _phien(db, cv, bat_dau=chay_lai, ket_thuc=None, loai_dong=None, stt=2)
+    db.commit()
+
+    su_co = _mes(db, admin, cv)[0]["su_co"]
+    assert [(s["bat_dau"], s["ket_thuc"]) for s in su_co] == [
+        (thuc_te_hien_thi(dung_tu), thuc_te_hien_thi(chay_lai))]
+
+
+def test_dung_may_ngoai_cua_so_me_khong_gan_vao_me(db, orders, lsx_svc, admin, customer):
+    """Phiên chạy phủ qua mẻ nhưng lúc DỪNG rơi sau mẻ ⇒ mẻ không có lần dừng nào."""
+    _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-DUNG-SAU")
+    bd = _aware(batch.bat_dau)
+    dung_tu = _aware(batch.ket_thuc) + timedelta(hours=10)
+    _phien(db, cv, bat_dau=bd, ket_thuc=dung_tu, loai_dong="tam_dung", ly_do="hết giấy", stt=1)
+    _phien(db, cv, bat_dau=dung_tu + timedelta(minutes=1), ket_thuc=dung_tu + timedelta(minutes=3),
+           stt=2)
+    db.commit()
+
+    assert _mes(db, admin, cv)[0]["su_co"] == []
+
+
+def test_dung_may_chua_chay_lai_de_trong_gio_het(db, orders, lsx_svc, admin, customer):
+    """Việc còn đang tạm dừng, chưa có phiên kế ⇒ lần dừng chưa hết: `ket_thuc` trống."""
+    _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-DUNG-MO")
+    bd = _aware(batch.bat_dau)
+    _phien(db, cv, bat_dau=bd, ket_thuc=bd + timedelta(minutes=20), loai_dong="tam_dung",
+           ly_do="mất điện", stt=1)
+    cv.trang_thai = CV_TAM_DUNG
+    db.commit()
+
+    su_co = _mes(db, admin, cv)[0]["su_co"]
+    assert [(s["ly_do"], s["ket_thuc"]) for s in su_co] == [("mất điện", None)]
+
+
 def test_me_mang_ten_dau_viec_ke_hoach_da_chon_nhung_khong_mang_gia(
     db, orders, lsx_svc, admin, customer,
 ):
@@ -111,7 +155,7 @@ def test_me_mang_ten_dau_viec_ke_hoach_da_chon_nhung_khong_mang_gia(
     cv.khoan_json = {"ten": "Bế hộp bánh · 1050"}
     e = _emp(db, cv_to(db, cv), "NV-ME-1", ten="Thợ Mẻ")
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     me = _mes(db, admin, cv)[0]

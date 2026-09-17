@@ -43,6 +43,8 @@ from ..schemas.stock import (
     DieuChinhXuatIn,
     DieuChuyenIn,
     DieuChuyenOut,
+    GiaGocIn,
+    GiaGocOut,
     MaterialHistoryOut,
     MaterialXuatRow,
     StockLotOut,
@@ -58,6 +60,7 @@ from ..schemas.stock import (
     StockVoucherOut,
     StockVoucherPage,
 )
+from ..services import kho_gia_goc_service
 from ..services.qr_token import sign_scan
 from ..services.vat_lieu_kho_service import HANG_NHAN, VatLieuKhoService
 from ..services.rbac_service import AuthorizationService
@@ -66,6 +69,7 @@ from ..services.stock_request_service import StockRequestService
 from ..services.stock_voucher_service import StockVoucherError, StockVoucherService
 
 from ..services.delivery_notify import bao_tai_xe_kho_lap_phieu
+from ..services.san_xuat.kho import phat_su_kien_kho
 
 router = APIRouter(prefix="/api/kho/phieu", tags=["kho-phieu"])
 # Ngưỡng tồn để PREFIX RIÊNG, không nhét dưới /phieu: `/phieu/nguong` là path 1 đoạn nên sẽ
@@ -337,6 +341,13 @@ def create_voucher(
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
 
 
+def _bao_san_xuat(db: Session, v) -> None:
+    """Phiếu thuộc yêu cầu nhập thành phẩm từ KCS ⇒ báo người KCS + refresh màn sản xuất NGAY (sau commit)."""
+    req = StockRequestRepository(db).get(v.request_id) if getattr(v, "request_id", None) else None
+    if req is not None:
+        phat_su_kien_kho(req, bao_nguoi_tao=True)
+
+
 @router.post("/{voucher_id}/ghi-so", response_model=StockVoucherOut)
 def post_voucher(
     voucher_id: int, svc: Service, db: Db, authz: Authz,
@@ -349,6 +360,7 @@ def post_voucher(
         v = svc.post(voucher_id, user)
     except StockVoucherError as e:
         raise _err(e) from None
+    _bao_san_xuat(db, v)
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
 
 
@@ -363,6 +375,7 @@ def cancel_voucher(
         v = svc.cancel(voucher_id, ly_do=payload.ly_do)
     except StockVoucherError as e:
         raise _err(e) from None
+    _bao_san_xuat(db, v)
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
 
 
@@ -434,6 +447,23 @@ def update_lot_vi_tri(
     return {"id": lot.id, "vi_tri": lot.vi_tri}
 
 
+@router.patch("/lo/{lot_id}/gia-goc", response_model=GiaGocOut)
+def sua_gia_goc(
+    lot_id: int, payload: GiaGocIn, db: Annotated[Session, Depends(get_db)],
+    # Người không thấy giá thì cũng không sửa giá — tái dùng ô "xem giá vốn" (Kế toán kho).
+    user: Annotated[User, Depends(require_permission(MODULE, "view_cost"))],
+) -> GiaGocOut:
+    """Kế toán kho gõ giá gốc cho lô thành phẩm nhập từ KCS — ghi lô gốc + mọi lô sinh ra từ nó qua
+    điều chuyển, một giao dịch (design nhập kho thành phẩm §5)."""
+    try:
+        return GiaGocOut(**kho_gia_goc_service.sua_gia_goc(
+            db, user=user, lot_id=lot_id, don_gia=payload.don_gia))
+    except kho_gia_goc_service.GiaGocKhongThay as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    except kho_gia_goc_service.GiaGocError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+
+
 @router.patch("/{voucher_id}/vi-tri")
 def set_voucher_vi_tri(
     voucher_id: int, payload: StockVoucherViTriIn, svc: Service,
@@ -459,9 +489,10 @@ def suggest_allocation(
     hang_id: int = Query(..., gt=0),
     kho_id: int = Query(...),
     so_luong: float = Query(..., gt=0, description="Số theo ĐƠN VỊ GỐC của mặt hàng"),
+    request_id: int | None = Query(default=None, gt=0, description="Yêu cầu xuất — xuất cho Giao hàng thì ưu tiên lô của đúng đơn"),
 ) -> AllocationOut:
     """Gợi ý lấy hàng từ lô nào (FEFO → FIFO). Thủ kho sửa được — giá xuất là ĐÍCH DANH."""
-    rows, thieu = svc.suggest_allocation((hang_loai, hang_id), kho_id, so_luong)
+    rows, thieu = svc.suggest_allocation((hang_loai, hang_id), kho_id, so_luong, request_id=request_id)
     can_view_cost = authz.can(user, MODULE, "view_cost")
     return AllocationOut(
         lines=[
@@ -469,6 +500,7 @@ def suggest_allocation(
                 lot_id=r["lot_id"], ma_lo=r["ma_lo"], ngay_nhap=r["ngay_nhap"],
                 hsd=r["hsd"], sl_con_lai=r["sl_con_lai"], so_luong=r["so_luong"],
                 don_gia_nhap=r["don_gia_nhap"] if can_view_cost else None,
+                order_ma=r["order_ma"], khach_hang=r["khach_hang"], canh_bao=r["canh_bao"],
             )
             for r in rows
         ],
@@ -691,6 +723,17 @@ def export_stock_xlsx(
     return _xlsx_response(_build_stock_xlsx(rows), filename)
 
 
+def _chan_neu_khong_xem_ton(authz, user: User) -> None:
+    """Chặn ở MÁY CHỦ người không được đọc SỐ tồn/lô. Được: người xem tồn (`view_stock`), người lập
+    phiếu (`create` — lập phiếu xuất phải thấy lô, `/lo/goi-y` vốn đã trả lô) và kế toán chốt sổ
+    (`close_book` — popup lịch sử mặt hàng ở Báo cáo kho). Vai chỉ `kho:read` để tạo đề nghị thì
+    KHÔNG: trước đây chỉ FE ẩn màn Tồn kho, gọi thẳng API vẫn ra đủ lô + số lượng — lệch với
+    danh sách đề nghị, nơi `ton_kha_dung` đã cắt ở máy chủ."""
+    if not any(authz.can(user, MODULE, a) for a in ("view_stock", "create", "close_book")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Cần quyền Xem tồn kho.")
+
+
 @router.get("/lo/danh-sach", response_model=list[StockLotOut])
 def list_lots(
     svc: Service, db: Db, authz: Authz,
@@ -700,6 +743,7 @@ def list_lots(
     kho_id: int | None = Query(default=None),
     con_hang: bool = Query(default=True),
 ) -> list[StockLotOut]:
+    _chan_neu_khong_xem_ton(authz, user)
     can_view_cost = authz.can(user, MODULE, "view_cost")
     hang = (hang_loai, hang_id) if (hang_loai and hang_id) else None
     lots = svc.lots.list_lots(hang=hang, kho_id=kho_id, con_hang=con_hang)
@@ -712,6 +756,7 @@ def list_lots(
     )
     # Mã đơn vị (to/cai/kem…) → TÊN có dấu (tờ/cái/bản kẽm) cho HIỂN THỊ — 1 truy vấn cho cả trang.
     dv_ten = {d.ma: d.ten for d in svc.hang.don_vi.all_active()}
+    nguon = svc.lots.nguon_lo([lot.id for lot in lots])  # đơn / khách / giá bán đọc ở lô gốc — 2 câu
     out = []
     for lot in lots:
         row = StockLotOut.model_validate(lot)
@@ -724,8 +769,18 @@ def list_lots(
         row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         # Thủ kho chọn lô nhưng KHÔNG thấy giá (spec §6).
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
+        _gan_nguon_lo(row, nguon.get(lot.id), can_view_cost)
         out.append(row)
     return out
+
+
+def _gan_nguon_lo(row: StockLotOut, n: dict | None, can_view_cost: bool) -> None:
+    """Nguồn lô (lệnh / đơn / khách, đọc ở lô gốc). Giá bán là tiền ⇒ chỉ khi có `view_cost`."""
+    n = n or {}
+    row.lo_goc_id = n.get("lo_goc_id")
+    row.lsx_ma, row.order_ma, row.khach_hang = n.get("lsx_ma"), n.get("order_ma"), n.get("khach_hang")
+    row.tu_kcs = bool(n.get("tu_kcs"))
+    row.don_gia_ban = n.get("don_gia_ban") if can_view_cost else None
 
 
 @router.get("/mat-hang/{hang_loai}/{hang_id}/lich-su", response_model=MaterialHistoryOut)
@@ -737,6 +792,7 @@ def material_history(
     """Lịch sử NHẬP (mọi lô, kể cả đã hết) + XUẤT (dòng phiếu xuất đã ghi sổ) của 1 mặt hàng
     tại 1 kho — cho popup màn Tồn kho, tách theo dõi nhập/xuất riêng. Giá vốn ẩn nếu thiếu
     `can_view_cost` (đường path nhiều đoạn nên không đụng route `/{voucher_id}`)."""
+    _chan_neu_khong_xem_ton(authz, user)
     can_view_cost = authz.can(user, MODULE, "view_cost")
     hang = (hang_loai, hang_id)
     m = svc.hang.map_theo_cap([hang]).get(hang)
@@ -751,6 +807,7 @@ def material_history(
     dc_voucher_ids = svc.vouchers.dieu_chuyen_by_ids(voucher_ids)
     # SL yêu cầu của từng lô NHẬP (nối lô → dòng phiếu NHẬP → dòng yêu cầu) — nạp 1 lượt, tránh N+1.
     sl_de_nghi_map = svc.vouchers.sl_de_nghi_by_lot(lots)
+    nguon = svc.lots.nguon_lo([lot.id for lot in lots])
     nhap: list[StockLotOut] = []
     for lot in lots:
         row = StockLotOut.model_validate(lot)
@@ -765,6 +822,7 @@ def material_history(
         row.sl_de_nghi = sl_dvt[0] if sl_dvt else None
         row.dvt_yeu_cau = sl_dvt[1] if sl_dvt else None
         row.dieu_chuyen = lot.voucher_id in dc_voucher_ids if lot.voucher_id else False
+        _gan_nguon_lo(row, nguon.get(lot.id), can_view_cost)
         nhap.append(row)
 
     # XUẤT = dòng phiếu xuất đã ghi sổ (đích danh lô); giá vốn = giá lô, ẩn nếu thiếu quyền.

@@ -14,9 +14,6 @@ import { CommissionCard } from "../components/badges";
 import { InfoCard, InfoField } from "../components/info-display";
 
 // Tab Lương & BHXH — dữ liệu nhạy cảm (chỉ hiện với quyền `nhan_su:view_salary`).
-// "Nhóm lương / Bậc lương" (`payroll_group` / `pay_grade_key`) VẪN ĐỂ NGOÀI MÀN: PRD v2 bỏ hẳn
-// "mức mặc định theo nhóm" nên nhóm lương không còn trục dùng nào, engine cũng không đọc — để
-// lại chỉ khiến người dùng tưởng chọn nhóm là đã gán lương (PRD Cấu hình lương §8, bệnh B3).
 // Khoản thu nhập gán theo TỪNG NGƯỜI: Lương → Lương nhân viên → Sửa lương → "+ Thêm khoản thu
 // nhập" (CHỌN từ danh mục — màn nhân sự không có đường tạo khoản mới).
 // Cách tính thuế TNCN (`pit_mode`) chỉ HIỆN ở đây, sửa ở Lương → Lương nhân viên → Sửa lương
@@ -60,9 +57,6 @@ export function SalaryTab({
     return (
       <div>
         {error && <div className="banner banner--error">{error}</div>}
-        {/* Không còn ô "Bậc thợ" ở đây: `PUT /api/employees/{id}` CỐ TÌNH bỏ qua bậc (đổi bậc
-            phải sinh mốc quá trình công tác) ⇒ ô sửa ở đây là đường ghi CHẾT, gõ xong bấm Lưu
-            vẫn không đổi gì. Bậc xem ở tab Thông tin, đổi ở Thao tác hồ sơ → Nâng bậc. */}
         <div className="ns-grid">
           <Field label="Số sổ BHXH">
             <input

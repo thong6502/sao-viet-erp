@@ -1,5 +1,10 @@
 # Spec — Module Lương (Phase 1: lương thời gian)
 
+> 🔴 **Đã lỗi thời một phần (17/09/2026):** cơ chế lương cũ đã gỡ hẳn — bảng `salary_rate_rules`,
+> `employees.payroll_group`/`pay_grade_key`, `employee_salaries.amount_mode`, cơ chế lương/% thử việc
+> theo phòng (mg `0305`, `0307`). Mức lương nay chỉ là số khai riêng của từng người. Phần "Quy tắc
+> lương", "nhóm/bậc" và nhánh `rule` của engine bên dưới là thiết kế gốc, không còn đúng.
+
 Module `luong`. Mục tiêu: bảng lương **thời gian** hàng tháng cho toàn công ty — tự kéo
 công từ Chấm công, áp mức lương theo quy tắc/khai báo, trừ tạm ứng + BHXH → thực lĩnh,
 chốt kỳ, xuất Excel + file chuyển khoản. Gated cho HCNS/kế toán (module quyền riêng vì nhạy cảm).

@@ -544,7 +544,7 @@ def _chay_that(sess, admin, cv, *, ma: str, ten: str) -> None:
 
     Hai cửa của `thuc_thi.bat_dau` phải mở đúng thứ tự, không cửa nào đi vòng được:
       · `has_piece_work` của TỔ — `_la_luong_khoan` soi cờ này lúc `phan_cong` chụp roster, không
-        bật thì `bat_dau` chặn “phải có ít nhất một thợ lương khoán”. Bật TRƯỚC khi giao người,
+        bật thì `bat_dau` chặn “Người đang giao đều là công nhật…”. Bật TRƯỚC khi giao người,
         vì cờ được CHỤP vào dòng phân công chứ không tra lại lúc bắt đầu.
       · `ly_do_so_nguoi` — roster một người thường lệch `so_nhan_cong_tieu_chuan` của snapshot.
     Truyền lý do vô điều kiện là an toàn: không lệch thì service tự bỏ qua.

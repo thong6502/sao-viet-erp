@@ -9,9 +9,12 @@ import { errMsg } from "../shared/helpers";
 export function ActivityTab({
   token,
   employeeId,
+  lanNap,
 }: {
   token: string;
   employeeId: number;
+  /** Đổi mỗi lần khay hồ sơ nạp lại sau thao tác — tải lại nhật ký để dòng mới hiện ngay. */
+  lanNap: number;
 }) {
   const [items, setItems] = useState<
     | {
@@ -35,7 +38,7 @@ export function ActivityTab({
   }, [token, employeeId]);
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, lanNap]);
   if (loi) return <EmptyState trangThai="loi" loi={loi} onThuLai={load} />;
   if (!items) return <EmptyState trangThai="dang-tai" />;
   const tl: TimelineEntry[] = items.map((a) => ({

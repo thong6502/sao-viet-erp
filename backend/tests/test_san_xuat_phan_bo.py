@@ -5,7 +5,7 @@ Soi thẳng tầng service (nơi chứa LUẬT), không qua HTTP:
     nhận sản lượng TRỌN tổ đó (dòng quyền theo tổ, mg 0302); một người giữ quyền trọn cả hai tổ thì
     đề xuất là đủ luôn; trần tổng ≤ 100% cùng công đoạn + ngày; huỷ giữ dòng đổi trạng thái.
   · Phân bổ: quy đổi bản địa↔trả lương ĐỒNG NHẤT; người hỗ trợ nhận đúng tỷ lệ (ghi cho tổ gốc); phần
-    còn lại chia theo phút × hệ số bậc ẢNH CHỤP; Σ khớp Q chính xác; thiếu hệ số/trọng số hoặc bàn
+    còn lại chia theo phút có mặt hợp lệ; Σ khớp Q chính xác; thiếu trọng số hoặc bàn
     giao không nhất quán ⇒ CHẶN chốt (không chặn ghi); chốt → feed lương; kỳ khoá → bù trừ.
   · Seam lương: `ProductionOutputRepository` chỉ đọc dòng ĐÃ CHỐT + bù trừ đúng kỳ (nháp ⇒ rỗng).
 
@@ -63,11 +63,11 @@ def _utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
-def _khoang(db, cv, emp, bat_dau, ket_thuc, heso) -> SanXuatKhoangThamGia:
-    """Khoảng tham gia dựng thẳng với hệ số bậc ẢNH CHỤP (engine đọc để chia trọng số §12.2)."""
+def _khoang(db, cv, emp, bat_dau, ket_thuc) -> SanXuatKhoangThamGia:
+    """Khoảng tham gia dựng thẳng (engine đọc phút có mặt để chia trọng số §12.2)."""
     k = SanXuatKhoangThamGia(
         cong_viec_id=cv.id, phien_chay_id=1, employee_id=emp.id,
-        bat_dau=bat_dau, ket_thuc=ket_thuc, output_coefficient=heso,
+        bat_dau=bat_dau, ket_thuc=ket_thuc,
     )
     db.add(k)
     db.flush()
@@ -158,6 +158,8 @@ def test_to_cho_muon_thay_loi_moi_tren_ban_cua_minh(db, orders, lsx_svc, admin, 
         (r["ho_tro_id"], True, False)
     ]
     assert hop["ho_tro"][0]["ten_cong_doan"] == cv.ten_cong_doan
+    # Công đoạn thuộc tổ kia, không có dòng nào trên bàn tổ gốc để gắn chấm đỏ ⇒ bàn liệt kê riêng.
+    assert hop["ho_tro"][0]["tren_ban"] is False
     assert hop["ho_tro"][0]["to_thuc_hien_ten"] == to_th.name
     assert {t["id"]: t["so_cho_xac_nhan"] for t in board.teams(db, u_goc, None)}[to_goc.id] == 1
     assert board.cho_xac_nhan(db, admin, team_id=to_th.id)["ho_tro"] == []
@@ -273,17 +275,17 @@ def test_huy_ho_tro_doi_trang_thai(db, orders, lsx_svc, admin, customer):
     assert r2["trang_thai"] == "cancelled"
 
 
-# --- Phân bổ: chia theo phút × hệ số (§12.2) ------------------------------------------------
-def test_tinh_chia_theo_phut_va_he_so(db, orders, lsx_svc, admin, customer):
+# --- Phân bổ: chia theo phút có mặt hợp lệ (§12.2) -------------------------------------------
+def test_tinh_chia_theo_phut(db, orders, lsx_svc, admin, customer):
     to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer)
     e1 = _emp(db, to, "NV-PB-1")
     e2 = _emp(db, to, "NV-PB-2")
     _cham_cong(db, e1)
     _cham_cong(db, e2)
     db.commit()
-    # Cùng 60 phút trong cửa sổ batch; e2 hệ số gấp đôi ⇒ nhận nhiều hơn.
-    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc, heso=1.0)
-    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc, heso=2.0)
+    # e1 chỉ đứng nửa đầu mẻ, e2 đứng trọn mẻ ⇒ e2 nhận gấp đôi (không còn nhân hệ số bậc).
+    _khoang(db, cv, e1, batch.bat_dau, batch.bat_dau + (batch.ket_thuc - batch.bat_dau) / 2)
+    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
@@ -294,21 +296,7 @@ def test_tinh_chia_theo_phut_va_he_so(db, orders, lsx_svc, admin, customer):
     tong = sum(float(d.so_luong_tra_luong) for d in dong)
     assert abs(tong - 100.0) < 1e-6                                    # Σ khớp Q chính xác
     theo_nv = {d.employee_id: float(d.so_luong_tra_luong) for d in dong}
-    assert theo_nv[e2.id] > theo_nv[e1.id]                             # hệ số cao ⇒ phần lớn hơn
-
-
-def test_thieu_he_so_chan_chot(db, orders, lsx_svc, admin, customer):
-    to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-HS")
-    e = _emp(db, to, "NV-PB-NOHS")
-    _cham_cong(db, e)                                                  # có chấm công → cô lập đúng lỗi hệ số
-    db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=None)       # chưa gán hệ số bậc
-    db.commit()
-
-    kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
-    assert kq["can_chot"] is False and kq["canh_bao"]                  # nháp vẫn ra, nhưng chặn chốt
-    with pytest.raises(ValueError):
-        phan_bo.chot_phan_bo(db, user=admin, phan_bo_id=kq["phan_bo_id"])
+    assert abs(theo_nv[e2.id] - 2 * theo_nv[e1.id]) < 0.01             # phút gấp đôi ⇒ phần gấp đôi
 
 
 def test_khong_ai_tham_gia_chan_chot(db, orders, lsx_svc, admin, customer):
@@ -333,8 +321,8 @@ def test_ho_tro_nhan_dung_ty_le_phan_con_lai_chia_theo_phut(db, orders, lsx_svc,
     _cham_cong(db, e1)
     _cham_cong(db, e2)
     db.commit()
-    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc, heso=1.0)
-    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc)
+    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
@@ -355,7 +343,7 @@ def test_ban_giao_khong_nhat_quan_chan_chot(db, orders, lsx_svc, admin, customer
     e = _emp(db, to, "NV-PB-BG")
     _cham_cong(db, e)                                                  # cô lập gate bàn giao, không dính thiếu chấm công
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.add(SanXuatBanGiao(
         nguon_cong_viec_id=cv.id, so_luong=10, don_vi="tờ", khong_nhat_quan=True,
     ))
@@ -371,7 +359,7 @@ def test_nhap_chua_chot_khong_feed_luong(db, orders, lsx_svc, admin, customer):
     e = _emp(db, to, "NV-PB-F0")
     _cham_cong(db, e)
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.commit()
     phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)            # mới NHÁP
     assert ProductionOutputRepository(db).list_nguoi_by_period(2026, 8) == []
@@ -384,8 +372,8 @@ def test_chot_roi_feed_luong(db, orders, lsx_svc, admin, customer):
     _cham_cong(db, e1)
     _cham_cong(db, e2)
     db.commit()
-    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc, heso=1.0)
-    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc)
+    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
@@ -415,7 +403,7 @@ def test_engine_chia_khong_con_bat_ky_o_tien_nao(db, orders, lsx_svc, admin, cus
     e = _emp(db, to, "NV-PB-HD")
     _cham_cong(db, e)
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     kq_tinh = phan_bo._tinh_batch(db, cv, batch, SanXuatPhanBoRepository(db))
@@ -452,7 +440,7 @@ def test_don_vi_chia_la_don_vi_RA_cua_buoc(db, orders, lsx_svc, admin, customer)
     e = _emp(db, to, "NV-PB-DV")
     _cham_cong(db, e)
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
@@ -467,7 +455,7 @@ def test_thieu_cham_cong_chan_chot(db, orders, lsx_svc, admin, customer):
     to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-CC")
     e = _emp(db, to, "NV-PB-CC")                                       # tham gia nhưng KHÔNG chấm công
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
@@ -485,8 +473,8 @@ def test_loai_tru_khoi_luong_go_chan_va_chia_lai(db, orders, lsx_svc, admin, cus
     e2 = _emp(db, to, "NV-LT-2")                                       # thiếu chấm công
     _cham_cong(db, e1)
     db.commit()
-    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc, heso=1.0)
-    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc)
+    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
@@ -516,7 +504,7 @@ def test_go_loai_tru_khoi_phuc_chan(db, orders, lsx_svc, admin, customer):
     to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-GLT")
     e = _emp(db, to, "NV-GLT")                                         # thiếu chấm công
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
@@ -535,7 +523,7 @@ def _chot_mot_phan_bo(db, orders, lsx_svc, admin, customer, ma):
     e = _emp(db, to, f"NV-{ma}")
     _cham_cong(db, e)
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.commit()
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
     phan_bo.chot_phan_bo(db, user=admin, phan_bo_id=kq["phan_bo_id"])
@@ -623,7 +611,7 @@ def test_me_go_gio_tuong_van_giao_duoc_voi_cham_cong(db, orders, lsx_svc, admin,
     e = _emp(db, to, "NV-PB-TZ")
     _cham_cong(db, e)
     db.commit()
-    _khoang(db, cv, e, dau_utc, cuoi_utc, heso=1.0)
+    _khoang(db, cv, e, dau_utc, cuoi_utc)
     db.commit()
 
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
@@ -632,3 +620,102 @@ def test_me_go_gio_tuong_van_giao_duoc_voi_cham_cong(db, orders, lsx_svc, admin,
     assert [float(d.phut_thuc_te) for d in dong] == [60.0]
     header = db.get(SanXuatPhanBo, kq["phan_bo_id"])
     assert header.ngay == _NGAY                              # ngày theo giờ xưởng, không phải ngày UTC
+
+
+def test_nhieu_me_dung_chung_bo_nho_ra_dung_so_va_me_sau_khong_hoi_db(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Drawer tính N mẻ của một công việc bằng MỘT `BoNhoTinhMe` — đo 16/09/2026 mẻ 2 và 3 hỏi lại y
+    hệt mẻ 1 (33/70 truy vấn của drawer). Số của từng mẻ phải trùng khi tính riêng, và mẻ sau CÙNG
+    NGÀY không được chạm DB lần nào."""
+    from sqlalchemy import event
+
+    to, cv, b1 = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-BN")
+    cac_me = [b1]
+    # b2 16–17h VN còn trong ca HC-PB; b3 17–18h VN ngoài ca ⇒ 0 phút hợp lệ ⇒ nhánh thiếu chấm công.
+    for gio in (1, 2):
+        r = san_luong.tao_batch(
+            db, user=admin, cong_viec_id=cv.id, bat_dau=_T0 + timedelta(hours=gio),
+            ket_thuc=_T0 + timedelta(hours=gio + 1), tong=100.0, tot=100.0,
+        )
+        cac_me.append(db.get(SanXuatBatch, r["batch_id"]))
+    e1 = _emp(db, to, "NV-BN-1")
+    e2 = _emp(db, to, "NV-BN-2")
+    _cham_cong(db, e1)
+    _cham_cong(db, e2)
+    db.commit()
+    _khoang(db, cv, e1, _T0, _T0 + timedelta(hours=3))
+    _khoang(db, cv, e2, _T0, _T0 + timedelta(hours=3))
+    db.commit()
+    phan_bo.loai_tru_khoi_phan_bo(
+        db, user=admin, batch_id=cac_me[1].id, employee_id=e2.id, ly_do="Sang tổ khác",
+    )
+
+    def _so(kq):
+        return (kq.dong, kq.can_chot, kq.canh_bao, kq.thieu_cham_cong, kq.loai_tru, kq.p_percent)
+
+    pb = SanXuatPhanBoRepository(db)
+    rieng = [_so(phan_bo._tinh_batch(db, cv, b, pb)) for b in cac_me]
+    # Đủ các nhánh thì bài mới nói được gì: chia theo phút, có loại trừ, có thiếu chấm công.
+    assert rieng[0][0] and rieng[1][4] == [e2.id] and rieng[2][3] == sorted([e1.id, e2.id])
+
+    bn = phan_bo.BoNhoTinhMe(db, cv, pb, batch_ids=[b.id for b in cac_me])
+    chung = [_so(phan_bo._tinh_batch(db, cv, cac_me[0], pb, bn))]
+    so_sql: list[str] = []
+
+    def _dem(conn, cursor, statement, *_a):
+        so_sql.append(statement)
+
+    eng = db.get_bind()
+    event.listen(eng, "before_cursor_execute", _dem)
+    try:
+        chung += [_so(phan_bo._tinh_batch(db, cv, b, pb, bn)) for b in cac_me[1:]]
+    finally:
+        event.remove(eng, "before_cursor_execute", _dem)
+    assert chung == rieng
+    assert so_sql == []
+
+
+def test_bo_nho_tinh_me_khong_nhan_cong_viec_khac(db, orders, lsx_svc, admin, customer):
+    to, cv, b1 = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-BN2")
+    pb = SanXuatPhanBoRepository(db)
+    bn = phan_bo.BoNhoTinhMe(db, SimpleNamespace(id=cv.id + 999), pb)
+    with pytest.raises(ValueError):
+        phan_bo._tinh_batch(db, cv, b1, pb, bn)
+
+
+def test_khoang_co_mat_nap_ca_ca_dai_khop_tra_tung_ngay(db, orders, lsx_svc, admin, customer):
+    """`khoang_co_mat_hop_le` nạp ca của cả dải trong hai truy vấn thay vì tra từng ngày — đáp án
+    từng ngày phải y `shift_id_on`: trước mốc đầu tiên là chưa có ca (dù `default_shift_id` có),
+    ô lưới đè mốc, ô nghỉ trong suốt."""
+    from app.models.employee import EmployeeShiftAssignment, EmployeeShiftDay
+    from app.repositories.employee_repo import EmployeeRepository
+
+    to, _cv, _b = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-PB-CA")
+    e = _emp(db, to, "NV-PB-CA")
+    ca_a = WorkShift(name="CA-A-PB", start_minute=480, end_minute=1020, is_overnight=False)
+    ca_b = WorkShift(name="CA-B-PB", start_minute=1320, end_minute=360, is_overnight=True)
+    db.add_all([ca_a, ca_b])
+    db.flush()
+    e.default_shift_id = ca_b.id
+    db.add(EmployeeShiftAssignment(
+        employee_id=e.id, shift_id=ca_a.id, effective_from=_NGAY - timedelta(days=1)))
+    db.add(EmployeeShiftDay(employee_id=e.id, work_date=_NGAY, shift_id=ca_b.id, is_off=False))
+    db.add(EmployeeShiftDay(
+        employee_id=e.id, work_date=_NGAY + timedelta(days=1), shift_id=None, is_off=True))
+    db.commit()
+
+    att = phan_bo._attendance(db)
+
+    def _cam(*_a, **_k):
+        raise AssertionError("ca phải lấy từ bản nạp sẵn, không tra lẻ từng ngày")
+
+    att.employees.shift_id_on = _cam
+    att.khoang_co_mat_hop_le(e, _T0, _T0 + timedelta(hours=1))
+
+    repo = EmployeeRepository(db)
+    ngay = [_NGAY + timedelta(days=i) for i in range(-3, 3)]   # [đầu − 2, cuối + 1] quanh _NGAY ± 1
+    assert {d: att._shift_id_cache[(e.id, d)] for d in ngay} == {d: repo.shift_id_on(e, d) for d in ngay}
+    assert att._shift_id_cache[(e.id, _NGAY - timedelta(days=2))] is None      # trước mốc
+    assert att._shift_id_cache[(e.id, _NGAY)] == ca_b.id                        # ô lưới đè mốc
+    assert att._shift_id_cache[(e.id, _NGAY + timedelta(days=1))] == ca_a.id    # ô nghỉ trong suốt

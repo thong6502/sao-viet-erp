@@ -259,6 +259,38 @@ class BaoCaoNXTPage(BaseModel):
     ky_da_tinh_ten: str | None = None
 
 
+class ThanhPhamChuaGiaGocRow(BaseModel):
+    """Một lô GỐC thành phẩm nhập từ KCS (design nhập kho thành phẩm §5). `don_gia` theo đơn vị dòng
+    phiếu nhập (`dvt`); `sl_con_lai` là tổng cả họ lô (lô gốc + lô sinh ra qua điều chuyển), đơn vị gốc."""
+
+    lot_id: int
+    ma_lo: str
+    ngay_nhap: date | None = None
+    kho_id: int | None = None
+    kho_ten: str | None = None
+    hang_id: int
+    ma_hang: str | None = None
+    ten_hang: str | None = None
+    dvt: str | None = None
+    dvt_ten: str | None = None
+    so_luong_nhap: float
+    don_gia: int
+    don_gia_ban: int | None = None
+    lsx_ma: str | None = None
+    order_ma: str | None = None
+    khach_hang: str | None = None
+    sl_con_lai: float
+    don_vi_goc_ten: str | None = None
+    so_lo: int
+
+
+class ThanhPhamChuaGiaGocPage(BaseModel):
+    items: list[ThanhPhamChuaGiaGocRow]
+    total: int
+    page: int
+    size: int
+
+
 class TinhGiaKyIn(BaseModel):
     """Body 'Tính giá kỳ (bình quân)' — chốt tồn cuối kỳ vào snapshot. kho_id null = mọi kho."""
 
@@ -559,6 +591,21 @@ class StockLotViTriIn(BaseModel):
     vi_tri: str | None = Field(default=None, max_length=100)
 
 
+class GiaGocIn(BaseModel):
+    """Kế toán kho gõ giá gốc cho lô thành phẩm — đ theo đơn vị dòng phiếu nhập (đ/hộp)."""
+
+    don_gia: int = Field(ge=0)
+
+
+class GiaGocOut(BaseModel):
+    lot_id: int
+    ma_lo: str
+    don_gia_cu: int
+    don_gia: int
+    don_gia_nhap: int
+    so_lo: int
+
+
 class StockVoucherLineViTri(BaseModel):
     line_id: int
     vi_tri: str | None = Field(default=None, max_length=100)
@@ -608,6 +655,14 @@ class StockLotOut(BaseModel):
     # Lô này SINH RA từ phiếu ĐIỀU CHUYỂN (nhận về) → lịch sử mặt hàng xếp vào tab "Chuyển kho"
     # riêng, không lẫn tab Nhập thường. Không lưu cột — router suy từ voucher tạo lô.
     dieu_chuyen: bool = False
+    # NGUỒN LÔ (design nhập kho thành phẩm §5–§6) — đọc ở lô gốc, sống qua điều chuyển. `tu_kcs` = thành
+    # phẩm nhập từ KCS (lô này mới có "giá gốc" sửa sau). `don_gia_ban` chỉ có khi `can_view_cost`.
+    lo_goc_id: int | None = None
+    lsx_ma: str | None = None
+    order_ma: str | None = None
+    khach_hang: str | None = None
+    don_gia_ban: int | None = None
+    tu_kcs: bool = False
 
 
 class AllocationLineOut(BaseModel):
@@ -618,6 +673,11 @@ class AllocationLineOut(BaseModel):
     sl_con_lai: float
     so_luong: float
     don_gia_nhap: int | None = None
+    # Nguồn lô thành phẩm (đọc ở lô gốc) + cảnh báo "Lô này sản xuất cho đơn DH…" khi xuất cho Giao
+    # hàng mà lô thuộc đơn khác cùng khách.
+    order_ma: str | None = None
+    khach_hang: str | None = None
+    canh_bao: str | None = None
 
 
 class AllocationOut(BaseModel):

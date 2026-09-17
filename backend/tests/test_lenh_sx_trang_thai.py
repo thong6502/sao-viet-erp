@@ -28,19 +28,21 @@ from app.models.delivery import (
 )
 from app.models.department import Department
 from app.models.employee import Employee
-from app.models.kho_hang import KhoHang
 from app.models.ky_thuat_may import (
     TT_YC_CHO_TIEP_NHAN, TT_YC_DA_TAO_PHIEU, TT_YC_TU_CHOI, YeuCauSuaChua,
 )
-from app.models.lsx import Lsx, LsxCongDoan
+from app.models.lsx import Lsx, LsxCongDoan, LsxCongDoanPhuThuoc
 from app.models.order import Order, OrderLine
 from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG
 from app.models.san_xuat_kcs import (
     KCS_DAT, KCS_DAT_MOT_PHAN, KCS_KHONG_DAT, SanXuatKcsBatch,
 )
-from app.models.san_xuat_kho import (
-    YC_CHO_KHO, YC_DA_NHAP, YC_HUY, SanXuatKhoHang, SanXuatNhapKhoYc,
+from app.models.san_xuat_san_luong import SanXuatBatch
+from app.models.stock_request import (
+    REQ_APPROVED, REQ_CANCELLED, REQ_DONE, REQ_NHAP, StockRequest, StockRequestLine,
 )
+from app.models.user import User
+from app.models.vat_lieu_kho import VatTuInAn
 from app.models.san_xuat_thuc_thi import PHIEN_KET_THUC, SanXuatPhienChay
 from app.services.lenh_sx import boi_canh, trang_thai
 from app.services.san_xuat import kcs, kho, release
@@ -53,8 +55,10 @@ from tests.test_san_xuat_board import (  # noqa: F401
 from tests.test_lenh_sx_tien_do import (
     BAY_GIO as _BAY_GIO_TIEN_DO, _cong_viec, _cv_ghep, _dung_lenh,
 )
-# Dàn cảnh KCS THẬT (đơn → SX → phát hành vào tổ khoán → batch KCS qua service).
-from tests.test_san_xuat_kcs import _batch
+# Dàn cảnh KCS THẬT (đơn → SX → phát hành vào tổ khoán → lần kiểm KCS qua service).
+from tests.test_san_xuat_kcs import _batch, _to_kiem
+# Thủ kho lập phiếu nhập + ghi sổ bằng đúng service kho.
+from tests.test_san_xuat_nhap_kho_tp import _nhan as _kho_nhan
 
 BAY_GIO = datetime(2026, 8, 31, 10, 0, tzinfo=timezone.utc)
 
@@ -154,8 +158,8 @@ def _dang_chay(db, cv, bat_dau=None) -> None:
 
 
 def _kcs_batch(db, cv_id, *, nhan, dat, khong_dat, ket_luan) -> SanXuatKcsBatch:
-    """Một batch KCS đúng khuôn `kcs.tao_batch_kcs` ghi ra (§13.1): số nhận = đạt + không đạt,
-    kết luận suy từ số, neo `cong_viec_id` của công việc KCS."""
+    """Một lần kiểm KCS đúng khuôn `kcs.kiem_cong_doan` ghi ra: số nhận = đạt + lỗi, kết luận suy
+    từ số, neo `cong_viec_id` của công đoạn được kiểm (KCS kiểm được mọi công đoạn — mg 0306)."""
     kb = SanXuatKcsBatch(
         cong_viec_id=cv_id, bat_dau=_T0, ket_thuc=_T1,
         so_luong_nhan=nhan, so_luong_dat=dat, so_luong_khong_dat=khong_dat,
@@ -166,26 +170,34 @@ def _kcs_batch(db, cv_id, *, nhan, dat, khong_dat, ket_luan) -> SanXuatKcsBatch:
     return kb
 
 
-def _nhap_kho_yc(db, lsx_id, kb, *, yeu_cau, xac_nhan, trang_thai_yc) -> SanXuatNhapKhoYc:
-    """Một yêu cầu nhập kho thành phẩm đúng khuôn `kho.tao_yeu_cau_nhap_thanh_pham` ghi ra.
+def _ghi_tot(db, cv, tot) -> SanXuatBatch:
+    """Một mẻ tổ đã ghi số tốt — thước đo "KCS đã kiểm hết công đoạn cuối chưa" của `_dang_o_kcs`."""
+    b = SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1, tong=tot, tot=tot, hong=0,
+                     don_vi="cái")
+    db.add(b)
+    db.commit()
+    return b
 
-    `hang.lsx_id = None` là CỐ Ý và đúng production: registry THÀNH PHẨM neo theo (đơn, nhóm), và
-    `kho._get_or_create_hang` được gọi với `lsx_id=None` cứng (`services/san_xuat/kho.py:132`).
-    Đặt `lsx_id=lsx_id` ở đây cho "dễ xanh" là dựng một fixture nói dối — cầu thật đi qua
-    `kcs_batch → cong_viec → lsx`, và đó là cầu bài test này phải soi.
+
+def _nhap_kho_yc(db, lsx_id, kb, *, yeu_cau, xac_nhan, trang_thai_yc) -> StockRequest:
+    """Một yêu cầu NHẬP thành phẩm đúng khuôn `kho.tao_yeu_cau_nhap_kho_cong_doan` ghi ra (kho đã
+    nhận `xac_nhan` qua phiếu ghi sổ ⇒ `sl_da_ung`).
+
+    Yêu cầu neo CÔNG ĐOẠN (`san_xuat_cong_viec_id`), không neo lần kiểm; cầu về lệnh đi qua
+    `cong_viec → nhóm / lsx` — đó là cầu bài test này phải soi.
     """
-    lsx = db.get(Lsx, lsx_id)
-    hang = SanXuatKhoHang(
-        ma=f"HSX-T8-{kb.id}", loai_hang="thanh_pham", order_id=lsx.order_id,
-        lsx_id=None, cong_doan_ref_id=None, ten="Thành phẩm", don_vi="cái",
-    )
-    db.add(hang)
+    admin = db.query(User).filter_by(username="admin").one()
+    tp = VatTuInAn(ma=f"TP-T8-{kb.id}", ten="Thành phẩm", don_vi_gia="cai", la_thanh_pham=True)
+    db.add(tp)
     db.flush()
-    yc = SanXuatNhapKhoYc(
-        kcs_batch_id=kb.id, hang_id=hang.id, order_id=lsx.order_id,
-        so_luong_yeu_cau=yeu_cau, so_luong_xac_nhan=xac_nhan, don_vi="cái",
-        trang_thai=trang_thai_yc,
+    yc = StockRequest(
+        ma=f"DNN-T8-{kb.id}", loai=REQ_NHAP, nguoi_tao_id=admin.id, trang_thai=trang_thai_yc,
+        san_xuat_cong_viec_id=kb.cong_viec_id,
     )
+    yc.lines.append(StockRequestLine(
+        hang_loai="vat_tu", hang_id=tp.id, lsx_id=lsx_id, dvt="cai",
+        sl_de_nghi=yeu_cau, sl_duyet=yeu_cau, sl_da_ung=xac_nhan, don_gia=0,
+    ))
     db.add(yc)
     db.commit()
     return yc
@@ -261,8 +273,9 @@ def _su_co(db, lsx_id, cv_id, *, tt=TT_YC_CHO_TIEP_NHAN, ma="YC-T8-1") -> YeuCau
     return yc
 
 
-def _ba_buoc_xong_tru_kcs(db, orders, lsx_svc, admin, customer) -> tuple[int, list]:
-    """Lệnh 3 bước: CTP · In (cả hai ĐÃ XONG) · KCS cuối (chưa xong). Trả `(lsx_id, cvs)`.
+def _ba_buoc_cho_kcs(db, orders, lsx_svc, admin, customer) -> tuple[int, list]:
+    """Lệnh 3 bước: CTP · In · Cắt thành phẩm — cả ba ĐÃ XONG, công đoạn cuối (Cắt) tổ đã ghi 5.000
+    tốt, KCS chưa kiểm gì. Trả `(lsx_id, cvs)`.
 
     Lịch đẩy về QUÁ KHỨ để `du_kien_bat_dau` không trùng `BAY_GIO` — đúng cặp giá trị từng che
     lỗi ở Task 7.
@@ -270,24 +283,22 @@ def _ba_buoc_xong_tru_kcs(db, orders, lsx_svc, admin, customer) -> tuple[int, li
     _don_nen(db)
     lsx_id = _dung_lenh(
         db, orders, lsx_svc, admin, customer,
-        buoc=[("CTP", 60, 5_000), ("In offset", 360, 5_000), ("KCS cuối", 30, 5_000)],
+        buoc=[("CTP", 60, 5_000), ("In offset", 360, 5_000), ("Cắt thành phẩm", 30, 5_000)],
         bat_dau_lech=timedelta(days=-1),
     )
     cvs = _cong_viec(db, lsx_id)
-    _xong(db, cvs[0])
-    _xong(db, cvs[1])
-    cvs[2].la_kcs = True
+    for cv in cvs:
+        _xong(db, cv)
     cvs[2].la_kcs_cuoi = True
     db.commit()
+    _ghi_tot(db, cvs[2], 5_000)
     _dat_han(db, lsx_id)
     return lsx_id, cvs
 
 
 def _da_qua_kcs(db, orders, lsx_svc, admin, customer, *, dat, khong_dat, ket_luan):
-    """Như trên nhưng bước KCS ĐÃ ĐÓNG và đã có một batch kết luận. Trả `(lsx_id, cvs, batch)`."""
-    lsx_id, cvs = _ba_buoc_xong_tru_kcs(db, orders, lsx_svc, admin, customer)
-    _xong(db, cvs[2])
-    db.commit()
+    """Như trên nhưng KCS ĐÃ KIỂM công đoạn cuối một lần. Trả `(lsx_id, cvs, batch)`."""
+    lsx_id, cvs = _ba_buoc_cho_kcs(db, orders, lsx_svc, admin, customer)
     kb = _kcs_batch(db, cvs[2].id, nhan=dat + khong_dat, dat=dat, khong_dat=khong_dat,
                     ket_luan=ket_luan)
     return lsx_id, cvs, kb
@@ -351,14 +362,14 @@ def lenh_tam_dung(db, orders, lsx_svc, admin, customer) -> int:
 
 @pytest.fixture
 def lenh_dang_kcs(db, orders, lsx_svc, admin, customer) -> int:
-    """Mọi bước SX đã xong, còn bước KCS cuối chưa đóng và chưa có batch nào."""
-    lsx_id, _cvs = _ba_buoc_xong_tru_kcs(db, orders, lsx_svc, admin, customer)
+    """Mọi bước SX đã xong, công đoạn cuối có số tốt nhưng KCS chưa kiểm lần nào."""
+    lsx_id, _cvs = _ba_buoc_cho_kcs(db, orders, lsx_svc, admin, customer)
     return lsx_id
 
 
 @pytest.fixture
 def lenh_kcs_dat_chua_nhap(db, orders, lsx_svc, admin, customer) -> int:
-    """KCS đóng, batch kết luận ĐẠT 5.000 — nhưng chưa có yêu cầu nhập kho nào."""
+    """KCS kiểm công đoạn cuối ĐẠT 5.000 — nhưng chưa có yêu cầu nhập kho nào."""
     lsx_id, _cvs, _kb = _da_qua_kcs(db, orders, lsx_svc, admin, customer,
                                     dat=5_000, khong_dat=0, ket_luan=KCS_DAT)
     return lsx_id
@@ -369,7 +380,7 @@ def lenh_da_nhap_kho(db, orders, lsx_svc, admin, customer) -> int:
     """KCS đạt + kho ĐÃ XÁC NHẬN NHẬN đủ 5.000, chưa có dòng giao nào."""
     lsx_id, _cvs, kb = _da_qua_kcs(db, orders, lsx_svc, admin, customer,
                                    dat=5_000, khong_dat=0, ket_luan=KCS_DAT)
-    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=5_000, xac_nhan=5_000, trang_thai_yc=YC_DA_NHAP)
+    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=5_000, xac_nhan=5_000, trang_thai_yc=REQ_DONE)
     return lsx_id
 
 
@@ -378,14 +389,14 @@ def lenh_giao_het(db, orders, lsx_svc, admin, customer) -> int:
     """Như trên + chuyến giao THÀNH CÔNG phủ ĐỦ `so_luong_dat` của lệnh."""
     lsx_id, _cvs, kb = _da_qua_kcs(db, orders, lsx_svc, admin, customer,
                                    dat=5_000, khong_dat=0, ket_luan=KCS_DAT)
-    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=5_000, xac_nhan=5_000, trang_thai_yc=YC_DA_NHAP)
+    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=5_000, xac_nhan=5_000, trang_thai_yc=REQ_DONE)
     _giao_xong(db, lsx_id, db.get(Lsx, lsx_id).so_luong_dat)
     return lsx_id
 
 
 @pytest.fixture
 def lenh_kcs_khong_dat(db, orders, lsx_svc, admin, customer) -> int:
-    """Batch KCS kết luận KHÔNG ĐẠT toàn bộ ⇒ không có số đạt nào để đẻ tồn giao được."""
+    """Lần kiểm KCS kết luận KHÔNG ĐẠT toàn bộ ⇒ không có số đạt nào để đẻ tồn giao được."""
     lsx_id, _cvs, _kb = _da_qua_kcs(db, orders, lsx_svc, admin, customer,
                                     dat=0, khong_dat=5_000, ket_luan=KCS_KHONG_DAT)
     return lsx_id
@@ -488,13 +499,12 @@ def test_nam_co_cung_bat_giu_dung_thu_tu_co_canh_bao(db, orders, lsx_svc, admin,
     _don_nen(db)
     lsx_id = _dung_lenh(
         db, orders, lsx_svc, admin, customer,
-        buoc=[("CTP", 60, 5_000), ("In offset", 360, 5_000), ("KCS giữa chừng", 30, 5_000)],
+        buoc=[("CTP", 60, 5_000), ("In offset", 360, 5_000), ("Cắt thành phẩm", 30, 5_000)],
         bat_dau_lech=timedelta(hours=-2),
     )
     cvs = _cong_viec(db, lsx_id)
     _xong(db, cvs[0])
     cvs[1].trang_thai = CV_TAM_DUNG          # cờ 2
-    cvs[2].la_kcs = True                     # `tao_batch_kcs:110` chỉ ghi được lên bước `la_kcs`
     db.commit()
     _su_co(db, lsx_id, cvs[1].id, ma="YC-T8-NAM")                                       # cờ 1
     _dat_han(db, lsx_id, date(2026, 8, 1))                                              # cờ 3
@@ -564,7 +574,7 @@ def test_dat_mot_phan_khong_phai_canh_bao(db, orders, lsx_svc, admin, customer):
     lệnh đều đeo cờ và tab Cảnh báo hết tác dụng lọc."""
     lsx_id, _cvs, kb = _da_qua_kcs(db, orders, lsx_svc, admin, customer,
                                    dat=4_800, khong_dat=200, ket_luan=KCS_DAT_MOT_PHAN)
-    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=4_800, xac_nhan=4_800, trang_thai_yc=YC_DA_NHAP)
+    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=4_800, xac_nhan=4_800, trang_thai_yc=REQ_DONE)
     assert _co(db, lsx_id) == []
     assert _tt(db, lsx_id) == trang_thai.TAB_SAN_SANG_GIAO
 
@@ -575,36 +585,37 @@ def test_yeu_cau_chua_duoc_kho_nhan_van_la_cho_nhap_kho(db, orders, lsx_svc, adm
     Đọc "có yêu cầu" thay vì "đã xác nhận" là báo sẵn-sàng-giao cho hàng còn nằm ở tổ."""
     lsx_id, _cvs, kb = _da_qua_kcs(db, orders, lsx_svc, admin, customer,
                                    dat=5_000, khong_dat=0, ket_luan=KCS_DAT)
-    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=5_000, xac_nhan=0, trang_thai_yc=YC_CHO_KHO)
+    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=5_000, xac_nhan=0, trang_thai_yc=REQ_APPROVED)
     assert _tt(db, lsx_id) == trang_thai.TAB_CHO_NHAP_KHO
 
 
 def test_yeu_cau_da_huy_khong_tinh_la_co_ton(db, orders, lsx_svc, admin, customer):
-    """KCS huỷ phần chưa nhận để phân loại lại (§14.1) — yêu cầu `huy` KHÔNG được đếm là tồn."""
+    """Kho huỷ yêu cầu khi chưa nhận món nào — yêu cầu đã huỷ KHÔNG được đếm là tồn."""
     lsx_id, _cvs, kb = _da_qua_kcs(db, orders, lsx_svc, admin, customer,
                                    dat=5_000, khong_dat=0, ket_luan=KCS_DAT)
-    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=5_000, xac_nhan=0, trang_thai_yc=YC_HUY)
+    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=5_000, xac_nhan=0, trang_thai_yc=REQ_CANCELLED)
     assert _tt(db, lsx_id) == trang_thai.TAB_CHO_NHAP_KHO
 
 
-def test_kcs_giua_chuoi_khong_phai_dang_o_kcs(db, orders, lsx_svc, admin, customer):
-    """Bước KCS GIỮA chuỗi chưa đóng KHÔNG có nghĩa lệnh "đang ở KCS" — bước In vẫn đang chạy.
+def test_cong_doan_cuoi_con_chay_chua_phai_dang_o_kcs(db, orders, lsx_svc, admin, customer):
+    """Tổ Cắt đã ghi mẻ 2.000 tốt nhưng VẪN đang chạy ⇒ lệnh vẫn ở khâu SX, chưa phải "đang ở KCS".
 
-    Bổ sung sau NGHI THỨC ĐỘT BIẾN: vế "mọi bước không-KCS đã xong" của `_dang_o_kcs` trước đó
-    không có lưới nào (mọi fixture đều đặt KCS ở cuối chuỗi). Bỏ vế đó thì lệnh này rời tab Đang
-    SX sang tab KCS, tức là giấu một lệnh đang chạy máy khỏi đúng tab điều độ nhìn.
+    Lưới cho vế "mọi công đoạn đã xong" của `_dang_o_kcs`: bỏ vế đó thì Σ đạt+lỗi (0) < Σ tốt
+    (2.000) đẩy lệnh sang tab KCS, tức là giấu một lệnh đang chạy máy khỏi đúng tab điều độ nhìn.
     """
     _don_nen(db)
     lsx_id = _dung_lenh(
         db, orders, lsx_svc, admin, customer,
-        buoc=[("CTP", 60, 5_000), ("KCS giữa chừng", 30, 5_000), ("In offset", 360, 5_000)],
+        buoc=[("CTP", 60, 5_000), ("In offset", 360, 5_000), ("Cắt thành phẩm", 30, 5_000)],
         bat_dau_lech=timedelta(hours=-2),
     )
     cvs = _cong_viec(db, lsx_id)
     _xong(db, cvs[0])
-    cvs[1].la_kcs = True                    # KCS giữa chuỗi, CHƯA đóng
+    _xong(db, cvs[1])
+    cvs[2].la_kcs_cuoi = True
     db.commit()
-    _dang_chay(db, cvs[2])                   # In vẫn đang chạy ⇒ lệnh vẫn ở khâu SX
+    _dang_chay(db, cvs[2])                   # Cắt vẫn đang chạy
+    _ghi_tot(db, cvs[2], 2_000)
     _dat_han(db, lsx_id)
     assert _co(db, lsx_id) == []
     assert _tt(db, lsx_id) == trang_thai.TAB_DANG_SX
@@ -820,31 +831,27 @@ def test_su_co_khong_ghep_chi_ve_lenh_dung_MOT_lan(db, lenh_dang_chay_co_su_co):
     assert len({y.id for y in ds}) == 1
 
 
-# --- Bổ sung I: batch KCS GIỮA CHỪNG không được lái tab (Vòng sửa 1 — Nghiêm trọng 1) -------------
+# --- Bổ sung I: lần kiểm GIỮA CHUYỀN không được lái tab (Vòng sửa 1 — Nghiêm trọng 1) -----------
 def test_batch_kcs_giua_chung_khong_keo_ra_khoi_dang_sx(db, orders, lsx_svc, admin, customer):
-    """Kiểm tra GIỮA CHỪNG đẻ batch đạt, nhưng máy in vẫn đang chạy ⇒ lệnh vẫn ở Đang SX.
+    """KCS kiểm công đoạn GIỮA CHUYỀN đẻ số đạt, nhưng máy in vẫn đang chạy ⇒ lệnh vẫn ở Đang SX.
 
-    `kcs.tao_batch_kcs:110` chỉ đòi `cv.la_kcs`, KHÔNG đòi bước cuối — nên bất kỳ chốt kiểm giữa
-    chuyền nào cũng đẻ số đạt. Cộng số đó vào cửa "chờ nhập kho" thì lệnh bị đẩy sang một tab mà
-    kho sẽ KHÔNG BAO GIỜ nhận hàng (yêu cầu nhập kho chỉ sinh từ batch của KCS cuối) — lệnh kẹt
-    ở đó vĩnh viễn, không có đường tự thoát.
+    KCS kiểm được mọi công đoạn (mg 0306) — nên bất kỳ lần kiểm giữa chuyền nào cũng đẻ số đạt.
+    Cộng số đó vào cửa "chờ nhập kho" thì lệnh bị đẩy sang một tab mà kho sẽ KHÔNG BAO GIỜ nhận
+    hàng (yêu cầu nhập kho chỉ sinh từ công đoạn cuối) — lệnh kẹt ở đó vĩnh viễn.
     """
     _don_nen(db)
     lsx_id = _dung_lenh(
         db, orders, lsx_svc, admin, customer,
-        buoc=[("CTP", 60, 5_000), ("KCS giữa chừng", 30, 5_000), ("In offset", 360, 5_000)],
+        buoc=[("CTP", 60, 5_000), ("In offset", 360, 5_000), ("Cắt thành phẩm", 30, 5_000)],
         bat_dau_lech=timedelta(hours=-2),
     )
     cvs = _cong_viec(db, lsx_id)
     _xong(db, cvs[0])
-    cvs[1].la_kcs = True                    # KCS giữa chuyền — KHÔNG phải `la_kcs_cuoi`
-    _xong(db, cvs[1])
-    db.commit()
-    _dang_chay(db, cvs[2])                   # In vẫn đang chạy
-    _kcs_batch(db, cvs[1].id, nhan=5_000, dat=5_000, khong_dat=0, ket_luan=KCS_DAT)
+    _dang_chay(db, cvs[1])                   # In vẫn đang chạy
+    _kcs_batch(db, cvs[0].id, nhan=5_000, dat=5_000, khong_dat=0, ket_luan=KCS_DAT)
     _dat_han(db, lsx_id)
 
-    assert not cvs[1].la_kcs_cuoi, "tiền đề hỏng — bước giữa chuyền không được là KCS cuối"
+    assert not cvs[0].la_kcs_cuoi, "tiền đề hỏng — bước giữa chuyền không được là công đoạn cuối"
     assert _co(db, lsx_id) == []
     assert _tt(db, lsx_id) == trang_thai.TAB_DANG_SX
 
@@ -852,111 +859,88 @@ def test_batch_kcs_giua_chung_khong_keo_ra_khoi_dang_sx(db, orders, lsx_svc, adm
 def test_batch_kcs_giua_chung_khong_lai_tab_du_may_da_ngung(db, orders, lsx_svc, admin, customer):
     """Cùng luật, nhưng KHÔNG có vế "máy còn chạy" đỡ hộ — đây mới là lưới của bộ lọc `la_kcs_cuoi`.
 
-    Bổ sung sau NGHI THỨC ĐỘT BIẾN của Vòng sửa 1: gỡ `if cv.la_kcs_cuoi` khỏi `_so_kcs_dat_cuoi`
-    mà bài trên vẫn XANH, vì ở đó bước In còn `running` nên cửa `_sx_da_xong` chặn trước. Hai thay
-    đổi cùng nằm trong một nhánh thì phải có hai bài, không thì một trong hai không có lưới.
+    Gỡ `if cv.la_kcs_cuoi` khỏi `_so_kcs_dat_cuoi` mà bài trên vẫn XANH, vì ở đó bước In còn
+    `running` nên cửa `_sx_da_xong` chặn trước. Hai thay đổi cùng nằm trong một nhánh thì phải có
+    hai bài, không thì một trong hai không có lưới.
 
-    Ở đây mọi bước máy ĐÃ XONG, chốt kiểm GIỮA CHUYỀN đã đóng và đẻ 5.000 đạt, còn KCS CUỐI thì
-    chưa kiểm gì. Lệnh đang ở KCS. Đếm cả batch giữa chuyền là đẩy nó sang Chờ nhập kho — nơi kho
-    sẽ không bao giờ nhận hàng, vì yêu cầu nhập kho chỉ sinh từ batch của KCS cuối.
+    Ở đây mọi bước ĐÃ XONG, KCS đã kiểm công đoạn In (giữa chuyền) 5.000 đạt, còn công đoạn cuối
+    thì chưa kiểm gì. Lệnh đang ở KCS. Đếm cả lần kiểm giữa chuyền là đẩy nó sang Chờ nhập kho.
     """
-    _don_nen(db)
-    lsx_id = _dung_lenh(
-        db, orders, lsx_svc, admin, customer,
-        buoc=[("CTP", 60, 5_000), ("In offset", 360, 5_000),
-              ("KCS giữa chừng", 30, 5_000), ("KCS cuối", 30, 5_000)],
-        bat_dau_lech=timedelta(days=-1),
-    )
-    cvs = _cong_viec(db, lsx_id)
-    _xong(db, cvs[0])
-    _xong(db, cvs[1])
-    cvs[2].la_kcs = True
-    _xong(db, cvs[2])
-    cvs[3].la_kcs = True
-    cvs[3].la_kcs_cuoi = True               # chưa đóng, chưa có batch nào
-    db.commit()
-    _kcs_batch(db, cvs[2].id, nhan=5_000, dat=5_000, khong_dat=0, ket_luan=KCS_DAT)
-    _dat_han(db, lsx_id)
+    lsx_id, cvs = _ba_buoc_cho_kcs(db, orders, lsx_svc, admin, customer)
+    _kcs_batch(db, cvs[1].id, nhan=5_000, dat=5_000, khong_dat=0, ket_luan=KCS_DAT)
 
-    assert not cvs[2].la_kcs_cuoi
-    assert cvs[3].trang_thai != CV_HOAN_THANH
+    assert not cvs[1].la_kcs_cuoi
     assert _co(db, lsx_id) == []
     assert _tt(db, lsx_id) == trang_thai.TAB_KCS
 
 
-def test_con_may_dang_chay_thi_chua_phai_cho_nhap_kho(db, orders, lsx_svc, admin, customer):
-    """KCS cuối đã chốt được một phần ĐẠT nhưng một nhánh SX song song CÒN CHẠY ⇒ vẫn Đang SX.
-
-    Bổ sung sau NGHI THỨC ĐỘT BIẾN của Vòng sửa 1: bỏ vế `_sx_da_xong` khỏi `_kcs_dat_cho_nhap`
-    mà cả bộ vẫn XANH — mọi fixture khác đều đã xong hết bước máy trước khi KCS đẻ batch.
-
-    Ca thật: Ruột in xong và KCS kiểm trước phần ruột, còn Bìa vẫn đang cán. Điều độ CẦN thấy
-    lệnh này ở tab Đang SX vì vẫn còn máy phải chạy; đẩy nó sang Chờ nhập kho là giấu một việc
-    chưa làm xong khỏi đúng tab người ta nhìn để đốc thúc.
-    """
+def _hai_nhanh_bia_con_chay(db, orders, lsx_svc, admin, customer) -> tuple[int, list]:
+    """Ruột in xong, Bìa VẪN đang cán; công đoạn cuối (Cắt) đã có mẻ 2.000 tốt. Trả `(lsx_id, cvs)`."""
     _don_nen(db)
     lsx_id = _dung_lenh(
         db, orders, lsx_svc, admin, customer,
         buoc=[("CTP", 60, 5_000), ("In ruột", 240, 5_000),
-              ("Cán bìa", 180, 5_000), ("KCS cuối", 30, 5_000)],
+              ("Cán bìa", 180, 5_000), ("Cắt thành phẩm", 30, 5_000)],
         canh=[(0, 1), (0, 2), (1, 3), (2, 3)],
         bat_dau_lech=timedelta(hours=-6),
     )
     cvs = _cong_viec(db, lsx_id)
     _xong(db, cvs[0])
     _xong(db, cvs[1])
-    cvs[3].la_kcs = True
     cvs[3].la_kcs_cuoi = True
     db.commit()
     _dang_chay(db, cvs[2])                   # Bìa VẪN đang cán
-    _kcs_batch(db, cvs[3].id, nhan=2_000, dat=2_000, khong_dat=0, ket_luan=KCS_DAT)
+    _ghi_tot(db, cvs[3], 2_000)
     _dat_han(db, lsx_id)
+    return lsx_id, cvs
+
+
+def test_con_may_dang_chay_thi_chua_phai_cho_nhap_kho(db, orders, lsx_svc, admin, customer):
+    """KCS đã kiểm công đoạn cuối một phần ĐẠT nhưng một nhánh SX song song CÒN CHẠY ⇒ vẫn Đang SX.
+
+    Bổ sung sau NGHI THỨC ĐỘT BIẾN của Vòng sửa 1: bỏ vế `_sx_da_xong` khỏi `_kcs_dat_cho_nhap`
+    mà cả bộ vẫn XANH — mọi fixture khác đều đã xong hết bước máy trước khi KCS kiểm.
+
+    Ca thật: Ruột in xong và KCS kiểm trước phần đã cắt, còn Bìa vẫn đang cán. Điều độ CẦN thấy
+    lệnh này ở tab Đang SX vì vẫn còn máy phải chạy.
+    """
+    lsx_id, cvs = _hai_nhanh_bia_con_chay(db, orders, lsx_svc, admin, customer)
+    _kcs_batch(db, cvs[3].id, nhan=2_000, dat=2_000, khong_dat=0, ket_luan=KCS_DAT)
 
     assert _co(db, lsx_id) == []
     assert _tt(db, lsx_id) == trang_thai.TAB_DANG_SX
 
 
 def test_kho_nhan_mot_phan_ma_may_con_chay_van_la_dang_sx(db, orders, lsx_svc, admin, customer):
-    """Kho ĐÃ NHẬN 2.000 nhưng máy in còn chạy ⇒ vẫn Đang SX, không phải Sẵn sàng giao.
+    """Kho ĐÃ NHẬN 2.000 nhưng máy cán bìa còn chạy ⇒ vẫn Đang SX, không phải Sẵn sàng giao.
 
-    Vòng sửa 2 — mục B. `_co_ton_thanh_pham` đứng TRÊN hai nhánh vừa được thêm cửa "sản xuất đã
-    xong" ở vòng trước mà chính nó lại không có cửa đó. Tồn từng phần là chi tiết của màn hồ sơ;
-    lấy nó làm cớ đổi tab là để một lệnh còn phải chạy máy biến khỏi tầm mắt điều độ.
+    Vòng sửa 2 — mục B. `_co_ton_thanh_pham` đứng TRÊN hai nhánh có cửa "sản xuất đã xong" nên
+    chính nó cũng phải có cửa đó. Tồn từng phần là chi tiết của màn hồ sơ; lấy nó làm cớ đổi tab
+    là để một lệnh còn phải chạy máy biến khỏi tầm mắt điều độ.
     """
-    _don_nen(db)
-    lsx_id = _dung_lenh(
-        db, orders, lsx_svc, admin, customer,
-        buoc=[("CTP", 60, 5_000), ("KCS giữa chừng", 30, 5_000), ("In offset", 360, 5_000)],
-        bat_dau_lech=timedelta(hours=-2),
-    )
-    cvs = _cong_viec(db, lsx_id)
-    _xong(db, cvs[0])
-    cvs[1].la_kcs = True
-    _xong(db, cvs[1])
-    db.commit()
-    _dang_chay(db, cvs[2])                   # In VẪN đang chạy
-    kb = _kcs_batch(db, cvs[1].id, nhan=2_000, dat=2_000, khong_dat=0, ket_luan=KCS_DAT)
-    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=2_000, xac_nhan=2_000, trang_thai_yc=YC_DA_NHAP)
-    _dat_han(db, lsx_id)
+    lsx_id, cvs = _hai_nhanh_bia_con_chay(db, orders, lsx_svc, admin, customer)
+    kb = _kcs_batch(db, cvs[3].id, nhan=2_000, dat=2_000, khong_dat=0, ket_luan=KCS_DAT)
+    _nhap_kho_yc(db, lsx_id, kb, yeu_cau=2_000, xac_nhan=2_000, trang_thai_yc=REQ_DONE)
 
     bc = boi_canh.nap(db, [lsx_id])
     # Tiền đề: kho THẬT SỰ đã nhận — nếu không, bài này xanh vì lý do khác hẳn.
-    assert [float(y.so_luong_xac_nhan) for y in bc.nhap_kho_yc[lsx_id]] == [2_000.0]
+    assert [d.sl_da_nhan for d in bc.nhap_kho_tp[lsx_id]] == [2_000.0]
     assert _co(db, lsx_id) == []
     assert _tt(db, lsx_id) == trang_thai.TAB_DANG_SX
 
 
 def test_co_hang_dat_cho_nhap_an_truoc_tab_kcs(db, orders, lsx_svc, admin, customer):
-    """Bước KCS CUỐI chưa đóng nhưng đã chốt được một phần ĐẠT ⇒ Chờ nhập kho, không phải KCS.
+    """KCS mới kiểm 3.000/5.000 tốt của công đoạn cuối (còn đang ở KCS) nhưng đã có phần ĐẠT ⇒
+    Chờ nhập kho, không phải KCS.
 
     Vòng sửa 1 — M-D: hai nhánh này trước đó đảo chỗ cho nhau mà cả bộ vẫn xanh. Luật là KHÂU XA
     NHẤT: có hàng đạt nằm chờ kho là đã đi xa hơn "đang kiểm".
     """
-    lsx_id, cvs = _ba_buoc_xong_tru_kcs(db, orders, lsx_svc, admin, customer)
-    _dang_chay(db, cvs[2])                   # KCS cuối CHƯA đóng
+    lsx_id, cvs = _ba_buoc_cho_kcs(db, orders, lsx_svc, admin, customer)
     _kcs_batch(db, cvs[2].id, nhan=3_000, dat=3_000, khong_dat=0, ket_luan=KCS_DAT)
 
-    assert cvs[2].la_kcs and cvs[2].la_kcs_cuoi
+    bc = boi_canh.nap(db, [lsx_id])
+    assert trang_thai._dang_o_kcs(bc, lsx_id), "tiền đề hỏng — lệnh phải vẫn đang ở KCS"
     assert _tt(db, lsx_id) == trang_thai.TAB_CHO_NHAP_KHO
 
 
@@ -974,24 +958,24 @@ def _buoc_routing(db, lsx_id):
 def nhom_hai_lenh(db, orders, lsx_svc, admin, customer) -> tuple[int, int]:
     """Một NHÓM thành phẩm gồm HAI lệnh cùng nhãn — đúng ca "Ruột + Bìa → Kỷ yếu" của spec.
 
-    Chỉ lệnh THÂN CHÍNH kết thúc bằng bước KCS. `snapshot.danh_dau_kcs_cuoi:137-171` chỉ đánh
-    `la_kcs_cuoi` cho MỘT ứng viên mỗi nhóm, nên lệnh còn lại không có bước KCS nào ⇒ nó không có
-    đường tự lập yêu cầu nhập kho; hàng của nó đi kèm hàng của thân chính.
+    Bước cuối của lệnh phụ chảy tiếp sang bước cuối của thân chính (cạnh nối chéo, như Bìa đưa sang
+    đóng cuốn), nên `snapshot.danh_dau_kcs_cuoi` chỉ đánh `la_kcs_cuoi` cho bước cuối thân chính ⇒
+    lệnh phụ không có đường tự lập yêu cầu nhập kho; hàng của nó đi kèm hàng của thân chính.
 
-    Admin được cấp dòng quyền `to_sx_<tổ KCS>` (Xem + bốn quyền chi tiết, phạm vi all) vì
-    `kcs.tao_batch_kcs`/`kho.*` đều qua `thuc_thi._gate` → `gate_to` (quyền KCS/Kho trên tổ của
-    công việc). Trả `(than_chinh, phu)`.
+    Bước cuối của thân chính giao cho một tổ riêng (admin được cấp dòng quyền đủ trên tổ đó).
+    Trả `(than_chinh, phu)`.
     """
     a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     db.get(OrderLine, a.order_line_id).nhom = "Kỷ yếu"
     db.get(OrderLine, b.order_line_id).nhom = "Kỷ yếu"
-    to_kcs = Department(
-        name="KCS Nhóm T8", code="KCS-NHOM-T8", is_kcs=True, la_san_xuat=True,
-    )
-    db.add(to_kcs)
+    to_cuoi = Department(name="Tổ Cắt Nhóm T8", code="CAT-NHOM-T8", la_san_xuat=True)
+    db.add(to_cuoi)
     db.flush()
-    cap_quyen_to(db, admin, to_kcs)
-    _buoc_routing(db, a.id)[-1].department_id = to_kcs.id
+    cap_quyen_to(db, admin, to_cuoi)
+    _buoc_routing(db, a.id)[-1].department_id = to_cuoi.id
+    db.add(LsxCongDoanPhuThuoc(
+        buoc_truoc_id=_buoc_routing(db, b.id)[-1].id, buoc_sau_id=_buoc_routing(db, a.id)[-1].id,
+    ))
     db.commit()
 
     release.phat_hanh(db, lsx_ids={a.id, b.id}, actor=admin)
@@ -1000,40 +984,35 @@ def nhom_hai_lenh(db, orders, lsx_svc, admin, customer) -> tuple[int, int]:
 
 
 def _nhom_qua_kcs_vao_kho(db, admin, than: int, *, so_luong=100) -> int:
-    """Chạy ĐÚNG service: batch KCS trên bước KCS-cuối của thân chính → yêu cầu nhập kho → kho
-    xác nhận nhận. Trả `yc_id`."""
+    """Chạy ĐÚNG service: KCS kiểm công đoạn cuối của thân chính → yêu cầu nhập kho → thủ kho lập
+    phiếu nhập + ghi sổ. Trả `request_id`."""
     cv = [c for c in _cong_viec(db, than) if c.la_kcs_cuoi]
-    assert len(cv) == 1, "nhóm phải có đúng một bước KCS-cuối — tiền đề hỏng"
+    assert len(cv) == 1, "nhóm phải có đúng một công đoạn cuối — tiền đề hỏng"
     cv = cv[0]
     cv.don_vi_vao = cv.don_vi_ra = "cái"
     db.commit()
-    _dang_chay(db, cv)                    # `tao_batch_kcs` chỉ ghi cho công việc đã khởi động
-    rb = kcs.tao_batch_kcs(
-        db, user=admin, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
-        so_luong_nhan=so_luong, so_luong_dat=so_luong, so_luong_khong_dat=0,
-    )
-    yc = kho.tao_yeu_cau_nhap_thanh_pham(
-        db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=so_luong)
-    k = KhoHang(ma="KHO-TP-NHOM", ten="Kho thành phẩm nhóm")
-    db.add(k)
-    db.flush()
-    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=so_luong, kho_id=k.id)
-    return yc["yc_id"]
+    _dang_chay(db, cv)
+    _ghi_tot(db, cv, so_luong)            # Σ đạt công đoạn cuối không vượt Σ tốt tổ đã ghi
+    _d, nguoi_kcs = _to_kiem(db, ma="KCS-NHOM-T8")
+    kcs.kiem_cong_doan(db, user=nguoi_kcs, cong_viec_id=cv.id, so_dat=so_luong)
+    yc = kho.tao_yeu_cau_nhap_kho_cong_doan(db, user=nguoi_kcs, cong_viec_id=cv.id)
+    _kho_nhan(db, admin, yc["request_id"], so_luong)
+    return yc["request_id"]
 
 
 def test_lenh_phu_trong_nhom_cung_thay_hang_da_nhap_kho(db, nhom_hai_lenh, admin):
     """Kho nhận hàng của NHÓM ⇒ MỌI lệnh thành viên phải đọc được, không riêng thân chính.
 
-    Yêu cầu nhập kho neo `(order_id, nhom_id)` (`kho.py:123-137`) chứ không neo lệnh. Cầu duy
-    nhất qua batch KCS chỉ về được thân chính, nên lệnh phụ có `nhap_kho_yc` RỖNG VĨNH VIỄN — nó
-    không bao giờ rời `dang_sx` dù hàng đã nằm trong kho.
+    Yêu cầu nhập kho neo công đoạn cuối của NHÓM chứ không neo từng lệnh. Chỉ đi cầu `lsx_id` của
+    công đoạn thì chỉ về được thân chính, nên lệnh phụ có `nhap_kho_tp` RỖNG VĨNH VIỄN — nó không
+    bao giờ rời `dang_sx` dù hàng đã nằm trong kho.
     """
     than, phu = nhom_hai_lenh
     yc_id = _nhom_qua_kcs_vao_kho(db, admin, than)
 
     bc = boi_canh.nap(db, [than, phu])
-    assert [y.id for y in bc.nhap_kho_yc[than]] == [yc_id]
-    assert [y.id for y in bc.nhap_kho_yc[phu]] == [yc_id]
+    assert [d.request_id for d in bc.nhap_kho_tp[than]] == [yc_id]
+    assert [d.request_id for d in bc.nhap_kho_tp[phu]] == [yc_id]
 
     # NHƯNG đọc được yêu cầu KHÔNG có nghĩa là đã sẵn sàng giao: lệnh phụ chưa chạy bước nào.
     # (Vòng sửa 2 — bản trước của bài này chốt thẳng `san_sang_giao`, tức là CHỐT một hành vi sai:
@@ -1042,7 +1021,7 @@ def test_lenh_phu_trong_nhom_cung_thay_hang_da_nhap_kho(db, nhom_hai_lenh, admin
     assert trang_thai.trang_thai_chinh(bc, phu, BAY_GIO) == trang_thai.TAB_DANG_SX
 
     # Đóng nốt sản xuất của lệnh phụ ⇒ lúc này mới sẵn sàng, và đó chính là chỗ cầu nhóm có ích:
-    # lệnh phụ không có batch KCS nào của riêng nó, hàng nó nằm trong lô kho của NHÓM.
+    # lệnh phụ không có lần kiểm KCS nào của riêng nó, hàng nó nằm trong lô kho của NHÓM.
     for cv in _cong_viec(db, phu):
         _xong(db, cv)
     bc2 = boi_canh.nap(db, [than, phu])
@@ -1051,26 +1030,18 @@ def test_lenh_phu_trong_nhom_cung_thay_hang_da_nhap_kho(db, nhom_hai_lenh, admin
 
 # --- Bổ sung H: chuỗi kho THẬT — fixture đặt tay không được nói dối --------------------------------
 def test_chuoi_kho_that_noi_duoc_ve_lenh(db, orders, lsx_svc, admin, customer):
-    """Chạy ĐÚNG service kho (`tao_yeu_cau_nhap_thanh_pham` → `kho_xac_nhan_nhap`) rồi soi bối cảnh.
+    """Chạy ĐÚNG service (`tao_yeu_cau_nhap_kho_cong_doan` → phiếu nhập → ghi sổ) rồi soi bối cảnh.
 
-    Bài này là LƯỚI CHỐNG FIXTURE NÓI DỐI: mọi fixture khác đặt tay `SanXuatNhapKhoYc`, nên nếu
-    cầu nối thật giữa yêu cầu nhập kho và lệnh bị đứt, chỉ có bài này đỏ. Nó ĐÃ đỏ một lần: registry
-    thành phẩm luôn có `lsx_id IS NULL` (`kho.py:127`) nên cầu cũ `hang.lsx_id` không bao giờ nối
-    được — xem báo cáo Task 8.
+    Bài này là LƯỚI CHỐNG FIXTURE NÓI DỐI: mọi fixture khác đặt tay `StockRequest`, nên nếu cầu nối
+    thật giữa yêu cầu nhập kho và lệnh bị đứt, chỉ có bài này đỏ.
     """
-    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer, nhan=100, dat=100, khong_dat=0)
+    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer, dat=100, khong_dat=0, cuoi=True)
     lsx_id = cv.lsx_id
     assert lsx_id is not None
-    yc = kho.tao_yeu_cau_nhap_thanh_pham(
-        db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=100)
-    k = KhoHang(ma="KHO-TP-T8", ten="Kho thành phẩm T8")
-    db.add(k)
-    db.flush()
-    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=100, kho_id=k.id)
-
-    hang = db.get(SanXuatKhoHang, yc["hang_id"])
-    assert hang.lsx_id is None, "registry thành phẩm đổi cách neo — đọc lại kho.py trước khi tin"
+    yc = kho.tao_yeu_cau_nhap_kho_cong_doan(db, user=rb["nguoi_kcs"], cong_viec_id=cv.id)
+    assert yc["so_luong"] == 100
+    _kho_nhan(db, admin, yc["request_id"], 100)
 
     bc = boi_canh.nap(db, [lsx_id])
-    assert [y.id for y in bc.nhap_kho_yc[lsx_id]] == [yc["yc_id"]]
-    assert float(bc.nhap_kho_yc[lsx_id][0].so_luong_xac_nhan) == 100
+    assert [d.request_id for d in bc.nhap_kho_tp[lsx_id]] == [yc["request_id"]]
+    assert bc.nhap_kho_tp[lsx_id][0].sl_da_nhan == 100

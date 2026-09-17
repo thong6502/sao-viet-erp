@@ -64,3 +64,35 @@ def test_anh_chup_bo_qua_cot_ky_thuat():
     assert "ma" in chup and "ten" in chup
     for kt in ("id", "created_at", "updated_at"):
         assert kt not in chup
+
+
+def test_o_chon_in_nhan_khong_in_ma():
+    """Ô chọn lưu MÃ (`dang_dat_lam`, `khuon_ep`, `tra_bang`). In thẳng thì nhật ký ra
+    "Tình trạng dang_dat_lam → dang_dung" — đúng dòng người ta đọc được sau khi tổ bế tích nhận
+    khuôn. Chữ phải khớp ô chọn trên màn; mã lạ (giá trị cũ còn sót) thì giữ nguyên, không đoán."""
+    assert mo_ta_thay_doi({"tinh_trang": "dang_dat_lam"}, {"tinh_trang": "dang_dung"}) == [
+        "Tình trạng Đang đặt làm → Đang dùng"]
+    assert mo_ta_thay_doi({"loai": None}, {"loai": "khung_lua"}) == ["Loại — → Khung lụa"]
+    assert mo_ta_thay_doi(
+        {"nhom": "print", "tooling_type": "khuon_be", "kieu_bu_hao": "khong"},
+        {"nhom": "finishing", "tooling_type": "khuon_ep", "kieu_bu_hao": "tra_bang"},
+    ) == ["Nhóm In → Gia công sau in", "Loại dụng cụ Khuôn bế → Khuôn ép kim",
+          "Bù hao Không bù hao → Tra bảng theo mã bù hao"]
+    assert mo_ta_thay_doi({"tinh_trang": "dang_dung"}, {"tinh_trang": "zz_la"}) == [
+        "Tình trạng Đang dùng → zz_la"]
+
+
+def test_moi_ma_cua_o_chon_deu_co_nhan():
+    """Thêm mã mới vào bộ hằng của model (vd `khung_lua` 04/09/2026) ⇒ test này đỏ ⇒ thêm nhãn.
+    Không gác thì mã mới lọt ra nhật ký nguyên dạng, hỏng trong im lặng như chuyện 59 cột."""
+    from app.models import cong_doan, khuon_be
+    from app.services.nhat_ky_danh_muc import GIA_TRI_NHAN
+
+    bo = {
+        "tinh_trang": khuon_be.TINH_TRANG, "loai": khuon_be.LOAI_KHUON,
+        "nhom": cong_doan.NHOM, "tooling_type": cong_doan.TOOLING_TYPE,
+        "kieu_bu_hao": cong_doan.KIEU_BU_HAO,
+    }
+    thieu = {truong: sorted(set(ma) - set(GIA_TRI_NHAN.get(truong, {})))
+             for truong, ma in bo.items()}
+    assert not any(thieu.values()), f"Mã chưa có nhãn trong `GIA_TRI_NHAN`: {thieu}"

@@ -11,6 +11,7 @@
 // gọi lại API. `du_kien_bat_dau`/`du_kien_ket_thuc` CÙNG `null` ⇒ "Chưa đủ dữ liệu", TUYỆT ĐỐI
 // không tự vẽ một thanh bịa (docstring `GanttRowOut` phía máy chủ).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 
 import { ApiError, api } from "../api/client";
 import type { TdsxGanttRow, TdsxThanhLocParams } from "../api/client";
@@ -18,28 +19,13 @@ import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { Pager, trangHopLe } from "../components/Pager";
 import { EmptyState, classHan, ngay, ngayGio } from "./keHoachSxShared";
-import { useTdsxTimeline, type TdsxTimelineMoc } from "./tdsxTimeline";
+import { useCotNhanW, useTdsxTimeline, type TdsxTimelineMoc } from "./tdsxTimeline";
 
-const LABEL_W = 240;
-const LABEL_W_HEP = 120; // màn ≤480px — cột nhãn 240px chỉ chừa ~71px cho trục trên khung 360px thật
 const BAR_TOI_THIEU_PX = 24;
+/** Thanh hẹp hơn mức này thì mã lệnh đứng NGOÀI mép phải thanh ("LSX26-0004" cỡ `--fs-xs` rộng ~75px,
+ *  cộng đệm hai mép). Mỗi dòng chỉ có một thanh nên nhãn ngoài không bao giờ đè thanh khác. */
+const BAR_HEP_PX = 96;
 const PAGE_SIZE_MAC_DINH = 50;
-
-/** Bề rộng cột nhãn co theo viewport — CỤC BỘ của tab này (không đụng `TdsxTheoMay.tsx`, file đó
- *  giữ hằng `LABEL_W` RIÊNG của nó). Không dùng `@media` thuần vì giá trị này còn phải truyền vào
- *  `xOf`/`trackWidth` của trục thời gian dùng chung — JS cần biết con số thật, không chỉ CSS. */
-function useLabelW(): number {
-  const [w, setW] = useState(() => (typeof window !== "undefined" && window.innerWidth <= 480 ? LABEL_W_HEP : LABEL_W));
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia("(max-width: 480px)");
-    const capNhat = () => setW(mq.matches ? LABEL_W_HEP : LABEL_W);
-    capNhat();
-    mq.addEventListener("change", capNhat);
-    return () => mq.removeEventListener("change", capNhat);
-  }, []);
-  return w;
-}
 
 export function TdsxGantt({
   active,
@@ -48,6 +34,7 @@ export function TdsxGantt({
   refreshTick,
   onOpenHoSo,
   onXoaLoc,
+  khay,
 }: {
   active: boolean;
   token: string | null;
@@ -55,6 +42,8 @@ export function TdsxGantt({
   refreshTick: number;
   onOpenHoSo: (lsxId: number) => void;
   onXoaLoc: () => void;
+  /** Khay điều khiển trên dải tab — xem ghi chú cùng tên ở `TdsxKanban`. */
+  khay: HTMLElement | null;
 }) {
   const [rows, setRows] = useState<TdsxGanttRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -64,7 +53,7 @@ export function TdsxGantt({
   const [daTai, setDaTai] = useState(false);
   const [loi, setLoi] = useState<{ text: string; cam: boolean } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const labelW = useLabelW();
+  const labelW = useCotNhanW();
   // Số thứ tự lượt gọi API còn đang bay — đổi `params` khi đang đứng trang > 1 khiến effect dưới
   // đây (deps `[active, load, refreshTick]`) và effect `setPage(1)` NGAY TRÊN chạy CÙNG một lượt
   // render nhưng theo thứ tự khai báo: `load` với `page` CŨ bắn request A trước, `setPage(1)` mới
@@ -123,13 +112,34 @@ export function TdsxGantt({
     () => rows.map((r) => ({ batDau: r.du_kien_bat_dau, ketThuc: r.du_kien_ket_thuc })),
     [rows],
   );
-  const { domain, pxPerGio, trackWidth, ticks, xOf } = useTdsxTimeline(mocs);
+  const { domain, pxPerGio, trackWidth, ticks, monthGroups, luoiDoc, xOf, nowX, hasNowLine, dateRangeLabel } =
+    useTdsxTimeline(mocs);
 
   const dangLoc = Object.values(params).some((v) => v !== undefined);
   const rong = daTai && !loading && total === 0;
 
   return (
     <div className="tdsx-gt" aria-label="Gantt tổng thể theo lệnh" role="group">
+      {active &&
+        khay &&
+        daTai &&
+        createPortal(
+          <>
+            <span className="tdsx__ctlnote">{dateRangeLabel}</span>
+            {hasNowLine && (
+              <button
+                type="button"
+                className="hslsx__linkbtn"
+                onClick={() => scrollRef.current?.scrollTo({ left: Math.max(0, nowX - 250), behavior: "smooth" })}
+                title="Cuộn tới vạch thời gian hiện tại"
+              >
+                Đến hôm nay
+              </button>
+            )}
+          </>,
+          khay,
+        )}
+
       {loi && (
         <EmptyState
           icon="alert"
@@ -171,30 +181,55 @@ export function TdsxGantt({
               style={
                 {
                   gridTemplateColumns: `${labelW}px ${trackWidth}px`,
-                  "--tdsx-gt-label-w": `${labelW}px`,
+                  "--tdsx-cot-nhan-w": `${labelW}px`,
+                  ...luoiDoc,
                 } as CSSProperties
               }
             >
-              <div className="tdsx-tm__corner" aria-hidden="true" />
-              <div className="tdsx-tm__axis" style={{ width: trackWidth }}>
-                {ticks.map((t) => (
-                  <span
-                    key={t.t}
-                    className={`tdsx-tm__tick${t.dam ? " is-dam" : ""}`}
-                    style={{ left: ((t.t - domain.start) / 3_600_000) * pxPerGio }}
-                  >
-                    {t.nhan}
-                  </span>
-                ))}
+              {/* Trục HAI tầng (tháng / ngày-giờ) giống hệt Theo máy — bản một tầng cũ chỉ còn lại
+                  vài chữ ngày lẻ loi giữa một dải đầu bảng cao 44px, ô góc thì trống trơn. */}
+              <div
+                className="tdsx-tm__corner"
+                title="Mỗi dòng là một lệnh. Thanh chạy từ giờ bắt đầu dự kiến của công đoạn sớm nhất tới giờ kết thúc dự kiến của công đoạn muộn nhất; vạch đứt là hạn hoàn thành."
+              >
+                <span className="tdsx-tm__corner-head">Lệnh</span>
               </div>
+              <div className="tdsx-tm__axis" style={{ width: trackWidth }}>
+                <div className="tdsx-tm__axis-top">
+                  {monthGroups.map((g, i) => (
+                    <span key={i} className="tdsx-tm__month-bar" style={{ left: g.left, width: g.width }}>
+                      <span className="tdsx-tm__month-chu">{g.label}</span>
+                    </span>
+                  ))}
+                </div>
+                <div className="tdsx-tm__axis-bot">
+                  {ticks.map((t) => (
+                    <span
+                      key={t.t}
+                      className={`tdsx-tm__tick${t.dam ? " is-dam" : ""}${t.isToday ? " is-today" : ""}`}
+                      style={{ left: ((t.t - domain.start) / 3_600_000) * pxPerGio }}
+                    >
+                      {t.nhan}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {hasNowLine && (
+                <div className="tdsx-tm__now-line" style={{ left: labelW + nowX }} title="Thời gian hiện tại">
+                  <span className="tdsx-tm__now-badge">bây giờ</span>
+                </div>
+              )}
 
               {!daTai
                 ? Array.from({ length: 4 }).map((_, i) => <GanttSkeletonRow key={i} trackWidth={trackWidth} />)
-                : rows.map((r) => (
+                : rows.map((r, i) => (
                     <GanttRow
                       key={r.lsx_id}
                       row={r}
+                      soc={i % 2 === 1}
                       xOf={xOf}
+                      trackWidth={trackWidth}
                       onOpen={() => onOpenHoSo(r.lsx_id)}
                     />
                   ))}
@@ -236,11 +271,16 @@ function GanttSkeletonRow({ trackWidth }: { trackWidth: number }) {
 
 function GanttRow({
   row,
+  soc,
   xOf,
+  trackWidth,
   onOpen,
 }: {
   row: TdsxGanttRow;
+  /** Dòng ở vị trí LẺ — vằn ngựa vằn, xem `.tdsx-gt__label.is-soc`. */
+  soc: boolean;
   xOf: (iso: string) => number;
+  trackWidth: number;
   onOpen: () => void;
 }) {
   const quaHan = row.han_hoan_thanh_sx != null && classHan(row.han_hoan_thanh_sx) === "khsx-date--late";
@@ -251,32 +291,58 @@ function GanttRow({
     left = xOf(row.du_kien_bat_dau as string);
     width = Math.max(BAR_TOI_THIEU_PX, xOf(row.du_kien_ket_thuc as string) - left);
   }
+  // Hạn giao cũng là một MỐC THỜI GIAN, nên vẽ nó lên chính trục thời gian — đứng cạnh thanh kế
+  // hoạch thì thấy ngay lệnh chạy xong trước hay sau hạn, việc mà một dòng chữ ở cột nhãn không
+  // nói được. `han_hoan_thanh_sx` là DATE; "hạn hoàn thành ngày X" nghĩa là phải xong TRONG ngày X
+  // nên mốc đặt ở CUỐI ngày, không phải 00:00 — lấy 00:00 thì một lệnh xong lúc 08:21 ngày X lại
+  // hiện ra bên phải vạch hạn, tức vẽ ngược hẳn sự thật. `xOf` KHÔNG kẹp biên: hạn rơi ngoài miền
+  // trục thì bỏ vạch, thà thiếu còn hơn vẽ một vạch ở toạ độ âm (nhãn vẫn còn chip "Quá hạn").
+  let hanX: number | null = null;
+  if (row.han_hoan_thanh_sx) {
+    const x = xOf(`${row.han_hoan_thanh_sx}T23:59:59`);
+    if (x >= 0 && x <= trackWidth) hanX = x;
+  }
+
   return (
     <>
       <button
         type="button"
-        className="tdsx-gt__label"
+        className={`tdsx-gt__label${soc ? " is-soc" : ""}`}
         onClick={onOpen}
         title={`${row.ma}${row.ten ? " · " + row.ten : ""}`}
       >
         <span className="tdsx-gt__row1">
           <span className="tdsx-gt__ma">{row.ma}</span>
+          {quaHan && (
+            <span className="tdsx-gt__quahan">
+              <Icon name="alert" size={11} />
+              Quá hạn {ngay(row.han_hoan_thanh_sx)}
+            </span>
+          )}
         </span>
         <span className="tdsx-gt__meta">
           {row.khach_hang ?? "—"} · {row.ten ?? "—"}
-        </span>
-        <span className={`tdsx-gt__han ${classHan(row.han_hoan_thanh_sx)}`}>
-          {quaHan && <Icon name="alert" size={11} />}
-          {quaHan ? "Quá hạn" : "Hạn"} {ngay(row.han_hoan_thanh_sx)}
         </span>
         {/* Khoảng kế hoạch viết THÀNH CHỮ ngay ở cột nhãn, không chỉ nằm trong thanh: miền thời
          * gian của bàn này thường vắt nhiều ngày (pxPerGio tụt còn 14 khi span > 30 giờ) nên phần
          * lớn thanh nằm NGOÀI khung nhìn — đo thật 4 lệnh ở 1440px thì 3 thanh đứng tại x 1794 và
          * 2384, người dùng chỉ thấy ba dòng trống trơn và tưởng lệnh chưa có lịch. Có dòng này thì
-         * dù thanh ở đâu, dòng vẫn tự nói nó chạy lúc nào. */}
-        <span className="tdsx-gt__kehoach">{nhanKhoang(row.du_kien_bat_dau, row.du_kien_ket_thuc)}</span>
+         * dù thanh ở đâu, dòng vẫn tự nói nó chạy lúc nào. Hạn nhập chung dòng này khi CHƯA trễ —
+         * trễ rồi thì nó lên dòng đầu thành chip đỏ. */}
+        <span className="tdsx-gt__kehoach">
+          {nhanKhoang(row.du_kien_bat_dau, row.du_kien_ket_thuc)}
+          {row.han_hoan_thanh_sx && !quaHan ? ` · hạn ${ngay(row.han_hoan_thanh_sx)}` : ""}
+        </span>
       </button>
-      <div className="tdsx-gt__track">
+      <div className={`tdsx-gt__track${soc ? " is-soc" : ""}`}>
+        {hanX !== null && (
+          <span
+            className="tdsx-gt__hanmoc"
+            style={{ left: hanX }}
+            title={`Hạn hoàn thành ${ngay(row.han_hoan_thanh_sx)}`}
+            aria-hidden="true"
+          />
+        )}
         {thieuMoc ? (
           <span className="tdsx-gt__thieumoc">Chưa đủ dữ liệu</span>
         ) : (
@@ -287,7 +353,13 @@ function GanttRow({
             onClick={onOpen}
             title={`${row.ma} · ${ngayGio(row.du_kien_bat_dau)} → ${ngayGio(row.du_kien_ket_thuc)}`}
             aria-label={`Mở hồ sơ lệnh ${row.ma}`}
-          />
+          >
+            {/* Thanh trơn không chữ trông như khung chờ tải. Mã lệnh nằm trong lòng thanh khi đủ
+                rộng, không thì đứng ngoài mép phải — không bao giờ cắt cụt. */}
+            <span className={`tdsx-gt__barma${width < BAR_HEP_PX ? " tdsx-gt__barma--ngoai" : ""}`} aria-hidden="true">
+              {row.ma}
+            </span>
+          </button>
         )}
       </div>
     </>

@@ -6,20 +6,17 @@ tổ trưởng) → transaction → ghi audit → (SSE do router phát sau commi
 
 Luật cứng (§11.1): `tong = tot + hong` (dung sai làm tròn 3 số lẻ); hỏng ghi kèm mô tả tự do
 (`mo_ta_loi`, tuỳ chọn) — danh mục lý do/lỗi ĐÃ GỠ. Chọn lot đầu vào (§10.3) dựng quan hệ truy vết
-nguyên liệu/BTP → batch đầu ra.
+mẻ công đoạn trước → batch đầu ra.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from ...models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG
 from ...models.san_xuat_san_luong import (
     BG_XAC_NHAN,
-    LOT_TU_BATCH,
-    LOT_TU_KHO,
-    NGUON_LOT,
     SanXuatBanGiao,
     SanXuatBatch,
     SanXuatBatchLotVao,
@@ -36,6 +33,8 @@ _EPS = 0.0005
 # Chỉ ghi sản lượng cho công việc ĐÃ khởi động (đang chạy / tạm dừng / đã xong) — chưa bắt đầu thì
 # chưa có gì để ghi.
 _TRANG_THAI_GHI_DUOC = (CV_DANG_CHAY, CV_TAM_DUNG, CV_HOAN_THANH)
+# Độ lệch đồng hồ chấp nhận giữa máy tổ gõ giờ và máy chủ khi chặn mẻ ở tương lai.
+_LECH_DONG_HO = timedelta(minutes=5)
 
 
 def _so_khong_am(x, ten: str) -> float:
@@ -115,10 +114,8 @@ def _chuan_hoa_lot(
     repo: SanXuatSanLuongRepository, dich_cv, don_vi_mac_dinh: str, raw: dict,
     dv_ten: dict[str, str],
 ) -> SanXuatBatchLotVao:
-    """Dựng một dòng lot đầu vào từ payload thô, kiểm §10.3. KHÔNG add vào session (caller làm)."""
-    nguon_loai = (raw.get("nguon_loai") or LOT_TU_BATCH).strip()
-    if nguon_loai not in NGUON_LOT:
-        raise ValueError(f"Nguồn lot không hợp lệ: {nguon_loai}.")
+    """Dựng một dòng lot đầu vào từ payload thô, kiểm §10.3. KHÔNG add vào session (caller làm).
+    Nguồn duy nhất là mẻ đầu ra của công đoạn trước (lot BTP trong kho đã gỡ 17/09/2026)."""
     so_luong = _so_khong_am(raw.get("so_luong"), "Số lượng lot")
     if so_luong <= 0:
         raise ValueError("Số lượng lot phải lớn hơn 0.")
@@ -127,39 +124,30 @@ def _chuan_hoa_lot(
         raise ValueError("Lot đầu vào chưa có đơn vị.")
 
     nguon_batch_id = raw.get("nguon_batch_id")
-    nguon_lot_id = raw.get("nguon_lot_id")
-    if nguon_loai == LOT_TU_BATCH:
-        if not nguon_batch_id:
-            raise ValueError("Lot từ công đoạn trước phải chọn batch nguồn.")
-        nguon = repo.batch(int(nguon_batch_id))
-        if nguon is None:
-            raise ValueError("Không tìm thấy batch nguồn của lot đầu vào.")
-        if nguon.cong_viec_id == dich_cv.id:
-            raise ValueError("Batch nguồn không được trùng chính công việc đang ghi.")
-        # Batch nguồn là điểm toả bài ghép (đã tách theo LSX) — công việc đang ghi phải THUỘC một
-        # LSX có phần trong đó, và không được dùng vượt phần đã toả cho LSX của chính nó.
-        if dich_cv.lsx_id is not None and repo.co_ket_qua_nhanh(nguon.id):
-            kq = repo.ket_qua_nhanh_cua(nguon.id, dich_cv.lsx_id)
-            if kq is None:
-                raise ValueError(
-                    "Batch nguồn đã toả theo từng lệnh sản xuất — lệnh này không có phần trong đó."
-                )
-            da_dung = repo.da_dung_nhanh(nguon.id, dich_cv.lsx_id)
-            if da_dung + so_luong > float(kq.so_luong) + _EPS:
-                raise ValueError(
-                    f"Vượt phần đã toả cho lệnh sản xuất này "
-                    f"({float(kq.so_luong):g} {nhan_don_vi(dv_ten, kq.don_vi)})."
-                )
-        nguon_lot_id = None
-    else:  # LOT_TU_KHO
-        if not nguon_lot_id:
-            raise ValueError("Lot BTP kho phải có mã lot.")
-        nguon_batch_id = None
+    if not nguon_batch_id:
+        raise ValueError("Lot từ công đoạn trước phải chọn batch nguồn.")
+    nguon = repo.batch(int(nguon_batch_id))
+    if nguon is None:
+        raise ValueError("Không tìm thấy batch nguồn của lot đầu vào.")
+    if nguon.cong_viec_id == dich_cv.id:
+        raise ValueError("Batch nguồn không được trùng chính công việc đang ghi.")
+    # Batch nguồn là điểm toả bài ghép (đã tách theo LSX) — công việc đang ghi phải THUỘC một
+    # LSX có phần trong đó, và không được dùng vượt phần đã toả cho LSX của chính nó.
+    if dich_cv.lsx_id is not None and repo.co_ket_qua_nhanh(nguon.id):
+        kq = repo.ket_qua_nhanh_cua(nguon.id, dich_cv.lsx_id)
+        if kq is None:
+            raise ValueError(
+                "Batch nguồn đã toả theo từng lệnh sản xuất — lệnh này không có phần trong đó."
+            )
+        da_dung = repo.da_dung_nhanh(nguon.id, dich_cv.lsx_id)
+        if da_dung + so_luong > float(kq.so_luong) + _EPS:
+            raise ValueError(
+                f"Vượt phần đã toả cho lệnh sản xuất này "
+                f"({float(kq.so_luong):g} {nhan_don_vi(dv_ten, kq.don_vi)})."
+            )
 
     return SanXuatBatchLotVao(
-        nguon_loai=nguon_loai,
-        nguon_batch_id=int(nguon_batch_id) if nguon_batch_id else None,
-        nguon_lot_id=int(nguon_lot_id) if nguon_lot_id else None,
+        nguon_batch_id=int(nguon_batch_id),
         so_luong=so_luong,
         don_vi=don_vi,
     )
@@ -209,6 +197,11 @@ def tao_batch(
     ket_thuc = moc_tu_client(ket_thuc)
     if ket_thuc < bat_dau:
         raise ValueError("Kết thúc batch không được trước khi bắt đầu.")
+    # Mẻ ghi SAU khi làm xong. Cửa sổ ở tương lai là gõ nhầm hoặc để nguyên giờ kế hoạch (16/09/2026:
+    # ba mẻ Dán mang 17/09 20:00→22:50 khi bước mới chạy từ 16/09 15:24) — không dấu chấm công nào
+    # rơi vào đó nên cổng §7.3 chặn chốt phân bổ mãi. Nới vài phút cho đồng hồ máy tổ lệch máy chủ.
+    if ket_thuc > _moc() + _LECH_DONG_HO:
+        raise ValueError("Giờ kết thúc mẻ đang ở sau thời điểm hiện tại — chỉ ghi mẻ đã làm xong.")
 
     don_vi_batch = (don_vi or cv.don_vi_ra or "").strip()
     if not don_vi_batch:
@@ -268,9 +261,7 @@ def them_lot(
     *,
     user,
     batch_id: int,
-    nguon_loai: str = LOT_TU_BATCH,
     nguon_batch_id: int | None = None,
-    nguon_lot_id: int | None = None,
     so_luong=0,
     don_vi: str | None = None,
 ) -> dict:
@@ -290,9 +281,7 @@ def them_lot(
         cv,
         don_vi_lot_mac_dinh,
         {
-            "nguon_loai": nguon_loai,
             "nguon_batch_id": nguon_batch_id,
-            "nguon_lot_id": nguon_lot_id,
             "so_luong": so_luong,
             "don_vi": don_vi,
         },

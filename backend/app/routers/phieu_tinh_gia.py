@@ -20,7 +20,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..deps import get_authorization_service, require_permission
-from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia, PhieuVatTu, SanPhamTaiBan
+from ..models.phieu_tinh_gia import (
+    PhieuChiPhiKhac, PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia, PhieuVatTu, SanPhamTaiBan,
+)
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
@@ -86,11 +88,13 @@ def _next_ma(db: Session) -> str:
     return f"{prefix}{count + 1:04d}"
 
 
-def _con_cua_thanh_phan(tp: PhieuThanhPhan, rows_in: list[dict], vt_in: list[dict]) -> None:
-    """Dựng lại TOÀN BỘ dòng gia công + vật tư của một thành phần.
+def _con_cua_thanh_phan(tp: PhieuThanhPhan, rows_in: list[dict], vt_in: list[dict],
+                        cpk_in: list[dict] | None = None) -> None:
+    """Dựng lại TOÀN BỘ dòng gia công + vật tư + chi phí khác của một thành phần.
 
-    Con sâu vẫn REPLACE-ALL (delete-orphan lo xoá): không nơi nào ghim `phieu_thanh_pham.id` hay
-    `phieu_vat_tu.id`, nên id của chúng đổi cũng không gãy gì — khác hẳn `phieu_thanh_phan.id`."""
+    Con sâu vẫn REPLACE-ALL (delete-orphan lo xoá): không nơi nào ghim `phieu_thanh_pham.id`,
+    `phieu_vat_tu.id` hay `phieu_chi_phi_khac.id`, nên id của chúng đổi cũng không gãy gì — khác
+    hẳn `phieu_thanh_phan.id`."""
     tp.thanh_phams.clear()
     for j, row in enumerate(rows_in):
         rd = dict(row)
@@ -101,6 +105,11 @@ def _con_cua_thanh_phan(tp: PhieuThanhPhan, rows_in: list[dict], vt_in: list[dic
         vd = dict(vt)
         vd.setdefault("thu_tu", k)
         tp.vat_tus.append(PhieuVatTu(**vd))
+    tp.chi_phi_khacs.clear()
+    for m, cp in enumerate(cpk_in or []):
+        cd = dict(cp)
+        cd.setdefault("thu_tu", m)
+        tp.chi_phi_khacs.append(PhieuChiPhiKhac(**cd))
 
 
 def _build_thanh_phan(tp_in: ThanhPhanIn, thu_tu: int) -> PhieuThanhPhan:
@@ -108,9 +117,10 @@ def _build_thanh_phan(tp_in: ThanhPhanIn, thu_tu: int) -> PhieuThanhPhan:
     data = tp_in.model_dump(exclude_unset=True)
     rows_in = data.pop("thanh_phams", None) or []
     vt_in = data.pop("vat_tus", None) or []
+    cpk_in = data.pop("chi_phi_khacs", None) or []
     data.setdefault("thu_tu", thu_tu)
     tp = PhieuThanhPhan(**data)
-    _con_cua_thanh_phan(tp, rows_in, vt_in)
+    _con_cua_thanh_phan(tp, rows_in, vt_in, cpk_in)
     return tp
 
 
@@ -136,11 +146,12 @@ def _ghi_de_thanh_phan(tp: PhieuThanhPhan, tp_in: ThanhPhanIn, thu_tu: int) -> N
     data = tp_in.model_dump(exclude_unset=True)
     rows_in = data.pop("thanh_phams", None) or []
     vt_in = data.pop("vat_tus", None) or []
+    cpk_in = data.pop("chi_phi_khacs", None) or []
     data.setdefault("thu_tu", thu_tu)
     for cot in _COT_THANH_PHAN:
         gia_tri = data.get(cot)
         setattr(tp, cot, _mac_dinh_cot(cot) if gia_tri is None else gia_tri)
-    _con_cua_thanh_phan(tp, rows_in, vt_in)
+    _con_cua_thanh_phan(tp, rows_in, vt_in, cpk_in)
 
 
 def _khoa_ten(ten: str | None) -> str:

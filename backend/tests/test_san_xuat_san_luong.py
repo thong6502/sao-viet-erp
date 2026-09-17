@@ -109,6 +109,30 @@ def test_chua_bat_dau_khong_ghi_duoc(db, orders, lsx_svc, admin, customer):
         )
 
 
+def test_ket_thuc_o_tuong_lai_bi_chan_lech_dong_ho_vai_phut_van_nhan(
+    db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """Mẻ ghi SAU khi làm xong. 16/09/2026 form để nguyên giờ kế hoạch 17/09 và máy chủ nhận — cửa sổ
+    ở tương lai không khớp dấu chấm công nào nên phân bổ không bao giờ chốt được."""
+    to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
+    bay_gio = _T0 + timedelta(days=1)
+    monkeypatch.setattr(san_luong, "_moc", lambda: bay_gio)
+
+    with pytest.raises(ValueError, match="sau thời điểm hiện tại"):
+        san_luong.tao_batch(
+            db, user=admin, cong_viec_id=cv.id,
+            bat_dau=bay_gio, ket_thuc=bay_gio + timedelta(hours=1), tong=10, tot=10,
+        )
+    assert db.query(SanXuatBatch).filter_by(cong_viec_id=cv.id).count() == 0
+
+    r = san_luong.tao_batch(
+        db, user=admin, cong_viec_id=cv.id,
+        bat_dau=bay_gio - timedelta(hours=1), ket_thuc=bay_gio + timedelta(minutes=2),
+        tong=10, tot=10,
+    )
+    assert r["batch_id"] is not None
+
+
 def test_gate_nguoi_khong_co_quyen_to_bi_chan(db, orders, lsx_svc, admin, customer):
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
     nguoi_la = SimpleNamespace(id=admin.id + 99_999)
@@ -129,7 +153,7 @@ def test_gate_ghi_me_doi_thuc_hien_lenh(db, orders, lsx_svc, admin, customer):
     u = User(username="khong_chay_sl", name="Không chạy", password_hash="x", department_id=to.id)
     db.add(u)
     db.flush()
-    cap_quyen_to(db, u, to, viec=("confirm_output", "qc", "warehouse"))
+    cap_quyen_to(db, u, to, viec=("confirm_output", "warehouse"))
     db.commit()
     with pytest.raises(PermissionError, match="Thực hiện lệnh"):
         san_luong.tao_batch(
@@ -259,7 +283,7 @@ def test_chan_lsx_khac_dung_lot_diem_toa(db, orders, lsx_svc, admin, customer):
     ok = san_luong.tao_batch(
         db, user=admin, cong_viec_id=cv_a.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=60, tot=60,
-        lot_vao=[{"nguon_loai": "batch", "nguon_batch_id": batch_nguon_id, "so_luong": 60}],
+        lot_vao=[{"nguon_batch_id": batch_nguon_id, "so_luong": 60}],
     )
     assert ok["batch_id"] is not None
 
@@ -268,7 +292,7 @@ def test_chan_lsx_khac_dung_lot_diem_toa(db, orders, lsx_svc, admin, customer):
         san_luong.tao_batch(
             db, user=admin, cong_viec_id=cv_a.id,
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=60, tot=60,
-            lot_vao=[{"nguon_loai": "batch", "nguon_batch_id": batch_nguon_id, "so_luong": 60}],
+            lot_vao=[{"nguon_batch_id": batch_nguon_id, "so_luong": 60}],
         )
 
     # (3) LSX C không có cạnh toả nào từ batch_nguon_id → không có phần, bị chặn dù số nhỏ.
@@ -276,7 +300,7 @@ def test_chan_lsx_khac_dung_lot_diem_toa(db, orders, lsx_svc, admin, customer):
         san_luong.tao_batch(
             db, user=admin, cong_viec_id=cv_c.id,
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=1, tot=1,
-            lot_vao=[{"nguon_loai": "batch", "nguon_batch_id": batch_nguon_id, "so_luong": 1}],
+            lot_vao=[{"nguon_batch_id": batch_nguon_id, "so_luong": 1}],
         )
 
 
@@ -321,8 +345,8 @@ def test_ghi_me_xong_la_thay_ngay_ai_duoc_may_to(db, orders, lsx_svc, admin, cus
     _cham_cong(db, e1)
     _cham_cong(db, e2)
     db.commit()
-    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc, heso=1.0)
-    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc)
+    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     d = board.chi_tiet_cong_viec(db, admin, _authz_sl(db), cong_viec_id=cv.id)
@@ -335,7 +359,6 @@ def test_ghi_me_xong_la_thay_ngay_ai_duoc_may_to(db, orders, lsx_svc, admin, cus
     for x in chia["dong"]:
         assert x["ho_ten"]
         assert x["phut_thuc_te"] > 0
-        assert x["he_so_bac"] is not None
         assert "don_gia" not in x and "tien" not in x
 
 
@@ -348,7 +371,7 @@ def test_me_da_chot_thi_doc_o_ban_chot_khong_tra_nhap(db, orders, lsx_svc, admin
     e = _emp(db, to, "NV-CC-1", ten="Thợ Chốt")
     _cham_cong(db, e)
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.commit()
     kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
     phan_bo.chot_phan_bo(db, user=admin, phan_bo_id=kq["phan_bo_id"])

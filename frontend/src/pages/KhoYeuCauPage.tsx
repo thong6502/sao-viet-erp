@@ -1609,6 +1609,10 @@ interface LotPick {
   sl_con_lai: number;
   so_luong: number;
   don_gia_nhap: number | null;
+  /** Nguồn lô thành phẩm (đơn / khách) + cảnh báo khi lô thuộc đơn khác cùng khách. */
+  order_ma: string | null;
+  khach_hang: string | null;
+  canh_bao: string | null;
 }
 
 interface AllocBlock {
@@ -1658,6 +1662,9 @@ function toLotPick(a: StockAllocationLine, catalog: StockLot[]): LotPick {
     sl_con_lai: a.sl_con_lai,
     so_luong: a.so_luong,
     don_gia_nhap: a.don_gia_nhap,
+    order_ma: a.order_ma ?? null,
+    khach_hang: a.khach_hang ?? null,
+    canh_bao: a.canh_bao ?? null,
   };
 }
 
@@ -1781,6 +1788,8 @@ function VoucherCreateDrawer({
             .goiYLo(token, {
               hang_loai: l.hang_loai, hang_id: l.hang_id, kho_id: khoId,
               so_luong: l.sl_con_lai * hs,
+              // Xuất cho Giao hàng: máy chủ ưu tiên lô của đúng đơn, bỏ lô của khách khác.
+              request_id: request.id,
             })
             .catch(() => null),
         ]);
@@ -2639,8 +2648,17 @@ function AllocRow({
                       ) : (
                         block.lots.map((lot) => (
                           <tr key={lot.lot_id}>
-                            {/* Mã phiếu nhập gốc; tồn đầu kỳ không có phiếu → lùi về mã lô. */}
-                            <td className="kho-lines__code">{lot.voucher_ma ?? lot.ma_lo}</td>
+                            {/* Mã phiếu nhập gốc; tồn đầu kỳ không có phiếu → lùi về mã lô. Lô thành
+                                phẩm kèm đơn / khách, lô đơn khác cùng khách kèm cảnh báo. */}
+                            <td className="kho-lines__code">
+                              {lot.voucher_ma ?? lot.ma_lo}
+                              {lot.order_ma && (
+                                <div>Đơn {lot.order_ma}{lot.khach_hang ? ` · ${lot.khach_hang}` : ""}</div>
+                              )}
+                              {lot.canh_bao && (
+                                <div><span className="badge-sem badge-sem--amber">{lot.canh_bao}</span></div>
+                              )}
+                            </td>
                             <td>{fmtDateISO(lot.ngay_nhap)}</td>
                             <td>{lot.vi_tri ?? "—"}</td>
                             <td>{lot.hsd ? fmtDateISO(lot.hsd) : "—"}</td>

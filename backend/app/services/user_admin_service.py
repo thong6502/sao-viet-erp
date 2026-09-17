@@ -10,6 +10,7 @@ from ..config import settings
 from ..models.audit import AuditLog
 from ..models.refresh_token import RefreshToken
 from ..models.user import User
+from ..quyen_notify import bao_quyen_doi
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
@@ -141,6 +142,7 @@ class UserAdminService:
             target=f"user:{user_id}",
             detail=f"role:{role_id}",
         )
+        bao_quyen_doi([user_id])
         return user
 
     def bulk_assign_role(
@@ -173,6 +175,7 @@ class UserAdminService:
                 target=f"user:{u.id}",
                 detail=f"role:{role_id}",
             )
+        bao_quyen_doi(u.id for u in users)
         return len(users)
 
     def transfer_users(
@@ -215,6 +218,7 @@ class UserAdminService:
                 target=f"user:{u.id}",
                 detail=f"{u.username} → dept:{target_department_id}",
             )
+        bao_quyen_doi(u.id for u in users)
         return len(users)
 
     def set_active(
@@ -271,6 +275,8 @@ class UserAdminService:
             detail=f"{user.username} → dept:{department_id}"
             + (" (gỡ vai trò)" if role_dropped else ""),
         )
+        if role_dropped:
+            bao_quyen_doi([user.id])
         return user, role_dropped
 
     def reset_password(self, *, user_id: int, actor_id: int | None) -> str:

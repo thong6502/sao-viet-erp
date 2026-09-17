@@ -13,7 +13,6 @@ import type {
   SxWorkItemChiTiet, SxBatch, SxBanGiao, SxBanGiaoChangSau, SxPhanBo, SxHoTro, SxHoTroUngVien,
   SxBatchIn, SxBanGiaoDeXuatIn, SxBanGiaoSuaIn, SxBanGiaoDieuChinhIn,
   SxHoTroDeXuatIn, SxBuTruIn, SxLoaiTruIn, SxGoLoaiTruIn,
-  SxKcsBatchIn, SxNhapKhoYeuCauIn, SxHuyPhanChuaNhanIn, SxPhanLoaiBtpIn, SxDongThieuIn,
   SxKetQuaNhanh, SxSuCoIn, SxVatTuCap, SxVatTuCapLan, SxVatTuCapDoiChieu,
   SxVatTuDeNghiIn, SxVatTuDeNghiDongIn,
 } from "../api/client";
@@ -54,21 +53,6 @@ export interface ThsxExec {
   buTru: (batchId: number, body: SxBuTruIn) => Promise<boolean>;
   loaiTru: (batchId: number, body: SxLoaiTruIn) => Promise<boolean>;
   goLoaiTru: (batchId: number, body: SxGoLoaiTruIn) => Promise<boolean>;
-  // Giai đoạn 5 — KCS §13 · Kho §14 · Đóng nhóm §16/§13.3 (mọi mặt qua `mutate` ở controller).
-  taoBatchKcs: (congViecId: number, body: SxKcsBatchIn) => Promise<boolean>;
-  ghiLoiKcs: (
-    kcsBatchId: number,
-    body: {
-      to_chiu_id?: number | null; cong_doan_ref_id?: number | null;
-      so_luong?: number; mo_ta?: string | null; don_vi?: string | null; files: File[];
-    },
-  ) => Promise<boolean>;
-  themAnhLoiKcs: (loiId: number, files: File[]) => Promise<boolean>;
-  xoaAnhKcs: (anhId: number) => Promise<boolean>;
-  taoYeuCauNhap: (body: SxNhapKhoYeuCauIn) => Promise<boolean>;
-  huyPhanChuaNhan: (ycId: number, body: SxHuyPhanChuaNhanIn) => Promise<boolean>;
-  phanLoaiBtp: (body: SxPhanLoaiBtpIn) => Promise<boolean>;
-  dongThieu: (nhomId: number, body: SxDongThieuIn) => Promise<boolean>;
 }
 
 interface Props {
@@ -213,6 +197,7 @@ function SanLuongSection({
 }) {
   const sl = chiTiet.san_luong;
   const cv = chiTiet.cong_viec;
+  const buocCuoi = chiTiet.ban_giao_chang_sau.length === 0;
   const [formOpen, setFormOpen] = useState(false);
   const [ketQuaToa, setKetQuaToa] = useState<SxKetQuaNhanh[] | null>(null);
 
@@ -232,14 +217,16 @@ function SanLuongSection({
           <span className="thsx-metric-lbl">Tổng tốt</span>
           <span className="thsx-metric-val thsx-metric-val--done">{num(sl.tong_tot)}</span>
         </div>
-        <div className="thsx-batch-metric-tile">
-          <span className="thsx-metric-lbl">Đã giao</span>
-          <span className="thsx-metric-val">{num(sl.da_giao)}</span>
-        </div>
-        <div className="thsx-batch-metric-tile">
-          <span className="thsx-metric-lbl">Còn lại</span>
-          <span className="thsx-metric-val">{num(Math.max(0, sl.tong_tot - sl.da_giao))}</span>
-        </div>
+        {!buocCuoi && <>
+          <div className="thsx-batch-metric-tile">
+            <span className="thsx-metric-lbl">Đã giao</span>
+            <span className="thsx-metric-val">{num(sl.da_giao)}</span>
+          </div>
+          <div className="thsx-batch-metric-tile">
+            <span className="thsx-metric-lbl">Còn lại</span>
+            <span className="thsx-metric-val">{num(Math.max(0, sl.tong_tot - sl.da_giao))}</span>
+          </div>
+        </>}
         {sl.muc_tieu != null && (
           <div className="thsx-batch-metric-tile">
             <span className="thsx-metric-lbl">Còn thiếu</span>
@@ -271,7 +258,7 @@ function SanLuongSection({
       )}
 
       {formOpen && (
-        <BatchForm cv={cv} busy={busy}
+        <BatchForm cv={cv} busy={busy} batDauMacDinh={batDauGoiY(chiTiet, nowDtLocal())}
           onXong={(kq) => { setFormOpen(false); setKetQuaToa(kq.length ? kq : null); }}
           exec={exec} />
       )}
@@ -291,14 +278,25 @@ function SanLuongSection({
   );
 }
 
+/** Giờ bắt đầu gợi ý cho mẻ mới: nối đuôi mẻ gần nhất, chưa có mẻ thì lúc bước bắt đầu chạy.
+ *  KHÔNG lấy giờ kế hoạch: 16/09/2026 form để sẵn 17/09 20:00→22:50 cho một bước chạy từ 16/09 15:24,
+ *  tổ bấm ghi luôn và mẻ nằm ở tương lai. Mốc nào ở sau `bayGio` (dữ liệu gõ nhầm cũ) thì bỏ qua. */
+function batDauGoiY(chiTiet: SxWorkItemChiTiet, bayGio: string): string {
+  const quaKhu = (s: string) => s !== "" && s <= bayGio;
+  const cuoiMe = chiTiet.san_luong.batches.map((b) => toDtLocal(b.ket_thuc)).filter(quaKhu).sort();
+  if (cuoiMe.length) return cuoiMe[cuoiMe.length - 1];
+  const dauPhien = chiTiet.phien_chay.map((p) => toDtLocal(p.bat_dau)).filter(quaKhu).sort();
+  return dauPhien[0] ?? "";
+}
+
 function BatchForm({
-  cv, busy, onXong, exec,
+  cv, busy, batDauMacDinh, onXong, exec,
 }: {
-  cv: SxWorkItemChiTiet["cong_viec"]; busy: boolean;
+  cv: SxWorkItemChiTiet["cong_viec"]; busy: boolean; batDauMacDinh: string;
   onXong: (ketQua: SxKetQuaNhanh[]) => void; exec: ThsxExec;
 }) {
-  const [batDau, setBatDau] = useState(toDtLocal(cv.du_kien_bat_dau));
-  const [ketThuc, setKetThuc] = useState(toDtLocal(cv.du_kien_ket_thuc));
+  const [batDau, setBatDau] = useState(batDauMacDinh);
+  const [ketThuc, setKetThuc] = useState(nowDtLocal);
   const [tong, setTong] = useState("");
   const [tot, setTot] = useState("");
   const [moTaLoi, setMoTaLoi] = useState("");
@@ -310,7 +308,9 @@ function BatchForm({
 
   // `gioNhapHopLe` chứ không phải `!!`: ô ngày-giờ của trình duyệt nhận cả năm 6 chữ số, gửi lên
   // là backend trả 422 mà tổ chỉ thấy "không ghi được".
-  const hopLe = gioNhapHopLe(batDau) && gioNhapHopLe(ketThuc) && ketThuc > batDau
+  // Mẻ ghi SAU khi làm xong — máy chủ cũng từ chối giờ kết thúc ở tương lai.
+  const ketThucTuongLai = gioNhapHopLe(ketThuc) && ketThuc > nowDtLocal();
+  const hopLe = gioNhapHopLe(batDau) && gioNhapHopLe(ketThuc) && ketThuc > batDau && !ketThucTuongLai
     && nTong > 0 && nTot >= 0 && nTot <= nTong;
 
   async function luu() {
@@ -345,6 +345,9 @@ function BatchForm({
             value={ketThuc} onChange={(e) => setKetThuc(e.target.value)} />
         </Field>
       </div>
+      {ketThucTuongLai && (
+        <span className="thsx-x-err thsx-glass-err">Giờ kết thúc đang ở sau lúc này — chỉ ghi mẻ đã làm xong.</span>
+      )}
 
       <div className="thsx-glass-metric-grid thsx-x-grid2">
         <Field label={`Tổng${donVi ? ` (${nhanDonVi(donVi)})` : ""}`}>
@@ -412,6 +415,19 @@ function formatBatchTime(batDau: string | null | undefined, ketThuc: string | nu
   return `${str1} → ${dt2}/${m2} ${hh2}:${mm2}`;
 }
 
+/** Giờ MỘT lần dừng máy của mẻ. Mốc khác ngày với mẻ (dừng qua nửa đêm) thì kèm ngày — chỉ ghi
+ *  "00:21" là người đọc hiểu thành cùng ngày với mẻ. Chưa chạy lại (`ket_thuc` trống) thì nói thẳng. */
+function khungDungMay(s: SxBatch["su_co"][number], meBatDau: string): string {
+  if (!s.bat_dau) return "—";
+  const ngayMe = new Date(meBatDau).toDateString();
+  const moc = (v: string) => {
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime()) || d.toDateString() === ngayMe) return gioNgan(v);
+    return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} ${gioNgan(v)}`;
+  };
+  return s.ket_thuc ? `${moc(s.bat_dau)}–${moc(s.ket_thuc)}` : `từ ${moc(s.bat_dau)}, chưa chạy lại`;
+}
+
 /** MỘT MẺ trong danh sách sản lượng. Gấp lại chỉ hiện giờ + số tốt; mở ra là ĐỌC TRỌN mẻ (§5.2):
  *  máy đã chạy, ca, đầu việc, kíp mấy người, các lần dừng máy, rồi tới bảng chia sản lượng. */
 export function BatchRow({
@@ -464,7 +480,7 @@ export function BatchRow({
             {b.su_co.length > 0 && (
               <div className="thsx-batch-spec-cell thsx-batch-spec-cell--full thsx-batch-spec-cell--bad">
                 <span className="thsx-batch-spec-label">Dừng máy</span>
-                <span className="thsx-batch-spec-val">{b.su_co.map((s) => `${gioNgan(s.bat_dau)}–${gioNgan(s.ket_thuc)}: ${s.ly_do ?? ""}`).join(" • ")}</span>
+                <span className="thsx-batch-spec-val">{b.su_co.map((s) => `${khungDungMay(s, b.bat_dau)}: ${s.ly_do ?? ""}`).join(" • ")}</span>
               </div>
             )}
             {b.mo_ta_loi && (
@@ -497,27 +513,26 @@ export function BatchRow({
 }
 
 // ─────────────────────────── CHIA SẢN LƯỢNG theo mẻ (§12) ─────────────────
-// Khối này CHỈ chia SỐ LƯỢNG cho từng người theo trọng số (phút chấm công hợp lệ × hệ số bậc).
+// Khối này CHỈ chia SỐ LƯỢNG cho từng người theo trọng số (phút chấm công hợp lệ).
 // Không có ô tiền nào: quy sản lượng ra tiền là việc của kế toán lương ở màn "Khoán theo kỳ".
-/** Bảng 4 cột của bản chia — dùng CHUNG cho bản nháp (tính lúc đọc) và bản đã lưu, để hai nhánh
+/** Bảng 3 cột của bản chia — dùng CHUNG cho bản nháp (tính lúc đọc) và bản đã lưu, để hai nhánh
  *  không chép nhau rồi lệch nhau. Không có cột tiền nào: sản xuất ghi số lượng. */
 function BangChia({ dong }: {
   dong: { employee_id: number; ho_ten: string; so_luong: number;
-          he_so_bac: number | null; phut_thuc_te: number | null; la_ho_tro: boolean;
+          phut_thuc_te: number | null; la_ho_tro: boolean;
           ngay?: string }[];
 }) {
   if (dong.length === 0) return null;
   return (
     <table className="thsx-batch-share-tbl thsx-x-tbl">
       <thead>
-        <tr><th>Người</th><th className="r">Sản lượng</th><th className="r">Bậc</th><th className="r">Phút</th></tr>
+        <tr><th>Người</th><th className="r">Sản lượng</th><th className="r">Phút</th></tr>
       </thead>
       <tbody>
         {dong.map((d) => (
           <tr key={`${d.employee_id}-${d.ngay ?? ""}`}>
             <td>{d.ho_ten}{d.la_ho_tro && <span className="thsx-x-tag-ht">hỗ trợ</span>}</td>
             <td className="r thsx-num">{num(d.so_luong)}</td>
-            <td className="r thsx-num">{d.he_so_bac != null ? num(d.he_so_bac) : "—"}</td>
             <td className="r thsx-num">{d.phut_thuc_te != null ? num(d.phut_thuc_te) : "—"}</td>
           </tr>
         ))}
@@ -800,20 +815,24 @@ function BanGiaoSection({
 }) {
   const [formOpen, setFormOpen] = useState(false);
   const di = chiTiet.ban_giao_di;
-  const den = chiTiet.ban_giao_den;
+  // Bước cuối lệnh không có chặng sau ⇒ không bàn giao; thành phẩm vào kho qua KCS.
+  const buocCuoi = chiTiet.ban_giao_chang_sau.length === 0;
 
   return (
     <section className="thsx-psec thsx-x">
       <div className="thsx-psec__h">
         <span className="thsx-psec__title"><Icon name="truck" size={13} /> Bàn giao</span>
-        {canAssign && (
+        {canAssign && !buocCuoi && (
           <Button variant="ghost" onClick={() => setFormOpen(true)} disabled={busy} aria-haspopup="dialog">
             <Icon name="send" size={13} /> Đề xuất giao
           </Button>
         )}
       </div>
 
-      {formOpen && (
+      {buocCuoi && (
+        <p className="thsx-note">Bước cuối của lệnh — không bàn giao; thành phẩm vào kho qua KCS kiểm và đề nghị nhập kho.</p>
+      )}
+      {formOpen && !buocCuoi && (
         <BanGiaoForm chiTiet={chiTiet} conLai={conLai}
           busy={busy} onXong={() => setFormOpen(false)} exec={exec} />
       )}
@@ -829,18 +848,42 @@ function BanGiaoSection({
           </ul>
         </>
       )}
-      {den.length > 0 && (
-        <>
-          <div className="thsx-x-sub">Nhận về</div>
-          <ul className="thsx-x-list">
-            {den.map((g) => (
-              <BanGiaoRow key={g.id} g={g} phia="den" canAssign={canAssign} busy={busy} exec={exec} />
-            ))}
-          </ul>
-        </>
+      {di.length === 0 && !buocCuoi && (
+        <p className="thsx-note">Chưa giao đi lần nào. Hàng công đoạn trước giao đến nằm ở tab Nhận.</p>
       )}
-      {di.length === 0 && den.length === 0 && (
-        <p className="thsx-note">Chưa có bàn giao nào.</p>
+    </section>
+  );
+}
+
+/** Tab "Nhận" của ngăn chi tiết (§11.5): bàn giao ĐẾN công đoạn này. Bên nhận Xác nhận / Điều chỉnh
+ *  ngay tại đây — trước kia khối "Nhận về" nằm dưới Sản lượng và Giao đi của tab Bàn giao & Vật tư,
+ *  phải cuộn mới thấy nút. Lần chờ nhận đứng đầu danh sách. */
+export function ThsxNhanVe({
+  chiTiet, busy, exec,
+}: {
+  chiTiet: SxWorkItemChiTiet; busy: boolean; exec: ThsxExec;
+}) {
+  const canXacNhan = !!chiTiet.quyen?.confirm_output;
+  const den = chiTiet.ban_giao_den ?? [];
+  const cho = den.filter((g) => g.trang_thai === "proposed");
+  const xong = den.filter((g) => g.trang_thai !== "proposed");
+
+  return (
+    <section className="thsx-psec thsx-x">
+      <div className="thsx-psec__h">
+        <span className="thsx-psec__title"><Icon name="packageCheck" size={13} /> Bàn giao đến</span>
+      </div>
+      {den.length === 0 ? (
+        <p className="thsx-note">Chưa có bàn giao nào đến công đoạn này.</p>
+      ) : (
+        <ul className="thsx-x-list">
+          {[...cho, ...xong].map((g) => (
+            <BanGiaoRow key={g.id} g={g} phia="den" canAssign={canXacNhan} busy={busy} exec={exec} />
+          ))}
+        </ul>
+      )}
+      {cho.length > 0 && !canXacNhan && (
+        <p className="thsx-note">Xác nhận nhận hàng cần quyền Xác nhận sản lượng của tổ.</p>
       )}
     </section>
   );
@@ -897,7 +940,7 @@ function MeChon({
  *
  *  ĐÍCH không phải thứ để chọn: lệnh đã khai routing, backend trả đúng chặng sau. Chỉ khi bước sau
  *  tách lần chạy hoặc routing rẽ nhánh (nhiều chặng sau) tổ mới chọn một trong số đó. Bước cuối
- *  lệnh thì giao ra kho.
+ *  lệnh không mở form này (không bàn giao — thành phẩm vào kho qua KCS).
  *
  *  GIAO THEO MẺ: liệt kê các mẻ chưa giao, tick sẵn hết; số lượng = tổng tốt của mẻ đã tick, KHÔNG
  *  gõ tay. Đếm thực tế lệch thì bên nhận xác nhận rồi điều chỉnh (§11.3). */
@@ -918,11 +961,12 @@ function BanGiaoForm({
   const tong = soTheoMe(meChuaGiao, chon, conLai);
   const hopLe = tong > 0
     && (meChuaGiao.length === 0 || chon.size > 0)
-    && (changSau.length === 0 || dich != null);
+    && dich != null;
 
   async function luu() {
+    if (dich == null) return;
     const body: SxBanGiaoDeXuatIn = {
-      dich_cong_viec_id: changSau.length ? dich : null,
+      dich_cong_viec_id: dich,
       don_vi: donVi,
       batch_ids: meChuaGiao.filter((b) => chon.has(b.id)).map((b) => b.id),
     };
@@ -942,12 +986,7 @@ function BanGiaoForm({
     >
       <div className="thsx-x-fld">
         <span className="thsx-x-fld__l">Giao cho chặng sau</span>
-        {changSau.length === 0 ? (
-          <div className="thsx-x-dich">
-            <Icon name="packageCheck" size={14} />
-            <span className="thsx-x-dich__ten">Kho — bước cuối của lệnh</span>
-          </div>
-        ) : changSau.length === 1 ? (
+        {changSau.length === 1 ? (
           <div className="thsx-x-dich">
             <Icon name="arrowRight" size={14} />
             <span className="thsx-x-dich__ten">{nhanChangSau(changSau[0])}</span>
@@ -992,7 +1031,9 @@ function BanGiaoRow({
 }) {
   const [suaOpen, setSuaOpen] = useState(false);
   const [dcOpen, setDcOpen] = useState(false);
+  const [lsOpen, setLsOpen] = useState(false);
   const st = BG_TT[g.trang_thai] ?? { txt: g.trang_thai, cls: "thsx-x-pill--wait" };
+  const dv = g.don_vi ? ` ${nhanDonVi(g.don_vi)}` : "";
   const daXacNhan = g.trang_thai === "confirmed" || g.trang_thai === "adjusted";
   // Mẻ sửa được = mẻ chưa đi theo lần giao nào + mẻ của chính lần giao này.
   const meSua = batches.filter((b) => b.tot > 0 && (!b.da_ban_giao || g.batch_ids.includes(b.id)));
@@ -1008,9 +1049,36 @@ function BanGiaoRow({
         <span className="thsx-x-bg__to">{g.doi_tac_ten || (phia === "di" && g.doi_tac_cong_viec_id == null ? "Kho" : "")}{g.cung_to && <span className="thsx-x-tag-ht">cùng tổ</span>}</span>
         {g.batch_ids.length > 0 && <span className="thsx-x-bg__me thsx-num">{g.batch_ids.length} mẻ</span>}
         <span className="thsx-x-item__spacer" />
-        <span className="thsx-x-bg__q thsx-num">{num(g.so_luong)}{g.don_vi ? ` ${nhanDonVi(g.don_vi)}` : ""}</span>
+        <span className="thsx-x-bg__q thsx-num">{num(g.so_luong)}{dv}</span>
         <span className={`thsx-x-pill ${st.cls}`}>{st.txt}</span>
       </div>
+      {/* Ai giao, ai nhận, lúc nào — tổ giao và tổ nhận đọc cùng một dòng. */}
+      <div className="thsx-x-bg__sub">
+        <span>Giao: <b>{g.nguoi_de_xuat ?? "—"}</b>{g.de_xuat_luc && <span className="thsx-num"> · {ngayGio(g.de_xuat_luc)}</span>}</span>
+        <span>
+          Nhận:{" "}
+          {g.xac_nhan_luc == null ? "chưa xác nhận"
+            : g.cung_to ? "tự nhận (cùng tổ)"
+              : <><b>{g.nguoi_xac_nhan ?? "—"}</b><span className="thsx-num"> · {ngayGio(g.xac_nhan_luc)}</span></>}
+        </span>
+        {g.dieu_chinh.length > 0 && (
+          <button type="button" className="thsx-x-linkbtn" aria-expanded={lsOpen} onClick={() => setLsOpen((o) => !o)}>
+            Đã điều chỉnh {g.dieu_chinh.length} lần
+          </button>
+        )}
+      </div>
+      {lsOpen && (
+        <ol className="thsx-x-bg__ls" aria-label="Lịch sử điều chỉnh">
+          {g.dieu_chinh.map((d, i) => (
+            <li key={i}>
+              <span className="thsx-num">{ngayGio(d.luc)}</span> · <b>{d.nguoi ?? "—"}</b> ·{" "}
+              <span className="thsx-num">{num(d.so_luong_truoc)} → {num(d.so_luong_sau)}{dv}</span>
+              {d.mo_ta && <> · {d.mo_ta}</>}
+              {d.khong_nhat_quan && <span className="thsx-x-bg__lech"> · thấp hơn số công đoạn sau đã dùng</span>}
+            </li>
+          ))}
+        </ol>
+      )}
       {g.khong_nhat_quan && (
         <p className="thsx-note thsx-note--warn"><Icon name="alert" size={12} /> Số nhận không khớp số giao.</p>
       )}

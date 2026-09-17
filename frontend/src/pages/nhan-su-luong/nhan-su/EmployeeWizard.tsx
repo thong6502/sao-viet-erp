@@ -7,7 +7,6 @@ import {
   type PayrollComponent,
 } from "../../../api/client";
 import { Button } from "../../../components/Button";
-import { useCan } from "../../../auth/permissions";
 import { fmtDate, money } from "../../../utils/format";
 import { Trash2 } from "lucide-react";
 import { DOC_KIND_LABEL } from "./shared/constants";
@@ -15,11 +14,9 @@ import {
   errMsg,
   formatFileSize,
   getFileTypeInfo,
-  isProduction,
   seniorityLabel,
 } from "./shared/helpers";
-import { useJobGrades } from "./hooks/useJobGrades";
-import { Field, FilePicker, JobGradeField } from "./components/form-fields";
+import { Field, FilePicker } from "./components/form-fields";
 
 // --- Wizard thêm nhân viên (5 bước) ----------------------------------------
 
@@ -46,9 +43,6 @@ export function EmployeeWizard({
     "Đính kèm",
     "Tài khoản",
   ];
-  const can = useCan();
-  const canCreateGrade = can("nhan_su", "create");
-  const jg = useJobGrades(token);
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<EmployeeInput>({
     full_name: "",
@@ -117,8 +111,6 @@ export function EmployeeWizard({
   const salaryBase = luongViTri + luongTrachNhiem;
   // Chỉ để XEM: tổng thâm niên = thâm niên trước khi vào + thời gian từ ngày vào tới nay.
   const seniorityText = seniorityLabel(priorSeniorityYears, form.hire_date);
-  const gradeName =
-    jg.grades?.find((g) => g.id === form.job_grade_id)?.name ?? null;
 
   async function submit() {
     setError(null);
@@ -252,20 +244,12 @@ export function EmployeeWizard({
               <Field label="Phòng/Tổ *">
                 <select
                   value={form.department_id ?? ""}
-                  onChange={(e) => {
-                    const id =
-                      e.target.value === "" ? null : Number(e.target.value);
-                    // Đổi sang phòng KHÔNG phải sản xuất thì phải XOÁ bậc ngay: chỉ ẩn ô mà giữ
-                    // state là vẫn submit bậc lên backend (backend không chặn) ⇒ kế toán nhận
-                    // một nhân viên văn phòng mang bậc thợ.
-                    setForm((f) => ({
-                      ...f,
-                      department_id: id,
-                      job_grade_id: isProduction(meta, id)
-                        ? f.job_grade_id
-                        : null,
-                    }));
-                  }}
+                  onChange={(e) =>
+                    set(
+                      "department_id",
+                      e.target.value === "" ? null : Number(e.target.value),
+                    )
+                  }
                 >
                   {meta.departments.map((d) => (
                     <option key={d.id} value={d.id}>
@@ -280,19 +264,6 @@ export function EmployeeWizard({
                   onChange={(e) => set("position", e.target.value)}
                 />
               </Field>
-              {isProduction(meta, form.department_id) && (
-                <JobGradeField
-                  grades={jg.grades}
-                  err={jg.err}
-                  reload={jg.reload}
-                  addGrade={jg.addGrade}
-                  value={form.job_grade_id ?? null}
-                  onChange={(id) => set("job_grade_id", id)}
-                  label="Bậc tay nghề"
-                  // hint="Chỉ khai cho khối sản xuất. Khai bậc thôi — bậc KHÔNG làm đổi tiền lương."
-                  canCreate={canCreateGrade}
-                />
-              )}
               <Field label="Thâm niên khi vào làm (năm)">
                 <input
                   type="number"
@@ -862,7 +833,6 @@ export function EmployeeWizard({
                   {meta.departments.find((d) => d.id === form.department_id)
                     ?.name ?? "—"}{" "}
                   · {form.status === "active" ? "Chính thức" : "Thử việc"}
-                  {gradeName ? ` · ${gradeName}` : ""}
                 </p>
                 {canSalary && (
                   <p>

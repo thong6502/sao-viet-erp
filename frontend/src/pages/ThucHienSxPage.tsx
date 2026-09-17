@@ -13,27 +13,26 @@ import {
   ApiError, api,
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon, type SxLenhNhom,
   type SxHoTroUngVien, type SxSanLuongCuaToi,
-  type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
-  type SxKhoHopThu, type SxSuCoIn, type SxChoXacNhan,
+  type SxSuCoIn, type SxChoXacNhan,
 } from "../api/client";
-import { crud } from "../api/rebuildCatalog";
 import { kyThuatMay, type MayChon } from "../api/kyThuatMay";
 import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
 import { useDebounced } from "../utils/useDebounced";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { Icon } from "../components/Icons";
+import "../components/empty-state.css";
 import { BangLoi, EmptyState, ngay, ngayGio } from "./keHoachSxShared";
 import { useNapTenDonVi } from "./tenDonVi";
 import { ngayToWall } from "./xl2Shared";
 import { wallMinutes } from "./gantt-time";
 import { ThsxLichNgay } from "./ThsxLichNgay";
 import { ThsxDanhSach } from "./ThsxDanhSach";
-import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
-import { ThsxDrawer } from "./ThsxDrawer";
+import { ChipKcs, ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
+import { ThsxDrawer, type ThsxDrawerTab } from "./ThsxDrawer";
 import { type ThsxExec } from "./ThsxExecPanels";
-import { ThsxHopThuBar, type Opt } from "./ThsxG5";
-import { ThsxChoXacNhanBar } from "./ThsxChoXacNhanBar";
+import { ThsxChoNgoaiBan } from "./ThsxChoNgoaiBan";
+import { ChamCho, choNgoaiBan, choTheoViec, tabCho, tongCho, type SxChoCuaViec } from "./thsxChoXacNhan";
 import { ThsxSanLuongCuaToi } from "./ThsxSanLuongCuaToi";
 import { ThsxSanLuongTab } from "./ThsxSanLuongTab";
 import {
@@ -103,7 +102,6 @@ export function ThucHienSxPage({
   teamId,
   tenTo,
   laTho = false,
-  mode = "production",
   eventTick,
   vatTuDeNghiDem,
   dinhKemDem,
@@ -115,7 +113,6 @@ export function ThucHienSxPage({
   /** Người đang xem vào tổ này với tư cách THỢ (cờ `la_tho` của `GET /teams`, do máy chủ tính).
    *  Bật băng "Sản lượng của tôi" theo cờ này chứ không suy từ scope ở FE. */
   laTho?: boolean;
-  mode?: "production" | "kcs";
   eventTick?: number;
   /** Số lần đề nghị cấp vật tư đổi, ĐẾM THEO công việc (SSE, mắc ở AppShell). CỐ TÌNH không đi qua
    *  `eventTick`: sự kiện này broadcast TOÀN HỆ, nếu bump tick chung thì mỗi lần bất kỳ tổ nào
@@ -132,9 +129,6 @@ export function ThucHienSxPage({
   // Bàn tổ hiện TÊN đơn vị lấy từ danh mục ("tờ", "bản kẽm") chứ không hiện MÃ ("to", "kem") —
   // nạp một lần ở đây cho cả cây con (drawer · ghi sản lượng · KCS · kho) dùng `nhanDonVi`.
   useNapTenDonVi();
-  const can = useCan();
-  const canKhoRead = can("kho", "read");     // xem hộp thư kho §14
-  const canKhoCreate = can("kho", "create"); // xác nhận nhập/nhận (nhân viên kho)
 
   // Bàn tổ có HAI hình dữ liệu (11/09/2026): `lenh` = một TRANG lệnh/bài ghép (view Danh
   // sách, máy chủ đã gom và cắt trang theo LỆNH); `items` = mảng bước phẳng (view Lịch/Gantt —
@@ -148,17 +142,11 @@ export function ThucHienSxPage({
   const [hoTroUngVien, setHoTroUngVien] = useState<SxHoTroUngVien[]>([]);
   const [mayOptions, setMayOptions] = useState<MayChon[]>([]);
 
-  // ---- Giai đoạn 5: KCS §13 · Kho §14 · Đóng nhóm §16 (nạp theo việc/nhóm đang chọn) ----
-  const [kcsCt, setKcsCt] = useState<SxKcsChiTiet | null>(null);
-  const [khoCt, setKhoCt] = useState<SxKhoChiTiet | null>(null);
-  const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
-  const [khoHopThu, setKhoHopThu] = useState<SxKhoHopThu | null>(null);
-  // Hộp "Chờ tổ bạn xác nhận" — bàn giao đến + hỗ trợ chéo chờ bên tổ mình (máy chủ lọc theo quyền).
+  // Việc chờ tổ bấm (§11.5) — bàn giao đến · hỗ trợ chéo chờ bên tổ mình · lỗi KCS chưa xem (máy chủ
+  // lọc theo quyền). Không còn hộp đầu trang: thành chấm đỏ trên dòng công đoạn / đầu lệnh / tab ngăn.
   const [choXn, setChoXn] = useState<SxChoXacNhan | null>(null);
-  // Kho ĐÍCH chọn được lúc xác nhận nhập. `null` = CHƯA ĐỌC ĐƯỢC danh mục (đang tải / lỗi mạng /
-  // không có quyền đọc); `[]` = đọc được nhưng danh mục RỖNG THẬT. Hai chuyện khác hẳn nhau ⇒ hai
-  // câu nhắc khác nhau, đừng gộp (xem `KhoNhapHopThuRow`).
-  const [khoOpts, setKhoOpts] = useState<Opt[] | null>(null);
+  // Ô "chờ xác nhận" trên thanh lọc: bật thì máy chủ chỉ trả lệnh có việc chờ (lọc TRƯỚC khi cắt trang).
+  const [chiCho, setChiCho] = useState(false);
   const [g5Tick, setG5Tick] = useState(0); // nhịp refetch riêng cho G5 sau mỗi lệnh ghi
 
   const [winTu, setWinTu] = useState<string>(() => mondayOf(new Date()));
@@ -173,11 +161,14 @@ export function ThucHienSxPage({
 
   const [q, setQ] = useState("");
   const qd = useDebounced(q, 200);
+  const choMap = useMemo(() => choTheoViec(choXn), [choXn]);
+  const soChoXn = tongCho(choXn);
+  const ngoaiBan = useMemo(() => choNgoaiBan(choXn), [choXn]);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  // Tab mở sẵn của drawer + nhịp remount: mở từ hộp "Chờ tổ bạn xác nhận" thì vào thẳng tab Bàn
-  // giao, kể cả khi đúng việc đó đang mở sẵn ở tab khác.
-  const [tabDau, setTabDau] = useState<"van_hanh" | "ban_giao">("van_hanh");
+  // Tab mở sẵn của drawer + nhịp remount: công đoạn đang có việc chờ thì vào thẳng tab nơi bấm (Nhận /
+  // KCS / Bàn giao), kể cả khi đúng việc đó đang mở sẵn ở tab khác.
+  const [tabDau, setTabDau] = useState<ThsxDrawerTab>("van_hanh");
   const [moLan, setMoLan] = useState(0);
   const [chiTiet, setChiTiet] = useState<SxWorkItemChiTiet | null>(null);
   const [ctLoading, setCtLoading] = useState(false);
@@ -197,11 +188,12 @@ export function ThucHienSxPage({
     setErr(null);
     const phang = view === "lich";
     api.sanXuat.workItems(token, {
-      teamId, mode,
+      teamId,
       nhom: phang ? "phang" : "lenh",
       // Tìm kiếm lọc Ở MÁY CHỦ, trước khi cắt trang — lọc bằng JS sau khi trang về thì ô tìm
       // kiếm chỉ soi được đúng 20 lệnh đang hiện. Chế độ phẳng kéo trọn bàn nên màn tự lọc.
       ...(phang ? { tuNgay: winTu, denNgay: winDen } : { tim: timMayChu || undefined, trang, coTrang: CO_TRANG }),
+      choXacNhan: chiCho || undefined,
     })
       .then((r) => {
         // Hình nào là do CỜ `nhom` của máy chủ quyết, không do "có mảng lệnh hay không" —
@@ -215,13 +207,15 @@ export function ThucHienSxPage({
       .catch((e: unknown) => setErr(e instanceof ApiError
         ? (e.isForbidden ? "Tổ này ngoài phạm vi của bạn." : e.message)
         : String(e)));
-  }, [token, teamId, mode, view, timMayChu, trang, winTu, winDen]);
+  }, [token, teamId, view, timMayChu, trang, winTu, winDen, chiCho]);
 
   // SSE bump (`eventTick`) nạp lại nhưng GIỮ NGUYÊN `trang` — nhảy về trang 1 giữa lúc tổ đang
   // thao tác ở trang 3 là cướp chỗ đứng của người ta.
   useEffect(() => { loadItems(); }, [loadItems, eventTick]);
   // Đổi tổ / đổi từ khoá / đổi chế độ lọc ⇒ trang cũ không còn nghĩa, về trang 1.
-  useEffect(() => { setTrang(1); }, [teamId, mode, qd]);
+  useEffect(() => { setTrang(1); }, [teamId, qd, chiCho]);
+  // Đổi tổ thì tắt ô "chờ xác nhận" — ô đó là của bàn trước.
+  useEffect(() => { setChiCho(false); }, [teamId]);
   const soTrang = Math.max(1, Math.ceil(tongLenh / CO_TRANG));
 
   // Luỹ kế sản lượng tháng của CHÍNH mình — CHỈ nạp khi vào tổ với tư cách THỢ (§6). Tổ trưởng
@@ -278,7 +272,20 @@ export function ThucHienSxPage({
       .finally(() => setCtLoading(false));
   }, [token]);
 
-  useEffect(() => { void loadChiTiet(selectedId); }, [loadChiTiet, selectedId, eventTick]);
+  // `mutate` đang chờ máy chủ lưu (từ lúc gửi tới lúc bắt đầu nạp lại chi tiết).
+  const dangGhi = useRef(false);
+  useEffect(() => { void loadChiTiet(selectedId); }, [loadChiTiet, selectedId]);
+  // Sự kiện SX (SSE) → nạp lại việc đang mở. Đang có lượt ghi của chính mình thì BỎ: `mutate` nạp
+  // lại ngay sau khi lưu xong, lượt đó bắt đầu sau mọi sự kiện về trước nó nên đã phủ luôn. Không
+  // bỏ thì SSE của chính cú bấm (về TRƯỚC phản hồi POST) đẻ một GET song song — đo 16/09/2026 hai
+  // GET chồng nhau kéo mỗi cái từ ~330 ms lên ~570 ms.
+  const tickDaNap = useRef(eventTick);
+  useEffect(() => {
+    if (tickDaNap.current === eventTick) return;
+    tickDaNap.current = eventTick;
+    if (dangGhi.current) return;
+    void loadChiTiet(selectedId);
+  }, [eventTick, loadChiTiet, selectedId]);
 
   // Đề nghị vật tư đổi (SSE): CHỈ nạp lại khi số đếm CỦA RIÊNG việc đang mở tăng. So theo cặp
   // (việc, số đếm) nên đổi việc KHÔNG kéo theo một lượt gọi thừa — effect ngay trên vừa nạp rồi.
@@ -323,106 +330,28 @@ export function ThucHienSxPage({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // ---- Giai đoạn 5: cờ dẫn xuất từ việc đang chọn (chỉ tin khi chi tiết khớp id) ----
-  const selCv = chiTiet && chiTiet.cong_viec.id === selectedId ? chiTiet.cong_viec : null;
-  const isKcs = !!selCv?.la_kcs;
-  const isKcsCuoi = !!selCv?.la_kcs_cuoi;
-  const selNhom = selCv?.nhom_id ?? null;
-
-  // Tổ có thể chỉ định "chịu trách nhiệm lỗi" — gom từ ứng viên hỗ trợ chéo (không đụng quyền nhân sự).
-  const toChiuOpts = useMemo<Opt[]>(() => {
-    const seen = new Map<number, string>();
-    for (const c of hoTroUngVien) {
-      if (c.to_id != null && c.to_id !== toCuaViec && !seen.has(c.to_id)) {
-        seen.set(c.to_id, c.to_ten ?? `Tổ #${c.to_id}`);
-      }
-    }
-    return [...seen.entries()].map(([id, ten]) => ({ id, ten }));
-  }, [hoTroUngVien, toCuaViec]);
-
-  // Công đoạn thượng nguồn có thể gán "liên đới lỗi" — từ các bàn giao ĐẾN việc này.
-  const congDoanRefOpts = useMemo<Opt[]>(() => {
-    const seen = new Map<number, string>();
-    for (const b of chiTiet?.ban_giao_den ?? []) {
-      if (b.doi_tac_cong_viec_id != null && !seen.has(b.doi_tac_cong_viec_id)) {
-        seen.set(b.doi_tac_cong_viec_id, b.doi_tac_ten);
-      }
-    }
-    return [...seen.entries()].map(([id, ten]) => ({ id, ten }));
-  }, [chiTiet]);
-
-  // KCS §13 — mẻ kiểm tra + lỗi của việc đang chọn (chỉ bước `la_kcs`).
-  useEffect(() => {
-    if (!token || selectedId == null || !isKcs) { setKcsCt(null); return; }
-    let alive = true;
-    api.sanXuat.kcsChiTiet(token, selectedId)
-      .then((r) => { if (alive) setKcsCt(r); })
-      .catch(() => { if (alive) setKcsCt(null); });
-    return () => { alive = false; };
-  }, [token, selectedId, isKcs, eventTick, g5Tick]);
-
-  // Kho §14 — yêu cầu nhập + BTP dư của NHÓM (bước KCS thuộc một nhóm thành phẩm).
-  useEffect(() => {
-    if (!token || selNhom == null || !isKcs) { setKhoCt(null); return; }
-    let alive = true;
-    api.sanXuat.khoChiTietNhom(token, selNhom)
-      .then((r) => { if (alive) setKhoCt(r); })
-      .catch(() => { if (alive) setKhoCt(null); });
-    return () => { alive = false; };
-  }, [token, selNhom, isKcs, eventTick, g5Tick]);
-
-  // §16/§13.3 — checklist cổng đóng nhóm (chỉ ở KCS CUỐI của nhóm).
-  useEffect(() => {
-    if (!token || selNhom == null || !isKcsCuoi) { setDieuKien(null); return; }
-    let alive = true;
-    api.sanXuat.dieuKienDongNhom(token, selNhom)
-      .then((r) => { if (alive) setDieuKien(r); })
-      .catch(() => { if (alive) setDieuKien(null); });
-    return () => { alive = false; };
-  }, [token, selNhom, isKcsCuoi, eventTick, g5Tick]);
-
   /* Khối "thưởng/phạt tổ trưởng" GỠ 11/09/2026 (mg `0297`) — sản xuất thôi giữ tiền. */
 
   // Hộp thư LỖI KCS đã GỠ khỏi màn production (Task 9 §6.4, mg 0250 kiêm nhiệm) — luồng phản hồi
   // trách nhiệm cũ (pending/accepted/rejected) không còn hiện ở UI mới; hồ sơ cũ vẫn đọc được qua
   // drawer lịch sử nếu cần, chỉ KHÔNG polling/hiện thanh cảnh báo ở bàn tổ thường nữa.
 
-  // Hộp thư KHO — yêu cầu nhập/nhận chờ xác nhận (chỉ khi có quyền đọc kho).
-  useEffect(() => {
-    if (!token || !canKhoRead) { setKhoHopThu(null); return; }
-    let alive = true;
-    api.sanXuat.khoHopThu(token)
-      .then((r) => { if (alive) setKhoHopThu(r); })
-      .catch(() => { if (alive) setKhoHopThu(null); });
-    return () => { alive = false; };
-  }, [token, canKhoRead, eventTick, g5Tick]);
+  // Hộp thư KHO nhập thành phẩm ĐÃ GỠ 17/09/2026: KCS gửi thành phẩm thành yêu cầu NHẬP thật, kho
+  // nhận ở Hộp yêu cầu của module Kho (design nhập kho thành phẩm qua Yêu cầu nhập xuất).
 
-  // Hộp "Chờ tổ bạn xác nhận" — nạp lại theo SSE (bàn giao/hỗ trợ đổi ở tổ kia) và sau mỗi lệnh ghi.
+  // Việc chờ tổ bấm — nạp lại theo SSE (bàn giao/hỗ trợ đổi ở tổ kia) và sau mỗi lệnh ghi (kể cả ghi
+  // trong ngăn chi tiết: xác nhận nhận hàng xong thì chấm đỏ phải tắt ngay, không chờ SSE).
+  const [choTick, setChoTick] = useState(0);
   useEffect(() => {
-    if (!token || mode !== "production") { setChoXn(null); return; }
+    if (!token) { setChoXn(null); return; }
     let alive = true;
     api.sanXuat.choXacNhan(token, teamId)
       .then((r) => { if (alive) setChoXn(r); })
       .catch(() => { if (alive) setChoXn(null); });
     return () => { alive = false; };
-  }, [token, teamId, mode, eventTick, g5Tick]);
-
-  // Danh mục KHO ĐÍCH cho ô chọn lúc xác nhận nhập thành phẩm (31/08/2026). `GET /api/kho` mở cho
-  // quyền `kho:read` (xem `routers/kho.py::_doc_kho`) nên nhân viên kho đọc được. CHỈ kho đang dùng
-  // — không bày kho đã ngừng ra cho người ta chọn nhầm. Danh mục nền, không theo tổ ⇒ nạp một lần.
-  useEffect(() => {
-    if (!token || !canKhoRead) { setKhoOpts(null); return; }
-    let alive = true;
-    crud("/api/kho").list(token, { active: true })
-      .then((r) => {
-        if (!alive) return;
-        setKhoOpts(r.items.map((w) => ({ id: Number(w.id), ten: String(w.ten) })));
-      })
-      // Hỏng thì về `null` chứ KHÔNG về `[]`: `[]` nghĩa là "danh mục rỗng, đi khai kho đi" — sai
-      // hẳn nguyên nhân khi thật ra `GET /api/kho` vừa 500 hoặc rớt mạng.
-      .catch(() => { if (alive) setKhoOpts(null); });
-    return () => { alive = false; };
-  }, [token, canKhoRead]);
+  }, [token, teamId, eventTick, g5Tick, choTick]);
+  // Hết việc chờ thì ô lọc tự tắt — để bật mà bảng trống trơn thì tổ tưởng mất lệnh.
+  useEffect(() => { if (chiCho && choXn && soChoXn === 0) setChiCho(false); }, [chiCho, choXn, soChoXn]);
 
   // ---- lọc + gom nhóm cột trái / cluster timeline ----
   const winStartW = useMemo(() => ngayToWall(winTu), [winTu]);
@@ -473,9 +402,9 @@ export function ThucHienSxPage({
   // ---- chọn việc: mở drawer + (nếu ngoài cửa sổ) dời cửa sổ tới tuần của việc ----
   const pickViec = useCallback((w: SxWorkItem) => {
     if (sxCoGio(w) && !overlaps(w)) setWinTu(mondayOfIso(w.du_kien_bat_dau as string));
-    setTabDau("van_hanh");
+    setTabDau(tabCho(choMap.get(w.id)));
     setSelectedId(w.id);
-  }, [overlaps]);
+  }, [overlaps, choMap]);
   const closePanel = useCallback(() => setSelectedId(null), []);
 
   // ---- ghi (khoá lạc quan) ----
@@ -496,45 +425,38 @@ export function ThucHienSxPage({
     // chính cú bấm này có thể tới trình duyệt SỚM HƠN lúc `run()` resolve. Mốc đặt sau `run()` là
     // đã muộn — tín hiệu cần chặn đã đi qua cửa rồi.
     vuaTuNap.current = Date.now();
+    dangGhi.current = true;
+    let r: T;
     try {
-      const r = await run();
-      setReason(null);
-      setReasonText("");
-      await loadChiTiet(selectedId);
+      r = await run();
+    } catch (e) {
+      dangGhi.current = false;
+      handleErr(e);
+      setBusy(false);
+      return null;
+    }
+    setReason(null);
+    setReasonText("");
+    setToast(ok);
+    // Trả kết quả NGAY khi máy chủ đã lưu để hộp nhập (Ghi mẻ, Đề xuất bàn giao…) đóng liền. Trước
+    // đây hộp đứng chờ nạp lại cả chi tiết việc: đo 16/09/2026 lưu mất 87 ms mà hộp 688 ms mới
+    // đóng. `busy` giữ tới khi nạp xong nên nút trong drawer không bấm được trên số cũ.
+    const nap = loadChiTiet(selectedId);
+    dangGhi.current = false;
+    void nap.finally(() => {
       // Đặt LẠI sau khi nạp xong: mốc đầu phủ khoảng sự kiện về SỚM, mốc này phủ khoảng nó về
       // MUỘN hơn lượt nạp. Cùng cửa 2 giây, không đẻ cơ chế mới.
       vuaTuNap.current = Date.now();
       loadItems();
+      setChoTick((t) => t + 1);
       onBadgeStale?.();
-      setToast(ok);
-      return r;
-    } catch (e) {
-      handleErr(e);
-      return null;
-    } finally { setBusy(false); }
+      setBusy(false);
+    });
+    return r;
   }, [token, selectedId, loadChiTiet, loadItems, onBadgeStale, handleErr]);
 
   // Ghi G5 trong DRAWER (cần việc đang chọn): refetch chi tiết + việc + nhịp G5; badge tổ nháy.
-  const mutateG5 = useCallback(async (run: () => Promise<unknown>, ok: string): Promise<boolean> => {
-    if (!token || selectedId == null) return false;
-    setBusy(true);
-    try {
-      await run();
-      await loadChiTiet(selectedId);
-      loadItems();
-      onBadgeStale?.();
-      setToast(ok);
-      return true;
-    } catch (e) {
-      handleErr(e);
-      return false;
-    } finally {
-      setBusy(false);
-      setG5Tick((t) => t + 1);
-    }
-  }, [token, selectedId, loadChiTiet, loadItems, onBadgeStale, handleErr]);
-
-  // Ghi từ HỘP THƯ mức trang (không cần drawer): phản hồi lỗi · kho xác nhận nhập/nhận.
+  // Ghi từ HỘP THƯ mức trang (không cần drawer): đã xem lỗi KCS · kho xác nhận nhập/nhận.
   const mutateInbox = useCallback(async (run: () => Promise<unknown>, ok: string): Promise<boolean> => {
     if (!token) return false;
     setBusy(true);
@@ -554,27 +476,22 @@ export function ThucHienSxPage({
     }
   }, [token, selectedId, loadChiTiet, loadItems, onBadgeStale, handleErr]);
 
-  const onPhanHoiLoi = useCallback((loiId: number, chapNhan: boolean, lyDo: string | null, version: number) => {
-    void mutateInbox(() => api.sanXuat.phanHoiLoiKcs(token!, loiId, {
-      chap_nhan: chapNhan, ly_do_tu_choi: lyDo, expected_version: version,
-    }), chapNhan ? "Đã nhận trách nhiệm lỗi." : "Đã từ chối lỗi.");
+  // KCS báo lỗi về tổ — một chiều: tổ chỉ đánh dấu "Đã xem" (không Nhận/Từ chối trách nhiệm).
+  const onDaXemKcs = useCallback((loiId: number) => {
+    void mutateInbox(() => api.sanXuat.daXemLoiKcs(token!, loiId), "Đã đánh dấu đã xem lỗi KCS.");
   }, [mutateInbox, token]);
-
-  // `khoId` BẮT BUỘC — lot thành phẩm phải biết nó nằm kho nào (31/08/2026).
-  const onKhoXacNhanNhap = useCallback((ycId: number, soLuong: number, khoId: number, version: number) => {
-    void mutateInbox(() => api.sanXuat.khoXacNhanNhap(token!, ycId, {
-      so_luong: soLuong, kho_id: khoId, expected_version: version,
-    }), "Kho đã xác nhận nhập.");
-  }, [mutateInbox, token]);
-
-  const onKhoXacNhanBtp = useCallback((lotId: number) => {
-    void mutateInbox(() => api.sanXuat.khoXacNhanBtp(token!, lotId), "Kho đã nhận BTP.");
-  }, [mutateInbox, token]);
+  const kcsLoiChoXem = useMemo(() => new Set((choXn?.kcs_loi ?? []).map((l) => l.loi_id)), [choXn]);
 
   const onMoBanGiaoCho = useCallback((dichCongViecId: number) => {
-    setTabDau("ban_giao");
+    setTabDau("nhan");
     setMoLan((n) => n + 1);
     setSelectedId(dichCongViecId);
+  }, []);
+  // "Mở" lỗi KCS: ngăn chi tiết công đoạn bị báo lỗi, mở thẳng tab KCS.
+  const onMoKcsCho = useCallback((congViecId: number) => {
+    setTabDau("kcs");
+    setMoLan((n) => n + 1);
+    setSelectedId(congViecId);
   }, []);
   const onXacNhanHoTroCho = useCallback((id: number, version: number) => {
     void mutateInbox(() => api.sanXuat.xacNhanHoTro(token!, id, { expected_version: version }),
@@ -715,17 +632,8 @@ export function ThucHienSxPage({
       buTru: (batchId, b) => ok(mutate(() => api.sanXuat.buTru(token!, batchId, b), "Đã ghi bù trừ.")),
       loaiTru: (batchId, b) => ok(mutate(() => api.sanXuat.loaiTru(token!, batchId, b), "Đã loại khỏi mẻ.")),
       goLoaiTru: (batchId, b) => ok(mutate(() => api.sanXuat.goLoaiTru(token!, batchId, b), "Đã gỡ loại trừ.")),
-      // Giai đoạn 5 — KCS §13 · Kho §14 · Đóng nhóm §16/§13.3 (đi qua `mutateG5`).
-      taoBatchKcs: (cvId, b) => mutateG5(() => api.sanXuat.taoBatchKcs(token!, cvId, b), "Đã ghi mẻ kiểm tra KCS."),
-      ghiLoiKcs: (batchId, b) => mutateG5(() => api.sanXuat.ghiLoiKcs(token!, batchId, b), "Đã ghi lỗi KCS."),
-      themAnhLoiKcs: (loiId, files) => mutateG5(() => api.sanXuat.themAnhLoiKcs(token!, loiId, files), "Đã thêm ảnh lỗi."),
-      xoaAnhKcs: (anhId) => mutateG5(() => api.sanXuat.xoaAnhKcs(token!, anhId), "Đã xoá ảnh."),
-      taoYeuCauNhap: (b) => mutateG5(() => api.sanXuat.taoYeuCauNhap(token!, b), "Đã gửi yêu cầu nhập kho."),
-      huyPhanChuaNhan: (ycId, b) => mutateG5(() => api.sanXuat.huyPhanChuaNhan(token!, ycId, b), "Đã huỷ phần chưa nhận."),
-      phanLoaiBtp: (b) => mutateG5(() => api.sanXuat.phanLoaiBtp(token!, b), "Đã ghi phân loại BTP."),
-      dongThieu: (nhomId, b) => mutateG5(() => api.sanXuat.dongThieu(token!, nhomId, b), "Đã đóng thiếu nhóm."),
     };
-  }, [mutate, mutateG5, token, selectedId, toCuaViec, onDoiMay, onBaoSuCo]);
+  }, [mutate, token, selectedId, toCuaViec, onDoiMay, onBaoSuCo]);
 
   const panelOpen = selectedId != null;
 
@@ -798,6 +706,7 @@ export function ThucHienSxPage({
                 ))}
               </div>
             </div>
+            <ONutCho so={soChoXn} bat={chiCho} onDoi={setChiCho} />
             <div className="thsx-top__spacer" />
             <div className="thsx-kpi" aria-label="Tổng quan việc của tổ">
               {([
@@ -836,6 +745,7 @@ export function ThucHienSxPage({
             </button>
           )}
         </div>
+        <ONutCho so={soChoXn} bat={chiCho} onDoi={setChiCho} />
         <div className="thsx-subbar__spacer" />
         <div className="thsx-digest" aria-label="Tổng quan việc của tổ">
           <span className="thsx-digest__chip thsx-digest__chip--tong"><Icon name="clipboard" size={12} /> <b className="thsx-num">{digest.tong}</b> việc</span>
@@ -846,27 +756,17 @@ export function ThucHienSxPage({
         </div>
       </div>}
 
-      {/* Hộp thư mức trang (§14) — chỉ hiện khi CÓ việc chờ; real-time qua eventTick/g5Tick.
-          Cột KCS đã GỠ khỏi màn production (Task 9 §6.4) — `kcsItems` cố định rỗng, luồng phản hồi
-          trách nhiệm lỗi KCS legacy không còn hiện ở đây nữa (module KCS mới không dùng luồng đó). */}
-      <ThsxHopThuBar
-        kcsItems={[]}
-        khoHopThu={khoHopThu}
-        khoOpts={khoOpts}
-        canKhoRead={canKhoRead}
-        canKhoCreate={canKhoCreate}
-        busy={busy}
-        onPhanHoiLoi={onPhanHoiLoi}
-        onKhoXacNhanNhap={onKhoXacNhanNhap}
-        onKhoXacNhanBtp={onKhoXacNhanBtp}
-      />
-      <ThsxChoXacNhanBar
-        data={choXn}
+      {/* Việc chờ TỔ bấm (bàn giao đến, hỗ trợ chéo, lỗi KCS) gắn vào công đoạn của nó (§11.5); chỉ
+          việc không có dòng trên bàn mới liệt kê riêng, khi bật ô "chờ xác nhận". */}
+      {chiCho && <ThsxChoNgoaiBan
+        data={ngoaiBan}
         busy={busy}
         onMoBanGiao={onMoBanGiaoCho}
         onXacNhanHoTro={onXacNhanHoTroCho}
         onHuyHoTro={onHuyHoTroCho}
-      />
+        onMoKcs={onMoKcsCho}
+        onDaXemKcs={onDaXemKcs}
+      />}
 
       {/* Lưới 3 cột — Tự ẩn sidebar trái khi ở chế độ Bảng để tràn 100% không gian */}
       <div className={`thsx-grid${panelOpen ? " is-panel" : ""}${view !== "lich" ? " thsx-grid--full" : " thsx-grid--lich"}${view === "lich" && choThu ? " thsx-grid--cho-thu" : ""}`}>
@@ -915,14 +815,16 @@ export function ThucHienSxPage({
                       xem, dời sang tuần trống thì tổng về 0 dù tổ vẫn còn việc ở tuần khác. */}
                   <p>{q
                     ? "Không có việc chờ nào khớp từ khoá."
-                    : "Tất cả việc của tổ đều đã nằm trên lịch."}</p>
+                    : chiCho
+                      ? "Không có công đoạn chờ xác nhận nào nằm ngoài lịch."
+                      : "Tất cả việc của tổ đều đã nằm trên lịch."}</p>
                 </div>
               ) : (
                 <>
                   <ListSection label="Chưa định giờ" icon="clock" viec={groups.untimed}
-                    selectedId={selectedId} onPick={pickViec} />
+                    selectedId={selectedId} onPick={pickViec} cho={choMap} />
                   <ListSection label="Ngoài khoảng ngày" icon="history" viec={groups.outWin}
-                    selectedId={selectedId} onPick={pickViec} />
+                    selectedId={selectedId} onPick={pickViec} cho={choMap} />
                 </>
               )}
             </div>
@@ -939,8 +841,10 @@ export function ThucHienSxPage({
             (lenh ?? []).length === 0 ? (
               <div className="thsx-centerempty">
                 <EmptyState icon={q ? "search" : "check"}
-                  title={q ? "Không khớp tìm kiếm" : "Chưa có việc phát hành"}
-                  sub={q ? "Thử đổi từ khoá." : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
+                  title={q ? "Không khớp tìm kiếm" : chiCho ? "Không có lệnh nào trên bàn đang chờ xác nhận" : "Chưa có việc phát hành"}
+                  sub={q ? "Thử đổi từ khoá."
+                    : chiCho ? "Việc chờ còn lại thuộc công đoạn ngoài bàn này — xem danh sách phía trên."
+                      : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
               </div>
             ) : (
               <>
@@ -951,6 +855,7 @@ export function ThucHienSxPage({
                   onBatDau={(w) => lamNhanh(w, "bat_dau")}
                   onTamDung={(w) => lamNhanh(w, "tam_dung")}
                   onKetThuc={(w) => lamNhanh(w, "ket_thuc")}
+                  cho={choMap}
                 />
                 <ThanhTrang trang={trang} soTrang={soTrang} tong={tongLenh} onDoi={setTrang} />
               </>
@@ -963,6 +868,7 @@ export function ThucHienSxPage({
               viec={groups.timed}
               selectedId={selectedId}
               onChon={pickViec}
+              cho={choMap}
             />
           )}
         </section>
@@ -971,14 +877,24 @@ export function ThucHienSxPage({
         <aside className={`thsx-panel${panelOpen ? " thsx-panel--open" : ""}`}
           aria-label="Chi tiết công việc đang chọn">
           {panelOpen && (
-            <ThsxDrawer
+            // Ngăn chi tiết vẽ hỏng thì chỉ ngăn này báo lỗi — bảng việc, hộp thư, đăng nhập đứng
+            // nguyên. Không bọc thì một lỗi vẽ gỡ cả ứng dụng (xem `ErrorBoundary`).
+            <ErrorBoundary
               // `key`: đổi công việc chọn phải REMOUNT cả drawer, không chỉ đổi prop — review vòng
               // 1, Minor 5. State nội bộ (`doiMayOpen`/`mayChonId`/`lyDoMay`, `giaoOpen`/`moKhoang`)
               // trước đây sống qua lần đổi `selectedId` vì component không unmount, để lại form
               // "Đổi máy" còn mở hoặc còn chọn dở máy của công việc TRƯỚC khi bấm sang việc khác.
+              // Đặt ở ranh giới nên chọn việc khác cũng xoá luôn trạng thái lỗi.
               key={`${selectedId}:${moLan}`}
+              fallback={(thuLai) => <NganChiTietLoi onThuLai={thuLai} onClose={closePanel} />}
+            >
+            <ThsxDrawer
               tabDau={tabDau}
               dinhKemDem={dinhKemDem}
+              kcsTick={(eventTick ?? 0) + g5Tick}
+              kcsLoiChoXem={kcsLoiChoXem}
+              cho={selectedId != null ? choMap.get(selectedId) : undefined}
+              onDaXemKcs={onDaXemKcs}
               chiTiet={chiTiet}
               loading={ctLoading}
               candidates={candidates}
@@ -986,11 +902,6 @@ export function ThucHienSxPage({
               mayOptions={mayOptions}
               exec={exec}
               busy={busy}
-              kcsCt={kcsCt}
-              khoCt={khoCt}
-              dieuKien={dieuKien}
-              toChiuOpts={toChiuOpts}
-              congDoanRefOpts={congDoanRefOpts}
               onGiao={onGiao}
               onRut={onRut}
               onBatDau={onBatDau}
@@ -1000,6 +911,7 @@ export function ThucHienSxPage({
               onKetThuc={onKetThuc}
               onClose={closePanel}
             />
+            </ErrorBoundary>
           )}
         </aside>
       </div>
@@ -1059,13 +971,14 @@ export function ThucHienSxPage({
 
 // ============================ danh sách trái — 1 nhóm ======================
 function ListSection({
-  label, icon, viec, selectedId, onPick,
+  label, icon, viec, selectedId, onPick, cho,
 }: {
   label: string;
   icon: Parameters<typeof Icon>[0]["name"];
   viec: SxWorkItem[];
   selectedId: number | null;
   onPick: (w: SxWorkItem) => void;
+  cho?: ReadonlyMap<number, SxChoCuaViec>;
 }) {
   if (viec.length === 0) return null;
   return (
@@ -1075,19 +988,22 @@ function ListSection({
         <span className="thsx-lsec__n thsx-num">{viec.length}</span>
       </div>
       {viec.map((w) => (
-        <ListRow key={w.id} w={w} selected={w.id === selectedId} onPick={() => onPick(w)} />
+        <ListRow key={w.id} w={w} selected={w.id === selectedId} onPick={() => onPick(w)} cho={cho?.get(w.id)} />
       ))}
     </div>
   );
 }
 
-function ListRow({ w, selected, onPick }: { w: SxWorkItem; selected: boolean; onPick: () => void }) {
+function ListRow({ w, selected, onPick, cho }: {
+  w: SxWorkItem; selected: boolean; onPick: () => void; cho?: SxChoCuaViec;
+}) {
   return (
     <button type="button" className={`thsx-lrow${selected ? " thsx-lrow--sel" : ""}`}
       aria-pressed={selected} onClick={onPick}>
       <div className="thsx-lrow__top">
         <Icon name={sxNguonIcon(w.nguon_loai)} size={13} className="thsx-lrow__nic" />
         <span className="thsx-lrow__serial thsx-num">{sxSerial(w.nguon_ma)}</span>
+        <ChamCho c={cho} />
         <span className="thsx-lrow__spacer" />
         <ThsxTrangThaiPill tt={w.trang_thai} size="xs" />
       </div>
@@ -1097,11 +1013,57 @@ function ListRow({ w, selected, onPick }: { w: SxWorkItem; selected: boolean; on
         {w.du_kien_bat_dau && (
           <span className="thsx-lrow__gio thsx-num"><Icon name="clock" size={11} /> {ngayGio(w.du_kien_bat_dau)}</span>
         )}
-        {w.la_kcs && <span className="thsx-lrow__kcs">KCS</span>}
+        <ChipKcs so_lan={w.kcs_so_lan} loi={w.kcs_loi} />
         <ChipLoaiBuoc loai_buoc={w.loai_buoc} nha_cung_cap={w.nha_cung_cap} />
         <ChipKhuon can_khuon={!!w.khuon} khuon={{ ...(w.khuon ?? {}), da_nhan: w.khuon_da_nhan }} />
       </div>
     </button>
+  );
+}
+
+// ===================== ô "chờ xác nhận" trên thanh lọc ======================
+/** Đếm việc chờ tổ bấm + công tắc lọc bảng về các lệnh có việc chờ (máy chủ lọc, §11.5). Không có
+ *  việc chờ và đang tắt thì không chiếm chỗ. */
+export function ONutCho({ so, bat, onDoi }: { so: number; bat: boolean; onDoi: (b: boolean) => void }) {
+  if (so === 0 && !bat) return null;
+  return (
+    <button type="button" className={`thsx-cho-chip${bat ? " is-on" : ""}`} aria-pressed={bat}
+      title={bat ? "Đang chỉ hiện lệnh có việc chờ tổ xác nhận — bấm để xem lại tất cả"
+        : "Chỉ hiện lệnh có việc chờ tổ xác nhận"}
+      onClick={() => onDoi(!bat)}>
+      <span className="thsx-cho-chip__dot" aria-hidden="true" />
+      <b className="thsx-num">{so}</b> chờ xác nhận
+      {bat && <Icon name="x" size={12} />}
+    </button>
+  );
+}
+
+// ======================= ngăn chi tiết vẽ hỏng ==============================
+/** Thay ngăn chi tiết khi nó ném lỗi lúc vẽ. Giữ đầu ngăn + nút Đóng như bản thường để người
+ *  dùng thoát ra bằng đúng chỗ quen tay; câu chữ nói việc cần làm, không bày thông báo kỹ thuật. */
+export function NganChiTietLoi({ onThuLai, onClose }: { onThuLai: () => void; onClose: () => void }) {
+  return (
+    <div className="thsx-panel__inner">
+      <div className="thsx-panel__head">
+        <div className="thsx-panel__title">
+          <span className="thsx-panel__cd">Chi tiết công việc</span>
+        </div>
+        <button type="button" className="thsx-panel__close" onClick={onClose} aria-label="Đóng">
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+      <div className="empty-state empty-state--inline empty-state--loi" role="alert">
+        <Icon name="alert" size={40} />
+        <p className="empty-state__title">Không hiển thị được chi tiết công việc này</p>
+        <p className="empty-state__sub">
+          Bảng việc và các thao tác khác vẫn dùng bình thường. Bấm Thử lại, hoặc đóng ngăn rồi chọn
+          lại công việc. Lặp lại nhiều lần thì báo quản trị hệ thống.
+        </p>
+        <button type="button" className="btn btn--ghost" onClick={onThuLai}>
+          Thử lại
+        </button>
+      </div>
+    </div>
   );
 }
 

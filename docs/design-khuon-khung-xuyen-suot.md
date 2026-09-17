@@ -142,6 +142,14 @@ bàn. Ghi ai tích, lúc nào. Chưa tích thì **nút Bắt đầu không bấm
 Đi theo đúng khuôn mẫu đã có của `xac_nhan_vat_tu` (§10.1 module Thực hiện sản xuất): tổ trưởng của
 đúng tổ mới được tích, ghi audit, một công việc tích một lần.
 
+**Tích nhận cũng là bằng chứng dao đã về (16/09/2026).** Dao đang `dang_dat_lam` thì lần tích đầu
+tiên lật danh mục sang `dang_dung` (ghi nhật ký của khuôn, người lật là người tích) và sửa chữ tình
+trạng trong ảnh chụp `khuon_json` của mọi việc chưa xong trỏ cùng dao — ảnh chụp giữ để thấy đúng
+CON DAO, không phải để giữ chữ "đang đặt làm" sau khi dao đã về. Dao `hong` / `thanh_ly` không bị
+lật: đó là người phán. Tài khoản không bấm được thì không thấy nút — khối khuôn và cảnh báo cạnh
+nút Bắt đầu nói rõ lý do thay vì bảo đi tìm nút, và tách hai lý do: không được cấp Thực hiện lệnh ở
+tổ, hoặc có nhưng phạm vi "Của tôi" mà việc chưa giao cho mình (máy chủ trả `quyen_muc` kèm `quyen`).
+
 Kèm ô **"đã trả khuôn về kệ"** lúc đóng bước — **không chặn gì cả**. Không có nó thì dao rời kệ xong
 hệ thống mất dấu, lần sau tìm lại phải đi hỏi từng tổ, mà đó đúng là việc kho dao sinh ra để khỏi phải làm.
 

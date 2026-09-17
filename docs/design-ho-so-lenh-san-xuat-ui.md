@@ -496,9 +496,9 @@ gio_may · han_hoan_thanh_sx · han_giao_khach · du_kien_xong · trang_thai · 
   `khach_hang`, mà vai QC / tổ trưởng không có ⇒ bày link ra là mời ăn 403 giữa luồng.
 - `page` / `page_size` trong response — chỉ để đối chiếu; `Pager` đọc state của FE.
 
-**Realtime (Bước 4 của plan, ghi ở đây cho trọn thiết kế):** thêm `lenh_san_xuat` và
-`theo_doi_san_xuat` vào `REALTIME_MODULES` (`components/appShellRealtime.ts` — hiện chưa có hai
-khoá này, nên vai chỉ có `lenh_san_xuat` **không mở nổi kênh SSE**). Khi nhận sự kiện SX:
+**Realtime (Bước 4 của plan, ghi ở đây cho trọn thiết kế):** ~~thêm `lenh_san_xuat` và
+`theo_doi_san_xuat` vào `REALTIME_MODULES`~~ — từ 17/09/2026 danh sách đó đã gỡ, kênh SSE mở cho
+MỌI tài khoản đăng nhập (để ai cũng nghe được `quyen_doi` khi quyền đổi). Khi nhận sự kiện SX:
 - **Gộp sự kiện, debounce 2 giây** rồi mới gọi lại — chuyền chạy thì sự kiện tới liên tục, refetch
   mỗi cái là bảng nhấp nháy dưới tay người đang đọc.
 - Gọi lại **cả `/summary` lẫn danh sách**, **giữ nguyên** `page` / `tab` / bộ lọc / vị trí cuộn.

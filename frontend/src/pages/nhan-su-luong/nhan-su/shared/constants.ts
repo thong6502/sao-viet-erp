@@ -34,7 +34,7 @@ export const EVENT_LABEL: Record<string, string> = {
   hired: "Vào làm",
   confirmed: "Chuyển chính thức",
   transferred: "Điều chuyển",
-  promoted: "Nâng bậc / đổi chức danh",
+  promoted: "Đổi chức danh",
   leave_start: "Bắt đầu nghỉ dài hạn",
   leave_end: "Đi làm lại",
   suspended: "Đình chỉ",
@@ -42,6 +42,13 @@ export const EVENT_LABEL: Record<string, string> = {
   resigned: "Nghỉ việc",
   reinstated: "Tuyển lại",
 };
+
+/** Nhãn một mốc quá trình công tác. Mốc `promoted` ghi TRƯỚC 17/09/2026 có thể là đổi bậc tay nghề
+ *  (`field = "job_grade"`) — bậc đã gỡ nhưng mốc cũ vẫn giữ, đừng để nó hiện thành "Đổi chức danh". */
+export function nhanMocQuaTrinh(ev: { event_type: string; field?: string | null }): string {
+  if (ev.event_type === "promoted" && ev.field === "job_grade") return "Đổi bậc tay nghề (đã gỡ)";
+  return EVENT_LABEL[ev.event_type] ?? ev.event_type;
+}
 
 // Hàng đợi HCNS duyệt "yêu cầu cập nhật" của NV.
 export const REQ_FIELD_LABEL: Record<string, string> = {
@@ -66,7 +73,7 @@ export const ACTION_TITLE: Record<string, string> = {
   resign: "Cho nghỉ việc",
   reinstate: "Tuyển lại",
   transfer: "Điều chuyển phòng/tổ",
-  promote: "Nâng bậc / đổi chức danh",
+  promote: "Đổi chức danh",
   link: "Nối tài khoản đăng nhập",
   unlink: "Gỡ tài khoản đăng nhập",
 };

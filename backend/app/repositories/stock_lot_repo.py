@@ -14,10 +14,20 @@ from datetime import date
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
+from ..models.customer import Customer
+from ..models.lsx import Lsx
+from ..models.order import Order
 from ..models.stock_lot import LOT_AVAILABLE, LOT_EMPTY, LOT_ISSUABLE, StockLot, StockThreshold
+from ..models.stock_request import StockRequest, StockRequestLine
+from ..models.stock_voucher import VOUCHER_NHAP, StockVoucher, StockVoucherLine
 
 # (hang_loai, hang_id) — một mặt hàng gốc.
 Hang = tuple[str, int]
+
+
+def goc_cua(lot: StockLot) -> int:
+    """Id lô GỐC: lô nhập từ yêu cầu là gốc của chính nó; lô sinh ra do điều chuyển nhớ `lo_goc_id`."""
+    return int(lot.lo_goc_id or lot.id)
 
 
 class StockLotRepository:
@@ -56,6 +66,46 @@ class StockLotRepository:
             select(func.count()).select_from(StockLot).where(StockLot.ma_lo.like(f"{prefix}%"))
         ).scalar_one()
         return f"{prefix}{n + 1:02d}"
+
+    def nguon_lo(self, lot_ids) -> dict[int, dict]:
+        """`{lot_id: nguồn}` đọc ở LÔ GỐC: lô gốc → dòng phiếu nhập → dòng yêu cầu → lệnh → đơn → khách.
+
+        Khoá: `lo_goc_id, lsx_id, lsx_ma, order_id, order_ma, customer_id, khach_hang, don_gia_ban,
+        tu_kcs`. Lô không truy được dòng yêu cầu thì mọi khoá nguồn là None và `tu_kcs` False. Đơn /
+        khách / giá bán KHÔNG chép qua mỗi lần điều chuyển — đọc một chỗ để không có hai số.
+        Hai câu cho cả tập (lô → lô gốc, lô gốc → nguồn)."""
+        ids = {int(i) for i in lot_ids if i}
+        if not ids:
+            return {}
+        goc = {int(i): int(g or i) for i, g in self.db.execute(
+            select(StockLot.id, StockLot.lo_goc_id).where(StockLot.id.in_(ids))).all()}
+        rows = self.db.execute(
+            select(
+                StockVoucherLine.lot_id, StockRequestLine.lsx_id, StockRequestLine.don_gia_ban,
+                StockRequest.san_xuat_cong_viec_id, Lsx.ma, Order.id, Order.order_no,
+                Customer.id, Customer.name,
+            )
+            .join(StockVoucher, StockVoucher.id == StockVoucherLine.voucher_id)
+            .join(StockRequestLine, StockRequestLine.id == StockVoucherLine.request_line_id)
+            .join(StockRequest, StockRequest.id == StockRequestLine.request_id)
+            .outerjoin(Lsx, Lsx.id == StockRequestLine.lsx_id)
+            .outerjoin(Order, Order.id == Lsx.order_id)
+            .outerjoin(Customer, Customer.id == Order.customer_id)
+            # Chỉ dòng phiếu NHẬP đẻ ra lô — dòng phiếu XUẤT cũng trỏ `lot_id` về lô này.
+            .where(StockVoucherLine.lot_id.in_(set(goc.values())), StockVoucher.loai == VOUCHER_NHAP)
+        ).all()
+        theo_goc = {
+            int(r[0]): {
+                "lsx_id": r[1], "lsx_ma": r[4], "order_id": r[5], "order_ma": r[6],
+                "customer_id": r[7], "khach_hang": r[8],
+                "don_gia_ban": int(r[2]) if r[2] is not None else None,
+                "tu_kcs": r[3] is not None,
+            }
+            for r in rows
+        }
+        trong = {"lsx_id": None, "lsx_ma": None, "order_id": None, "order_ma": None,
+                 "customer_id": None, "khach_hang": None, "don_gia_ban": None, "tu_kcs": False}
+        return {i: {"lo_goc_id": g, **theo_goc.get(g, trong)} for i, g in goc.items()}
 
     def create(self, **data) -> StockLot:
         lot = StockLot(**data)

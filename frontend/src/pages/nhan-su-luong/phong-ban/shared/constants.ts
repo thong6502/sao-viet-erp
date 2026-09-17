@@ -40,7 +40,6 @@ export const READ_IMPLYING_ACTIONS: ActionKey[] = [
   "can_post",
   "can_run_order",
   "can_confirm_output",
-  "can_qc",
   "can_warehouse",
 ];
 

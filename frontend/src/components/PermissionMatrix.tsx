@@ -71,10 +71,9 @@ export type ActionKey =
   | "can_manage_leave_types"
   | "can_plan"
   | "can_view_drivers"
-  // Dòng quyền theo tổ (mg 0302) — bốn quyền chi tiết của Bàn tổ.
+  // Dòng quyền theo tổ (mg 0302) — ba quyền chi tiết của Bàn tổ.
   | "can_run_order"
   | "can_confirm_output"
-  | "can_qc"
   | "can_warehouse";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
@@ -231,7 +230,7 @@ const FINE_ACTIONS: Record<
       hint: "Cho nhập/sửa các trường lương, bảo hiểm, thuế trên hồ sơ nhân sự và lúc tạo hồ sơ mới. Quyền này luôn phải đi cùng quyền xem lương.",
     },
     { key: "can_manage_status", label: "Thao tác vòng đời (chính thức/nghỉ/đình chỉ)" },
-    { key: "can_transfer", label: "Điều chuyển & nâng bậc" },
+    { key: "can_transfer", label: "Điều chuyển & đổi chức danh" },
     { key: "can_approve", label: "Duyệt yêu cầu cập nhật" },
     { key: "can_export", label: "Xuất Excel danh sách" },
   ],
@@ -345,7 +344,7 @@ const FINE_ACTIONS: Record<
     {
       key: "can_view_salary",
       label: "Xem cấu hình lương",
-      hint: "Cho xem thang bậc, khung lương, KPI, phụ cấp, bảo hiểm và lịch sử lương nhân viên. Không cần cấp quyền này để nhân viên xem Phiếu lương của tôi.",
+      hint: "Cho xem cơ chế lương theo bộ phận, khoản thu nhập, bảo hiểm & thuế và lịch sử lương nhân viên. Không cần cấp quyền này để nhân viên xem Phiếu lương của tôi.",
     },
     { key: "can_approve", label: "Duyệt tạm ứng" },
     { key: "can_export", label: "Xuất bảng lương / file chuyển khoản" },
@@ -509,7 +508,7 @@ const MODULE_GROUPS: {
    *  Danh mục là nhóm duy nhất như vậy — `scope` của nó không service nào đọc, để dropdown ở đó
    *  chỉ khiến người cấp quyền tưởng mình vừa giới hạn được cái gì. Backend ép `all` khi lưu. */
   noScope?: boolean;
-  /** Nhóm KHÔNG có cột Thao tác (Tổ sản xuất — bốn quyền chi tiết thay nó). */
+  /** Nhóm KHÔNG có cột Thao tác (Tổ sản xuất — ba quyền chi tiết thay nó). */
   noWrite?: boolean;
 }[] = [
   {
@@ -616,8 +615,9 @@ const MODULE_GROUPS: {
 ];
 
 // Nhóm "Tổ sản xuất" (mg 0302, chốt 14/09/2026): MỖI NÚT của khối sản xuất trong Phòng ban là một
-// dòng `to_sx_<id>`, máy chủ tự sinh / đổi tên / gỡ theo cây. Dòng không có cột Thao tác — bốn quyền
-// chi tiết dưới đây thay nó, và cùng Xem đi theo Phạm vi của dòng.
+// dòng `to_sx_<id>`, máy chủ tự sinh / đổi tên / gỡ theo cây. Dòng không có cột Thao tác — ba quyền
+// chi tiết dưới đây thay nó, và cùng Xem đi theo Phạm vi của dòng. Không có ô "KCS" (gỡ mg 0306):
+// người KCS là thành viên phòng ban có cờ "Tổ KCS", kiểm được mọi tổ — không cấp theo từng tổ.
 const KHOA_TO_TIEN_TO = "to_sx_";
 const laDongTo = (moduleKey: string) => moduleKey.startsWith(KHOA_TO_TIEN_TO);
 
@@ -633,21 +633,16 @@ const FINE_TO: { key: ActionKey; label: string; hint: string }[] = [
     hint: "Chia sản lượng (tính, chốt, mở lại, bù trừ, loại trừ chấm công); bàn giao / nhận; hỗ trợ chéo.",
   },
   {
-    key: "can_qc",
-    label: "KCS",
-    hint: "Kiểm, ghi lỗi + ảnh, sửa kết quả, phản hồi lỗi, đóng thiếu nhóm.",
-  },
-  {
     key: "can_warehouse",
     label: "Kho",
-    hint: "Đề nghị vật tư, xác nhận nhận vật tư, yêu cầu nhập kho, phân loại + xác nhận bán thành phẩm.",
+    hint: "Đề nghị vật tư, xác nhận nhận vật tư, yêu cầu nhập kho thành phẩm.",
   },
 ];
 
 const HINT_PHAM_VI_TO =
   "Tính từ VỊ TRÍ người được cấp, trong vùng của dòng (tổ đó + mọi đơn vị trực thuộc). " +
   "Của tôi: chỉ phần của mình. Cả phòng: phòng mình đang thuộc + các đơn vị trực thuộc của nó. " +
-  "Tất cả: toàn bộ vùng của dòng, dù mình ở nấc nào. Áp cho cả Xem lẫn bốn quyền chi tiết.";
+  "Tất cả: toàn bộ vùng của dòng, dù mình ở nấc nào. Áp cho cả Xem lẫn ba quyền chi tiết.";
 
 const fineCua = (moduleKey: string) =>
   FINE_ACTIONS[moduleKey] ?? (laDongTo(moduleKey) ? FINE_TO : undefined);
@@ -698,7 +693,6 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_close_book: false,
     can_run_order: false,
     can_confirm_output: false,
-    can_qc: false,
     can_warehouse: false,
   }));
 }
@@ -794,7 +788,7 @@ export function PermissionMatrix({
   //
   // ⚠️ ĐỪNG đảo lại thành "cái gì máy chủ không gác thì chết". Bản đầu (11/08/2026) làm vậy và
   // khoá nhầm hàng loạt ô đang dùng được — In/xuất phiếu chi · phiếu thu · Đặt trưởng phòng · Đổi
-  // cấp trên · Xem lương & BHXH · Sửa lương & BHXH · Thao tác vòng đời · Điều chuyển & nâng bậc.
+  // cấp trên · Xem lương & BHXH · Sửa lương & BHXH · Thao tác vòng đời · Điều chuyển & đổi chức danh.
   // Lý do: rất nhiều ô chỉ thi hành ở GIAO DIỆN (ẩn/hiện nút), máy chủ không hề biết.
   const viecChet = new Map(
     modules.filter((m) => m.viec_chet).map((m) => [m.key, new Set(m.viec_chet!)]),

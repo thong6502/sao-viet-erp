@@ -5,7 +5,7 @@
 // Vì phải qua cổng đăng nhập nên chỗ đọc hash này là `AppShell` (chỉ mount khi ĐÃ có phiên),
 // KHÔNG phải `App.tsx`.
 //
-// Tách khỏi `AppShell.tsx` theo đúng khuôn `appShellRealtime.ts` (`coTheMoKenhSse`): logic phân
+// Tách khỏi `AppShell.tsx` theo đúng khuôn `appShellRealtime.ts` (`coQuyenBanTo`): logic phân
 // tích chuỗi có một bài canh RIÊNG, không phải dựng cả AppShell (hàng chục lượt gọi API lúc mount)
 // chỉ để thử một regex.
 

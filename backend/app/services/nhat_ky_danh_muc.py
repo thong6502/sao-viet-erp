@@ -278,6 +278,22 @@ TIEN = frozenset({"don_gia", "gia", "don_gia_kg", "don_gia_to", "đon_gia", "uni
 DON_VI_MA = frozenset({"unit", "don_vi_gia", "don_vi_vao", "don_vi_ra", "don_vi_san_luong",
                        "don_vi_toc_do"})
 
+# Ô CHỌN lưu MÃ → chữ đang hiện trong ô chọn trên màn (`rebuildCatalogConfigs.tsx`). Không có bảng
+# này thì tổ bế tích nhận khuôn xong, Nhật ký ra "Tình trạng dang_dat_lam → dang_dung". Khoá theo
+# tên trường như `NHAN`: mấy tên này chỉ có ở MỘT danh mục mỗi cái (khuôn · công đoạn). Mã lạ thì
+# giữ nguyên mã. Thêm mã vào bộ hằng của model mà quên ở đây ⇒ `test_nhat_ky_nhan_du` đỏ.
+_DUNG_CU = {"khuon_be": "Khuôn bế", "khuon_ep": "Khuôn ép kim", "khung_lua": "Khung lụa"}
+GIA_TRI_NHAN: dict[str, dict[str, str]] = {
+    "tinh_trang": {"dang_dung": "Đang dùng", "dang_dat_lam": "Đang đặt làm", "hong": "Hỏng",
+                   "thanh_ly": "Thanh lý"},
+    "loai": _DUNG_CU,
+    "tooling_type": _DUNG_CU,
+    "nhom": {"prepress": "Trước In", "print": "In", "finishing": "Gia công sau in",
+             "other": "Dịch vụ khác"},
+    "kieu_bu_hao": {"khong": "Không bù hao", "tra_bang": "Tra bảng theo mã bù hao",
+                    "co_dinh": "Cộng cố định (số tờ)"},
+}
+
 
 def _la_so(v: Any) -> bool:
     """`True` KHÔNG phải số ở đây — nó là int trong Python nhưng phải hiện thành Có/Không."""
@@ -547,6 +563,9 @@ def mo_ta_thay_doi(truoc: dict[str, Any], sau: dict[str, Any], *,
             continue
         if truong in DON_VI_MA:
             cu, moi = _ten_don_vi(truong, cu, bang), _ten_don_vi(truong, moi, bang)
+        elif truong in GIA_TRI_NHAN:
+            nhan_ma = GIA_TRI_NHAN[truong]
+            cu, moi = (nhan_ma.get(v, v) if isinstance(v, str) else v for v in (cu, moi))
         hau = _hau_to(truong, sau, bang)
         dong.append(f"{nhan} {_chu(cu)} → {_chu(moi)}{(' ' + hau) if hau else ''}")
     return dong

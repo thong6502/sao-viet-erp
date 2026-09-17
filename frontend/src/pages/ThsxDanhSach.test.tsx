@@ -20,7 +20,9 @@ function mockViec(p: Partial<SxWorkItem>): SxWorkItem {
     ngoai_dong: true,
     chay_phut: 13,
     dinh_muc_vat_tu: [{ vat_tu_id: 1, ma: "KM01", ten: "Bản kẽm CTP 1030x790", don_vi: "cai", so_luong: 4 }],
-    la_kcs: false,
+    kcs_so_lan: 0,
+    kcs_dat: 0,
+    kcs_loi: 0,
     quy_cach: { giay: "Couche", dinh_luong: 300, kho_in: "640 x 450", so_mau: 4, so_kem: 4 },
     ...p,
   } as SxWorkItem;

@@ -143,6 +143,43 @@ def test_nhu_cau_cong_viec_khong_thuoc_lenh_bai_nao_tra_rong(db, orders, lsx_svc
     assert kh.nhu_cau_cua_cong_viec(cv) == []
 
 
+def test_nhu_cau_cong_viec_khong_nap_lich_khong_suy_moc(
+    db, orders, lsx_svc, admin, customer, monkeypatch
+):
+    """Drawer bàn tổ gọi hàm này mỗi lần mở việc. Lịch + thời lượng chỉ nuôi NGÀY CẦN, thứ hàm này
+    vứt đi — nạp chúng là quét bảng lịch và dẫn mốc Xếp lịch 3 cho cả lệnh (đo 16/09/2026: 77 trong
+    113 ms của khối vật tư cấp). Cả ba cửa đều nổ ở đây: lỡ ai gọi lại là đỏ ngay."""
+    from app.services.ke_hoach_vat_tu_service import KeHoachVatTuService
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-KL")
+    kh = _kh_service(db)
+    so_goc = kh.nhu_cau_cua_cong_viec(cv)
+    assert so_goc and so_goc[0]["sl"] > 0
+
+    def _no(*_a, **_k):
+        raise AssertionError("nhu_cau_cua_cong_viec không được nạp lịch/thời lượng/mốc tạm")
+
+    for ten in ("_nap_lich", "_nap_thoi_luong", "_moc_tam"):
+        monkeypatch.setattr(KeHoachVatTuService, ten, _no)
+    assert _kh_service(db).nhu_cau_cua_cong_viec(cv) == so_goc
+
+
+def test_nap_lich_tat_co_bo_qua_ngay_can():
+    """Cùng instance chạy `nhu_cau_cua_cong_viec` rồi `can_doi()`: cờ bỏ-ngày phải tắt khi nạp lịch,
+    không thì bảng cân đối mất mốc tạm của mọi lệnh chưa xếp mà không báo gì."""
+    from types import SimpleNamespace
+
+    from app.services.ke_hoach_vat_tu_service import KeHoachVatTuService
+
+    kh = KeHoachVatTuService.__new__(KeHoachVatTuService)
+    kh.repo = SimpleNamespace(dong_lich_da_xep=lambda: [])
+    kh.db = None
+    kh._bo_qua_ngay_can()
+    assert kh._khong_tinh_ngay is True
+    kh._nap_lich(set(), set())
+    assert kh._khong_tinh_ngay is False
+
+
 def test_ve_don_vi_goc_quy_dung_va_bao_loi_ro_khi_khong_quy_duoc(db, orders, lsx_svc, admin, customer):
     """`ve_don_vi_goc` là wrapper công khai quanh `_ve_goc` — Task 3 dựa vào số này để so lệch kế
     hoạch. Mặt hàng không có trong danh mục thì phải NÉM LỖI, không trả 0 im lặng.
@@ -382,7 +419,7 @@ def test_khong_co_quyen_kho_o_to_thi_chan(db, orders, lsx_svc, admin, customer):
     nguoi = User(username="khong_quyen_kho_to", name="Có mọi quyền trừ Kho", password_hash="x")
     db.add(nguoi)
     db.flush()
-    cap_quyen_to(db, nguoi, to, viec=("run_order", "confirm_output", "qc"))
+    cap_quyen_to(db, nguoi, to, viec=("run_order", "confirm_output"))
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
@@ -1470,6 +1507,41 @@ def test_cong_doan_chua_tung_co_de_nghi_thi_lui_ve_lsx_va_danh_dau(
     ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
     assert ct["vat_tu_cap"]["du_lieu_cu"] is True
     assert {vv["voucher_id"] for vv in ct["vat_tu"]} == {v.id}
+
+
+def test_cong_doan_moi_chua_xin_gi_khong_bi_goi_la_du_lieu_cu(db, orders, lsx_svc, admin, customer):
+    """16/09/2026: bước của lệnh MỚI chưa gửi đề nghị nào vẫn hiện băng "Dữ liệu lịch sử (trước
+    31/08/2026)". Chưa xin gì mà lệnh cũng không có phiếu xuất cũ nào ⇒ không phải dữ liệu cũ."""
+    from app.services.san_xuat import board
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC5")
+    db.commit()
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    assert ct["vat_tu_cap"]["du_lieu_cu"] is False
+    assert ct["vat_tu"] == []
+
+
+def test_duong_lui_khong_nhat_phieu_thuoc_de_nghi_cong_doan(db, orders, lsx_svc, admin, customer):
+    """Phiếu đi đường MỚI (yêu cầu sinh từ đề nghị của một bước) không phải dữ liệu cũ của bước khác
+    cùng lệnh: bước chưa xin gì không được thấy phiếu ấy, cũng không được gắn cờ."""
+    from app.models.stock_request import StockRequest
+    from app.repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
+    from app.services.san_xuat import vat_tu_de_nghi as V
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC6")
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    req = db.get(StockRequest, ra["stock_request_id"])
+    v = _phieu_xuat_khop_yeu_cau(db, admin, req, ma="PXK-VC6")
+    sl = SanXuatSanLuongRepository(db)
+    assert {p.id for p in sl.voucher_xuat_cua_lsx(cv.lsx_id)} == {v.id}, "phiếu phải nối được về lệnh"
+
+    # Một bước KHÁC cùng lệnh, chưa có đề nghị nào ⇒ gọi với danh sách yêu cầu rỗng.
+    assert sl.voucher_xuat_cua_cong_viec(cv, []) == ([], False)
 
 
 def test_vat_tu_cap_khong_bi_schema_nuot(db, orders, lsx_svc, admin, customer):

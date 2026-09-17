@@ -31,7 +31,7 @@ import string
 from datetime import date, datetime, timedelta, timezone
 
 from .stock_request_service import StockRequestService
-from .thanh_pham_khai_bao import khai_mot_dong
+from .thanh_pham_khai_bao import cum_ban, khai_mot_dong
 from ..realtime import hub
 from ..models.delivery import (
     HUONG_XU_LY,
@@ -246,16 +246,31 @@ class DeliveryService:
 
         con_lai = self.con_phai_giao(order_id)
         hop_le = {ln.id for ln in order.lines}
+        # CỤM BÁN (design nhập kho thành phẩm §3): người lập chọn cụm và gõ SL MỘT lần. Gửi dòng
+        # nào của cụm cũng được; hệ bung ra MỌI dòng của cụm với cùng SL, để đơn vẫn biết Ruột lẫn
+        # Bìa đã giao đủ. Hai dòng cùng cụm mà khác SL là tự mâu thuẫn — chặn.
+        cum_theo_dong = {ln.id: c for c in cum_ban(order) for ln in c.dong}
+        theo_cum: dict[str, tuple] = {}
         for ln in lines:
             lid, qty = int(ln["order_line_id"]), int(ln["qty"])
             if lid not in hop_le:
                 raise DeliveryError("Dòng hàng không thuộc đơn hàng này")
             if qty <= 0:
                 raise DeliveryError("Số lượng giao phải lớn hơn 0")
-            if qty > con_lai.get(lid, 0):
+            cum = cum_theo_dong[lid]
+            da = theo_cum.get(cum.khoa)
+            if da is not None and da[1] != qty:
                 raise DeliveryError(
-                    f"Vượt số còn phải giao: dòng chỉ còn {con_lai.get(lid, 0)}, đang yêu cầu {qty}"
+                    f"Các phần của «{cum.ten}» giao cùng nhau — số lượng phải bằng nhau"
                 )
+            theo_cum[cum.khoa] = (cum, qty)
+        for cum, qty in theo_cum.values():
+            for od in cum.dong:
+                if qty > con_lai.get(od.id, 0):
+                    raise DeliveryError(
+                        f"Vượt số còn phải giao: «{cum.ten}» chỉ còn {con_lai.get(od.id, 0)}, "
+                        f"đang yêu cầu {qty}"
+                    )
 
         # CHẶN CỨNG, không phải cảnh báo (chủ chốt 20/08/2026: "nay ngày 20 tôi lập phiếu yêu
         # cầu thì sao mà chọn được ngày 19"). Bản đầu chỉ cảnh báo với lý do "nhập bù đơn hôm
@@ -281,15 +296,17 @@ class DeliveryService:
             trang_thai=YC_CHO_LEN_KE_HOACH,
             created_by=getattr(actor, "id", None),
         )
-        dong_don = {d.id: d for d in order.lines}
-        for ln in lines:
-            od = dong_don[int(ln["order_line_id"])]
-            # Tự khai mặt hàng kho từ chính dòng đơn — người lập KHÔNG phải chọn gì.
-            mh = self._mat_hang_cua_dong_don(order, od)
-            self.deliveries.add_request_line(
-                req.id, od.id, int(ln["qty"]),
-                hang_loai="vat_tu", hang_id=mh.id, dvt=mh.don_vi_gia,
-            )
+        for cum, qty in theo_cum.values():
+            # Tự khai mặt hàng kho từ chính cụm — người lập KHÔNG phải chọn gì. CHỈ dòng đầu cụm
+            # mang mã: phiếu xuất kho có một dòng cho cả cụm; mang mã ở mọi dòng là trừ kho hai lần.
+            mh = self._mat_hang_cua_dong_don(order, cum.dong_dau)
+            for i, od in enumerate(cum.dong):
+                if i == 0:
+                    self.deliveries.add_request_line(
+                        req.id, od.id, qty, hang_loai="vat_tu", hang_id=mh.id, dvt=mh.don_vi_gia,
+                    )
+                else:
+                    self.deliveries.add_request_line(req.id, od.id, qty)
         return {"request": req, "canh_bao": canh_bao}
 
     def huy_yeu_cau(self, request_id: int, *, ly_do: str, actor, scope=None) -> None:
@@ -658,10 +675,11 @@ class DeliveryService:
         if req is None:
             raise DeliveryNotFound("Không tìm thấy yêu cầu giao hàng")
         da_giao = self.deliveries.da_giao_cua_yeu_cau(req.id)
+        theo_sau = self._dong_theo_sau_cum(req)
         ra: list[dict] = []
         for ln in req.lines:
             con = int(ln.qty) - int(da_giao.get(ln.order_line_id, 0))
-            if con <= 0:
+            if con <= 0 or ln.order_line_id in theo_sau:
                 continue
             if not ln.hang_loai or ln.hang_id is None or not ln.dvt:
                 raise DeliveryError(
@@ -672,6 +690,22 @@ class DeliveryService:
                        "dvt": ln.dvt, "sl_de_nghi": con})
         if not ra:
             raise DeliveryError("Không còn hàng nào phải xuất cho chuyến này")
+        return ra
+
+    def _dong_theo_sau_cum(self, req) -> set[int]:
+        """`order_line_id` các dòng THEO SAU trong cụm bán mà dòng đầu cụm có mặt trên yêu cầu.
+
+        Những dòng này không xuất kho riêng (dòng đầu đã mang mã cả cụm). Dòng trống mặt hàng mà
+        KHÔNG thuộc cụm nào vẫn phải báo lỗi như cũ, nên không lọc bừa theo `hang_id is None`.
+        """
+        order = self.orders.get_by_id(req.order_id)
+        if order is None:
+            return set()
+        tren_yc = {ln.order_line_id for ln in req.lines if ln.hang_id is not None}
+        ra: set[int] = set()
+        for cum in cum_ban(order):
+            if len(cum.dong) > 1 and cum.dong_dau.id in tren_yc:
+                ra.update(od.id for od in cum.dong[1:])
         return ra
 
     def gui_yeu_cau_xuat_kho(self, trip_id, *, actor, kho_id, scope=None,
@@ -900,17 +934,30 @@ class DeliveryService:
             if not so_thuc_nhan:
                 raise DeliveryError("Giao thiếu thì phải nhập số thực nhận từng dòng")
             nhan = {}
+            # Cụm bán: khách nhận 480 cuốn nghĩa là nhận 480 ruột VÀ 480 bìa — gõ ở một dòng, ghi
+            # cho mọi dòng của cụm.
+            order = self.orders.get_by_id(req.order_id)
+            cum_theo_dong = (
+                {ln.id: c for c in cum_ban(order) for ln in c.dong} if order is not None else {}
+            )
             for m in so_thuc_nhan:
                 lid, qty = int(m["order_line_id"]), int(m["qty"])
                 if lid not in con:
                     raise DeliveryError("Dòng hàng không nằm trong phần còn phải giao")
                 if qty < 0:
                     raise DeliveryError("Số thực nhận không được âm")
-                if qty > con[lid]:
-                    raise DeliveryError(
-                        f"Số thực nhận {qty} vượt phần còn phải giao {con[lid]}"
-                    )
-                nhan[lid] = qty
+                cum = cum_theo_dong.get(lid)
+                cung_cum = [od.id for od in cum.dong if od.id in con] if cum else [lid]
+                for dich in cung_cum:
+                    if qty > con[dich]:
+                        raise DeliveryError(
+                            f"Số thực nhận {qty} vượt phần còn phải giao {con[dich]}"
+                        )
+                    if dich in nhan and nhan[dich] != qty:
+                        raise DeliveryError(
+                            f"Các phần của «{cum.ten}» nhận cùng nhau — số thực nhận phải bằng nhau"
+                        )
+                    nhan[dich] = qty
             if sum(nhan.values()) >= sum(con.values()):
                 raise DeliveryError("Nhận đủ rồi thì chọn Giao thành công, không phải Giao thiếu")
 

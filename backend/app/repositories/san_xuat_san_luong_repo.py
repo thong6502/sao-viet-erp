@@ -19,7 +19,6 @@ from ..models.san_xuat_san_luong import (
     BG_DE_XUAT,
     BG_DIEU_CHINH,
     BG_XAC_NHAN,
-    LOT_TU_BATCH,
     SanXuatBanGiao,
     SanXuatBanGiaoBatch,
     SanXuatBanGiaoDieuChinh,
@@ -28,6 +27,7 @@ from ..models.san_xuat_san_luong import (
     SanXuatKetQuaNhanh,
     SanXuatVatTuNhan,
 )
+from ..models.san_xuat_vat_tu import SanXuatVatTuDeNghi
 from ..models.stock_request import StockRequest, StockRequestLine
 from ..models.stock_voucher import (
     VOUCHER_POSTED,
@@ -80,7 +80,7 @@ class SanXuatSanLuongRepository:
              ghép đã gộp nó.
 
         Nhiều phần tử khi bước sau bị TÁCH lần chạy ("lần k/N") hoặc routing rẽ nhánh — lúc đó
-        tổ mới phải chọn. Rỗng ⇔ bước cuối của lệnh (giao ra kho). Giữ cả việc đã hoàn thành: đó
+        tổ mới phải chọn. Rỗng ⇔ bước cuối của lệnh (không bàn giao — thành phẩm qua KCS nhập kho). Giữ cả việc đã hoàn thành: đó
         vẫn là chặng sau thật, bên gọi tự quyết mặc định."""
         if cv.bai_ghep_cong_doan_id is not None:
             keys = set(self.db.scalars(
@@ -232,7 +232,6 @@ class SanXuatSanLuongRepository:
             .join(SanXuatBatch, SanXuatBatchLotVao.batch_id == SanXuatBatch.id)
             .where(
                 SanXuatBatch.cong_viec_id == dich_cong_viec_id,
-                SanXuatBatchLotVao.nguon_loai == LOT_TU_BATCH,
                 SanXuatBatchLotVao.nguon_batch_id.in_(nguon_batches),
             )
         )
@@ -365,14 +364,19 @@ class SanXuatSanLuongRepository:
         )
         return row is not None
 
-    def dieu_chinh_cua(self, ban_giao_id: int) -> list[SanXuatBanGiaoDieuChinh]:
-        return list(
-            self.db.scalars(
-                select(SanXuatBanGiaoDieuChinh)
-                .where(SanXuatBanGiaoDieuChinh.ban_giao_id == ban_giao_id)
-                .order_by(SanXuatBanGiaoDieuChinh.id)
-            )
-        )
+    def dieu_chinh_nhieu(self, ban_giao_ids) -> dict[int, list[SanXuatBanGiaoDieuChinh]]:
+        """`{ban_giao_id: [điều chỉnh cũ → mới]}` — lịch sử của cả tập bàn giao, MỘT truy vấn."""
+        ids = [i for i in set(ban_giao_ids) if i]
+        if not ids:
+            return {}
+        out: dict[int, list[SanXuatBanGiaoDieuChinh]] = {}
+        for dc in self.db.scalars(
+            select(SanXuatBanGiaoDieuChinh)
+            .where(SanXuatBanGiaoDieuChinh.ban_giao_id.in_(ids))
+            .order_by(SanXuatBanGiaoDieuChinh.id)
+        ):
+            out.setdefault(dc.ban_giao_id, []).append(dc)
+        return out
 
     # --- Phụ thuộc chéo (bước ghép) ----------------------------------------------------------
     def canh_phu_thuoc_toi(self, dich_cong_viec_id: int) -> list[SanXuatPhuThuoc]:
@@ -443,13 +447,21 @@ class SanXuatSanLuongRepository:
             select(SanXuatVatTuNhan).where(SanXuatVatTuNhan.voucher_id == voucher_id)
         ).first()
 
-    def voucher_xuat_cua_lsx(self, lsx_id: int) -> list[StockVoucher]:
+    def voucher_xuat_cua_lsx(self, lsx_id: int, *, tru_yeu_cau=None) -> list[StockVoucher]:
         """Phiếu XUẤT ĐÃ GHI SỔ cấp cho một LSX (join phiếu → dòng phiếu → dòng yêu cầu.lsx_id).
 
         Đây là danh sách tổ trưởng thấy để XÁC NHẬN đã nhận (§10.1). DISTINCT vì một phiếu nhiều
-        dòng cùng trỏ một LSX."""
+        dòng cùng trỏ một LSX. `tru_yeu_cau` — truy vấn con trả `stock_request_id` cần loại (không
+        chứa NULL, nếu không `NOT IN` loại sạch mọi dòng)."""
         if not lsx_id:
             return []
+        dieu_kien = [
+            StockVoucher.loai == VOUCHER_XUAT,
+            StockVoucher.trang_thai == VOUCHER_POSTED,
+            StockRequestLine.lsx_id == lsx_id,
+        ]
+        if tru_yeu_cau is not None:
+            dieu_kien.append(StockRequestLine.request_id.not_in(tru_yeu_cau))
         return list(
             self.db.scalars(
                 select(StockVoucher)
@@ -458,11 +470,7 @@ class SanXuatSanLuongRepository:
                     StockRequestLine,
                     StockVoucherLine.request_line_id == StockRequestLine.id,
                 )
-                .where(
-                    StockVoucher.loai == VOUCHER_XUAT,
-                    StockVoucher.trang_thai == VOUCHER_POSTED,
-                    StockRequestLine.lsx_id == lsx_id,
-                )
+                .where(*dieu_kien)
                 .distinct()
                 .order_by(StockVoucher.id)
             )
@@ -490,6 +498,11 @@ class SanXuatSanLuongRepository:
         Bài ghép KHÔNG có đường lùi: dòng yêu cầu cũ khai `lsx_id`, mà bước chung của bài không
         thuộc LSX nào — lùi ở đây là trả về danh sách sai chứ không phải danh sách thiếu.
 
+        "Chưa từng có đề nghị" KHÔNG đủ để gọi là dữ liệu cũ: bước MỚI chưa xin gì cũng rơi vào đó
+        (16/09/2026: LSX26-0004 hiện băng "Dữ liệu lịch sử (trước 31/08/2026)"). Đường lùi chỉ nhặt
+        phiếu mà yêu cầu của nó KHÔNG thuộc đề nghị công đoạn nào — phiếu đi đường mới của tổ khác
+        cùng lệnh không phải của bước này — và cờ chỉ bật khi thật sự nhặt được phiếu như thế.
+
         Trả `(phiếu, la_du_lieu_cu)`.
         """
         if stock_request_ids:
@@ -502,7 +515,12 @@ class SanXuatSanLuongRepository:
             )), False
         if cv.bai_ghep_id or not cv.lsx_id:
             return [], False
-        return self.voucher_xuat_cua_lsx(cv.lsx_id), True
+        yc_cua_de_nghi = (
+            select(SanXuatVatTuDeNghi.stock_request_id)
+            .where(SanXuatVatTuDeNghi.stock_request_id.is_not(None))
+        )
+        cu = self.voucher_xuat_cua_lsx(cv.lsx_id, tru_yeu_cau=yc_cua_de_nghi)
+        return cu, bool(cu)
 
     def thuc_xuat_theo_hang(self, stock_request_ids: list[int]) -> dict[tuple[str, int], float]:
         """{(hang_loai, hang_id): tổng `sl_goc`} của DÒNG phiếu XUẤT `posted` thuộc các yêu cầu

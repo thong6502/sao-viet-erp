@@ -11,12 +11,24 @@
 // nhiều fetch riêng của nó (đã canh riêng ở `LenhSanXuatPage.test.tsx`); mount `AppShell` thật đã
 // kéo theo hàng chục side-effect khác không liên quan (badge tổ/kho, kênh SSE...). Mock để cô lập
 // ĐÚNG khúc dây chuyền cần canh, không phải bắt nó thoả luôn thân từng trang con.
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../pages/DashboardPage", () => ({
-  DashboardPage: () => <div data-testid="probe-dashboard" />,
-}));
+// Bản dò Dashboard kèm một nút gọi `useReloadPermissions` — đứng thay cho màn Phòng ban (lưu vai
+// trò xong thì gọi đúng hàm này), khỏi mount cả màn Phòng ban thật chỉ để bấm một nút Lưu.
+vi.mock("../pages/DashboardPage", async () => {
+  const { useReloadPermissions } = await import("../auth/permissions");
+  return {
+    DashboardPage: () => {
+      const reload = useReloadPermissions();
+      return (
+        <div data-testid="probe-dashboard">
+          <button type="button" onClick={reload}>probe-tai-lai-quyen</button>
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock("../pages/LenhSanXuatPage", () => ({
   LenhSanXuatPage: (props: { openHoSoId: number | null; openHoSoPv: number | null }) => (
@@ -28,13 +40,23 @@ vi.mock("../pages/LenhSanXuatPage", () => ({
   ),
 }));
 
-// `connectQuoteEvents` (xem `appShellRealtime.ts` — `lenh_san_xuat` nằm trong `REALTIME_MODULES`)
-// là một vòng lặp `fetch` streaming TỰ VIẾT TAY (không phải `EventSource`), có watchdog 50s. Test
-// này không cần kênh đó chạy thật, chỉ cần nó không mở một kết nối/hẹn giờ treo lại sau khi bài
-// test đã xong — giữ nguyên MỌI export khác qua `importOriginal`, chỉ thay riêng hàm này.
+// `connectQuoteEvents` (mọi tài khoản đăng nhập đều mở) là một vòng lặp `fetch` streaming TỰ VIẾT
+// TAY (không phải `EventSource`), có watchdog 50s. Test này không cần kênh đó chạy thật, chỉ cần nó
+// không mở một kết nối/hẹn giờ treo lại sau khi bài test đã xong — giữ nguyên MỌI export khác qua
+// `importOriginal`, chỉ thay riêng hàm này. Hàm thay giữ lại bộ xử lý sự kiện mới nhất để bài
+// "quyền đổi" tự bắn sự kiện như máy chủ đẩy.
+const kenh = vi.hoisted(() => ({
+  phat: null as null | ((e: import("../api/client").QuoteEvent) => void),
+}));
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
-  return { ...actual, connectQuoteEvents: () => () => {} };
+  return {
+    ...actual,
+    connectQuoteEvents: (_token: string, onEvent: (e: import("../api/client").QuoteEvent) => void) => {
+      kenh.phat = onEvent;
+      return () => {};
+    },
+  };
 });
 
 import { AppShell } from "./AppShell";
@@ -52,13 +74,14 @@ const AUTH: AuthState = {
  *  `attendance.notifySummary` và `notifications.list` (cả hai unconditional). Thiếu một trong bốn
  *  thì promise rơi vào nhánh `.catch` — vô hại cho bài này, nhưng để tránh nhiễu log lúc chạy vẫn
  *  khai đủ. */
-function stubApi() {
+function stubApi(quyen: { modules: string[] } = { modules: ["dashboard", "lenh_san_xuat"] }) {
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     let data: unknown = {};
     if (url.includes("/api/auth/permissions")) {
-      data = { modules: ["dashboard", "lenh_san_xuat"], permissions: [] };
+      // Đọc `quyen.modules` LÚC GỌI, không chụp lúc dựng stub — bài tải lại quyền đổi nó giữa chừng.
+      data = { modules: quyen.modules, permissions: [] };
     } else if (url.includes("/api/module-notifications/summary")) {
       data = { thu_mua: 0, ke_toan: 0 };
     } else if (url.includes("/api/attendance/notify-summary")) {
@@ -124,5 +147,66 @@ describe("AppShell · deep link QR nối hash → props của LenhSanXuatPage (T
     const probe = await screen.findByTestId("probe-lenh-san-xuat");
     expect(probe.dataset.openHoSoId).toBe("88");
     expect(probe.dataset.openHoSoPv).toBe("5");
+  });
+});
+
+// Lưu ma trận vai trò của CHÍNH mình xong mà menu vẫn giữ quyền cũ tới khi F5 (16/09/2026: tắt Xem
+// cả 9 dòng tổ của vai Giám đốc, menu vẫn bày đủ bàn tổ). Menu phải đi theo lượt hỏi quyền mới.
+describe("AppShell · tải lại quyền không cần F5", () => {
+  it("⭐ gọi tải lại quyền ⇒ menu thêm mục vừa được cấp và bỏ mục vừa bị rút", async () => {
+    const quyen = { modules: ["dashboard"] };
+    stubApi(quyen);
+    ve();
+    await screen.findByTestId("probe-dashboard");
+    expect(screen.queryByText("Hồ sơ lệnh sản xuất")).not.toBeInTheDocument();
+
+    quyen.modules = ["dashboard", "lenh_san_xuat"];
+    act(() => screen.getByRole("button", { name: "probe-tai-lai-quyen" }).click());
+    expect(await screen.findByText("Hồ sơ lệnh sản xuất")).toBeInTheDocument();
+
+    quyen.modules = ["dashboard"];
+    act(() => screen.getByRole("button", { name: "probe-tai-lai-quyen" }).click());
+    await waitFor(() =>
+      expect(screen.queryByText("Hồ sơ lệnh sản xuất")).not.toBeInTheDocument(),
+    );
+  });
+});
+
+// Người KHÁC đổi quyền của mình (lưu ma trận vai mình đang giữ, gán/gỡ vai, đổi phòng) ⇒ máy chủ đẩy
+// `quyen_doi`. Bắt đầu bằng tài khoản chỉ có Dashboard: trước 17/09/2026 kênh SSE không mở cho tài
+// khoản như vậy, nên được gán vai xong vẫn nhìn menu trống tới khi F5.
+describe("AppShell · máy chủ đẩy quyen_doi", () => {
+  beforeEach(() => {
+    kenh.phat = null;
+  });
+
+  it("⭐ tài khoản không có module thời gian thực vẫn nghe kênh, nhận quyen_doi là menu đổi + báo", async () => {
+    const quyen = { modules: ["dashboard"] };
+    stubApi(quyen);
+    ve();
+    await screen.findByTestId("probe-dashboard");
+    await waitFor(() => expect(kenh.phat).not.toBeNull());
+    expect(screen.queryByText("Hồ sơ lệnh sản xuất")).not.toBeInTheDocument();
+
+    quyen.modules = ["dashboard", "lenh_san_xuat"];
+    act(() => kenh.phat!({ type: "quyen_doi" }));
+    expect(await screen.findByText("Hồ sơ lệnh sản xuất")).toBeInTheDocument();
+    expect(screen.getByText("Quyền của bạn vừa được cập nhật.")).toBeInTheDocument();
+  });
+
+  it("bộ quyền hỏi lại y hệt ⇒ không báo, không nối lại kênh", async () => {
+    stubApi({ modules: ["dashboard"] });
+    ve();
+    await screen.findByTestId("probe-dashboard");
+    await waitFor(() => expect(kenh.phat).not.toBeNull());
+    const phatTruoc = kenh.phat;
+
+    act(() => phatTruoc!({ type: "quyen_doi" }));
+    // Đợi lượt hỏi lại về tới nơi (fetch giả trả ngay) rồi mới kết luận.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(screen.queryByText("Quyền của bạn vừa được cập nhật.")).not.toBeInTheDocument();
+    expect(kenh.phat).toBe(phatTruoc);
   });
 });

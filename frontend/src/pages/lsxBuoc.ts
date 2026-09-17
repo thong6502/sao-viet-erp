@@ -34,10 +34,8 @@ export interface EditRow {
   loai_buoc: LsxLoaiBuoc;
   /* `bat_buoc` GỠ khỏi form 07/09/2026: bước đã nằm trong routing thì PHẢI làm — không còn ô
      tick, không còn nhãn "tùy chọn", server cũng thôi nhận field này (xem migration 0275). */
-  /** KCS kiêm nhiệm (mg 0250): bước này có thuộc tổ KCS không. Ô "Tiêu chí KCS bổ sung" đã GỠ
-   *  08/09/2026 (mg 0283) — tiêu chí chỉ còn MỘT nguồn là danh mục gắn theo công đoạn, xem
-   *  `docs/design-kcs-theo-cong-doan.md`. */
-  la_kcs: boolean;
+  /* `la_kcs` GỠ (mg 0306, KCS theo lệnh): KCS không còn là một bước trong routing — người KCS kiểm
+     bất kỳ công đoạn nào của lệnh từ màn KCS. */
   department_id: number | null;
   /** Tên tổ phụ trách server RESOLVE lúc đọc (kể cả khi `department_id` null vì lấy tổ mặc định của
    *  công đoạn). CHỈ ĐỌC — tổ khai ở danh mục Công đoạn, drawer chỉ bày lại, không cho đổi. */
@@ -193,7 +191,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     ten: cd.ten,
     nhom: cd.nhom,
     loai_buoc: cd.loai_buoc,
-    la_kcs: !!cd.la_kcs,
     department_id: cd.department_id,
     department_ten: cd.department_ten ?? null,
     may_id: cd.may_id,
@@ -322,7 +319,6 @@ export function mayChonDuoc<T extends { id: number; nhom?: string | null; active
 export function emptyRow(): EditRow {
   return {
     key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
-    la_kcs: false,
     department_id: null, department_ten: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
     khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null,
@@ -436,8 +432,6 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       loai_buoc: r.loai_buoc,
       // KHÔNG gửi `bat_buoc` (07/09/2026): mọi bước trong routing đều bắt buộc, cột để server tự
       // giữ TRUE. Gửi lại chỉ mở đường ghi nhầm `false` trong khi drawer không còn ô sửa.
-      // KHÔNG gửi `la_kcs`: drawer không có ô sửa cờ này (kế thừa nguyên từ danh mục Công đoạn
-      // lúc bung routing), gửi lại giá trị cũ vô nghĩa mà thêm rủi ro ghi nhầm.
       // Để TRỐNG tổ → server tự lấy tổ mặc định của công đoạn (không ép khai lại).
       department_id: r.department_id,
       may_id: r.may_id,

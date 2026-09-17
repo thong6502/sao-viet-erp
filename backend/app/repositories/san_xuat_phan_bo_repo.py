@@ -167,6 +167,21 @@ class SanXuatPhanBoRepository:
             )
         )
 
+    def loai_tru_ids_nhieu(self, batch_ids) -> dict[int, set[int]]:
+        """`loai_tru_ids` cho NHIỀU batch trong một truy vấn — mọi id truyền vào đều có khoá (tập rỗng
+        nếu không ai bị loại), để caller tra dict là đủ, khỏi rơi về truy vấn lẻ."""
+        ids = sorted({int(i) for i in batch_ids})
+        out: dict[int, set[int]] = {i: set() for i in ids}
+        if not ids:
+            return out
+        for bid, eid in self.db.execute(
+            select(SanXuatPhanBoLoaiTru.batch_id, SanXuatPhanBoLoaiTru.employee_id).where(
+                SanXuatPhanBoLoaiTru.batch_id.in_(ids)
+            )
+        ):
+            out[bid].add(eid)
+        return out
+
     def loai_tru_cua(self, batch_id: int, employee_id: int) -> SanXuatPhanBoLoaiTru | None:
         return self.db.scalars(
             select(SanXuatPhanBoLoaiTru).where(

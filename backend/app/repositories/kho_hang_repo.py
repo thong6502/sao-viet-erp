@@ -16,6 +16,15 @@ class KhoHangRepository(CatalogRepo):
     ma_prefix = "KHO-"
     commit_on_write = False   # `KhoHangService` chốt sau khi đã ghi nhật ký — xem `catalog_base`
 
+    def ten_theo_ids(self, kho_ids) -> dict[int, str]:
+        """`{kho_id: tên kho}` cho MỘT lượt đọc, một câu cho cả danh sách. Kho đã xoá mềm vẫn trả tên
+        (lô cũ vẫn phải đọc được)."""
+        ids = {int(i) for i in kho_ids if i is not None}
+        if not ids:
+            return {}
+        return {int(i): t for i, t in self.db.execute(
+            select(KhoHang.id, KhoHang.ten).where(KhoHang.id.in_(ids))).all()}
+
     def dem_rang_buoc(self, kho_id: int) -> dict[str, int]:
         """Ba con số CHẶN xoá một kho: lô còn tồn · phiếu chờ ghi sổ · đề nghị đang xử lý.
 

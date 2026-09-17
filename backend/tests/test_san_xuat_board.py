@@ -25,15 +25,14 @@ from app.models.department import Department
 from app.models.employee import Employee
 from app.models.lsx import LsxCongDoan
 from app.models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
-from app.models.san_xuat import CV_HOAN_THANH, SanXuatCongViec
-from app.models.san_xuat_kcs import SanXuatKcsBatch
-from app.models.san_xuat_san_luong import BG_XAC_NHAN, SanXuatBanGiao
+from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, SanXuatCongViec
+from app.models.san_xuat_san_luong import SanXuatBatch
 from app.models.san_xuat_thuc_thi import PC_HOAT_DONG, SanXuatPhanCong
 from app.models.user import User
 from app.repositories.rbac_repo import RoleRepository
-from app.repositories.san_xuat_repo import SanXuatRepository
+from app.schemas.san_xuat import WorkItemChiTietOut
 from app.services.rbac_service import AuthorizationService
-from app.services.san_xuat import board, release
+from app.services.san_xuat import board, kcs, release
 from tests.quyen_to_fixtures import BON_VIEC, cap_quyen_to
 
 # Fixtures + helper dùng chung từ test xếp lịch.
@@ -48,7 +47,8 @@ from tests.test_xep_lich_service import (  # noqa: F401
 
 _KEYS_ITEM = {
     "id", "goi_id", "phien_ban_so", "nguon_loai", "nguon_ma", "nguon_ten", "nhom",
-    "ten_cong_doan", "nhom_cong_doan", "loai_buoc", "la_kcs", "la_kcs_cuoi", "may",
+    "ten_cong_doan", "nhom_cong_doan", "loai_buoc", "la_kcs_cuoi", "kcs_so_lan", "kcs_dat",
+    "kcs_loi", "may",
     "du_kien_bat_dau", "du_kien_ket_thuc", "so_luong_vao", "so_luong_ra",
     "don_vi_vao", "don_vi_ra", "trang_thai",
 }
@@ -62,8 +62,7 @@ def _ban_phang(db, user, authz, **kw):
     return board.work_items(db, user, authz, **kw)
 
 
-_TAT_CA_5_VIEC = {"read": "all", "run_order": "all", "confirm_output": "all", "qc": "all",
-                  "warehouse": "all"}
+_TAT_CA_4_VIEC = {"read": "all", "run_order": "all", "confirm_output": "all", "warehouse": "all"}
 
 
 class _FakeAuthz:
@@ -97,30 +96,6 @@ def _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to_id: int):
     db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id.in_([a.id, b.id])).update(
         {LsxCongDoan.department_id: to_id}, synchronize_session=False
     )
-    db.commit()
-    goi = release.phat_hanh(db, lsx_ids={a.id, b.id}, actor=admin)
-    db.commit()
-    return a, b, goi
-
-
-def _phat_hanh_vao_to_co_kcs(db, orders, lsx_svc, admin, customer, to_id: int):
-    """Giống `_phat_hanh_vao_to` nhưng tổ `to_id` được bật `is_kcs=True` VÀ LSX `a` được thêm một
-    bước ĐẦU (trước bước gốc "In offset") — dựng dữ liệu có CẢ việc sản xuất (bước không phải cuối)
-    lẫn việc KCS (bước CUỐI của mỗi LSX) trong CÙNG một tổ. `la_kcs` từ 2026-08-31 suy TỰ ĐỘNG
-    (bước cuối routing + `departments.is_kcs`), không còn khai tay trên `LsxCongDoan` — xem
-    `docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md`."""
-    db.query(Department).filter(Department.id == to_id).update({"is_kcs": True})
-    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id.in_([a.id, b.id])).update(
-        {LsxCongDoan.department_id: to_id}, synchronize_session=False
-    )
-    buoc_goc = db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id == a.id).order_by(
-        LsxCongDoan.thu_tu, LsxCongDoan.id
-    ).first()
-    db.add(LsxCongDoan(
-        lsx_id=a.id, thu_tu=(buoc_goc.thu_tu or 0) - 1, ten="Chuẩn bị", nhom="prepress",
-        department_id=to_id,
-    ))
     db.commit()
     goi = release.phat_hanh(db, lsx_ids={a.id, b.id}, actor=admin)
     db.commit()
@@ -171,13 +146,12 @@ def test_teams_liet_ke_va_badge(db, orders, lsx_svc, admin, customer):
     assert to.id in by_id
     row = by_id[to.id]
     assert set(row) == {
-        "id", "ten", "ma", "cap", "la_kcs", "la_tho", "so_viec_cho", "so_viec_kcs_cho",
-        "co_viec_kcs", "quyen", "so_cho_xac_nhan",
+        "id", "ten", "ma", "cap", "la_kcs", "la_tho", "so_viec_cho", "quyen", "so_cho_xac_nhan",
     }
     assert row["ten"] == "Tổ In Board" and row["ma"] == "TO-BOARD" and row["la_kcs"] is False
-    # Tổ không có phòng cha → gốc cây, cấp 0; `_to_moi` bật Xem + 4 quyền chi tiết phạm vi all.
+    # Tổ không có phòng cha → gốc cây, cấp 0; `_to_moi` bật Xem + 3 quyền chi tiết phạm vi all.
     assert row["cap"] == 0
-    assert row["quyen"] == _TAT_CA_5_VIEC and row["la_tho"] is False
+    assert row["quyen"] == _TAT_CA_4_VIEC and row["la_tho"] is False
 
     n_cho = (
         db.query(SanXuatCongViec)
@@ -294,7 +268,7 @@ def test_item_dict_gio_khong_lech_khi_db_tra_aware():
     cv = SimpleNamespace(
         id=7, goi_id=1, phien_ban_so=1, nhom_id=None, lsx_id=None, bai_ghep_id=None,
         ten_cong_doan="In offset (lần 1/2)", nhom_cong_doan="print", loai_buoc="may",
-        la_kcs=False, la_kcs_cuoi=False, may_id=None,
+        la_kcs_cuoi=False, may_id=None,
         du_kien_bat_dau=ke_hoach, du_kien_ket_thuc=ke_hoach + timedelta(hours=1),
         dinh_muc_json=None, so_luong_vao=400, so_luong_ra=316, don_vi_vao="tờ", don_vi_ra="tờ",
         trang_thai="released", vat_tu_json=None,
@@ -371,11 +345,11 @@ def test_scope_department_thay_cay_con(db):
 
     ts_b = board.teams(db, b, _authz(db))
     assert [(t["id"], t["cap"]) for t in ts_b] == [(c.to_in.id, 1), (c.nhom.id, 2)]
-    assert all(t["quyen"] == _TAT_CA_5_VIEC and t["la_tho"] is False for t in ts_b)
+    assert all(t["quyen"] == _TAT_CA_4_VIEC and t["la_tho"] is False for t in ts_b)
 
     ts_a = board.teams(db, a, _authz(db))
     assert [(t["id"], t["cap"]) for t in ts_a] == [(c.nhom.id, 2)]
-    assert ts_a[0]["quyen"] == _TAT_CA_5_VIEC
+    assert ts_a[0]["quyen"] == _TAT_CA_4_VIEC
 
     assert board.teams(db, x, _authz(db)) == []
     with pytest.raises(PermissionError):
@@ -502,132 +476,41 @@ def test_work_items_team_khong_hop_le_bi_chan(db, admin):
         _ban_phang(db, admin, _authz(db), team_id=999_999)
 
 
-# --- Task 4: tách board production/KCS + hai badge (§18 mục 6, mg 0250) ---------------------
-def test_mode_production_chi_tra_khong_kcs(db, orders, lsx_svc, admin, customer):
+# --- Dấu KCS trên thẻ việc (KCS theo lệnh, mg 0306) ------------------------------------------
+def test_work_items_mang_dau_kcs_cua_cong_doan(db, orders, lsx_svc, admin, customer):
+    """KCS kiểm một công đoạn của tổ ⇒ thẻ việc trên bàn tổ mang số lần kiểm + Σ đạt/lỗi; việc
+    chưa ai kiểm để 0. Bàn tổ không còn chế độ "kcs" riêng — việc nào cũng là việc sản xuất."""
     to = _to_moi(db)
-    _phat_hanh_vao_to_co_kcs(db, orders, lsx_svc, admin, customer, to.id)
-
-    res = _ban_phang(db, admin, _authz(db), team_id=to.id, mode="production")
-    items = res["cong_viec"]
-    assert items  # tổ này còn việc sản xuất khác ngoài bước KCS
-    assert all(i["la_kcs"] is False for i in items)
-
-
-def test_mode_kcs_chi_tra_kcs(db, orders, lsx_svc, admin, customer):
-    to = _to_moi(db)
-    _phat_hanh_vao_to_co_kcs(db, orders, lsx_svc, admin, customer, to.id)
-
-    res = _ban_phang(db, admin, _authz(db), team_id=to.id, mode="kcs")
-    items = res["cong_viec"]
-    assert items  # fixture đảm bảo có ít nhất 1 việc la_kcs=True
-    assert all(i["la_kcs"] is True for i in items)
-
-
-def test_thieu_mode_mac_dinh_production(db, orders, lsx_svc, admin, customer):
-    to = _to_moi(db)
-    _phat_hanh_vao_to_co_kcs(db, orders, lsx_svc, admin, customer, to.id)
-
-    mac_dinh = _ban_phang(db, admin, _authz(db), team_id=to.id)
-    tuong_minh = _ban_phang(db, admin, _authz(db), team_id=to.id, mode="production")
-    assert mac_dinh == tuong_minh
-
-
-def test_badge_production_khong_dem_kcs(db, orders, lsx_svc, admin, customer):
-    to = _to_moi(db)
-    _phat_hanh_vao_to_co_kcs(db, orders, lsx_svc, admin, customer, to.id)
-
-    repo = SanXuatRepository(db)
-    badge = repo.dem_cho_lam_theo_to({to.id})
-    n_production = (
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+    cv = (
         db.query(SanXuatCongViec)
-        .filter(
-            SanXuatCongViec.department_id == to.id,
-            SanXuatCongViec.trang_thai != CV_HOAN_THANH,
-            SanXuatCongViec.la_kcs.is_(False),
-        )
-        .count()
+        .filter(SanXuatCongViec.department_id == to.id)
+        .order_by(SanXuatCongViec.id)
+        .first()
     )
-    n_kcs = (
-        db.query(SanXuatCongViec)
-        .filter(
-            SanXuatCongViec.department_id == to.id,
-            SanXuatCongViec.trang_thai != CV_HOAN_THANH,
-            SanXuatCongViec.la_kcs.is_(True),
-        )
-        .count()
-    )
-    assert n_production > 0 and n_kcs > 0  # fixture phải có cả hai loại để test có ý nghĩa
-    assert badge.get(to.id) == n_production
-
-
-def test_badge_kcs_chi_dem_cho_kiem(db, orders, lsx_svc, admin, customer):
-    to = _to_moi(db)
-    _a, _b, goi = _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
-
-    def _viec(la_kcs: bool, ten: str) -> SanXuatCongViec:
-        cv = SanXuatCongViec(
-            goi_id=goi.id, department_id=to.id, la_kcs=la_kcs, ten_cong_doan=ten,
-        )
-        db.add(cv)
-        db.flush()
-        return cv
-
-    # (a) việc KCS CHƯA có bàn giao đến — KHÔNG tính.
-    _viec(True, "KCS chưa bàn giao")
-
-    # (b) việc KCS có bàn giao confirmed, CHƯA có SanXuatKcsBatch — TÍNH.
-    cv_b = _viec(True, "KCS chờ kiểm")
-    nguon_b = _viec(False, "Nguồn của (b)")
-    db.add(SanXuatBanGiao(
-        nguon_cong_viec_id=nguon_b.id, dich_cong_viec_id=cv_b.id,
-        so_luong=10, don_vi="to", trang_thai=BG_XAC_NHAN,
-    ))
-
-    # (c) việc KCS có bàn giao confirmed VÀ đã có SanXuatKcsBatch — KHÔNG tính (đã kiểm).
-    cv_c = _viec(True, "KCS đã kiểm")
-    nguon_c = _viec(False, "Nguồn của (c)")
-    db.add(SanXuatBanGiao(
-        nguon_cong_viec_id=nguon_c.id, dich_cong_viec_id=cv_c.id,
-        so_luong=10, don_vi="to", trang_thai=BG_XAC_NHAN,
-    ))
-    now = datetime(2026, 8, 20, tzinfo=timezone.utc)
-    db.add(SanXuatKcsBatch(
-        cong_viec_id=cv_c.id, bat_dau=now, ket_thuc=now,
-        so_luong_nhan=10, so_luong_dat=10, don_vi="to",
-    ))
+    cv.trang_thai = CV_DANG_CHAY
+    # Mỗi lệnh ở đây chỉ một bước ⇒ bước đó là công đoạn cuối: tổ phải ghi số tốt trước khi KCS
+    # chốt số đạt (Σ đạt ≤ Σ tốt).
+    moc = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
+    db.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=moc, ket_thuc=moc, tong=20, tot=20, hong=0,
+                        don_vi=cv.don_vi_ra or "cái"))
     db.commit()
-
-    repo = SanXuatRepository(db)
-    badge = repo.dem_kcs_cho_kiem_theo_to({to.id})
-    assert badge.get(to.id, 0) == 1
-
-
-def test_sinh_node_kcs_chi_khi_co_viec_kcs(db, orders, lsx_svc, admin, customer):
-    to = _to_moi(db)
-    _a, _b, goi = _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
-
-    repo = SanXuatRepository(db)
-    assert repo.to_co_viec_kcs({to.id}) == set()
-    truoc = {t["id"]: t for t in board.teams(db, admin, _authz(db))}
-    assert truoc[to.id]["co_viec_kcs"] is False
-    assert truoc[to.id]["so_viec_kcs_cho"] == 0
-
-    cv_kcs = SanXuatCongViec(
-        goi_id=goi.id, department_id=to.id, la_kcs=True, ten_cong_doan="KCS đột xuất",
-    )
-    db.add(cv_kcs)
+    phong_kcs = Department(name="Tổ KCS Board", code="KCS-BOARD", is_kcs=True)
+    db.add(phong_kcs)
+    db.flush()
+    nguoi_kcs = User(username="kcs_board", name="KCS Board", password_hash="x",
+                     department_id=phong_kcs.id)
+    db.add(nguoi_kcs)
     db.commit()
+    anh = [{"file_name": "loi.jpg", "file_url": "/api/files/x/loi.jpg", "file_type": "image/jpeg"}]
+    kcs.kiem_cong_doan(db, user=nguoi_kcs, cong_viec_id=cv.id, so_dat=8, so_loi=2,
+                       loi_mo_ta="Lem mực", anh=anh)
+    kcs.kiem_cong_doan(db, user=nguoi_kcs, cong_viec_id=cv.id, so_dat=5)
 
-    assert repo.to_co_viec_kcs({to.id}) == {to.id}
-    sau = {t["id"]: t for t in board.teams(db, admin, _authz(db))}
-    assert sau[to.id]["co_viec_kcs"] is True
-
-    # Việc KCS đã HOÀN THÀNH → không còn "đang hoạt động" → node phải biến mất.
-    cv_kcs.trang_thai = CV_HOAN_THANH
-    db.commit()
-    assert repo.to_co_viec_kcs({to.id}) == set()
-    cuoi = {t["id"]: t for t in board.teams(db, admin, _authz(db))}
-    assert cuoi[to.id]["co_viec_kcs"] is False
+    items = {i["id"]: i for i in _ban_phang(db, admin, _authz(db), team_id=to.id)["cong_viec"]}
+    assert (items[cv.id]["kcs_so_lan"], items[cv.id]["kcs_dat"], items[cv.id]["kcs_loi"]) == (2, 13, 2)
+    khac = next(i for k, i in items.items() if k != cv.id)
+    assert (khac["kcs_so_lan"], khac["kcs_dat"], khac["kcs_loi"]) == (0, 0, 0)
 
 
 # --- Thợ (mức Xem `own`) chỉ thấy việc được giao (§7.1) ------------------------------------
@@ -720,8 +603,9 @@ def test_tho_mo_viec_khong_duoc_giao_bi_chan(db, orders, lsx_svc, admin, custome
     assert ct["cong_viec"]["id"] == ca_ban[0]["id"]
     # Vai Công nhân không có quyền chi tiết nào → drawer tắt mọi nút, kể cả trên việc của mình.
     assert ct["quyen"] == {
-        "run_order": False, "confirm_output": False, "qc": False, "warehouse": False,
+        "run_order": False, "confirm_output": False, "warehouse": False,
     }
+    assert ct["quyen_muc"] == {}
     with pytest.raises(PermissionError):
         board.chi_tiet_cong_viec(db, tho, _authz(db), cong_viec_id=ca_ban[1]["id"])
 
@@ -741,11 +625,15 @@ def test_chi_tiet_quyen_muc_own_chi_bat_tren_viec_dang_giao(db, orders, lsx_svc,
     assert len(ca_ban) >= 2, "Xem Tất cả ở Tổ in phải thấy trọn bàn"
     _giao(db, ca_ban[0]["id"], _emp_id(db, u.id))
 
-    tat = {"confirm_output": False, "qc": False, "warehouse": False}
+    tat = {"confirm_output": False, "warehouse": False}
     cua_minh = board.chi_tiet_cong_viec(db, u, _authz(db), cong_viec_id=ca_ban[0]["id"])
     assert cua_minh["quyen"] == {"run_order": True, **tat}
     nguoi_khac = board.chi_tiet_cong_viec(db, u, _authz(db), cong_viec_id=ca_ban[1]["id"])
     assert nguoi_khac["quyen"] == {"run_order": False, **tat}
+    # Cùng là "tắt" nhưng KHÁC lý do với người không được cấp gì: drawer phải nói "việc chưa giao
+    # cho bạn" chứ không bảo "cần quyền" (16/09/2026). Đi qua schema để Pydantic không nuốt field.
+    for ct in (cua_minh, nguoi_khac):
+        assert WorkItemChiTietOut.model_validate(ct).quyen_muc == {"run_order": "own"}
 
     # Menu nói đúng mức từng việc trên nút Tổ in.
     row = {t["id"]: t for t in board.teams(db, u, _authz(db))}[c.to_in.id]
@@ -803,5 +691,44 @@ def test_teams_noi_ro_vai_tho_de_fe_khong_phai_doan(db, orders, lsx_svc, admin, 
     row_tho = {t["id"]: t for t in board.teams(db, tho, _authz(db))}[to.id]
     assert row_tho["la_tho"] is True and row_tho["quyen"] == {"read": "own"}
     row_truong = {t["id"]: t for t in board.teams(db, truong, _authz(db))}[to.id]
-    assert row_truong["la_tho"] is False and row_truong["quyen"] == _TAT_CA_5_VIEC
+    assert row_truong["la_tho"] is False and row_truong["quyen"] == _TAT_CA_4_VIEC
     assert {t["id"]: t["la_tho"] for t in board.teams(db, admin, _authz(db))}[to.id] is False
+
+
+def test_chi_tiet_tra_anh_dai_dien_cua_tung_nguoi(db, orders, lsx_svc, admin, customer):
+    """Ô "Tổ thực hiện" + "Khoảng tham gia" của drawer phải có ảnh tài khoản của TỪNG thợ.
+
+    Trước đây chỉ có `ho_ten` nên đổi avatar xong drawer vẫn là chữ cái đầu. Thợ không có tài
+    khoản (hoặc chưa đặt ảnh) thì `avatar_url` null gọn — FE vẽ chữ cái, không nổ."""
+    from app.models.san_xuat_thuc_thi import SanXuatKhoangThamGia, SanXuatPhienChay
+
+    to = _to_moi(db)
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+    cvid = _ban_phang(db, admin, _authz(db), team_id=to.id)["cong_viec"][0]["id"]
+
+    co_anh = _tho_co_tai_khoan(db, to, username="tho_anh", ma_nv="NV-ANH")
+    co_anh.avatar_url = "/api/files/avatars/9/tho-anh.jpg"
+    khong_tk = Employee(code="NV-KHONG-TK", full_name="Thợ không tài khoản", department_id=to.id)
+    db.add(khong_tk)
+    db.commit()
+    eid_anh = _emp_id(db, co_anh.id)
+    _giao(db, cvid, eid_anh)
+    _giao(db, cvid, khong_tk.id)
+
+    t0 = datetime(2026, 9, 16, 8, 0, tzinfo=timezone.utc)
+    phien = SanXuatPhienChay(cong_viec_id=cvid, so_thu_tu=1, bat_dau=t0, ket_thuc=None)
+    db.add(phien)
+    db.flush()
+    db.add_all([
+        SanXuatKhoangThamGia(cong_viec_id=cvid, phien_chay_id=phien.id, employee_id=e, bat_dau=t0)
+        for e in (eid_anh, khong_tk.id)
+    ])
+    db.commit()
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cvid)
+    # Đi qua schema Out — field không khai ở đó sẽ bị Pydantic bỏ im lặng.
+    out = WorkItemChiTietOut.model_validate(ct).model_dump()
+    anh_pc = {p["employee_id"]: p["avatar_url"] for p in out["phan_cong"]}
+    anh_kh = {k["employee_id"]: k["avatar_url"] for k in out["khoang_tham_gia"]}
+    assert anh_pc == {eid_anh: "/api/files/avatars/9/tho-anh.jpg", khong_tk.id: None}
+    assert anh_kh == anh_pc

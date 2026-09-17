@@ -21,15 +21,17 @@ KHÔNG vòng lặp gọi DB. Số câu SQL của `nap()` KHÔNG phụ thuộc `l
   6.  SanXuatPhienChay          cong_viec_id IN {cong_viec.id ∪ ghép}       -> phien[cong_viec_id] (list)
   7.  SanXuatBatch              cong_viec_id IN {cong_viec.id ∪ ghép}       -> batch[cong_viec_id] (list)
   8.  SanXuatKcsBatch           cong_viec_id IN {cong_viec.id ∪ ghép}       -> kcs[cong_viec_id] (list)
-  9.  SanXuatKhoLot             lsx_id IN ids                               -> lot[lsx_id] (list)
+  9.  (đã gỡ 17/09/2026 — lot BTP dư của lệnh, không còn đường ghi)
   10. YeuCauSuaChua             lsx_id IN ids OR cong_viec_id IN {5+5d}     -> su_co[lsx_id] (list)
   11. DeliveryRequestLine       order_line_id IN {lenh.order_line_id}       -> giao[order_line_id] (list)
   11b.DeliveryTripLine JOIN DeliveryTrip, lọc order_line_id IN {lenh.order_line_id}
                                 + trip.trang_thai IN LAN_GIAO_CO_HANG_DEN_TAY
                                                                             -> da_giao[order_line_id] (int)
-  12. SanXuatNhapKhoYc OUTER JOIN SanXuatKcsBatch ON kcs_batch_id OUTER JOIN SanXuatCongViec ON
-                                cong_viec_id, lọc cong_viec.lsx_id IN ids OR yc.nhom_id IN {5e}
-                                                                            -> nhap_kho_yc[lsx_id] (list)
+  12. SanXuatCongViec (la_kcs_cuoi) nhom_id IN {5e} OR lsx_id IN ids
+  12b.StockRequest JOIN StockRequestLine, san_xuat_cong_viec_id IN {12}     -> nhap_kho_tp[lsx_id] (list)
+      (`san_xuat/kho.dong_nhap_kho_cua_cong_viec`; có dòng thì thêm MỘT câu phiếu ghi sổ muộn nhất
+      — số câu vẫn không đổi theo `len(lsx_ids)`. Hệ số quy về đơn vị KCS tính lười, trang danh sách
+      không chạm tới.)
   13. LsxCongDoanPhuThuoc JOIN LsxCongDoan (buoc_sau) ON buoc_sau_id, lọc LsxCongDoan.lsx_id IN ids
                                                                              -> phu_thuoc_buoc[lsx_id] (list cạnh)
   14. SanXuatNhom               id IN {cong_viec.nhom_id ∪ ghép}            -> nhom[nhom_id]
@@ -79,33 +81,12 @@ Khoá theo FK THẬT của từng bảng — không đoán, không suy diễn:
     ÂM THẦM trả nhầm dòng của lệnh khác trùng số (Vòng sửa 1, review Task 6). Dùng
     `BoiCanh.giao_cua(lsx_id)` thay vì đánh chỉ số `giao` trực tiếp trừ khi thật sự cần khoá theo
     dòng đơn (vd. gộp giao hàng của nhiều lsx cùng dòng).
-  - `nhap_kho_yc` (`SanXuatNhapKhoYc`, `models/san_xuat_kho.py:160`) không có cột `lsx_id` — đi
-    bằng HAI cầu OR trong cùng một câu, vì "đã nhập kho" là sự thật cấp NHÓM chứ không cấp lệnh:
-      · cầu BATCH: `kcs_batch_id` → `san_xuat_kcs_batch.cong_viec_id` → `san_xuat_cong_viec.lsx_id`;
-      · cầu NHÓM: `SanXuatNhapKhoYc.nhom_id` ∈ nhóm mà lệnh là thành viên (câu 5e).
-    ĐỪNG bắc cầu qua registry `san_xuat_kho_hang.lsx_id` (bản Task 6 làm vậy, SỬA ở Task 8): hàng
-    THÀNH PHẨM luôn có `lsx_id IS NULL` vì `kho._get_or_create_hang` được gọi với `lsx_id=None`
-    cứng (`services/san_xuat/kho.py:132`) — thành phẩm thuộc NHÓM ("Ruột + Bìa → Kỷ yếu"), không
-    thuộc một lệnh. Cầu cũ nối được ĐÚNG 0 dòng trên dữ liệu thật, và im lặng: map luôn rỗng, không
-    lỗi, không dấu hiệu. Bài canh của Task 6 xanh vì fixture tự tay đặt `hang.lsx_id = lsx_id` —
-    một giá trị production không bao giờ ghi.
-    VÌ SAO PHẢI CÓ CẦU NHÓM (Vòng sửa 1): một nhóm có thể gồm NHIỀU lệnh (Ruột + Bìa), mà
-    `snapshot.danh_dau_kcs_cuoi:137-171` chỉ đánh `la_kcs_cuoi` cho ĐÚNG MỘT ứng viên mỗi nhóm ⇒
-    yêu cầu nhập kho chỉ sinh được từ batch của THÂN CHÍNH. Đi mình cầu batch thì lệnh thành viên
-    còn lại có `nhap_kho_yc` rỗng VĨNH VIỄN và kẹt ở tab Đang SX dù hàng đã nằm trong kho.
-    CẦU NHÓM CHE ĐỦ 100% (chốt ở Vòng sửa 2, không còn là suy đoán): `SanXuatNhapKhoYc` chỉ được
-    dựng ở MỘT chỗ (`kho.py:139`), và chỗ đó raise khi `kcs.nhom_id` NULL ⇒ MỌI dòng yc đều có
-    `nhom_id`. Ghép trong cùng một nhóm thì cầu nhóm với tới; ghép bắc qua nhiều nhóm thì công việc
-    chung có `nhom_id` NULL nên KHÔNG có yc nào ra đời để mà hụt. Hệ quả: cầu BATCH nay là TẬP CON
-    của cầu nhóm, giữ lại chỉ để dự phòng dữ liệu trôi (yc có `nhom_id` trỏ vào nhóm mà lệnh không
-    còn là thành viên). Không cần vá gì thêm ở đây, kể cả nếu bộ lọc `NHOM_PRINT` ở
-    `app/services/bai_ghep_service.py:109` được nới ra.
-    Nạp NGUYÊN TRẠNG, không lọc theo `trang_thai` — đây là tầng nạp, luật đọc thuộc về bên dùng.
-    ⚠️ ĐỪNG CỘNG QUA CÁC LỆNH: nhiều lệnh cùng nhóm cùng đọc CHUNG một tập yc (cùng object, cùng
-    id). Cộng `so_luong_xac_nhan` qua các lệnh của một trang là nhân số thật lên đúng bằng số thành
-    viên nhóm. Map này trả lời "nhóm của lệnh đã có hàng vào kho chưa", KHÔNG trả lời "lệnh này
-    đóng góp bao nhiêu" — muốn con số per-lệnh thì phải chia ở tầng khác, cùng kiểu cảnh báo mà
-    `tien_do.gio_may` đã ghi cho phiên của bước ghép.
+  - `nhap_kho_tp` = dòng yêu cầu NHẬP thành phẩm của KHO THẬT (`stock_requests.san_xuat_cong_viec_id`,
+    design nhập kho thành phẩm 17/09/2026) — sổ kho riêng của sản xuất đã gỡ. "Đã nhập kho" là sự
+    thật cấp NHÓM: chỉ công đoạn cuối của THÂN CHÍNH mang `la_kcs_cuoi`, nên dòng của nó phát cho
+    MỌI lệnh trong nhóm (cầu `nhom_id`), cộng cầu `lsx_id` cho công đoạn chưa gắn nhóm.
+    ⚠️ ĐỪNG CỘNG QUA CÁC LỆNH: nhiều lệnh cùng nhóm đọc CHUNG một tập dòng (cùng object). Map này trả
+    lời "nhóm của lệnh đã có hàng vào kho chưa", KHÔNG trả lời "lệnh này đóng góp bao nhiêu".
   - `su_co` cũng đi HAI đường OR: `lsx_id IN ids` và `cong_viec_id IN {cv_ids}`.
     `su_co.bao_su_co` (`services/san_xuat/su_co.py:118-120`) ghi `lsx_id = cv.lsx_id` — NULL khi
     sự cố báo trên một bước bị bài ghép phủ — nhưng luôn ghi `cong_viec_id`. Đi mình đường `lsx_id`
@@ -119,10 +100,6 @@ Khoá theo FK THẬT của từng bảng — không đoán, không suy diễn:
     KHÁC `giao[...]` — `qty` ở đó (`:163`) là số YÊU CẦU giao, lập phiếu xong là có ngay dù xe
     chưa chạy. Dùng hằng có sẵn thay vì liệt kê trạng thái loại trừ: danh sách tay sót `hen_lai`
     (ngưng dùng nhưng dòng cũ còn đọc được) và lệch ngay lần bên giao hàng thêm trạng thái.
-  - `lot` khoá theo `SanXuatKhoLot.lsx_id`, mà cột đó CHỈ được ghi cho lot BTP
-    (`kho.phan_loai_btp_du`); lot THÀNH PHẨM (`kho.kho_xac_nhan_nhap`) để trống nó. Nên
-    `lot[lsx_id]` là "lot BTP của lệnh", KHÔNG phải "tồn thành phẩm của lệnh" — muốn tồn thành
-    phẩm thì đọc `nhap_kho_yc[...].so_luong_xac_nhan`.
   - `phu_thuoc_buoc` lấy từ `lsx_cong_doan_phu_thuoc` (`models/lsx.py:349`), khoá theo `lsx_id`
     CỦA BƯỚC SAU (`buoc_sau_id`) — cạnh (`buoc_truoc_id`, `buoc_sau_id`) dùng để tính đường găng ở
     task tiến độ (phía sau). ĐỪNG nhầm với bảng `san_xuat_phu_thuoc` — đó là cạnh phụ thuộc CHÉO
@@ -135,8 +112,8 @@ Khoá theo FK THẬT của từng bảng — không đoán, không suy diễn:
     điều độ hiện tên người đã bị rút là chỉ sai người, mà không gãy gì để ai biết.
 
 Hai HẠNG map:
-  - Map DANH SÁCH (`cong_viec`, `cong_viec_ghep`, `phien`, `batch`, `kcs`, `lot`, `su_co`, `giao`,
-    `nhap_kho_yc`, `phu_thuoc_buoc`, `buoc_phu`) đều TOÀN ÁNH trên miền khoá tự nhiên của chúng:
+  - Map DANH SÁCH (`cong_viec`, `cong_viec_ghep`, `phien`, `batch`, `kcs`, `su_co`, `giao`,
+    `nhap_kho_tp`, `phu_thuoc_buoc`, `buoc_phu`) đều TOÀN ÁNH trên miền khoá tự nhiên của chúng:
     mọi khoá thuộc miền đó LUÔN có mặt trong dict, trỏ tới `[]` khi không có dòng nào — để bên
     dùng đọc thẳng `bc.cong_viec[lsx_id]` mà KHÔNG phải viết `.get(id, [])` ở khắp nơi.
     (`buoc_phu` toàn ánh trên id của CÔNG VIỆC GHÉP, không phải trên mọi công việc: đọc nó bằng id
@@ -165,7 +142,6 @@ from ...models.may_thiet_bi import MayThietBi
 from ...models.order import Order
 from ...models.san_xuat import SanXuatCongViec, SanXuatNhom, SanXuatNhomLsx
 from ...models.san_xuat_kcs import SanXuatKcsBatch
-from ...models.san_xuat_kho import SanXuatKhoLot, SanXuatNhapKhoYc
 from ...models.san_xuat_san_luong import SanXuatBatch
 from ...models.san_xuat_thuc_thi import PC_HOAT_DONG, SanXuatPhanCong, SanXuatPhienChay
 from ...models.user import User
@@ -185,7 +161,6 @@ class BoiCanh:
     phien: dict[int, list[SanXuatPhienChay]]
     batch: dict[int, list[SanXuatBatch]]
     kcs: dict[int, list[SanXuatKcsBatch]]
-    lot: dict[int, list[SanXuatKhoLot]]
     su_co: dict[int, list[YeuCauSuaChua]]
     giao: dict[int, list[DeliveryRequestLine]]
     da_giao: dict[int, int]
@@ -194,7 +169,7 @@ class BoiCanh:
     phan_cong: dict[int, list[SanXuatPhanCong]]
     nhan_su: dict[int, Employee]
     phu_thuoc_buoc: dict[int, list[tuple[int, int]]]
-    nhap_kho_yc: dict[int, list[SanXuatNhapKhoYc]]
+    nhap_kho_tp: dict[int, list]   # [DongNhapKhoTp] — kiểu ở `san_xuat/kho.py`
 
     def giao_cua(self, lsx_id: int) -> list[DeliveryRequestLine]:
         """Dòng giao hàng của MỘT lệnh. Dùng cái này, đừng đánh chỉ số `giao` trực tiếp —
@@ -257,8 +232,8 @@ class BoiCanh:
 def _rong() -> BoiCanh:
     return BoiCanh(
         lenh={}, don={}, khach={}, sale={}, cong_viec={}, cong_viec_ghep={}, buoc_phu={},
-        phien={}, batch={}, kcs={}, lot={}, su_co={}, giao={}, da_giao={}, nhom={}, may={},
-        phan_cong={}, nhan_su={}, phu_thuoc_buoc={}, nhap_kho_yc={},
+        phien={}, batch={}, kcs={}, su_co={}, giao={}, da_giao={}, nhom={}, may={},
+        phan_cong={}, nhan_su={}, phu_thuoc_buoc={}, nhap_kho_tp={},
     )
 
 
@@ -413,14 +388,6 @@ def nap(db: Session, lsx_ids: list[int]) -> BoiCanh:
     for k in kcs_rows:
         kcs[k.cong_viec_id].append(k)
 
-    # 9) lot — SanXuatKhoLot.lsx_id IN ids.
-    lot_rows = list(
-        db.execute(select(SanXuatKhoLot).where(SanXuatKhoLot.lsx_id.in_(ids))).scalars()
-    )
-    lot: dict[int, list[SanXuatKhoLot]] = {i: [] for i in ids}
-    for lo in lot_rows:
-        lot[lo.lsx_id].append(lo)
-
     # 10) su_co — HAI đường về lệnh, OR trong CÙNG một câu: `lsx_id IN ids` (sự cố trên bước riêng)
     # và `cong_viec_id IN cv_ids` (sự cố trên bước bị BÀI GHÉP phủ — `cv.lsx_id` NULL nên đường đầu
     # hụt). `cv_ids` đã có sẵn từ câu 5d, không đẻ câu mới. Xem docstring cho quyết định "sự cố của
@@ -485,32 +452,28 @@ def nap(db: Session, lsx_ids: list[int]) -> BoiCanh:
     for order_line_id, tong in trip_rows:
         da_giao[int(order_line_id)] = int(tong or 0)
 
-    # 12) nhap_kho_yc — HAI cầu, OR trong CÙNG một câu:
-    #   · `kcs_batch → cong_viec.lsx_id` (yêu cầu sinh từ batch của chính lệnh);
-    #   · `SanXuatNhapKhoYc.nhom_id` ∈ nhóm của lệnh (kho nhận hàng của NHÓM — xem docstring).
-    # OUTER JOIN vì vế nhóm phải sống cả khi batch/công việc trỏ hụt.
+    # 12) nhap_kho_tp — công đoạn KCS cuối của nhóm (hoặc của chính lệnh), rồi dòng yêu cầu NHẬP kho
+    # thật của chúng. Import muộn: `san_xuat/kho` → `kcs` → nạp `boi_canh` ở tầng module.
+    from ..san_xuat.kho import dong_nhap_kho_cua_cong_viec
+
     nhom_thanh_vien_ids = set(lsx_theo_nhom)
-    nhap_rows = list(
+    cv_cuoi = list(
         db.execute(
-            select(SanXuatNhapKhoYc, SanXuatCongViec.lsx_id)
-            .outerjoin(SanXuatKcsBatch, SanXuatNhapKhoYc.kcs_batch_id == SanXuatKcsBatch.id)
-            .outerjoin(SanXuatCongViec, SanXuatKcsBatch.cong_viec_id == SanXuatCongViec.id)
-            .where(
-                or_(
-                    SanXuatCongViec.lsx_id.in_(ids),
-                    SanXuatNhapKhoYc.nhom_id.in_(nhom_thanh_vien_ids),
-                )
+            select(SanXuatCongViec.id, SanXuatCongViec.nhom_id, SanXuatCongViec.lsx_id).where(
+                SanXuatCongViec.la_kcs_cuoi.is_(True),
+                or_(SanXuatCongViec.nhom_id.in_(nhom_thanh_vien_ids), SanXuatCongViec.lsx_id.in_(ids)),
             )
         ).all()
     )
-    nhap_kho_yc: dict[int, list[SanXuatNhapKhoYc]] = {i: [] for i in ids}
-    for yc, lsx_id in nhap_rows:
-        # Thân chính khớp CẢ HAI vế ⇒ gom đích vào set trước rồi mới phát (khử trùng).
-        dich = set(lsx_theo_nhom.get(yc.nhom_id, ())) if yc.nhom_id else set()
-        if lsx_id in nhap_kho_yc:
+    dong_theo_cv = dong_nhap_kho_cua_cong_viec(db, [r[0] for r in cv_cuoi])
+    nhap_kho_tp: dict[int, list] = {i: [] for i in ids}
+    for cv_id, nhom_id_cv, lsx_id in cv_cuoi:
+        dich = set(lsx_theo_nhom.get(nhom_id_cv, ())) if nhom_id_cv else set()
+        if lsx_id in nhap_kho_tp:
             dich.add(lsx_id)
         for i in dich:
-            nhap_kho_yc[i].append(yc)
+            if i in nhap_kho_tp:
+                nhap_kho_tp[i].extend(dong_theo_cv.get(cv_id, []))
 
     # 13) phu_thuoc_buoc — JOIN lsx_cong_doan (bước SAU) để có lsx_id; cạnh (buoc_truoc, buoc_sau).
     edge_rows = list(
@@ -565,7 +528,7 @@ def nap(db: Session, lsx_ids: list[int]) -> BoiCanh:
     return BoiCanh(
         lenh=lenh, don=don, khach=khach, sale=sale, cong_viec=cong_viec,
         cong_viec_ghep=cong_viec_ghep, buoc_phu=buoc_phu,
-        phien=phien, batch=batch, kcs=kcs, lot=lot, su_co=su_co, giao=giao, da_giao=da_giao,
+        phien=phien, batch=batch, kcs=kcs, su_co=su_co, giao=giao, da_giao=da_giao,
         nhom=nhom, may=may, phan_cong=phan_cong, nhan_su=nhan_su,
-        phu_thuoc_buoc=phu_thuoc_buoc, nhap_kho_yc=nhap_kho_yc,
+        phu_thuoc_buoc=phu_thuoc_buoc, nhap_kho_tp=nhap_kho_tp,
     )

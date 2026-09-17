@@ -316,7 +316,6 @@ export function SalaryModal({
       const eff = todayYmd(); // hiệu lực = hôm nay
       await api.luong.setSalary(token, emp.id, {
         effective_from: eff,
-        amount_mode: "manual",
         luong_vi_tri: luongViTri,
         luong_trach_nhiem: luongTrachNhiem,
         luong_dot_1: luongDot1,

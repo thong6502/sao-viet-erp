@@ -628,6 +628,97 @@ def test_preview_live_tra_nhom_giao_hang(client, auth_headers):
     assert gh["rows"][0]["gia_don_sp"] == pytest.approx(200)   # 800.000 ÷ 4.000
 
 
+# ============================ ⑥ CHI PHÍ KHÁC (khoản lẻ tự khai) ============================
+
+
+def test_chi_phi_khac_luu_mo_lai_va_cong_vao_gia_von(client, auth_headers):
+    """Cặp (tên, tiền) người lập phiếu tự gõ: lưu được, mở lại còn nguyên, cộng vào giá vốn."""
+    giay_id, cd_id = _seed_catalog()
+    khong = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 10000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()
+
+    tp = {**_component(giay_id, cd_id), "chi_phi_khacs": [
+        {"ten": "làm kẽm", "so_tien": 800_000},
+        {"ten": "phí thiết kế", "so_tien": 1_500_000},
+    ]}
+    resp = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 10000, "thanh_phans": [tp],
+    }, headers=auth_headers)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert [(c["ten"], c["so_tien"]) for c in body["thanh_phans"][0]["chi_phi_khacs"]] == [
+        ("làm kẽm", 800_000), ("phí thiết kế", 1_500_000),
+    ]
+    assert body["tong_gia_von"] == pytest.approx(khong["tong_gia_von"] + 2_300_000, abs=0.01)
+
+    # Nhóm kết quả riêng để bảng chi tiết + bản in vẽ được, mỗi khoản MỘT dòng mang đúng tên gõ.
+    grp = next(g for g in body["result"]["groups"] if g["idx"] == "chi_phi_khac")
+    assert grp["subtotal"] == 2_300_000
+    assert [r["ten"].split(" · ")[-1] for r in grp["rows"]] == ["làm kẽm", "phí thiết kế"]
+    assert grp["rows"][0]["gia_don_sp"] == pytest.approx(80)   # 800.000 ÷ 10.000
+    # Bày ra ở meta để panel đọc mà KHÔNG cộng lại (đã nằm trong gia_von_tp).
+    comp = body["result"]["meta"]["components"][0]
+    assert comp["chi_phi_khac"] == 2_300_000
+    assert comp["gia_von_tp"] == pytest.approx(khong["result"]["meta"]["components"][0]["gia_von_tp"]
+                                               + 2_300_000, abs=0.01)
+
+    # MỞ LẠI: còn nguyên, đúng thứ tự.
+    got = client.get(f"/api/phieu-tinh-gia/{body['id']}", headers=auth_headers).json()
+    assert [c["ten"] for c in got["thanh_phans"][0]["chi_phi_khacs"]] == ["làm kẽm", "phí thiết kế"]
+
+    # SỬA: bỏ hết dòng → nhóm biến mất, giá vốn về đúng như khi chưa khai khoản nào.
+    sua = client.put(f"/api/phieu-tinh-gia/{body['id']}", json={
+        "so_luong": 10000,
+        "thanh_phans": [{**_component(giay_id, cd_id), "chi_phi_khacs": []}],
+    }, headers=auth_headers).json()
+    assert sua["thanh_phans"][0]["chi_phi_khacs"] == []
+    assert [g["idx"] for g in sua["result"]["groups"]] == ["nvl", "cong_doan"]
+    assert sua["tong_gia_von"] == pytest.approx(khong["tong_gia_von"], abs=0.01)
+
+
+def test_chi_phi_khac_dong_khong_tien_khong_de_dong_tien(client, auth_headers):
+    """Bấm "+" rồi chưa gõ tiền: dòng vẫn được LƯU (còn đó để gõ tiếp) nhưng KHÔNG thành dòng tiền."""
+    giay_id, cd_id = _seed_catalog()
+    body = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000,
+        "thanh_phans": [{**_component(giay_id, cd_id), "chi_phi_khacs": [
+            {"ten": "chưa biết", "so_tien": 0},
+            {"ten": "", "so_tien": 250_000},   # tên trống mà CÓ tiền → vẫn tính, gọi tên chung
+        ]}],
+    }, headers=auth_headers).json()
+    assert len(body["thanh_phans"][0]["chi_phi_khacs"]) == 2
+    grp = next(g for g in body["result"]["groups"] if g["idx"] == "chi_phi_khac")
+    assert len(grp["rows"]) == 1
+    assert grp["rows"][0]["ten"].split(" · ")[-1] == "Chi phí khác"
+    assert grp["subtotal"] == 250_000
+
+
+def test_chi_phi_khac_am_bi_tra_422(client, auth_headers):
+    giay_id, _ = _seed_catalog()
+    resp = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000,
+        "thanh_phans": [{**_component(giay_id), "chi_phi_khacs": [{"ten": "x", "so_tien": -1}]}],
+    }, headers=auth_headers)
+    assert resp.status_code == 422, resp.text
+
+
+def test_preview_live_tra_nhom_chi_phi_khac(client, auth_headers):
+    """Panel bên phải modal đọc `/api/tinh-gia/preview` — khoản lẻ phải chảy qua đó, không đợi Lưu."""
+    giay_id, cd_id = _seed_catalog()
+    r = client.post("/api/tinh-gia/preview", json={
+        "so_luong": 4000,
+        "thanh_phans": [{**_component(giay_id, cd_id),
+                         "chi_phi_khacs": [{"ten": "làm kẽm", "so_tien": 800_000}]}],
+    }, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    res = r.json()
+    assert res["meta"]["components"][0]["chi_phi_khac"] == 800_000
+    grp = next(g for g in res["groups"] if g["idx"] == "chi_phi_khac")
+    assert grp["rows"][0]["thanh_tien"] == 800_000
+    assert grp["rows"][0]["gia_don_sp"] == pytest.approx(200)   # 800.000 ÷ 4.000
+
+
 # --- Nguồn khuôn: có sẵn hay làm mới (chốt 04/09/2026) -------------------------------------------
 def _row_khuon(**kw):
     return {"cong_doan": {"requires_tooling": True, "tooling_type": "khuon_be", "ten": "Bế"},

@@ -16,7 +16,6 @@ from .employee import (
     EmployeeShiftAssignment,
     EmployeeShiftChangeLog,
     EmployeeShiftDay,
-    JobGrade,
 )
 from .noi_quy import (
     NoiQuyAttachment,
@@ -50,7 +49,6 @@ from .payroll import (
     PayrollPeriod,
     PitTaxBracket,
     SalaryAdvance,
-    SalaryRateRule,
 )
 from .piece_work import PieceRate
 from .product_type_catalog import ProductTypeCatalog
@@ -163,11 +161,6 @@ from .san_xuat_kcs import (
     SanXuatKcsLoiAnh,
     SanXuatKcsTieuChi,
 )
-from .san_xuat_kho import (
-    SanXuatKhoHang,
-    SanXuatKhoLot,
-    SanXuatNhapKhoYc,
-)
 from .san_xuat_vat_tu import SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong
 from .cong_doan_tag import CongDoanTag, CongDoanTagCatalog
 from .tai_san import (
@@ -197,7 +190,6 @@ __all__ = [
     "EmployeeShiftDay",
     "EmployeeEvent",
     "EmployeeAttachment",
-    "JobGrade",
     "NoiQuyDocument",
     "NoiQuyRecord",
     "NoiQuyVersion",
@@ -250,7 +242,6 @@ __all__ = [
     "OrderApproval",
     "OrderAttachment",
     "PayrollParams",
-    "SalaryRateRule",
     "EmployeeSalary",
     "SalaryAdvance",
     "PayrollPeriod",
@@ -337,9 +328,6 @@ __all__ = [
     "SanXuatKcsLoi",
     "SanXuatKcsLoiAnh",
     "SanXuatKcsTieuChi",
-    "SanXuatKhoHang",
-    "SanXuatKhoLot",
-    "SanXuatNhapKhoYc",
     "SanXuatVatTuDeNghi",
     "SanXuatVatTuDeNghiDong",
     "TaiSan",

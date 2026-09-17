@@ -26,13 +26,19 @@ REVIEW VÒNG 1 (31/08/2026) — ba khoảng trống bị soi ra:
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 
+from app.models.cong_doan import CongDoan, CongDoanMay
 from app.models.department import Department
 from app.models.employee import Employee
+from app.models.lsx import LsxCongDoan
+from app.models.machine_unavailable import KIEU_CHAN, LY_DO_HONG_HOC, MachineUnavailablePeriod
 from app.models.may_thiet_bi import MayThietBi
 from app.models.san_xuat import BUOC_MAY, BUOC_TO, CV_DANG_CHAY, CV_TAM_DUNG, SanXuatCongViec
 from app.models.san_xuat_thuc_thi import PHIEN_DOI_MAY, SanXuatKhoangThamGia, SanXuatPhienChay
+from app.schemas.san_xuat import MayDoiOut
 from app.services.san_xuat import thuc_thi
 from tests.quyen_to_fixtures import cap_quyen_to
 
@@ -247,6 +253,69 @@ def test_doi_may_dang_chay_giu_nguyen_khoang_tham_gia(db, cv_dang_chay_hai_nguoi
     assert moc_dong == moc_mo and len(moc_dong) == 1           # đóng-mở CÙNG một mốc, không hở giây
 
 
+# --- Ô chọn "Đổi máy" chỉ bày máy làm được công đoạn (17/09/2026) --------------------------------
+def _gan_cong_doan(db, cv, **kw) -> CongDoan:
+    """Nối bước lệnh đứng sau `cv` vào một công đoạn danh mục mới."""
+    cd = CongDoan(ma=f"CD-DM-{cv.id}", ten="Dán", nhom="finishing", **kw)
+    db.add(cd)
+    db.flush()
+    db.get(LsxCongDoan, cv.lsx_cong_doan_id).cong_doan_id = cd.id
+    db.commit()
+    return cd
+
+
+def test_may_doi_chi_moi_may_cua_cong_doan(db, cv_dang_chay, to_truong, cac_may):
+    """Công đoạn đã chọn máy ⇒ chỉ các máy đó, trừ máy đang chạy và máy đã ngừng dùng. Máy ngoài
+    danh sách (dù còn dùng) không được mời — tổ đổi sang đó là chạy máy không có công thức giờ."""
+    _may(db, "MAY-DM-NGOAI")
+    cd = _gan_cong_doan(db, cv_dang_chay)
+    cd.may_lam_duoc.extend(CongDoanMay(may_id=m.id) for m in cac_may)
+    cac_may[2].active = False
+    db.commit()
+
+    out = MayDoiOut.model_validate(
+        thuc_thi.may_doi_duoc(db, user=to_truong, cong_viec_id=cv_dang_chay.id))
+    assert [m.id for m in out.items] == [cac_may[1].id]
+    assert out.theo_cong_doan is True
+    assert (out.items[0].trang_thai, out.items[0].nhan) == ("ranh", "Xếp được")
+
+
+def test_may_doi_cong_doan_chua_khai_moi_moi_may(db, cv_dang_chay, to_truong, cac_may):
+    """Chưa khai máy lẫn nhóm máy ⇒ không ràng buộc, cờ tắt để ô chọn nói rõ vì sao danh sách dài."""
+    _gan_cong_doan(db, cv_dang_chay)
+    out = thuc_thi.may_doi_duoc(db, user=to_truong, cong_viec_id=cv_dang_chay.id)
+    ids = {m["id"] for m in out["items"]}
+    assert {cac_may[1].id, cac_may[2].id} <= ids
+    assert cac_may[0].id not in ids
+    assert out["theo_cong_doan"] is False
+
+
+def test_may_doi_mang_tinh_trang_may_hong(db, cv_dang_chay, to_truong, cac_may):
+    """Máy đang bị khoá vì hỏng hiện ĐÚNG chữ của màn Thiết bị — vẫn có trong danh sách (chỉ cảnh
+    báo, không chặn chọn): tổ đứng cạnh máy biết rõ hơn lịch."""
+    bay_gio = datetime.now()
+    db.add(MachineUnavailablePeriod(
+        may_id=cac_may[1].id, kieu=KIEU_CHAN, reason=LY_DO_HONG_HOC, note="Gãy trục cán",
+        unavailable_from=bay_gio - timedelta(hours=1), unavailable_to=bay_gio + timedelta(hours=2),
+    ))
+    db.commit()
+
+    items = {m["id"]: m for m in thuc_thi.may_doi_duoc(
+        db, user=to_truong, cong_viec_id=cv_dang_chay.id)["items"]}
+    assert items[cac_may[1].id]["nhan"] == "Hỏng — chờ sửa"
+    assert items[cac_may[1].id]["chi_tiet"] == "Gãy trục cán"
+    assert items[cac_may[2].id]["trang_thai"] == "ranh"
+
+
+def test_may_doi_rong_khi_buoc_khong_chay_may(db, orders, lsx_svc, admin, customer, cac_may):
+    cv = _mot_cv_dang_chay(
+        db, orders, lsx_svc, admin, customer,
+        ma="TO-DM-RONG", may_id=cac_may[0].id, loai_buoc=BUOC_TO,
+    )
+    assert thuc_thi.may_doi_duoc(db, user=admin, cong_viec_id=cv.id) == {
+        "items": [], "theo_cong_doan": False}
+
+
 # --- Đường dây RBAC: đổi máy đi qua ĐÚNG cùng cổng quyền với Bắt đầu ---------------------------
 def test_api_doi_may_gate_quyen(client, seed_credentials):
     r = client.post("/api/auth/login", json=seed_credentials)
@@ -263,4 +332,10 @@ def test_api_doi_may_gate_quyen(client, seed_credentials):
     # bất kể vai `seed_credentials` đang có dòng quyền theo tổ bật Thực hiện lệnh hay không.
     assert (r_bat_dau.status_code == 403) == (r_doi_may.status_code == 403), (
         r_bat_dau.status_code, r_bat_dau.text, r_doi_may.status_code, r_doi_may.text,
+    )
+    # Danh sách máy của ô Đổi máy đi CÙNG cửa: ai không đổi được máy thì cũng không đọc được nó.
+    r_ds = client.get("/api/san-xuat/work-items/1/may-doi", headers=headers)
+    assert r_ds.status_code != 404, (r_ds.status_code, r_ds.text)
+    assert (r_ds.status_code == 403) == (r_doi_may.status_code == 403), (
+        r_ds.status_code, r_ds.text, r_doi_may.status_code, r_doi_may.text,
     )

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "../api/client";
 import type {
+  LenhSxChang,
   LenhSxItem,
   LenhSxMayLoc,
   LenhSxSummaryOut,
@@ -90,6 +91,16 @@ const PILL: Record<LsxTheoDoiTrangThai, { label: string; cls: string }> = {
   hoan_thanh: { label: "Hoàn thành", cls: "hslsx-pill--xong" },
 };
 
+/** Nhãn đọc-ra-lời của một chặng, dùng cho `title` và cho trình đọc màn hình. Màu KHÔNG được
+ *  đứng một mình mang tin: đốt xám và đốt viền chỉ khác nhau ở sắc độ, người mù màu phải rê ra
+ *  được chữ. Khoá lạ (backend đổi hằng mà quên chỗ này) rơi về chính chuỗi đó, không vỡ hàng. */
+const CHANG_LB: Record<string, string> = {
+  xong: "đã xong",
+  chay: "đang chạy",
+  dung: "tạm dừng",
+  cho: "chưa tới",
+};
+
 /** Badge cảnh báo. Pill và badge KHÔNG nói trùng nhau: pill trả lời "lệnh đang ở khâu nào",
  *  badge trả lời "vì cái gì mà nó bị giữ lại". Thứ tự máy chủ trả đã ổn định — đừng sort lại. */
 const CANH_BAO: Record<LsxTheoDoiCanhBao, { label: string; cls: string }> = {
@@ -145,6 +156,7 @@ export function LenhSanXuatPage({
   const { token } = useAuth();
 
   // --- bộ lọc (tất cả chạy Ở MÁY CHỦ) ---------------------------------------
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const [q, setQ] = useState("");
   const qTre = useTre(q); // gõ xong 300ms mới hỏi máy chủ
   const [nhomCd, setNhomCd] = useState("");
@@ -155,6 +167,18 @@ export function LenhSanXuatPage({
   const [chiTre, setChiTre] = useState(false);
   const [tab, setTab] = useState<LsxTheoDoiTab>("tat_ca");
   const [page, setPage] = useState(1);
+
+  // Phím tắt Ctrl+K để focus ô tìm kiếm
+  useEffect(() => {
+    function globalKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", globalKey);
+    return () => window.removeEventListener("keydown", globalKey);
+  }, []);
 
   // --- hồ sơ một lệnh --------------------------------------------------------
   // Hồ sơ vẽ ĐÈ lên bảng chứ không thay màn. Chín thứ ngay trên kia (`q`…`page`) đều là state cục
@@ -416,81 +440,93 @@ export function LenhSanXuatPage({
 
   return (
     <main className="hslsx">
-      {/* ① HEADER — nói ngay đây là bàn TRA, và đường tạo/sửa nằm ở màn nào. */}
+      {/* ①+② ĐẦU TRANG — tiêu đề bên trái, dải số toàn phạm vi bên phải, CÙNG MỘT HÀNG.
+          Trước đây là hai tầng rời (header rồi 4 thẻ có viền) ăn ~180px chiều cao trước khi
+          người đọc thấy dòng dữ liệu đầu tiên. Số không cần khung riêng để đọc được: đặt cạnh
+          tiêu đề, ngăn nhau bằng gạch dọc mảnh là đủ, và tiết kiệm đúng một màn cuộn. */}
       <header className="hslsx__head">
-        <div className="hslsx__headrow">
-          <h1 className="hslsx__title">Hồ sơ lệnh sản xuất</h1>
-          {tongTheoLoc !== null && <span className="hslsx__count">{num(tongTheoLoc)} lệnh</span>}
-          <span className="hslsx__ro" title="Màn tra cứu — không có thao tác ghi nào">
-            Chỉ xem
-          </span>
-          <div className="hslsx__spacer" />
+        <div className="hslsx__headtext">
+          <div className="hslsx__headrow">
+            <h1 className="hslsx__title">Hồ sơ lệnh sản xuất</h1>
+            {tongTheoLoc !== null && <span className="hslsx__count">{num(tongTheoLoc)} lệnh</span>}
+            <span className="hslsx__ro" title="Màn tra cứu — không có thao tác ghi nào">
+              Chỉ xem
+            </span>
+          </div>
+          <p className="hslsx__sub">
+            Lệnh đã phát hành — theo dõi tới đâu. Tạo và sửa lệnh ở màn Kế hoạch sản xuất.
+          </p>
         </div>
-        <p className="hslsx__sub">
-          Lệnh đã phát hành — theo dõi tới đâu. Tạo và sửa lệnh ở màn Kế hoạch sản xuất.
-        </p>
+
+        <section className="hslsx__kpis" aria-label="Số tổng hợp toàn phạm vi">
+          <div className="hslsx__kpirow">
+            <KpiO
+              nhan="Đang sản xuất"
+              so={kpi?.dang_sx}
+              dv="lệnh"
+              dangTai={!kpi && !kpiLoi}
+              loi={kpiLoi}
+              chuThich="Lệnh chưa ra khỏi nhà máy. KHÔNG bằng số ở tab Đang SX — lệnh đang chạy mà dính cảnh báo nằm ở tab Cảnh báo, nhưng nó vẫn đang sản xuất."
+            />
+            <KpiO
+              nhan="Công đoạn xong hôm nay"
+              so={kpi?.cong_doan_xong_hom_nay}
+              dv="công đoạn"
+              dangTai={!kpi && !kpiLoi}
+              loi={kpiLoi}
+              chuThich="Đếm theo công đoạn, không theo lệnh. Một ca in ghép phục vụ nhiều lệnh vẫn tính một."
+            />
+            <KpiO
+              nhan="Dự kiến trễ"
+              so={kpi?.du_kien_tre}
+              dv="lệnh"
+              dangTai={!kpi && !kpiLoi}
+              loi={kpiLoi}
+              // Chỉ số này được tô, và chỉ khi > 0: tô cả bốn thì màu hết mang tin.
+              canhBao={!!kpi && kpiTre > 0}
+              chuThich="Lệnh CHƯA XONG mà dự kiến vượt hạn SX nội bộ. Là tập con của số Đang sản xuất. Bộ lọc «Chỉ lệnh trễ» rộng hơn số này: nó đếm cả lệnh đã giao xong nhưng xong trễ."
+            />
+            <KpiO
+              nhan="KCS đạt hôm nay"
+              // `null` ⇒ "—" + dòng phụ, KHÔNG đổ 0: "0 % đạt" là báo động sai, và nó sẽ nổ mỗi sáng
+              // sớm trước lô KCS đầu tiên.
+              chu={tyLeKcs === null ? "—" : `${tyLeKcs} %`}
+              phu={kpi && kpi.ty_le_kcs_dat_hom_nay == null ? "Chưa kiểm lô nào hôm nay" : undefined}
+              dangTai={!kpi && !kpiLoi}
+              loi={kpiLoi}
+              chuThich="Tính theo SỐ LƯỢNG (tổng đạt / tổng nhận), không phải trung bình cộng các lô."
+            />
+          </div>
+          <p className="hslsx__kpinote">
+            {kpiLoi ? (
+              <>
+                <span className="hslsx__kpinote--loi">Không tải được số tổng hợp.</span>{" "}
+                <button type="button" className="hslsx__linkbtn" onClick={() => setKpiTick((t) => t + 1)}>
+                  Thử lại
+                </button>
+              </>
+            ) : (
+              // Bẫy đọc số phải xử ngay: `/summary` KHÔNG nhận tham số lọc nào, bảng thì đã lọc — hai
+              // con số không bao giờ khớp, và đó là đúng. Thiếu câu này là mỗi tuần có một người đi hỏi.
+              "Toàn phạm vi của bạn · không đổi theo bộ lọc"
+            )}
+          </p>
+        </section>
       </header>
 
-      {/* ② KPI — trả lời câu hỏi KHÔNG cần tìm gì cả: "hôm nay nhà máy thế nào". */}
-      <section className="hslsx__kpis" aria-label="Số tổng hợp toàn phạm vi">
-        <KpiThe
-          nhan="Đang sản xuất"
-          so={kpi?.dang_sx}
-          dv="lệnh"
-          dangTai={!kpi && !kpiLoi}
-          loi={kpiLoi}
-          chuThich="Lệnh chưa ra khỏi nhà máy. KHÔNG bằng số ở tab Đang SX — lệnh đang chạy mà dính cảnh báo nằm ở tab Cảnh báo, nhưng nó vẫn đang sản xuất."
-        />
-        <KpiThe
-          nhan="Công đoạn xong hôm nay"
-          so={kpi?.cong_doan_xong_hom_nay}
-          dv="công đoạn"
-          dangTai={!kpi && !kpiLoi}
-          loi={kpiLoi}
-          chuThich="Đếm theo công đoạn, không theo lệnh. Một ca in ghép phục vụ nhiều lệnh vẫn tính một."
-        />
-        <KpiThe
-          nhan="Dự kiến trễ"
-          so={kpi?.du_kien_tre}
-          dv="lệnh"
-          dangTai={!kpi && !kpiLoi}
-          loi={kpiLoi}
-          // Chỉ thẻ này được tô, và chỉ khi > 0: tô cả bốn thì màu hết mang tin.
-          canhBao={!!kpi && kpiTre > 0}
-          chuThich="Lệnh CHƯA XONG mà dự kiến vượt hạn SX nội bộ. Là tập con của thẻ Đang sản xuất. Bộ lọc «Chỉ lệnh trễ» rộng hơn thẻ này: nó đếm cả lệnh đã giao xong nhưng xong trễ."
-        />
-        <KpiThe
-          nhan="KCS đạt hôm nay"
-          // `null` ⇒ "—" + dòng phụ, KHÔNG đổ 0: "0 % đạt" là báo động sai, và nó sẽ nổ mỗi sáng
-          // sớm trước lô KCS đầu tiên.
-          chu={tyLeKcs === null ? "—" : `${tyLeKcs} %`}
-          phu={kpi && kpi.ty_le_kcs_dat_hom_nay == null ? "Chưa kiểm lô nào hôm nay" : undefined}
-          dangTai={!kpi && !kpiLoi}
-          loi={kpiLoi}
-          chuThich="Tính theo SỐ LƯỢNG (tổng đạt / tổng nhận), không phải trung bình cộng các lô."
-        />
-      </section>
-      <p className="hslsx__kpinote">
-        {kpiLoi ? (
-          <>
-            <span className="hslsx__kpinote--loi">Không tải được số tổng hợp.</span>{" "}
-            <button type="button" className="hslsx__linkbtn" onClick={() => setKpiTick((t) => t + 1)}>
-              Thử lại
-            </button>
-          </>
-        ) : (
-          // Bẫy đọc số phải xử ngay: `/summary` KHÔNG nhận tham số lọc nào, bảng thì đã lọc — hai
-          // con số không bao giờ khớp, và đó là đúng. Thiếu câu này là mỗi tuần có một người đi hỏi.
-          "Toàn phạm vi của bạn · không đổi theo bộ lọc"
-        )}
-      </p>
+      {/* ③ BÀN LỌC — lọc và tab nằm TRONG CÙNG một khối, hai dòng.
+          Thứ tự trong khối vẫn đúng chiều nhân quả (thu hẹp tập → chia tập đã hẹp → đọc dòng):
+          dòng trên thu hẹp, dòng dưới chia theo trạng thái. Gộp lại vì chúng là MỘT việc — trước
+          đây tách thành ba tầng rời (lọc · thẻ đang lọc · tab) là ba lần mắt phải dừng.
 
-      {/* ③ LỌC — đặt TRÊN tab, không phải gu: số trên mỗi tab là facet của tập ĐÃ LỌC, nên dòng
-          chảy phải đúng chiều nhân quả (thu hẹp tập → chia tập đã hẹp → đọc dòng). */}
-      <section className="hslsx__filters">
+          Dải "thẻ đang lọc" đã BỎ HẲN: mỗi ô lọc bên dưới tự đổi sang nền tối khi có giá trị và
+          mang sẵn cả nhãn lẫn giá trị, nên dải kia chỉ chép lại đúng những gì đang bày ra. */}
+      <section className="hslsx__deck">
+        <div className="hslsx__deckrow">
         <div className="hslsx__search">
           <Icon name="search" size={15} />
           <input
+            ref={searchRef}
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -500,6 +536,7 @@ export function LenhSanXuatPage({
             placeholder="Tìm mã lệnh, tên sản phẩm, số đơn, khách hàng"
             aria-label="Tìm mã lệnh, tên sản phẩm, số đơn, khách hàng"
           />
+          {q === "" && <kbd className="hslsx__kbd">Ctrl K</kbd>}
           {q !== "" && (
             <button type="button" className="hslsx__clearq" onClick={() => setQ("")} aria-label="Xóa ô tìm">
               <Icon name="x" size={14} />
@@ -507,9 +544,11 @@ export function LenhSanXuatPage({
           )}
         </div>
 
-        <label className="hslsx__field">
+        {/* Trạng thái "đang lọc" gắn lên CHÍNH cái viên (xem `.hslsx__field.is-active`), không
+            để CSS suy ngược từ lớp của `<select>` con. */}
+        <label className={`hslsx__field${nhomCd !== "" ? " is-active" : ""}`}>
           <span className="hslsx__field-lb">Nhóm CĐ</span>
-          <select value={nhomCd} onChange={(e) => setNhomCd(e.target.value)}>
+          <select value={nhomCd} onChange={(e) => setNhomCd(e.target.value)} className={nhomCd !== "" ? "is-active" : undefined}>
             <option value="">Tất cả</option>
             {Object.entries(NHOM_CONG_DOAN).map(([v, l]) => (
               <option key={v} value={v}>
@@ -519,13 +558,10 @@ export function LenhSanXuatPage({
           </select>
         </label>
 
-        {/* Ô Máy chỉ mọc khi máy chủ trả được danh sách và danh sách có mục. Nguồn là
-            `/api/lenh-san-xuat/bo-loc` — gác bằng chính `lenh_san_xuat:read` nên vai QC vào được
-            (danh mục máy `/api/may-thiet-bi` đòi `dm_thiet_bi` hoặc `tinh_gia_thanh`, QC không có). */}
         {dsMay && dsMay.length > 0 && (
-          <label className="hslsx__field">
+          <label className={`hslsx__field${mayId !== "" ? " is-active" : ""}`}>
             <span className="hslsx__field-lb">Máy</span>
-            <select value={mayId} onChange={(e) => setMayId(e.target.value)}>
+            <select value={mayId} onChange={(e) => setMayId(e.target.value)} className={mayId !== "" ? "is-active" : undefined}>
               <option value="">Tất cả</option>
               {dsMay.map((m) => (
                 <option key={m.id} value={String(m.id)}>
@@ -536,16 +572,19 @@ export function LenhSanXuatPage({
           </label>
         )}
 
-        <label className="hslsx__field">
+        <label className={`hslsx__field${uuTien !== "" ? " is-active" : ""}`}>
           <span className="hslsx__field-lb">Ưu tiên</span>
-          <select value={uuTien} onChange={(e) => setUuTien(e.target.value)}>
+          <select value={uuTien} onChange={(e) => setUuTien(e.target.value)} className={uuTien !== "" ? "is-active" : undefined}>
             <option value="">Tất cả</option>
             <option value="gap">Gấp</option>
             <option value="binh_thuong">Bình thường</option>
           </select>
         </label>
 
-        <div className="hslsx__daterange">
+        <div
+          className={`hslsx__daterange${tuSai || denSai ? " is-sai" : tuGui || denGui ? " is-active" : ""}`}
+          title="Lệnh chưa khai hạn SX không nằm trong khoảng nào."
+        >
           <span className="hslsx__field-lb" id="hslsx-hansx">
             Hạn SX
           </span>
@@ -556,7 +595,7 @@ export function LenhSanXuatPage({
               min="2000-01-01"
               max="2999-12-31"
               onChange={(e) => setTuNgay(e.target.value)}
-              className={tuSai ? "is-sai" : undefined}
+              className={tuSai ? "is-sai" : tuGui ? "is-active" : undefined}
               aria-labelledby="hslsx-hansx"
               aria-label="Hạn SX từ ngày"
               aria-invalid={tuSai || undefined}
@@ -568,34 +607,21 @@ export function LenhSanXuatPage({
               min="2000-01-01"
               max="2999-12-31"
               onChange={(e) => setDenNgay(e.target.value)}
-              className={denSai ? "is-sai" : undefined}
+              className={denSai ? "is-sai" : denGui ? "is-active" : undefined}
               aria-labelledby="hslsx-hansx"
               aria-label="Hạn SX đến ngày"
               aria-invalid={denSai || undefined}
             />
           </div>
-          {/* `NULL` không khớp phép so nào ⇒ đặt khoảng ngày là lệnh chưa khai hạn SX biến mất khỏi
-              bảng. Không nói ra thì người dùng tưởng mất lệnh. */}
           <span className="hslsx__hint">Lệnh chưa khai hạn SX không nằm trong khoảng nào.</span>
         </div>
 
-        <button
-          type="button"
-          className={`hslsx__toggle${chiTre ? " is-on" : ""}`}
-          aria-pressed={chiTre}
-          onClick={() => setChiTre((v) => !v)}
-        >
-          Chỉ lệnh trễ
-        </button>
+        </div>
 
-        {dangLoc && (
-          <button type="button" className="hslsx__linkbtn" onClick={xoaLoc}>
-            Xóa bộ lọc
-          </button>
-        )}
-      </section>
-
-      {/* ④ BẢY TAB — `tablist` thật: đúng MỘT tab được chọn và nó đổi nội dung của một panel. */}
+      {/* ④ BẢY TAB — `tablist` thật: đúng MỘT tab được chọn và nó đổi nội dung của một panel.
+          Nằm ở dòng DƯỚI của cùng khối lọc, không còn là một dải riêng: đổi tab cũng là lọc.
+          `role="tablist"` chỉ được ôm các `role="tab"`, nên nút "Xóa bộ lọc" đứng NGOÀI nó. */}
+      <div className="hslsx__deckrow hslsx__deckrow--tabs">
       <div className="hslsx__tabs" role="tablist" aria-label="Lọc lệnh theo trạng thái">
         {TABS.map((t, i) => (
           <button
@@ -609,7 +635,7 @@ export function LenhSanXuatPage({
             aria-selected={tab === t.key}
             aria-controls="hslsx-panel"
             tabIndex={i === tabFocus ? 0 : -1}
-            className={`hslsx__tab${tab === t.key ? " is-active" : ""}`}
+            className={`hslsx__tab hslsx__tab--${t.key}${tab === t.key ? " is-active" : ""}`}
             onKeyDown={(e) => phimTab(e, i)}
             onClick={() => setTab(t.key)}
           >
@@ -620,6 +646,26 @@ export function LenhSanXuatPage({
           </button>
         ))}
       </div>
+        <div className="hslsx__spacer" />
+        {/* Nút gạt đứng ở dòng TAB chứ không ở dòng lọc: nó là một ĐIỀU KIỆN thu hẹp danh sách,
+            cùng loại với bảy cái tab bên trái — còn dòng trên là ô nhập giá trị. Xếp ở đây còn bỏ được
+            một lỗi bố cục: ở dòng lọc nó là món thứ sáu, dưới 1400px là rớt xuống một dòng riêng một mình. */}
+        <button
+          type="button"
+          className={`hslsx__toggle${chiTre ? " is-on" : ""}`}
+          aria-pressed={chiTre}
+          onClick={() => setChiTre((v) => !v)}
+        >
+          <span className="hslsx__switch-dot" />
+          Chỉ lệnh trễ
+        </button>
+        {dangLoc && (
+          <button type="button" className="hslsx__linkbtn" onClick={xoaLoc}>
+            Xóa bộ lọc
+          </button>
+        )}
+      </div>
+      </section>
 
       <div id="hslsx-panel" role="tabpanel" aria-labelledby={`hslsx-tab-${tab}`} tabIndex={0}>
         {/* Lỗi khi bảng ĐANG CÓ dữ liệu ⇒ banner, giữ nguyên bảng cũ (đọc được còn hơn màn trắng).
@@ -639,29 +685,30 @@ export function LenhSanXuatPage({
             <caption className="sr-only">Danh sách lệnh sản xuất đã phát hành</caption>
             <thead>
               <tr>
+                {/* SÁU cột, không phải tám. Hai lượt gộp, mỗi lượt có lý do nghiệp vụ:
+                    · Mã + Sản phẩm/SL → một cột "Lệnh": mã là ĐỊNH DANH của chính sản phẩm bên
+                      dưới nó, tách hai cột chỉ để lại một cột hẹp đầy khoảng trắng.
+                    · Máy/người → nhập vào cột Công đoạn: máy và người là thuộc tính của BƯỚC
+                      ĐANG CHẠY, không phải của lệnh. Đứng riêng thì người đọc phải tự nối hai
+                      cột cách nhau để hiểu "ai đang chạy bước nào".
+                    Nhờ vậy `min-width` của bảng tụt từ 1180px xuống 920px — hết cuộn ngang. */}
                 <th scope="col" className="hslsx__c1">
-                  Mã
+                  Lệnh / sản phẩm
                 </th>
                 <th scope="col" className="hslsx__c2">
-                  Sản phẩm / SL
-                </th>
-                <th scope="col" className="hslsx__c3">
                   Khách
                 </th>
+                <th scope="col" className="hslsx__c3">
+                  Công đoạn · máy · người
+                </th>
                 <th scope="col" className="hslsx__c4">
-                  Máy / người
+                  Hạn / dự kiến
                 </th>
                 <th scope="col" className="hslsx__c5">
-                  Công đoạn + tiến độ
-                </th>
-                <th scope="col" className="hslsx__c6">
-                  Hạn / Dự kiến
-                </th>
-                <th scope="col" className="hslsx__c7">
                   Trạng thái
                 </th>
                 {/* `<th>` rỗng làm trình đọc màn hình đọc "cột trống". */}
-                <th scope="col" className="hslsx__c8">
+                <th scope="col" className="hslsx__c6">
                   <span className="sr-only">Mở hồ sơ</span>
                 </th>
               </tr>
@@ -670,12 +717,12 @@ export function LenhSanXuatPage({
               // Lần tải ĐẦU: skeleton giữ nguyên `thead` để bề ngang cột không nhảy khi dữ liệu về.
               // Lần tải LẠI (đổi tab/lọc/lật trang) mà bảng đang có dòng: giữ dòng cũ, chỉ làm mờ —
               // thay bảng bằng skeleton mỗi lần bấm tab là màn nhấp nháy liên tục.
-              <Skeleton rows={8} cols={8} />
+              <Skeleton rows={8} cols={6} />
             ) : (
               <tbody className={loading ? "is-mo" : undefined}>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="hslsx__empty-td">
+                    <td colSpan={6} className="hslsx__empty-td">
                       {loi ? (
                         <EmptyState
                           icon="alert"
@@ -772,11 +819,16 @@ export function LenhSanXuatPage({
   );
 }
 
-/** MỘT thẻ KPI. Đang tải ⇒ shimmer, KHÔNG hiện `0`: số 0 lúc đang tải là một khẳng định sai về
- *  nhà máy. Thẻ KHÔNG bấm được — thẻ "Dự kiến trễ" đếm lệnh CHƯA XONG mà trễ, còn bộ lọc
- *  «Chỉ lệnh trễ» đếm cả lệnh đã giao xong nhưng xong trễ; bấm một cái ra số lớn hơn cái vừa đọc
- *  là kiểu lệch làm mất lòng tin vào cả màn. */
-function KpiThe({
+/** MỘT ô số trong dải tổng hợp cạnh tiêu đề. Đang tải ⇒ shimmer, KHÔNG hiện `0`: số 0 lúc đang
+ *  tải là một khẳng định sai về nhà máy. Ô KHÔNG bấm được — "Dự kiến trễ" đếm lệnh CHƯA XONG mà
+ *  trễ, còn bộ lọc «Chỉ lệnh trễ» đếm cả lệnh đã giao xong nhưng xong trễ; bấm một cái ra số lớn
+ *  hơn cái vừa đọc là kiểu lệch làm mất lòng tin vào cả màn.
+ *
+ *  Không còn khung, không còn icon: bốn khung giống hệt nhau cạnh nhau chỉ nói "đây là bốn thứ
+ *  cùng loại" — điều mà bốn cái nhãn đã nói rồi. Icon tô màu theo bảng màu riêng (indigo /
+ *  emerald / rose / amber) còn phá luôn hệ màu slate + rust của `tokens.css`. Cái duy nhất được
+ *  giữ quyền tô màu là "Dự kiến trễ" khi > 0. */
+function KpiO({
   nhan,
   so,
   chu,
@@ -798,7 +850,7 @@ function KpiThe({
   chuThich: string;
 }) {
   return (
-    <div className={`hslsx-kpi${canhBao ? " hslsx-kpi--canhbao" : ""}`} title={chuThich}>
+    <div className={`hslsx-kpi${canhBao ? " is-canhbao" : ""}`} title={chuThich}>
       <span className="hslsx-kpi__lb">{nhan}</span>
       {dangTai ? (
         <span className="hslsx-kpi__shim" aria-hidden="true" />
@@ -817,6 +869,58 @@ function KpiThe({
 /** MỘT hàng bảng. Cả hàng bấm được bằng CHUỘT, nhưng KHÔNG gán `role="button"` lên `<tr>`: gán vai
  *  nút cho hàng là xoá luôn vai `row` của nó, trình đọc màn hình mất cấu trúc bảng (không còn đọc
  *  được "cột Trạng thái: …"). Đường bàn phím đi qua nút mũi tên ở cột 8. */
+/** Dải chặng — cả ĐƯỜNG ĐI của lệnh nằm gọn trong một hàng bảng: mỗi công đoạn một đốt, đốt đang
+ *  chạy là đốt DUY NHẤT được tô đậm. Trước đây hàng chỉ có tên bước đang đứng, nên "In" không nói
+ *  được lệnh mới vào khâu thứ hai hay sắp ra khỏi xưởng; người tra phải mở hồ sơ mới biết.
+ *
+ *  Dữ liệu từ `LenhSxItem.chang` (`services/lenh_sx/danh_sach.chang()`), đã sắp theo giờ dự kiến
+ *  bắt đầu. KHÔNG sort lại ở đây: thứ tự đó là hợp đồng, sort theo tên là đảo cả đường đi.
+ *
+ *  Đốt xong tô XÁM chứ không tô cam: đổ accent tràn hết bề ngang cột thì mỗi hàng là một vệt màu
+ *  và màu hết mang tin. Cam để dành đúng một đốt — đốt đang chạy.
+ *
+ *  `key` theo CHỈ SỐ là cố ý: hai bước trùng tên trong một lệnh (in mặt trước / in mặt sau đều tên
+ *  "In") là chuyện thường, lấy tên làm khoá là React gộp nhầm hai đốt.
+ */
+function DaiChang({
+  chang,
+  pct,
+  uoc,
+  tre,
+}: {
+  chang: LenhSxChang[];
+  pct: number;
+  uoc: boolean;
+  tre: boolean;
+}) {
+  const i = chang.findIndex((c) => c.hien_tai);
+  // Vị trí đọc-ra-lời: người đi bàn phím không rê được `title` của từng đốt, nên cả dải phải tự
+  // xưng tên ở một chỗ. Không có đốt `hien_tai` (lệnh chưa chạy bước nào) thì chỉ nói độ dài.
+  const viTri =
+    i >= 0 ? `công đoạn ${i + 1} trên ${chang.length}, ${chang[i].ten}` : `${chang.length} công đoạn`;
+
+  return (
+    <span
+      className={`hslsx__dai${tre ? " is-tre" : ""}`}
+      role="progressbar"
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      // Cờ ước tính phải ra tới mặt màn: 40% "đo được" và 40% "ước tính" là hai mức tin cậy khác
+      // hẳn nhau, gộp làm một là mời điều độ quyết trên con số họ tưởng chắc hơn thực tế.
+      aria-valuetext={`${viTri} — ${uoc ? `khoảng ${pct} phần trăm, ước tính` : `${pct} phần trăm`}`}
+    >
+      {chang.map((c, k) => (
+        <span
+          key={k}
+          className={`hslsx__chang hslsx__chang--${c.trang_thai}${c.hien_tai ? " is-dang" : ""}`}
+          title={`${c.ten} — ${CHANG_LB[c.trang_thai] ?? c.trang_thai}`}
+        />
+      ))}
+    </span>
+  );
+}
+
 function Dong({ r, onMoHoSo }: { r: LenhSxItem; onMoHoSo: (id: number) => void }) {
   const pill = PILL[r.trang_thai] ?? PILL.dang_sx;
   const pct = Math.max(0, Math.min(100, Math.round(r.tien_do_pct)));
@@ -826,19 +930,22 @@ function Dong({ r, onMoHoSo }: { r: LenhSxItem; onMoHoSo: (id: number) => void }
   const cbHien = r.canh_bao.slice(0, 2);
   const cbThua = r.canh_bao.length - cbHien.length;
   const nhomLb = r.nhom_cong_doan ? (NHOM_CONG_DOAN[r.nhom_cong_doan] ?? r.nhom_cong_doan) : null;
+  // Trễ hạn là chuyện của CẢ lệnh, không của một chặng — xem `.hslsx__dai.is-tre` bên CSS.
+  const tre = r.canh_bao.includes("tre_han");
 
   return (
     // `is-mo-duoc` mang `cursor: pointer` + đổi nền khi rê. Hồ sơ đã nối nên MỌI dòng đều bấm
     // được — nhánh "chưa nối ⇒ hàng câm" đã bỏ cùng lúc prop thành bắt buộc.
     <tr className="hslsx__row is-mo-duoc" onClick={() => onMoHoSo(r.id)}>
-      {/* Cột 1 — Mã là ĐỊNH DANH: không bao giờ cắt, không ellipsis. Cắt mã là hỏng cả dòng. */}
+      {/* Cột 1 — Mã là ĐỊNH DANH: không bao giờ cắt, không ellipsis. Cắt mã là hỏng cả dòng.
+          Mã nằm TRÊN tên sản phẩm chứ không ở cột riêng: người xưởng gọi nhau bằng mã, nên nó
+          phải là thứ mắt bắt đầu tiên của dòng. */}
       <td className="hslsx__c1">
-        <span className="hslsx__ma">{r.ma}</span>
-        {r.is_rush && <ChipGap />}
-      </td>
-
-      <td className="hslsx__c2">
-        <span className="hslsx__ten" title={r.ten ?? undefined}>
+        <span className="hslsx__idline">
+          <span className="hslsx__ma">{r.ma}</span>
+          {r.is_rush && <ChipGap />}
+        </span>
+        <span className="hslsx__ten hslsx__ten--manh" title={r.ten ?? undefined}>
           {r.ten ?? "—"}
         </span>
         <span className="hslsx__nho">
@@ -847,60 +954,79 @@ function Dong({ r, onMoHoSo }: { r: LenhSxItem; onMoHoSo: (id: number) => void }
         </span>
       </td>
 
-      <td className="hslsx__c3">
+      <td className="hslsx__c2">
         <span className="hslsx__ten" title={r.khach_hang ?? undefined}>
           {r.khach_hang ?? "—"}
         </span>
         {r.sale && <span className="hslsx__nho">{r.sale}</span>}
       </td>
 
-      <td className="hslsx__c4">
-        <span className="hslsx__ten">{r.may ?? "—"}</span>
-        {r.nguoi.length > 0 && (
-          // Cắt từ CUỐI: thứ tự mảng là thứ tự giao. `title` giữ đủ tên, và `aria-label` bù cho
-          // người đi bàn phím / cảm ứng (title không tới được họ).
-          <span className="hslsx__nho" title={r.nguoi.join(", ")} aria-label={`Người: ${r.nguoi.join(", ")}`}>
-            {nguoiDau.join(", ")}
-            {nguoiThua > 0 ? ` +${nguoiThua}` : ""}
-          </span>
-        )}
-      </td>
-
-      {/* Cột 5 — `gio_may` vào `title`, KHÔNG có cột riêng. ⚠️ ĐỪNG CỘNG `gio_may` qua nhiều lệnh:
+      {/* Cột 3 — `gio_may` vào `title`, KHÔNG có cột riêng. ⚠️ ĐỪNG CỘNG `gio_may` qua nhiều lệnh:
           một lượt in ghép 3 lệnh được đếm đủ cho cả 3, cộng lại vượt giờ máy thật của xưởng. */}
-      <td className="hslsx__c5" title={`Đã chạy ${num(Math.round(r.gio_may * 10) / 10)} giờ máy`}>
+      <td className="hslsx__c3" title={`Đã chạy ${num(Math.round(r.gio_may * 10) / 10)} giờ máy`}>
         <span className="hslsx__buoc">
           <span className="hslsx__ten" title={r.buoc_hien_tai ?? undefined}>
             {r.buoc_hien_tai ?? "—"}
           </span>
           {nhomLb && <span className="hslsx__chipnhom">{nhomLb}</span>}
         </span>
+        {/* Dải chặng NUỐT chỗ của thanh tiến độ, nhưng % vẫn đứng cạnh: dải trả lời "đang ở khúc
+            nào của đường đi", % trả lời "làm được bao nhiêu" — hai câu hỏi khác nhau.
+            Lệnh chưa phát hành gói / routing rỗng ⇒ `chang` RỖNG: lùi về thanh cũ chứ không vẽ
+            đốt giả, vì một dải trống trơn trông y hệt "mọi công đoạn đều chưa tới". */}
         <span className="hslsx__tiendo">
-          <span
-            className="hslsx__bar"
-            role="progressbar"
-            aria-valuenow={pct}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuetext={uoc ? `khoảng ${pct} phần trăm, ước tính` : `${pct} phần trăm`}
-            // Cờ ước tính phải ra tới mặt màn: 40% "đo được" và 40% "ước tính" là hai mức tin cậy
-            // khác hẳn nhau, gộp làm một là mời điều độ quyết trên con số họ tưởng chắc hơn thực tế.
-            title={uoc ? "Ước tính theo thời lượng kế hoạch — bước chưa khai sản lượng" : undefined}
-          >
-            <span className={`hslsx__barfill${uoc ? " is-uoc" : ""}`} style={{ width: `${pct}%` }} />
-          </span>
-          <span className="hslsx__pct">
+          {r.chang.length > 0 ? (
+            <DaiChang chang={r.chang} pct={pct} uoc={uoc} tre={tre} />
+          ) : (
+            <span
+              className="hslsx__bar"
+              role="progressbar"
+              aria-valuenow={pct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuetext={uoc ? `khoảng ${pct} phần trăm, ước tính` : `${pct} phần trăm`}
+              // Cờ ước tính phải ra tới mặt màn: 40% "đo được" và 40% "ước tính" là hai mức tin cậy
+              // khác hẳn nhau, gộp làm một là mời điều độ quyết trên con số họ tưởng chắc hơn thực tế.
+              title={uoc ? "Ước tính theo thời lượng kế hoạch — bước chưa khai sản lượng" : undefined}
+            >
+              <span className={`hslsx__barfill${uoc ? " is-uoc" : ""}`} style={{ width: `${pct}%` }} />
+            </span>
+          )}
+          <span className="hslsx__pct" title={uoc ? "Ước tính theo thời lượng kế hoạch — bước chưa khai sản lượng" : undefined}>
             {uoc ? "~" : ""}
             {pct}%
           </span>
         </span>
+        {/* Máy và người của BƯỚC ĐANG CHẠY — trước nằm ở cột riêng cách đây hai cột, người đọc
+            phải tự nối. Cắt danh sách người từ CUỐI: thứ tự mảng là thứ tự giao. `title` giữ đủ
+            tên, `aria-label` bù cho người đi bàn phím / cảm ứng (title không tới được họ). */}
+        {/* Không máy và cũng không người ⇒ KHÔNG vẽ dòng này. Một dấu "—" mồ côi nằm dưới thanh
+            tiến độ trông như lỗi hiển thị, trong khi dòng trống đã đủ nghĩa "chưa ghi nhận". */}
+        {(r.may || r.nguoi.length > 0) && (
+        <span
+          className="hslsx__mayng"
+          title={r.nguoi.length > 0 ? r.nguoi.join(", ") : undefined}
+          aria-label={r.nguoi.length > 0 ? `Người: ${r.nguoi.join(", ")}` : undefined}
+        >
+          {r.may ?? "—"}
+          {r.nguoi.length > 0 && (
+            <>
+              <span className="hslsx__sep" aria-hidden="true">
+                ·
+              </span>
+              {nguoiDau.join(", ")}
+              {nguoiThua > 0 ? ` +${nguoiThua}` : ""}
+            </>
+          )}
+        </span>
+        )}
       </td>
 
-      {/* Cột 6 — hai mốc, đừng lẫn: trên là hạn SX NỘI BỘ (cùng cột mà `tre_han` và bộ lọc ngày
+      {/* Cột 4 — hai mốc, đừng lẫn: trên là hạn SX NỘI BỘ (cùng cột mà `tre_han` và bộ lọc ngày
           lấy làm mốc), dưới là dự kiến xong. `han_giao_khach` chỉ nằm trong `title`: cột đã chật,
           và trễ SX ≠ trễ giao — bày cạnh nhau là mời so nhầm. */}
       <td
-        className="hslsx__c6"
+        className="hslsx__c4"
         title={r.han_giao_khach ? `Hạn giao khách: ${ngay(r.han_giao_khach)}` : undefined}
       >
         {/* `han_hoan_thanh_sx` là DATE ⇒ `ngay()`, không `ngayGio()`. */}
@@ -914,7 +1040,7 @@ function Dong({ r, onMoHoSo }: { r: LenhSxItem; onMoHoSo: (id: number) => void }
         </span>
       </td>
 
-      <td className="hslsx__c7">
+      <td className="hslsx__c5">
         <span className={`hslsx-pill ${pill.cls}`}>{pill.label}</span>
         {cbHien.length > 0 && (
           <span className="hslsx__cbs">
@@ -938,9 +1064,9 @@ function Dong({ r, onMoHoSo }: { r: LenhSxItem; onMoHoSo: (id: number) => void }
         )}
       </td>
 
-      {/* Cột 8 — đường BÀN PHÍM vào hồ sơ (cả hàng bấm được nhưng `<tr>` không nhận tiêu điểm).
+      {/* Cột 6 — đường BÀN PHÍM vào hồ sơ (cả hàng bấm được nhưng `<tr>` không nhận tiêu điểm).
           Mũi tên luôn `opacity: 1` (cảm ứng không có trạng thái rê). */}
-      <td className="hslsx__c8" onClick={(e) => e.stopPropagation()}>
+      <td className="hslsx__c6" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
           className="hslsx__open"

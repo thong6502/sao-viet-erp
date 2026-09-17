@@ -17,7 +17,7 @@ import { Icon } from "../components/Icons";
 import { Pager, trangHopLe } from "../components/Pager";
 import { useTre } from "../lib/useTre";
 import {
-  kyThuatMay, NHAN_MUC_DO, NHAN_TT_SUA_CHUA, NHAN_TT_YEU_CAU, TT_SUA_CHUA, TT_YEU_CAU,
+  kyThuatMay, NHAN_MUC_DO, NHAN_TT_SUA_CHUA, NHAN_TT_YEU_CAU, TT_YEU_CAU,
   type Anh, type MayChon, type SuaChua, type YeuCau,
 } from "../api/kyThuatMay";
 import { AnhBox, Badge, NhatKyPhieu, fmtNgayGio } from "./KyThuatMayChung";
@@ -252,10 +252,6 @@ function KhungPhieu({ chuyen, may, loiMay, onCanMay, moId, onDaMo }: {
             </span>
           )}
         </div>
-        <p className="rc__sub">
-          Ghi nhận máy hỏng, mô tả hiện trạng kèm ảnh, sửa xong thì đóng phiếu.
-          <strong> Phải có ảnh chứng thực sau sửa mới xác nhận được.</strong>
-        </p>
       </div>
 
       <div className="rc__unified-bar">
@@ -283,12 +279,13 @@ function KhungPhieu({ chuyen, may, loiMay, onCanMay, moId, onDaMo }: {
           onClick={() => doiLoc(() => setTab("all"))}>
           Tất cả <span className="rc__tabn">{tongTatCa}</span>
         </button>
-        {TT_SUA_CHUA.map((tt) => (
-          <button key={tt} className={`rc__tab${tab === tt ? " is-active" : ""}`}
-            onClick={() => doiLoc(() => setTab(tt))}>
-            {NHAN_TT_SUA_CHUA[tt]} <span className="rc__tabn">{dem[tt] ?? 0}</span>
-          </button>
-        ))}
+        {/* Không có tab "Chờ sửa"/"Đang sửa"/"Chờ vật tư": drawer đã bỏ nút chuyển giữa các nấc đó,
+            phiếu chỉ còn chờ sửa → đã sửa xong, nên "Cần làm" gánh luôn phần chờ sửa (kể cả phiếu cũ
+            còn kẹt ở hai nấc giữa). */}
+        <button className={`rc__tab${tab === "da_sua_xong" ? " is-active" : ""}`}
+          onClick={() => doiLoc(() => setTab("da_sua_xong"))}>
+          {NHAN_TT_SUA_CHUA.da_sua_xong} <span className="rc__tabn">{dem.da_sua_xong ?? 0}</span>
+        </button>
       </div>
 
       {error && (
@@ -355,20 +352,25 @@ function KhungPhieu({ chuyen, may, loiMay, onCanMay, moId, onDaMo }: {
                   <div className="ktm-phu">{fmtNgayGio(r.thoi_diem)}</div>
                 </td>
                 <td className="rc__name">
-                  {/* Cùng kiểu với bảng Phiếu bảo trì: mã máy là BADGE. Hai màn cùng nói về một cái
-                      máy mà một bên badge một bên chữ trần thì người dùng phải học hai lần. */}
-                  {r.may_ma ? <span className="ktm-may-badge">{r.may_ma}</span> : "—"}
+                  {r.may_ma ? (
+                    <span className="ktm-may-badge">
+                      <Icon name="settings" size={12} /> {r.may_ma}
+                    </span>
+                  ) : "—"}
                   <div className="ktm-phu">{r.may_ten ?? ""}</div>
                 </td>
                 <td>
                   <strong>{r.bo_phan_hong}</strong>
                   {r.mo_ta && <div className="ktm-phu ktm-phu--cat">{r.mo_ta}</div>}
                 </td>
-                <td><Badge kieu={`muc-${r.muc_do}`}>{NHAN_MUC_DO[r.muc_do] ?? r.muc_do}</Badge></td>
+                <td>
+                  <Badge kieu={`muc-${r.muc_do}`}>
+                    <span className={`ktm-priority-dot ktm-priority-dot--${r.muc_do}`} />
+                    {NHAN_MUC_DO[r.muc_do] ?? r.muc_do}
+                  </Badge>
+                </td>
                 <td><Badge kieu={`tt-${r.trang_thai}`}>{NHAN_TT_SUA_CHUA[r.trang_thai] ?? r.trang_thai}</Badge></td>
                 <td className="text-center rc__nowrap">
-                  {/* Cột này trả lời đúng một câu: phiếu đã đủ bằng chứng để đóng chưa. Dùng chung
-                      chip với màn Phiếu bảo trì — con số trần không nói được "đủ" hay "còn thiếu". */}
                   <span className={`ktm-anhchip${r.so_anh === 0 ? "" : r.co_anh_sau ? " is-du" : " is-thieu"}`}>
                     <Icon name="camera" size={12} /> {r.so_anh} ảnh
                   </span>
@@ -499,27 +501,17 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
       <aside className="rc-drawer ktm-drawer" onClick={(e) => e.stopPropagation()}>
         <header className="rc-drawer__head">
           <div>
-            <div className="rc-drawer__kicker">
-              {hienTai ? `Phiếu sửa chữa · ${NHAN_TT_SUA_CHUA[hienTai.trang_thai] ?? ""}` : "Ghi nhận máy hỏng"}
+            <div className="rc-drawer__kicker" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span>Phiếu sửa chữa</span>
+              {hienTai && (
+                <span className={`ktm-header-status-badge ktm-header-status-badge--${hienTai.trang_thai}`}>
+                  {NHAN_TT_SUA_CHUA[hienTai.trang_thai] ?? hienTai.trang_thai}
+                </span>
+              )}
             </div>
             <h2 className="rc-drawer__title">
-              {hienTai ? `${hienTai.ma} · ${hienTai.bo_phan_hong}` : "Phiếu mới"}
+              {hienTai ? `${hienTai.ma} · ${hienTai.bo_phan_hong}` : "Phiếu sửa chữa mới"}
             </h2>
-            {hienTai && (
-              <div className="ktm-meta">
-                <span>{hienTai.may_ma} · {hienTai.may_ten}</span>
-                {hienTai.nguoi_bao_ten && <span>Báo bởi <strong>{hienTai.nguoi_bao_ten}</strong></span>}
-                <span>{fmtNgayGio(hienTai.thoi_diem)}</span>
-                {/* Phiếu sinh từ lời báo của bộ phận khác: nói rõ nguồn để tổ sửa chữa biết hỏi ai
-                    khi cần thêm chi tiết. Đọc NGƯỢC qua `phieu_id` bên bảng yêu cầu. */}
-                {hienTai.yeu_cau_ma && (
-                  <span className="ktm-tuyc">
-                    <Icon name="bell" size={12} /> Từ {hienTai.yeu_cau_ma}
-                    {hienTai.yeu_cau_bo_phan ? ` · ${hienTai.yeu_cau_bo_phan}` : ""}
-                  </span>
-                )}
-              </div>
-            )}
           </div>
           <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
             <Icon name="x" size={14} />
@@ -551,86 +543,78 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
             </div>
           )}
 
-          {/* HAI khối chứ không một, vì HAI NGƯỜI khác nhau viết ra chúng: người phát hiện máy
-              hỏng kể chuyện, tổ sửa chữa kết luận. */}
-          <section className="rc-sec">
-            <div className="rc-sec__title">Lời báo hỏng</div>
-            <div className="rc-grid">
-              {/* Máy CHỈ chọn lúc tự lập phiếu mới. Phiếu đã có thì máy là máy đã báo hỏng — chép từ
-                  yêu cầu hoặc chốt lúc lập — server không nhận đổi (`SUA_DUOC_SUA_CHUA`). */}
-              {hienTai ? (
-                <div className="rc-field">
-                  <span className="rc-field__label">Máy</span>
-                  <div className="ktm-nguon">
-                    <span className="ktm-nguon__ten">
-                      <Icon name="settings" size={13} />
-                      {hienTai.may_ma ? `${hienTai.may_ma} · ${hienTai.may_ten ?? ""}` : "—"}
-                    </span>
-                    <span className="ktm-nguon__vi">
-                      <Icon name="lock" size={11} />
-                      {tuNguon ? `Máy ghi trong ${hienTai.yeu_cau_ma}.` : "Máy chọn lúc lập phiếu."}
-                    </span>
-                  </div>
+          {/* Hero Context Card: Hiển thị Máy (nếu có), Người báo & Thời gian mượt mà, không dùng border-left cạnh */}
+          <div className="ktm-hero-card">
+            <div className="ktm-hero-card__row">
+              <div className="ktm-hero-card__item">
+                <Icon name="settings" size={14} />
+                <span>Máy: <strong>{hienTai ? (hienTai.may_ma ? `${hienTai.may_ma} · ${hienTai.may_ten ?? ""}` : "—") : "Chọn máy bên dưới"}</strong></span>
+              </div>
+              <div className="ktm-hero-card__item">
+                <Icon name="users" size={14} />
+                <span>Báo bởi: <strong>{hienTai ? (hienTai.nguoi_bao_ten || hienTai.yeu_cau_nguoi_bao || "—") : (user?.name?.trim() || user?.username || "—")}</strong></span>
+              </div>
+            </div>
+            <div className="ktm-hero-card__row">
+              <div className="ktm-hero-card__item">
+                <Icon name="calendar" size={13} />
+                <span>{hienTai ? fmtNgayGio(hienTai.thoi_diem) : "Thời điểm hiện tại"}</span>
+              </div>
+              {hienTai?.yeu_cau_ma && (
+                <div className="ktm-hero-card__tag">
+                  <Icon name="bell" size={12} />
+                  <span>Từ {hienTai.yeu_cau_ma}{hienTai.yeu_cau_bo_phan ? ` · ${hienTai.yeu_cau_bo_phan}` : ""}</span>
                 </div>
-              ) : (
+              )}
+            </div>
+          </div>
+
+          {/* Card Form 1: Lời Báo Hỏng (Bên báo hỏng ghi) */}
+          <div className="ktm-form-card">
+            <div className="ktm-form-card__head">
+              <div className="ktm-form-card__icon">
+                <Icon name="alert" size={15} />
+              </div>
+              <h3 className="ktm-form-card__title">Lời báo hỏng & Thông tin sự cố</h3>
+            </div>
+
+            {/* Máy CHỈ chọn khi tự lập phiếu mới */}
+            {!hienTai && (
+              <div className="ktm-field-group" style={{ marginBottom: "14px" }}>
                 <ChonMay giaTri={form.may_id} may={may} loiMay={loiMay} khoa={khoaSua}
                   onChange={(v) => set("may_id", v)} />
-              )}
+              </div>
+            )}
 
+            <div className="rc-grid" style={{ gap: "14px" }}>
               <label className="rc-field">
                 <span className="rc-field__label">Bộ phận hỏng *</span>
-                <input className="rc-input" value={form.bo_phan_hong} disabled={khoaSua}
-                  placeholder="vd: Trục cán & bạc đạn"
+                <input className="rc-input ktm-input-modern" value={form.bo_phan_hong} disabled={khoaSua}
+                  placeholder="vd: Trục cán & bạc đạn, băng tải..."
                   onChange={(e) => set("bo_phan_hong", e.target.value)} />
               </label>
 
-              <label className="rc-field">
-                <span className="rc-field__label">
-                  Mức độ
-                  {/* Chỉ NGHIÊM TRỌNG mới được tô. Tô cả ba mức thì cái cần chú ý chìm nghỉm —
-                      đúng cái bảng danh sách đã tránh (xem `.ktm-badge--muc-*`). */}
-                  {form.muc_do === "nghiem_trong" && (
-                    <span className="ktm-badge ktm-badge--muc-nghiem_trong ktm-nhan-muc">Nặng</span>
-                  )}
-                </span>
-                <select className="rc-input" value={form.muc_do} disabled={khoaSua}
-                  onChange={(e) => set("muc_do", e.target.value)}>
-                  {MUC_DO_CHON.map((m) => <option key={m} value={m}>{NHAN_MUC_DO[m]}</option>)}
-                </select>
-                {tuNguon && (
-                  <span className="rc-field__hint">
-                    Người báo chỉ đoán mức; mức trên phiếu là kết luận của tổ sửa chữa, sửa được.
-                  </span>
-                )}
-              </label>
-
-              {/* Người báo KHÔNG phải ô nhập ở bất kỳ phiếu nào (14/09/2026): server chốt lúc tạo
-                  — tài khoản đã gửi yêu cầu, hoặc tài khoản lập phiếu. Hiện tại chỗ, khoá, nói luôn
-                  lấy từ đâu; giấu ô đi thì tổ sửa chữa tưởng phiếu thiếu dữ liệu. */}
               <div className="rc-field">
-                <span className="rc-field__label">Người báo</span>
-                <div className="ktm-nguon">
-                  <span className="ktm-nguon__ten">
-                    <Icon name="users" size={13} />
-                    {hienTai
-                      ? (hienTai.nguoi_bao_ten || hienTai.yeu_cau_nguoi_bao || "—")
-                      : (user?.name?.trim() || user?.username || "—")}
-                    {hienTai?.yeu_cau_bo_phan && <em>· {hienTai.yeu_cau_bo_phan}</em>}
-                  </span>
-                  <span className="ktm-nguon__vi">
-                    <Icon name="lock" size={11} />
-                    {tuNguon
-                      ? `Tài khoản đã gửi ${hienTai?.yeu_cau_ma}.`
-                      : hienTai
-                        ? "Tài khoản đã lập phiếu này."
-                        : "Ghi theo tài khoản đang đăng nhập."}
-                  </span>
+                <span className="rc-field__label">Mức độ sự cố</span>
+                <div className="ktm-priority-seg">
+                  {MUC_DO_CHON.map((m) => {
+                    const isSel = form.muc_do === m;
+                    return (
+                      <button key={m} type="button"
+                        disabled={khoaSua}
+                        className={`ktm-priority-btn ktm-priority-btn--${m}${isSel ? " is-selected" : ""}`}
+                        onClick={() => set("muc_do", m)}>
+                        <span className={`ktm-priority-dot ktm-priority-dot--${m}`} />
+                        {NHAN_MUC_DO[m]}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               <label className="rc-field rc-field--full">
-                <span className="rc-field__label">Triệu chứng</span>
-                <textarea className="rc-input" rows={3} value={form.mo_ta} disabled={khoaSua}
+                <span className="rc-field__label">Triệu chứng & mô tả hỏng hóc</span>
+                <textarea className="rc-input ktm-input-modern" rows={2} value={form.mo_ta} disabled={khoaSua}
                   placeholder="Máy chạy phát tiếng ồn bất thường ở tốc độ cao, màng cán không thẳng…"
                   onChange={(e) => set("mo_ta", e.target.value)} />
                 {tuNguon && (
@@ -640,28 +624,33 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
                 )}
               </label>
             </div>
-          </section>
+          </div>
 
-          <section className="rc-sec">
-            <div className="rc-sec__title">Tổ sửa chữa ghi</div>
-            <div className="rc-grid">
+          {/* Card Form 2: Tổ sửa chữa ghi */}
+          <div className="ktm-form-card">
+            <div className="ktm-form-card__head">
+              <div className="ktm-form-card__icon" style={{ background: "#eff6ff", color: "#2563eb" }}>
+                <Icon name="fileText" size={15} />
+              </div>
+              <h3 className="ktm-form-card__title">Tổ sửa chữa ghi nhận & xử lý</h3>
+            </div>
+
+            <div className="rc-grid" style={{ gap: "14px" }}>
               <label className="rc-field rc-field--full">
                 <span className="rc-field__label">Nguyên nhân & phương án sửa</span>
-                <textarea className="rc-input" rows={3} value={form.nguyen_nhan_phuong_an} disabled={khoaSua}
+                <textarea className="rc-input ktm-input-modern" rows={2} value={form.nguyen_nhan_phuong_an} disabled={khoaSua}
                   placeholder="Ghi khi đã soi ra nguyên nhân — vd: bạc đạn mòn, cần thay và căn chỉnh lại trục."
                   onChange={(e) => set("nguyen_nhan_phuong_an", e.target.value)} />
               </label>
 
               <label className="rc-field rc-field--full">
-                <span className="rc-field__label">Ghi chú</span>
-                {/* textarea 2 dòng, không phải input 1 dòng: ghi chú thật ("chờ bạc đạn về, hãng
-                    báo thứ 5") tràn ô một dòng, và ô cao khác ô trên làm khối lệch. */}
-                <textarea className="rc-input" rows={2} value={form.ghi_chu} disabled={khoaSua}
+                <span className="rc-field__label">Ghi chú tiến độ / vật tư</span>
+                <textarea className="rc-input ktm-input-modern" rows={2} value={form.ghi_chu} disabled={khoaSua}
                   placeholder="vd: đang chờ bạc đạn trục cán về, hãng báo thứ 5 tới"
                   onChange={(e) => set("ghi_chu", e.target.value)} />
               </label>
             </div>
-          </section>
+          </div>
 
           {hienTai && (
             <>
@@ -676,28 +665,6 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
                 moTa="Bắt buộc để đóng phiếu."
                 tatCaAnh={anh}
                 onChanged={() => { napAnh(); setAnhTick((t) => t + 1); }} />
-
-              {suaDuoc && (
-                <section className="rc-sec">
-                  <div className="rc-sec__title">Bước xử lý</div>
-                  {/* Chỉ các bước ĐANG LÀM. Đóng phiếu là hành động có điều kiện ⇒ tách xuống khối
-                      xác nhận riêng bên dưới, không nấp thành một pill giống mấy pill kia. */}
-                  <div className="ktm-buoc">
-                    {TT_SUA_CHUA.filter((tt) => tt !== "da_sua_xong").map((tt) => {
-                      const dangO = hienTai.trang_thai === tt;
-                      return (
-                        <button key={tt} type="button"
-                          className={`ktm-buoc__nut${dangO ? " is-active" : ""}`}
-                          disabled={dangO || dangDoi}
-                          onClick={() => doiTrangThai(tt)}>
-                          {NHAN_TT_SUA_CHUA[tt]}
-                        </button>
-                      );
-                    })}
-                    {dong && <span className="ktm-buoc__da-xong">Đã sửa xong</span>}
-                  </div>
-                </section>
-              )}
 
               {suaDuoc && !dong && (
                 <section className="ktm-xacnhan">
@@ -714,9 +681,6 @@ function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
                   </button>
                 </section>
               )}
-
-              {/* KHÔNG có nút xoá phiếu — cũng không có endpoint (12/08/2026). Đây là lịch sử hỏng
-                  hóc của máy; ghi nhầm thì sửa nội dung. */}
             </>
           )}
           </>
@@ -1167,47 +1131,67 @@ function YeuCauDrawer({ yc, may, loiMay, tiepNhanDuoc, tuChoiDuoc, onClose, onSa
             </div>
           )}
 
-          <section className="rc-sec">
-            <div className="rc-sec__title">Máy hỏng thế nào</div>
-            <div className="rc-grid">
+          <div className="ktm-form-card">
+            <div className="ktm-form-card__head">
+              <div className="ktm-form-card__icon">
+                <Icon name="alert" size={15} />
+              </div>
+              <h3 className="ktm-form-card__title">Chi tiết máy & sự cố báo hỏng</h3>
+            </div>
+
+            {/* Thẻ cảnh báo Máy Đang Dừng (Emergency Stop Alert Card) */}
+            <label className={`ktm-emergency-card${form.may_dung ? " is-active" : ""}`}>
+              <input type="checkbox" className="ktm-emergency-card__checkbox" checked={form.may_dung} disabled={khoaSua}
+                onChange={(e) => set("may_dung", e.target.checked)} />
+              <div className="ktm-emergency-card__body">
+                <div className="ktm-emergency-card__title">
+                  <span>Máy đang dừng, không chạy được</span>
+                  {form.may_dung && <span className="ktm-emergency-card__badge">🛑 Ưu tiên cao</span>}
+                </div>
+                <span className="ktm-emergency-card__desc">
+                  Đánh dấu là yêu cầu này cần xử lý khẩn cấp và sẽ được đẩy lên đầu hàng chờ của tổ sửa chữa.
+                </span>
+              </div>
+            </label>
+
+            <div className="rc-grid" style={{ gap: "14px" }}>
               <ChonMay giaTri={form.may_id} may={may} loiMay={loiMay} khoa={khoaSua}
                 onChange={(v) => set("may_id", v)} />
 
               <label className="rc-field">
                 <span className="rc-field__label">Bộ phận hỏng *</span>
-                <input className="rc-input" value={form.bo_phan_hong} disabled={khoaSua}
+                <input className="rc-input ktm-input-modern" value={form.bo_phan_hong} disabled={khoaSua}
                   placeholder="vd: Trục cán & bạc đạn"
                   onChange={(e) => set("bo_phan_hong", e.target.value)} />
               </label>
 
-              <label className="rc-field">
-                <span className="rc-field__label">Mức độ (theo bạn thấy)</span>
-                <select className="rc-input" value={form.muc_do} disabled={khoaSua}
-                  onChange={(e) => set("muc_do", e.target.value)}>
-                  {MUC_DO_CHON.map((m) => <option key={m} value={m}>{NHAN_MUC_DO[m]}</option>)}
-                </select>
-                <span className="ktm-hint">Cứ chọn theo cảm nhận — tổ sửa chữa sẽ đánh giá lại.</span>
-              </label>
-
-              <label className="rc-field ktm-tick">
-                {/* Đây mới là ô quyết định thứ tự hàng chờ, không phải "mức độ": máy dừng hẳn là
-                    thứ người báo BIẾT CHẮC, còn mức độ chỉ là phỏng đoán. */}
-                <input type="checkbox" checked={form.may_dung} disabled={khoaSua}
-                  onChange={(e) => set("may_dung", e.target.checked)} />
-                <span>
-                  <strong>Máy đang dừng, không chạy được</strong>
-                  <span className="ktm-hint">Đánh dấu là yêu cầu này lên đầu hàng chờ.</span>
-                </span>
-              </label>
+              <div className="rc-field rc-field--full">
+                <span className="rc-field__label">Mức độ (theo bạn cảm nhận)</span>
+                <div className="ktm-priority-seg" style={{ marginBottom: "6px" }}>
+                  {MUC_DO_CHON.map((m) => {
+                    const isSel = form.muc_do === m;
+                    return (
+                      <button key={m} type="button"
+                        disabled={khoaSua}
+                        className={`ktm-priority-btn ktm-priority-btn--${m}${isSel ? " is-selected" : ""}`}
+                        onClick={() => set("muc_do", m)}>
+                        <span className={`ktm-priority-dot ktm-priority-dot--${m}`} />
+                        {NHAN_MUC_DO[m]}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="rc-field__hint">Cứ chọn theo cảm nhận — tổ sửa chữa sẽ đánh giá lại khi tiếp nhận.</span>
+              </div>
 
               <label className="rc-field rc-field--full">
-                <span className="rc-field__label">Triệu chứng</span>
-                <textarea className="rc-input" rows={3} value={form.mo_ta} disabled={khoaSua}
+                <span className="rc-field__label">Triệu chứng & mô tả hỏng hóc</span>
+                <textarea className="rc-input ktm-input-modern" rows={2} value={form.mo_ta} disabled={khoaSua}
                   placeholder="Kể đúng cái mình thấy: máy kêu to ở tốc độ cao, tờ in ra bị nhăn mép…"
                   onChange={(e) => set("mo_ta", e.target.value)} />
               </label>
             </div>
-          </section>
+          </div>
 
           {hienTai && (
             <AnhBox loai={hienTai.phieu_id ? "sua_chua" : "yeu_cau"}

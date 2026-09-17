@@ -1,261 +1,209 @@
-/* --- Header Compact Linear Style ------------------------------------------------------------- */
-.tdsx-head-compact {
+/* ==============================================================================================
+   THEO DÕI SẢN XUẤT — bàn quét TOÀN XƯỞNG: Kanban · Theo máy · Theo ca · Gantt theo lệnh.
+   Khác "Hồ sơ lệnh sản xuất" (tra MỘT lệnh theo mã); giống nó ở chỗ KHÔNG ghi gì cả.
+
+   BA LUẬT của file này — y hệt `lenh-san-xuat.css`, vì màn này mượn nguyên khối lọc + dải tab
+   của màn kia và hai màn phải trông như một:
+     ① Mọi selector nằm dưới `.tdsx` (hoặc `.tdsx-*`/`.tdsx__*`). Không rule trần.
+     ② CẤM hex thô và `rgba()` thô. Chỉ token của `tokens.css`; cần pha thì `color-mix(in srgb, …)`.
+     ③ CẤM `outline: none`. Ổ bàn phím phải thấy được.
+   Bản trước vi phạm cả ba: 19 hex thô (đếm ngoài chú thích — 10 mã khác nhau, gồm #ef4444,
+   #6366f1, #10b981, #f59e0b), 58 `rgba()`, 37 cỡ chữ px cứng ngoài thang `--fs-*`, 13 chỗ
+   `!important`. Bảng màu của dự án là
+   slate lạnh + ĐÚNG MỘT màu cam `--rust`; ba màu gradient kia không nằm trong bảng nào cả.
+
+   NGUYÊN TẮC THỨ BẬC — chỗ bản trước lộn ngược: màu bão hoà và chữ đậm chỉ dành cho VIỆC ĐANG
+   CHẠY và VIỆC TRỄ. Chỗ KHÔNG có gì (cột Kanban rỗng, máy đang trống, ca không có việc) nói bằng
+   một dòng chữ xám. Đo bản cũ: 37/43 lane máy đeo huy hiệu xanh lá "Máy đang trống — sẵn sàng
+   nhận việc" trên một màn có đúng 2 việc thật.
+
+   BỐN KHUÔN LỖI MÀN HẸP (đã dính ở các màn khác, đừng dựng lại):
+     ⓐ KHÔNG `justify-content: space-between` — dùng `margin-left: auto` + `flex-wrap: wrap` để
+       thứ bị đẩy còn biết xuống dòng thay vì bóp chữ.
+     ⓑ Bảng/lưới trong khung cuộn khai `min-width`, KHÔNG `width: 100%`.
+     ⓒ Nút chỉ hiện khi hover = không tồn tại trên cảm ứng.
+     ⓓ `text-overflow` không được nuốt mã lệnh/tên máy ở màn hẹp.
+   ============================================================================================ */
+
+/* ---------- ① ĐẦU TRANG: một hàng, hết ------------------------------------------------------
+   Trước đây là ba tầng: breadcrumb "Sản xuất › Theo dõi sản xuất", rồi tiêu đề + huy hiệu
+   "REAL-TIME" viết hoa, rồi nút Làm mới nằm riêng một bên qua `space-between`. Breadcrumb đã bỏ
+   hẳn: thanh bên luôn tô sáng đúng mục đang xem nên nó chỉ nhắc lại chính nó. */
+.tdsx__head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-3);
-  padding: 2px 0;
-}
-.tdsx-head-compact__left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-3);
 }
-.tdsx-head-compact .tdsx-breadcrumb {
-  margin-bottom: 0;
-  margin-right: 4px;
-}
-.tdsx-head-compact .hslsx__title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--ink);
-  letter-spacing: -0.01em;
+
+.tdsx__title {
   margin: 0;
-  line-height: 1.2;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: var(--ink);
 }
-.tdsx-badges-group {
+
+/* Dấu "trực tiếp": một chấm + một chữ thường. KHÔNG cho nó nhấp nháy — chấm đập mãi mãi trên một
+   màn người ta ngồi nhìn cả ca thì không còn báo điều gì đổi nữa, nó chỉ là tiếng ồn. */
+.tdsx__live {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--ash-2);
+  cursor: help;
+  white-space: nowrap;
 }
-.tdsx-head-compact__right {
-  display: flex;
-  align-items: center;
+
+.tdsx__live i,
+.tdsx-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--moss);
   flex: none;
 }
 
-.tdsx-breadcrumb {
+.tdsx__reload {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--ash-2);
-}
-.tdsx-breadcrumb .is-active {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.tdsx-reload-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 14px;
+  gap: var(--sp-1);
+  height: 28px;
+  padding: 0 var(--sp-3);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-pill);
+  border-radius: var(--r-3);
   background: var(--canvas);
   color: var(--ash);
-  font-size: 12.5px;
-  font-weight: 600;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   cursor: pointer;
-  transition: all 180ms ease;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-}
-.tdsx-reload-btn:hover {
-  background: var(--rust-soft);
-  color: var(--rust-deep);
-  border-color: rgba(197, 64, 10, 0.3);
-  transform: translateY(-1px);
+  white-space: nowrap;
+  transition: background-color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard),
+    color var(--duration-base) var(--easing-standard);
 }
 
-/* --- Live Indicator & Kbd Hint ------------------------------------------------------------- */
-.tdsx-live-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  font-size: var(--fs-2xs);
+.tdsx__reload:hover {
+  background: var(--rust-soft);
+  border-color: var(--rust);
+  color: var(--rust-deep);
+}
+
+/* ---------- ①b DẢI BỐN CON SỐ ---------------------------------------------------------------
+   Một màn tên là "Theo dõi sản xuất" thì câu trả lời đầu tiên phải đọc được từ đầu bên kia phòng
+   điều độ: xưởng đang chạy mấy việc, mấy việc đứng, mấy lệnh trễ. Trước đây phải đọc hết bảng mới
+   biết — đầu màn chỉ có tiêu đề và một cái nút.
+
+   Bốn con số này KHÔNG viền, KHÔNG nền, KHÔNG gradient: phân cấp làm bằng cỡ chữ (26px đè lên
+   12px) và màu trạng thái, chứ không bằng bốn cái hộp. Chúng đọc đúng bộ lọc đang áp, nên lọc
+   theo máy là ra tải của riêng máy đó. */
+.tdsx__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4) var(--sp-8);
+  margin-bottom: var(--sp-4);
+}
+
+.tdsx__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tdsx__stat-n {
+  font-size: var(--fs-2xl);
   font-weight: var(--fw-bold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.tdsx__stat-nhan {
+  font-size: var(--fs-xs);
+  color: var(--ash-2);
   white-space: nowrap;
 }
-.tdsx-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--moss);
-  box-shadow: 0 0 0 0 rgba(47, 93, 58, 0.4);
-  animation: tdsx-pulse 1.8s infinite;
-}
-@keyframes tdsx-pulse {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(47, 93, 58, 0.5); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(47, 93, 58, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(47, 93, 58, 0); }
+
+.tdsx__stat--chay .tdsx__stat-n {
+  color: var(--moss-deep);
 }
 
-.hslsx__kbd {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 6px;
-  font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: 600;
+.tdsx__stat--dung .tdsx__stat-n {
+  color: var(--amber-deep);
+}
+
+.tdsx__stat--tre .tdsx__stat-n {
+  color: var(--signal);
+}
+
+/* Số 0 (và dấu "—" lúc chưa tải xong) KHÔNG được tô màu trạng thái: "0 việc đang chạy" tô xanh lá
+   là khen một cái xưởng đang đứng im, "0 lệnh trễ" tô đỏ là báo động một tin tốt. Đặt SAU ba luật
+   màu trên để thắng chúng. */
+.tdsx__stat.is-zero .tdsx__stat-n {
   color: var(--ash-2);
-  background: var(--canvas);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-2);
 }
 
-/* Elevated Filter Suite Card */
-.tdsx .hslsx__filters.tdsx-filter-card {
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  padding: 16px 20px;
-  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px rgba(15, 23, 42, 0.03);
-}
-.tdsx .hslsx__search {
-  height: 40px;
-  border-radius: var(--r-5);
-  border-color: var(--rule-soft);
-  transition: border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
-}
-.tdsx .hslsx__search:focus-within {
-  border-color: var(--rust);
-  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.15);
-}
-.tdsx .hslsx__field select {
-  height: 40px;
-  border-radius: 8px;
-  border-color: var(--rule-soft);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  transition: border-color var(--duration-fast) ease, background 180ms ease;
-}
-.tdsx .hslsx__field.is-active select {
-  border-color: var(--charcoal);
-  background: var(--heat-0);
-  font-weight: 600;
-  color: var(--ink);
-}
-.tdsx .hslsx__field select:focus {
-  border-color: var(--rust);
-}
+/* ---------- ② THANH LỌC: một hàng trần ------------------------------------------------------
+   Không thẻ, không viền bao, không đổ bóng. Cái thẻ cũ (`.tdsx-filter-card`: nền trắng + viền +
+   `box-shadow` hai lớp + đệm 16/20) cao 114px mà không nói thêm gì so với chính mấy cái ô trong
+   nó. Viên lọc lấy NGUYÊN `.hslsx__field` của "Hồ sơ lệnh sản xuất" — cùng bộ lọc thì phải cùng
+   hình dạng, và mọi override cỡ/màu mà file này từng đè lên nó đã gỡ.
 
-.tdsx-more-filter-btn {
-  height: 40px;
-  padding: 0 14px !important;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  border: 1px solid var(--rule-soft) !important;
-  background: var(--paper) !important;
-  text-decoration: none !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-}
-.tdsx-more-filter-btn.is-active {
-  border-color: var(--charcoal) !important;
-  background: var(--charcoal) !important;
-  color: var(--on-charcoal) !important;
-}
-
-/* Active Filter Chips Bar */
-.tdsx-active-chips-bar {
+   Nhờ viên có giá trị tự sẫm lại (`.hslsx__field.is-active`), dải "Đang lọc: Mã/tên · Nhóm · Máy…"
+   bên dưới thành thừa — đã gỡ luôn cả khối đó (một tầng ~40px chỉ để lặp lại hàng ngay trên nó). */
+.tdsx__deck {
   display: flex;
-  align-items: center;
-  gap: 8px;
   flex-wrap: wrap;
-  padding: 8px 14px;
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  margin-top: -6px;
-  margin-bottom: var(--sp-3);
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
 }
-.tdsx-active-label {
-  font-size: 12px;
-  font-weight: 700;
+
+.tdsx .hslsx__search {
+  flex: 1 1 240px;
+}
+
+/* Nút "Thêm bộ lọc" đeo luôn class `.hslsx__field` nên nó LÀ một viên lọc, không phải một kiểu nút
+   thứ ba. Có giá trị bên trong (Công nhân/Khách hàng) thì sẫm lại đúng như bốn viên kia. */
+.tdsx__morefilter {
+  gap: var(--sp-1);
+  padding-right: var(--sp-3);
   color: var(--ash-2);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.tdsx-active-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: var(--canvas);
-  border: 1px solid var(--rule);
-  font-size: 12px;
-  color: var(--ink);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-.tdsx-active-chip button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--heat-0);
-  color: var(--ash);
+  font: inherit;
+  font-size: var(--fs-xs);
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease;
-}
-.tdsx-active-chip button:hover {
-  background: var(--signal-soft);
-  color: var(--signal-deep);
 }
 
-/* Nâng cấp Segmented Tab Bar */
-.tdsx .hslsx__tabs {
-  background: var(--heat-0);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-pill);
-  padding: 4px 6px;
-  display: inline-flex;
-  width: auto;
-  gap: 4px;
-}
-.tdsx .hslsx__tab {
-  padding: 6px 18px;
-  border-radius: var(--r-pill);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
-  color: var(--ash);
-  transition: all var(--duration-base) var(--easing-standard);
-}
-.tdsx .hslsx__tab:hover {
+.tdsx__morefilter:hover {
+  border-color: var(--rule);
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.6);
-}
-.tdsx .hslsx__tab.is-active {
-  background: var(--charcoal);
-  color: var(--on-charcoal);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
 }
 
-/* --- "Thêm bộ lọc" — popover nhỏ neo dưới nút, khuôn `.xl2-verhist__pop` --------------------- */
-.tdsx-themloc { position: relative; display: inline-flex; }
+.tdsx__morefilter.is-active,
+.tdsx__morefilter.is-active:hover {
+  color: var(--on-charcoal);
+  font-weight: var(--fw-bold);
+}
+
+.tdsx-themloc {
+  position: relative;
+  display: inline-flex;
+}
+
 .tdsx-themloc__pop {
   position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  top: calc(100% + var(--sp-1));
+  left: 0;
   z-index: 30;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
   min-width: 220px;
   padding: var(--sp-3);
   background: var(--canvas);
@@ -264,343 +212,353 @@
   box-shadow: var(--shadow-lg);
 }
 
-/* --- trạng thái công việc: chip nhỏ (Kanban) + legend (Theo máy) ----------------------------- */
+/* ---------- ③ DẢI TAB + KHAY ĐIỀU KHIỂN CỦA TAB ---------------------------------------------
+   Bốn tab bên trái, điều khiển riêng của tab đang mở bên phải, CÙNG một hàng. Trước đây mỗi tab
+   còn đẻ thêm một thanh ngang chạy hết bề rộng màn ("2 công đoạn có việc / 11 trống" ở Kanban,
+   chú giải + dải ngày + hai chip ở Theo máy, ngày + ca ở Theo ca) — tầng thứ tư trước dòng dữ
+   liệu đầu tiên. Nay chúng `createPortal` vào `.tdsx__ctl`.
+
+   Tab dùng NGUYÊN `.hslsx__tabs`/`.hslsx__tab` phẳng của màn Hồ sơ lệnh: tab đang chọn tô
+   charcoal (luật `tokens.css`: charcoal = LỰA CHỌN LỌC, rust = HÀNH ĐỘNG). Khung viên bo tròn
+   `--r-pill` bọc ngoài đã gỡ — tab nằm trong một hàng đã có đường kẻ chân, thêm một cái khung
+   nữa là hộp trong hộp. */
+.tdsx__tabsrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  padding-bottom: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+/* `margin-left: auto` chứ KHÔNG `space-between`: hết chỗ thì khay xuống dòng, không bóp mấy cái
+   ô ngày/ca bên trong nó (khuôn lỗi ⓐ). */
+.tdsx__ctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin-left: auto;
+  min-width: 0;
+}
+
+.tdsx__ctl:empty {
+  display: none;
+}
+
+.tdsx__ctlnote {
+  font-size: var(--fs-xs);
+  color: var(--ash-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.tdsx__ctlwarn {
+  font-size: var(--fs-xs);
+  color: var(--signal);
+}
+
+/* ---------- ④ TRẠNG THÁI CÔNG VIỆC: chip nhỏ + chú giải ------------------------------------
+   Bốn trạng thái, bốn dấu. Màu KHÔNG phải tín hiệu duy nhất: "tạm dừng" còn có vân chéo, "chờ
+   làm" là vòng rỗng — người mù màu vẫn phân biệt được. */
 .tdsx-tt {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: var(--fs-2xs);
+  min-width: 0;
+  font-size: var(--fs-xs);
   color: var(--ash);
   white-space: nowrap;
 }
-.tdsx-tt i { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1px solid var(--rule); }
-.tdsx-tt__chu { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tdsx-tt--released i { border-color: var(--steel-soft); background: var(--canvas); }
-.tdsx-tt--running i { border-color: var(--moss); background: var(--moss); }
-.tdsx-tt--paused i {
-  border-color: var(--amber);
-  background:
-    repeating-linear-gradient(-45deg,
-      color-mix(in srgb, var(--amber) 30%, transparent) 0 2px,
-      transparent 2px 4px),
-    var(--amber-soft);
-}
-.tdsx-tt--completed i { border-color: var(--rule); background: var(--rule-hair); }
 
-.tdsx-lg { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin: var(--sp-2) 0 var(--sp-3); }
-.tdsx-lg__item { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-2xs); color: var(--ash); }
-.tdsx-lg__item i { width: 11px; height: 11px; border-radius: var(--r-2); border: 1px solid var(--rule); }
-.tdsx-lg__item--released i { border-color: var(--steel-soft); background: var(--canvas); }
-.tdsx-lg__item--running i { border-color: var(--moss); background: var(--moss-soft); }
-.tdsx-lg__item--paused i {
-  border-color: var(--amber);
-  background:
-    repeating-linear-gradient(-45deg,
-      color-mix(in srgb, var(--amber) 22%, transparent) 0 3px,
-      transparent 3px 6px),
-    var(--amber-soft);
-}
-.tdsx-lg__item--completed i { border-color: var(--rule); background: var(--rule-hair); }
-
-/* =============================== TAB KANBAN ================================================= */
-.tdsx-kb { margin-top: var(--sp-3); }
-.tdsx-kb__loi { padding: var(--sp-6) 0; }
-.tdsx-kb__loi--full { display: flex; justify-content: center; }
-
-/* Board Control Bar */
-.tdsx-kb__control-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  padding: 8px 14px;
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  margin-bottom: var(--sp-3);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
-}
-
-.tdsx-kb__control-stats {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-}
-
-.tdsx-kb__stat-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
+.tdsx-tt i {
+  width: 9px;
+  height: 9px;
   border-radius: var(--r-pill);
-  font-size: var(--fs-xs);
-  color: var(--ash);
+  flex: none;
+  border: 1px solid var(--rule);
 }
-.tdsx-kb__stat-pill--active {
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  font-weight: 500;
+
+.tdsx-tt__chu {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tdsx-kb__stat-pill--empty {
-  background: var(--heat-0);
-  color: var(--ash);
+
+.tdsx-tt--released i {
+  border-color: var(--steel-soft);
+  background: var(--canvas);
 }
-.tdsx-stat-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+
+.tdsx-tt--running i {
+  border-color: var(--moss);
   background: var(--moss);
 }
 
-.tdsx-kb__toggle-btn {
+.tdsx-tt--paused i {
+  border-color: var(--amber);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--amber) 30%, transparent) 0 2px,
+      transparent 2px 4px
+    ),
+    var(--amber-soft);
+}
+
+.tdsx-tt--completed i {
+  border-color: var(--rule);
+  background: var(--rule-hair);
+}
+
+.tdsx-lg {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-pill);
-  background: var(--paper);
-  color: var(--ink);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
-  cursor: pointer;
-  transition: all 180ms ease;
-}
-.tdsx-kb__toggle-btn:hover {
-  background: var(--rust-soft);
-  color: var(--rust-deep);
-  border-color: rgba(197, 64, 10, 0.3);
-}
-
-.tdsx-kb__board {
-  display: flex;
-  align-items: flex-start;
   gap: var(--sp-3);
-  overflow-x: auto;
-  padding-bottom: var(--sp-3);
-  transition: opacity 150ms ease;
-}
-.tdsx-kb__board::-webkit-scrollbar {
-  height: 8px;
-}
-.tdsx-kb__board::-webkit-scrollbar-track {
-  background: transparent;
-}
-.tdsx-kb__board::-webkit-scrollbar-thumb {
-  background: var(--rule);
-  border-radius: 999px;
-}
-.tdsx-kb__board::-webkit-scrollbar-thumb:hover {
-  background: var(--ash-2);
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
-.tdsx-kb__board.is-mo { opacity: 0.55; }
-.tdsx-kb__col {
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 290px;
-  max-width: 290px;
-  max-height: calc(100vh - 310px);
-  min-height: 180px;
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.05);
-  overflow: hidden;
-}
-.tdsx-kb__colhead {
-  display: flex;
+.tdsx-lg__item {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-4);
-  border-bottom: 1.5px solid var(--rule-soft);
+  gap: 5px;
+  font-size: var(--fs-2xs);
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+
+.tdsx-lg__item i {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--rule);
+  flex: none;
+}
+
+.tdsx-lg__item--released i {
+  border-color: var(--steel-soft);
   background: var(--canvas);
 }
 
-/* Header Column Icon & Zero vs Active Badge */
-.tdsx-kb__colhead-title {
+.tdsx-lg__item--running i {
+  border-color: var(--moss);
+  background: var(--moss);
+}
+
+.tdsx-lg__item--paused i {
+  border-color: var(--amber);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--amber) 40%, transparent) 0 3px,
+      transparent 3px 6px
+    ),
+    var(--amber-soft);
+}
+
+.tdsx-lg__item--completed i {
+  border-color: var(--rule);
+  background: var(--rule-hair);
+}
+
+/* =============================== TAB KANBAN =================================================
+   Cột = công đoạn, thẻ = một lệnh. */
+.tdsx-kb__loi {
+  padding: var(--sp-6) 0;
+}
+
+.tdsx-kb__loi--full {
+  display: flex;
+  justify-content: center;
+}
+
+/* Bàn Kanban là một BỀ MẶT, không phải mấy cột trôi trên nền trắng. Đo trên Bryntum TaskBoard:
+   panel bo 16,8px, đầu cột tô `rgb(250,250,250)` cao 47px, thẻ trắng viền `0,8px rgb(230,230,230)`
+   bo 7px. Ở đây bàn ăn `--paper`, thẻ ăn `--canvas` — chênh đúng một bậc nên thẻ nổi lên khỏi bàn
+   mà không cần đổ bóng. `min-height` kéo bàn xuống hết tầm mắt: một cái bàn cao 200px nằm giữa màn
+   1080px là lý do màn này trông trơ trọi. */
+.tdsx-kb__board {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-2);
+  overflow-x: auto;
+  padding: var(--sp-3);
+  min-height: calc(100vh - 360px);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  transition: opacity var(--duration-base) var(--easing-standard);
+}
+
+.tdsx-kb__board.is-mo {
+  opacity: 0.55;
+}
+
+.tdsx-kb__board::-webkit-scrollbar {
+  height: 8px;
+}
+
+.tdsx-kb__board::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tdsx-kb__board::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: var(--r-pill);
+}
+
+/* Cột KHÔNG có viền bao, không đổ bóng: thứ tách cột này với cột kia là ĐẦU CỘT được tô và
+   khoảng trống giữa hai dải thẻ trắng. `align-items: stretch` ở bàn + không đặt chiều cao ở đây
+   ⇒ mọi cột cao bằng bàn, kể cả cột rỗng — hết cảnh cột một thẻ lùn tịt đứng cạnh cột sáu thẻ. */
+.tdsx-kb__col {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 268px;
+  max-width: 268px;
+  min-height: 0;
+  max-height: calc(100vh - 300px);
+}
+
+.tdsx-kb__colhead {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-.tdsx-kb__colhead-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
+  gap: var(--sp-2);
+  min-height: 40px;
+  padding: var(--sp-1) var(--sp-3);
+  margin-bottom: var(--sp-2);
+  background: var(--rule-hair);
   border-radius: var(--r-3);
-  background: var(--heat-0);
-  color: var(--ash);
 }
-.tdsx-kb__col.is-empty .tdsx-kb__colhead-icon {
-  background: var(--paper-warm, var(--heat-0));
+
+.tdsx-kb__colten {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.tdsx-kb__col.is-empty .tdsx-kb__colten {
+  font-weight: var(--fw-medium);
   color: var(--ash-2);
 }
 
-.tdsx-kb__colten { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--ink); }
+/* Số việc trong cột là một VIÊN ĐẶC, không phải con số lửng lơ: nó phải đọc được khi mắt lướt
+   dọc mép phải dải đầu cột. Đo trên TaskBoard: viên `rgb(242,242,242)`, chữ 12,32px/600, bo tròn. */
+.tdsx-kb__coln--active,
+.tdsx-kb__coln--zero {
+  margin-left: auto;
+  flex: none;
+  min-width: 24px;
+  padding: 1px var(--sp-2);
+  border-radius: var(--r-pill);
+  text-align: center;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
 
 .tdsx-kb__coln--active {
-  background: var(--charcoal);
-  color: var(--on-charcoal);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 9px;
-  border-radius: var(--r-pill);
+  background: var(--rule-soft);
+  color: var(--ink);
+  font-weight: var(--fw-bold);
 }
+
 .tdsx-kb__coln--zero {
-  background: var(--paper);
+  background: var(--rule-soft);
   color: var(--ash-2);
-  border: 1px solid var(--rule-soft);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 8px;
-  border-radius: var(--r-pill);
+  font-weight: var(--fw-medium);
 }
 
 .tdsx-kb__body {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: var(--sp-3);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-2);
 }
 
-/* Dashed Empty Workstation Slot Placeholder */
-.tdsx-kb__empty-slot {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 24px 16px;
-  border: 1.5px dashed var(--rule);
-  border-radius: var(--r-5);
-  background: rgba(255, 255, 255, 0.5);
-  margin: var(--sp-1) 0;
-  transition: border-color 180ms ease, background 180ms ease;
-}
-.tdsx-kb__empty-slot:hover {
-  border-color: var(--moss);
-  background: var(--canvas);
-}
-.tdsx-kb__empty-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  margin-bottom: 8px;
-}
-.tdsx-kb__empty-title {
-  margin: 0 0 2px;
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-}
-.tdsx-kb__empty-sub {
-  margin: 0 0 8px;
-  font-size: var(--fs-2xs);
+/* Cột rỗng: MỘT dòng chữ xám. Bản cũ dựng ở đây một khối viền đứt cao 100px chứa icon tròn nền
+   xanh lá + tiêu đề "Trạm sẵn sàng" + phụ đề + huy hiệu "Sẵn sàng nhận việc" — bốn phần tử, màu
+   sáng nhất bảng, cho ô KHÔNG có gì để xem. */
+.tdsx-kb__trong {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-1);
+  font-size: var(--fs-sm);
   color: var(--ash-2);
 }
-.tdsx-kb__empty-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  font-size: 10.5px;
-  font-weight: var(--fw-bold);
-}
 
-/* Modern WOW Card Design */
+/* Thẻ lệnh: ba dòng chữ + dải chip nhánh. Không hộp trong hộp — mã lệnh, số lượng, khách hàng và
+   hạn đều là CHỮ, không cái nào cần một cái viền riêng quanh nó. */
 .tdsx-kb__card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--sp-1);
   width: 100%;
+  padding: var(--sp-3) var(--sp-4);
   text-align: left;
-  padding: 14px 16px;
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  box-shadow: 0 2px 8px -1px rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.06);
+  border-radius: var(--r-3);
   cursor: pointer;
   font: inherit;
   color: inherit;
-  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms ease;
+  transition: background-color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard);
 }
 
 .tdsx-kb__card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(197, 64, 10, 0.3);
-  box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.08);
+  background: var(--rust-soft);
+  border-color: var(--rust);
 }
-.tdsx-kb__card:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
 
-/* Header row of card: Code + Rush/Step Pill */
-.tdsx-kb__card-head {
+.tdsx-kb__card:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+.tdsx-kb__c1 {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  min-width: 0;
 }
-.tdsx-kb__code-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: var(--r-2);
-  background: var(--heat-0);
-  color: var(--ink);
-}
+
+/* Mã lệnh là thứ người xưởng đọc đầu tiên ⇒ cho nó màu cam đậm và chữ đậm, bỏ cái hộp xám bọc
+   ngoài. KHÔNG `text-overflow` ở đây (khuôn lỗi ⓓ): mã bị cắt là mã vô dụng. */
 .tdsx-kb__ma {
-  font-family: var(--ff-sans);
-  font-weight: 700;
-  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-md);
+  color: var(--rust-deep);
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
-.tdsx-kb__rush-pill {
+
+.tdsx-kb__gap {
+  padding: 0 var(--sp-1);
+  border: 1px solid color-mix(in srgb, var(--rust) 35%, transparent);
+  border-radius: var(--r-2);
+  color: var(--rust-deep);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+}
+
+.tdsx-kb__quahan {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: var(--rust-soft);
-  color: var(--rust-deep);
-  border: 1px solid rgba(197, 64, 10, 0.25);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-.tdsx-kb__step-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: var(--heat-0);
-  color: var(--ash);
-  font-size: 11px;
-  font-weight: 500;
+  margin-left: auto;
+  color: var(--signal);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
 }
 
-/* Info section: Product title & Customer */
-.tdsx-kb__info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.tdsx-kb__ten-sp {
-  margin: 0;
-  font-size: 13.5px;
-  font-weight: 600;
+.tdsx-kb__ten {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
   color: var(--ink);
   line-height: 1.35;
   display: -webkit-box;
@@ -608,471 +566,377 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.tdsx-kb__khach-hang {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--ash-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tdsx-kb__khach-hang svg { flex: none; color: var(--ash); }
 
-/* Meta Bar: Quantity & Due Date */
-.tdsx-kb__meta-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--rule-hair);
-}
-.tdsx-kb__sl-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: var(--r-2);
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  font-size: 12px;
-  color: var(--ash);
-}
-.tdsx-kb__sl-pill svg { color: var(--ash-2); }
-.tdsx-kb__sl-pill strong {
-  font-family: var(--ff-sans);
-  font-weight: 700;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-.tdsx-kb__sl-pill small {
-  font-size: 10.5px;
+/* Dòng phụ XUỐNG HÀNG chứ không cắt: nó gộp khách hàng + số lượng + hạn, mà tên khách ở đây dài
+   ("Công ty TNHH Thực phẩm Minh Long") nên `ellipsis` nuốt đúng hai thứ đáng đọc nhất nằm sau nó
+   (khuôn lỗi ⓓ). Đo trên cột 268px: cắt ở giữa chữ "50…" — mất cả sản lượng lẫn hạn. */
+.tdsx-kb__phu {
+  font-size: var(--fs-xs);
   color: var(--ash-2);
+  line-height: 1.4;
 }
-
-.tdsx-kb__han-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 9px;
-  border-radius: var(--r-pill);
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  font-size: 11px;
-  color: var(--ash);
-}
-.tdsx-kb__han-pill.is-late {
-  background: var(--signal-soft);
-  color: var(--signal-deep);
-  border-color: rgba(138, 31, 31, 0.2);
-  font-weight: 600;
-}
-.tdsx-kb__han-pill.is-late svg { color: var(--signal); }
 
 .tdsx-kb__chips {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 2px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--rule-soft);
+  gap: 3px;
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-1);
+  border-top: 1px solid var(--rule-hair);
 }
+
 .tdsx-kb__chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: inline-flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
 }
-.tdsx-kb__chipthem { font-size: var(--fs-2xs); color: var(--steel); font-weight: var(--fw-medium); }
 
-/* =============================== TAB THEO MÁY (mini-Gantt) =================================== */
-.tdsx-tm { margin-top: var(--sp-3); }
-/* Nâng cấp Note Card Theo Máy */
-.tdsx-tm__note-card {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-2);
+.tdsx-kb__chipthem {
   font-size: var(--fs-xs);
-  color: var(--ash);
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  padding: 10px 14px;
-  margin-bottom: var(--sp-3);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
-}
-.tdsx-tm__note-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--amber-soft);
-  color: var(--amber-deep);
-  flex: none;
-}
-
-.tdsx-tm__unassigned-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: var(--rust-soft);
-  color: var(--rust-deep);
-  border: 1px solid rgba(197, 64, 10, 0.25);
-  font-size: 11.5px;
-  font-weight: 700;
-}
-
-.tdsx-tm__label.is-chua-xep {
-  background: rgba(244, 226, 214, 0.4);
-}
-.tdsx-tm__track.is-chua-xep {
-  background: rgba(244, 226, 214, 0.15);
-}
-
-.tdsx-tm__label-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: var(--heat-0);
-  color: var(--ash);
-  flex: none;
-}
-
-.tdsx-tm__trongchu--idle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  border: 1px solid rgba(47, 93, 58, 0.2);
-  font-weight: 600;
-  font-size: 11.5px;
-}
-
-.tdsx-tm__rong { display: flex; justify-content: center; padding: var(--sp-6) 0; }
-
-/* Hai trục sticky giao nhau: khung ngoài CUỘN CẢ HAI CHIỀU, lưới trong dùng CSS Grid 2 cột (nhãn +
- * track) — mỗi lane góp đúng 2 ô grid liên tiếp (label, track) nên số HÀNG grid tự bằng số lane. */
-/* Gantt Control Bar Suite */
-.tdsx-tm__control-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  padding: 8px 16px;
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  margin-bottom: var(--sp-3);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
-}
-.tdsx-tm__control-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.tdsx-tm__control-left .tdsx-lg {
-  margin: 0;
-}
-.tdsx-tm__control-center {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.tdsx-tm__control-range {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ink);
-  font-family: var(--ff-sans);
-}
-.tdsx-tm__control-range svg { color: var(--ash-2); }
-.tdsx-tm__today-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 12px;
-  border: 1px solid rgba(197, 64, 10, 0.3);
-  border-radius: var(--r-pill);
-  background: var(--rust-soft);
-  color: var(--rust-deep);
-  font-size: 11.5px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 180ms ease;
-}
-.tdsx-tm__today-btn:hover {
-  background: var(--rust);
-  color: #ffffff;
-}
-.tdsx-tm__control-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.tdsx-tm__note-tooltip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: var(--r-pill);
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  font-size: 11.5px;
-  color: var(--ash);
-  cursor: help;
-}
-.tdsx-tm__density-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: var(--r-pill);
-  background: var(--heat-0);
-  border: 1px solid var(--rule-soft);
-  font-size: 11.5px;
   color: var(--ash-2);
-  font-weight: 500;
 }
 
+/* =============================== TAB THEO MÁY (mini-Gantt) ==================================
+   Hai trục sticky giao nhau: khung ngoài cuộn cả hai chiều, lưới trong là CSS Grid 2 cột (nhãn +
+   track) — mỗi lane góp đúng 2 ô grid liên tiếp nên số HÀNG grid tự bằng số lane. */
+.tdsx-tm__rong {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-6) 0;
+}
+
+/* Khung cuộn ăn `--paper` cn luưới ăn `--canvas`: hết lane thì thấy nền giấy chứ không phải một
+   vùng trắng không biết đã hết hay chưa tải. `min-height` kéo khung xuống hết tầm mắt — đo thật: 6
+   lane hiện ra một hộp cao 408px lơ lửng giữa màn 900px, đúng cái "trơ trọi" cần chữa. */
 .tdsx-tm__scroll {
   overflow: auto;
-  max-height: calc(100vh - 360px);
+  min-height: calc(100vh - 300px);
+  max-height: calc(100vh - 250px);
+  background: var(--paper);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.05);
+  border-radius: var(--r-3);
 }
-.tdsx-tm__grid { position: relative; display: grid; min-width: max-content; transition: opacity 150ms ease; background: var(--canvas); }
-.tdsx-tm__grid.is-mo { opacity: 0.55; }
 
-/* 2-Tier Sticky Header */
+/* `min-width: max-content`, KHÔNG `width: 100%` (khuôn lỗi ⓑ). */
+.tdsx-tm__grid {
+  position: relative;
+  display: grid;
+  min-width: max-content;
+  background: var(--canvas);
+  transition: opacity var(--duration-base) var(--easing-standard);
+}
+
+.tdsx-tm__grid.is-mo {
+  opacity: 0.55;
+}
+
 .tdsx-tm__corner {
   position: sticky;
   top: 0;
   left: 0;
   z-index: 6;
-  height: 54px;
+  height: 44px;
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 var(--sp-3);
   background: var(--paper);
-  border-right: 1.5px solid var(--rule-soft);
-  border-bottom: 1.5px solid var(--rule-soft);
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  cursor: help;
 }
+
 .tdsx-tm__corner-head {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
   color: var(--ash-2);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .tdsx-tm__axis {
   position: sticky;
   top: 0;
   z-index: 4;
-  height: 54px;
+  height: 44px;
   display: flex;
   flex-direction: column;
   background: var(--paper);
-  border-bottom: 1.5px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule);
 }
+
 .tdsx-tm__axis-top {
   position: relative;
-  height: 26px;
+  height: 18px;
   border-bottom: 1px solid var(--rule-soft);
-  background: rgba(248, 250, 252, 0.95);
 }
+
 .tdsx-tm__month-bar {
   position: absolute;
   top: 0;
   bottom: 0;
   display: flex;
   align-items: center;
-  padding-left: 8px;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--charcoal);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  border-left: 1.5px solid var(--rule);
-  background: rgba(226, 232, 240, 0.35);
+  padding-left: var(--sp-2);
+  border-left: 1px solid var(--rule);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  color: var(--ash-2);
+  white-space: nowrap;
+  text-transform: lowercase;
 }
+
+/* Chữ tháng GHIM ở mép cột nhãn khi cuộn ngang: một nhóm tháng trải hàng nghìn pixel, cuộn một
+   chút là đầu chữ chui xuống cột nhãn sticky, còn trơ "ng 09 / 2026". `--tdsx-cot-nhan-w` do JS đặt
+   cùng lúc với `gridTemplateColumns`. */
+.tdsx-tm__month-chu {
+  position: sticky;
+  left: calc(var(--tdsx-cot-nhan-w, 240px) + var(--sp-2));
+}
+
 .tdsx-tm__axis-bot {
   position: relative;
-  height: 28px;
+  height: 25px;
 }
+
 .tdsx-tm__tick {
   position: absolute;
   top: 0;
   bottom: 0;
   display: flex;
   align-items: center;
-  padding-left: 8px;
-  font-family: var(--ff-sans);
-  font-size: 11px;
-  color: var(--ash-2);
+  padding-left: var(--sp-2);
   border-left: 1px dashed var(--rule-soft);
-  transition: color 150ms ease;
-}
-.tdsx-tm__tick.is-dam {
-  color: var(--ink);
-  font-weight: 700;
-  border-left: 1.5px solid var(--rule);
-}
-.tdsx-tm__tick.is-today {
-  color: var(--rust-deep);
-  font-weight: 700;
-  border-left: 2px solid var(--rust);
-  background: linear-gradient(180deg, rgba(197, 64, 10, 0.08) 0%, transparent 100%);
+  font-size: var(--fs-2xs);
+  color: var(--ash-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* Real-Time NOW Red Line Overlay */
+.tdsx-tm__tick.is-dam {
+  color: var(--ash);
+  border-left: 1px solid var(--rule-soft);
+}
+
+.tdsx-tm__tick.is-today {
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+  border-left: 1px solid var(--rust);
+}
+
+/* Vạch "bây giờ": MỘT pixel màu rust + một nhãn chữ thường. Bản cũ là vạch đỏ 2px `#ef4444` có
+   quầng sáng 10px cộng một viên đỏ chữ hoa "NOW" — thứ đậm nhất trên cả bảng, trong khi nó chỉ
+   nói "đây là lúc này", điều người xem đã biết. */
 .tdsx-tm__now-line {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 2px;
-  background: #ef4444;
-  z-index: 5;
+  width: 1px;
+  z-index: 1;
+  background: var(--rust);
   pointer-events: none;
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.7);
 }
+
 .tdsx-tm__now-badge {
   position: absolute;
-  top: 29px;
-  left: 50%;
+  top: 48px;
+  left: 0;
   transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: var(--r-pill);
-  background: #ef4444;
-  color: #ffffff;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+  padding: 0 var(--sp-1);
+  border-radius: var(--r-2);
+  background: var(--rust);
+  color: var(--paper-contrast);
+  font-size: var(--fs-2xs);
   white-space: nowrap;
 }
 
+/* Lane 52px (đo trên Bryntum Scheduler: hàng 50px, chữ ô 14px/400). Bản trước 44px với chữ 13px
+   cho một thanh 30px nằm giữa — chật, và chính cái chật đó làm bảng trông như một tờ giấy kẻ dòng
+   chứ không như một bàn điều độ. */
 .tdsx-tm__label {
   position: sticky;
   left: 0;
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   padding: 0 var(--sp-3);
-  min-height: 56px;
+  min-height: 52px;
   background: var(--canvas);
-  border-right: 1px solid var(--rule-soft);
+  border-right: 1px solid var(--rule);
   border-bottom: 1px solid var(--rule-soft);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-md);
   color: var(--ink);
-  font-weight: 600;
-  transition: background 150ms ease;
 }
-.tdsx-tm__label:hover {
-  background: var(--paper);
+
+/* Vằn ngựa vằn: lane LẺ tô `--paper`. 43 lane trắng bong xếp chồng nhau thì mắt không lần được
+   từ tên máy ở mép trái sang thanh việc ở giữa trục — đó là lý do thật khiến tab này trông như
+   một tờ giấy trắng. Đặt TRƯỚC `.is-ngung`/`.is-chua-xep` để hai trạng thái kia vẫn thắng (cùng
+   độ ưu tiên, thắng theo thứ tự nguồn). */
+.tdsx-tm__label.is-soc,
+.tdsx-tm__track.is-soc {
+  background-color: var(--rule-hair);
 }
-.tdsx-tm__label.is-ngung { background: var(--rule-hair); color: var(--ash); }
-.tdsx-tm__labelten { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.tdsx-tm__labeltag {
-  font-size: var(--fs-2xs);
-  color: var(--ash);
-  background: var(--rule-soft);
-  border-radius: var(--r-pill);
-  padding: 1px 6px;
+
+.tdsx-tm__label.is-ngung {
+  background: var(--rule-hair);
+  color: var(--ash-2);
+}
+
+.tdsx-tm__label.is-chua-xep {
+  background: var(--rust-soft);
+}
+
+/* KHÔNG `text-overflow: ellipsis` (khuôn lỗi ⓓ — dấu ba chấm nuốt đúng phần định danh). Đo thật
+   ở cột 200px cũ: "Máy 4 màu Mitsubishi 79×109" cần 203px, "Dán máy bán tự động 2 mảnh EB" cần
+   222px, "Máy cán màng 1080 (số 1)" cần 178px — ba trên năm tên máy bị cắt, mà khúc mất đi lại
+   chính là con số phân biệt máy này với máy kia. Cột nới lên 240px và chữ được xuống dòng. */
+.tdsx-tm__labelten {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.25;
+  font-weight: var(--fw-medium);
+}
+
+.tdsx-tm__labeltag,
+.tdsx-tm__unassigned-tag {
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
+.tdsx-tm__labeltag {
+  color: var(--ash-2);
+}
+
+.tdsx-tm__unassigned-tag {
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+}
+
+/* Lưới dọc phải TRÙNG mốc trục, không thì nó là lưới giả. Bản trước kẻ cứng mỗi 100px trong khi
+   trục đặt mốc theo `pxPerGio` (72px/giờ ở dải ngắn, 336px/ngày ở dải dài) — kẻ 100px nghĩa là
+   không vạch nào chạm nhãn giờ nào, mắt đọc "khối này bắt đầu khoảng 10h" theo một cái lưới nói
+   dối. Nay `--tdsx-luoi-w`/`--tdsx-luoi-x` do JS tính đúng bước mốc và đúng lệch của mốc ĐẦU so
+   với gốc trục (gốc trục lùi 2 giờ đệm nên hiếm khi rơi vào giờ tròn). */
 .tdsx-tm__track {
   position: relative;
-  min-height: 56px;
+  min-height: 52px;
   border-bottom: 1px solid var(--rule-soft);
   background-color: var(--canvas);
-  background-image: linear-gradient(90deg, var(--rule-hair) 1px, transparent 1px);
-  background-size: 100px 100%;
+  background-image: linear-gradient(90deg, var(--rule-soft) 1px, transparent 1px);
+  background-size: var(--tdsx-luoi-w, 72px) 100%;
+  background-position: var(--tdsx-luoi-x, 0) 0;
 }
-.tdsx-tm__track.is-ngung { background: var(--rule-hair); }
+
+.tdsx-tm__track.is-ngung {
+  background-color: var(--rule-hair);
+}
+
+.tdsx-tm__track.is-chua-xep {
+  background-color: color-mix(in srgb, var(--rust-soft) 35%, var(--canvas));
+}
+
 .tdsx-tm__trongchu {
   position: absolute;
   left: var(--sp-3);
   top: 50%;
   transform: translateY(-50%);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-2xs);
   color: var(--ash-2);
   white-space: nowrap;
 }
 
-/* Modern Studio Gantt Task Blocks */
+/* Hàng gập "N máy đang trống" — một ô grid trải hết hai cột; cái nút bên trong dính mép trái nên
+   cuộn ngang tới đâu vẫn đọc được. */
+.tdsx-tm__foldrow {
+  grid-column: 1 / -1;
+  position: relative;
+  border-bottom: 1px solid var(--rule-hair);
+  background: var(--paper);
+}
+
+.tdsx-tm__fold {
+  position: sticky;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  background: none;
+  color: var(--ash);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.tdsx-tm__fold:hover {
+  color: var(--rust-deep);
+}
+
+/* Thanh việc 38px trong lane 52px (Bryntum: thanh 39px trong hàng 50px, bo 7px, chữ 14px/600).
+   Thanh 30px cũ chỉ đủ chỗ cho chữ 11px và một chấm trạng thái. */
 .tdsx-tm__block {
   position: absolute;
-  top: 9px;
+  top: 7px;
   height: 38px;
-  border-radius: 8px;
-  cursor: pointer;
   padding: 0;
   overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  color: var(--ink);
   font: inherit;
-  border: 1px solid transparent;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06);
-  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms ease;
+  cursor: pointer;
+  transition: border-color var(--duration-base) var(--easing-standard);
 }
-.tdsx-tm__block:hover {
-  transform: translateY(-2px) scale(1.008);
-  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.18), 0 3px 8px -2px rgba(15, 23, 42, 0.12);
-  z-index: 12;
-}
-.tdsx-tm__block:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
 
-/* Status themes with vibrant gradients and subtle glow */
+.tdsx-tm__block:hover {
+  border-color: var(--ink);
+  z-index: 1;
+}
+
+.tdsx-tm__block:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
+/* Bốn trạng thái, tô phẳng bằng token — không gradient 135°, không quầng sáng màu. Chữ trên nền
+   nhạt nên giữ `--ink`; chỉ "đang chạy" đủ đậm để cần chữ giấy. */
+/* "Chờ làm" từng là nền `--canvas` nằm trên lane cũng `--canvas`: đo ra đúng rgb(255,255,255)
+   trên rgb(255,255,255), chỉ còn cái viền 1px giữ hình — mắt đọc thành lỗ thủng chứ không thành
+   đầu việc. Nay có ruột `--steel-soft` và gờ trái 3px `--steel` để bắt được ở đuôi mắt. */
 .tdsx-tm__block.tdsx-tt--released {
-  border-color: rgba(99, 102, 241, 0.35);
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  color: #ffffff;
-  box-shadow: 0 3px 10px rgba(99, 102, 241, 0.22);
+  border-color: var(--steel-soft);
+  border-left: 3px solid var(--steel);
+  background: var(--steel-soft);
 }
+
 .tdsx-tm__block.tdsx-tt--running {
-  border-color: rgba(16, 185, 129, 0.4);
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: #ffffff;
-  box-shadow: 0 3px 12px rgba(16, 185, 129, 0.25), 0 1px 3px rgba(16, 185, 129, 0.15);
+  border-color: var(--moss-deep);
+  background: var(--moss);
+  color: var(--paper-contrast);
 }
+
 .tdsx-tm__block.tdsx-tt--paused {
-  border-color: rgba(245, 158, 11, 0.5);
+  border-color: var(--amber);
   background:
-    repeating-linear-gradient(-45deg,
-      rgba(255, 255, 255, 0.15) 0 6px,
-      transparent 6px 12px),
-    linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  color: #ffffff;
-  box-shadow: 0 3px 12px rgba(245, 158, 11, 0.25);
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--amber) 28%, transparent) 0 4px,
+      transparent 4px 8px
+    ),
+    var(--amber-soft);
+  color: var(--amber-deep);
 }
+
 .tdsx-tm__block.tdsx-tt--completed {
-  border-color: rgba(148, 163, 184, 0.4);
-  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(148, 163, 184, 0.2);
+  border-color: var(--rule);
+  background: var(--rule-soft);
+  color: var(--ash);
 }
+
 .tdsx-tm__block--khoa {
   border-color: var(--rule);
   background: repeating-linear-gradient(-45deg, var(--rule-soft) 0 4px, var(--rule-hair) 4px 8px);
@@ -1084,26 +948,54 @@
   display: flex;
   align-items: center;
   height: 100%;
-  margin: 0 8px;
+  margin: 0 var(--sp-2);
   overflow: hidden;
 }
+
 .tdsx-tm__nhan {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  font-family: var(--ff-sans);
-  font-weight: 600;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   color: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tdsx-tm__nhan--gon { justify-content: center; width: 100%; }
+
+/* Thanh quá hẹp thì nhãn đứng NGOÀI mép phải — cách Bryntum Scheduler xử lý event ngắn. Thanh
+   phải mở `overflow` mới cho chữ thò ra, và chữ không được ăn cú bấm của thanh kế bên. */
+.tdsx-tm__block--nhanngoai {
+  overflow: visible;
+}
+
+.tdsx-tm__nhan--ngoai {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  margin-left: var(--sp-1);
+  overflow: visible;
+  color: var(--ash);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* Nhãn sẽ lấn lên thanh kế bên (lane dày) — ẩn hẳn thay vì để thanh kia che mất nửa mã. */
+.tdsx-tm__nhan--ngoai.is-che {
+  visibility: hidden;
+}
+
+/* Dấu gọn trên thanh hẹp: thanh không đủ chỗ cho chip thật, chữ đủ nằm ở `title`. */
+.tdsx-tm__dau {
+  flex: 0 0 auto;
+  font-size: var(--fs-2xs);
+  line-height: 1;
+  margin-left: 3px;
+}
 
 /* --- popover chọn lệnh khi một khối/việc phục vụ ≥2 lệnh (C123) — `position: fixed`, toạ độ JS
- * truyền qua `style.left/top` (đo từ chính phần tử vừa bấm), giữ dưới lớp phủ hồ sơ (`z-index: 60`).
- * Tiền tố KHÔNG còn là `tm__` vì tab Theo ca dùng chung (xem `tdsxChonLenh.tsx`). */
+ * truyền qua `style.left/top`, giữ dưới lớp phủ hồ sơ (`z-index: 60`). Tab Theo ca dùng chung. */
 .tdsx-picker {
   position: fixed;
   z-index: 35;
@@ -1116,23 +1008,31 @@
   border-radius: var(--r-3);
   box-shadow: var(--shadow-lg);
 }
+
 .tdsx-picker__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--rule-soft);
   font-size: var(--fs-2xs);
   color: var(--ash);
 }
-.tdsx-picker__head button { appearance: none; border: 0; background: none; cursor: pointer; color: var(--ash); }
+
+.tdsx-picker__head button {
+  margin-left: auto;
+  appearance: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--ash);
+}
+
 .tdsx-picker__row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
   gap: var(--sp-2);
+  width: 100%;
   padding: var(--sp-2) var(--sp-3);
   border: 0;
   border-bottom: 1px solid var(--rule-hair);
@@ -1142,292 +1042,322 @@
   font: inherit;
   color: var(--ink);
 }
-.tdsx-picker__row:last-child { border-bottom: 0; }
-.tdsx-picker__row:hover { background: var(--rust-soft); }
-.tdsx-picker__ma { font-family: var(--ff-sans); font-weight: var(--fw-bold); }
 
-/* =============================== TAB THEO CA ================================================= */
-.tdsx-tc { margin-top: var(--sp-3); }
-.tdsx-tc__toolbar {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-3);
-  padding: 14px 18px;
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
-}
-
-.tdsx-tc__daybtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  flex: none;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
-  background: var(--canvas);
-  color: var(--ash);
-  cursor: pointer;
-}
-.tdsx-tc__daybtn:hover { border-color: var(--steel); color: var(--ink); }
-.tdsx-tc__daybtn svg { transform: rotate(90deg); }
-.tdsx-tc__daybtn--sau svg { transform: rotate(-90deg); }
-
-.tdsx-tc__macakhac input {
-  width: 110px;
-  height: 34px;
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
-  background: var(--canvas);
-  color: var(--ink);
-  font-size: var(--fs-sm);
-}
-
-.tdsx-tc__locbao { font-size: var(--fs-xs); color: var(--ash); margin: 0 0 var(--sp-3); }
-
-.tdsx-tc__list { display: flex; flex-direction: column; gap: var(--sp-3); transition: opacity 150ms ease; }
-.tdsx-tc__list.is-mo { opacity: 0.55; }
-
-/* Shift Operations Studio Styling */
-.tdsx-tc__ca {
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  overflow: hidden;
-  box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.05);
-  transition: border-color 200ms ease, box-shadow 200ms ease;
-}
-.tdsx-tc__ca.is-active-shift {
-  border-color: rgba(16, 185, 129, 0.4);
-  box-shadow: 0 4px 20px -2px rgba(16, 185, 129, 0.12);
-}
-
-.tdsx-tc__cahead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  padding: 12px 18px;
-  background: var(--paper);
-  border-bottom: 1.5px solid var(--rule-soft);
-}
-.tdsx-tc__cahead-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.tdsx-tc__ca-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  color: var(--ash);
-}
-.tdsx-tc__caten {
-  font-size: 14.5px;
-  font-weight: 700;
-  color: var(--ink);
-}
-.tdsx-tc__cakhung {
-  font-family: var(--ff-sans);
-  font-size: 12px;
-  color: var(--ash-2);
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-pill);
-  padding: 2px 8px;
-}
-
-.tdsx-tc__ca.is-compact-empty .tdsx-tc__cahead {
+.tdsx-picker__row:last-child {
   border-bottom: 0;
 }
-.tdsx-tc__cahead-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+
+.tdsx-picker__row:hover {
+  background: var(--rust-soft);
 }
-.tdsx-tc__toggle-icon {
+
+.tdsx-picker__ma {
+  font-weight: var(--fw-bold);
+}
+
+/* =============================== TAB THEO CA ================================================ */
+.tdsx-tc__daybtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 50%;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
   color: var(--ash-2);
-  transition: transform 180ms ease;
+  cursor: pointer;
 }
-.tdsx-tc__ca.is-compact-empty .tdsx-tc__toggle-icon {
+
+.tdsx-tc__daybtn:hover {
+  background: var(--rule-soft);
+  color: var(--ink);
+}
+
+.tdsx-tc__daybtn svg {
+  transform: rotate(90deg);
+}
+
+.tdsx-tc__daybtn--sau svg {
   transform: rotate(-90deg);
 }
 
-.tdsx-tc__progress-track {
-  height: 3px;
-  background: rgba(16, 185, 129, 0.15);
-  width: 100%;
-  overflow: hidden;
-}
-.tdsx-tc__progress-fill {
+.tdsx-tc__macakhac input {
+  width: 92px;
   height: 100%;
-  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
-  transition: width 300ms ease;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-xs);
+}
+
+.tdsx-tc__macakhac input:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* Danh sách ca dùng CHUNG khuôn "bàn giấy" với Kanban (`.tdsx-kb__board`) và Theo máy
+   (`.tdsx-tm__scroll`): bề mặt `--paper`, dòng việc `--canvas` nổi lên trên. Ba tab, ba kiểu dữ
+   liệu, nhưng cùng một mặt bàn — trước đây tab này là ba cái gạch chân trôi trên nền trắng, đo
+   thật cao 280px giữa màn 900px. */
+.tdsx-tc__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-4);
+  min-height: calc(100vh - 300px);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  transition: opacity var(--duration-base) var(--easing-standard);
+}
+
+.tdsx-tc__list.is-mo {
+  opacity: 0.55;
+}
+
+/* Mỗi ca KHÔNG còn là một thẻ nổi có viền bo 12px + bóng. Nó là một mục có đầu mục — đường kẻ
+   dưới tên ca đủ chia vùng. */
+.tdsx-tc__ca {
+  display: flex;
+  flex-direction: column;
+}
+
+.tdsx-tc__cahead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--rule);
+}
+
+.tdsx-tc__ca.is-active-shift .tdsx-tc__cahead {
+  border-bottom-color: var(--moss);
+}
+
+.tdsx-tc__cahead-left,
+.tdsx-tc__cahead-right {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-2);
+  min-width: 0;
+}
+
+.tdsx-tc__cahead-right {
+  margin-left: auto;
+}
+
+.tdsx-tc__caten {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.tdsx-tc__cakhung {
+  font-size: var(--fs-sm);
+  color: var(--ash-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .tdsx-tc__live-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: var(--moss-soft);
+  gap: var(--sp-1);
   color: var(--moss-deep);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
 }
 
 .tdsx-tc__can {
-  font-family: var(--ff-sans);
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
   color: var(--ash-2);
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-pill);
-  padding: 2px 10px;
+  font-variant-numeric: tabular-nums;
 }
+
 .tdsx-tc__can.is-has-viec {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+}
+
+.tdsx-tc__toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ash-2);
+}
+
+.tdsx-tc__ca.is-compact-empty .tdsx-tc__toggle-icon {
+  transform: rotate(-90deg);
+}
+
+.tdsx-tc__progress-track {
+  height: 2px;
   background: var(--moss-soft);
-  color: var(--moss-deep);
-  border-color: rgba(47, 93, 58, 0.2);
-  font-weight: 700;
+}
+
+.tdsx-tc__progress-fill {
+  height: 100%;
+  background: var(--moss);
+  transition: width var(--duration-enter) var(--easing-standard);
 }
 
 .tdsx-tc__body {
   display: flex;
   flex-direction: column;
-  padding: 8px;
-  gap: 8px;
+  gap: var(--sp-1);
+  padding-top: var(--sp-2);
+}
+
+/* Câu trả lời cho "hôm nay có việc không" phải ở NGAY đầu bảng, trước ba cái đầu ca rỗng. */
+.tdsx-tc__trongngay {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--steel);
+  border-radius: var(--r-3);
+  font-size: var(--fs-sm);
+  color: var(--ash);
 }
 
 .tdsx-tc__empty-slot {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 20px 16px;
-  border: 1.5px dashed var(--rule-soft);
-  border-radius: var(--r-5);
-  background: var(--paper);
-  color: var(--ash-2);
-  font-size: 12.5px;
-}
-.tdsx-tc__empty-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--canvas);
+  margin: 0;
+  padding: var(--sp-2) 0;
+  font-size: var(--fs-sm);
   color: var(--ash-2);
 }
 
-/* ViecRow Studio Task Card */
+/* Dòng việc: vạch màu trạng thái ở mép trái + hai dòng chữ. */
 .tdsx-tc__viec {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
   width: 100%;
-  padding: 12px 14px;
+  padding: var(--sp-3);
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
-  border-left: 4px solid var(--rule);
-  border-radius: var(--r-5);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  border-left: 3px solid var(--rule);
+  border-radius: var(--r-3);
   cursor: pointer;
   text-align: left;
   font: inherit;
   color: inherit;
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  transition: background-color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard);
 }
-.tdsx-tc__viec:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
-}
-.tdsx-tc__viec:disabled { cursor: default; opacity: 0.6; }
 
-.tdsx-tc__viec--running { border-left-color: var(--moss) !important; }
-.tdsx-tc__viec--paused { border-left-color: var(--amber) !important; }
-.tdsx-tc__viec--released { border-left-color: #6366f1 !important; }
-.tdsx-tc__viec--completed { border-left-color: var(--rule) !important; }
+.tdsx-tc__viec:hover:not(:disabled) {
+  background: var(--rust-soft);
+}
+
+.tdsx-tc__viec:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+.tdsx-tc__viec:disabled {
+  cursor: default;
+  color: var(--ash-2);
+}
+
+.tdsx-tc__viec--running {
+  border-left-color: var(--moss);
+}
+
+.tdsx-tc__viec--paused {
+  border-left-color: var(--amber);
+}
+
+.tdsx-tc__viec--released {
+  border-left-color: var(--steel-soft);
+}
+
+.tdsx-tc__viec--completed {
+  border-left-color: var(--rule);
+}
 
 .tdsx-tc__viecrow1 {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-2);
+  min-width: 0;
 }
-.tdsx-tc__code-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 7px;
-  border-radius: var(--r-2);
-  background: var(--heat-0);
-}
+
 .tdsx-tc__vma {
-  font-family: var(--ff-sans);
-  font-weight: 700;
-  font-size: 12px;
-  color: var(--ink);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-md);
+  color: var(--rust-deep);
 }
+
 .tdsx-tc__vten {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Nhãn lệch lịch — CHỮ là tín hiệu chính ("sớm lịch"/"trễ lịch"), màu chỉ đỡ thêm. Trễ dùng họ
+   `signal` (lỗi tiến độ), sớm dùng `steel` trung tính: chạy sớm không phải sự cố, chỉ cần biết. */
+.tdsx-tc__lech {
+  flex: none;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.tdsx-tc__lech--tre {
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+}
+
+.tdsx-tc__lech--som {
+  background: var(--steel-soft);
+  color: var(--steel);
+}
+
 .tdsx-tc__viecrow2 {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-1) var(--sp-2);
   flex-wrap: wrap;
+  min-width: 0;
 }
-.tdsx-tc__vpill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: var(--r-2);
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  font-size: 11.5px;
-  color: var(--ash);
+
+.tdsx-tc__vphu {
+  font-size: var(--fs-xs);
+  color: var(--ash-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tdsx-tc__vpill svg { color: var(--ash-2); }
-.tdsx-tc__vmay { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 
-/* =============================== TAB GANTT TỔNG THỂ =========================================== */
-.tdsx-gt { margin-top: var(--sp-3); }
-.tdsx-gt__rong { display: flex; justify-content: center; padding: var(--sp-6) 0; }
+/* =============================== TAB GANTT TỔNG THỂ =========================================
+   Dùng CHUNG lưới + trục với Theo máy (`.tdsx-tm__scroll/__grid/__corner/__axis/__tick`). */
+.tdsx-gt__rong {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-6) 0;
+}
 
-/* Label/track dùng CHUNG lưới+trục với Theo máy (`.tdsx-tm__scroll/__grid/__corner/__axis/__tick`,
- * xem ghi chú Ruling C138 ở đầu file) — chỉ riêng nội dung một dòng khác nên khai lớp riêng ở đây,
- * kích thước (min-height 64px, cao hơn 56px của Theo máy vì có 3 dòng chữ thay vì 1). */
+/* Khung ôm vừa số dòng. `min-height` gần hết màn là để lấp 43 lane của Theo máy; bàn này phân
+   trang và thường chỉ vài lệnh — 2 dòng mà kéo khung cao 380px là một bãi trống dưới đáy. */
+.tdsx-gt .tdsx-tm__scroll {
+  min-height: 0;
+}
+
 .tdsx-gt__label {
   position: sticky;
   left: 0;
@@ -1435,98 +1365,317 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
+  gap: 1px;
   padding: var(--sp-2) var(--sp-3);
-  min-height: 64px;
+  min-height: 56px;
   background: var(--canvas);
+  /* Ô nhãn là <button>: không xoá viền gốc thì trình duyệt vẽ viền nổi (mép trên/trái xám đậm). */
+  border: 0;
   border-right: 1px solid var(--rule);
   border-bottom: 1px solid var(--rule-soft);
   text-align: left;
   cursor: pointer;
   font: inherit;
   color: inherit;
+  transition: background-color var(--duration-base) var(--easing-standard);
 }
-.tdsx-gt__label:hover { background: var(--rust-soft); }
-.tdsx-gt__label:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
-.tdsx-gt__row1 { display: flex; align-items: center; gap: var(--sp-2); }
-.tdsx-gt__ma { font-family: var(--ff-sans); font-weight: var(--fw-bold); font-size: var(--fs-sm); color: var(--ink); }
-.tdsx-gt__meta {
+
+.tdsx-gt__label:hover {
+  background: var(--rust-soft);
+}
+
+.tdsx-gt__label:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: -2px;
+}
+
+.tdsx-gt__row1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-2);
+  min-width: 0;
+}
+
+/* Cột nhãn chỉ 200px, chip "Quá hạn …" lại dài — không chốt `nowrap` thì flex bóp mã xuống còn
+   "LSX26-" / "0001" trên hai dòng (đo thật ở 1440px). Mã lệnh là khoá tra cứu, thà chip xuống
+   dòng còn hơn bẻ mã. */
+.tdsx-gt__ma {
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-md);
+  color: var(--rust-deep);
+  white-space: nowrap;
+}
+
+.tdsx-gt__quahan {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--signal);
   font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+
+.tdsx-gt__meta {
+  font-size: var(--fs-sm);
   color: var(--ash);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tdsx-gt__han { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-2xs); color: var(--ash); }
+
 .tdsx-gt__kehoach {
-  font-family: var(--ff-sans);
   font-size: var(--fs-2xs);
-  color: var(--steel);
+  color: var(--ash-2);
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Gantt dùng CHUNG lưới dọc với Theo máy (xem `.tdsx-tm__track`). Trước đây dòng Gantt không có
+   một vạch dọc nào: thanh kế hoạch trôi trên nền trắng tuyệt đối, muốn biết nó bắt đầu ngày nào
+   phải rê mắt lên tận trục trên cùng. */
 .tdsx-gt__track {
   position: relative;
-  min-height: 64px;
+  min-height: 56px;
   border-bottom: 1px solid var(--rule-soft);
+  background-image: linear-gradient(90deg, var(--rule-soft) 1px, transparent 1px);
+  background-size: var(--tdsx-luoi-w, 72px) 100%;
+  background-position: var(--tdsx-luoi-x, 0) 0;
 }
-/* `position: sticky; left: <bề rộng cột nhãn>` — GIỐNG hệt cơ chế `.tdsx-gt__label` (cũng sticky
- * trong CHÍNH khung cuộn ngang `.tdsx-tm__scroll`), không phải `absolute` theo track như trước.
- * `absolute` khiến chữ trôi theo track khi cuộn ngang: đo thật `scrollLeft=900` ra nhãn đứng yên
- * ở +1px nhưng chữ tụt xuống −647px (ngoài khung nhìn) — một lệnh chưa xếp lịch cuộn sang phải
- * thành DÒNG TRỐNG TRƠN, không phân biệt được với lệnh có thanh nằm ngoài tầm nhìn (vòng sửa 1,
- * mục B2). `--tdsx-gt-label-w` do JS set cùng lúc với `gridTemplateColumns` (xem `TdsxGantt.tsx`),
- * theo đúng bề rộng cột nhãn TẠI THỜI ĐIỂM đó — kể cả khi nó co lại ở màn hẹp. */
+
+.tdsx-gt__label.is-soc,
+.tdsx-gt__track.is-soc {
+  background-color: var(--rule-hair);
+}
+
+/* `position: sticky; left: <bề rộng cột nhãn>` — GIỐNG `.tdsx-gt__label` (cũng sticky trong chính
+ * khung cuộn ngang `.tdsx-tm__scroll`), không phải `absolute` theo track. `absolute` khiến chữ
+ * trôi theo track khi cuộn ngang: đo thật `scrollLeft=900` ra nhãn đứng yên ở +1px nhưng chữ tụt
+ * xuống −647px — một lệnh chưa xếp lịch cuộn sang phải thành DÒNG TRỐNG TRƠN. `--tdsx-cot-nhan-w`
+ * do JS set cùng lúc với `gridTemplateColumns`, theo đúng bề rộng cột nhãn tại thời điểm đó. */
 .tdsx-gt__thieumoc {
   position: sticky;
-  left: calc(var(--tdsx-gt-label-w, 240px) + var(--sp-3));
+  left: calc(var(--tdsx-cot-nhan-w, 240px) + var(--sp-3));
   top: 50%;
   transform: translateY(-50%);
   z-index: 1;
   font-size: var(--fs-xs);
-  color: var(--ash);
+  color: var(--ash-2);
   white-space: nowrap;
 }
-/* Nền ĐẶC, không phải viền rỗng: dải nhiều ngày ép `pxPerGio` xuống 14 nên phần lớn thanh chạm
- * đáy 24px — một viên nang trắng viền nhạt 24px trên nền trắng gần như không nhìn ra là có thanh.
- * Tô `--steel-soft` để thanh nổi lên; biến quá hạn vẫn giữ `--rust-soft` đè lên (khai sau). */
+
+/* Mốc HẠN vẽ thẳng lên trục thời gian: đứng cạnh thanh kế hoạch thì thấy ngay lệnh chạy xong
+   trước hay sau hạn — điều một dòng chữ ở cột nhãn không nói được. Vạch đứt để không nhầm với
+   vạch "bây giờ" (liền, màu rust) của tab Theo máy. Giữ TRUNG TÍNH kể cả khi lệnh đã trễ: hạn là
+   một sự kiện chứ không phải một trạng thái, và trạng thái trễ đã nói hai lần rồi (chip "Quá hạn"
+   ở nhãn + thanh đổi sang `--signal`). Tô đỏ nốt vạch này là lần thứ ba cho cùng một tin. */
+.tdsx-gt__hanmoc {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--steel);
+  pointer-events: none;
+}
+
+/* Nền ĐẶC màu `--steel`, mã lệnh chữ sáng trong lòng. Bản `--steel-soft` trơn trước đây trông y như
+   khung xương chờ tải. Thanh gộp mọi công đoạn của lệnh nên KHÔNG mượn màu trạng thái của Theo máy
+   (chờ/chạy/dừng) — một lệnh thường đang lẫn cả ba. */
 .tdsx-gt__bar {
   position: absolute;
-  top: var(--sp-4);
-  height: var(--sp-8);
+  top: 50%;
+  height: 28px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-2);
   border: 1px solid var(--steel);
-  border-radius: var(--r-pill);
-  background: var(--steel-soft);
+  border-radius: var(--r-2);
+  background: var(--steel);
+  color: var(--paper-contrast);
+  font: inherit;
   cursor: pointer;
-  padding: 0;
+  transition: background-color var(--duration-base) var(--easing-standard);
 }
-.tdsx-gt__bar:hover { background: var(--steel); }
-/* Khối skeleton của track — trước đây `margin: "18px 0 0 24px"` viết THẲNG vào `style` inline ở
- * `GanttSkeletonRow`; 18px lệch khỏi thang 8px (vòng sửa 1, mục C: styleseed chấm Layout −3). Dời
- * hẳn vào CSS, top/left khớp đúng `.tdsx-gt__bar` thật ở trên để khung xương không "nhảy" khi dữ
- * liệu thật tải xong. */
-.tdsx-gt__skelbar { position: relative; top: var(--sp-4); left: var(--sp-6); }
-.tdsx-gt__bar:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
-.tdsx-gt__bar--quahan { border-color: var(--rust); background: var(--rust-soft); }
+
+.tdsx-gt__bar:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+.tdsx-gt__barma {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+/* Thanh hẹp: mã đứng ngoài mép phải, chữ tối trên nền dòng. Không ăn cú bấm. */
+.tdsx-gt__barma--ngoai {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  margin-left: var(--sp-1);
+  color: var(--ash);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.tdsx-gt__bar:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
+.tdsx-gt__bar--quahan {
+  border-color: var(--signal);
+  background: var(--signal);
+}
+
+.tdsx-gt__bar--quahan:hover {
+  border-color: var(--signal-deep);
+  background: var(--signal-deep);
+}
+
+.tdsx-gt__skelbar {
+  position: relative;
+  top: var(--sp-3);
+  left: var(--sp-6);
+}
+
+/* ---------- ⑨ MÀN HẸP -----------------------------------------------------------------------
+   File cũ KHÔNG có một `@media` bề rộng nào: mọi thứ khai cứng cho màn rộng rồi mặc kệ. */
+@media (max-width: 1024px) {
+  .tdsx__title {
+    font-size: var(--fs-xl);
+  }
+
+  /* Khay điều khiển xuống dòng hẳn thay vì chen với dải tab. */
+  .tdsx__ctl {
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
+
+  .tdsx-kb__board {
+    min-height: calc(100vh - 320px);
+  }
+
+  .tdsx-kb__col {
+    max-height: calc(100vh - 260px);
+  }
+
+  .tdsx-tm__scroll {
+    max-height: calc(100vh - 210px);
+  }
+}
+
+@media (max-width: 768px) {
+  /* Ô tìm chiếm trọn một dòng, bốn viên lọc tự xếp bên dưới. */
+  .tdsx .hslsx__search {
+    flex: 1 1 100%;
+  }
+
+  .tdsx__deck .hslsx__field,
+  .tdsx__deck .tdsx-themloc {
+    flex: 1 1 auto;
+  }
+
+  /* Dải tab cuộn ngang thành một dòng — bốn tab gãy thành hai dòng tốn chỗ hơn là cuộn. */
+  .tdsx .hslsx__tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tdsx .hslsx__tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tdsx-kb__board {
+    padding: var(--sp-2);
+  }
+
+  .tdsx-kb__col {
+    flex-basis: 84vw;
+    max-width: 84vw;
+  }
+
+  /* Tên sản phẩm KHÔNG bị cắt ở màn hẹp (khuôn lỗi ⓓ): chỗ hẹp là chỗ cần đọc đủ tên nhất. */
+  .tdsx-kb__ten {
+    -webkit-line-clamp: none;
+    display: block;
+  }
+
+  .tdsx-tc__vten,
+  .tdsx-tc__vphu,
+  .tdsx-gt__meta,
+  .tdsx-gt__kehoach {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .tdsx-tc__cahead-right {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Bốn con số vẫn nằm MỘT HÀNG ở màn 390px: 26px xuống 20px, khoảng cách bóp lại, nhãn được
+     xuống dòng. `nowrap` cho nhãn bị gỡ ở đây — "lệnh đang theo dõi" mà giữ một dòng thì hoặc
+     tràn ngang hoặc ép cả dải xuống bốn hàng. */
+  .tdsx__stats {
+    gap: var(--sp-3) var(--sp-5);
+  }
+
+  .tdsx__stat-n {
+    font-size: var(--fs-xl);
+  }
+
+  .tdsx__stat-nhan {
+    white-space: normal;
+  }
+
+  .tdsx-kb__col {
+    flex-basis: 90vw;
+    max-width: 90vw;
+  }
+
+  .tdsx-tc__caten {
+    font-size: var(--fs-md);
+  }
+}
+
+/* Cảm ứng không có hover: nền hover là thứ duy nhất đổi khi bấm, nên bỏ hẳn để khỏi "dính" lại
+   sau khi nhấc tay (khuôn lỗi ⓒ — bản thân các nút ở đây luôn hiện, không phụ thuộc hover). */
+@media (hover: none) {
+  .tdsx-kb__card:hover,
+  .tdsx-tc__viec:hover:not(:disabled),
+  .tdsx-gt__label:hover {
+    background: var(--canvas);
+    border-color: var(--rule-soft);
+  }
+
+  /* Trả đúng nền VẰN cho dòng lẻ, không trả về trắng — nếu không, chạm vào một dòng lẻ trên máy
+     tính bảng là nó nhảy sang trắng và ở luôn đó, đúng cái "dính hover" luật này định chặn. */
+  .tdsx-gt__label.is-soc:hover {
+    background: var(--rule-hair);
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .tdsx-kb__board, .tdsx-tm__grid, .tdsx-tc__list { transition: none; }
-}
-
-/* Nhãn bước (04/09/2026) — chip đứng cạnh chip trạng thái trên thẻ Kanban, gãy dòng khi hẹp. */
-.tdsx-kb__chip {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-/* Dấu gọn trên thanh Theo máy: thanh Gantt không đủ chỗ cho chip thật, chữ đủ nằm ở `title`. */
-.tdsx-tm__dau {
-  flex: 0 0 auto;
-  font-size: 10px;
-  line-height: 1;
-  margin-left: 3px;
+  .tdsx-kb__board,
+  .tdsx-kb__card,
+  .tdsx-tm__grid,
+  .tdsx-tm__block,
+  .tdsx-tc__list,
+  .tdsx-tc__viec,
+  .tdsx-tc__progress-fill,
+  .tdsx-gt__label,
+  .tdsx-gt__bar,
+  .tdsx__reload {
+    transition: none;
+  }
 }

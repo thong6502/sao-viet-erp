@@ -67,20 +67,15 @@ Ba chỗ hẹp có chủ ý, mỗi chỗ vì một lý do khác nhau:
     trang; tự gọi trong hàm per-lệnh là đẻ lại đúng N+1 mà Task 6 sinh ra để chặn.
 
 --- Cầu về khâu KHO: đi qua BATCH KCS + NHÓM, không qua registry hàng -----------------------------
-"Đã nhập kho chưa" đọc từ `bc.nhap_kho_yc[lsx_id]`, cụ thể là `so_luong_xac_nhan` (số kho ĐÃ NHẬN),
-KHÔNG phải `so_luong_yeu_cau`: lập yêu cầu là việc của KCS, hàng vẫn nằm ở tổ cho tới khi thủ kho
-bấm nhận. Map đó nay gom CẢ yêu cầu của NHÓM (Ruột + Bìa → Kỷ yếu), không riêng của lệnh — lý do
+"Đã nhập kho chưa" đọc từ `bc.nhap_kho_tp[lsx_id]` (dòng yêu cầu NHẬP của kho thật), cụ thể là
+`sl_da_nhan` (số phiếu nhập ĐÃ GHI SỔ), KHÔNG phải số đề nghị: lập yêu cầu là việc của KCS, hàng vẫn
+nằm ở tổ cho tới khi thủ kho ghi sổ phiếu nhập. Map đó nay gom CẢ yêu cầu của NHÓM (Ruột + Bìa → Kỷ yếu), không riêng của lệnh — lý do
 đầy đủ ở `boi_canh.py`; hệ quả ở đây: hàng vào kho thì mọi lệnh trong nhóm ĐỀU ĐỌC ĐƯỢC, nhưng
 lệnh nào chưa xong sản xuất vẫn ở tab Đang SX (cửa `_sx_da_xong`, thêm ở Vòng sửa 2).
 
-BA nhánh khâu sau đều đòi "mọi bước không-KCS đã `completed`". Ba lần vá ở ba vòng khác nhau, cùng
+BA nhánh khâu sau đều đòi "mọi công đoạn đã `completed`". Ba lần vá ở ba vòng khác nhau, cùng
 một lỗi: hàng đi trước lệnh. Batch KCS giữa chuyền, tồn kho từng phần, số đạt của KCS cuối — cả ba
 đều có thể xuất hiện khi máy còn chạy, và cả ba đều KHÔNG được kéo lệnh khỏi tầm mắt điều độ.
-
-KHÔNG dùng `bc.lot[lsx_id]` cho "sẵn sàng giao", dù nghe hợp lý hơn. Lot THÀNH PHẨM sinh ở
-`kho.kho_xac_nhan_nhap` KHÔNG mang `lsx_id` (nó neo `order_id` + `nhom_id` — thành phẩm thuộc NHÓM
-"Ruột + Bìa → Kỷ yếu", không thuộc một lệnh), nên `bc.lot[lsx_id]` chỉ chứa lot BTP. Đọc nó ra
-"tồn thành phẩm" là đọc nhầm hàng.
 """
 from __future__ import annotations
 
@@ -91,10 +86,11 @@ from sqlalchemy.orm import Session
 from ...models.ky_thuat_may import TT_YC_DANG_MO
 from ...models.san_xuat import CV_HOAN_THANH, CV_TAM_DUNG
 from ...models.san_xuat_kcs import KCS_KHONG_DAT
-from ...models.san_xuat_kho import YC_HUY
 from .. import lsx_tong_quan
 from . import tien_do
 from .boi_canh import BoiCanh
+
+_EPS = 0.0005
 
 # --- Sáu tab của bảng lệnh. Giá trị đi thẳng ra API + URL hash của FE nên coi như hợp đồng: đổi
 # chuỗi là hỏng dấu trang của người dùng. Đặt CẠNH NHAU để FE import một chỗ.
@@ -201,13 +197,13 @@ def _co_kcs_khong_dat(bc: BoiCanh, lsx_id: int) -> bool:
 
 
 def _so_kcs_dat_cuoi(bc: BoiCanh, lsx_id: int) -> float:
-    """TAB: số hàng ĐẠT của bước KCS CUỐI — chỉ số này mới lái được tab Chờ nhập kho.
+    """TAB: số hàng ĐẠT KCS của công đoạn CUỐI — chỉ số này mới lái được tab Chờ nhập kho.
 
     HẸP hơn `_co_kcs_khong_dat` một cách có chủ ý, hai lý do khác nhau:
 
-    1. `kcs.tao_batch_kcs:110` chỉ đòi `cv.la_kcs`, KHÔNG đòi bước cuối — mọi chốt kiểm giữa
-       chuyền đều đẻ số đạt. Nhưng yêu cầu nhập kho CHỈ sinh từ batch của KCS cuối (nó cần
-       `nhom_id` của batch, `kho.py:122-124`), nên đếm batch giữa chừng là đẩy lệnh sang một tab
+    1. KCS kiểm được mọi công đoạn (KCS theo lệnh, mg 0306) — mọi lần kiểm giữa chuyền đều có số
+       đạt. Nhưng yêu cầu nhập kho CHỈ sinh từ công đoạn cuối (`kho.tao_yeu_cau_nhap_kho_cong_doan`
+       chặn công đoạn thiếu `la_kcs_cuoi`), nên đếm lần kiểm giữa chừng là đẩy lệnh sang một tab
        mà kho sẽ không bao giờ nhận hàng — lệnh kẹt vĩnh viễn, không đường tự thoát.
     2. Batch của một bước GHÉP là số của CẢ CA, không phải của riêng một lệnh. Với cờ
        `kcs_khong_dat` thì đếm đủ cho mọi lệnh là đúng (bước hỏng thì cả ca dính); với TAB thì
@@ -228,21 +224,11 @@ def _so_kcs_dat_cuoi(bc: BoiCanh, lsx_id: int) -> float:
     )
 
 
-def _yc_con_song(bc: BoiCanh, lsx_id: int) -> list:
-    """Yêu cầu nhập kho CÒN HIỆU LỰC — bỏ `huy` (KCS huỷ phần chưa nhận để phân loại lại, §14.1).
-
-    Lọc thẳng theo trạng thái là ĐỦ, không sợ ăn nhầm phần đã nhận: `kho.huy_phan_chua_nhan`
-    (`services/san_xuat/kho.py:290`) chỉ đặt `huy` khi CHƯA nhận gì — đã nhận một phần rồi mới huỷ
-    phần còn lại thì nó đặt `da_nhap`, vì phần đã nhận đã đẻ lot và bị khoá.
-    """
-    return [yc for yc in bc.nhap_kho_yc[lsx_id] if yc.trang_thai != YC_HUY]
-
-
 def _co_ton_thanh_pham(bc: BoiCanh, lsx_id: int) -> bool:
     """Kho ĐÃ NHẬN được ít nhất một phần, VÀ sản xuất đã xong ⇒ có tồn thành phẩm để giao.
 
-    Đọc `so_luong_xac_nhan` (số thủ kho đã bấm nhận), KHÔNG phải `so_luong_yeu_cau`: yêu cầu là
-    lời của KCS, hàng vẫn nằm ở tổ cho tới lúc kho nhận.
+    Đọc `sl_da_nhan` (phiếu nhập đã ghi sổ), KHÔNG phải số đề nghị: yêu cầu là lời của KCS, hàng vẫn
+    nằm ở tổ cho tới lúc kho nhận. Yêu cầu kho đã huỷ sau khi nhận một phần vẫn tính phần đã nhận.
 
     Vế `_sx_da_xong` thêm ở Vòng sửa 2, cùng lý do đã phải vá hai lần ở hai nhánh dưới: lệnh còn
     chạy máy mà đã có 2.000 sản phẩm vào kho thì vẫn là ĐANG SX. Tồn từng phần là chi tiết của màn
@@ -255,12 +241,13 @@ def _co_ton_thanh_pham(bc: BoiCanh, lsx_id: int) -> bool:
     """
     if not _sx_da_xong(bc, lsx_id):
         return False
-    return any(float(yc.so_luong_xac_nhan or 0) > 0 for yc in _yc_con_song(bc, lsx_id))
+    return any(d.sl_da_nhan > _EPS for d in bc.nhap_kho_tp[lsx_id])
 
 
 def _sx_da_xong(bc: BoiCanh, lsx_id: int) -> bool:
-    """Mọi bước KHÔNG-KCS đã `completed` — "hàng đã ra khỏi chuyền"."""
-    return all(cv.trang_thai == CV_HOAN_THANH for cv in bc.cong_viec_du(lsx_id) if not cv.la_kcs)
+    """Mọi công đoạn đã `completed` — "hàng đã ra khỏi chuyền". KCS không còn là một bước trong
+    routing (KCS theo lệnh, mg 0306) nên không có bước nào phải trừ ra."""
+    return all(cv.trang_thai == CV_HOAN_THANH for cv in bc.cong_viec_du(lsx_id))
 
 
 def _kcs_dat_cho_nhap(bc: BoiCanh, lsx_id: int) -> bool:
@@ -278,18 +265,21 @@ def _kcs_dat_cho_nhap(bc: BoiCanh, lsx_id: int) -> bool:
 
 
 def _dang_o_kcs(bc: BoiCanh, lsx_id: int) -> bool:
-    """Sản xuất xong, còn bước KCS chưa đóng.
+    """Sản xuất xong, KCS chưa kiểm hết công đoạn cuối (Σ đạt + lỗi < Σ tốt tổ đã ghi).
 
-    Đòi MỌI bước không-KCS đã `completed`: bước KCS giữa chuỗi (kiểm tra giữa chừng) không có
-    nghĩa là lệnh "đang ở KCS" — lệnh vẫn đang chạy, và xếp nó vào tab KCS là giấu nó khỏi tab
-    Đang SX.
+    Đòi MỌI công đoạn đã `completed`: KCS kiểm giữa chừng không có nghĩa là lệnh "đang ở KCS" —
+    lệnh vẫn đang chạy, và xếp nó vào tab KCS là giấu nó khỏi tab Đang SX. Cùng thước đo với điều
+    kiện "KCS đã kiểm hết công đoạn cuối" của đóng nhóm (`dong_nhom._danh_gia`).
     """
-    cvs = bc.cong_viec_du(lsx_id)
-    if not cvs:
+    cuoi = [cv for cv in bc.cong_viec_du(lsx_id) if cv.la_kcs_cuoi]
+    if not cuoi or not _sx_da_xong(bc, lsx_id):
         return False
-    if not any(cv.la_kcs and cv.trang_thai != CV_HOAN_THANH for cv in cvs):
-        return False
-    return _sx_da_xong(bc, lsx_id)
+    tot = sum(float(b.tot or 0) for cv in cuoi for b in bc.batch[cv.id])
+    da_kiem = sum(
+        float(k.so_luong_dat or 0) + float(k.so_luong_khong_dat or 0)
+        for cv in cuoi for k in bc.kcs[cv.id]
+    )
+    return tot <= _EPS or da_kiem + _EPS < tot
 
 
 def _da_giao_het(bc: BoiCanh, lsx_id: int) -> bool:

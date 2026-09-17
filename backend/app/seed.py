@@ -1805,7 +1805,6 @@ def seed_employees(db: Session) -> None:
         EVENT_CONFIRMED,
         EVENT_HIRED,
         EVENT_LEAVE_START,
-        EVENT_PROMOTED,
         EVENT_RESIGNED,
         STATUS_ACTIVE,
         STATUS_ON_LEAVE,
@@ -1830,25 +1829,18 @@ def seed_employees(db: Session) -> None:
     hcns = _dept("Hành chính nhân sự")
     kd = _dept("Kinh doanh")
 
-    # Bậc tay nghề khối SX: nối THẲNG vào danh mục 5 bậc (seed_job_grades đã chạy TRƯỚC hàm này)
-    # — KHÔNG dùng chữ tự gõ cũ kiểu "3/7" nữa. get_job_grade_by_code trả None nếu danh mục trống.
-    g_vung = repo.get_job_grade_by_code("bac_2")    # Thợ vững
-    g_thuong = repo.get_job_grade_by_code("bac_3")  # Thợ thường
-    g_tap = repo.get_job_grade_by_code("bac_4")     # Tập việc
-
     def mk(
         *, full_name, department_id, position, status, hire_date,
         gender=None, national_id=None, phone=None, social_insurance_no=None,
-        grade=None, probation_end_date=None, link_username=None,
+        probation_end_date=None, link_username=None,
     ):
         emp = repo.create(
             full_name=full_name, department_id=department_id, position=position,
             status=status, hire_date=hire_date, gender=gender, national_id=national_id,
             phone=phone, social_insurance_no=social_insurance_no,
-            job_grade_id=(grade.id if grade is not None else None),
             probation_end_date=probation_end_date,
         )
-        # Quá trình công tác: hired (thử việc) → confirmed → (nâng bậc) → (nghỉ dài hạn/việc).
+        # Quá trình công tác: hired (thử việc) → confirmed → (nghỉ dài hạn/việc).
         repo.add_event(employee_id=emp.id, event_type=EVENT_HIRED, effective_date=hire_date,
                        field="status", from_value=None, to_value=STATUS_PROBATION,
                        note="Vào làm", actor_user_id=None)
@@ -1857,10 +1849,6 @@ def seed_employees(db: Session) -> None:
             repo.add_event(employee_id=emp.id, event_type=EVENT_CONFIRMED, effective_date=confirmed,
                            field="status", from_value=STATUS_PROBATION, to_value=STATUS_ACTIVE,
                            note="Đạt yêu cầu thử việc", actor_user_id=None)
-        if grade is not None:
-            repo.add_event(employee_id=emp.id, event_type=EVENT_PROMOTED,
-                           effective_date=confirmed + timedelta(days=400), field="job_grade",
-                           from_value=None, to_value=grade.name, note="Nâng bậc thợ", actor_user_id=None)
         if status == STATUS_ON_LEAVE:
             repo.add_event(employee_id=emp.id, event_type=EVENT_LEAVE_START,
                            effective_date=today - timedelta(days=20), field="status",
@@ -1891,16 +1879,16 @@ def seed_employees(db: Session) -> None:
     mk(full_name="Nguyễn Thị Dung", department_id=kd, position="Nhân viên Sales",
        status=STATUS_PROBATION, hire_date=today - timedelta(days=45), gender="female",
        national_id="079193004567", phone="0903004567", probation_end_date=today + timedelta(days=15))
-    mk(full_name="Vũ Đức Em", department_id=hcns, position="Thợ in offset", grade=g_thuong,
+    mk(full_name="Vũ Đức Em", department_id=hcns, position="Thợ in offset",
        status=STATUS_ACTIVE, hire_date=date(2018, 9, 20), gender="male",
        national_id="079088005678", phone="0903005678")
-    mk(full_name="Hoàng Văn Phúc", department_id=hcns, position="Thợ chế bản", grade=g_tap,
+    mk(full_name="Hoàng Văn Phúc", department_id=hcns, position="Thợ chế bản",
        status=STATUS_ON_LEAVE, hire_date=date(2020, 2, 3), gender="male",
        national_id="079091006789", phone="0903006789")
     mk(full_name="Đặng Thị Giang", department_id=hcns, position="Nhân viên văn thư",
        status=STATUS_RESIGNED, hire_date=date(2019, 7, 1), gender="female",
        national_id="079192007890", phone="0903007890")
-    mk(full_name="Bùi Quốc Hùng", department_id=hcns, position="Thợ xén-bế", grade=g_vung,
+    mk(full_name="Bùi Quốc Hùng", department_id=hcns, position="Thợ xén-bế",
        status=STATUS_ACTIVE, hire_date=date(2017, 4, 12), gender="male",
        national_id="079085008901", phone="0903008901")
     # Nối tài khoản admin vào 1 hồ sơ (để demo tự chấm công GPS bằng chính tài khoản admin).
@@ -2089,13 +2077,11 @@ def seed_leaves(db: Session) -> None:
 
 
 def seed_payroll(db: Session) -> None:
-    """Seed cấu hình + demo Lương (module `luong`): tham số, quy tắc mức lương (khớp bảng
-    thật: tổ In theo bậc thợ, tổ sản xuất theo thâm niên×giới), gán nhóm lương cho NV demo,
-    một ít lương ấn định + tạm ứng. Idempotent: bỏ qua nếu đã có quy tắc."""
+    """Seed cấu hình + demo Lương (module `luong`): tham số, mốc lương của GĐ + tạm ứng.
+    Idempotent: bỏ qua nếu GĐ đã có mốc lương."""
     from datetime import date
 
     from .models.employee import Employee
-    from .models.payroll import AMOUNT_MANUAL
     from .repositories.payroll_repo import PayrollRepository
     from .repositories.user_repo import UserRepository
 
@@ -2118,13 +2104,11 @@ def seed_payroll(db: Session) -> None:
                                != "false"),
         )
 
-    # (07/09/2026) Bảng mức lương theo nhóm/bậc/thâm niên đã GỠ (engine không đọc từ lâu) — không
-    # seed rule, không gán `payroll_group`/`pay_grade_key`, không đẻ mốc lương `amount_mode="rule"`
-    # rỗng (dòng như thế = 0đ lặng lẽ). Mức nền demo: GĐ khai tay ở đây; khối SX/văn phòng do
-    # `seed_tai_khoan_va_luong_sx` / `seed_van_phong_staff` khai; người khác coi như CHƯA KHAI LƯƠNG.
+    # Mức nền demo: GĐ khai tay ở đây; khối SX/văn phòng do `seed_tai_khoan_va_luong_sx` /
+    # `seed_van_phong_staff` khai; người khác coi như CHƯA KHAI LƯƠNG.
     if admin_emp_id is not None:
         repo.create_salary(employee_id=admin_emp_id, effective_from=date(2026, 1, 1),
-                           amount_mode=AMOUNT_MANUAL, base_amount=40_000_000,
+                           base_amount=40_000_000,
                            allowance=500_000, note="Giám đốc — theo kết quả")
     db.commit()
 
@@ -2310,30 +2294,6 @@ def seed_payroll_components(db: Session) -> None:
     db.commit()
 
 
-def seed_job_grades(db: Session) -> None:
-    """Danh mục BẬC TAY NGHỀ — SEED-ONCE (chủ sửa tên/tắt bậc thì KHÔNG bị mọc lại sau restart).
-
-    Bộ hiện hành: 5 bậc tên DÂN DÃ (Thợ lành nghề → Lính mới), hạng cứng tay nhất đứng đầu.
-    Tên VÀ hệ số sản lượng lấy thẳng từ `JOB_GRADE_SEED`. Hệ số phải rót ngay từ seed: để trống
-    là `phan_bo.py` chặn chốt phân bổ sản lượng (§8), xưởng dựng DB mới sẽ đứng hình ở mẻ đầu.
-    Số seed chỉ là khởi điểm — sửa ở Hồ sơ nhân sự → "Bậc tay nghề", sửa xong không bị mọc lại.
-
-    ⚠️ Trùng ý với migration 0127 là CỐ Ý, và cần cả hai:
-      - DB thật đang chạy: `schema_migrations` chưa có 0127 ⇒ migration seed + backfill bậc cũ.
-      - DB dựng mới / test: test wipe bảng bằng `drop_all` nhưng `schema_migrations` KHÔNG phải
-        bảng model nên sống sót ⇒ migration bị coi là "đã chạy" và bỏ qua. Không có seeder này
-        thì danh mục rỗng, màn hồ sơ không có bậc nào để chọn.
-    Cả hai đều guard "đã có dòng thì thôi" nên chạy chồng cũng không nhân đôi."""
-    from sqlalchemy import func, select
-
-    from .models.employee import JOB_GRADE_SEED, JobGrade
-    if db.execute(select(func.count(JobGrade.id))).scalar_one() > 0:
-        return
-    for code, name, seq, heso in JOB_GRADE_SEED:
-        db.add(JobGrade(code=code, name=name, seq=seq, output_coefficient=heso))
-    db.commit()
-
-
 # SÁU "vai tổ" của bộ dữ liệu demo khối SX → (tên tổ, slug đặt username, tên cũ từng seed).
 #
 # Cơ cấu THẬT của xưởng là 8 tổ (kỹ thuật · cắt · in · bồi · cán phủ · bế · dán · thành phẩm/KCS),
@@ -2499,84 +2459,84 @@ def seed_san_xuat_accounts(db: Session) -> None:
     db.commit()
 
 
-# Hồ sơ demo khối SẢN XUẤT theo SLUG tổ (xem `TO_SX_SEED`): (họ tên, giới tính, chức danh, mã bậc
-# tay nghề). Khoá là slug chứ không phải tên tổ — tên tổ do người dùng đặt, đổi tên là hỏng. Mỗi tổ
+# Hồ sơ demo khối SẢN XUẤT theo SLUG tổ (xem `TO_SX_SEED`): (họ tên, giới tính, chức danh, đang
+# thử việc). Khoá là slug chứ không phải tên tổ — tên tổ do người dùng đặt, đổi tên là hỏng. Mỗi tổ
 # khai ĐỦ 10
 # ứng viên (kể cả tổ đang trống hoàn toàn) — seeder chỉ lấy đúng số còn THIẾU cho đủ
 # `_QUAN_SO_MOI_TO`, tổ nào đã đủ người thật thì không đụng tới. Chức danh bám nghề in offset
 # thật (thợ cả · thợ · phụ máy), không phải "Nhân viên 1/2/3".
-_NHAN_SU_TO_SX: dict[str, list[tuple[str, str, str, str]]] = {
+_NHAN_SU_TO_SX: dict[str, list[tuple[str, str, str, bool]]] = {
     "cheban": [
-        ("Nguyễn Hữu Tài", "male", "Kỹ thuật viên chế bản", "bac_1"),
-        ("Trần Thị Mai Lan", "female", "Thợ chế bản", "bac_2"),
-        ("Lê Quang Vinh", "male", "Thợ ghi kẽm CTP", "bac_2"),
-        ("Phạm Văn Đạt", "male", "Thợ chế bản", "bac_3"),
-        ("Đỗ Thị Ngọc Hà", "female", "Nhân viên bình bài", "bac_3"),
-        ("Vũ Minh Khôi", "male", "Phụ chế bản", "bac_4"),
-        ("Ngô Thanh Tùng", "male", "Phụ chế bản", "bac_5"),
-        ("Nguyễn Thị Kiều Trang", "female", "Nhân viên bình bài", "bac_3"),
-        ("Trần Văn Nhựt", "male", "Thợ ghi kẽm CTP", "bac_3"),
-        ("Phạm Anh Duy", "male", "Phụ chế bản", "bac_4"),
+        ("Nguyễn Hữu Tài", "male", "Kỹ thuật viên chế bản", False),
+        ("Trần Thị Mai Lan", "female", "Thợ chế bản", False),
+        ("Lê Quang Vinh", "male", "Thợ ghi kẽm CTP", False),
+        ("Phạm Văn Đạt", "male", "Thợ chế bản", False),
+        ("Đỗ Thị Ngọc Hà", "female", "Nhân viên bình bài", False),
+        ("Vũ Minh Khôi", "male", "Phụ chế bản", False),
+        ("Ngô Thanh Tùng", "male", "Phụ chế bản", True),
+        ("Nguyễn Thị Kiều Trang", "female", "Nhân viên bình bài", False),
+        ("Trần Văn Nhựt", "male", "Thợ ghi kẽm CTP", False),
+        ("Phạm Anh Duy", "male", "Phụ chế bản", False),
     ],
     "in": [
-        ("Nguyễn Văn Sáng", "male", "Thợ cả máy in", "bac_1"),
-        ("Trịnh Công Lý", "male", "Thợ in offset", "bac_2"),
-        ("Hoàng Đình Nam", "male", "Thợ in offset", "bac_2"),
-        ("Bùi Thanh Phong", "male", "Thợ pha mực", "bac_3"),
-        ("Đặng Văn Quý", "male", "Phụ máy in", "bac_4"),
-        ("Lý Thị Kim Chi", "female", "Phụ máy in", "bac_4"),
-        ("Phan Hữu Lộc", "male", "Phụ máy in", "bac_5"),
-        ("Nguyễn Trọng Nghĩa", "male", "Thợ in offset", "bac_3"),
-        ("Võ Văn Tú", "male", "Thợ pha mực", "bac_3"),
-        ("Trần Ngọc Hưng", "male", "Phụ máy in", "bac_4"),
+        ("Nguyễn Văn Sáng", "male", "Thợ cả máy in", False),
+        ("Trịnh Công Lý", "male", "Thợ in offset", False),
+        ("Hoàng Đình Nam", "male", "Thợ in offset", False),
+        ("Bùi Thanh Phong", "male", "Thợ pha mực", False),
+        ("Đặng Văn Quý", "male", "Phụ máy in", False),
+        ("Lý Thị Kim Chi", "female", "Phụ máy in", False),
+        ("Phan Hữu Lộc", "male", "Phụ máy in", True),
+        ("Nguyễn Trọng Nghĩa", "male", "Thợ in offset", False),
+        ("Võ Văn Tú", "male", "Thợ pha mực", False),
+        ("Trần Ngọc Hưng", "male", "Phụ máy in", False),
     ],
     "can": [
-        ("Trần Đăng Khoa", "male", "Thợ cả máy cán", "bac_1"),
-        ("Nguyễn Thị Bích Thủy", "female", "Thợ cán màng", "bac_2"),
-        ("Lê Văn Hậu", "male", "Thợ cán màng", "bac_2"),
-        ("Phạm Thị Hồng Nhung", "female", "Thợ ép kim", "bac_3"),
-        ("Võ Thành Trung", "male", "Phụ máy cán", "bac_4"),
-        ("Nguyễn Hoàng Duy", "male", "Phụ máy cán", "bac_4"),
-        ("Đoàn Thị Thu Thảo", "female", "Phụ máy cán", "bac_5"),
-        ("Lê Thị Diễm My", "female", "Thợ cán màng", "bac_3"),
-        ("Nguyễn Văn Cường", "male", "Thợ máy cán", "bac_3"),
-        ("Bùi Thị Kim Anh", "female", "Phụ máy cán", "bac_4"),
+        ("Trần Đăng Khoa", "male", "Thợ cả máy cán", False),
+        ("Nguyễn Thị Bích Thủy", "female", "Thợ cán màng", False),
+        ("Lê Văn Hậu", "male", "Thợ cán màng", False),
+        ("Phạm Thị Hồng Nhung", "female", "Thợ ép kim", False),
+        ("Võ Thành Trung", "male", "Phụ máy cán", False),
+        ("Nguyễn Hoàng Duy", "male", "Phụ máy cán", False),
+        ("Đoàn Thị Thu Thảo", "female", "Phụ máy cán", True),
+        ("Lê Thị Diễm My", "female", "Thợ cán màng", False),
+        ("Nguyễn Văn Cường", "male", "Thợ máy cán", False),
+        ("Bùi Thị Kim Anh", "female", "Phụ máy cán", False),
     ],
     "be": [
-        ("Nguyễn Văn Thắng", "male", "Thợ cả máy bế", "bac_1"),
-        ("Trương Minh Hải", "male", "Thợ bế", "bac_2"),
-        ("Cao Thị Lệ Quyên", "female", "Thợ xén", "bac_2"),
-        ("Hồ Văn Kiên", "male", "Thợ dán hộp", "bac_3"),
-        ("Nguyễn Thị Tuyết", "female", "Thợ dán hộp", "bac_3"),
-        ("Lâm Quốc Bảo", "male", "Phụ máy bế", "bac_4"),
-        ("Trần Văn Lợi", "male", "Phụ máy bế", "bac_5"),
-        ("Phan Văn Định", "male", "Thợ bế", "bac_3"),
-        ("Nguyễn Thị Thanh Hà", "female", "Thợ xén", "bac_3"),
-        ("Đỗ Minh Nhật", "male", "Phụ máy bế", "bac_4"),
+        ("Nguyễn Văn Thắng", "male", "Thợ cả máy bế", False),
+        ("Trương Minh Hải", "male", "Thợ bế", False),
+        ("Cao Thị Lệ Quyên", "female", "Thợ xén", False),
+        ("Hồ Văn Kiên", "male", "Thợ dán hộp", False),
+        ("Nguyễn Thị Tuyết", "female", "Thợ dán hộp", False),
+        ("Lâm Quốc Bảo", "male", "Phụ máy bế", False),
+        ("Trần Văn Lợi", "male", "Phụ máy bế", True),
+        ("Phan Văn Định", "male", "Thợ bế", False),
+        ("Nguyễn Thị Thanh Hà", "female", "Thợ xén", False),
+        ("Đỗ Minh Nhật", "male", "Phụ máy bế", False),
     ],
     "donggoi": [
-        ("Nguyễn Thị Hạnh", "female", "Trưởng ca đóng gói", "bac_2"),
-        ("Lê Thị Thanh Trúc", "female", "Nhân viên đóng gói", "bac_3"),
-        ("Phạm Văn Sơn", "male", "Nhân viên đóng gói", "bac_3"),
-        ("Trần Thị Kim Oanh", "female", "Nhân viên vào bìa", "bac_3"),
-        ("Nguyễn Văn Hoà", "male", "Nhân viên đóng gói", "bac_4"),
-        ("Đinh Thị Mỹ Duyên", "female", "Nhân viên đóng gói", "bac_4"),
-        ("Huỳnh Tấn Phát", "male", "Nhân viên đóng gói", "bac_5"),
-        ("Trần Văn Út", "male", "Nhân viên đóng gói", "bac_3"),
-        ("Nguyễn Thị Lan Chi", "female", "Nhân viên vào bìa", "bac_4"),
-        ("Hoàng Thị Ngọc Diệp", "female", "Nhân viên đóng gói", "bac_4"),
+        ("Nguyễn Thị Hạnh", "female", "Trưởng ca đóng gói", False),
+        ("Lê Thị Thanh Trúc", "female", "Nhân viên đóng gói", False),
+        ("Phạm Văn Sơn", "male", "Nhân viên đóng gói", False),
+        ("Trần Thị Kim Oanh", "female", "Nhân viên vào bìa", False),
+        ("Nguyễn Văn Hoà", "male", "Nhân viên đóng gói", False),
+        ("Đinh Thị Mỹ Duyên", "female", "Nhân viên đóng gói", False),
+        ("Huỳnh Tấn Phát", "male", "Nhân viên đóng gói", True),
+        ("Trần Văn Út", "male", "Nhân viên đóng gói", False),
+        ("Nguyễn Thị Lan Chi", "female", "Nhân viên vào bìa", False),
+        ("Hoàng Thị Ngọc Diệp", "female", "Nhân viên đóng gói", False),
     ],
     "kcs": [
-        ("Nguyễn Thị Thu Hương", "female", "Nhân viên KCS", "bac_1"),
-        ("Trần Quốc Việt", "male", "Nhân viên KCS", "bac_2"),
-        ("Lê Thị Ngọc Ánh", "female", "Nhân viên KCS", "bac_2"),
-        ("Phạm Minh Tuấn", "male", "Nhân viên kiểm hàng", "bac_3"),
-        ("Vũ Thị Hoài Thu", "female", "Nhân viên kiểm hàng", "bac_3"),
-        ("Nguyễn Đức Thịnh", "male", "Nhân viên kiểm hàng", "bac_4"),
-        ("Trần Thị Yến Nhi", "female", "Nhân viên kiểm hàng", "bac_5"),
-        ("Lê Minh Trí", "male", "Nhân viên KCS", "bac_3"),
-        ("Nguyễn Thị Phương Dung", "female", "Nhân viên kiểm hàng", "bac_4"),
-        ("Trần Đình Sang", "male", "Nhân viên kiểm hàng", "bac_4"),
+        ("Nguyễn Thị Thu Hương", "female", "Nhân viên KCS", False),
+        ("Trần Quốc Việt", "male", "Nhân viên KCS", False),
+        ("Lê Thị Ngọc Ánh", "female", "Nhân viên KCS", False),
+        ("Phạm Minh Tuấn", "male", "Nhân viên kiểm hàng", False),
+        ("Vũ Thị Hoài Thu", "female", "Nhân viên kiểm hàng", False),
+        ("Nguyễn Đức Thịnh", "male", "Nhân viên kiểm hàng", False),
+        ("Trần Thị Yến Nhi", "female", "Nhân viên kiểm hàng", True),
+        ("Lê Minh Trí", "male", "Nhân viên KCS", False),
+        ("Nguyễn Thị Phương Dung", "female", "Nhân viên kiểm hàng", False),
+        ("Trần Đình Sang", "male", "Nhân viên kiểm hàng", False),
     ],
 }
 
@@ -2590,7 +2550,7 @@ def seed_nhan_su_to_san_xuat(db: Session) -> None:
     Vì sao cần: `seed_san_xuat_accounts` chỉ đẻ 1 tổ trưởng + 2 thợ mỗi tổ — vừa đủ để đăng nhập
     xem luồng, nhưng mọi màn đọc quân số (hộp việc của tổ, đỉnh quân số ở Xếp lịch 2, chấm công,
     khoán) nhìn vào thì tổ nào cũng lèo tèo 3 người. Hàm này thêm thợ có hồ sơ ĐẦY ĐỦ: chức danh ·
-    bậc tay nghề · ca mặc định · CCCD/BHXH/thuế/ngân hàng · quá trình công tác — đúng những ô màn
+    ca mặc định · CCCD/BHXH/thuế/ngân hàng · quá trình công tác — đúng những ô màn
     Nhân sự bày ra.
 
     Idempotent HAI LỚP: tổ đã có hồ sơ mang ghi chú `_GHI_CHU_NHAN_SU_DEMO` thì bỏ qua (xoá tay rồi
@@ -2605,7 +2565,6 @@ def seed_nhan_su_to_san_xuat(db: Session) -> None:
     from .models.employee import (
         EVENT_CONFIRMED,
         EVENT_HIRED,
-        EVENT_PROMOTED,
         STATUS_ACTIVE,
         STATUS_PROBATION,
         Employee,
@@ -2645,18 +2604,15 @@ def seed_nhan_su_to_san_xuat(db: Session) -> None:
         ).scalar_one()
         if da_seed or dem >= _QUAN_SO_MOI_TO:
             continue
-        for ho_ten, gioi, chuc_danh, ma_bac in ung_vien[: _QUAN_SO_MOI_TO - dem]:
+        for ho_ten, gioi, chuc_danh, thu_viec in ung_vien[: _QUAN_SO_MOI_TO - dem]:
             stt += 1
-            bac = repo.get_job_grade_by_code(ma_bac)
-            # Lính mới (bac_5) để ở diện THỬ VIỆC — màn Nhân sự có sẵn cả hai trạng thái để soi.
-            thu_viec = ma_bac == "bac_5"
+            # Vài người để ở diện THỬ VIỆC — màn Nhân sự có sẵn cả hai trạng thái để soi.
             vao_lam = today - timedelta(days=45 if thu_viec else 210 + stt * 43)
             nam_sinh = 1986 + (stt * 7) % 18
             emp = repo.create(
                 full_name=ho_ten,
                 department_id=to.id,
                 position=chuc_danh,
-                job_grade_id=(bac.id if bac is not None else None),
                 status=(STATUS_PROBATION if thu_viec else STATUS_ACTIVE),
                 hire_date=vao_lam,
                 probation_end_date=(vao_lam + timedelta(days=60) if thu_viec else None),
@@ -2678,7 +2634,7 @@ def seed_nhan_su_to_san_xuat(db: Session) -> None:
                 default_shift_id=(ca_sx[stt % len(ca_sx)] if ca_sx else None),
                 note=_GHI_CHU_NHAN_SU_DEMO,
             )
-            # Quá trình công tác: vào làm → (chính thức) → (nâng bậc) — để tab lịch sử không rỗng.
+            # Quá trình công tác: vào làm → (chính thức) — để tab lịch sử không rỗng.
             repo.add_event(
                 employee_id=emp.id, event_type=EVENT_HIRED, effective_date=vao_lam,
                 field="status", from_value=None, to_value=STATUS_PROBATION,
@@ -2691,27 +2647,22 @@ def seed_nhan_su_to_san_xuat(db: Session) -> None:
                     field="status", from_value=STATUS_PROBATION, to_value=STATUS_ACTIVE,
                     note="Đạt yêu cầu thử việc", actor_user_id=None,
                 )
-                nang_bac = chinh_thuc + timedelta(days=400)
-                if bac is not None and nang_bac <= today:
-                    repo.add_event(
-                        employee_id=emp.id, event_type=EVENT_PROMOTED, effective_date=nang_bac,
-                        field="job_grade", from_value=None, to_value=bac.name,
-                        note="Nâng bậc thợ", actor_user_id=None,
-                    )
     db.commit()
 
 
-# Khung lương demo khối SẢN XUẤT theo BẬC TAY NGHỀ: mã bậc → LƯƠNG VỊ TRÍ. Chốt 2026-07-20: lương
-# vị trí CHÍNH LÀ lương cơ bản và cũng là MỨC ĐÓNG BH (`payroll_service._resolve_monthly`) — nên
-# tuyệt đối không khai mỗi `base_amount`, khai kiểu đó thì BHXH và đoàn phí ra 0 mà không báo lỗi.
-_LUONG_VI_TRI_THEO_BAC: dict[str, int] = {
-    "bac_1": 12_000_000,   # Thợ lành nghề
-    "bac_2": 10_000_000,   # Thợ vững
-    "bac_3": 8_500_000,    # Thợ thường
-    "bac_4": 7_000_000,    # Tập việc
-    "bac_5": 6_000_000,    # Lính mới (đang thử việc)
-}
-# Hồ sơ chưa khai bậc — 3 tài khoản/tổ do `backfill_employee_profiles` sinh ra (hồ sơ trống).
+# Khung lương demo khối SẢN XUẤT theo CHỨC DANH → LƯƠNG VỊ TRÍ (xét theo thứ tự, khớp tiền tố đầu
+# tiên thắng). Chốt 2026-07-20: lương vị trí CHÍNH LÀ lương cơ bản và cũng là MỨC ĐÓNG BH
+# (`payroll_service._resolve_monthly`) — nên tuyệt đối không khai mỗi `base_amount`, khai kiểu đó
+# thì BHXH và đoàn phí ra 0 mà không báo lỗi. Người đang thử việc: `_LUONG_VI_TRI_THU_VIEC`.
+_LUONG_VI_TRI_THEO_CHUC_DANH: tuple[tuple[str, int], ...] = (
+    ("Thợ cả", 12_000_000),
+    ("Kỹ thuật viên", 12_000_000),
+    ("Trưởng ca", 10_000_000),
+    ("Phụ", 7_000_000),
+    ("Thợ", 9_000_000),
+)
+_LUONG_VI_TRI_THU_VIEC = 6_000_000
+# Chức danh không khớp dòng nào — kể cả 3 hồ sơ/tổ do `backfill_employee_profiles` sinh (hồ sơ trống).
 _LUONG_VI_TRI_MAC_DINH = 8_500_000
 _GHI_CHU_LUONG_DEMO = "Mức demo khối sản xuất"
 
@@ -2735,10 +2686,7 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
     tay trên màn Lương sẽ không bị seeder ghi đè hay cộng thêm dòng ở lần khởi động sau."""
     from datetime import date
 
-    from sqlalchemy import select
-
-    from .models.employee import STATUS_ACTIVE, Employee, JobGrade
-    from .models.payroll import AMOUNT_MANUAL
+    from .models.employee import STATUS_ACTIVE, STATUS_PROBATION, Employee
     from .repositories.employee_repo import EmployeeRepository
     from .repositories.payroll_repo import PayrollRepository
     from .repositories.rbac_repo import RoleRepository
@@ -2755,7 +2703,6 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
         return
     r_tho = roles.get_by_name_and_department("Thợ SX", sx.id)
     r_tho_id = r_tho.id if r_tho is not None else None
-    ma_bac = {g.id: g.code for g in db.execute(select(JobGrade)).scalars()}
     today = date.today()
 
     def _ds(dept_id: int) -> list[Employee]:
@@ -2766,8 +2713,10 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
         """Mức nền + phụ cấp của 1 người. Nhận diện tổ trưởng/quản lý qua CHỨC DANH, thiếu thì
         qua TÊN — 3 hồ sơ backfill mỗi tổ không có `position`, chỉ có tên "Tổ trưởng Tổ ..."."""
         nhan = f"{emp.position or ''} {emp.full_name or ''}"
-        vi_tri = _LUONG_VI_TRI_THEO_BAC.get(ma_bac.get(emp.job_grade_id or 0, ""),
-                                            _LUONG_VI_TRI_MAC_DINH)
+        vi_tri = next((muc for tien_to, muc in _LUONG_VI_TRI_THEO_CHUC_DANH
+                       if (emp.position or "").startswith(tien_to)), _LUONG_VI_TRI_MAC_DINH)
+        if emp.status == STATUS_PROBATION:
+            vi_tri = _LUONG_VI_TRI_THU_VIEC
         trach_nhiem = 0
         if "Tổ trưởng" in nhan:
             vi_tri, trach_nhiem = 13_000_000, 2_500_000
@@ -2788,9 +2737,8 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
         }
 
     def _co_muc_nen(emp_id: int) -> bool:
-        """Người này đã có mức nền THẬT chưa. Cẩn thận: dòng `amount_mode="rule"` đời
-        `seed_payroll` để TRỐNG cả `luong_vi_tri` lẫn `base_amount`, mà nhánh tra-bảng-theo-bậc
-        đã bỏ (chủ 2026-07-20) ⇒ `_resolve_monthly` trả 0đ. Dòng như thế coi như CHƯA khai và
+        """Người này đã có mức nền THẬT chưa. Dòng cũ để TRỐNG cả `luong_vi_tri` lẫn
+        `base_amount` ⇒ `_resolve_monthly` trả 0đ. Dòng như thế coi như CHƯA khai và
         phải bù — bù bằng bản ghi MỚI cùng ngày hiệu lực (id lớn hơn thắng), KHÔNG sửa bản cũ:
         bảng này là nhật ký điều chỉnh lương."""
         ds = luong.list_salaries(emp_id)
@@ -2808,7 +2756,6 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
             # Hiệu lực từ ngày vào làm, nhưng không lùi quá đầu năm tài chính đang chạy — kỳ
             # lương nào từ 01/2026 trở đi cũng tìm thấy mức, kể cả người vào làm từ 2024.
             effective_from=max(emp.hire_date or date(2026, 1, 1), date(2026, 1, 1)),
-            amount_mode=AMOUNT_MANUAL,
             union_member=(emp.status == STATUS_ACTIVE),   # thử việc chưa vào công đoàn
             apply_self_deduction=True,
             note=_GHI_CHU_LUONG_DEMO,
@@ -2961,7 +2908,6 @@ def seed_van_phong_staff(db: Session) -> None:
     from datetime import date, timedelta
 
     from .models.employee import STATUS_ACTIVE, Employee
-    from .models.payroll import AMOUNT_MANUAL
     from .repositories.attendance_repo import AttendanceRepository
     from .repositories.employee_repo import EmployeeRepository
     from .repositories.payroll_repo import PayrollRepository
@@ -2979,8 +2925,8 @@ def seed_van_phong_staff(db: Session) -> None:
     )
 
     def _co_muc_nen(emp_id: int) -> bool:
-        """Đã có mức nền THẬT chưa — dòng `rule` đời `seed_payroll` để trống cả `luong_vi_tri`
-        lẫn `base_amount` nên ra 0đ, coi như CHƯA khai (xem `seed_tai_khoan_va_luong_sx`)."""
+        """Đã có mức nền THẬT chưa — dòng cũ để trống cả `luong_vi_tri` lẫn `base_amount` nên
+        ra 0đ, coi như CHƯA khai (xem `seed_tai_khoan_va_luong_sx`)."""
         ds = luong.list_salaries(emp_id)
         if not ds:
             return False
@@ -3029,7 +2975,6 @@ def seed_van_phong_staff(db: Session) -> None:
             luong.create_salary(
                 employee_id=emp.id,
                 effective_from=max(emp.hire_date or date(2026, 1, 1), date(2026, 1, 1)),
-                amount_mode=AMOUNT_MANUAL,
                 union_member=True,
                 apply_self_deduction=True,
                 note=_GHI_CHU_LUONG_DEMO,
@@ -3162,7 +3107,6 @@ def seed_all(db: Session) -> None:
     from .seed_rebuild import seed_don_vi_do
     seed_don_vi_do(db)
     seed_payroll_components(db)  # danh mục khoản thu nhập + cờ chịu thuế TNCN
-    seed_job_grades(db)  # danh mục bậc tay nghề (khối SX) — vận hành thật, không gated demo
     seed_pit_brackets(db)  # biểu thuế TNCN — dữ liệu vận hành thật (Lương đọc tính thuế)
     if settings.seed_demo:
         seed_kd_staff(db)

@@ -52,6 +52,17 @@ describe("ThsxLenhGroups", () => {
     expect(screen.getByText("Bế")).toBeInTheDocument();
   });
 
+  it("lệnh có việc chờ tổ xác nhận: chấm đỏ trên dòng lệnh và mở sẵn dù không phải lệnh đầu", () => {
+    const cho = new Map([[9, { nhan: 1, kcs: 0, hoTro: 0 }]]);
+    render(<ThsxLenhGroups lenh={lenh} selectedId={null} cho={cho}
+      render={(v) => <ul>{v.map((w) => <li key={w.id}>{w.ten_cong_doan}</li>)}</ul>} />);
+    expect(screen.getByText("Bế")).toBeInTheDocument();
+    expect(screen.getByText("In 4 màu")).toBeInTheDocument();
+    const cham = screen.getAllByRole("img", { name: "1 bàn giao chờ nhận" });
+    expect(cham).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /BG26-0004/ })).toContainElement(cham[0]);
+  });
+
   it("lệnh chưa xếp giờ nói rõ là chưa xếp, không hiện ô giờ trống", () => {
     render(<ThsxLenhGroups lenh={lenh} selectedId={null}
       render={() => null} />);

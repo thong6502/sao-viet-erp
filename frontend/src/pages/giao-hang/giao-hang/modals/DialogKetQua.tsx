@@ -6,6 +6,7 @@ import type { DeliveryTrip, KetQuaInput } from "../../../../api/client";
 import { api } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { Icon } from "../../../../components/Icons";
+import { gomCum, nhanCum } from "../../gomCum";
 import type { DongConLai } from "../shared/types";
 
 // =============================================================================
@@ -45,10 +46,13 @@ export function DialogKetQua({
             mo_ta: l.mo_ta,
             don_vi_tinh: l.don_vi_tinh,
             con: l.qty - l.da_giao,
+            cum_khoa: l.cum_khoa, cum_ten: l.cum_ten, cum_dvt: l.cum_dvt,
           }))
           .filter((l) => l.con > 0);
         setConLai(ds);
-        setNhan(Object.fromEntries(ds.map((l) => [l.order_line_id, String(l.con)])));
+        setNhan(Object.fromEntries(
+          gomCum(ds).map((c) => [c.dau.order_line_id, String(Math.min(...c.dong.map((d) => d.con)))]),
+        ));
       })
       .catch(() => setConLai([]));
   }, [token, trip.request_id]);
@@ -61,10 +65,11 @@ export function DialogKetQua({
       xac_nhan_km_lon: xacNhanKm,
     };
     if (ketQua === "thanh_cong" || ketQua === "giao_thieu") body.nguoi_nhan_thuc_te = nguoiNhan;
+    // Cụm bán nhận cùng nhau: gửi dòng đầu cụm, máy chủ ghi cho mọi dòng của cụm.
     if (ketQua === "giao_thieu")
-      body.so_thuc_nhan = conLai.map((l) => ({
-        order_line_id: l.order_line_id,
-        qty: Number(nhan[l.order_line_id] ?? 0),
+      body.so_thuc_nhan = cum.map((c) => ({
+        order_line_id: c.dau.order_line_id,
+        qty: Number(nhan[c.dau.order_line_id] ?? 0),
       }));
     if (ketQua === "that_bai") {
       body.ly_do_that_bai = lyDo;
@@ -84,6 +89,7 @@ export function DialogKetQua({
   };
 
   const kmLon = Number(km) > 500;
+  const cum = gomCum(conLai);
 
   return (
     <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
@@ -133,28 +139,32 @@ export function DialogKetQua({
                 {ketQua === "thanh_cong" ? "Khách nhận đủ" : "Số khách thực nhận"}
               </legend>
               {conLai.length === 0 && <p className="rc__sub">Không còn hàng nào để giao.</p>}
-              {conLai.map((l) => (
+              {cum.map((c) => {
+                const l = c.dau;
+                const conCum = Math.min(...c.dong.map((d) => d.con));
+                return (
                 <div key={l.order_line_id} className="gh-pick__row">
                   <span className="gh-pick__tick">
                     <span>
-                      {l.mo_ta}
-                      <em> · còn {l.con} {l.don_vi_tinh}</em>
+                      {nhanCum(c)}
+                      <em> · còn {conCum} {c.donVi}</em>
                     </span>
                   </span>
                   <input
                     className="input gh-pick__qty"
-                    type="number" min="0" step="1" max={l.con}
+                    type="number" min="0" step="1" max={conCum}
                     // Thành công = nhận đủ ⇒ khoá ô, chỉ để XEM. Muốn sửa số thì đổi kết quả
                     // sang "Giao thiếu" — để lựa chọn nằm ở dropdown, không nằm ở việc gõ số.
                     disabled={ketQua === "thanh_cong"}
-                    aria-label={`Số thực nhận — ${l.mo_ta ?? ""}`}
-                    value={ketQua === "thanh_cong" ? String(l.con) : (nhan[l.order_line_id] ?? "")}
+                    aria-label={`Số thực nhận — ${c.ten}`}
+                    value={ketQua === "thanh_cong" ? String(conCum) : (nhan[l.order_line_id] ?? "")}
                     onChange={(e) =>
                       setNhan((p) => ({ ...p, [l.order_line_id]: e.target.value }))
                     }
                   />
                 </div>
-              ))}
+                );
+              })}
             </fieldset>
           )}
 

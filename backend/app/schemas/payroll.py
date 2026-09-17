@@ -176,15 +176,8 @@ class LatePenaltyBracketsOut(BaseModel):
     items: list[LatePenaltyBracketOut]
 
 
-# --- salary_rate_rules ------------------------------------------------------
-
-
-# (07/09/2026) `RuleIn`/`RuleOut`/`RulesOut` gỡ cùng route `/rules` (bảng mức lương theo bậc — code chết).
-
-
 class SalaryIn(BaseModel):
     effective_from: date
-    amount_mode: str = Field(default="manual", pattern="^(rule|manual|dept_row)$")
     base_amount: float | None = Field(default=None, ge=0)
     # MỨC LƯƠNG của NV — gõ riêng từng ô. Lương vị trí = lương cơ bản = mức đóng BH.
     luong_vi_tri: float = Field(default=0, ge=0)
@@ -221,7 +214,6 @@ class SalaryOut(BaseModel):
     effective_from: date
     effective_to: date | None = None
     is_current: bool = False
-    amount_mode: str
     base_amount: float | None = None
     luong_vi_tri: float = 0
     luong_trach_nhiem: float = 0
@@ -387,7 +379,6 @@ class LineOut(BaseModel):
     employee_code: str | None = None       # router fills
     employee_name: str | None = None
     department_name: str | None = None
-    payroll_group: str | None = None
     bank_account: str | None = None
     bank_name: str | None = None
     is_probation: bool

@@ -17,7 +17,7 @@ import {
   type UserBrief,
 } from "../../../api/client";
 import { useAuth } from "../../../auth/useAuth";
-import { useCan } from "../../../auth/permissions";
+import { useCan, useReloadPermissions } from "../../../auth/permissions";
 import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../../../components/DiscardChangesDialog";
@@ -74,6 +74,7 @@ export function DepartmentsPage({
 }: { onDeptChanged?: () => void; navigate?: NavigateFn } = {}) {
   const { token, user } = useAuth();
   const can = useCan();
+  const reloadPermissions = useReloadPermissions();
   const canCreateDept = can("phong_ban", "create");
   const canUpdateDept = can("phong_ban", "update");
   const canDeleteDept = can("phong_ban", "delete");
@@ -1102,7 +1103,12 @@ export function DepartmentsPage({
       if (current && current.name !== name) {
         await api.rbac.renameRole(token, editRoleId, name);
       }
-      if (canManagePerms) await api.rbac.savePermissions(token, editRoleId, editRoleMatrix);
+      if (canManagePerms) {
+        await api.rbac.savePermissions(token, editRoleId, editRoleMatrix);
+        // Vai vừa lưu có thể chính là vai của người đang ngồi — hỏi lại quyền để menu/nút đổi
+        // ngay, không phải F5. Hỏi luôn chứ không so vai: một cú gọi rẻ, khỏi tra mình mang vai nào.
+        reloadPermissions();
+      }
       if (selectedId != null) setRoles(await api.rbac.roles(token, selectedId));
       setEditRoleOpen(false);
       setEditRoleId(null);

@@ -1,13 +1,12 @@
-// KCS kiêm nhiệm (mg 0250) — KPI strip + filter bar + 3 biểu đồ, đọc từ `GET /api/san-xuat/kcs/bao-cao`.
-//
-// Task 9 dựng KHUNG này đã TỰ HOẠT ĐỘNG (gọi đúng API, hiện đúng số) — KHÔNG phải placeholder.
-// Task 10 sẽ hợp nhất filter này với bảng "Kết quả đã ghi" + nút Xuất Excel về một state chung nếu
-// cần (xem docs/design-kcs-kiem-nhiem-ui.md mục 7); ở đây filter đang là NGUỒN RIÊNG cho dashboard.
+// Màn KCS (KCS theo lệnh, mg 0306) — KPI strip + filter bar + 3 biểu đồ, đọc từ `GET /kcs/bao-cao`.
 //
 // KPI lấy THẲNG từ response BE (tong_luot/tong_dat/tong_loi/ty_le_dat) — KHÔNG tính lại ở FE.
-import { useEffect, useState } from "react";
-import { ApiError, api, type SxKcsBaoCao, type SxKcsBatchLoai, type CongDoanLite } from "../../api/client";
-import { useAuth } from "../../auth/useAuth";
+//
+// Dữ liệu `bao-cao` do `KcsTheoLenhPage` GỌI rồi truyền xuống: cùng một response còn nuôi bảng
+// "Kết quả đã ghi" (khoá `lich_su`) — để mỗi bên tự gọi là hai lượt mạng cho cùng bộ lọc, và hai
+// khối có thể lệch nhau một nhịp. Loại lần kiểm (routing/đột xuất/điểm kiểm) ĐÃ GỠ: nay chỉ còn
+// một kiểu "kiểm công đoạn".
+import { type SxKcsBaoCao, type SxKcsCongDoanLoc } from "../../api/client";
 import { MonthBars, MixDonut } from "../../components/charts";
 import { Select, type SelectOption } from "../../components/Select";
 import { num } from "../keHoachSxShared";
@@ -15,20 +14,13 @@ import { num } from "../keHoachSxShared";
 export interface KcsDashFilters {
   tu: string;
   den: string;
-  loai: SxKcsBatchLoai | null;
   congDoanId: number | null;
   tuKhoa: string;
 }
 
 export const KCS_DASH_FILTERS_RONG: KcsDashFilters = {
-  tu: "", den: "", loai: null, congDoanId: null, tuKhoa: "",
+  tu: "", den: "", congDoanId: null, tuKhoa: "",
 };
-
-const LOAI_OPTIONS: SelectOption<SxKcsBatchLoai | null>[] = [
-  { value: null, label: "Tất cả loại" },
-  { value: "routing", label: "Routing" },
-  { value: "dot_xuat", label: "Đột xuất" },
-];
 
 function fmtNgay(iso: string): string {
   const d = new Date(iso);
@@ -37,46 +29,18 @@ function fmtNgay(iso: string): string {
 }
 
 export function KcsDashboard({
-  teamId, filters, onFiltersChange, refreshKey, congDoanOpts,
+  filters, onFiltersChange, congDoanOpts, data, loading, error,
 }: {
-  /** Tổ đang mở màn — mặc định phạm vi báo cáo về ĐÚNG tổ này (header "KCS · Tổ …"), không gộp
-   *  toàn nhà máy. Không phơi ra ô lọc riêng (đúng "bộ lọc gọn" §6.2) vì đã ngầm định bởi trang. */
-  teamId: number;
   filters: KcsDashFilters;
   onFiltersChange: (f: KcsDashFilters) => void;
-  /** Đổi giá trị (page bump sau mỗi lần "Lưu kết quả") ⇒ gọi lại `bao-cao` dù filters không đổi —
-   *  nếu không KPI/biểu đồ đứng yên sau khi vừa ghi kết quả (chỉ 2 bảng Chờ/Đã ghi tự làm mới). */
-  refreshKey?: number;
-  /** Danh sách công đoạn cho dropdown lọc — fetch ở `ThucHienKcsPage` (dùng chung để lọc cả bảng
+  /** Danh sách công đoạn cho dropdown lọc — fetch ở `KcsTheoLenhPage` (dùng chung để lọc cả bảng
    *  "Kết quả đã ghi"), truyền xuống đây thay vì fetch trùng lần thứ hai. */
-  congDoanOpts: CongDoanLite[];
+  congDoanOpts: SxKcsCongDoanLoc[];
+  /** Response `GET /kcs/bao-cao` do trang cha giữ — người KCS thấy mọi tổ. */
+  data: SxKcsBaoCao | null;
+  loading: boolean;
+  error: string | null;
 }) {
-  const { token } = useAuth();
-  const [data, setData] = useState<SxKcsBaoCao | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!token) return;
-    let alive = true;
-    setLoading(true);
-    setError(null);
-    api.sanXuat.baoCaoKcs(token, {
-      tu: filters.tu || null,
-      den: filters.den || null,
-      kcs_department_id: teamId,
-      tu_khoa: filters.tuKhoa || null,
-      cong_doan_id: filters.congDoanId,
-      loai: filters.loai,
-    })
-      .then((r) => { if (alive) { setData(r); setLoading(false); } })
-      .catch((e) => {
-        if (!alive) return;
-        setError(e instanceof ApiError ? e.message : "Không tải được báo cáo KCS.");
-        setLoading(false);
-      });
-    return () => { alive = false; };
-  }, [token, teamId, filters.tu, filters.den, filters.tuKhoa, filters.congDoanId, filters.loai, refreshKey]);
 
   const congDoanOptions: SelectOption<number | null>[] = [
     { value: null, label: "Tất cả công đoạn" },
@@ -97,10 +61,6 @@ export function KcsDashboard({
         <input
           type="date" value={filters.den} aria-label="Đến ngày"
           onChange={(e) => onFiltersChange({ ...filters, den: e.target.value })}
-        />
-        <Select
-          value={filters.loai} options={LOAI_OPTIONS}
-          onChange={(v) => onFiltersChange({ ...filters, loai: v })}
         />
         <Select
           value={filters.congDoanId} options={congDoanOptions}

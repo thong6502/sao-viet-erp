@@ -173,6 +173,32 @@ def test_lay_dung_buoc_cua_cac_lenh_trong_trang(db, to_co_3_lenh_9_buoc):
         assert k in khoa
 
 
+def test_loc_cho_xac_nhan_giu_ca_lenh_va_mat_trang_khong_doi(db, to_co_3_lenh_9_buoc):
+    """Ô "chờ xác nhận": chỉ còn lệnh chứa công đoạn đang chờ, nhưng lệnh đó vẫn đủ mọi công đoạn
+    của tổ và giữ đúng mốc sớm/muộn như bàn không lọc (HAVING, không WHERE). Tập rỗng ⇒ trang rỗng."""
+    to_id = to_co_3_lenh_9_buoc
+    repo = SanXuatRepository(db)
+    tat_ca, _ = repo.lenh_cua_to_phan_trang({to_id}, trang=1, co_trang=10)
+    (k0, _, _), (k1, _, _), _k2 = tat_ca
+    # Dồn bước của lệnh đầu sang lệnh thứ hai: lệnh thứ hai có hai bước, bước đang chờ là bước MUỘN.
+    t0 = datetime(2026, 9, 21, 8, 0)
+    som = repo.cong_viec_cua_lenh({to_id}, [k1])[0]
+    cho = repo.cong_viec_cua_lenh({to_id}, [k0])[0]
+    som.du_kien_bat_dau, som.du_kien_ket_thuc = t0, t0 + timedelta(hours=1)
+    cho.lsx_id = som.lsx_id
+    cho.du_kien_bat_dau, cho.du_kien_ket_thuc = t0 + timedelta(hours=5), t0 + timedelta(hours=6)
+    db.commit()
+    khong_loc = {k: (s, m) for k, s, m in repo.lenh_cua_to_phan_trang({to_id}, co_trang=10)[0]}
+
+    rows, tong = repo.lenh_cua_to_phan_trang({to_id}, trang=1, co_trang=10, chi_cong_viec_ids={cho.id})
+    assert tong == 1
+    assert rows == [(k1, *khong_loc[k1])]
+    assert rows[0][1] == t0 or rows[0][1].replace(tzinfo=None) == t0
+    assert {cv.id for cv in repo.cong_viec_cua_lenh({to_id}, [k1])} == {som.id, cho.id}
+
+    assert repo.lenh_cua_to_phan_trang({to_id}, chi_cong_viec_ids=set()) == ([], 0)
+
+
 def test_loc_theo_nguoi_duoc_giao_chay_o_SQL_truoc_khi_cat_trang(
     db, to_co_3_lenh_9_buoc, tho_chi_lam_lenh_thu_3,
 ):

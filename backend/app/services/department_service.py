@@ -213,8 +213,6 @@ class DepartmentService:
                     "total_role_count": tr,
                     "total_user_count": tu,
                     "total_employee_count": te,
-                    "salary_mechanism": dept.salary_mechanism,
-                    "probation_ratio": float(dept.probation_ratio),
                     "has_piece_work": dept.has_piece_work,
                 }
             )
@@ -251,8 +249,6 @@ class DepartmentService:
             "total_role_count": total_roles,
             "total_user_count": total_users,
             "total_employee_count": total_emps,
-            "salary_mechanism": dept.salary_mechanism,
-            "probation_ratio": float(dept.probation_ratio),
             "has_piece_work": dept.has_piece_work,
         }
 
@@ -407,15 +403,9 @@ class DepartmentService:
         self.departments.set_head(dept, head_user_id)
         self.departments.set_level(dept, level_id)
         self.departments.set_parent(dept, parent_id)
-        # Bộ nguyên tắc lương (Pha 1): chỉ đụng khi client gửi (giữ nguyên nếu bỏ trống).
-        self.departments.set_salary_policy(
-            dept,
-            # Cơ chế lương / % thử việc theo phòng: DORMANT 07/09/2026 — giữ nguyên số cũ.
-            salary_mechanism=dept.salary_mechanism,
-            probation_ratio=float(dept.probation_ratio),
-            has_piece_work=has_piece_work
-            if has_piece_work is not None
-            else dept.has_piece_work,
+        # Cờ có lương khoán: chỉ đụng khi client gửi (giữ nguyên nếu bỏ trống).
+        self.departments.set_has_piece_work(
+            dept, has_piece_work if has_piece_work is not None else dept.has_piece_work,
         )
         self.departments.set_la_san_xuat(dept, la_san_xuat)
         # Cờ khối Kinh doanh: KHÔNG gửi = giữ nguyên (khác `la_san_xuat` vốn luôn ghi đè). Màn

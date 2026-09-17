@@ -239,8 +239,8 @@ Ba khoá dữ liệu (grep để chỉnh đúng chỗ):
    `if (baseId === "thuc-hien-sx") { const teamId = Number(activeId.split(":")[1]); const t = teamList.find(x=>x.id===teamId); return <ThucHienSxPage key={`thsx-${teamId}`} teamId={teamId} tenTo={t?.ten} eventTick={quoteTick} onBadgeStale={reloadTeams} .../>; }`
 6. SSE (khuôn nhánh trong `connectQuoteEvents`, dòng 512+): thêm nhánh
    `else if (readable.has("san_xuat") && e.type === "san_xuat_cong_viec_changed") { reloadTeams(); setQuoteTick(n=>n+1); }`
-   → badge tổ nhảy + bàn đang mở tự refetch tức thì (không refresh). Kênh SSE cho `san_xuat` **đã mở
-   sẵn** — `appShellRealtime.ts::REALTIME_MODULES` đã liệt kê `"san_xuat"`.
+   → badge tổ nhảy + bàn đang mở tự refetch tức thì (không refresh). Kênh SSE **mở cho mọi tài khoản
+   đăng nhập** (từ 17/09/2026 — danh sách `REALTIME_MODULES` đã gỡ).
    Nhánh `"san_xuat_duoc_giao_viec"` (đẩy riêng cho người vừa được giao) → toast cá nhân "Bạn được
    giao việc mới" (tuỳ chọn, nếu người dùng có tài khoản).
 

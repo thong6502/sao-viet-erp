@@ -16,7 +16,7 @@ from app.models.refresh_token import RefreshToken
 from app.repositories.refresh_token_repo import RefreshTokenRepository
 from app.repositories.user_repo import UserRepository
 from app.security import hash_refresh_token
-from app.services.refresh_service import RefreshError, RefreshTokenService
+from app.services.refresh_service import REUSE_GRACE, RefreshError, RefreshTokenService
 
 
 @pytest.fixture
@@ -55,10 +55,18 @@ def test_rotate_keeps_same_family(db):
     assert repo.get_by_hash(hash_refresh_token(new_raw)).family_id == fam
 
 
+def _lui_luc_thu_hoi(db, raw, giay):
+    """Đẩy mốc thu hồi của token về quá khứ — giả lập replay đến SAU `giay` giây."""
+    row = RefreshTokenRepository(db).get_by_hash(hash_refresh_token(raw))
+    row.revoked_at = datetime.now(timezone.utc) - timedelta(seconds=giay)
+    db.commit()
+
+
 def test_replay_of_revoked_token_revokes_family(db):
     svc = _service(db)
     raw = svc.issue(_admin(db))
     new_raw, _ = svc.rotate(raw)  # raw is now revoked; new_raw is active
+    _lui_luc_thu_hoi(db, raw, REUSE_GRACE.total_seconds() + 1)
 
     # Reusing the old (revoked) token is a theft signal: raises AND kills the family.
     with pytest.raises(RefreshError):
@@ -69,6 +77,37 @@ def test_replay_of_revoked_token_revokes_family(db):
     assert sibling is not None and sibling.revoked_at is not None
     with pytest.raises(RefreshError):
         svc.rotate(new_raw)
+
+
+def test_replay_ngay_sau_khi_xoay_la_tai_lai_trang_khong_phai_trom(db):
+    """Tải lại trang cắt ngang /refresh: máy chủ đã xoay raw→new_raw nhưng trình duyệt không kịp
+    nhận cookie mới, trang mới gửi lại raw. Trong khoảng ân hạn ⇒ cấp token mới CÙNG họ và thu hồi
+    new_raw bị bỏ rơi (mỗi họ chỉ một token sống), KHÔNG giết cả họ."""
+    svc = _service(db)
+    repo = RefreshTokenRepository(db)
+    admin = _admin(db)
+    raw = svc.issue(admin)
+    fam = repo.get_by_hash(hash_refresh_token(raw)).family_id
+    new_raw, _ = svc.rotate(raw)
+
+    lai_raw, user = svc.rotate(raw)
+    assert user.id == admin.id
+    assert lai_raw not in (raw, new_raw)
+    assert repo.get_by_hash(hash_refresh_token(lai_raw)).family_id == fam
+    assert repo.get_by_hash(hash_refresh_token(new_raw)).revoked_at is not None
+    assert [t.token_hash for t in repo.list_active_for_user(admin.id)] == [hash_refresh_token(lai_raw)]
+    # Phiên tiếp tục xoay bình thường.
+    svc.rotate(lai_raw)
+
+
+def test_replay_trong_an_han_nhung_ho_da_dang_xuat_van_401(db):
+    """Ân hạn chỉ cứu khi họ còn token sống. Đăng xuất (hoặc khoá) rồi gửi lại token cũ ⇒ 401."""
+    svc = _service(db)
+    raw = svc.issue(_admin(db))
+    new_raw, _ = svc.rotate(raw)
+    svc.revoke(new_raw)  # đăng xuất
+    with pytest.raises(RefreshError):
+        svc.rotate(raw)
 
 
 def test_unknown_token_raises(db):

@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint,
+    DateTime, ForeignKey, Integer, String, UniqueConstraint,
     false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -122,12 +122,7 @@ class SanXuatKhoangThamGia(Base):
     rút/chuyển người. `ket_thuc IS NULL` = đang mở.
 
     LUẬT §7.1: một người KHÔNG được có hai khoảng MỞ cùng lúc (không chồng giờ). Service chặn mở
-    khoảng thứ hai khi người đó còn khoảng mở ở bất kỳ công việc nào.
-
-    SNAPSHOT BẬC (§8, Giai đoạn 4): `job_grade_id` + `output_coefficient` được ĐÓNG BĂNG tại lúc mở
-    khoảng (engine đọc `Employee.job_grade_id` + `JobGrade.output_coefficient`). Danh mục bậc đổi về
-    sau KHÔNG viết lại khoảng đang chạy/đã xong. NULL = người chưa gán bậc / bậc chưa khai hệ số →
-    §8: KHÔNG chặn ghi sản xuất nhưng CHẶN chốt phân bổ (engine cần hệ số để chia trọng số §12.2)."""
+    khoảng thứ hai khi người đó còn khoảng mở ở bất kỳ công việc nào."""
 
     __tablename__ = "san_xuat_khoang_tham_gia"
 
@@ -143,11 +138,6 @@ class SanXuatKhoangThamGia(Base):
     )
     bat_dau: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ket_thuc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Ảnh chụp bậc tay nghề + hệ số sản lượng tại lúc mở khoảng (§8) — dùng để chia trọng số §12.2.
-    job_grade_id: Mapped[int | None] = mapped_column(
-        ForeignKey("job_grades.id"), nullable=True
-    )
-    output_coefficient: Mapped[float | None] = mapped_column(Numeric(6, 3), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(

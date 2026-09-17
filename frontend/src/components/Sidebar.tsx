@@ -57,7 +57,7 @@ export const NAV: NavSection[] = [
     id: "tong-quan",
     label: "Tổng quan",
     items: [
-      { id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" },
+      { id: "dashboard", label: "Trang chủ", icon: "grid", module: "dashboard" },
       { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
       // "Nội quy công ty" ĐÃ DỜI xuống section "Nhân sự & Lương" (chốt của chủ 09/08/2026):
       // nội quy lao động là tài liệu của HCNS, để ở "Tổng quan" thì không ai đoán ra chỗ tìm.

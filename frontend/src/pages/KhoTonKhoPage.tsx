@@ -1575,6 +1575,10 @@ function MaterialHistoryDrawer({
   }, [nhap, xuat, lotById]);
   // Tab "Lô tồn" = các lô CÒN TỒN (sl_con_lai > 0) — số lô đang thực sự có hàng của mã này tại kho.
   const loTon = useMemo(() => nhap.filter((l) => l.sl_con_lai > 0), [nhap]);
+  // Thành phẩm: lô mang nguồn (lệnh / đơn / khách, đọc ở lô gốc nên sống qua điều chuyển) + giá bán
+  // từ đơn. Giấy, vật tư không có nguồn ⇒ không bày hai cột này.
+  const coNguon = useMemo(() => nhap.some((l) => l.order_ma || l.lsx_ma), [nhap]);
+  const coGiaBan = canViewCost && nhap.some((l) => l.don_gia_ban != null);
   const nhapPaged = nhapThuong.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
   const xuatPaged = xuatThuong.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
   const chuyenPaged = chuyenRows.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
@@ -1837,10 +1841,12 @@ function MaterialHistoryDrawer({
                     <tr>
                       <th style={{ minWidth: 130 }}>Phiếu</th>
                       <th style={{ width: 96 }}>Ngày nhập</th>
+                      {coNguon && <th style={{ minWidth: 140 }}>Đơn · Khách</th>}
                       <th className="kho-num">Còn lại</th>
                       <th style={{ minWidth: 96 }}>Vị trí</th>
                       <th style={{ width: 96 }}>HSD</th>
                       {canViewCost && <th className="kho-num">Đơn giá</th>}
+                      {coGiaBan && <th className="kho-num">Giá bán</th>}
                       {canViewCost && <th className="kho-num">Giá trị</th>}
                     </tr>
                   </thead>
@@ -1858,11 +1864,13 @@ function MaterialHistoryDrawer({
                           )}
                         </td>
                         <td className="kho-lines__code">{fmtDateISO(lot.ngay_nhap)}</td>
+                        {coNguon && <NguonLoCell lot={lot} />}
                         <td className="kho-num">{`${fmtQty(lot.sl_con_lai)} ${dvtGoc}`.trim()}</td>
                         <td className="kho-lines__vt">{lot.vi_tri ?? "—"}</td>
                         <HsdCell hsd={lot.hsd} />
-                        {canViewCost && (
-                          <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>
+                        {canViewCost && <GiaGocCell lot={lot} />}
+                        {coGiaBan && (
+                          <td className="kho-num">{lot.don_gia_ban != null ? money(lot.don_gia_ban) : "—"}</td>
                         )}
                         {canViewCost && (
                           <td className="kho-num">
@@ -1885,12 +1893,14 @@ function MaterialHistoryDrawer({
                     <tr>
                       <th style={{ minWidth: 130 }}>Phiếu</th>
                       <th style={{ width: 96 }}>Ngày nhập</th>
+                      {coNguon && <th style={{ minWidth: 140 }}>Đơn · Khách</th>}
                       {/* SL yêu cầu (số đã xin trên yêu cầu sinh ra lô) đứng TRƯỚC SL nhập thực tế. */}
                       <th className="kho-num">SL yêu cầu</th>
                       <th className="kho-num">SL nhập</th>
                       <th style={{ minWidth: 96 }}>Vị trí</th>
                       <th style={{ width: 96 }}>HSD</th>
                       {canViewCost && <th className="kho-num">Đơn giá</th>}
+                      {coGiaBan && <th className="kho-num">Giá bán</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -1908,6 +1918,7 @@ function MaterialHistoryDrawer({
                           )}
                         </td>
                         <td className="kho-lines__code">{fmtDateISO(lot.ngay_nhap)}</td>
+                        {coNguon && <NguonLoCell lot={lot} />}
                         <td className="kho-num">
                           {lot.sl_de_nghi != null
                             ? `${fmtQty(lot.sl_de_nghi)} ${dvtYeuCau(lot.dvt_yeu_cau)}`.trim()
@@ -1919,8 +1930,9 @@ function MaterialHistoryDrawer({
                             cột thủ kho đọc rồi cầm xuống kho, phải rõ như các cột số. */}
                         <td className="kho-lines__vt">{lot.vi_tri ?? "—"}</td>
                         <HsdCell hsd={lot.hsd} />
-                        {canViewCost && (
-                          <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>
+                        {canViewCost && <GiaGocCell lot={lot} />}
+                        {coGiaBan && (
+                          <td className="kho-num">{lot.don_gia_ban != null ? money(lot.don_gia_ban) : "—"}</td>
                         )}
                       </tr>
                     ))}
@@ -2280,6 +2292,32 @@ function DieuChuyenDialog({
       </div>
     </ConfirmDialog>
   );
+}
+
+/** Ô nguồn lô thành phẩm: đơn (kèm lệnh) trên, khách dưới. Lô không nguồn ⇒ "—". */
+function NguonLoCell({ lot }: { lot: StockLot }) {
+  if (!lot.order_ma && !lot.lsx_ma) return <td className="kho-lines__code">—</td>;
+  return (
+    <td>
+      <div>{[lot.order_ma, lot.lsx_ma].filter(Boolean).join(" · ")}</div>
+      {lot.khach_hang && <div className="kho-lines__code">{lot.khach_hang}</div>}
+    </td>
+  );
+}
+
+/** Ô đơn giá lô. Thành phẩm KCS còn giá gốc 0 ⇒ nhãn "Chưa có giá gốc" (kế toán gõ ở Báo cáo kho ›
+ *  Giá gốc thành phẩm) thay vì in số 0 như thể hàng miễn phí. */
+function GiaGocCell({ lot }: { lot: StockLot }) {
+  if (lot.tu_kcs && !lot.don_gia_nhap) {
+    return (
+      <td className="kho-num">
+        <span className="badge-sem badge-sem--amber" title="Kế toán kho gõ ở Báo cáo kho › Giá gốc thành phẩm">
+          Chưa có giá gốc
+        </span>
+      </td>
+    );
+  }
+  return <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>;
 }
 
 // Tab "Tổng quan" của drawer vật tư — CHỈ ĐỌC, gộp từ material.lots + threshold. Thanh gauge

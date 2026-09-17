@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -122,6 +123,10 @@ class StockRequest(Base):
         Integer, ForeignKey("kho_hang.id"), index=True, nullable=True
     )
     xuat_voucher_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # NGUỒN: công đoạn KCS cuối (`san_xuat_cong_viec.id`) gửi thành phẩm vào kho bằng yêu cầu NHẬP
+    # này. Soft ref cùng khuôn `delivery_trip_id`: kho không biết gì về cột này, còn Lệnh SX / KCS đọc
+    # ngược "đã đề nghị / kho đã nhận". Thêm mg 0309.
+    san_xuat_cong_viec_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     trang_thai: Mapped[str] = mapped_column(
         String(16), index=True, nullable=False, server_default=REQ_DRAFT, default=REQ_DRAFT
@@ -214,6 +219,9 @@ class StockRequestLine(Base):
     # Đơn giá NHẬP do NGƯỜI YÊU CẦU khai (chỉ yêu cầu NHẬP — họ biết giá NCC). Phiếu KẾ THỪA
     # giá này khi ghi sổ; kho KHÔNG sửa. Null với yêu cầu XUẤT (giá = giá vốn đích danh của lô).
     don_gia: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # GIÁ BÁN một đơn vị (thành phẩm nhập từ KCS): Σ thành tiền cụm bán ÷ SL cụm, lấy từ đơn. Chỉ để
+    # đọc — KHÔNG vào sổ / NXT; giá gốc vào sổ vẫn là `don_gia` (= 0, kế toán kho sửa sau). Mg 0309.
+    don_gia_ban: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # GỠ mg 0171: `don_vi_phu` + `he_so_quy_doi` — người đề nghị tự khai hệ số quy đổi cho từng
     # dòng. Nay quy đổi lấy từ đồ thị đơn vị dùng chung (`don_vi_quy_doi` + quy cách đóng gói của
     # mặt hàng), nên khai tay ở đây chỉ tạo ra nguồn số thứ hai — mà hai nguồn thì sớm muộn lệch,

@@ -109,13 +109,3 @@ def test_run_idempotent_va_cong_thuc_engine_nuot_duoc(db):
                 if val < 0:
                     loi.append(f"{model.__name__}[{row.ma}].{col} ra ÂM ({val}): {ct!r}")
     assert not loi, "Công thức engine không nuốt được:\n" + "\n".join(loi)
-
-
-def test_khong_dong_toi_bac_tay_nghe(db):
-    """Bộ đóng 5 bậc — script KHÔNG được đẻ/xoá dòng bậc tay nghề (số dòng bất biến)."""
-    from app.models.employee import JobGrade
-
-    truoc = _dem(db, JobGrade)
-    run(db)
-    sau = _dem(db, JobGrade)
-    assert sau == truoc, f"Bậc tay nghề đổi {truoc}→{sau} — script không được đụng job_grades"

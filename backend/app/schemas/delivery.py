@@ -54,6 +54,11 @@ class DeliveryRequestLineOut(BaseModel):
     hang_id: int | None = None
     hang_ten: str | None = None
     dvt: str | None = None
+    #: Cụm bán nhiều dòng (Ruột + Bìa → Kỷ yếu): các dòng cùng `cum_khoa` giao / nhận cùng một số.
+    #: Trống = dòng đứng một mình.
+    cum_khoa: str | None = None
+    cum_ten: str | None = None
+    cum_dvt: str | None = None
 
 
 class DeliveryRequestOut(BaseModel):
@@ -281,6 +286,11 @@ class ConPhaiGiaoLine(BaseModel):
     qty_dat: int
     da_giao: int
     con_phai_giao: int
+    #: Cụm bán nhiều dòng (Ruột + Bìa → Kỷ yếu): các dòng cùng `cum_khoa` giao / nhận cùng một số.
+    #: Trống = dòng đứng một mình.
+    cum_khoa: str | None = None
+    cum_ten: str | None = None
+    cum_dvt: str | None = None
 
 
 class ConPhaiGiaoOut(BaseModel):

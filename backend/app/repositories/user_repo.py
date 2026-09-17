@@ -141,6 +141,9 @@ class UserRepository:
             select(func.count()).select_from(User).where(User.role_id == role_id)
         ).scalar_one()
 
+    def list_ids_by_role(self, role_id: int) -> list[int]:
+        return list(self.db.execute(select(User.id).where(User.role_id == role_id)).scalars())
+
     def count_by_department(self, department_id: int) -> int:
         from sqlalchemy import func
 

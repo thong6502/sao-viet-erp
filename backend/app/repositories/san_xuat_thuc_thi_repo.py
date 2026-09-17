@@ -11,7 +11,11 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..models.bai_ghep_cong_doan import BaiGhepCongDoan
+from ..models.cong_doan import CongDoan
 from ..models.employee import STATUS_RESIGNED, Employee
+from ..models.lsx import LsxCongDoan
+from ..models.may_thiet_bi import MayThietBi
 from ..models.san_xuat import SanXuatCongViec
 from ..models.san_xuat_thuc_thi import (
     PC_HOAT_DONG,
@@ -28,6 +32,37 @@ class SanXuatThucThiRepository:
     # --- Đọc công việc + nhân viên ----------------------------------------------------------
     def cong_viec(self, cong_viec_id: int) -> SanXuatCongViec | None:
         return self.db.get(SanXuatCongViec, cong_viec_id)
+
+    def cong_viec_mo_theo_khuon(self, khuon_id: int) -> list[SanXuatCongViec]:
+        """Việc CHƯA xong mà ảnh chụp khuôn trỏ con dao `khuon_id` — để lật chữ tình trạng trong
+        ảnh chụp khi dao về. Việc đã xong bỏ qua: nó đã qua cổng nhận khuôn, chip đọc "đã nhận"."""
+        from ..models.san_xuat import CV_HOAN_THANH
+
+        return list(self.db.scalars(
+            select(SanXuatCongViec).where(
+                SanXuatCongViec.khuon_json["id"].as_integer() == khuon_id,
+                SanXuatCongViec.trang_thai != CV_HOAN_THANH,
+            )
+        ))
+
+    def cong_doan_cua_viec(self, cv: SanXuatCongViec) -> CongDoan | None:
+        """Công đoạn DANH MỤC đứng sau công việc, đi qua bước kế hoạch (bài ghép hoặc lệnh).
+
+        None khi bước nguồn đã mất (replace_routing tái sinh id) hoặc bước chưa chọn công đoạn.
+        """
+        buoc = None
+        if cv.bai_ghep_cong_doan_id is not None:
+            buoc = self.db.get(BaiGhepCongDoan, cv.bai_ghep_cong_doan_id)
+        elif cv.lsx_cong_doan_id is not None:
+            buoc = self.db.get(LsxCongDoan, cv.lsx_cong_doan_id)
+        cd_id = getattr(buoc, "cong_doan_id", None)
+        return self.db.get(CongDoan, cd_id) if cd_id else None
+
+    def may_con_dung(self) -> list[MayThietBi]:
+        """Máy còn dùng (`active`) theo mã — tập gốc cho ô "Đổi máy" trước khi lọc theo công đoạn."""
+        return list(self.db.scalars(
+            select(MayThietBi).where(MayThietBi.active.is_(True)).order_by(MayThietBi.ma)
+        ))
 
     def nhan_vien(self, employee_id: int) -> Employee | None:
         return self.db.get(Employee, employee_id)

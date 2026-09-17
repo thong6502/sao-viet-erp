@@ -21,7 +21,6 @@ from ..models.payroll import (
     PayrollPeriod,
     PitTaxBracket,
     SalaryAdvance,
-    SalaryRateRule,
 )
 
 
@@ -47,35 +46,6 @@ class PayrollRepository:
         self.db.commit()
         self.db.refresh(p)
         return p
-
-    # --- salary_rate_rules --------------------------------------------------
-
-    def list_rules(self, *, active_only: bool = False) -> list[SalaryRateRule]:
-        stmt = select(SalaryRateRule)
-        if active_only:
-            stmt = stmt.where(SalaryRateRule.is_active.is_(True))
-        return list(self.db.execute(stmt.order_by(SalaryRateRule.payroll_group, SalaryRateRule.id)).scalars())
-
-    def get_rule(self, rule_id: int) -> SalaryRateRule | None:
-        return self.db.get(SalaryRateRule, rule_id)
-
-    def create_rule(self, **fields) -> SalaryRateRule:
-        r = SalaryRateRule(**fields)
-        self.db.add(r)
-        self.db.commit()
-        self.db.refresh(r)
-        return r
-
-    def update_rule(self, r: SalaryRateRule, **fields) -> SalaryRateRule:
-        for k, v in fields.items():
-            setattr(r, k, v)
-        self.db.commit()
-        self.db.refresh(r)
-        return r
-
-    def delete_rule(self, r: SalaryRateRule) -> None:
-        self.db.delete(r)
-        self.db.commit()
 
     # --- pit_tax_brackets (biểu thuế TNCN, sửa được) ------------------------
 

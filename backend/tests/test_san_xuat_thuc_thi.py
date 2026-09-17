@@ -206,8 +206,9 @@ def test_buoc_noi_bo_chi_nhan_tho_khoan(db, orders, lsx_svc, admin, customer):
     cv.loai_buoc = BUOC_TO
     db.commit()
     cn = _emp(db, _to_cong_nhat(db), "NV-CN-1")    # tổ không khoán
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="là người công nhật — bước nội bộ không nhận người công nhật") as loi:
         thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=cn.id)
+    assert "khoán" not in str(loi.value)                   # tổ không cần nghe chữ "khoán"
 
 
 def test_khong_giao_trung_mot_nguoi(db, orders, lsx_svc, admin, customer):
@@ -338,10 +339,14 @@ def test_version_lech_bi_chan(db, orders, lsx_svc, admin, customer):
 # --- Phiên chạy (§7.2) ----------------------------------------------------------------------
 def test_bat_dau_can_it_nhat_mot_khoan(db, orders, lsx_svc, admin, customer):
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
+    with pytest.raises(ValueError, match="^Cần giao ít nhất 1 thợ mới bắt đầu được.$"):   # chưa giao ai
+        thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+
     cn = _emp(db, _to_cong_nhat(db), "NV-CN-2")             # chỉ công nhật → chưa đủ
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=cn.id)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^Người đang giao đều là công nhật — cần thêm ít nhất 1 thợ") as loi:
         thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+    assert "khoán" not in str(loi.value)
 
     khoan = _emp(db, to, "NV-K-1")                          # thêm thợ khoán → mở được
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=khoan.id)
@@ -606,3 +611,76 @@ def test_tra_khuon_khong_chan_gi(db, orders, lsx_svc, admin, customer):
     thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
     thuc_thi.tra_khuon(db, user=admin, cong_viec_id=cv.id)
     assert cv.khuon_tra_luc is not None
+
+
+# --- Tích nhận khuôn lật tình trạng dao (16/09/2026) ----------------------------------------
+def _dao(db, tinh_trang: str, ma: str = "KB-9001"):
+    from app.models.khuon_be import KhuonBe
+
+    k = KhuonBe(ma=ma, ten="Hộp bánh mang đi 4 ngăn", loai="khuon_be", so_ke="Kệ B2",
+                tinh_trang=tinh_trang)
+    db.add(k)
+    db.flush()
+    return k
+
+
+def _chup(k) -> dict:
+    return {"id": k.id, "ma": k.ma, "ten": k.ten, "loai": k.loai, "so_ke": k.so_ke,
+            "tinh_trang": k.tinh_trang}
+
+
+def test_nhan_khuon_lat_dao_dang_dat_lam_sang_dang_dung(db, orders, lsx_svc, admin, customer):
+    """Dao "làm mới" vào kho ở `dang_dat_lam`; tổ cầm được nó trong tay là bằng chứng dao đã về.
+    Không lật thì nó mang chữ "đang đặt làm" mãi — lệnh sau dùng lại dao vẫn báo chưa về."""
+    from app.models.audit import AuditLog
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-DAO-1")
+    k = _dao(db, "dang_dat_lam")
+    cv.khuon_json = _chup(k)
+    db.commit()
+
+    thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
+    db.refresh(k)
+    db.refresh(cv)
+
+    assert k.tinh_trang == "dang_dung"
+    assert cv.khuon_json["tinh_trang"] == "dang_dung"
+    vet = db.query(AuditLog).filter_by(action="dm_sua", target=f"khuon_be:{k.id}").one()
+    assert vet.actor_user_id == admin.id
+    assert "Tình trạng Đang đặt làm → Đang dùng" in vet.detail
+
+
+def test_nhan_khuon_khong_hoi_sinh_dao_hong(db, orders, lsx_svc, admin, customer):
+    """Tình trạng là phán xét của người: dao đã báo hỏng / thanh lý thì một cú tích nhận không được
+    lật ngược nó. Chỉ `dang_dat_lam` mới lật."""
+    from app.models.audit import AuditLog
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-DAO-2")
+    k = _dao(db, "hong", ma="KB-9002")
+    cv.khuon_json = _chup(k)
+    db.commit()
+
+    thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
+    db.refresh(k)
+    db.refresh(cv)
+
+    assert k.tinh_trang == "hong"
+    assert cv.khuon_json["tinh_trang"] == "hong"
+    assert db.query(AuditLog).filter_by(target=f"khuon_be:{k.id}").count() == 0
+
+
+def test_nhan_khuon_cap_nhat_anh_chup_viec_khac_cung_dao(db, orders, lsx_svc, admin, customer):
+    """Việc KHÁC trỏ cùng con dao (lệnh khác, chưa ai nhận) đang in chip "đang đặt làm" theo ảnh
+    chụp lúc phát hành. Dao đã về thì chip đó cũng phải thôi nói sai."""
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-DAO-3")
+    khac = next(c for c in _cvs(db, to) if c.id != cv.id)
+    k = _dao(db, "dang_dat_lam", ma="KB-9003")
+    cv.khuon_json = _chup(k)
+    khac.khuon_json = _chup(k)
+    db.commit()
+
+    thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
+    db.refresh(khac)
+
+    assert khac.khuon_json["tinh_trang"] == "dang_dung"
+    assert khac.khuon_nhan_luc is None        # nhận ở việc này không phải là nhận ở việc kia

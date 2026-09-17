@@ -6,15 +6,20 @@
 // thẳng hồ sơ, không có tình huống phải chọn (khác hẳn khối của tab Theo máy).
 //
 // Khung cột dựng từ `/meta` (`cot: [{key, ten}]`), KHÔNG dựng từ dữ liệu card — cột "khac" do máy
-// chủ trả CUỐI danh sách sẵn (`bang_theo_doi.meta`), không cần sắp lại ở đây. `/meta` nạp CÙNG NHỊP
-// với `/kanban` trong MỘT lượt `Promise.all` (Ruling C125) — không cache `/meta` riêng, tránh cảnh
-// danh mục công đoạn đổi giữa hai lượt gọi làm card rơi câm vào cột không còn tồn tại.
+// chủ trả CUỐI danh sách sẵn (`bang_theo_doi.meta`), không cần sắp lại ở đây.
+//
+// `/kanban` KHÔNG còn gọi ở đây: dải bốn con số trên đầu màn cần đúng bức ảnh đó kể cả khi người
+// dùng đang đứng ở tab khác, nên `TheoDoiSanXuatPage` giữ lượt gọi và truyền `cards`/`dangTai`/`loi`
+// xuống. `/meta` vẫn ở lại (danh mục công đoạn, không phụ thuộc bộ lọc) và được gọi lại mỗi khi
+// `cards` đổi — giữ đúng tinh thần Ruling C125 là cột và card cùng một nhịp, chỉ khác là hai
+// request nối nhau thay vì một `Promise.all`.
 //
 // LỌC Ở MÁY CHỦ: `params` do `TheoDoiSanXuatPage` dựng một chỗ rồi truyền xuống, component này
 // không tự lọc/cắt gì trên mảng `cards` nhận về.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
-import { ApiError, api } from "../api/client";
+import { api } from "../api/client";
 import type { TdsxKanbanCard, TdsxKanbanMeta, TdsxThanhLocParams } from "../api/client";
 import { Button } from "../components/Button";
 import { ChipKhuon, ChipLoaiBuoc, nhanKhuon } from "../components/ChipBuoc";
@@ -46,9 +51,13 @@ export function TdsxKanban({
   active,
   token,
   params,
-  refreshTick,
+  cards,
+  dangTai,
+  loi,
+  onTaiLai,
   onOpenHoSo,
   onXoaLoc,
+  khay,
 }: {
   /** Tab Kanban đang được xem hay không — `false` thì component vẫn ở trong DOM (`hidden`, giữ vị
    *  trí cuộn của nó) nhưng KHÔNG tự gọi lại API khi bộ lọc đổi ở nền; bù lại, hễ chuyển sang active
@@ -56,56 +65,56 @@ export function TdsxKanban({
   active: boolean;
   token: string | null;
   params: TdsxThanhLocParams;
-  /** Nhịp SSE đã gộp của `TheoDoiSanXuatPage` — đổi giá trị (kể cả khi đang active) là một tín hiệu
-   *  "có sự kiện mới, tải lại". */
-  refreshTick: number;
+  /** Card của lượt `/kanban` do trang cha giữ (xem chú thích đầu file). Mảng đổi tham chiếu là một
+   *  tín hiệu "vừa có dữ liệu mới" — `/meta` bám theo đó để nạp lại. */
+  cards: TdsxKanbanCard[];
+  /** Lượt `/kanban` đang bay. Lượt ĐẦU thì dựng skeleton, lượt sau chỉ làm mờ board. */
+  dangTai: boolean;
+  /** Lỗi của lượt `/kanban` (403 hay mạng) — hiển thị y như trước, chỉ khác là do cha truyền xuống. */
+  loi: { text: string; cam: boolean } | null;
+  /** Gọi lại `/kanban` — lượt gọi nằm ở trang cha nên nút "Tải lại" trong băng lỗi phải nhờ cha
+   *  bấm hộ (đúng cái nút "Làm mới" trên đầu màn đang dùng). */
+  onTaiLai: () => void;
   /** Mở lớp phủ hồ sơ đúng lệnh — bấm bất kỳ đâu trên card. */
   onOpenHoSo: (lsxId: number) => void;
   /** Xóa toàn bộ bộ lọc — dùng cho nút trong khối rỗng "Không có việc nào khớp bộ lọc." (thiết kế
    *  §7 tình huống b), để người dùng không phải cuộn lên thanh lọc chung. */
   onXoaLoc: () => void;
+  /** Khay điều khiển trên dải tab (do `TheoDoiSanXuatPage` dựng). Tab đang mở đẩy nút "ẩn/hiện
+   *  cột trống" của nó lên đó bằng `createPortal` — state ở lại đây, chỗ đứng thì lên cùng hàng
+   *  với dải tab thay vì chiếm một tầng ngang riêng. */
+  khay: HTMLElement | null;
 }) {
   const [meta, setMeta] = useState<TdsxKanbanMeta | null>(null);
-  const [cards, setCards] = useState<TdsxKanbanCard[]>([]);
-  const [loading, setLoading] = useState(true);
   const [daTai, setDaTai] = useState(false);
-  const [loi, setLoi] = useState<{ text: string; cam: boolean } | null>(null);
   /** Mặc định ẨN cột chưa có việc. `/meta` trả NGUYÊN danh mục công đoạn (đo thật: 24 cột, 22 cột
    *  rỗng ⇒ board rộng 6756px, phải kéo ngang 5608px mới hết) nên để nguyên thì việc thật bị chôn
    *  giữa một rừng cột trống. Ẩn để đọc được, nhưng luôn nói RÕ đang ẩn mấy cột kèm nút mở lại —
    *  không cột nào biến mất im lặng. */
   const [hienCotRong, setHienCotRong] = useState(false);
 
-  const load = useCallback(() => {
-    if (!token) return;
-    setLoading(true);
-    Promise.all([api.theoDoiSanXuat.meta(token), api.theoDoiSanXuat.kanban(token, params)])
-      .then(([m, k]) => {
-        setMeta(m);
-        setCards(k.cards);
-        setLoi(null);
-        setDaTai(true);
-      })
-      .catch((e) => {
-        const cam = e instanceof ApiError && e.isForbidden;
-        setLoi({
-          text: cam
-            ? "Bạn không có quyền xem Theo dõi sản xuất."
-            : "Không tải được bảng Theo dõi sản xuất. Kiểm tra mạng rồi thử lại.",
-          cam,
-        });
-      })
-      .finally(() => setLoading(false));
-  }, [token, params]);
-
-  // MỘT effect duy nhất: chạy khi (1) tab vừa chuyển sang active, (2) bộ lọc/token đổi trong lúc
-  // đang active, hoặc (3) một nhịp SSE mới tới trong lúc đang active. Tab đang ẩn thì mọi thay đổi
-  // ở trên chỉ khiến effect chạy rồi thoát ngay dòng đầu — không có request nào bay ra nền.
+  // `/meta` chỉ nạp khi tab này ĐANG mở — ba tab kia không dùng danh mục cột nên không việc gì
+  // phải trả tiền cho nó. Bám `cards` để cột và card luôn cùng một nhịp; lỗi `/meta` KHÔNG dựng
+  // băng đỏ (băng đỏ là việc của `loi`), mất cột thì `SKELETON_COT` đỡ và board vẫn đọc được.
   useEffect(() => {
-    if (!active) return;
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, load, refreshTick]);
+    if (!active || !token) return;
+    let song = true;
+    api.theoDoiSanXuat
+      .meta(token)
+      .then((m) => {
+        if (song) setMeta(m);
+      })
+      .catch(() => {});
+    return () => {
+      song = false;
+    };
+  }, [active, token, cards]);
+
+  // `daTai` DÍNH: một khi đã thấy dữ liệu thật thì những lượt tải sau chỉ làm mờ board, không hạ
+  // nó về skeleton và không bung lại 22 cột rỗng dưới chân người đang đọc.
+  useEffect(() => {
+    if (meta && !dangTai && !loi) setDaTai(true);
+  }, [meta, dangTai, loi]);
 
   // "Đang lọc" suy từ chính object `params` (do trang cha dựng) — không giữ một bản cờ riêng ở
   // đây dễ lệch với logic "Xóa bộ lọc" của thanh lọc chung.
@@ -137,7 +146,7 @@ export function TdsxKanban({
             title={loi.text}
             action={
               loi.cam ? undefined : (
-                <Button variant="ghost" onClick={load}>
+                <Button variant="ghost" onClick={onTaiLai}>
                   Tải lại
                 </Button>
               )
@@ -146,7 +155,7 @@ export function TdsxKanban({
         </div>
       )}
 
-      {!loi && daTai && !loading && meta && meta.cot.length > 0 && tongTheLoc === 0 && (
+      {!loi && daTai && !dangTai && meta && meta.cot.length > 0 && tongTheLoc === 0 && (
         <div className="tdsx-kb__loi tdsx-kb__loi--full">
           {dangLoc ? (
             <EmptyState
@@ -168,43 +177,32 @@ export function TdsxKanban({
         </div>
       )}
 
-      {(!daTai || tongTheLoc > 0 || !meta || meta.cot.length === 0) && !loi && soCotRong > 0 && (
-        <div className="tdsx-kb__control-bar">
-          <div className="tdsx-kb__control-stats">
-            <span className="tdsx-kb__stat-pill tdsx-kb__stat-pill--active">
-              <i className="tdsx-stat-dot" />
-              <strong>{cotTatCa.length - soCotRong}</strong> công đoạn có việc
+      {active &&
+        khay &&
+        (!daTai || tongTheLoc > 0 || !meta || meta.cot.length === 0) &&
+        !loi &&
+        soCotRong > 0 &&
+        createPortal(
+          <>
+            <span className="tdsx__ctlnote">
+              {num(cotTatCa.length - soCotRong)}/{num(cotTatCa.length)} công đoạn có việc
             </span>
-            <span className="tdsx-kb__stat-pill tdsx-kb__stat-pill--empty">
-              <strong>{soCotRong}</strong> công đoạn trống
-            </span>
-          </div>
-          <button
-            type="button"
-            className="tdsx-kb__toggle-btn"
-            onClick={() => setHienCotRong((v) => !v)}
-          >
-            <Icon name="eye" size={14} />
-            <span>{hienCotRong ? `Ẩn ${soCotRong} công đoạn trống` : `Hiện tất cả ${cotTatCa.length} công đoạn`}</span>
-          </button>
-        </div>
-      )}
+            <button type="button" className="hslsx__linkbtn" onClick={() => setHienCotRong((v) => !v)}>
+              {hienCotRong ? `Ẩn ${soCotRong} công đoạn trống` : `Hiện ${soCotRong} công đoạn trống`}
+            </button>
+          </>,
+          khay,
+        )}
 
       {(!daTai || tongTheLoc > 0 || !meta || meta.cot.length === 0) && !loi && (
-        <div className={`tdsx-kb__board${loading && daTai ? " is-mo" : ""}`}>
+        <div className={`tdsx-kb__board${dangTai && daTai ? " is-mo" : ""}`}>
           {cotHien.map((cot) => {
             const trongCot = theoCot.get(cot.key) ?? [];
             const isZero = trongCot.length === 0;
-            const iconName = getStepIconName(cot.ten);
             return (
               <section key={cot.key} className={`tdsx-kb__col${isZero ? " is-empty" : ""}`} aria-label={`Công đoạn ${cot.ten}`}>
                 <header className="tdsx-kb__colhead">
-                  <div className="tdsx-kb__colhead-title">
-                    <span className="tdsx-kb__colhead-icon">
-                      <Icon name={iconName} size={14} />
-                    </span>
-                    <span className="tdsx-kb__colten">{cot.ten}</span>
-                  </div>
+                  <span className="tdsx-kb__colten">{cot.ten}</span>
                   {daTai && (
                     <span className={`tdsx-kb__coln ${isZero ? "tdsx-kb__coln--zero" : "tdsx-kb__coln--active"}`}>
                       {num(trongCot.length)}
@@ -218,17 +216,19 @@ export function TdsxKanban({
                       <span className="khsx-skel__bar khsx-skel__bar--card" />
                     </>
                   ) : isZero ? (
-                    <div className="tdsx-kb__empty-slot">
-                      <div className="tdsx-kb__empty-icon">
-                        <Icon name="check" size={16} />
-                      </div>
-                      <h5 className="tdsx-kb__empty-title">Trạm sẵn sàng</h5>
-                      <p className="tdsx-kb__empty-sub">Chưa có lệnh tắc ở công đoạn này</p>
-                      <span className="tdsx-kb__empty-badge">Sẵn sàng nhận việc</span>
-                    </div>
+                    // Cột rỗng nói MỘT câu, bằng chữ xám nhạt. Trước đây nó là một khối viền đứt
+                    // + icon tròn xanh + tiêu đề + huy hiệu "Sẵn sàng nhận việc": bốn phần tử,
+                    // màu sáng nhất bảng, cho thứ KHÔNG có gì để xem. Màu để dành cho việc đang
+                    // chạy và việc trễ.
+                    <p className="tdsx-kb__trong">Không có việc</p>
                   ) : (
                     trongCot.map((card) => (
-                      <TheCard key={card.lsx_id} card={card} onOpen={() => onOpenHoSo(card.lsx_id)} />
+                      <TheCard
+                        key={card.lsx_id}
+                        card={card}
+                        cotTen={cot.ten}
+                        onOpen={() => onOpenHoSo(card.lsx_id)}
+                      />
                     ))
                   )}
                 </div>
@@ -241,16 +241,6 @@ export function TdsxKanban({
   );
 }
 
-function getStepIconName(ten: string): IconName {
-  const t = ten.toLowerCase();
-  if (t.includes("in")) return "printer";
-  if (t.includes("cán") || t.includes("màng")) return "layers";
-  if (t.includes("bế")) return "box";
-  if (t.includes("cắt") || t.includes("thành phẩm")) return "fileText";
-  if (t.includes("giao")) return "cart";
-  return "grid";
-}
-
 /** Ba cột giả để vẽ khung + skeleton ngay LƯỢT ĐẦU, trước khi `/meta` kịp về (khuôn "khung hiện
  *  ngay, không đợi dữ liệu con" — thiết kế §7). Nhãn không quan trọng vì bị skeleton che ngay. */
 const SKELETON_COT: TdsxKanbanMeta["cot"] = [
@@ -259,77 +249,71 @@ const SKELETON_COT: TdsxKanbanMeta["cot"] = [
   { key: "s3", ten: "…" },
 ];
 
-function TheCard({ card, onOpen }: { card: TdsxKanbanCard; onOpen: () => void }) {
+/** Một thẻ = một lệnh. Ba dòng chữ, không viên bọc quanh từng mẩu:
+ *  ① mã lệnh (cam đậm — đây là thứ người xưởng đọc trước) + dấu Gấp + chip "Quá hạn" nếu trễ;
+ *  ② tên sản phẩm, tối đa 2 dòng;
+ *  ③ khách · số lượng · hạn — chữ nhỏ, một dòng, không icon;
+ *  ④ chip nhánh đang chạy (giữ nguyên).
+ *  Bản cũ bọc mã trong hộp xám, số lượng trong một viên có icon + chữ "sp", khách hàng có icon
+ *  người, hạn trong một viên nữa, cộng một viên "bước hiện tại" thường LẶP LẠI đúng tên cột đang
+ *  đứng — năm cái viền cho bốn mẩu chữ. */
+function TheCard({ card, cotTen, onOpen }: { card: TdsxKanbanCard; cotTen: string; onOpen: () => void }) {
   const qua_han = card.han_hoan_thanh_sx != null && classHan(card.han_hoan_thanh_sx) === "khsx-date--late";
   const chips = card.chip_dang_chay;
   const chipHien = chips.length > CHIP_HIEN_TOI_DA ? chips.slice(0, CHIP_RUT_GON_CON_LAI) : chips;
   const chipConLai = chips.length - chipHien.length;
+  // Bước hiện tại chỉ in ra khi nó KHÁC tên cột — đứng trong cột "Bế" mà thẻ còn đeo nhãn "Bế" là
+  // nói hai lần. Cột gom "Khác" thì tên bước mới thật sự thêm thông tin.
+  const buocKhacCot = card.buoc_hien_tai && card.buoc_hien_tai !== cotTen ? card.buoc_hien_tai : null;
+
+  const phu = [
+    card.khach_hang,
+    `${num(card.so_luong_dat)} sp`,
+    card.han_hoan_thanh_sx && !qua_han ? `hạn ${ngay(card.han_hoan_thanh_sx)}` : null,
+    buocKhacCot,
+  ].filter(Boolean) as string[];
 
   return (
     <button type="button" className="tdsx-kb__card" onClick={onOpen}>
-      {/* Row 1: Code + Priority / Step Badge */}
-      <div className="tdsx-kb__card-head">
-        <span className="tdsx-kb__code-tag">
-          <Icon name="fileText" size={13} />
-          <span className="tdsx-kb__ma">{card.ma}</span>
-        </span>
-        {card.is_rush ? (
-          <span className="tdsx-kb__rush-pill">⚡ GẤP</span>
-        ) : (
-          <span className="tdsx-kb__step-pill">{card.buoc_hien_tai ?? "Chờ làm"}</span>
-        )}
-      </div>
-
-      {/* Row 2: Product Name (Primary) & Customer Name (Secondary) */}
-      <div className="tdsx-kb__info">
-        <h4 className="tdsx-kb__ten-sp" title={card.ten ?? "—"}>
-          {card.ten ?? "Chưa có tên sản phẩm"}
-        </h4>
-        {card.khach_hang && (
-          <div className="tdsx-kb__khach-hang" title={card.khach_hang}>
-            <Icon name="users" size={12} />
-            <span>{card.khach_hang}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Row 3: Meta Badges (Quantity & Due Date) */}
-      <div className="tdsx-kb__meta-bar">
-        <span className="tdsx-kb__sl-pill" title="Số lượng đặt">
-          <Icon name="box" size={12} />
-          <strong>{num(card.so_luong_dat)}</strong>
-          <small>sp</small>
-        </span>
-
-        {card.han_hoan_thanh_sx && (
-          <span className={`tdsx-kb__han-pill ${qua_han ? "is-late" : ""}`}>
-            <Icon name={qua_han ? "alert" : "calendar"} size={12} />
-            <span>{qua_han ? "Quá hạn" : "Hạn"} {ngay(card.han_hoan_thanh_sx)}</span>
+      <span className="tdsx-kb__c1">
+        <span className="tdsx-kb__ma">{card.ma}</span>
+        {card.is_rush && <span className="tdsx-kb__gap">Gấp</span>}
+        {qua_han && (
+          <span className="tdsx-kb__quahan">
+            <Icon name="alert" size={11} />
+            Quá hạn {ngay(card.han_hoan_thanh_sx)}
           </span>
         )}
-      </div>
+      </span>
 
-      {/* Row 4: Running Machine Chips */}
+      <span className="tdsx-kb__ten" title={card.ten ?? undefined}>
+        {card.ten ?? "Chưa có tên sản phẩm"}
+      </span>
+
+      <span className="tdsx-kb__phu" title={card.khach_hang ?? undefined}>
+        {phu.join(" · ")}
+      </span>
+
       {chips.length > 0 && (
-        <div className="tdsx-kb__chips">
+        <span className="tdsx-kb__chips">
           {chipHien.map((c) => {
             const m = tdsxTtMeta(c.trang_thai);
             const chu = `${c.may}${
               c.nguoi.length === 1 ? ` · ${c.nguoi[0]}` : c.nguoi.length > 1 ? ` · ${c.nguoi.length} người` : ""
             }`;
             return (
-              <div key={c.cong_viec_id} className="tdsx-kb__chip">
+              <span key={c.cong_viec_id} className="tdsx-kb__chip">
                 <span className={`tdsx-tt ${m.cls}`} title={`${chu} · ${m.label}`}>
                   <i aria-hidden="true" />
                   <span className="tdsx-tt__chu">{chu}</span>
                 </span>
                 <ChipLoaiBuoc loai_buoc={c.nhan?.loai_buoc} nha_cung_cap={c.nhan?.nha_cung_cap} />
                 <ChipKhuon can_khuon={!!c.nhan?.khuon_ma} khuon={nhanKhuon(c.nhan)} />
-              </div>
+              </span>
             );
           })}
           {chipConLai > 0 && <span className="tdsx-kb__chipthem">+{chipConLai} nhánh khác</span>}
-        </div>
+        </span>
       )}
     </button>
   );

@@ -20,8 +20,8 @@ from app.models.delivery import DeliveryRequest, DeliveryRequestLine
 from app.models.lsx import Lsx, LsxCongDoan, LsxCongDoanPhuThuoc
 from app.models.order import Order, OrderLine
 from app.models.san_xuat import SanXuatCongViec
-from app.models.san_xuat_kcs import SanXuatKcsBatch
-from app.models.san_xuat_kho import SanXuatKhoHang, SanXuatNhapKhoYc
+from app.models.stock_request import REQ_APPROVED, REQ_NHAP, StockRequest, StockRequestLine
+from app.models.user import User
 from app.models.san_xuat_thuc_thi import SanXuatPhienChay
 from app.services.lenh_sx import boi_canh
 from app.services.san_xuat import release
@@ -113,11 +113,12 @@ def test_khong_n_plus_1(db, mot_lenh, muoi_hai_lenh):
     n12 = _dem_sql(db, lambda: boi_canh.nap(db, muoi_hai_lenh))
     assert n12 == n1, f"N+1: 1 lệnh {n1} câu, 12 lệnh {n12} câu"
     # Chốt SỐ TUYỆT ĐỐI, không chỉ so hai bên bằng nhau: `n12 == n1` một mình vẫn xanh nếu ai đó
-    # bỏ hẳn một câu (cả hai bên cùng tụt). 21 = 15 câu gốc + 3 câu bài ghép (5b/5c/5d)
+    # bỏ hẳn một câu (cả hai bên cùng tụt). 20 = 15 câu gốc + 3 câu bài ghép (5b/5c/5d)
     # + 5e (thành viên nhóm, cho cầu nhập kho) + 11b (số đã THỰC NHẬN) — hai câu thêm ở Vòng sửa 1
     # của Task 6 — + câu 16 (phân công JOIN nhân viên) thêm ở Vòng sửa 1 của Task 9, cho nửa
-    # "người" của cột Máy/người. Đổi số ở đây phải đi kèm sửa danh sách câu trong docstring
-    # `boi_canh.py`, nếu không hai chỗ nói hai kiểu.
+    # "người" của cột Máy/người — trừ câu 9 (lot BTP của lệnh) gỡ 17/09/2026 — + 12b (nhập kho thành
+    # phẩm qua yêu cầu kho thật: công đoạn cuối và dòng yêu cầu thành hai câu). Đổi số ở đây phải
+    # đi kèm sửa danh sách câu trong docstring `boi_canh.py`, nếu không hai chỗ nói hai kiểu.
     assert n1 == 21, f"số câu SQL của nap() đổi: {n1} (kỳ vọng 21)"
 
 
@@ -188,34 +189,32 @@ def test_giao_cua_dung_va_bay_danh_chi_so_truc_tiep_co_that(db, orders, lsx_svc,
     assert bc.giao[b.id] != bc.giao_cua(b.id)
 
 
-def test_nhap_kho_yc_di_qua_kho_hang(db, mot_lenh):
-    """`san_xuat_nhap_kho_yc` không có cột `lsx_id` — về lệnh bằng HAI cầu OR (câu 12).
-
-    KHÔNG phải qua `san_xuat_kho_hang.lsx_id` như bản Task 6 làm (docstring cũ ở đây nói vậy, SAI):
-    hàng thành phẩm luôn có `lsx_id IS NULL`. Hai cầu đúng là `kcs_batch → cong_viec.lsx_id` và
-    `yc.nhom_id ∈ nhóm của lệnh` — xem docstring `boi_canh.py`.
-    """
-    lsx = db.get(Lsx, mot_lenh)
+def test_nhap_kho_tp_di_qua_cong_doan_cuoi(db, mot_lenh):
+    """Yêu cầu NHẬP thành phẩm neo CÔNG ĐOẠN (`stock_requests.san_xuat_cong_viec_id`), không neo lệnh
+    — về lệnh bằng HAI cầu OR (câu 12): `cong_viec.lsx_id` và `cong_viec.nhom_id ∈ nhóm của lệnh`.
+    Chỉ công đoạn cuối nhóm (`la_kcs_cuoi`) mới là nguồn; yêu cầu của công đoạn giữa chuyền bị bỏ."""
     cv = db.query(SanXuatCongViec).filter_by(lsx_id=mot_lenh).first()
-    t0 = datetime(2026, 8, 20, 1, 0, tzinfo=timezone.utc)
-    t1 = datetime(2026, 8, 20, 2, 0, tzinfo=timezone.utc)
-    kcs_batch = SanXuatKcsBatch(
-        cong_viec_id=cv.id, bat_dau=t0, ket_thuc=t1, so_luong_nhan=100, so_luong_dat=100,
-        don_vi="cái",
-    )
-    db.add(kcs_batch)
-    db.flush()
-    hang = SanXuatKhoHang(ma="KHO-BC-TEST", order_id=lsx.order_id, lsx_id=mot_lenh)
-    db.add(hang)
-    db.flush()
-    yc = SanXuatNhapKhoYc(
-        kcs_batch_id=kcs_batch.id, hang_id=hang.id, so_luong_yeu_cau=100, don_vi="cái",
-    )
-    db.add(yc)
+    cv.la_kcs_cuoi = True
+    admin = db.query(User).filter_by(username="admin").one()
+
+    def _yc(ma, cong_viec_id):
+        yc = StockRequest(ma=ma, loai=REQ_NHAP, nguoi_tao_id=admin.id, trang_thai=REQ_APPROVED,
+                          san_xuat_cong_viec_id=cong_viec_id)
+        yc.lines.append(StockRequestLine(hang_loai="vat_tu", hang_id=1, dvt="cai", sl_de_nghi=100,
+                                         sl_duyet=100, sl_da_ung=0, don_gia=0))
+        db.add(yc)
+        return yc
+
+    yc = _yc("DNN-BC-1", cv.id)
     db.commit()
 
     bc = boi_canh.nap(db, [mot_lenh])
-    assert bc.nhap_kho_yc[mot_lenh] == [yc]
+    assert [d.request_id for d in bc.nhap_kho_tp[mot_lenh]] == [yc.id]
+    assert bc.nhap_kho_tp[mot_lenh][0].sl_hieu_luc == 100
+
+    cv.la_kcs_cuoi = False
+    db.commit()
+    assert boi_canh.nap(db, [mot_lenh]).nhap_kho_tp[mot_lenh] == []
 
 
 def test_phu_thuoc_buoc_khoa_theo_lsx_cua_buoc_sau(db, mot_lenh):
@@ -326,4 +325,4 @@ def test_khong_n_plus_1_co_bai_ghep(db, sau_lenh_chung_bai_ghep):
 
     n1 = _dem_sql(db, lambda: boi_canh.nap(db, ids[:1]))
     n6 = _dem_sql(db, lambda: boi_canh.nap(db, ids))
-    assert n6 == n1 == 21, f"N+1 nhánh bài ghép: 1 lệnh {n1} câu, 6 lệnh {n6} câu"
+    assert n6 == n1 == 20, f"N+1 nhánh bài ghép: 1 lệnh {n1} câu, 6 lệnh {n6} câu"

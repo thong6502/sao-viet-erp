@@ -1,7 +1,7 @@
 """Payroll (Lương) business logic — lương thời gian.
 
 Engine tính 1 dòng lương/NV/kỳ (xem docs/spec-luong.md + docs/prd-cau-hinh-luong.md):
-  mức nền = lương vị trí + trách nhiệm CỦA NV (C1/C2; fallback base_amount → dòng tổ → rule)
+  mức nền = lương vị trí + trách nhiệm CỦA NV (C1/C2; fallback `base_amount` của bản ghi cũ)
   → luong_cong = mức × %thử_việc × (công thực / công chuẩn)     [công lấy từ Chấm công]
   → chuyên cần TRỪ DẦN: tỷ lệ = max(0, 1 − 0,5 × số ngày nghỉ)  [mức khai theo TỔ]
   → 4 khoản phụ cấp KHAI TAY theo NV (ca · trách nhiệm · thâm niên · khác): cộng PHẲNG, không
@@ -39,9 +39,6 @@ from ..models.payroll import (
     ADV_PAID,
     ADV_PENDING,
     ADV_REJECTED,
-    AMOUNT_DEPT_ROW,
-    AMOUNT_MANUAL,
-    AMOUNT_RULE,
     COMP_CHUYEN_CAN,
     COMP_LUONG_KHOAN,
     COMP_TANG_CA,
@@ -404,19 +401,11 @@ class PayrollService:
             if key == COMP_LUONG_KHOAN and self.departments is not None:
                 dept = self.departments.get_by_id(department_id)
                 if dept is not None and bool(dept.has_piece_work) != enabled:
-                    self.departments.set_salary_policy(
-                        dept, salary_mechanism=dept.salary_mechanism,
-                        probation_ratio=dept.probation_ratio, has_piece_work=enabled,
-                    )
+                    self.departments.set_has_piece_work(dept, enabled)
         self._reset_config_cache()
         self._audit(actor, "payroll_set_dept_components", f"department:{department_id}",
                     f"{len(items)} thành phần")
         return self.dept_components(department_id)
-
-    # --- salary_rate_rules --------------------------------------------------
-
-    # (07/09/2026) `list/create/update/delete_rule` đã gỡ cùng route `/rules` — bảng mức lương theo
-    # nhóm/bậc/thâm niên là code chết (engine tra hồ sơ từng người). Repo giữ `create_rule` cho test cũ.
 
     def get_pit_brackets(self):
         """Biểu thuế TNCN — tự tạo mặc định 2026 nếu bảng trống."""
@@ -702,7 +691,7 @@ class PayrollService:
         self.chan_ngoai_pham_vi(employee_id=employee_id, scope=scope, actor=actor)
         return self.payroll.list_salaries(employee_id)
 
-    def set_salary(self, *, employee_id, actor, effective_from, amount_mode="manual", scope=None,
+    def set_salary(self, *, employee_id, actor, effective_from, scope=None,
                    base_amount=None, insurance_base=None, allowance=0, note=None,
                    chuyen_can=0, luong_vi_tri=0, luong_trach_nhiem=0,
                    phu_cap_ca=0, phu_cap_tham_nien=0, insurance_elsewhere=False,
@@ -729,15 +718,12 @@ class PayrollService:
         vi_tri = float(luong_vi_tri or 0)
         trach_nhiem = float(luong_trach_nhiem or 0)
         has_own = vi_tri + trach_nhiem > 0
-        if has_own and amount_mode == AMOUNT_RULE:
-            amount_mode = AMOUNT_MANUAL      # mức riêng của NV = ấn định tay
-        if amount_mode == AMOUNT_MANUAL and base_amount is None and not has_own:
+        if base_amount is None and not has_own:
             raise PayrollValidationError("Cần khai mức lương (lương vị trí) cụ thể.")
         _kq = self.payroll.create_salary(
             employee_id=employee_id,
             effective_from=effective_from,
             created_by=getattr(actor, "id", None),
-            amount_mode=amount_mode,
             base_amount=base_amount, insurance_base=insurance_base, allowance=allowance or 0,
             note=note, chuyen_can=chuyen_can or 0,
             luong_vi_tri=vi_tri, luong_trach_nhiem=trach_nhiem,

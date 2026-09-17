@@ -91,10 +91,17 @@ export function EmployeeDetailPanel({
     };
   }, []);
 
+  // Tăng mỗi lần hồ sơ nạp lại sau một thao tác. Tab Quá trình công tác / Nhật ký tự tải theo
+  // `employeeId` nên không biết hồ sơ vừa đổi: thiếu dấu này thì đang mở tab mà bấm "Đổi chức
+  // danh" xong, đầu hồ sơ đã đổi còn timeline vẫn cũ tới khi chuyển tab.
+  const [lanNap, setLanNap] = useState(0);
   const reload = useCallback(() => {
     api.employees
       .get(token, employeeId)
-      .then(setEmp)
+      .then((e) => {
+        setEmp(e);
+        setLanNap((n) => n + 1);
+      })
       .catch((e) => setError(errMsg(e)));
   }, [token, employeeId]);
 
@@ -192,9 +199,6 @@ export function EmployeeDetailPanel({
                     <Briefcase size={13} />
                     <span>
                       {emp.department_name ?? "—"} · {emp.position ?? "—"}
-                      {(emp.job_grade_name ?? emp.job_grade)
-                        ? ` · ${emp.job_grade_name ?? emp.job_grade}`
-                        : ""}
                     </span>
                   </p>
                   <p className="ns-detail__meta">
@@ -353,7 +357,7 @@ export function EmployeeDetailPanel({
                           setDropdownOpen(false);
                         }}
                       >
-                        <TrendingUp size={14} /> Nâng bậc / Chức danh
+                        <TrendingUp size={14} /> Đổi chức danh
                       </button>
                     )}
                     {/* Đang đình chỉ thì bày "Gỡ đình chỉ" thay vì "Đình chỉ" lần nữa (máy chủ vẫn
@@ -434,8 +438,6 @@ export function EmployeeDetailPanel({
           <InfoTab
             token={token}
             emp={emp}
-            meta={meta}
-            canUpdate={canUpdate}
             edit={editInfo}
             setEdit={setEditInfo}
             onSaved={() => {
@@ -477,7 +479,7 @@ export function EmployeeDetailPanel({
           />
         )}
         {tab === "events" && (
-          <EventsTab token={token} employeeId={employeeId} meta={meta} />
+          <EventsTab token={token} employeeId={employeeId} meta={meta} lanNap={lanNap} />
         )}
         {tab === "files" && (
           <FilesTab
@@ -487,7 +489,7 @@ export function EmployeeDetailPanel({
           />
         )}
         {tab === "activity" && (
-          <ActivityTab token={token} employeeId={employeeId} />
+          <ActivityTab token={token} employeeId={employeeId} lanNap={lanNap} />
         )}
       </div>
 

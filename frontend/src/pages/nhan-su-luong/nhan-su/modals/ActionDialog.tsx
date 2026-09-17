@@ -1,4 +1,4 @@
-// Máy trạng thái điều chuyển / thăng chức / đổi trạng thái (tách từ pages/NhanSuPage.tsx).
+// Máy trạng thái điều chuyển / đổi chức danh / đổi trạng thái (tách từ pages/NhanSuPage.tsx).
 import { useState } from "react";
 import {
   api,
@@ -7,11 +7,9 @@ import {
   type EmployeeTransitionInput,
 } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
-import { useCan } from "../../../../auth/permissions";
 import { ACTION_TITLE } from "../shared/constants";
-import { errMsg, isProduction } from "../shared/helpers";
-import { useJobGrades } from "../hooks/useJobGrades";
-import { Field, JobGradeField } from "../components/form-fields";
+import { errMsg } from "../shared/helpers";
+import { Field } from "../components/form-fields";
 
 // --- Action dialog (transition / transfer / promote / account) --------------
 
@@ -31,41 +29,19 @@ export function ActionDialog({
   onDone: () => void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
-  const can = useCan();
-  const canCreateGrade = can("nhan_su", "create");
-  const jg = useJobGrades(token, kind === "transfer" || kind === "promote");
   const [effective, setEffective] = useState(today);
   const [note, setNote] = useState("");
   const [newDept, setNewDept] = useState<number | "">("");
-  // KHÔNG preselect bậc hiện tại: danh mục chỉ trả bậc đang BẬT, người mang bậc đã tắt sẽ bị
-  // select nhảy về option đầu rồi âm thầm đổi bậc lúc bấm Xác nhận.
-  const [newJobGradeId, setNewJobGradeId] = useState<number | null>(null);
   const [newPos, setNewPos] = useState("");
   const [resignReason, setResignReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isTransition = true;
-  const curGrade = emp.job_grade_name ?? emp.job_grade;
-  // Người đang mang bậc (kể cả bậc kiểu cũ) vẫn phải sửa được bậc dù phòng chưa tick cờ SX.
-  const showGrade =
-    isProduction(meta, emp.department_id) ||
-    emp.job_grade_id != null ||
-    !!emp.job_grade;
-  // Điều chuyển: backend XOÁ bậc khi không nhận `new_job_grade_id` (bậc tổ In vô nghĩa ở tổ Dán).
-  const transferDropsGrade =
-    kind === "transfer" &&
-    !!curGrade &&
-    newDept !== "" &&
-    newJobGradeId == null;
 
   async function submit() {
-    if (kind === "promote" && newJobGradeId == null && !newPos.trim()) {
-      setError(
-        showGrade
-          ? "Chọn bậc tay nghề mới hoặc nhập chức danh mới."
-          : "Nhập chức danh mới.",
-      );
+    if (kind === "promote" && !newPos.trim()) {
+      setError("Nhập chức danh mới.");
       return;
     }
     setBusy(true);
@@ -78,11 +54,9 @@ export function ActionDialog({
       };
       if (kind === "transfer") {
         input.new_department_id = newDept === "" ? undefined : newDept;
-        input.new_job_grade_id = newJobGradeId ?? undefined;
       }
       if (kind === "promote") {
-        input.new_job_grade_id = newJobGradeId ?? undefined;
-        input.new_position = newPos || undefined;
+        input.new_position = newPos.trim();
       }
       if (kind === "resign") input.resign_reason = resignReason;
       await api.employees.transition(token, emp.id, input);
@@ -123,12 +97,9 @@ export function ActionDialog({
               <Field label="Phòng/Tổ mới *">
                 <select
                   value={newDept}
-                  onChange={(e) => {
-                    setNewDept(
-                      e.target.value === "" ? "" : Number(e.target.value),
-                    );
-                    setNewJobGradeId(null); // bậc khai theo TỔ MỚI → đổi tổ thì bỏ lựa chọn cũ
-                  }}
+                  onChange={(e) =>
+                    setNewDept(e.target.value === "" ? "" : Number(e.target.value))
+                  }
                 >
                   <option value="">— chọn —</option>
                   {meta?.departments
@@ -140,53 +111,22 @@ export function ActionDialog({
                     ))}
                 </select>
               </Field>
-              {newDept !== "" && isProduction(meta, newDept) && (
-                <JobGradeField
-                  grades={jg.grades}
-                  err={jg.err}
-                  reload={jg.reload}
-                  addGrade={jg.addGrade}
-                  value={newJobGradeId}
-                  onChange={setNewJobGradeId}
-                  label="Bậc tay nghề ở tổ mới"
-                  hint="Bậc khai lại theo tổ mới — bậc của tổ cũ không mang sang."
-                  canCreate={canCreateGrade}
-                />
-              )}
-              {transferDropsGrade && (
-                <div className="banner banner--warn">
-                  Chuyển tổ mà không chọn bậc ⇒ bậc hiện tại (<b>{curGrade}</b>)
-                  sẽ bị <b>xoá khỏi hồ sơ</b>.
-                </div>
-              )}
             </>
           )}
           {kind === "promote" && (
             <>
-              {showGrade && (
-                <JobGradeField
-                  grades={jg.grades}
-                  err={jg.err}
-                  reload={jg.reload}
-                  addGrade={jg.addGrade}
-                  value={newJobGradeId}
-                  onChange={setNewJobGradeId}
-                  label="Bậc tay nghề mới"
-                  hint={curGrade ? `Đang ở: ${curGrade}` : "Chưa khai bậc."}
-                  allowKeep
-                  canCreate={canCreateGrade}
-                />
-              )}
-              <Field label="Chức danh mới (tùy chọn)">
+              <Field
+                label="Chức danh mới *"
+                hint={emp.position ? `Đang là: ${emp.position}` : "Chưa khai chức danh."}
+              >
                 <input
                   value={newPos}
                   onChange={(e) => setNewPos(e.target.value)}
                 />
               </Field>
               <div className="ns-wizard__hint">
-                Nâng bậc / đổi chức danh KHÔNG tự đổi tiền lương — bậc chỉ là
-                khai báo. Muốn đổi mức thì sang Lương → Lương nhân viên → Sửa
-                lương.
+                Đổi chức danh KHÔNG tự đổi tiền lương. Muốn đổi mức thì sang
+                Lương → Lương nhân viên → Sửa lương.
               </div>
             </>
           )}

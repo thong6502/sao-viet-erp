@@ -2,7 +2,8 @@
    Bảng màu bám đúng `.khsx-lb` ở `pages/ke-hoach-sx.css` để hai màn không lệch nhau: cùng một
    bước, nhìn ở Kế hoạch và nhìn ở bàn tổ phải ra cùng một màu. */
 .chip-buoc,
-.chip-khuon {
+.chip-khuon,
+.chip-kcs {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -24,3 +25,8 @@
 .chip-khuon--cho { background: var(--amber-soft); color: var(--amber-deep); }
 .chip-khuon--co { background: var(--moss-soft); color: var(--moss-deep); }
 .chip-khuon--nhan { background: var(--moss-deep); color: #fff; }
+
+/* Dấu KCS của công đoạn: đạt (mọi lần kiểm không lỗi) · có lỗi. */
+.chip-kcs { font-weight: var(--fw-bold); }
+.chip-kcs--dat { background: var(--moss-soft); color: var(--moss-deep); }
+.chip-kcs--loi { background: var(--rust-soft); color: var(--rust-deep); }

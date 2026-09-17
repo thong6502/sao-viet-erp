@@ -72,6 +72,7 @@ from ..services.delivery_service import (
     DeliveryService,
 )
 from ..services.rbac_service import AuthorizationService
+from ..services.thanh_pham_khai_bao import cum_ban
 
 router = APIRouter(prefix="/api/giao-hang", tags=["giao-hang"])
 MODULE = "giao_hang"
@@ -216,6 +217,7 @@ def _request_out(db: Session, svc: DeliveryService, req) -> DeliveryRequestOut:
     if req.customer_id is not None:
         kh = CustomerRepository(db).get_by_id(req.customer_id)
         khach = getattr(kh, "name", None) if kh is not None else None
+    cum = _cum_theo_dong(order)
     return DeliveryRequestOut(
         id=req.id,
         code=req.code,
@@ -236,6 +238,7 @@ def _request_out(db: Session, svc: DeliveryService, req) -> DeliveryRequestOut:
         created_at=req.created_at,
         lines=[
             DeliveryRequestLineOut(
+                **_cum_cua(cum, ln.order_line_id),
                 id=ln.id, order_line_id=ln.order_line_id, qty=ln.qty,
                 mo_ta=mo_ta.get(ln.order_line_id, ("", ""))[0],
                 don_vi_tinh=mo_ta.get(ln.order_line_id, ("", ""))[1],
@@ -247,6 +250,18 @@ def _request_out(db: Session, svc: DeliveryService, req) -> DeliveryRequestOut:
         ],
         so_lan_giao=len(svc.deliveries.trips_cua_yeu_cau(req.id)),
     )
+
+
+def _cum_theo_dong(order) -> dict:
+    """`{order_line_id: CumBan}` — chỉ cụm NHIỀU dòng (dòng đứng một mình không cần gom trên form)."""
+    if order is None:
+        return {}
+    return {ln.id: c for c in cum_ban(order) if len(c.dong) > 1 for ln in c.dong}
+
+
+def _cum_cua(cum: dict, order_line_id: int) -> dict:
+    c = cum.get(order_line_id)
+    return {"cum_khoa": c.khoa, "cum_ten": c.ten, "cum_dvt": c.dvt} if c is not None else {}
 
 
 # `_trang_thai_lsx` GỠ 20/08/2026 (chủ chốt): "bên bộ phận giao hàng chỉ nhận yêu cầu thôi,
@@ -421,11 +436,13 @@ def con_phai_giao(order_id: int, svc: Service, db: Db, user: Reader):
         raise _err(e)
     order = OrderRepository(db).get_by_id(order_id)
     da_giao = svc.deliveries.da_giao_theo_dong(order_id)
+    cum = _cum_theo_dong(order)
     return ConPhaiGiaoOut(
         order_id=order_id,
         da_giao_du=svc.da_giao_du(order_id),
         lines=[
             ConPhaiGiaoLine(
+                **_cum_cua(cum, ln.id),
                 order_line_id=ln.id, mo_ta=ln.description, don_vi_tinh=ln.don_vi_tinh,
                 qty_dat=int(ln.qty or 0), da_giao=int(da_giao.get(ln.id, 0)),
                 con_phai_giao=int(con.get(ln.id, 0)),

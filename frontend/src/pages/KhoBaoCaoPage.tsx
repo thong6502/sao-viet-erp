@@ -30,6 +30,7 @@ import { useCan } from "../auth/permissions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { Select } from "../components/Select";
+import { KhoGiaGocThanhPham } from "./KhoGiaGocThanhPham";
 import { VoucherDrawer } from "./KhoYeuCauPage";
 import { AN_DIEU_CHUYEN, DateFilterHead, NumFilterHead, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, inDateRange, inNumRange, todayISO, useHeaderTitles } from "./khoShared";
 import { Search } from "lucide-react";
@@ -37,7 +38,7 @@ import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 type KhoOpt = { id: number; ma: string; ten: string };
-type Tab = "tong-quan" | "so" | "nxt" | "ky-da-tinh" | "lichsu" | "ky";
+type Tab = "tong-quan" | "so" | "nxt" | "gia-goc" | "ky-da-tinh" | "lichsu" | "ky";
 
 /** ẨN tab "Tổng quan" (chỉ giao diện — code dashboard giữ nguyên). Bật lại: đổi thành `false`. */
 const AN_TAB_TONG_QUAN = true;
@@ -437,6 +438,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   // Bấm mã phiếu trong popup lô → đóng popup lô, mở PHIẾU đó (chỉ xem — không sửa/ghi sổ ở đây).
   const can = useCan();
   const canViewCost = can("kho", "view_cost");
+  const [giaGocTong, setGiaGocTong] = useState<number | null>(null);
   const [openVoucherId, setOpenVoucherId] = useState<number | null>(null);
   function openVoucher(vid: number | null) {
     if (vid == null) return;
@@ -926,6 +928,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                 ? `${soChieu === "CHUYEN" ? chuyenRows.length : rows.length} dòng`
                 : tab === "nxt"
                   ? `${nxtRows.length} mặt hàng`
+                  : tab === "gia-goc"
+                  ? `${giaGocTong ?? 0} lô gốc`
                   : tab === "ky-da-tinh"
                     ? `${kyDaTinhList.length} kỳ`
                     : tab === "lichsu"
@@ -999,11 +1003,12 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               ["tong-quan", "Tổng quan"],
               ["so", "Sổ kho"],
               ["nxt", "Nhập-Xuất-Tồn"],
+              ["gia-goc", "Giá gốc thành phẩm"],
               ["ky-da-tinh", "Kỳ đã tính"],
               ["lichsu", "Lịch sử thao tác"],
               ["ky", "Kỳ đã khóa"],
             ] as const
-          ).filter(([id]) => !(AN_TAB_TONG_QUAN && id === "tong-quan")).map(([id, label]) => (
+          ).filter(([id]) => !(AN_TAB_TONG_QUAN && id === "tong-quan") && (id !== "gia-goc" || canViewCost)).map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -1884,6 +1889,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         </>
         );
       })()}
+
+      {tab === "gia-goc" && canViewCost && <KhoGiaGocThanhPham token={token} onCount={setGiaGocTong} />}
 
       {tab === "ky-da-tinh" && (
         <>

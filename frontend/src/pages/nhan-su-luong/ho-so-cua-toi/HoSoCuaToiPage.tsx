@@ -205,7 +205,10 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
       : ev.event_type === "transferred" ? "steel"
       : ["resigned", "suspended", "leave_start"].includes(ev.event_type) ? "signal" : undefined;
     return {
-      title: EVENT_LABEL[ev.event_type] ?? ev.event_type,
+      // Mốc đổi bậc tay nghề cũ (bậc gỡ 17/09/2026) — đừng để hiện thành "Đổi chức danh".
+      title: ev.event_type === "promoted" && ev.field === "job_grade"
+        ? "Đổi bậc tay nghề (đã gỡ)"
+        : (EVENT_LABEL[ev.event_type] ?? ev.event_type),
       meta: [fmtDate(ev.effective_date), ev.note || null].filter(Boolean).join(" · "),
       accent: tone === "moss" || tone === "rust", tone,
     };
@@ -313,7 +316,6 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
 
   // === NHÁNH NHÂN VIÊN: hồ sơ của tôi ===
   const tn = thamNien(emp.prior_seniority_months, emp.hire_date);
-  const bac = emp.job_grade_name ?? emp.job_grade;   // job_grade_name = nguồn sự thật; cột chữ chỉ để đọc dữ liệu cũ
   const badgeTrangThai = emp.status === "probation" && emp.probation_end_date
     ? `${STATUS_LABEL.probation} · đến ${fmtDate(emp.probation_end_date)}`
     : STATUS_LABEL[emp.status] ?? emp.status;
@@ -344,7 +346,6 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
           <p>
             {emp.department_name ?? "—"}
             {emp.position && emp.position !== emp.department_name ? ` · ${emp.position}` : ""}
-            {bac && bac !== emp.position ? ` · ${bac}` : ""}
           </p>
           <p className="mine__herosub">
             Mã NV: {emp.code} · Vào làm {fmtDate(emp.hire_date)}{tn ? ` · Thâm niên ${tn}` : ""}
@@ -501,7 +502,6 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
             v={shift ? `${shift.name} (${shift.start_time}–${shift.end_time})` : null}
             hint="Ca do HCNS gán ở màn Chấm công"
           />
-          <Row k="Bậc tay nghề" v={bac} />
           {emp.department_head_name && <Row k="Trưởng bộ phận" v={emp.department_head_name} />}
           {emp.status === "probation" && (
             <Row k="Hết thử việc" v={emp.probation_end_date ? fmtDate(emp.probation_end_date) : null} />

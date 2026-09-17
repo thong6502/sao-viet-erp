@@ -10,7 +10,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
+from sqlalchemy.orm import Session
+
 from ..config import settings
+from ..db import get_db
 from ..deps import (
     FILE_COOKIE,
     FILE_COOKIE_PATH,
@@ -177,8 +180,13 @@ def change_password(
 def my_permissions(
     current_user: CurrentUser,
     authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> PermissionsOut:
+    from ..services.san_xuat.kcs import la_nguoi_kcs, la_truong_kcs
+
     return PermissionsOut(
         modules=authz.readable_modules(current_user),
         permissions=authz.capabilities(current_user),
+        kcs=la_nguoi_kcs(db, current_user),
+        truong_kcs=la_truong_kcs(db, current_user),
     )

@@ -151,9 +151,9 @@ class SanXuatPhanBoDong(Base):
     version). Giữ RIÊNG `so_luong_tra_luong` (đã quy đổi, dùng tính lương) và `so_luong_ban_dia`.
 
     `la_ho_tro=true`: phần người hỗ trợ = Q×tỷ lệ, ghi cho `department_id`=tổ GỐC, `ngay`=ngày thỏa
-    thuận (§9.2), KHÔNG chia theo phút×hệ số → `trong_so`/`phut_thuc_te`/`he_so_bac` để trống.
+    thuận (§9.2), KHÔNG chia theo phút → `trong_so`/`phut_thuc_te` để trống.
     `la_ho_tro=false`: phần tổ thực hiện, chia phần còn lại Q×(1−P) theo
-    `trong_so = phut_thuc_te × he_so_bac` (§12.2)."""
+    `trong_so = phut_thuc_te` (§12.2)."""
 
     __tablename__ = "san_xuat_phan_bo_dong"
 
@@ -178,7 +178,6 @@ class SanXuatPhanBoDong(Base):
     so_luong_ban_dia: Mapped[float | None] = mapped_column(Numeric(18, 3), nullable=True)
     trong_so: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     phut_thuc_te: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
-    he_so_bac: Mapped[float | None] = mapped_column(Numeric(6, 3), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 

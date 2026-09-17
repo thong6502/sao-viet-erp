@@ -116,16 +116,15 @@ def _cfg_svc(db, dept_name):
 
 
 def _emp_ns(dept_id, **kw):
-    base = dict(status="active", hire_date=date(2020, 1, 1), gender="male",
-                payroll_group=None, pay_grade_key=None, dependents_count=0,
+    base = dict(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0,
                 department_id=dept_id)
     base.update(kw)
     return SimpleNamespace(**base)
 
 
 def _salary_ns(**kw):
-    base = dict(amount_mode="manual", base_amount=9_000_000, luong_vi_tri=0, luong_trach_nhiem=0,
-                allowance=0, insurance_base=None, chuyen_can=0, source_salary_row_id=None,
+    base = dict(base_amount=9_000_000, luong_vi_tri=0, luong_trach_nhiem=0,
+                allowance=0, insurance_base=None, chuyen_can=0,
                 phu_cap_ca=0, phu_cap_tham_nien=0)
     base.update(kw)
     return SimpleNamespace(**base)
@@ -1184,8 +1183,7 @@ def _phat_v(cap_pct, *, phat=100_000_000, luong=20_000_000):
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
         params.phat_cap_pct = cap_pct          # đổi trong bộ nhớ, không đụng DB
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         return svc._compute(
             employee=emp, salary=_salary_ns(luong_vi_tri=luong), params=params,
             actual_cong=26, standard_cong=26, phat_bien_ban=phat, on=date(2026, 6, 1),

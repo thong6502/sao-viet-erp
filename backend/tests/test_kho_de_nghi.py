@@ -239,6 +239,29 @@ def test_moi_lan_nhap_tao_lo_rieng_voi_gia_rieng(client):
     assert all(x["sl_con_lai"] == 10 for x in lots)
 
 
+def test_doc_lo_va_lich_su_can_quyen_xem_ton_o_may_chu(client):
+    """Vai chỉ `kho:read` (tạo đề nghị) KHÔNG đọc được lô/lịch sử mặt hàng qua API — trước đây chỉ
+    FE ẩn màn Tồn kho. Người lập phiếu (`create`, không `view_stock`) vẫn đọc được để chọn lô."""
+    kho_id, mat_id = _setup(client)
+    _nhap(client, kho_id=kho_id, mat_id=mat_id, qty=10, gia=100_000)
+    _mk_user("t_lap_khong_xem_ton", "Kho", dict(can_read=True, can_create=True, scope=SCOPE_ALL))
+
+    lo = ("/api/kho/phieu/lo/danh-sach",
+          {"hang_loai": mat_id[0], "hang_id": mat_id[1], "kho_id": kho_id})
+    lich_su = (f"/api/kho/phieu/mat-hang/{mat_id[0]}/{mat_id[1]}/lich-su", {"kho_id": kho_id})
+
+    dn = _login(client, "t_denghi")
+    for url, params in (lo, lich_su):
+        r = client.get(url, params=params, headers=dn)
+        assert r.status_code == 403, (url, r.text)
+
+    lap = _login(client, "t_lap_khong_xem_ton")
+    for url, params in (lo, lich_su):
+        r = client.get(url, params=params, headers=lap)
+        assert r.status_code == 200, (url, r.text)
+    assert client.get(lo[0], params=lo[1], headers=lap).json()[0]["sl_con_lai"] == 10
+
+
 def test_xuat_an_nhieu_lo_thi_gia_von_tinh_dich_danh(client):
     """Xuất 15 = 10 (lô 100k) + 5 (lô 200k). Đích danh TRỪ LÔ giữ nguyên ở DB (tồn còn 5),
     NHƯNG chi tiết phiếu gộp 2 lô lẻ thành 1 dòng/mã với ĐƠN GIÁ BÌNH QUÂN gia quyền."""

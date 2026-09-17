@@ -89,14 +89,14 @@ def test_xuat_nhan_su_ra_file_xlsx_that(client):
 
     rows = _doc_xlsx(resp.content)
     # Tu 10/09/2026 file xuat mang DU o cua ho so (de nap nguoc lai duoc, xem
-    # tests/test_nhan_su_excel.py) — day chi chot 8 cot DAU giu nguyen thu tu cu.
-    assert rows[0][:8] == ["Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc tay nghề", "Trạng thái",
+    # tests/test_nhan_su_excel.py) — day chi chot 7 cot DAU (cot Bac tay nghe da go 17/09/2026).
+    assert rows[0][:7] == ["Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Trạng thái",
                            "Ngày vào", "Ngày hết thử việc"]
     ten = [r[1] for r in rows[1:]]
     assert "Nguyen Thi Xuat" in ten
     # Ngay vao phai la chuoi dd/mm/yyyy — de nguyen kieu ngay thi moi may Excel hien mot kieu.
     dong = next(r for r in rows[1:] if r[1] == "Nguyen Thi Xuat")
-    assert dong[6] == "01/03/2024"
+    assert dong[5] == "01/03/2024"
 
 
 def test_xuat_nhan_su_khong_bi_cat_o_200_nguoi(client):
@@ -156,14 +156,13 @@ def _vai_tho(client, token) -> int:
 def test_my_profile_self_service(client):
     token = _admin_token(client)
     _create(client, token, full_name="NV Tự", phone="0900", note="ghi chú nội bộ",
-            payroll_group="van_phong",
             account={"username": "nvtu", "password": "nvtu12345", "role_id": _vai_tho(client, token)})
     me_tok = client.post("/api/auth/login", json={"username": "nvtu", "password": "nvtu12345"}).json()["access_token"]
 
     me = client.get("/api/employees/me", headers=_h(me_tok)).json()
     assert me["has_employee"] is True
     assert me["employee"]["full_name"] == "NV Tự" and me["employee"]["phone"] == "0900"
-    assert me["employee"]["note"] is None and me["employee"]["payroll_group"] is None  # nội bộ, ẩn
+    assert me["employee"]["note"] is None  # nội bộ, ẩn
 
     # tự sửa liên lạc (whitelist): phone đổi được; full_name bị bỏ qua (không whitelist)
     upd = client.put("/api/employees/me", json={"phone": "0911", "full_name": "HACK"}, headers=_h(me_tok)).json()
@@ -366,37 +365,22 @@ def test_create_assigns_code_probation_and_hired_event(client):
     assert any(e["event_type"] == "hired" for e in events)
 
 
-def _bac(client, token, code: str) -> int:
-    """id của một bậc trong danh mục theo mã (bac_1..bac_5)."""
-    items = client.get("/api/employees/bac-tay-nghe", headers=_h(token)).json()["items"]
-    return next(g["id"] for g in items if g["code"] == code)
-
-
 def test_create_with_employee_specific_salary_can_have_different_amounts(client):
-    """Bậc thợ KHÔNG quyết định tiền — cùng bậc, 2 NV 2 mức lương vị trí khác nhau (bảng T05:
-    cùng bậc 2 mà người 20tr người 10,5tr).
-
-    Từ 29/07/2026 bậc là DANH MỤC (`job_grade_id`) chứ không còn là chữ tự do, nhưng luật trên
-    không đổi: chủ chốt "khai bậc thôi, không cần điền tiền"."""
+    """Lương theo TỪNG NGƯỜI — cùng phòng, 2 NV 2 mức lương vị trí khác nhau."""
     token = _admin_token(client)
     dept_id = _dept_id("Hành chính nhân sự")
-    bac_2 = _bac(client, token, "bac_2")
 
     first = _create(
         client, token, full_name="NV mức riêng A", department_id=dept_id,
-        job_grade_id=bac_2,
         initial_salary={"luong_vi_tri": 8_000_000, "luong_trach_nhiem": 1_000_000,
                         "chuyen_can": 300_000},
     )
     second = _create(
         client, token, full_name="NV mức riêng B", department_id=dept_id,
-        job_grade_id=bac_2,
         initial_salary={"luong_vi_tri": 13_000_000, "luong_trach_nhiem": 2_000_000,
                         "chuyen_can": 500_000},
     )
     assert first.status_code == 201 and second.status_code == 201
-    assert first.json()["employee"]["job_grade_name"] == "Thợ vững"
-    assert second.json()["employee"]["job_grade_id"] == bac_2, "hai người CÙNG một bậc"
 
     salary_a = client.get(
         f"/api/luong/salaries/{first.json()['employee']['id']}", headers=_h(token)
@@ -404,7 +388,6 @@ def test_create_with_employee_specific_salary_can_have_different_amounts(client)
     salary_b = client.get(
         f"/api/luong/salaries/{second.json()['employee']['id']}", headers=_h(token)
     ).json()["items"][0]
-    assert salary_a["amount_mode"] == salary_b["amount_mode"] == "manual"
     assert salary_a["luong_vi_tri"] + salary_a["luong_trach_nhiem"] == 9_000_000
     assert salary_b["luong_vi_tri"] + salary_b["luong_trach_nhiem"] == 15_000_000
     # Mức đóng BH = lương vị trí (khác nhau giữa 2 người cùng bậc).
@@ -588,52 +571,52 @@ def test_transfer_and_promote_record_events(client):
     )
     assert same.status_code == 400
 
-    # promote (bậc tay nghề — chọn từ danh mục, không còn gõ chữ tự do)
-    bac_3 = _bac(client, token, "bac_3")
+    # promote = đổi chức danh
     p = client.post(
         f"/api/employees/{eid}/transitions",
-        json={"kind": "promote", "new_job_grade_id": bac_3},
+        json={"kind": "promote", "new_position": "Tổ phó"},
         headers=_h(token),
     )
-    assert p.status_code == 200 and p.json()["job_grade_name"] == "Thợ thường"
+    assert p.status_code == 200 and p.json()["position"] == "Tổ phó"
+    # thiếu chức danh mới thì từ chối
+    thieu = client.post(
+        f"/api/employees/{eid}/transitions", json={"kind": "promote"}, headers=_h(token),
+    )
+    assert thieu.status_code == 400
 
     kinds = {e["event_type"] for e in client.get(f"/api/employees/{eid}/events", headers=_h(token)).json()["items"]}
     assert {"hired", "transferred", "promoted"} <= kinds
 
 
-def test_transfer_and_promote_change_grade_without_changing_salary(client):
-    """Bậc gỡ hẳn → điều chuyển đổi PHÒNG, thăng bậc đổi `job_grade` (free-text) + chức danh;
-    lương của NV KHÔNG đổi và KHÔNG sinh mốc lương mới (lương theo NV, không theo bậc/phòng)."""
+def test_transfer_and_promote_keep_salary(client):
+    """Điều chuyển đổi PHÒNG, đổi chức danh đổi `position`; lương của NV KHÔNG đổi và KHÔNG sinh
+    mốc lương mới (lương theo NV, không theo phòng/chức danh)."""
     token = _admin_token(client)
     hcns = _dept_id("Hành chính nhân sự")
     kd = _dept_id("Kinh doanh")
 
     employee = _create(
-        client, token, full_name="NV giữ nguyên lương khi đổi bậc", department_id=hcns,
-        hire_date="2026-01-01", job_grade_id=_bac(client, token, "bac_1"),
+        client, token, full_name="NV giữ nguyên lương khi đổi chức danh", department_id=hcns,
+        hire_date="2026-01-01",
         initial_salary={"effective_from": "2026-01-01", "luong_vi_tri": 11_000_000,
                         "luong_trach_nhiem": 2_000_000, "allowance": 700_000},
     ).json()["employee"]
 
     transferred = client.post(
         f"/api/employees/{employee['id']}/transitions",
-        json={"kind": "transfer", "new_department_id": kd,
-              "new_job_grade_id": _bac(client, token, "bac_2"),
-              "effective_date": "2026-04-01"},
+        json={"kind": "transfer", "new_department_id": kd, "effective_date": "2026-04-01"},
         headers=_h(token),
     )
     assert transferred.status_code == 200, transferred.text
     assert transferred.json()["department_id"] == kd
-    assert transferred.json()["job_grade_name"] == "Thợ vững"
 
     promoted = client.post(
         f"/api/employees/{employee['id']}/transitions",
-        json={"kind": "promote", "new_job_grade_id": _bac(client, token, "bac_3"),
-              "new_position": "Tổ phó", "effective_date": "2026-07-01"},
+        json={"kind": "promote", "new_position": "Tổ phó", "effective_date": "2026-07-01"},
         headers=_h(token),
     )
     assert promoted.status_code == 200, promoted.text
-    assert promoted.json()["job_grade_name"] == "Thợ thường"
+    assert promoted.json()["position"] == "Tổ phó"
 
     # Lương KHÔNG đổi, KHÔNG sinh mốc lương mới (vẫn đúng 1 bản ghi ban đầu).
     history = client.get(
@@ -819,14 +802,13 @@ def test_edit_salary_gate_blocks_sensitive_write(client):
 
     # Tạo NV kèm field nhạy cảm → bị bỏ (không lưu lén)
     created = _create(client, tok, full_name="NV No Salary",
-                      bank_account="123456", payroll_group="van_phong", phone="0900")
+                      bank_account="123456", phone="0900")
     assert created.status_code == 201
     eid = created.json()["employee"]["id"]
 
     seen = client.get(f"/api/employees/{eid}", headers=_h(admin)).json()
     assert seen["phone"] == "0900"          # field thường: ghi được
     assert seen["bank_account"] is None     # nhạy cảm: bị bỏ khi tạo
-    assert seen["payroll_group"] is None
 
     # Admin đặt số TK nền (full_name bắt buộc ở EmployeeUpdate)
     r_admin = client.put(f"/api/employees/{eid}",
