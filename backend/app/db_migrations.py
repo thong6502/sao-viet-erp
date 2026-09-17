@@ -14126,3 +14126,22 @@ def _migrate_department_la_to_in(db: Session) -> None:
 
 
 MIGRATIONS.append(("0304_department_la_to_in", _migrate_department_la_to_in))
+
+
+def _migrate_payroll_line_tien_gio_tang_ca(db: Session) -> None:
+    """Chụp TIỀN GIỜ tăng ca lên dòng lương, tách khỏi phần thêm ngày CN / lễ trong `ot_pay` (17/09/2026).
+
+    File Excel bảng lương theo khuôn công ty (sheet `BL CT`): phần thêm CN / lễ nằm trong "Lương thời
+    gian", cột "Ngoài giờ/Tăng ca" chỉ là tiền giờ. `ot_pay` gộp cả hai nên phải chụp riêng lúc tính.
+
+    THUẦN CỘNG THÊM: NULL cho mọi dòng cũ = kỳ tính trước bản vá, chưa tách được. Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    if "tien_gio_tang_ca" not in _existing_columns(insp, "payroll_lines"):
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN tien_gio_tang_ca NUMERIC(14, 2)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0305_payroll_line_tien_gio_tang_ca", _migrate_payroll_line_tien_gio_tang_ca))

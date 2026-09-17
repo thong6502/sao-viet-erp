@@ -1345,6 +1345,9 @@ class PayrollService:
         # hỏi chủ trước.
         # `che_do_khoan=None` ⇒ suy theo tổ; unit test truyền thẳng True/False.
         khoan_mode = self._che_do_khoan(dept_id) if che_do_khoan is None else bool(che_do_khoan)
+        # TRONG ĐÓ của `ot_pay` — tiền GIỜ tăng ca, chụp riêng cho file Excel theo khuôn công ty (17/09/2026):
+        # phần thêm CN / lễ ở đó thuộc "Lương thời gian", cột "Ngoài giờ/Tăng ca" chỉ là tiền giờ.
+        tien_gio_tang_ca = 0.0
         if not tang_ca_bat:
             # Tổ TẮT tăng ca ⇒ không giờ tăng ca, không premium lễ/CN — áp như nhau cho tổ khoán.
             # `off1x_pay` GIỮ NGUYÊN (bản rà liên thông D2, 08/09/2026): đó là lương 1× của NGÀY CÔNG
@@ -1364,6 +1367,7 @@ class PayrollService:
                     daily_rate=daily_rate, ot_minutes=ot_minutes,
                     ot_restday_minutes=ot_restday_minutes,
                     ot_holiday_minutes=ot_holiday_minutes, params=params)))
+            tien_gio_tang_ca = gio_tc_pay
             ot_pay = _round(
                 gio_tc_pay
                 # PREMIUM ngày lễ / nghỉ tuần = phần TRẢ THÊM ⇒ bám `daily_rate_ot` (mức nền), cùng gốc
@@ -1625,6 +1629,8 @@ class PayrollService:
             # TRONG ĐÓ của `ot_pay` — tiền ngày off1x, CHỊU thuế. Snapshot để "Sửa 1 ô" trừ đúng
             # y "Tính lại". ĐỪNG cộng vào gross: đã nằm trong `ot_pay`.
             "off1x_pay": _round(off1x_pay),
+            # TRONG ĐÓ của `ot_pay` — tiền GIỜ tăng ca (xem chỗ gán). ĐỪNG cộng vào gross.
+            "tien_gio_tang_ca": _round(tien_gio_tang_ca),
             # Người này thuộc CHẾ ĐỘ KHOÁN — giờ tăng ca không có tiền. Chụp lên dòng lương để
             # bảng/phiếu lương giải thích được vì sao có giờ tăng ca mà tiền tăng ca = 0.
             "che_do_khoan": bool(khoan_mode),
@@ -1883,7 +1889,8 @@ class PayrollService:
                 is_probation=vals["is_probation"], actual_cong=actual_cong, standard_cong=std,
                 monthly_salary=vals["monthly_salary"], luong_cong=vals["luong_cong"],
                 luong_ngay_phep=vals["luong_ngay_phep"], special_cong=vals["special_cong"],
-                off1x_pay=vals["off1x_pay"], che_do_khoan=vals["che_do_khoan"],
+                off1x_pay=vals["off1x_pay"], tien_gio_tang_ca=vals["tien_gio_tang_ca"],
+                che_do_khoan=vals["che_do_khoan"],
                 bu_lo_theo_cong=vals["bu_lo_theo_cong"], lay_bu_lo=vals["lay_bu_lo"],
                 luong_ngay_le=vals["luong_ngay_le"], le_nghi_cong=vals["le_nghi_cong"],
                 paid_leave_cong=vals["paid_leave_cong"], excused_cong=vals["excused_cong"],
@@ -1974,6 +1981,30 @@ class PayrollService:
         CÙNG bộ lọc với `approved_advance_map` (chỉ `paid` mới trừ vào lương), để bảng chi tiết
         theo ngày cộng lại đúng bằng cột "Tạm ứng" trên bảng lương."""
         return self.payroll.list_advances(year=year, month=month, status=ADV_PAID)
+
+    def muc_luong_thang_cho_file(self, year: int, month: int, employee_ids) -> dict[int, dict]:
+        """MỨC THÁNG từng người cho file Excel bảng lương theo khuôn công ty (17/09/2026).
+
+        Dòng lương chỉ chụp TỔNG mức nền (`monthly_salary` = cơ bản + trách nhiệm) và TỔNG phụ cấp khai
+        (`phu_cap_thang`), còn bảng của kế toán tách "Lương cơ bản" · "Lương trách nhiệm" · từng khoản phụ
+        cấp. Mốc lương tra CÙNG cách `generate` (bản hiện hành đến CUỐI kỳ) nên kỳ cũ ra đúng mốc cũ.
+        Khoản hồ sơ KHÔNG có lịch sử ⇒ đây là mức đang gán HÔM NAY; file chỉ dùng khi không chia ngược
+        được từ số đã chụp trên dòng lương."""
+        ids = {int(i) for i in employee_ids}
+        pay_on = date(int(year), int(month), monthrange(int(year), int(month))[1])
+        moc = self.payroll.latest_salaries_map(pay_on)
+        khoan = self._components_map(sorted(ids))
+        out: dict[int, dict] = {}
+        for eid in ids:
+            s = moc.get(eid)
+            out[eid] = {
+                "luong_vi_tri": float(getattr(s, "luong_vi_tri", 0) or 0) if s is not None else None,
+                "luong_trach_nhiem": float(getattr(s, "luong_trach_nhiem", 0) or 0) if s is not None else None,
+                "phu_cap_khac": float(getattr(s, "allowance", 0) or 0) if s is not None else None,
+                "khoan_ho_so": {c["name"]: float(c["amount"]) for c in khoan.get(eid, [])
+                                if c["kind"] != "tru"},
+            }
+        return out
 
     def get_table(self, *, year, month, scope=None, actor=None):
         """Kỳ lương + các dòng (kèm thông tin NV) cho FE. None nếu chưa tạo.

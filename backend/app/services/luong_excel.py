@@ -1,29 +1,36 @@
-"""Xuất BẢNG LƯƠNG THÁNG ra .xlsx theo khuôn kế toán công ty đang dùng (chủ chốt 09/09/2026).
+"""Xuất BẢNG LƯƠNG THÁNG ra .xlsx theo ĐÚNG khuôn bảng lương công ty đang dùng (chủ chốt 17/09/2026).
 
-Bản cũ (`_build_table_xlsx` trong router) có 28 cột do mình tự đặt, và kế toán **không dò được**:
+Khuôn gốc: sheet `BL CT` của `BẢNG LƯƠNG T05.2026 (duyệt).xlsx`. Chủ đặt cột theo thứ tự:
 
-1. **Không cộng ra Thực nhận.** Công thức máy là
-   `net = gross − BHXH − đoàn phí − TNCN − khoản trừ danh mục − (tạm ứng + đợt 1 + nợ kỳ trước)`,
-   mà file cũ chỉ có Tổng · BHXH · TNCN · Tạm ứng ⇒ thiếu **đoàn phí**, **khoản trừ danh mục**,
-   **lương đợt 1**. Đoàn viên công đoàn thì cột không bao giờ khớp thực nhận.
-2. **Gộp cột.** Bảng của họ tách BHXH 8% / BHYT 1,5% / BHTN 1%; tách thưởng thành tích · doanh số ·
-   5S · trả đồng phục · điều chỉnh lương; tách phạt đi trễ · biên bản · ĐT vượt trội · đồng phục-5S;
-   tách công thường / công lễ-CN / tổng công. File cũ gộp mỗi nhóm thành một cột.
-3. **Thiếu cột thông tin**: chức vụ, ngày vào làm, lương vị trí, lương đóng BHXH, người phụ thuộc.
-4. **Thiếu bảng phụ**: bảng ký nhận và bảng tạm ứng theo ngày chi.
+    Số TT · MNV · Họ và tên · Chức vụ · NCT · CN/Lễ · Tổng NC · Tăng ca · Lương BHXH · Lương cơ bản ·
+    Lương trách nhiệm · các khoản phụ cấp · Chuyên cần · Lương thời gian · Tổng lương · (các khoản trừ) ·
+    Thực nhận
 
-File mới có 3 sheet: `Bảng lương` · `Ký nhận` · `Tạm ứng`.
+và để phần trừ cho mình tự xếp. Bản 09/09/2026 (60 cột tự đặt) bị thay bằng khuôn này.
 
-⚠️ LUẬT SỐ HỌC CỦA SHEET 1 — có test khoá (`test_luong_excel.py`), đừng phá:
+Đọc cho đúng nghĩa từng khối — y như file của công ty:
 
-    Cộng thu − Phạt/trừ thực tế            = Tổng lương
-    Tổng lương − BHXH − BHYT − BHTN − đoàn phí − TNCN − khoản trừ − tạm ứng trừ kỳ này = Thực nhận
+- **Mức lương tháng** (Lương BHXH · Lương cơ bản · Lương trách nhiệm · từng khoản phụ cấp) là SỐ THÁNG
+  để tham chiếu, KHÔNG cộng vào Tổng lương. Tiền thật của chúng nằm trong "Lương thời gian".
+- **Lương thời gian** = lương theo công (tháng lấy bù lỗ: trọn bù lỗ, đã gồm tiền khoán / km) + công lễ
+  nghỉ + phụ cấp trả theo công + phần thêm làm nguyên ngày CN / lễ + tiền ngày off1x. Bảng công ty:
+  `X = (vị trí + trách nhiệm + phụ cấp) ÷ 26 × Tổng NC` — "Tổng NC" ở đây là đúng số công đó.
+- **Ngoài giờ/Tăng ca** chỉ là tiền GIỜ tăng ca (`payroll_lines.tien_gio_tang_ca`, mg 0305).
 
-Thêm khoản mới vào engine thì thêm cột Ở ĐÂY, nếu không hai vế lệch và test đỏ ngay.
+⚠️ LUẬT SỐ HỌC — có test khoá (`test_luong_excel.py`), đừng phá:
+
+    Tổng lương  = Σ cột khối THU (gồm Chuyên cần, Lương thời gian) = tổng thu TRƯỚC phạt
+    Thực nhận   = Tổng lương − Σ cột khối TRỪ
+
+Phạt ghi ở cột trừ là số GHI NHẬN; phần engine không trừ (trần 30% Điều 102, hoặc khấu trừ lớn hơn lương)
+hiện ở cột "Không trừ được kỳ này" (số âm) — cột này chỉ có khi có người rơi vào. Thêm khoản mới vào
+engine thì thêm vào một cột Ở ĐÂY, nếu không hai vế lệch và test đỏ ngay.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from io import BytesIO
+from typing import Callable
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -32,21 +39,62 @@ from openpyxl.utils import get_column_letter
 MEDIA_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 TIEN = "#,##0"
-CONG = "0.##"
+#: `General` chứ không phải `0.##`: dạng đó làm Excel in "26." (thừa dấu chấm) cho số công tròn.
+CONG = "General"
 
 NEN_NHOM = {
     "tt": "FFEFF2F5",     # thông tin
     "cong": "FFEAF3EA",   # ngày công
-    "thu": "FFFDF6E3",    # các khoản thu
-    "phat": "FFFBEAEA",   # phạt
-    "tru": "FFEDE7F6",    # các khoản trừ
+    "muc": "FFF1EEF8",    # mức lương tháng (tham chiếu)
+    "thu": "FFFDF6E3",    # các khoản thu nhập
+    "tong": "FFFBE3B8",   # tổng lương
+    "tru": "FFFBEAEA",    # các khoản trừ
     "cuoi": "FFE3F2FD",   # thực nhận
+    "phu": "FFEFF2F5",    # ghi chú sau thực nhận
 }
+NHAN_NHOM = {
+    "tt": "THÔNG TIN NHÂN VIÊN",
+    "cong": "NGÀY CÔNG",
+    "muc": "MỨC LƯƠNG THÁNG (tham chiếu, không cộng)",
+    "thu": "CÁC KHOẢN THU NHẬP",
+    "tong": "",
+    "tru": "CÁC KHOẢN TRỪ",
+    "cuoi": "",
+    "phu": "",
+}
+#: Bảng lương công ty tô VÀNG dòng người thử việc.
+NEN_THU_VIEC = "FFFFF4C2"
 VIEN = Border(*(Side(style="thin", color="FFCED4DA"),) * 4)
 
 
 def _f(v) -> float:
     return float(v or 0)
+
+
+@dataclass(frozen=True)
+class Cot:
+    ten: str
+    #: tt | cong | muc | thu | tong | tru | cuoi | phu
+    nhom: str
+    #: (dòng lương, thông tin NV, ngữ cảnh) → giá trị; None = điền ở `dong_so`.
+    lay: Callable | None
+    fmt: str | None = TIEN
+
+
+# --- đọc số từ dòng lương -----------------------------------------------------------------------
+
+
+def _lay_bu_lo(ln) -> bool:
+    """Tháng này người đó LẤY bù lỗ theo công (tổ khoán / tổ Giao hàng) — xem `PayrollService._compute`."""
+    return bool(getattr(ln, "lay_bu_lo", False))
+
+
+def _luong_cong_hien(ln) -> float:
+    """Lương theo công để in: tháng lấy bù lỗ = trọn bù lỗ (khoán + km + phần bù thêm) — hai khoản THAY
+    nhau, in cả hai là kế toán đọc thành cộng dồn (chủ chốt 16/09/2026)."""
+    if not _lay_bu_lo(ln):
+        return _f(getattr(ln, "luong_cong", 0))
+    return _f(getattr(ln, "khoan", 0)) + _f(getattr(ln, "khoan_km", 0)) + _f(getattr(ln, "luong_cong", 0))
 
 
 def _khoan_phat_sinh_thu(ln) -> float:
@@ -61,138 +109,238 @@ def _khoan_tru(ln) -> float:
                if getattr(c, "kind", "") == "tru")
 
 
-def _lay_bu_lo(ln) -> bool:
-    """Tháng này người đó LẤY bù lỗ theo công (tổ khoán / tổ Giao hàng) — xem `PayrollService._compute`."""
-    return bool(getattr(ln, "lay_bu_lo", False))
+def _tien_gio_tang_ca(ln) -> float:
+    """Cột "Ngoài giờ/Tăng ca" = tiền GIỜ tăng ca, không gồm phần thêm ngày CN / lễ.
+
+    Dòng tính trước mg 0305 (NULL) chưa tách được: người chế độ khoán (trừ Giao hàng) thì giờ tăng ca
+    vốn 0đ nên `ot_pay` toàn là phần thêm CN / lễ; còn lại để trọn `ot_pay` trừ tiền ngày off1x ở cột
+    này. Tổng lương không đổi — chỉ khác số nằm ở cột nào."""
+    v = getattr(ln, "tien_gio_tang_ca", None)
+    if v is not None:
+        return _f(v)
+    if getattr(ln, "che_do_khoan", False) and not getattr(ln, "la_giao_hang", False):
+        return 0.0
+    return max(0.0, _f(getattr(ln, "ot_pay", 0)) - _f(getattr(ln, "off1x_pay", 0)))
 
 
-def _luong_cong_hien(ln) -> float:
-    """Số in ở cột "Lương công": tháng lấy bù lỗ = trọn bù lỗ (khoán + km + phần bù thêm)."""
-    if not _lay_bu_lo(ln):
-        return float(getattr(ln, "luong_cong", 0) or 0)
-    return (float(getattr(ln, "khoan", 0) or 0) + float(getattr(ln, "khoan_km", 0) or 0)
-            + float(getattr(ln, "luong_cong", 0) or 0))
+def _luong_thoi_gian(ln) -> float:
+    """Cột X "Lương thời gian (lễ, chủ nhật)" của bảng công ty — xem docstring module."""
+    return (_luong_cong_hien(ln) + _f(getattr(ln, "luong_ngay_le", 0)) + _f(getattr(ln, "allowance", 0))
+            + _f(getattr(ln, "ot_pay", 0)) - _tien_gio_tang_ca(ln))
 
 
-#: (nhãn, nhóm, lấy số, định dạng). Giữ NGUYÊN thứ tự — đây là thứ tự bảng của kế toán.
-COT = [
-    ("STT", "tt", None, None),
-    ("Mã NV", "tt", lambda ln, nv: getattr(ln, "employee_code", "") or "", None),
-    ("Họ và tên", "tt", lambda ln, nv: getattr(ln, "employee_name", "") or "", None),
-    ("Chức vụ", "tt", lambda ln, nv: nv.get("chuc_vu") or "", None),
-    ("Bộ phận", "tt", lambda ln, nv: getattr(ln, "department_name", "") or "", None),
-    ("Ngày vào làm", "tt", lambda ln, nv: nv.get("ngay_vao_lam"), "dd/mm/yyyy"),
-    ("Loại", "tt", lambda ln, nv: "Thử việc" if getattr(ln, "is_probation", False) else "Chính thức", None),
+def _tong_nc(ln, ty_le_thu_viec: float) -> float:
+    """Số công hưởng lương thời gian — bảng công ty: `Tổng NC = NCT + CN × 2` (người sản lượng: CN + lễ).
 
-    ("Công ngày thường", "cong", lambda ln, nv: round(
-        max(0.0, _f(ln.actual_cong) - _f(getattr(ln, "special_cong", 0))
-            - _f(getattr(ln, "paid_leave_cong", 0))), 2), CONG),
-    ("Công lễ/CN", "cong", lambda ln, nv: round(_f(getattr(ln, "special_cong", 0)), 2), CONG),
-    ("Công phép", "cong", lambda ln, nv: round(_f(getattr(ln, "paid_leave_cong", 0)), 2), CONG),
-    ("Tổng công", "cong", lambda ln, nv: round(_f(ln.actual_cong), 2), CONG),
-    ("Công chuẩn", "cong", lambda ln, nv: round(_f(ln.standard_cong), 2), CONG),
-    ("Giờ tăng ca", "cong", lambda ln, nv: round(int(getattr(ln, "ot_minutes", 0) or 0) / 60, 2), CONG),
-    ("Ngày ca đêm", "cong", lambda ln, nv: int(getattr(ln, "night_days", 0) or 0), CONG),
-
-    # ⚠️ `monthly_salary` là MỨC NỀN = lương vị trí + lương trách nhiệm (xem docstring `_compute`),
-    # KHÔNG phải riêng lương vị trí. Đặt nhãn "Lương vị trí" là nói sai một cột tiền — hai khoản
-    # đó chỉ tách được ở hồ sơ lương, dòng lương chỉ chụp lại tổng.
-    ("Mức lương tháng", "thu", lambda ln, nv: _f(ln.monthly_salary), TIEN),
-    ("Lương đóng BHXH", "thu", lambda ln, nv: _f(getattr(ln, "insurance_base", 0)), TIEN),
-
-    # LƯƠNG CÔNG — tháng LẤY BÙ LỖ thì ô này là TRỌN số bù lỗ theo công (đã gồm phần tiền khoán /
-    # km), và hai cột "Lương khoán" / "Khoán km" để 0: hai khoản THAY NHAU, in cả hai là kế toán đọc
-    # thành cộng dồn (chủ chốt 16/09/2026 — cùng cách với phiếu lương và bảng lương trên màn hình).
-    # Tổng "CỘNG THU" KHÔNG đổi: chỉ dồn ba ô thành một.
-    ("Lương công", "thu", lambda ln, nv: _f(_luong_cong_hien(ln)), TIEN),
-    ("Điều chỉnh lương", "thu", lambda ln, nv: _f(getattr(ln, "dieu_chinh_luong", 0)), TIEN),
-    ("Chuyên cần", "thu", lambda ln, nv: _f(ln.chuyen_can), TIEN),
-    ("Phụ cấp", "thu", lambda ln, nv: _f(ln.allowance), TIEN),
-    ("Ngoài giờ/Tăng ca", "thu", lambda ln, nv: _f(ln.ot_pay), TIEN),
-    ("Phụ cấp ca đêm", "thu", lambda ln, nv: _f(ln.night_pay), TIEN),
-    ("Ca đêm (giờ × hệ số)", "thu", lambda ln, nv: _f(getattr(ln, "night_premium_pay", 0)), TIEN),
-    ("Cơm ca", "thu", lambda ln, nv: _f(getattr(ln, "meal_allowance_pay", 0)), TIEN),
-    ("Cơm tăng ca", "thu", lambda ln, nv: _f(getattr(ln, "com_tang_ca_pay", 0)), TIEN),
-    ("Phụ cấp ca", "thu", lambda ln, nv: _f(getattr(ln, "shift_allowance_pay", 0)), TIEN),
-    ("Lương khoán", "thu", lambda ln, nv: 0 if _lay_bu_lo(ln) else _f(getattr(ln, "khoan", 0)), TIEN),
-    ("Khoán km", "thu", lambda ln, nv: 0 if _lay_bu_lo(ln) else _f(getattr(ln, "khoan_km", 0)), TIEN),
-    # Công lễ nghỉ của người khoán / tài xế — trả riêng, ngoài khoán (15/09/2026). Nằm TRONG khối
-    # "CỘNG THU" (từ "Lương công" tới "Khoản phát sinh") nên tổng không lệch `gross`.
-    ("Công lễ (ngoài khoán)", "thu", lambda ln, nv: _f(getattr(ln, "luong_ngay_le", 0)), TIEN),
-    ("Hoa hồng", "thu", lambda ln, nv: _f(getattr(ln, "hoa_hong", 0)), TIEN),
-    ("Thưởng thành tích", "thu", lambda ln, nv: _f(getattr(ln, "thuong_thanh_tich", 0)), TIEN),
-    ("Thưởng doanh số", "thu", lambda ln, nv: _f(getattr(ln, "thuong_doanh_so", 0)), TIEN),
-    # Chủ chốt 09/09/2026: BỎ ba cột "Thưởng 5S" · "Trả đồng phục" · "Phép năm", gộp hết vào
-    # một cột "Thưởng" — bảng đã quá rộng mà ba khoản đó ít khi có số. Vẫn giữ riêng thưởng
-    # thành tích và doanh số (hai khoản kế toán soi thường xuyên). Tổng KHÔNG đổi.
-    ("Thưởng", "thu", lambda ln, nv: (_f(ln.other_bonus) + _f(getattr(ln, "thuong_5s", 0))
-                                      + _f(getattr(ln, "tra_dong_phuc", 0))
-                                      + _f(getattr(ln, "phep_nam", 0))), TIEN),
-    ("Khoản phát sinh", "thu", lambda ln, nv: _khoan_phat_sinh_thu(ln), TIEN),
-    ("CỘNG THU", "thu", None, TIEN),                       # tính ở dưới
-
-    ("Vi phạm", "phat", lambda ln, nv: _f(ln.vi_pham), TIEN),
-    ("Đi trễ/về sớm", "phat", lambda ln, nv: _f(getattr(ln, "di_tre", 0)), TIEN),
-    ("Phạt biên bản", "phat", lambda ln, nv: _f(getattr(ln, "phat_bien_ban", 0)), TIEN),
-    ("ĐT vượt trội", "phat", lambda ln, nv: _f(getattr(ln, "dt_vuot_troi", 0)), TIEN),
-    ("Đồng phục/5S", "phat", lambda ln, nv: _f(getattr(ln, "phat_5s_dong_phuc", 0)), TIEN),
-    ("Phạt/trừ thực tế", "phat", None, TIEN),              # = CỘNG THU − Tổng lương
-
-    ("TỔNG LƯƠNG", "thu", lambda ln, nv: _f(ln.gross), TIEN),
-
-    ("BHXH", "tru", None, TIEN),
-    ("BHYT", "tru", None, TIEN),
-    ("BHTN", "tru", None, TIEN),
-    ("Đoàn phí công đoàn", "tru", lambda ln, nv: _f(getattr(ln, "cong_doan", 0)), TIEN),
-    ("Thuế TNCN", "tru", lambda ln, nv: _f(ln.pit), TIEN),
-    ("Khoản trừ danh mục", "tru", lambda ln, nv: _khoan_tru(ln), TIEN),
-    ("Tạm ứng", "tru", lambda ln, nv: _f(ln.advance_total), TIEN),
-    ("Lương đợt 1", "tru", lambda ln, nv: _f(getattr(ln, "luong_dot_1_total", 0)), TIEN),
-    ("Nợ ứng kỳ trước", "tru", lambda ln, nv: _f(getattr(ln, "no_ung_ky_truoc", 0)), TIEN),
-    ("Tạm ứng trừ kỳ này", "tru", None, TIEN),             # = 3 cột trên − nợ chuyển kỳ sau
-
-    ("THỰC NHẬN", "cuoi", lambda ln, nv: _f(ln.net_pay), TIEN),
-    ("Nợ ứng chuyển kỳ sau", "cuoi", lambda ln, nv: _f(getattr(ln, "no_ung_chuyen_ky_sau", 0)), TIEN),
-
-    ("Người phụ thuộc", "tt", lambda ln, nv: int(nv.get("nguoi_phu_thuoc") or 0), CONG),
-    ("Trong đó: lương ngày phép", "tt", lambda ln, nv: _f(getattr(ln, "luong_ngay_phep", 0)), TIEN),
-    ("Trong đó: phụ cấp thâm niên", "tt", lambda ln, nv: _f(getattr(ln, "phu_cap_tham_nien", 0)), TIEN),
-    ("Thu nhập chịu thuế", "tt", lambda ln, nv: _f(getattr(ln, "thu_nhap_chiu_thue", 0)), TIEN),
-    ("Thu nhập tính thuế", "tt", lambda ln, nv: _f(getattr(ln, "pit_taxable", 0)), TIEN),
-    ("Ghi chú", "tt", lambda ln, nv: getattr(ln, "note", None) or "", None),
-]
-
-I_CONG_THU = next(i for i, c in enumerate(COT) if c[0] == "CỘNG THU")
-I_PHAT_TT = next(i for i, c in enumerate(COT) if c[0] == "Phạt/trừ thực tế")
-I_TONG = next(i for i, c in enumerate(COT) if c[0] == "TỔNG LƯƠNG")
-I_BHXH = next(i for i, c in enumerate(COT) if c[0] == "BHXH")
-I_TU_TRU = next(i for i, c in enumerate(COT) if c[0] == "Tạm ứng trừ kỳ này")
-I_THUC_NHAN = next(i for i, c in enumerate(COT) if c[0] == "THỰC NHẬN")
-#: Cột tiền thuộc khối THU (dùng để cộng ra "CỘNG THU") — từ "Lương công" tới "Khoản phát sinh".
-I_THU_DAU = next(i for i, c in enumerate(COT) if c[0] == "Lương công")
+    Chính là số công engine đã trả phụ cấp theo công (`cong_phu_cap`: công theo lương + phần thêm CN / lễ +
+    ngày off1x; người khoán chỉ còn công lễ nghỉ + phần thêm). Tháng LẤY BÙ LỖ phụ cấp nằm trong số bù lỗ
+    nên cộng thêm số công bù lỗ, chia ngược từ tiền: bù lỗ = (mức nền × tỉ lệ + phụ cấp) ÷ công chuẩn × công.
+    Kỳ tính trước 15/09/2026 chưa chụp số công này ⇒ dùng tổng công."""
+    cpc = getattr(ln, "cong_phu_cap", None)
+    if cpc is None:
+        return round(_f(getattr(ln, "actual_cong", 0)), 2)
+    tong = _f(cpc)
+    if getattr(ln, "bu_lo_theo_cong", None) is not None and _lay_bu_lo(ln):
+        ty_le = float(ty_le_thu_viec) if getattr(ln, "is_probation", False) else 1.0
+        cong_chuan = _f(getattr(ln, "standard_cong", 0)) or 1.0
+        don_gia = (_f(getattr(ln, "monthly_salary", 0)) * ty_le
+                   + _f(getattr(ln, "phu_cap_thang", 0))) / cong_chuan
+        if don_gia > 0:
+            tong += _f(ln.bu_lo_theo_cong) / don_gia
+    return round(tong, 2)
 
 
-def dong_so(ln, nv: dict, bh3: tuple[float, float, float]) -> list:
-    """Một dòng lương → list giá trị theo đúng `COT`. Tách ra để test đối chiếu số học."""
-    gia_tri: list = [None] * len(COT)
-    for i, (_ten, _nhom, lay, _fmt) in enumerate(COT):
-        if lay is not None:
-            gia_tri[i] = lay(ln, nv)
-    cong_thu = sum(_f(gia_tri[i]) for i in range(I_THU_DAU, I_CONG_THU))
-    gia_tri[I_CONG_THU] = cong_thu
-    # Phạt THỰC TRỪ = phần engine đã cắt khỏi thu nhập (đã qua trần 30% Điều 102 và có thể gồm
-    # trừ lỗi khoán). Lấy hiệu chứ không cộng 5 cột phạt: 5 cột đó là số GHI NHẬN, trần có thể
-    # cắt bớt, và trừ lỗi khoán không có cột riêng trên dòng lương.
-    gia_tri[I_PHAT_TT] = round(cong_thu - _f(gia_tri[I_TONG]))
-    # BHYT/BHTN nằm NGAY SAU BHXH trong `COT` — đổi thứ tự ba cột đó thì sửa cả chỗ này.
-    assert COT[I_BHXH + 1][0] == "BHYT" and COT[I_BHXH + 2][0] == "BHTN"
-    gia_tri[I_BHXH], gia_tri[I_BHXH + 1], gia_tri[I_BHXH + 2] = (round(x) for x in bh3)
-    # Tạm ứng TRỪ ĐƯỢC kỳ này = tổng phải trừ − phần chuyển sang kỳ sau (engine kẹp sàn 0).
-    no_sau = _f(getattr(ln, "no_ung_chuyen_ky_sau", 0))
-    phai_tru = (_f(ln.advance_total) + _f(getattr(ln, "luong_dot_1_total", 0))
+def _phu_cap_theo_khoan(ln, nv: dict) -> dict[str, float]:
+    """Mức THÁNG từng khoản phụ cấp gán ở hồ sơ.
+
+    Dòng lương chụp SỐ TRẢ (= mức tháng × công hưởng ÷ công chuẩn) ⇒ chia ngược ra đúng mức của kỳ đó. Không
+    chia được (tháng lấy bù lỗ, cả tháng không công, HCNS đè tay số kỳ này) thì đọc mức đang gán ở hồ sơ.
+    Kỳ tính trước 15/09/2026 phụ cấp còn cộng phẳng ⇒ số trả chính là mức tháng."""
+    ho_so = dict(nv.get("khoan_ho_so") or {})
+    cpc = getattr(ln, "cong_phu_cap", None)
+    cong_chuan = _f(getattr(ln, "standard_cong", 0))
+    out: dict[str, float] = {}
+    for c in getattr(ln, "components", []) or []:
+        if getattr(c, "kind", "") == "tru" or getattr(c, "source", "") != "employee":
+            continue
+        if cpc is None:
+            so = _f(c.amount)
+        elif _f(cpc) > 0 and cong_chuan > 0 and not getattr(c, "da_de_tay", False):
+            chia = _f(c.amount) * cong_chuan / _f(cpc)
+            # Số trả làm tròn tới đồng, `cong_phu_cap` tới 0,01 công ⇒ chia ngược lệch vài chục đồng khi công
+            # hưởng ít (NV002 kỳ 09/2026: 56.769 × 26 ÷ 7,38 = 199.999). Sát mức hồ sơ trong sai số đó thì lấy
+            # đúng mức hồ sơ — số tròn như lúc khai.
+            sai_so = chia * 0.005 / _f(cpc) + 0.5 * cong_chuan / _f(cpc) + 1
+            so = (ho_so[c.name] if c.name in ho_so and abs(chia - ho_so[c.name]) <= sai_so
+                  else round(chia))
+        else:
+            so = ho_so.get(c.name, _f(c.amount))
+        out[c.name] = out.get(c.name, 0.0) + so
+    if cpc is not None:
+        for ten, so in ho_so.items():
+            out.setdefault(ten, so)
+    return out
+
+
+def _muc_nen(ln, nv: dict) -> tuple[float, float]:
+    """(Lương cơ bản, Lương trách nhiệm) tháng theo mốc lương của kỳ. Mốc lệch số đã chụp (`monthly_salary`
+    — dữ liệu cũ chỉ khai một số tổng, hoặc mốc bị sửa sau khi tính) thì theo số đã chụp: cả vào cơ bản."""
+    chup = _f(getattr(ln, "monthly_salary", 0))
+    vt, tn = nv.get("luong_vi_tri"), nv.get("luong_trach_nhiem")
+    if vt is None or tn is None or abs(_f(vt) + _f(tn) - chup) > 1:
+        return chup, 0.0
+    return _f(vt), _f(tn)
+
+
+def _phu_cap_khac_thang(ln, nv: dict, khoan: dict[str, float]) -> float:
+    """Mức tháng ô "Phụ cấp khác" của mốc lương. Tổng phụ cấp khai đã chụp (`phu_cap_thang`) thắng khi lệch."""
+    pc = nv.get("phu_cap_khac")
+    chup = getattr(ln, "phu_cap_thang", None)
+    if chup is not None:
+        con_lai = _f(chup) - sum(khoan.values())
+        if pc is None or abs(con_lai - _f(pc)) > 1:
+            return max(0.0, round(con_lai))
+    return _f(pc)
+
+
+def _tam_ung_tru_ky_nay(ln) -> float:
+    """Tạm ứng + lương đợt 1 + nợ kỳ trước ĐÃ TRỪ kỳ này = tổng phải trừ − phần chuyển sang kỳ sau."""
+    phai_tru = (_f(getattr(ln, "advance_total", 0)) + _f(getattr(ln, "luong_dot_1_total", 0))
                 + _f(getattr(ln, "no_ung_ky_truoc", 0)))
-    gia_tri[I_TU_TRU] = round(max(0.0, phai_tru - no_sau))
+    return round(max(0.0, phai_tru - _f(getattr(ln, "no_ung_chuyen_ky_sau", 0))))
+
+
+# --- khuôn cột ----------------------------------------------------------------------------------
+
+KHONG_TRU = "Không trừ được kỳ này"
+
+
+def cot_bang_luong(lines, nhan_vien: dict, *, bh_tach, ty_le_thu_viec: float = 1.0) -> list[Cot]:
+    """Danh sách cột của sheet Bảng lương. Cột từng khoản phụ cấp và cột "Không trừ được kỳ này" sinh
+    theo dữ liệu của chính kỳ đó (không ai có thì không có cột)."""
+    lines = list(lines)
+    khoan_ten: dict[str, None] = {}
+    for ln in lines:
+        for ten, so in _phu_cap_theo_khoan(ln, _nv(nhan_vien, ln)).items():
+            if so:
+                khoan_ten.setdefault(ten, None)
+
+    cot = [
+        Cot("Số TT", "tt", None, None),
+        Cot("MNV", "tt", lambda ln, nv, ctx: getattr(ln, "employee_code", "") or "", None),
+        Cot("Họ và tên", "tt", lambda ln, nv, ctx: getattr(ln, "employee_name", "") or "", None),
+        Cot("Chức vụ", "tt", lambda ln, nv, ctx: nv.get("chuc_vu") or "", None),
+
+        # NCT = ngày công thực tế (ngày thường + phép + lễ nghỉ); CN/Lễ = công ngày CN / lễ có đi làm.
+        Cot("NCT", "cong", lambda ln, nv, ctx: round(
+            max(0.0, _f(ln.actual_cong) - _f(getattr(ln, "special_cong", 0))), 2), CONG),
+        Cot("CN/Lễ", "cong", lambda ln, nv, ctx: round(_f(getattr(ln, "special_cong", 0)), 2), CONG),
+        Cot("Tổng NC", "cong", lambda ln, nv, ctx: _tong_nc(ln, ty_le_thu_viec), CONG),
+        Cot("Tăng ca", "cong", lambda ln, nv, ctx: round(int(getattr(ln, "ot_minutes", 0) or 0) / 60, 2),
+            CONG),
+
+        Cot("Lương BHXH", "muc", lambda ln, nv, ctx: _f(getattr(ln, "insurance_base", 0))),
+        Cot("Lương cơ bản", "muc", lambda ln, nv, ctx: _muc_nen(ln, nv)[0]),
+        Cot("Lương trách nhiệm", "muc", lambda ln, nv, ctx: _muc_nen(ln, nv)[1]),
+        Cot("Phụ cấp khác", "muc", lambda ln, nv, ctx: _phu_cap_khac_thang(ln, nv, ctx["khoan"])),
+    ]
+    for ten in khoan_ten:
+        cot.append(Cot(ten, "muc", lambda ln, nv, ctx, ten=ten: _f(ctx["khoan"].get(ten))))
+
+    cot += [
+        Cot("Phép năm", "thu", lambda ln, nv, ctx: _f(getattr(ln, "phep_nam", 0))),
+        Cot("Ngoài giờ/Tăng ca", "thu", lambda ln, nv, ctx: _tien_gio_tang_ca(ln)),
+        # Bảng công ty gộp lương kinh doanh (hoa hồng) và sản lượng vào một cột. Tháng lấy bù lỗ thì tiền
+        # khoán / km đã nằm trong "Lương thời gian".
+        Cot("Lương kinh doanh/Sản lượng", "thu", lambda ln, nv, ctx: _f(getattr(ln, "hoa_hong", 0)) + (
+            0.0 if _lay_bu_lo(ln) else _f(getattr(ln, "khoan", 0)) + _f(getattr(ln, "khoan_km", 0)))),
+        Cot("Cơm/Phụ cấp ca đêm", "thu", lambda ln, nv, ctx: (
+            _f(getattr(ln, "meal_allowance_pay", 0)) + _f(getattr(ln, "com_tang_ca_pay", 0))
+            + _f(getattr(ln, "shift_allowance_pay", 0)) + _f(getattr(ln, "night_premium_pay", 0))
+            + _f(getattr(ln, "night_pay", 0)))),
+        # Thưởng khai qua danh mục (khoản phát sinh kỳ này) + các ô thưởng cũ của dòng lương.
+        Cot("Thưởng/khoản phát sinh", "thu", lambda ln, nv, ctx: (
+            _khoan_phat_sinh_thu(ln) + _f(getattr(ln, "other_bonus", 0))
+            + _f(getattr(ln, "thuong_thanh_tich", 0)) + _f(getattr(ln, "thuong_doanh_so", 0))
+            + _f(getattr(ln, "thuong_5s", 0)) + _f(getattr(ln, "tra_dong_phuc", 0)))),
+        Cot("Điều chỉnh lương", "thu", lambda ln, nv, ctx: _f(getattr(ln, "dieu_chinh_luong", 0))),
+        Cot("Chuyên cần", "thu", lambda ln, nv, ctx: _f(getattr(ln, "chuyen_can", 0))),
+        Cot("Lương thời gian", "thu", lambda ln, nv, ctx: _luong_thoi_gian(ln)),
+        Cot("Tổng lương", "tong", None),
+
+        # BHXH / BHYT / BHTN tách bằng ĐÚNG hàm phiếu lương dùng — ba cột luôn cộng đúng tổng đã đóng băng.
+        Cot("BHXH", "tru", lambda ln, nv, ctx: round(ctx["bh3"][0])),
+        Cot("BHYT", "tru", lambda ln, nv, ctx: round(ctx["bh3"][1])),
+        Cot("BHTN", "tru", lambda ln, nv, ctx: round(ctx["bh3"][2])),
+        Cot("Công đoàn", "tru", lambda ln, nv, ctx: _f(getattr(ln, "cong_doan", 0))),
+        Cot("Tạm ứng/Lương đợt 1", "tru", lambda ln, nv, ctx: _tam_ung_tru_ky_nay(ln)),
+        Cot("Đi trễ/về sớm", "tru", lambda ln, nv, ctx: _f(getattr(ln, "di_tre", 0))),
+        Cot("Thuế TNCN", "tru", lambda ln, nv, ctx: _f(getattr(ln, "pit", 0))),
+        Cot("Phạt biên bản vi phạm", "tru", lambda ln, nv, ctx: (
+            _f(getattr(ln, "phat_bien_ban", 0)) + _f(getattr(ln, "vi_pham", 0)))),
+        Cot("ĐT vượt trội", "tru", lambda ln, nv, ctx: _f(getattr(ln, "dt_vuot_troi", 0))),
+        Cot("Đồng phục, phạt 5S", "tru", lambda ln, nv, ctx: _f(getattr(ln, "phat_5s_dong_phuc", 0))),
+        Cot("Khoản trừ khác", "tru", lambda ln, nv, ctx: _khoan_tru(ln)),
+    ]
+    tam = cot + [Cot("Thực nhận", "cuoi", lambda ln, nv, ctx: _f(getattr(ln, "net_pay", 0)))]
+    if any(_khong_tru(tam, ln, _nv(nhan_vien, ln), bh_tach(ln), ty_le_thu_viec) for ln in lines):
+        cot.append(Cot(KHONG_TRU, "tru", None))
+    cot.append(Cot("Thực nhận", "cuoi", lambda ln, nv, ctx: _f(getattr(ln, "net_pay", 0))))
+    # Sau Thực nhận là cột phụ, không cộng trừ gì — bảng công ty cũng để số ca đêm ở khu này.
+    cot.append(Cot("Ngày ca đêm", "phu", lambda ln, nv, ctx: int(getattr(ln, "night_days", 0) or 0), CONG))
+    if any(_f(getattr(ln, "no_ung_chuyen_ky_sau", 0)) for ln in lines):
+        cot.append(Cot("Nợ ứng chuyển kỳ sau", "phu",
+                       lambda ln, nv, ctx: _f(getattr(ln, "no_ung_chuyen_ky_sau", 0))))
+    cot.append(Cot("Ghi chú", "phu", lambda ln, nv, ctx: getattr(ln, "note", None) or "", None))
+    return cot
+
+
+def _nv(nhan_vien: dict, ln) -> dict:
+    return nhan_vien.get(getattr(ln, "employee_id", None), {}) or {}
+
+
+#: Lệch làm tròn tối đa giữa tổng các cột thu và `gross` — mỗi khoản trên dòng lương làm tròn riêng tới đồng, còn
+#: `gross` làm tròn MỘT lần trên tổng chưa tròn (~8 khoản tính ra, mỗi khoản ±0,5đ).
+LECH_LAM_TRON = 10
+
+
+def _gia_tri_tho(cot: list[Cot], ln, nv: dict, bh3, ty_le_thu_viec: float) -> list:
+    ctx = {"bh3": tuple(bh3), "khoan": _phu_cap_theo_khoan(ln, nv), "ty_le": ty_le_thu_viec}
+    gia_tri = [c.lay(ln, nv, ctx) if c.lay is not None else None for c in cot]
+    # Dồn lệch LÀM TRÒN vào "Lương thời gian" (cột tính gộp, như file công ty) để Tổng lương đúng bằng tổng thu
+    # engine đã dùng = gross + phạt đã ghi. Lệch lớn hơn nghĩa là phạt bị trần cắt ⇒ để nguyên, cột "Không trừ
+    # được kỳ này" nói phần đó. Không dồn thì 1đ làm tròn cũng đẻ ra cột đó.
+    thu = sum(_f(gia_tri[i]) for i, c in enumerate(cot) if c.nhom == "thu")
+    dich = (_f(getattr(ln, "gross", 0)) + _f(getattr(ln, "vi_pham", 0)) + _f(getattr(ln, "di_tre", 0))
+            + _f(getattr(ln, "phat_bien_ban", 0)) + _f(getattr(ln, "dt_vuot_troi", 0))
+            + _f(getattr(ln, "phat_5s_dong_phuc", 0)))
+    lech = round(dich - thu)
+    if lech and abs(lech) <= LECH_LAM_TRON:
+        i = [c.ten for c in cot].index("Lương thời gian")
+        gia_tri[i] = round(_f(gia_tri[i]) + lech)
     return gia_tri
+
+
+def _khong_tru(cot: list[Cot], ln, nv: dict, bh3, ty_le_thu_viec: float) -> float:
+    """Phần khấu trừ GHI NHẬN mà engine không trừ kỳ này — số âm (0 khi không có)."""
+    gia_tri = _gia_tri_tho(cot, ln, nv, bh3, ty_le_thu_viec)
+    tong = sum(_f(gia_tri[i]) for i, c in enumerate(cot) if c.nhom == "thu")
+    tru = sum(_f(gia_tri[i]) for i, c in enumerate(cot) if c.nhom == "tru" and c.lay is not None)
+    return round(tong - tru - _f(getattr(ln, "net_pay", 0)))
+
+
+def dong_so(cot: list[Cot], ln, nv: dict, bh3, *, ty_le_thu_viec: float = 1.0) -> list:
+    """Một dòng lương → list giá trị theo đúng `cot`. Tách ra để test đối chiếu số học."""
+    gia_tri = _gia_tri_tho(cot, ln, nv, bh3, ty_le_thu_viec)
+    ten = [c.ten for c in cot]
+    gia_tri[ten.index("Tổng lương")] = round(
+        sum(_f(gia_tri[i]) for i, c in enumerate(cot) if c.nhom == "thu"))
+    if KHONG_TRU in ten:
+        gia_tri[ten.index(KHONG_TRU)] = _khong_tru(cot, ln, nv, bh3, ty_le_thu_viec)
+    return gia_tri
+
+
+# --- sheet ---------------------------------------------------------------------------------------
 
 
 def _to_dam(ws, hang: int, cot: int, gia_tri, fmt: str | None, nen: str | None = None,
@@ -208,54 +356,98 @@ def _to_dam(ws, hang: int, cot: int, gia_tri, fmt: str | None, nen: str | None =
     return o
 
 
-def _sheet_bang_luong(wb, lines, nam, thang, nhan_vien, bh_tach):
+NOI_BAT = ("Lương thời gian", "Tổng lương", "Thực nhận")
+
+
+def _sheet_bang_luong(wb, lines, nam, thang, nhan_vien, bh_tach, ty_le_thu_viec):
     ws = wb.active
     ws.title = f"Bang luong {thang:02d}-{nam}"
-    so_cot = len(COT)
+    cot = cot_bang_luong(lines, nhan_vien, bh_tach=bh_tach, ty_le_thu_viec=ty_le_thu_viec)
+    so_cot = len(cot)
+    rong_tieu_de = min(so_cot, 16)
 
-    o = ws.cell(row=1, column=1, value=f"BẢNG THANH TOÁN LƯƠNG THÁNG {thang:02d}/{nam}")
+    o = ws.cell(row=1, column=1, value="BẢNG THANH TOÁN LƯƠNG NHÂN VIÊN")
     o.font = Font(bold=True, size=14)
     o.alignment = Alignment(horizontal="center")
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=min(so_cot, 20))
-
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=rong_tieu_de)
+    cong_chuan = _f(getattr(lines[0], "standard_cong", 0)) if lines else 0
     o = ws.cell(row=2, column=1, value=(
-        "Cộng thu − Phạt/trừ thực tế = Tổng lương. "
-        "Tổng lương − BHXH − BHYT − BHTN − đoàn phí − TNCN − khoản trừ danh mục "
-        "− tạm ứng trừ kỳ này = Thực nhận."))
-    o.font = Font(italic=True, size=9)
-    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=min(so_cot, 20))
+        f"Tháng {thang:02d}/{nam}" + (f" · Công chuẩn {cong_chuan:g}" if cong_chuan else "")))
+    o.font = Font(italic=True)
+    o.alignment = Alignment(horizontal="center")
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=rong_tieu_de)
 
-    for i, (ten, nhom, _lay, _fmt) in enumerate(COT, start=1):
-        o = ws.cell(row=4, column=i, value=ten)
+    # Hàng 3: dải tên khối, gộp ô theo từng khối liền nhau.
+    dau = 1
+    for i in range(1, so_cot + 1):
+        het_khoi = i == so_cot or cot[i].nhom != cot[i - 1].nhom
+        if not het_khoi:
+            continue
+        nhom = cot[i - 1].nhom
+        o = ws.cell(row=3, column=dau, value=NHAN_NHOM[nhom] or None)
+        o.font = Font(bold=True, size=9)
+        o.alignment = Alignment(horizontal="center", vertical="center")
+        for c in range(dau, i + 1):
+            ws.cell(row=3, column=c).fill = PatternFill("solid", fgColor=NEN_NHOM[nhom])
+            ws.cell(row=3, column=c).border = VIEN
+        if i > dau:
+            ws.merge_cells(start_row=3, start_column=dau, end_row=3, end_column=i)
+        dau = i + 1
+
+    for i, c in enumerate(cot, start=1):
+        o = ws.cell(row=4, column=i, value=c.ten)
         o.font = Font(bold=True, size=10)
         o.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        o.fill = PatternFill("solid", fgColor=NEN_NHOM[nhom])
+        o.fill = PatternFill("solid", fgColor=NEN_NHOM[c.nhom])
         o.border = VIEN
-    ws.row_dimensions[4].height = 34
+    ws.row_dimensions[4].height = 42
 
     hang = 5
+    co_thu_viec = False
     for stt, ln in enumerate(lines, start=1):
-        nv = nhan_vien.get(getattr(ln, "employee_id", None), {}) or {}
-        gia_tri = dong_so(ln, nv, bh_tach(ln))
+        gia_tri = dong_so(cot, ln, _nv(nhan_vien, ln), bh_tach(ln), ty_le_thu_viec=ty_le_thu_viec)
         gia_tri[0] = stt
-        for i, (ten, nhom, _lay, fmt) in enumerate(COT, start=1):
-            _to_dam(ws, hang, i, gia_tri[i - 1], fmt,
-                    nen=NEN_NHOM[nhom] if ten in ("CỘNG THU", "TỔNG LƯƠNG", "THỰC NHẬN") else None,
-                    dam=ten in ("CỘNG THU", "TỔNG LƯƠNG", "THỰC NHẬN"))
+        thu_viec = bool(getattr(ln, "is_probation", False))
+        co_thu_viec = co_thu_viec or thu_viec
+        for i, c in enumerate(cot, start=1):
+            noi_bat = c.ten in NOI_BAT
+            nen = NEN_NHOM[c.nhom] if noi_bat else (NEN_THU_VIEC if thu_viec else None)
+            _to_dam(ws, hang, i, gia_tri[i - 1], c.fmt, nen=nen, dam=noi_bat)
         hang += 1
 
     if lines:
-        _to_dam(ws, hang, 1, "TỔNG", None, dam=True)
-        for i, (_ten, _nhom, _lay, fmt) in enumerate(COT, start=1):
-            if fmt != TIEN:
+        _to_dam(ws, hang, 3, "Tổng cộng", None, dam=True)
+        for i, c in enumerate(cot, start=1):
+            if c.fmt not in (TIEN, CONG):
                 continue
             chu = get_column_letter(i)
-            _to_dam(ws, hang, i, f"=SUM({chu}5:{chu}{hang - 1})", TIEN, dam=True)
+            _to_dam(ws, hang, i, f"=SUM({chu}5:{chu}{hang - 1})", c.fmt, dam=True)
+        hang += 2
+        ghi_chu = [
+            "Mức lương tháng (Lương BHXH, cơ bản, trách nhiệm, phụ cấp) chỉ để tham chiếu — tiền thật nằm "
+            "trong Lương thời gian.",
+            "Lương thời gian = lương theo công (tháng lấy bù lỗ: trọn bù lỗ, đã gồm tiền khoán) + công lễ "
+            "nghỉ + phụ cấp theo công + phần thêm ngày Chủ nhật / lễ ≈ ((cơ bản + trách nhiệm) × tỉ lệ + "
+            "phụ cấp) ÷ công chuẩn × Tổng NC.",
+            "Ngoài giờ/Tăng ca chỉ là tiền giờ tăng ca. Tổng lương = các khoản thu nhập + chuyên cần + lương "
+            "thời gian. Thực nhận = Tổng lương − các khoản trừ.",
+        ]
+        if co_thu_viec:
+            ghi_chu.append(f"Nền vàng: đang thử việc — lương cơ bản + trách nhiệm tính "
+                           f"{float(ty_le_thu_viec) * 100:g}%, không đóng bảo hiểm.")
+        if any(c.ten == KHONG_TRU for c in cot):
+            ghi_chu.append(f"{KHONG_TRU}: số âm là phần phạt vượt trần khấu trừ (Điều 102) hoặc phần "
+                           "khấu trừ lớn hơn lương còn lại — không trừ vào kỳ này.")
+        for dong in ghi_chu:
+            o = ws.cell(row=hang, column=3, value=dong)
+            o.font = Font(italic=True, size=9)
+            hang += 1
 
-    rong = {1: 5, 2: 10, 3: 22, 4: 14, 5: 16, 6: 12, 7: 10}
-    for i in range(1, so_cot + 1):
-        ws.column_dimensions[get_column_letter(i)].width = rong.get(i, 14)
-    ws.freeze_panes = "D5"
+    rong = {"Số TT": 6, "MNV": 10, "Họ và tên": 24, "Chức vụ": 14, "Ghi chú": 24}
+    for i, c in enumerate(cot, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = rong.get(
+            c.ten, 9 if c.nhom == "cong" else 13)
+    ws.freeze_panes = "E5"
     return ws
 
 
@@ -273,7 +465,7 @@ def _sheet_ky_nhan(wb, lines, nam, thang, nhan_vien):
         o.border = VIEN
     hang = 4
     for stt, ln in enumerate(lines, start=1):
-        nv = nhan_vien.get(getattr(ln, "employee_id", None), {}) or {}
+        nv = _nv(nhan_vien, ln)
         net = _f(ln.net_pay)
         # "Thu lại" để TRỐNG cho kế toán ghi tay (thu lại tiền đã ứng thừa ngoài hệ thống);
         # "Thực chi" là công thức để sửa ô Thu lại là số tự chạy.
@@ -315,13 +507,11 @@ def _sheet_tam_ung(wb, lines, nam, thang, nhan_vien, tam_ung):
         nv = nhan_vien.get(eid, {}) or {}
         cua_nv = theo_nv.get(eid, {})
         no_sau = _f(getattr(ln, "no_ung_chuyen_ky_sau", 0))
-        phai_tru = (_f(ln.advance_total) + _f(getattr(ln, "luong_dot_1_total", 0))
-                    + _f(getattr(ln, "no_ung_ky_truoc", 0)))
         cot = [stt, getattr(ln, "employee_code", "") or "", getattr(ln, "employee_name", "") or "",
                nv.get("chuc_vu") or ""]
         cot += [cua_nv.get(d) or None for d in ngay]
         cot += [_f(ln.advance_total), _f(getattr(ln, "luong_dot_1_total", 0)),
-                _f(getattr(ln, "no_ung_ky_truoc", 0)), round(max(0.0, phai_tru - no_sau)), no_sau]
+                _f(getattr(ln, "no_ung_ky_truoc", 0)), _tam_ung_tru_ky_nay(ln), no_sau]
         for i, v in enumerate(cot, start=1):
             _to_dam(ws, hang, i, v, TIEN if i > 4 else None)
         hang += 1
@@ -332,16 +522,19 @@ def _sheet_tam_ung(wb, lines, nam, thang, nhan_vien, tam_ung):
 
 
 def xuat_bang_luong(lines, *, nam: int, thang: int, nhan_vien: dict, bh_tach,
-                    tam_ung: list[dict] | None = None) -> bytes:
-    """Ba sheet: Bảng lương · Ký nhận · Tạm ứng.
+                    tam_ung: list[dict] | None = None, ty_le_thu_viec: float = 1.0) -> bytes:
+    """Ba sheet: Bảng lương (khuôn `BL CT` của công ty) · Ký nhận · Tạm ứng.
 
-    `nhan_vien` = {employee_id: {chuc_vu, ngay_vao_lam, nguoi_phu_thuoc}} — thứ bảng lương không
-    giữ mà bảng của kế toán có. `bh_tach(line)` trả `(BHXH, BHYT, BHTN)` đã tách từ tổng đã đóng
-    băng (dùng lại `_insurance_lines` của router, phần dư dồn vào BHTN nên luôn cộng đúng tổng).
+    `nhan_vien` = {employee_id: {chuc_vu, ngay_vao_lam, nguoi_phu_thuoc, luong_vi_tri, luong_trach_nhiem,
+    phu_cap_khac, khoan_ho_so}} — thứ dòng lương không giữ mà bảng của kế toán có (mức tháng lấy từ
+    `PayrollService.muc_luong_thang_cho_file`). `bh_tach(line)` trả `(BHXH, BHYT, BHTN)` đã tách từ tổng
+    đã đóng băng (router dùng lại `_insurance_lines`, phần dư dồn vào BHTN nên luôn cộng đúng tổng).
+    `ty_le_thu_viec` = `payroll_params.probation_ratio` — chỉ để suy "Tổng NC" tháng lấy bù lỗ của người
+    thử việc và ghi chú cuối bảng.
     """
     wb = Workbook()
     lines = list(lines)
-    _sheet_bang_luong(wb, lines, nam, thang, nhan_vien, bh_tach)
+    _sheet_bang_luong(wb, lines, nam, thang, nhan_vien, bh_tach, ty_le_thu_viec)
     _sheet_ky_nhan(wb, lines, nam, thang, nhan_vien)
     _sheet_tam_ung(wb, lines, nam, thang, nhan_vien, tam_ung or [])
     buf = BytesIO()

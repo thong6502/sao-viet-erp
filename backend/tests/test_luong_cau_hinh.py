@@ -451,11 +451,18 @@ def test_xuat_excel_co_cot_com_ca_va_phu_cap_ca(client):
     r = client.get("/api/luong/export.xlsx?year=2026&month=6", headers=_h(token))
     assert r.status_code == 200, r.text
     ws = load_workbook(BytesIO(r.content)).active
-    # Khuôn mới (09/09/2026): tiêu đề ở dòng 4, dữ liệu từ dòng 5, cột 3 là Họ và tên.
+    # Khuôn `BL CT` của công ty (17/09/2026): tiêu đề ở dòng 4, dữ liệu từ dòng 5, cột 3 là Họ và tên.
+    # Cơm ca + phụ cấp ca chung cột "Cơm/Phụ cấp ca đêm" như cột R của họ — tiền phải CÓ MẶT ở đó, và các
+    # cột thu vẫn cộng ra đúng Tổng lương (không phạt ⇒ bằng gross).
     head = [c.value for c in ws[4]]
     row = next(x for x in ws.iter_rows(min_row=5, values_only=True) if x[2] == "NV Xuất Ca")
-    assert row[head.index("Cơm ca")] == 35_000
-    assert row[head.index("Phụ cấp ca")] == 45_000
+    line = next(l for l in client.get("/api/luong/table?year=2026&month=6", headers=_h(token)).json()["lines"]
+                if l["employee_id"] == eid)
+    assert line["meal_allowance_pay"] == 35_000 and line["shift_allowance_pay"] == 45_000
+    assert row[head.index("Cơm/Phụ cấp ca đêm")] == 35_000 + 45_000 + line["com_tang_ca_pay"] \
+        + line["night_premium_pay"]
+    thu = sum(float(row[i] or 0) for i in range(head.index("Phép năm"), head.index("Tổng lương")))
+    assert round(thu) == row[head.index("Tổng lương")] == line["gross"]
 
 
 # --- Tab 2 (đọc/ghi thành phần) + Tab 1 (điều kiện thăng bậc) ---------------

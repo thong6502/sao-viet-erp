@@ -442,6 +442,9 @@ class LineOut(BaseModel):
     #: TRONG ĐÓ của `ot_pay` — tiền ngày `off1x` (công ty cho nghỉ mà vẫn đi làm, trả 1× phẳng).
     #: ĐỪNG cộng vào tổng lần nữa.
     off1x_pay: float = 0
+    #: TRONG ĐÓ của `ot_pay` — tiền GIỜ tăng ca, tách khỏi phần thêm ngày CN / lễ (17/09/2026). File Excel
+    #: bảng lương đọc để cột "Ngoài giờ/Tăng ca" chỉ là tiền giờ. None = kỳ tính trước mg 0305.
+    tien_gio_tang_ca: float | None = None
     #: CHẾ ĐỘ KHOÁN (14/09/2026) — giờ tăng ca của người này KHÔNG có tiền (tổ khoán sản lượng /
     #: tổ Giao hàng). Màn hình dùng để nói vì sao có giờ tăng ca mà tiền tăng ca = 0.
     che_do_khoan: bool = False

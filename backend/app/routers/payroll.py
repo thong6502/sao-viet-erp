@@ -955,11 +955,13 @@ def export_table_xlsx(svc: Service, employees: Employees, departments: Departmen
     # bằng 0 trong khi cột "Tổng" đã gồm tiền thưởng — kế toán đối chiếu là lệch.
     lines = _lines_out(data["lines"], employees, departments, svc)
     params = svc.get_params()
-    # Chức vụ · ngày vào làm · người phụ thuộc: bảng lương KHÔNG giữ, mà bảng của kế toán có.
+    # Chức vụ · ngày vào làm · người phụ thuộc · mức lương tháng tách cơ bản / trách nhiệm / từng khoản phụ
+    # cấp: bảng lương KHÔNG giữ, mà bảng của kế toán có (khuôn `BL CT`, chủ chốt 17/09/2026).
     emp_map = employees.map_by_ids({ln.employee_id for ln in lines})
+    muc_thang = svc.muc_luong_thang_cho_file(year, month, emp_map.keys())
     nhan_vien = {
         eid: {"chuc_vu": getattr(e, "position", None), "ngay_vao_lam": getattr(e, "hire_date", None),
-              "nguoi_phu_thuoc": getattr(e, "dependents_count", 0)}
+              "nguoi_phu_thuoc": getattr(e, "dependents_count", 0), **muc_thang.get(eid, {})}
         for eid, e in emp_map.items()
     }
     # Phiếu ứng ĐÃ CHI của kỳ — sheet "Tạm ứng" xếp theo NGÀY CHI như bảng của kế toán. Lọc theo
@@ -974,6 +976,7 @@ def export_table_xlsx(svc: Service, employees: Employees, departments: Departmen
         # ba cột luôn cộng đúng tổng đã đóng băng.
         bh_tach=lambda ln: tuple(float(x.amount) for x in _insurance_lines(ln, params)),
         tam_ung=tam_ung,
+        ty_le_thu_viec=float(params.probation_ratio or 1),
     )
     return _xlsx_response(noi_dung, f"bang-luong-{year}-{month:02d}.xlsx")
 

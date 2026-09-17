@@ -445,6 +445,12 @@ class PayrollLine(Base):
     # miễn (kế toán chốt 17/08/2026: "lương thuế chỉ 1 công bình thường"). Snapshot để "Sửa 1 ô"
     # trừ đúng y "Tính lại". ĐỪNG cộng vào gross: đã nằm trong `ot_pay`. Kỳ CŨ (trước mg 0205) = 0.
     off1x_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # TRONG ĐÓ của `ot_pay` — tiền GIỜ tăng ca (ngày thường ×1,5 · nghỉ tuần ×2 · lễ ×3) THỰC TRẢ, tách khỏi
+    # phần THÊM làm nguyên ngày CN / lễ và tiền ngày off1x (17/09/2026). File Excel bảng lương theo khuôn
+    # công ty để phần thêm CN / lễ trong "Lương thời gian", còn cột "Ngoài giờ/Tăng ca" chỉ là tiền giờ —
+    # không chụp thì không tách lại được. Chế độ khoán / tổ tắt tăng ca = 0. ĐỪNG cộng vào gross: đã nằm
+    # trong `ot_pay`. NULL = kỳ tính trước mg 0305 (chưa tách).
+    tien_gio_tang_ca: Mapped[float | None] = mapped_column(_MONEY, nullable=True)
     # CHỤP "người này thuộc CHẾ ĐỘ KHOÁN" lúc Tính lại (chủ chốt 14/09/2026): tổ bật Lương khoán /
     # sản lượng HOẶC tổ bật cờ Giao hàng ⇒ giờ tăng ca KHÔNG có tiền (đã trả qua tiền khoán); vẫn
     # có cơm tăng ca + phần thêm làm nguyên ngày CN/lễ. Chụp chứ không suy lúc đọc: người đổi tổ sau
