@@ -21,6 +21,7 @@ from app.models.department import Department
 from app.models.may_thiet_bi import MayThietBi
 from app.models.piece_work import PieceRate
 from app.models.san_xuat_kcs import SanXuatKcsTieuChi
+from app.models.xe import Xe
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from app.services.danh_muc_tham_chieu import DEM_THEO_LOAI, tham_chieu
 
@@ -63,6 +64,9 @@ def _mau(db):
                                      ma="ZZKH", ten="ZZ Việc khoán", unit="zzkg", unit_price=100),
         # Hạng mục kiểm KCS — không ai trỏ ngược về nó (mg `0285` gỡ bảng nối) ⇒ xoá hẳn được.
         "san_xuat_kcs_tieu_chi": SanXuatKcsTieuChi(ma="ZZTC", ten="ZZ Tiêu chí", cong_doan_id=cd.id),
+        # Xe giao hàng (12/09/2026) — `_xe` đếm CHUYẾN đã chạy xe này. Xe mẫu chưa chạy chuyến nào
+        # nên xoá hẳn được; bài `test_xe_da_chay_chuyen...` mới là chỗ kiểm vế bị chặn.
+        "xe": Xe(ma="ZZ-XE", ten="ZZ Xe mẫu"),
     }
     db.add_all([v for k, v in rows.items()
                 if k not in ("don_vi_do", "chung_loai_giay", "cong_doan")])

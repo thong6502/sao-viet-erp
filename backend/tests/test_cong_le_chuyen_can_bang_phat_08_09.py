@@ -112,7 +112,8 @@ def test_D3_lam_nua_ngay_le_van_du_1_cong_le(client):
     # 25 ngày làm + 1,0 công lễ (không phải 0,5) = 26/26; giờ thực nửa ngày chỉ là nền hệ số lễ 300%.
     assert ln["actual_cong"] == 26.0, ln
     assert ln["luong_cong"] == 26 * 400_000
-    assert ln["ot_pay"] == 0.5 * 3 * 400_000            # premium lễ = 0,5 công × 300% × đơn giá ngày
+    # Phần THÊM của lễ = hệ số − 1 (khách chốt 15/09/2026 chiều: lễ TỔNG 300%, không phải 400%).
+    assert ln["ot_pay"] == 0.5 * 2 * 400_000
 
 
 def test_B2_bang_phat_trong_khong_phat(client):

@@ -18,10 +18,12 @@ describe("ThsxBaoSuCoDialog — cùng khuôn ngăn kéo Báo máy hỏng", () =>
     const dlg = screen.getByRole("dialog", { name: "Báo máy hỏng — Yêu cầu mới" });
     expect(dlg.textContent).toContain("Báo máy hỏng");
     expect(dlg.textContent).toContain("Yêu cầu mới");
-    expect(dlg.textContent).toContain("Máy hỏng thế nào");
-    const may = screen.getByRole("combobox", { name: /Máy \*/ }) as HTMLSelectElement;
+    expect(dlg.textContent).toContain("Thông tin báo sự cố máy");
+    const may = screen.getByRole("textbox", { name: /Máy \*/ }) as HTMLInputElement;
     expect(may.disabled).toBe(true);
-    expect(may.textContent).toBe("M6M · Máy 6 màu Mitsubishi 72×102");
+    expect(may.value).toBe("M6M · Máy 6 màu Mitsubishi 72×102");
+    // Mức độ là dãy nút bấm, mặc định Trung bình.
+    expect(screen.getByRole("button", { name: "Trung bình" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByPlaceholderText("vd: Trục cán & bạc đạn")).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: /Máy đang dừng, không chạy được/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Gửi yêu cầu" })).toBeTruthy();
@@ -43,7 +45,8 @@ describe("ThsxBaoSuCoDialog — cùng khuôn ngăn kéo Báo máy hỏng", () =>
     expect(onGui).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByPlaceholderText(/Kể đúng cái mình thấy/), { target: { value: "Kêu to" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Mức độ/ }), { target: { value: "nghiem_trong" } });
+    fireEvent.click(screen.getByRole("button", { name: "Nghiêm trọng" }));
+    expect(screen.getByRole("button", { name: "Nghiêm trọng" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Gửi yêu cầu" }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(onGui).toHaveBeenCalledWith({

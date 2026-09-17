@@ -339,6 +339,13 @@
   color: var(--muted, #6b7280);
 }
 
+/* Dấu * của ô BẮT BUỘC — cặp với `.gh-opt`. Ô Xe ở hộp Lên đơn giao hàng dùng nó từ 12/09/2026:
+   đơn giá khoán km tra theo mức của xe, bỏ trống là đẩy việc sang người đóng chuyến. */
+.gh-bat-buoc {
+  color: var(--signal, #8a1f1f);
+  font-weight: 700;
+}
+
 /* Phân trang máy chủ (tab Đơn giao hàng + Yêu cầu giao) — cùng khuôn với `.dhb__pager`. */
 .gh-pager {
   display: flex;

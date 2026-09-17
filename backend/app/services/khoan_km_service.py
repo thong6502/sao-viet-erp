@@ -1,8 +1,8 @@
 """Khoán km giao hàng — MỘT chỗ duy nhất giữ công thức.
 
-Nền: `docs/prd-khoan-km-giao-hang.md`. Đo bảng lương thật T05/2026: tài xế ăn lương chấm công
-**cộng** tiền theo km, và phần km (19–22 tr) gấp ~4 lần lương cứng (~5 tr) — tức đây là thu nhập
-CHÍNH của họ, trước nay tính tay trên bốn sheet Excel ngoài hệ thống.
+Nền: `docs/prd-khoan-km-giao-hang.md`. Tiền km là thu nhập CHÍNH của tài xế, phụ xe (19–22 tr/tháng),
+trước nay tính tay trên bốn sheet Excel ngoài hệ thống. Từ 15/09/2026 họ KHÔNG còn ăn lương chấm
+công cộng thêm và KHÔNG có bù lỗ: bảng lương trả đúng tiền km — xem khối tài xế ở `PayrollService._compute`.
 
 Công thức:
 
@@ -15,12 +15,10 @@ Công thức:
 **Đi một mình ăn 100%** (chủ chốt 24/08/2026). Vì pct_tài_xế + pct_phụ_xe = 100 nên tổng chi cho
 một chuyến KHÔNG đổi, chỉ khác chia cho mấy người.
 
-**Đơn giá PHẲNG, không bậc thang.** Sổ giấy hiện tính bậc thang nghịch theo cự ly (18.000 đ/km cho
-chặng ≤5 km xuống 3.600 đ/km cho chặng ≥164 km) và tính theo TỪNG CHẶNG. Bám y hệt thì phải ghi
-chặng — 521 chặng/tháng, 31% là chặng về kho. Đo thử: đơn giá phẳng 4.330 đ/km cho ra tổng chi cả
-tổ Y NGUYÊN, từng người chỉ lệch −6% đến +10% (người chạy đường dài được thêm). Đổi lại bỏ được cả
-một tầng dữ liệu, và hết luôn bẫy "cộng km lại rồi mới tra bậc" — cộng gộp hay tách ra đều ra cùng
-một số tiền.
+**Đơn giá theo BẬC của mức khoán km mà xe đang ăn** (chủ chốt 24/08 + 12/09/2026) — tra theo km của
+CẢ chuyến, rồi chụp đúng một số vào chuyến (`DeliveryService._chup_don_gia_km`). Sổ giấy tra bậc theo
+TỪNG CHẶNG, nên lượt về kho cộng vào chuyến làm tiền thấp hơn file 13–34% (đối chiếu T08, PRD khoán
+km §13) — đang bàn tách ô km đi / km về kho.
 
 **Đọc số CHỤP trên chuyến, không đọc của phòng ban.** `delivery_trips.don_gia_km` / `.pct_*` được
 chụp lúc ghi kết quả. Đọc thẳng phòng ban thì chủ chỉnh một con số là bảng lương mọi tháng cũ đổi

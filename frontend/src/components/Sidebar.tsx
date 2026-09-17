@@ -291,6 +291,10 @@ export const NAV: NavSection[] = [
       // Tiêu chí KCS (module KCS kiêm nhiệm, mg 0250): checklist chuẩn hoá + công đoạn nào áp
       // dụng — dùng để chụp (snapshot) checklist khi phát hành lệnh (Task 3).
       { id: "kcs-tieu-chi", label: "Tiêu chí KCS", icon: "fileCheck", module: "dm_kcs_tieu_chi" },
+      // Xe giao hàng (12/09/2026): biển số · tải trọng · xe này ăn MỨC khoán km nào. Bảng giá
+      // của từng mức khai ở Cấu hình lương — sửa giá là việc kế toán, không phải việc của
+      // người khai biển số. Icon `truck` trùng màn Giao hàng là CỐ Ý: hai mục cùng một nghề.
+      { id: "xe", label: "Xe giao hàng", icon: "truck", module: "dm_xe" },
     ],
   },
   {

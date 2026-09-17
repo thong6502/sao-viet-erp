@@ -231,5 +231,6 @@ def test_excel_co_cot_gio_tang_ca(client):
     r = client.get(f"/api/luong/export.xlsx?year={NAM}&month=6", headers=h)
     assert r.status_code == 200, r.text
     ws = load_workbook(BytesIO(r.content)).active
-    head = [c.value for c in ws[4]]      # khuôn mới 09/09/2026: tiêu đề ở dòng 4
-    assert "Giờ tăng ca" in head and "Ngày ca đêm" in head
+    head = [c.value for c in ws[4]]      # khuôn `BL CT` 17/09/2026: tiêu đề ở dòng 4
+    # "Tăng ca" = số GIỜ (tiền giờ tăng ca là cột "Ngoài giờ/Tăng ca"), như bảng lương công ty.
+    assert "Tăng ca" in head and "Ngoài giờ/Tăng ca" in head and "Ngày ca đêm" in head

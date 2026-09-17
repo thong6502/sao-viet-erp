@@ -233,15 +233,38 @@ class DepartmentRepository:
         self.db.refresh(dept)
         return dept
 
-    def dept_ids_giao_hang(self) -> set[int]:
-        """Id phòng/tổ thuộc bộ phận GIAO HÀNG — tự bật cờ HOẶC có tổ tiên bật cờ.
+    def set_la_to_in(self, dept: Department, value: bool) -> Department:
+        """Đánh dấu / bỏ dấu TỔ IN (mg 0304). Đích danh — KHÔNG cascade cây con, như `is_kcs`."""
+        dept.la_to_in = bool(value)
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
 
-        `fallback_all=False`: chưa tick phòng nào thì trả RỖNG, không phải "tất cả". Trả tất cả ở
-        đây là mọi nhân viên công ty hiện trong tab Nhân viên giao hàng.
+    def dept_ids_to_in(self) -> set[int]:
+        """Id tổ bật cờ TỔ IN — CHỈ tổ TỰ bật, KHÔNG kế thừa cây (cùng luật `dept_ids_giao_hang`).
+
+        Lương hỏi đúng câu này để biết ngày CN / lễ của người đó có công gốc hay không."""
+        return set(self.db.execute(
+            select(Department.id).where(Department.la_to_in.is_(True))
+        ).scalars().all())
+
+    def dept_ids_giao_hang(self) -> set[int]:
+        """Id phòng/tổ thuộc bộ phận GIAO HÀNG — CHỈ phòng TỰ bật cờ, KHÔNG kế thừa theo cây.
+
+        ⭐ MỘT định nghĩa cho cả phân hệ (chủ chốt 14/09/2026): ô chọn tài xế, tab Nhân viên giao
+        hàng, tính tiền khoán km, luật bắt buộc chọn xe, luật chặn tắt cờ — đều hỏi đúng câu này.
+
+        Trước đó hàm này đi qua `_khoi_theo_co` (kế thừa theo cây, dùng chung với khối Sản xuất /
+        Kinh doanh) trong khi tính tiền lại đọc cờ RIÊNG của phòng tài xế. Hai định nghĩa ⇒ tài xế
+        ở tổ con được phân chuyến bình thường mà KHÔNG có tiền khoán km, không ai báo. Chủ chốt:
+        *"nếu mà phòng con thì nó cũng phải bật cái phòng đó là giao hàng lên thôi"*.
+
+        Trả RỖNG khi chưa phòng nào bật cờ, không phải "tất cả" — trả tất cả là mọi nhân viên công
+        ty hiện trong tab Nhân viên giao hàng.
         """
-        # `_khoi_theo_co` trả DANH SÁCH Department — phải rút ra id, không thì nơi gọi so
-        # `department_id not in <list Department>` sẽ LUÔN đúng và loại hết mọi người, im lặng.
-        return {d.id for d in self._khoi_theo_co("la_giao_hang", fallback_all=False)}
+        return set(self.db.execute(
+            select(Department.id).where(Department.la_giao_hang.is_(True))
+        ).scalars().all())
 
     def count_by_level(self, level_id: int) -> int:
         """How many departments are tagged with a given unit level (delete guard)."""

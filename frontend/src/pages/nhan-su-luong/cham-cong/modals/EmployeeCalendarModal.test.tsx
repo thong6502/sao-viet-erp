@@ -7,6 +7,7 @@ import type { TimesheetRow, HeSoNgay } from "../../../../api/client";
 const mockHeSoNgay: HeSoNgay = {
   le: 2,
   nghi_tuan: 1.5,
+  le_nghi_tuan: 3.5,
   off1x: 1,
 };
 

@@ -103,7 +103,9 @@
   color: #0f172a;
 }
 
-.rc__code-badge {
+/* Class riêng `ktm-ma`, không đè `.rc__code-badge`: CSS global, đè là đổi luôn badge mã của màn
+   Danh mục và Kho (cssKhongCuop). Hai class để thắng `.rc__code-badge` bất kể thứ tự nạp file. */
+.ktm .ktm-ma {
   display: inline-flex;
   align-items: center;
   padding: 2px 7px;

@@ -934,8 +934,9 @@ function CongDacBietDrawer({
         <p className="cc-note">
           Ngày lễ đi làm tính {soCong(heSoNgay.le)} công (1 công tiền lễ + phần
           làm thêm ngày lễ). Ngày nghỉ tuần đi làm tính{" "}
-          {soCong(heSoNgay.nghi_tuan)} công. Ngày công ty cho nghỉ mà vẫn đi làm
-          tính 1 công, không hệ số.
+          {soCong(heSoNgay.nghi_tuan)} công. Lễ rơi đúng ngày nghỉ tuần tính{" "}
+          {soCong(heSoNgay.le_nghi_tuan)} công (cộng cả hai chế độ). Ngày công ty
+          cho nghỉ mà vẫn đi làm tính 1 công, không hệ số.
         </p>
         {dong.length === 0 ? (
           <p className="ns__empty">

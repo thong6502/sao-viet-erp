@@ -213,8 +213,8 @@ def test_attachment_upload_and_delete(client):
 
 
 def test_xuat_excel_co_du_cot_chinh_sach(client):
-    """File xuất có cột `Mã KH` — và đó là lý do nó KHÔNG nhập ngược lại được: mẫu nhập cố ý
-    không có cột Mã (mã là mã hệ tự cấp, nhập chỉ thêm mới)."""
+    """File xuất có cột `Mã KH` — con trỏ để nhập lại thì SỬA đúng khách đó (bản 2, 17/09/2026;
+    test luồng nhập lại nằm ở `test_khach_hang_excel.py`)."""
     from io import BytesIO
 
     from openpyxl import load_workbook

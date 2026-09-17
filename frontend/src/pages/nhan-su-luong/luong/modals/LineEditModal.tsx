@@ -211,8 +211,18 @@ export function LineEditModal({
         <div className="ns-modal__body">
           {err && <div className="banner banner--error">{err}</div>}
           <p className="cc-note">
-            Lương công {money(line.luong_cong)} · chuyên cần{" "}
-            {money(line.chuyen_can)} · phụ cấp {money(line.allowance)} · thu
+            {line.bu_lo_theo_cong != null
+              ? `Khoán ${money(line.khoan)} · bù lỗ theo công ${money(line.bu_lo_theo_cong)} (${line.lay_bu_lo ? "lấy bù lỗ" : "lấy khoán"})`
+              : `Lương công ${money(line.luong_cong)}`}
+            {line.luong_ngay_le
+              ? ` · công ngày lễ (ngoài khoán)${line.le_nghi_cong ? ` ${line.le_nghi_cong} ngày` : ""} ${money(line.luong_ngay_le)}`
+              : ""}{" "}
+            · chuyên cần{" "}
+            {money(line.chuyen_can)} · phụ cấp {money(line.allowance)}
+            {line.phu_cap_thang != null && line.phu_cap_thang > 0
+              ? ` (tháng ${money(line.phu_cap_thang)} ÷ ${line.standard_cong} × ${line.cong_phu_cap ?? 0} công)`
+              : ""}{" "}
+            · thu
             nhập tính thuế {money(line.pit_taxable)} → Thuế TNCN{" "}
             <b>{money(line.pit)}đ</b> (tự tính theo biểu thuế lũy tiến, không
             sửa).

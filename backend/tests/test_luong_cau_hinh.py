@@ -31,6 +31,7 @@ from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
 from app.services.payroll_service import PayrollService
+from tests.test_luong_api import _du_cong
 
 ADMIN = {"username": "admin", "password": "admin123"}
 
@@ -185,9 +186,10 @@ def test_chuyen_can_tien_chi_khai_o_ho_so_nv(client):
         db.close()
 
 
-def test_manual_allowances_add_flat(client):
-    """Phụ cấp KHÁC khai tay theo từng NV, một số cố định — engine cộng PHẲNG (không prorate theo
-    công, không vào gốc tính tăng ca).
+def test_phu_cap_khai_tay_di_theo_cong(client):
+    """Phụ cấp KHÁC khai tay theo từng NV — từ 15/09/2026 ĐI THEO CÔNG như lương (chủ chốt, theo bảng
+    lương T05: "(phụ cấp + trách nhiệm + vị trí) / 26 × công"), nhưng KHÔNG vào gốc tính tăng ca.
+    Trước đó engine cộng phẳng nguyên tháng.
 
     ⚠️ `phu_cap_ca` KHÔNG còn ra tiền từ 03/08/2026: phụ cấp cơm/ca nay tính theo CA THỰC LÀM
     (`work_shifts.meal_allowance` / `.shift_allowance`). Đường per-người phải tắt CÙNG LƯỢT với
@@ -215,17 +217,22 @@ def test_manual_allowances_add_flat(client):
         # Chuyên cần = 0 vì hồ sơ NV chưa khai (từ 2026-07-23 không còn mức mặc định công ty).
         assert full["gross"] == (26_000_000 + 400_000)
 
-        # Nửa công: lương công prorate, phụ cấp khai tay giữ NGUYÊN số (cộng phẳng).
+        # Nửa công: lương công VÀ phụ cấp cùng chia theo công — 400.000 ÷ 26 × 13 = 200.000.
         half = svc._compute(actual_cong=13, **kw)
         assert half["luong_cong"] == 13_000_000
-        assert half["allowance"] == 400_000 and half["night_pay"] == 0
+        assert half["allowance"] == 200_000 and half["night_pay"] == 0
+        assert half["phu_cap_thang"] == 400_000 and half["cong_phu_cap"] == 13
 
-        # Tăng ca bám LƯƠNG VỊ TRÍ (20tr), KHÔNG bám mức nền 26tr — chủ chốt 12/08/2026.
+        # Làm 1 Chủ nhật: phụ cấp nhân đôi ngày đó như lương (file: Tổng NC = công + CN × 2).
+        cn = svc._compute(actual_cong=14, restday_cong=1, **kw)
+        assert cn["cong_phu_cap"] == 15 and cn["allowance"] == round(400_000 / 26 * 15)
+
+        # Tăng ca bám MỨC NỀN 26tr (lương cơ bản + trách nhiệm) — chủ chốt 15/09/2026, đảo chốt 12/08.
         # Phụ cấp khai tay vẫn không làm tiền tăng ca nhảy (vế cũ, giữ nguyên).
         base_only = _salary_ns(base_amount=None, luong_vi_tri=20_000_000, luong_trach_nhiem=6_000_000)
         ot_no_pc = svc._compute(actual_cong=26, ot_minutes=120, **dict(kw, salary=base_only))
         ot_pc = svc._compute(actual_cong=26, ot_minutes=120, **kw)
-        assert ot_pc["ot_pay"] == ot_no_pc["ot_pay"] == 288_462   # 20tr/26/8 × 2h × 1,5
+        assert ot_pc["ot_pay"] == ot_no_pc["ot_pay"] == 375_000   # 26tr/26/8 × 2h × 1,5
         # Chấm công có ca đêm nhưng KHÔNG khai phụ cấp ca → 0đ (hệ thống không tự tính).
         no_ca = svc._compute(actual_cong=26, night_days=5, **dict(kw, salary=base_only))
         assert no_ca["night_pay"] == 0 and no_ca["night_days"] == 5
@@ -233,7 +240,7 @@ def test_manual_allowances_add_flat(client):
         db.close()
 
 
-def test_manual_allowances_roundtrip_through_api(client):
+def test_manual_allowances_roundtrip_through_api(client, monkeypatch):
     """Phụ cấp khai ở màn Lương nhân viên → lưu, preview đọc lại, ra đúng tiền trên bảng lương.
     Hai ô đã ngưng (ca 03/08/2026 · thâm niên 07/09/2026) LƯU được nhưng KHÔNG ra tiền.
     Mức đóng BH = lương vị trí."""
@@ -251,6 +258,7 @@ def test_manual_allowances_roundtrip_through_api(client):
     assert prev["phu_cap_ca"] == 1_500_000 and prev["phu_cap_tham_nien"] == 600_000
     assert prev["insurance_base"] == 10_000_000      # vị trí 8tr + trách nhiệm 2tr
 
+    _du_cong(monkeypatch, eid)      # phụ cấp đi theo công (15/09/2026) — đủ công mới ra đủ số
     gen = client.post("/api/luong/generate", json={"year": 2026, "month": 11},
                       headers=_h(token)).json()
     ln = next(l for l in gen["lines"] if l["employee_id"] == eid)
@@ -442,11 +450,18 @@ def test_xuat_excel_co_cot_com_ca_va_phu_cap_ca(client):
     r = client.get("/api/luong/export.xlsx?year=2026&month=6", headers=_h(token))
     assert r.status_code == 200, r.text
     ws = load_workbook(BytesIO(r.content)).active
-    # Khuôn mới (09/09/2026): tiêu đề ở dòng 4, dữ liệu từ dòng 5, cột 3 là Họ và tên.
+    # Khuôn `BL CT` của công ty (17/09/2026): tiêu đề ở dòng 4, dữ liệu từ dòng 5, cột 3 là Họ và tên.
+    # Cơm ca + phụ cấp ca chung cột "Cơm/Phụ cấp ca đêm" như cột R của họ — tiền phải CÓ MẶT ở đó, và các
+    # cột thu vẫn cộng ra đúng Tổng lương (không phạt ⇒ bằng gross).
     head = [c.value for c in ws[4]]
     row = next(x for x in ws.iter_rows(min_row=5, values_only=True) if x[2] == "NV Xuất Ca")
-    assert row[head.index("Cơm ca")] == 35_000
-    assert row[head.index("Phụ cấp ca")] == 45_000
+    line = next(l for l in client.get("/api/luong/table?year=2026&month=6", headers=_h(token)).json()["lines"]
+                if l["employee_id"] == eid)
+    assert line["meal_allowance_pay"] == 35_000 and line["shift_allowance_pay"] == 45_000
+    assert row[head.index("Cơm/Phụ cấp ca đêm")] == 35_000 + 45_000 + line["com_tang_ca_pay"] \
+        + line["night_premium_pay"]
+    thu = sum(float(row[i] or 0) for i in range(head.index("Phép năm"), head.index("Tổng lương")))
+    assert round(thu) == row[head.index("Tổng lương")] == line["gross"]
 
 
 # --- Tab 2 (đọc/ghi thành phần) + Tab 1 (điều kiện thăng bậc) ---------------
@@ -592,10 +607,11 @@ def test_luong_khoan_component_mirrors_department_flag(client):
 
 
 def test_khoan_va_tang_ca_DOC_LAP(client):
-    """⚠️ ĐẢO 17/08/2026 — Khoán ⟷ Tăng ca KHÔNG còn loại trừ nhau, bật CẢ HAI được.
+    """Khoán ⟷ Tăng ca KHÔNG loại trừ nhau ở CẤU HÌNH — bật CẢ HAI được (đảo 17/08/2026, giữ nguyên).
 
-    Chủ chốt: *"Tổ khoán vẫn có tăng ca"*, đảo luật loại trừ ngày 22/07/2026. Engine cũng đã gỡ
-    vế `has_piece_work` khỏi `ot_pay`. Test này canh không ai dựng lại luật loại trừ."""
+    14/09/2026 chủ chốt thêm: người ăn khoán KHÔNG có tiền GIỜ tăng ca (engine, `_che_do_khoan`) —
+    nhưng công tắc Tăng ca của tổ khoán VẪN có nghĩa: nó quyết cơm tăng ca và phần thêm làm nguyên
+    ngày CN/lễ. Nên bật khoán KHÔNG được tự tắt Tăng ca. Test này canh không ai dựng lại luật loại trừ."""
     token = _admin_token(client)
     dept_id = _dept_id("Kinh doanh")
 
@@ -708,7 +724,7 @@ def test_chuyen_can_tru_dan_bang_so_that(client):
         db.close()
 
 
-def test_allowance_split_visible_without_changing_totals(client):
+def test_allowance_split_visible_without_changing_totals(client, monkeypatch):
     """B2: phiếu lương tách "Phụ cấp thâm niên" thành DÒNG RIÊNG khỏi "Phụ cấp khác" — mà TỔNG
     THU NHẬP y nguyên (2 dòng cộng lại đúng bằng `allowance`). Trách nhiệm KHÔNG ở đây (nó là
     `luong_trach_nhiem` trong mức nền).
@@ -720,6 +736,7 @@ def test_allowance_split_visible_without_changing_totals(client):
     client.post(f"/api/luong/salaries/{eid}", json={
         "effective_from": "2026-01-01", "luong_vi_tri": 8_000_000,
         "luong_trach_nhiem": 2_000_000, "allowance": 700_000}, headers=_h(token))
+    _du_cong(monkeypatch, eid)      # phụ cấp đi theo công (15/09/2026) — đủ công mới ra đủ số
 
     # (1) Mới chỉ khai "phụ cấp khác" → thâm niên = 0.
     gen = client.post("/api/luong/generate", json={"year": 2026, "month": 12},
@@ -919,34 +936,38 @@ def test_muc_dong_bh_gom_ca_luong_trach_nhiem(client):
         db.close()
 
 
-def test_don_gia_tang_ca_chi_bam_luong_co_ban(client):
-    """Tăng ca tính trên LƯƠNG CƠ BẢN, bỏ lương trách nhiệm (chủ chốt 12/08/2026).
+def test_don_gia_tang_ca_bam_luong_co_ban_cong_trach_nhiem(client):
+    """Tăng ca tính trên LƯƠNG CƠ BẢN + LƯƠNG TRÁCH NHIỆM (chủ chốt 15/09/2026, ĐẢO chốt 12/08/2026
+    "chỉ lương cơ bản") — theo bảng lương T05 đã duyệt: `P = ((vị trí + trách nhiệm) ÷ 26) ÷ 8 × giờ × 1,5`.
 
-    Chủ chốt xác nhận premium ca đêm và premium làm ngày nghỉ/lễ **giảm cả** — ba khoản dùng
-    chung một đơn giá giờ. Nhưng LƯƠNG THEO CÔNG thì KHÔNG đổi: nó vẫn ăn mức nền đầy đủ."""
+    Chủ chọn đổi CẢ BA khoản dùng chung đơn giá: giờ tăng ca, phần thêm làm nguyên ngày CN / lễ, giờ
+    ca đêm. Hai người cùng mức nền 10tr (dù chia cơ bản / trách nhiệm khác nhau) ra cùng một số."""
     client
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
         emp = _emp_ns(None)
-        chung = dict(employee=emp, params=params, actual_cong=26, standard_cong=26,
-                     on=date(2026, 6, 1), ot_minutes=600)          # 10 giờ tăng ca ngày thường
+        co_tn = _salary_ns(base_amount=None, luong_vi_tri=8_000_000, luong_trach_nhiem=2_000_000)
+        khong_tn = _salary_ns(base_amount=None, luong_vi_tri=10_000_000, luong_trach_nhiem=0)
+        chung = dict(employee=emp, params=params, standard_cong=26, on=date(2026, 6, 1))
 
-        # 8tr vị trí + 2tr trách nhiệm: đơn giá giờ phải bám 8tr.
-        v = svc._compute(salary=_salary_ns(base_amount=None, luong_vi_tri=8_000_000,
-                                           luong_trach_nhiem=2_000_000), **chung)
-        gio = 8_000_000 / 26 / float(params.standard_hours_per_day)
+        # 10 giờ tăng ca ngày thường: đơn giá giờ bám mức nền 10tr.
+        v = svc._compute(salary=co_tn, actual_cong=26, ot_minutes=600, **chung)
+        gio = 10_000_000 / 26 / float(params.standard_hours_per_day)
         assert v["ot_pay"] == round(gio * 10 * float(params.ot_multiplier))
+        v_khong = svc._compute(salary=khong_tn, actual_cong=26, ot_minutes=600, **chung)
+        assert v_khong["ot_pay"] == v["ot_pay"], "cùng mức nền mà tăng ca khác ⇒ còn bám lương cơ bản"
+        assert v["luong_cong"] == v_khong["luong_cong"]
 
-        # Cùng mức nền 10tr nhưng KHÔNG có trách nhiệm ⇒ tăng ca CAO HƠN hẳn.
-        v_khong_tn = svc._compute(salary=_salary_ns(base_amount=None, luong_vi_tri=10_000_000,
-                                                    luong_trach_nhiem=0), **chung)
-        assert v_khong_tn["ot_pay"] > v["ot_pay"], (
-            "hai người cùng mức nền 10tr mà tăng ca bằng nhau ⇒ đơn giá vẫn bám mức nền"
-        )
-        # Lương theo công thì KHÔNG được đổi — cùng mức nền, cùng công ⇒ bằng nhau.
-        assert v["luong_cong"] == v_khong_tn["luong_cong"]
+        # Làm nguyên 1 ngày Chủ nhật: phần thêm (2 − 1) × 10tr / 26 = 384.615 — cả trách nhiệm.
+        cn = svc._compute(salary=co_tn, actual_cong=27, restday_cong=1, **chung)
+        assert cn["ot_pay"] == round(10_000_000 / 26)
+
+        # Giờ ca đêm (premium trong ca) cùng đơn giá: 60 phút đã nhân (hệ số − 1) ⇒ đúng 1 giờ.
+        dem = svc._compute(salary=co_tn, actual_cong=26, night_premium_minutes=60, **chung)
+        dem_khong = svc._compute(salary=khong_tn, actual_cong=26, night_premium_minutes=60, **chung)
+        assert dem["night_premium_pay"] == dem_khong["night_premium_pay"] == round(gio)
     finally:
         db.close()
 

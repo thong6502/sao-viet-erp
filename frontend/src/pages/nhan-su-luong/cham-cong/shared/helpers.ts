@@ -59,6 +59,11 @@ export function docONgay(day: TimesheetDay | undefined, heSo: HeSoNgay): ONgay {
         tone: "gray",
         title: "Ngày nghỉ của công ty — đi làm tính 1 công, không hệ số",
       });
+    } else if (day.le_nghi_tuan) {
+      // Lễ rơi đúng ngày nghỉ tuần: trả CẢ HAI chế độ (khách chốt 15/09/2026) — ô phải nói 5 công,
+      // đừng đọc thành ngày lễ thường rồi hứa 3.
+      o.pills.push({ text: "LỄ+CN", tone: "red", title: `${day.leave ?? "Ngày lễ"} — rơi vào ngày nghỉ tuần` });
+      o.gain = quyDoi(heSo.le_nghi_tuan);
     } else if (day.holiday) {
       o.pills.push({ text: "LỄ", tone: "red", title: day.leave ?? "Ngày lễ" });
       o.gain = quyDoi(heSo.le);
@@ -162,6 +167,9 @@ export function ngayDacBiet(
     if (day.plain) {
       ds.push({ ngay, loai: "Ngày nghỉ công ty", ten: "trả 1× — không hệ số",
                 cong, quyDoi: soCong(cong * heSo.off1x), tone: "gray" });
+    } else if (day.le_nghi_tuan) {
+      ds.push({ ngay, loai: "Lễ trùng ngày nghỉ tuần", ten: tenLe.get(ngay) ?? "nghỉ lễ hưởng lương",
+                cong, quyDoi: soCong(cong * heSo.le_nghi_tuan), tone: "red" });
     } else if (day.holiday) {
       ds.push({ ngay, loai: "Ngày lễ", ten: tenLe.get(ngay) ?? "nghỉ lễ hưởng lương",
                 cong, quyDoi: soCong(cong * heSo.le), tone: "red" });

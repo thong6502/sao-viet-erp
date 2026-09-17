@@ -426,16 +426,26 @@ class CustomerService:
         sale_user_id: int | None,
         customer_kind: str | None = None,
         allow_reassign: bool = True,
+        bo_sale: bool = False,
+        commit: bool = True,
     ) -> tuple[Customer, list[tuple[str, Customer]]]:
         """Update THÔNG TIN ĐỊNH DANH (không đụng chính sách tài chính — sửa qua
         `update_financial`, endpoint riêng). Đổi NV phụ trách cần `allow_reassign` (quyền
-        `reassign`); thiếu → giữ nguyên sale (tránh né quyền qua nút Sửa)."""
+        `reassign`); thiếu → giữ nguyên sale (tránh né quyền qua nút Sửa).
+
+        `sale_user_id=None` là GIỮ người cũ (form Sửa không gửi ô đó). Muốn GỠ hẳn người phụ trách
+        thì phải nói rõ bằng `bo_sale=True` — chỉ nhập Excel dùng (ô Sale bị xoá trắng, chủ chốt
+        17/09/2026), và vẫn tính là đổi Sale nên vẫn cần `allow_reassign`.
+
+        `commit=False`: xem `create_customer` — nhập Excel gom cả file vào MỘT giao dịch."""
         customer = self.get_customer(customer_id=customer_id, scope=scope, actor=actor)
 
         name = self._validate_name(name)
         tax_code = self._validate_tax_code(tax_code)
         kind = self._validate_kind(customer_kind)
-        if sale_user_id is None:
+        if bo_sale:
+            sale_user_id = None
+        elif sale_user_id is None:
             sale_user_id = customer.sale_user_id
         if sale_user_id != customer.sale_user_id and not allow_reassign:
             raise ReassignForbidden(
@@ -458,6 +468,7 @@ class CustomerService:
             contact_name=_clean(contact_name),
             sale_user_id=sale_user_id,
             customer_kind=kind,
+            commit=commit,
         )
 
         changes: list[str] = []
@@ -468,6 +479,7 @@ class CustomerService:
             action="update_customer",
             target=f"customer:{customer.id}",
             detail=f"{customer.code} " + ("; ".join(changes) if changes else "thông tin"),
+            commit=commit,
         )
         return customer, duplicates
 

@@ -59,6 +59,9 @@ class DepartmentSummaryOut(BaseModel):
     # Tổ KIỂM TRA CHẤT LƯỢNG (KCS) — cờ ĐÍCH DANH, không kế thừa cây con (module Thực hiện SX §3.1).
     is_kcs: bool = False
     la_giao_hang: bool = False
+    # TỔ IN (mg 0304) — cờ ĐÍCH DANH, không kế thừa cây con. Thợ in ăn khoán: ngày CN / lễ đi làm
+    # không có công gốc, trả hết ở phần thêm (2 / 3 / 5 công).
+    la_to_in: bool = False
     # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật ------------------
     #: Đơn giá mỗi km, là số TÀI XẾ ĐƯỢC HƯỞNG (không còn tầng % nào nữa).
     don_gia_km: float = Field(default=0, ge=0)
@@ -112,6 +115,9 @@ class DepartmentCreate(BaseModel):
     # Tổ KCS — mặc định không phải KCS.
     is_kcs: bool = False
     la_giao_hang: bool = False
+    # TỔ IN (mg 0304) — cờ ĐÍCH DANH, không kế thừa cây con. Thợ in ăn khoán: ngày CN / lễ đi làm
+    # không có công gốc, trả hết ở phần thêm (2 / 3 / 5 công).
+    la_to_in: bool = False
     # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật ------------------
     #: Đơn giá mỗi km, là số TÀI XẾ ĐƯỢC HƯỞNG (không còn tầng % nào nữa).
     don_gia_km: float = Field(default=0, ge=0)
@@ -138,6 +144,9 @@ class DepartmentUpdate(BaseModel):
     # `la_kinh_doanh`: nhiều luồng sửa chỉ đụng tên/trưởng phòng, ghi đè mặc định là âm thầm gỡ cờ.
     is_kcs: bool = False
     la_giao_hang: bool = False
+    # TỔ IN (mg 0304) — cờ ĐÍCH DANH, không kế thừa cây con. Thợ in ăn khoán: ngày CN / lễ đi làm
+    # không có công gốc, trả hết ở phần thêm (2 / 3 / 5 công).
+    la_to_in: bool = False
     # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật ------------------
     #: Đơn giá mỗi km, là số TÀI XẾ ĐƯỢC HƯỞNG (không còn tầng % nào nữa).
     don_gia_km: float = Field(default=0, ge=0)

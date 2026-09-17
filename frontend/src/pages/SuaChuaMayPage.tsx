@@ -348,7 +348,7 @@ function KhungPhieu({ chuyen, may, loiMay, onCanMay, moId, onDaMo }: {
             ) : hien.map((r) => (
               <tr key={r.id} className="rc__row" onClick={() => setMo(r)}>
                 <td className="rc__mono rc__nowrap">
-                  <span className="rc__code-badge">{r.ma}</span>
+                  <span className="rc__code-badge ktm-ma">{r.ma}</span>
                   <div className="ktm-phu">{fmtNgayGio(r.thoi_diem)}</div>
                 </td>
                 <td className="rc__name">
@@ -878,7 +878,7 @@ function KhungYeuCau({
             ) : rows.map((r) => (
               <tr key={r.id} className="rc__row" onClick={() => setMo(r)}>
                 <td className="rc__mono rc__nowrap">
-                  <span className="rc__code-badge">{r.ma}</span>
+                  <span className="rc__code-badge ktm-ma">{r.ma}</span>
                   <div className="ktm-phu">{fmtNgayGio(r.thoi_diem)}</div>
                 </td>
                 <td className="rc__name">

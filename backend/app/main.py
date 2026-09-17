@@ -42,6 +42,7 @@ from .routers import (
     cong_doan,
     cong_viec_khoan,
     bu_hao,
+    xe,
     don_vi_do,
     bien_cong_thuc,
     kho,
@@ -175,6 +176,7 @@ app.include_router(cong_doan.router)
 app.include_router(cong_viec_khoan.router)     # đơn giá khoán theo tổ (trước ở tab của màn Lương)
 app.include_router(san_xuat_kcs_tieu_chi.router)   # danh mục Tiêu chí KCS (module quyền `dm_kcs_tieu_chi`)
 app.include_router(bu_hao.router)
+app.include_router(xe.router)
 app.include_router(don_vi_do.router)
 app.include_router(bien_cong_thuc.router)
 # Các router con của Kho phải đăng ký TRƯỚC `kho.router`: kho.router có `/api/kho/{kho_id}`

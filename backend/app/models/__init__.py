@@ -41,6 +41,7 @@ from .order import (
 from .payroll import (
     EmployeeSalary,
     EmployeeSalaryComponent,
+    KhoanChiTieuNgay,
     LatePenaltyBracket,
     PayrollComponent,
     PayrollLine,
@@ -105,6 +106,7 @@ from .delivery import (
     DeliveryTrip,
     DeliveryTripLine,
 )
+from .xe import MucKhoanKm, MucKhoanKmBac, Xe
 from .stock_request import StockRequest, StockRequestLine
 from .stock_lot import StockLot, StockThreshold
 from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
@@ -251,6 +253,7 @@ __all__ = [
     "PayrollLineComponent",
     "PitTaxBracket",
     "LatePenaltyBracket",
+    "KhoanChiTieuNgay",
     "PieceRate",
     "PlateDieRate",
     "Norm",

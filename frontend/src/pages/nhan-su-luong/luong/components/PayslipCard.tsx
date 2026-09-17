@@ -9,6 +9,11 @@ import { legacyBonusRows, money } from "../shared/helpers";
 
 // --- Phiếu lương 2 cột (Thu | Trừ) — dùng chung cho self-service + In của HCNS ---------------
 
+/** Số công in trên nhãn: 1 · 1.5 · 4.44 — cùng cách ô "Ngày công" ở đầu phiếu, không đuôi ,00. */
+function soCong(n: number): string {
+  return String(Number(n.toFixed(2)));
+}
+
 export function PayslipCard({
   line: l,
   period,
@@ -49,18 +54,64 @@ export function PayslipCard({
   // nhiệm). Cùng idiom `phu_cap_tham_nien ⊂ allowance`; cộng nhầm là SAI TIỀN LƯƠNG.
   // Key = nhãn dòng cha → dòng phụ render ngay dưới dòng đó và nằm NGOÀI `incomeTotal`.
   const luongNgayPhep = l.luong_ngay_phep ?? 0;
-  const incomeSub: Record<string, [string, number]> =
-    luongNgayPhep > 0
+  // LƯƠNG BÙ LỖ (tổ khoán sản xuất, 14/09/2026): lương sản lượng = MAX(khoán, bù lỗ theo công), hai
+  // khoản THAY NHAU. Dòng lương khi đó ghi `luong_cong` = PHẦN BÙ THÊM cho đủ bù lỗ ⇒ in nó ngay dưới
+  // dòng khoán với đúng tên, và in số bù lỗ đã đem so làm dòng phụ KHÔNG cộng — nhìn phiếu phải thấy
+  // được vì sao tháng này lấy bên đó. In nó là "Lương theo công" là nói người thợ ăn cả hai.
+  const buLo = l.bu_lo_theo_cong ?? null;
+  // TÀI XẾ, PHỤ XE: ăn theo km, và từ 15/09/2026 chiều CÓ bù lỗ như thợ khoán (khách chốt) ⇒ dòng
+  // lương theo công chỉ là PHẦN BÙ THÊM, bằng 0 khi km cao hơn bù lỗ. Nói luôn trên nhãn, kẻo người
+  // nhận tưởng bị trừ mất lương.
+  const taiXeChiAnKm = !!l.che_do_khoan && !l.luong_cong && (l.khoan_km ?? 0) !== 0;
+  // PHỤ CẤP ĐI THEO CÔNG (chủ chốt 15/09/2026): "Phụ cấp khác" + từng khoản hồ sơ trên phiếu đã là SỐ
+  // TRẢ theo công. Dòng phụ nói mức tháng và số công để người nhận tự nhẩm được — không cộng vào tổng.
+  const pcThang = l.phu_cap_thang ?? null;
+  const incomeSub: Record<string, [string, number]> = {
+    ...(pcThang !== null && pcThang > 0
+      ? {
+          "Phụ cấp khác": [
+            `Theo công: phụ cấp tháng (kể cả khoản hồ sơ) ÷ ${soCong(l.standard_cong)} × ${soCong(l.cong_phu_cap ?? 0)} công`,
+            pcThang,
+          ] as [string, number],
+        }
+      : {}),
+    ...(luongNgayPhep > 0
       ? {
           "Lương theo công": [
             "Trong đó: lương ngày phép",
             luongNgayPhep,
-          ],
+          ] as [string, number],
         }
-      : {};
+      : {}),
+    // Tháng LẤY KHOÁN: nói rõ đã đem so với bù lỗ (gồm phụ cấp) rồi mới lấy khoán. Tháng LẤY BÙ LỖ
+    // thì phiếu KHÔNG in dòng khoán nữa (chủ chốt 16/09/2026: *"đã lấy bù lỗ rồi thì không cần hiển
+    // thị khoán nữa"*) — hai khoản THAY NHAU, in cả hai là người nhận đọc thành cộng dồn.
+    ...(buLo !== null && !l.lay_bu_lo && (buLo > 0 || l.khoan > 0 || (l.khoan_km ?? 0) > 0)
+      ? {
+          [(l.khoan_km ?? 0) > 0 ? "Khoán km giao hàng" : "Lương khoán / sản lượng"]: [
+            "Đem so: bù lỗ theo công (gồm phụ cấp) — thấp hơn → lấy khoán",
+            buLo,
+          ] as [string, number],
+        }
+      : {}),
+  };
+
+  const dongCongLe: [string, number][] =
+    (l.luong_ngay_le ?? 0) !== 0
+      ? [[
+          "Công ngày lễ (ngoài khoán)"
+            + ((l.le_nghi_cong ?? 0) > 0 ? ` · ${soCong(l.le_nghi_cong ?? 0)} ngày` : ""),
+          l.luong_ngay_le ?? 0,
+        ]]
+      : [];
 
   const income = [
-    ["Lương theo công", l.luong_cong],
+    ...(buLo === null
+      ? ([[
+          taiXeChiAnKm ? "Lương theo công (tài xế ăn theo km — không có)" : "Lương theo công",
+          l.luong_cong,
+        ]] as [string, number][])
+      : []),
     // Hai khoản theo CA THỰC LÀM (từ 03/08/2026) — mỗi khoản MỘT DÒNG, không gộp: phiếu lương
     // phải nói rõ ăn bao nhiêu cơm, bao nhiêu phụ cấp.
     ["Cơm ca", l.meal_allowance_pay ?? 0],
@@ -76,14 +127,57 @@ export function PayslipCard({
     ...(pcThamNien ? ([["Phụ cấp thâm niên (đã ngưng)", pcThamNien]] as [string, number][]) : []),
     ["Phụ cấp khác", pcKhac],
     ["Chuyên cần", l.chuyen_can],
-    ["Lương khoán / sản lượng", l.khoan],
-    // Khoán km CÓ trong `gross` của engine nhưng TRƯỚC 04/09/2026 thiếu dòng ở đây ⇒ phiếu lương
-    // của tài xế cộng lại thiếu đúng phần km (thu nhập CHÍNH của họ). Chỉ in khi còn số, để phiếu
-    // của người không chạy xe không mọc thêm dòng 0đ.
-    ...((l.khoan_km ?? 0) !== 0
-      ? ([["Khoán km giao hàng", l.khoan_km ?? 0]] as [string, number][])
-      : []),
-    ["Tăng ca", l.ot_pay],
+    // THÁNG LẤY BÙ LỖ ⇒ MỘT dòng duy nhất, KHÔNG in tiền khoán / km (chủ chốt 16/09/2026: *"đã lấy
+    // bù lỗ rồi thì không cần hiển thị khoán nữa"*). Số in ra = khoán + km + phần bù thêm = đúng bù
+    // lỗ theo công, nên TỔNG THU không đổi một đồng; tiền khoán / km thật vẫn nằm ở cột của bảng
+    // lương và ở ngăn "Chi tiết chuyến" để kế toán soi.
+    // Tháng LẤY KHOÁN thì ngược lại: in dòng khoán / km, không in dòng bù thêm (bằng 0).
+    ...(l.lay_bu_lo
+      ? ([[
+          // Thử việc ở tổ khoán ăn bù lỗ, không ăn sản lượng (chủ chốt 16/09/2026) — ghi ngay trên
+          // dòng để người nhận phiếu biết vì sao tháng làm nhiều hàng mà tiền vẫn là mức bù lỗ.
+          l.is_probation
+            ? "Lương bù lỗ theo công (thử việc — không trả theo sản lượng)"
+            : "Lương bù lỗ theo công",
+          l.khoan + (l.khoan_km ?? 0) + l.luong_cong,
+        ]] as [string, number][])
+      : ([
+          ["Lương khoán / sản lượng", l.khoan],
+          // Khoán km CÓ trong `gross` của engine nhưng TRƯỚC 04/09/2026 thiếu dòng ở đây ⇒ phiếu
+          // lương của tài xế cộng lại thiếu đúng phần km (thu nhập CHÍNH của họ). Chỉ in khi còn
+          // số, để phiếu của người không chạy xe không mọc thêm dòng 0đ.
+          ...((l.khoan_km ?? 0) !== 0
+            ? [["Khoán km giao hàng", l.khoan_km ?? 0] as [string, number]]
+            : []),
+        ] as [string, number][])),
+    // CHẾ ĐỘ KHOÁN (14/09/2026): KHÔNG có tiền tăng ca — chủ nhắc: "không có tiền tăng ca luôn,
+    // tăng ca thì làm nhiều sản lượng hơn, ăn ở sản lượng rồi". Engine để tiền GIỜ tăng ca = 0 nên
+    // `ot_pay` của dòng khoán CHỈ còn phần thêm làm nguyên ngày CN/lễ + tiền 1× ngày nghỉ off1x ⇒
+    // in TÁCH ra dòng riêng, dòng "Tăng ca" đúng 0đ. Để chung một dòng "Tăng ca" là người nhận đọc
+    // thành "khoán vẫn có tiền tăng ca".
+    //
+    // Tiền NGÀY LỄ / CHỦ NHẬT của người khoán đứng liền nhau, có SỐ NGÀY (chủ 15/09/2026: "biết nó ăn
+    // lương khoán rồi cũng phải thể hiện ra tiền ngày lễ hay chủ nhật để người ta còn biết"):
+    //   · "Làm ngày Chủ nhật / lễ · N công" — phần thêm khi đi làm nguyên ngày (`ot_pay`, `special_cong`)
+    //   · "Công ngày lễ (ngoài khoán) · N ngày" — lễ NGHỈ hưởng lương, trả riêng ngoài phần so khoán /
+    //     bù lỗ, CÓ trong `gross` (`luong_ngay_le`, `le_nghi_cong`). Bảng lương thật cũng cộng riêng.
+    // TỔ GIAO HÀNG tách khỏi nhánh khoán từ 16/09/2026 (PRD §00.10): tài xế / phụ xe CÓ tiền giờ
+    // tăng ca, nên in như người công nhật — một dòng "Tăng ca" gồm giờ tăng ca + phần thêm ngày
+    // CN / lễ, y hệt cách phiếu của tổ thường đang in.
+    ...(l.che_do_khoan && !l.la_giao_hang
+      ? ([
+          ["Tăng ca (khoán — không có tiền tăng ca)", 0],
+          ...(l.ot_pay
+            ? [[((l.off1x_pay ?? 0) > 0
+                ? "Làm ngày Chủ nhật / lễ / ngày nghỉ 1×"
+                : "Làm ngày Chủ nhật / lễ")
+                + ((l.special_cong ?? 0) > 0 ? ` · ${soCong(l.special_cong ?? 0)} công` : ""), l.ot_pay]]
+            : []),
+          ...dongCongLe,
+        ] as [string, number][])
+      // `luong_ngay_le` chỉ engine chế độ khoán mới ghi — vẫn nối vào nhánh này để tổng thu không
+      // bao giờ thiếu nếu dòng cũ lệch cờ.
+      : ([["Tăng ca", l.ot_pay], ...dongCongLe] as [string, number][])),
     // Hoa hồng KD — cột riêng (07/09/2026). Trước đó là khoản nguồn `auto` mà phiếu không in ⇒ TỔNG
     // THU thiếu đúng phần hoa hồng (bản rà E5). Chỉ in khi có số.
     ...((l.hoa_hong ?? 0) !== 0

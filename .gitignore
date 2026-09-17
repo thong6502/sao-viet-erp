@@ -48,6 +48,7 @@ backend/static/noi-quy/
 backend/static/bao-gia/
 backend/static/giao-hang/
 backend/static/mua-hang/
+outputs
 
 # DB backups (dev.db.bak-*)
 *.bak-*

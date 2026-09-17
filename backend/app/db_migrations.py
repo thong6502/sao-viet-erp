@@ -14192,3 +14192,297 @@ def _migrate_go_so_kho_san_xuat(db) -> None:
 
 
 MIGRATIONS.append(("0310_go_so_kho_san_xuat", _migrate_go_so_kho_san_xuat))
+
+
+def _migrate_khoan_km_theo_muc(db: Session) -> None:
+    """Khoán km giao hàng: đơn giá theo MỨC, xe gán mức (12/09/2026).
+
+    Vì sao: đo `SAN LUONG T08.2026.xls` — xưởng có 4 xe nhưng chỉ HAI thang giá. Xe 2,5T và hai xe
+    3,5T dùng CHUNG một thang; xe 5 tấn dùng thang bằng thang thường × 1,1 ở cả 8 bậc. Hệ thống chỉ
+    giữ MỘT thang khoá theo `department_id`, nên xe 5 tấn bị tính thiếu đúng 10% (2.696.650đ riêng
+    tháng 8) trong khi ba xe kia khớp từng đồng. Thiết kế: `docs/prd-khoan-km-giao-hang.md` §11.
+
+    Ba việc, tất cả THUẦN CỘNG THÊM:
+
+    1. `delivery_km_brackets.muc_id` — NULL = bậc NỀN của phòng (đúng mọi dòng đang có, không
+       backfill gì); có giá trị = bảng bậc của MỨC đó.
+    2. `delivery_trips.vehicle_id` — xe đã chạy chuyến. NULL ở chuyến cũ = chạy trước khi có tính
+       năng ⇒ rơi về bậc nền của phòng. KHÔNG hồi tố: chuyến đã đóng giữ nguyên `don_gia_km` đã chụp.
+    3. Khoá quyền `dm_xe` cho danh mục Xe, CHÉP nguyên bit từ `giao_hang`.
+
+    ⭐ Bước chép quyền là BẮT BUỘC (cùng lý do mg 0216/0218/0292): thiếu nó thì lần deploy kế tiếp,
+    mọi vai đang quản giao hàng mở màn Xe ra là 403. Chép theo BIT: vai chỉ ĐỌC được giao hàng thì
+    cũng chỉ đọc được danh mục Xe — không ai tự dưng được thêm quyền khai xe.
+
+    Hai bảng `xe` và `muc_khoan_km` KHÔNG tạo ở đây: bảng MỚI thì `create_all` tự dựng (cùng lẽ với
+    `delivery_km_brackets` ở mg 0231). Chỉ cột THÊM vào bảng CŨ mới cần migration.
+
+    Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+
+    if "delivery_km_brackets" in bang and "muc_id" not in _existing_columns(
+            insp, "delivery_km_brackets"):
+        db.execute(text("ALTER TABLE delivery_km_brackets ADD COLUMN muc_id INTEGER"))
+    if "delivery_trips" in bang and "vehicle_id" not in _existing_columns(insp, "delivery_trips"):
+        db.execute(text("ALTER TABLE delivery_trips ADD COLUMN vehicle_id INTEGER"))
+
+    if "modules" in bang:
+        db.execute(
+            text("INSERT INTO modules (key, label, created_at) "
+                 "SELECT :k, :l, CURRENT_TIMESTAMP "
+                 "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+            {"k": "dm_xe", "l": "Xe giao hàng"},
+        )
+    if "role_permissions" in bang:
+        # Đọc cột THẬT trước khi ghi — bảng này còn được migration sau thêm bit.
+        cols = sorted(_existing_columns(insp, "role_permissions"))
+        chep = [c for c in cols if c not in ("id", "module_key")]
+        # `dm_xe` nằm trong SCOPELESS_MODULES (đọc `MODULE_KEYS` của catalog_registry) nên scope
+        # ghi thẳng 'all' — không router nào đọc scope của nó.
+        chon = ["'all'" if c == "scope" else f"rp.{c}" for c in chep]
+        db.execute(
+            text(
+                f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+                f"SELECT :moi, {', '.join(chon)} FROM role_permissions rp "
+                "WHERE rp.module_key = :cu AND NOT EXISTS ("
+                "  SELECT 1 FROM role_permissions x "
+                "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+            ),
+            {"cu": "giao_hang", "moi": "dm_xe"},
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0296_khoan_km_theo_muc", _migrate_khoan_km_theo_muc))
+
+
+def _migrate_go_bac_km_cap_phong(db: Session) -> None:
+    """Dọn bậc khoán km CẤP PHÒNG — nay mọi xe ăn theo MỨC (12/09/2026).
+
+    Chủ chốt cùng ngày, ngay sau khi thấy hai thẻ nằm cạnh nhau: *"Đơn giá khoán km — Giao hàng
+    này bị thừa thãi đúng không, xoá đi… cái % tài xế với % phụ xe thì vẫn dùng"*. Đúng: đơn giá
+    nay tra theo mức mà xe đang ăn, nên một bảng bậc thứ hai ở cấp phòng chỉ là nơi thứ hai nói
+    cùng một thứ — và là nơi âm thầm nuốt những xe khai thiếu mức.
+
+    Bậc cấp phòng là dòng `delivery_km_brackets` có `muc_id IS NULL`. Sau khi `tra_don_gia_km` bỏ
+    nấc đó, chúng thành dòng KHÔNG AI ĐỌC: không màn nào sửa được, không đường nào xoá được, mà
+    vẫn nằm trong bảng làm người đọc sau tưởng còn dùng. Xoá.
+
+    An toàn: chuyến đã đóng KHÔNG bị ảnh hưởng — đơn giá đã được CHỤP vào `delivery_trips.don_gia_km`
+    từ mg 0231, engine lương đọc số đã chụp chứ không tra lại bảng bậc.
+
+    KHÔNG đụng `departments.pct_tai_xe` / `pct_phu_xe` (% chia kíp — chủ giữ) và cũng không đụng
+    `departments.don_gia_km` (đơn giá phẳng, nay là nấc lùi cuối khi xe chưa gán mức).
+
+    Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "delivery_km_brackets" not in set(insp.get_table_names()):
+        return
+    if "muc_id" not in _existing_columns(insp, "delivery_km_brackets"):
+        return          # chưa chạy 0296 thì chưa có bậc theo mức, cũng chưa có gì để dọn
+    db.execute(text("DELETE FROM delivery_km_brackets WHERE muc_id IS NULL"))
+    db.commit()
+
+
+MIGRATIONS.append(("0297_go_bac_km_cap_phong", _migrate_go_bac_km_cap_phong))
+
+
+def _migrate_bac_km_thuoc_muc(db: Session) -> None:
+    """Bảng bậc khoán km thuộc về MỨC, không thuộc về phòng ban (14/09/2026).
+
+    Chủ chốt khi soát "tắt phòng giao hàng / xoá mức lúc còn xe dùng thì sao" (PRD khoán km §12):
+    **Mức khoán km là cấu hình CHUNG**. Nhưng bậc của mức đang nằm trong `delivery_km_brackets` —
+    bảng đẻ ra cho bậc CẤP PHÒNG, bắt buộc `department_id` kèm FK xoá dây chuyền. Mức toàn công ty
+    mà từng dòng bậc treo vào phòng lưu nó ⇒ xoá phòng là cuốn luôn bảng giá của mức.
+
+    Bậc nay ở bảng MỚI `muc_khoan_km_bac` (không `department_id`) — `create_all` đã dựng trước khi
+    migration chạy. Ở đây chỉ:
+
+    1. CHÉP dòng có `muc_id` sang bảng mới. Dev/prod lúc viết có 0 dòng — chép cho chắc. Nếu một
+       mức từng được lưu từ HAI phòng (đường ghi cũ khoá theo phòng), lấy bộ bậc GHI SAU CÙNG
+       (id lớn nhất) — đó là bảng người dùng nhìn thấy lần cuối.
+    2. `DROP TABLE delivery_km_brackets`. Không ai đọc nó nữa; để lại là người đọc sau tưởng còn
+       dùng. Chuyến đã đóng KHÔNG ảnh hưởng: đơn giá đã CHỤP vào `delivery_trips.don_gia_km`.
+
+    Mức đã có bậc ở bảng mới thì KHÔNG chép đè (chạy lại an toàn). Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+    if "delivery_km_brackets" not in bang:
+        return
+    if "muc_khoan_km_bac" not in bang:
+        # Chưa có chỗ chép sang (chạy migration mà không qua `create_all`) ⇒ KHÔNG xoá bảng cũ,
+        # không thì mất bậc. Lần khởi động sau `create_all` dựng bảng, migration này chạy lại.
+        return
+    if "muc_id" in _existing_columns(insp, "delivery_km_brackets"):
+        rows = db.execute(text(
+            "SELECT b.id, b.department_id, b.muc_id, b.seq, b.up_to_km, b.don_gia "
+            "FROM delivery_km_brackets b "
+            "WHERE b.muc_id IS NOT NULL "
+            "AND EXISTS (SELECT 1 FROM muc_khoan_km m WHERE m.id = b.muc_id)"
+        )).all()
+        da_co = {r[0] for r in db.execute(text("SELECT DISTINCT muc_id FROM muc_khoan_km_bac"))}
+        theo_muc: dict[int, dict[int, list]] = {}
+        for r in rows:
+            theo_muc.setdefault(r.muc_id, {}).setdefault(r.department_id, []).append(r)
+        for muc_id, theo_phong in theo_muc.items():
+            if muc_id in da_co:
+                continue
+            bo = max(theo_phong.values(), key=lambda ds: max(x.id for x in ds))
+            for i, r in enumerate(sorted(bo, key=lambda x: (x.seq, x.id)), start=1):
+                db.execute(
+                    text("INSERT INTO muc_khoan_km_bac (muc_id, seq, up_to_km, don_gia) "
+                         "VALUES (:m, :s, :u, :d)"),
+                    {"m": muc_id, "s": i, "u": r.up_to_km, "d": r.don_gia},
+                )
+    db.execute(text("DROP TABLE IF EXISTS delivery_km_brackets"))
+    db.commit()
+
+
+MIGRATIONS.append(("0298_bac_km_thuoc_muc", _migrate_bac_km_thuoc_muc))
+
+
+def _migrate_payroll_line_che_do_khoan(db: Session) -> None:
+    """Chụp CHẾ ĐỘ KHOÁN lên dòng lương (14/09/2026, `docs/prd-khoan-khong-tien-tang-ca.md`).
+
+    Chủ chốt theo phản hồi của khách: tổ khoán sản lượng / tổ Giao hàng KHÔNG có tiền giờ tăng ca
+    ("làm thêm giờ thì thêm sản lượng, đã ăn tiền sản lượng rồi"), vẫn ăn cơm tăng ca. Cột này chỉ
+    CHỤP cờ lúc Tính lại để bảng/phiếu lương giải thích được vì sao có giờ tăng ca mà tiền = 0.
+
+    THUẦN CỘNG THÊM, mặc định `false` ⇒ kỳ cũ giữ nguyên, không hồi tố. Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    if "che_do_khoan" not in _existing_columns(insp, "payroll_lines"):
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN che_do_khoan BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0299_payroll_line_che_do_khoan", _migrate_payroll_line_che_do_khoan))
+
+
+def _migrate_payroll_line_bu_lo(db: Session) -> None:
+    """Chụp LƯƠNG BÙ LỖ lên dòng lương (14/09/2026, `docs/prd-luong-bu-lo-khoan-san-xuat.md`).
+
+    Tổ khoán sản xuất: "khoán lớn hơn bù lỗ thì lấy khoán, bé hơn thì lấy bù lỗ" — thay nhau, không
+    cộng dồn. `bu_lo_theo_cong` giữ số bù lỗ đã đem so, `lay_bu_lo` nói tháng đó lấy bên nào; kỳ đã
+    chốt in lại đúng dù mức lương đổi về sau.
+
+    THUẦN CỘNG THÊM: `bu_lo_theo_cong` NULL + `lay_bu_lo` false ⇒ kỳ cũ giữ nguyên, không hồi tố.
+    Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "bu_lo_theo_cong" not in cols:
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN bu_lo_theo_cong NUMERIC(14, 2)"))
+    if "lay_bu_lo" not in cols:
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN lay_bu_lo BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0300_payroll_line_bu_lo", _migrate_payroll_line_bu_lo))
+
+
+def _migrate_payroll_line_luong_ngay_le(db: Session) -> None:
+    """Công ngày lễ nghỉ hưởng lương của người ăn khoán / tài xế trả RIÊNG (15/09/2026,
+    `docs/prd-luong-bu-lo-khoan-san-xuat.md` §0 #1).
+
+    Bảng lương thật cộng "+2" ngày lễ vào Tổng NC của người sản lượng, ngoài tiền khoán / km. Trước bản
+    này công lễ nằm trong bù lỗ theo công ⇒ khoán cao hơn bù lỗ là mất (T05: tổ khoán −19,9tr, tài xế
+    −3,0tr).
+
+    THUẦN CỘNG THÊM: DEFAULT 0 ⇒ kỳ cũ giữ nguyên số, không hồi tố. Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "luong_ngay_le" not in cols:
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN luong_ngay_le NUMERIC(14, 2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+MIGRATIONS.append(("0301_payroll_line_luong_ngay_le", _migrate_payroll_line_luong_ngay_le))
+
+
+def _migrate_payroll_line_le_nghi_cong(db: Session) -> None:
+    """Chụp SỐ công ngày lễ nghỉ hưởng lương lên dòng lương (15/09/2026) — để phiếu / bảng lương ghi
+    được "Công ngày lễ — 1 ngày" cạnh tiền (`luong_ngay_le`, mg 0301). THUẦN CỘNG THÊM, DEFAULT 0.
+    Idempotent."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "le_nghi_cong" not in cols:
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN le_nghi_cong NUMERIC(6, 2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+MIGRATIONS.append(("0302_payroll_line_le_nghi_cong", _migrate_payroll_line_le_nghi_cong))
+
+
+def _migrate_payroll_line_phu_cap_theo_cong(db: Session) -> None:
+    """Phụ cấp đi theo công (chủ chốt 15/09/2026): chụp `phu_cap_thang` (số khai) + `cong_phu_cap` (số công
+    hưởng) lên dòng lương để phiếu / bảng lương nói được phụ cấp đã chia thế nào.
+
+    THUẦN CỘNG THÊM: NULL cho mọi dòng cũ = kỳ tính trước bản vá, phụ cấp còn cộng phẳng. Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "phu_cap_thang" not in cols:
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN phu_cap_thang NUMERIC(14, 2)"))
+    if "cong_phu_cap" not in cols:
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN cong_phu_cap NUMERIC(6, 2)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0303_payroll_line_phu_cap_theo_cong", _migrate_payroll_line_phu_cap_theo_cong))
+
+
+def _migrate_department_la_to_in(db: Session) -> None:
+    """Cờ TỔ IN trên phòng ban (khách chốt 15/09/2026, `docs/prd-luong-bu-lo-khoan-san-xuat.md` §00 G).
+
+    Thợ in ăn khoán: ngày CN / lễ đi làm KHÔNG có công gốc — 2 / 3 / 5 công trả hết ở phần THÊM, bù
+    lỗ theo công không đếm ngày đó. Lương đọc cờ của CHÍNH tổ (không kế thừa cây), y như cờ Giao hàng.
+    THUẦN CỘNG THÊM, mặc định false ⇒ không tổ nào đổi tiền cho tới khi HCNS bật. Idempotent."""
+    insp = inspect(db.get_bind())
+    if "departments" not in set(insp.get_table_names()):
+        return
+    if "la_to_in" not in _existing_columns(insp, "departments"):
+        db.execute(text(
+            "ALTER TABLE departments ADD COLUMN la_to_in BOOLEAN NOT NULL DEFAULT false"))
+    db.commit()
+
+
+MIGRATIONS.append(("0304_department_la_to_in", _migrate_department_la_to_in))
+
+
+def _migrate_payroll_line_tien_gio_tang_ca(db: Session) -> None:
+    """Chụp TIỀN GIỜ tăng ca lên dòng lương, tách khỏi phần thêm ngày CN / lễ trong `ot_pay` (17/09/2026).
+
+    File Excel bảng lương theo khuôn công ty (sheet `BL CT`): phần thêm CN / lễ nằm trong "Lương thời
+    gian", cột "Ngoài giờ/Tăng ca" chỉ là tiền giờ. `ot_pay` gộp cả hai nên phải chụp riêng lúc tính.
+
+    THUẦN CỘNG THÊM: NULL cho mọi dòng cũ = kỳ tính trước bản vá, chưa tách được. Idempotent.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    if "tien_gio_tang_ca" not in _existing_columns(insp, "payroll_lines"):
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN tien_gio_tang_ca NUMERIC(14, 2)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0305_payroll_line_tien_gio_tang_ca", _migrate_payroll_line_tien_gio_tang_ca))

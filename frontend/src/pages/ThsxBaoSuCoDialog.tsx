@@ -132,7 +132,7 @@ export function ThsxBaoSuCoDialog({ mayNhan, dangChay, busy, onGui, onClose }: {
                       const isSel = mucDo === ma;
                       return (
                         <button key={ma} type="button"
-                          disabled={busy}
+                          disabled={busy} aria-pressed={isSel}
                           className={`ktm-priority-btn ktm-priority-btn--${ma}${isSel ? " is-selected" : ""}`}
                           onClick={() => setMucDo(ma)}>
                           <span className={`ktm-priority-dot ktm-priority-dot--${ma}`} />
