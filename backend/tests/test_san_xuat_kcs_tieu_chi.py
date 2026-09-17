@@ -152,3 +152,70 @@ def test_hang_muc_theo_cong_doan_gom_ca_dong_ngung_dung():
 
     out = hang_muc_theo_cong_doan(db)
     assert [h.id for h in out[cd.id]] == [b.id, a.id]   # sort thu_tu rồi id
+
+
+def _khai_bao(db):
+    from app.routers.san_xuat_kcs_tieu_chi import khai_bao
+    return khai_bao(db, None)
+
+
+def test_khai_bao_tra_kem_o_chon_cong_doan_dang_dung_chua_khai():
+    """Ô chọn "Khai báo công đoạn kiểm tra mới" đi CHUNG cửa khai-bao (màn thôi gọi `/api/cong-doan`):
+    chỉ công đoạn ĐANG DÙNG mà CHƯA khai, xếp theo mã, có cả khi chưa khai hạng mục nào."""
+    from app.models.cong_doan import CongDoan
+
+    db, svc = _svc()
+    da_khai = _cong_doan(db, "CD-B", nhom="finishing")
+    chua_2 = _cong_doan(db, "CD-C", nhom="print")
+    chua_1 = _cong_doan(db, "CD-A", nhom="prepress")
+    ngung = _cong_doan(db, "CD-D", nhom="print")
+    db.get(CongDoan, ngung.id).active = False
+    db.commit()
+
+    rong = _khai_bao(db)
+    assert rong.giai_doan == []
+    assert [c.ma for c in rong.cong_doan_chon] == ["CD-A", "CD-B", "CD-C"]
+
+    svc.create(dict(ten="Mục 1", cong_doan_id=da_khai.id))
+    out = _khai_bao(db)
+    assert [(g.nhom, [c.cong_doan_id for c in g.cong_doan]) for g in out.giai_doan] == [
+        ("finishing", [da_khai.id]),
+    ]
+    assert [(c.id, c.nhom) for c in out.cong_doan_chon] == [
+        (chua_1.id, "prepress"), (chua_2.id, "print"),
+    ]
+
+
+def test_khai_bao_khong_chay_theo_so_cong_doan_va_hang_muc():
+    """Cả cây lẫn ô chọn = số truy vấn CỐ ĐỊNH, thêm công đoạn/hạng mục không làm nhảy (N+1)."""
+    from sqlalchemy import event
+
+    db, svc = _svc()
+    eng = db.get_bind()
+
+    def dem() -> int:
+        n = {"n": 0}
+
+        def _ghi(*_a):
+            n["n"] += 1
+
+        event.listen(eng, "before_cursor_execute", _ghi)
+        try:
+            _khai_bao(db)
+        finally:
+            event.remove(eng, "before_cursor_execute", _ghi)
+        return n["n"]
+
+    def dung(dot: int, so: int) -> None:
+        for i in range(so):
+            cd = _cong_doan(db, f"CD-N{dot}-{i}")
+            for j in range(3):
+                svc.create(dict(ten=f"Mục {j}", cong_doan_id=cd.id))
+            _cong_doan(db, f"CD-M{dot}-{i}")      # công đoạn chưa khai → vào ô chọn
+
+    dung(1, 3)
+    db.expire_all()
+    nho = dem()
+    dung(2, 12)
+    db.expire_all()
+    assert dem() == nho <= 2

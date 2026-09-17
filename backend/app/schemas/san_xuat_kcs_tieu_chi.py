@@ -57,5 +57,14 @@ class KcsKhaiBaoGiaiDoanOut(BaseModel):
     cong_doan: list[KcsKhaiBaoCongDoanOut]
 
 
+class KcsCongDoanChonOut(BaseModel):
+    """Công đoạn ĐANG DÙNG mà CHƯA khai hạng mục — ô chọn "Khai báo công đoạn kiểm tra mới"."""
+    id: int
+    ma: str
+    ten: str
+    nhom: str
+
+
 class KcsKhaiBaoOut(BaseModel):
     giai_doan: list[KcsKhaiBaoGiaiDoanOut]
+    cong_doan_chon: list[KcsCongDoanChonOut] = []

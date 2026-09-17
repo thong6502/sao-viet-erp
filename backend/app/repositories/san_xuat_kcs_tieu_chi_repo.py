@@ -36,6 +36,19 @@ class SanXuatKcsTieuChiRepository(CatalogRepo):
         return self.db.execute(q.limit(1)).first() is not None
 
 
+def cong_doan_gon(db: Session):
+    """(id, ma, ten, nhom, active) của TOÀN danh mục Công đoạn trong MỘT truy vấn, đúng 5 cột.
+
+    Màn khai báo cần công đoạn cho hai chỗ: tầng thẻ (công đoạn đã khai) và ô chọn "Khai báo công
+    đoạn kiểm tra mới" (đang dùng mà chưa khai). Đừng đổi sang `select(CongDoan)` hay mượn
+    `/api/cong-doan`: dòng đầy đủ kéo cả công thức · đầu việc · vật tư · máy (~1,8 KB mỗi công đoạn,
+    đo 17/09/2026) chỉ để đổ một ô chọn, và cửa đó đòi quyền Công đoạn/Tính giá chứ không phải KCS.
+    """
+    return db.execute(
+        select(CongDoan.id, CongDoan.ma, CongDoan.ten, CongDoan.nhom, CongDoan.active)
+    ).all()
+
+
 def hang_muc_theo_cong_doan(db: Session) -> dict[int, list[SanXuatKcsTieuChi]]:
     """{cong_doan_id: [hạng mục]} cho TOÀN danh mục — màn khai báo bày ba tầng nên đọc một phát,
     đừng gọi mỗi công đoạn một truy vấn."""

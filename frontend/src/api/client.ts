@@ -6184,6 +6184,19 @@ export interface KcsKhaiBaoGiaiDoan {
   nhom: string;
   cong_doan: KcsKhaiBaoCongDoan[];
 }
+/** Công đoạn ĐANG DÙNG chưa khai hạng mục — ô chọn "Khai báo công đoạn kiểm tra mới".
+ *  Server đã lọc + xếp theo mã, trả chung trong `khaiBao` để màn khỏi kéo cả `/api/cong-doan`. */
+export interface KcsCongDoanChon {
+  id: number;
+  ma: string;
+  ten: string;
+  /** Mã giai đoạn = `cong_doan.nhom`; "" = chưa khai giai đoạn. */
+  nhom: string;
+}
+export interface KcsKhaiBao {
+  giai_doan: KcsKhaiBaoGiaiDoan[];
+  cong_doan_chon: KcsCongDoanChon[];
+}
 
 export interface CongDoanLite {
   id: number;
@@ -13991,8 +14004,8 @@ export const api = {
   // Nền CRUD chung `/api/san-xuat-kcs-tieu-chi` (POST "" · PUT /{id} · DELETE /{id}), thêm
   // `GET /khai-bao` trả sẵn ba tầng để màn không phải tự ghép. `ma` server cấp — không gửi.
   kcsHangMuc: {
-    khaiBao(token: string): Promise<{ giai_doan: KcsKhaiBaoGiaiDoan[] }> {
-      return authed<{ giai_doan: KcsKhaiBaoGiaiDoan[] }>(
+    khaiBao(token: string): Promise<KcsKhaiBao> {
+      return authed<KcsKhaiBao>(
         "/api/san-xuat-kcs-tieu-chi/khai-bao", token,
       );
     },
