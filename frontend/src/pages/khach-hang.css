@@ -7879,6 +7879,22 @@
   color: #b45309;
 }
 
+/* "Sửa" — nhập lại file Xuất Excel (17/09/2026). Xanh dương: không phải lỗi, không phải cảnh báo,
+   nhưng là ghi ĐÈ nên phải tách màu khỏi "Thêm mới". */
+.kh__im-metric-icon--diff {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.kh__im-metric-card--diff {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.kh__im-metric-card--diff .kh__im-metric-val {
+  color: #1d4ed8;
+}
+
 /* Alert Banners */
 .kh__im-alert {
   display: flex;
@@ -7967,6 +7983,16 @@
   color: #92400e;
 }
 
+.kh__im-table-card--diff {
+  border-color: #bfdbfe;
+}
+
+.kh__im-table-card--diff .kh__im-table-head {
+  background: #eff6ff;
+  border-bottom-color: #dbeafe;
+  color: #1e40af;
+}
+
 .kh__im-table-title {
   display: flex;
   align-items: center;
@@ -7987,6 +8013,11 @@
 
 .kh__im-table-tag--soft {
   background: #d97706;
+  color: #ffffff;
+}
+
+.kh__im-table-tag--diff {
+  background: #2563eb;
   color: #ffffff;
 }
 
@@ -8053,6 +8084,32 @@
 .kh__im-row-badge--warn {
   background: #fef3c7;
   color: #b45309;
+}
+
+.kh__im-row-badge--diff {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.kh__im-diff-old {
+  color: var(--ash);
+  text-decoration: line-through;
+}
+
+/* Số điện thoại / MST / tiền không được gãy giữa chừng; chữ dài (địa chỉ) vẫn xuống dòng bình thường
+   vì mỗi vế là một span riêng. */
+.kh__im-diff-old,
+.kh__im-diff-new {
+  overflow-wrap: anywhere;
+}
+
+.kh__im-diff-arrow {
+  color: var(--ash);
+}
+
+.kh__im-diff-new {
+  font-weight: 600;
+  color: #1d4ed8;
 }
 
 .kh__im-col-name {
@@ -8149,6 +8206,15 @@
 
 .kh__im-success-stat--highlight .kh__im-success-stat-val {
   color: #059669;
+}
+
+.kh__im-success-stat--diff {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.kh__im-success-stat--diff .kh__im-success-stat-val {
+  color: #1d4ed8;
 }
 
 .kh__im-success-stat--warn {

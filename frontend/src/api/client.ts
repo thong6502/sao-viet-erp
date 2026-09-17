@@ -3925,25 +3925,41 @@ export interface NhapExcelLoi {
   ly_do: string;
 }
 
-/** Cảnh báo MỀM — VẪN ghi. Hiện chỉ có trùng MST / tên / email (§34: không chặn). */
+/** Cảnh báo MỀM — VẪN ghi: trùng MST / tên / email (§34: không chặn), gỡ Sale phụ trách, đổi cùng
+ *  lúc tên lẫn MST (nghi trỏ nhầm khách). */
 export interface NhapExcelCanhBao {
   dong: number;
   ly_do: string;
 }
 
+/** Một ô sẽ đổi trên một khách ĐÃ CÓ (nhập lại file Xuất Excel, 17/09/2026). `cu`/`moi` đã là chữ
+ *  người đọc (tên Sale, "Công ty", "5.000.000") — chuỗi rỗng là ô trống. */
+export interface NhapExcelThayDoi {
+  dong: number;
+  ma: string;
+  ten: string;
+  cot: string;
+  cu: string;
+  moi: string;
+}
+
 /** Kết quả một lượt nhập Excel (#23; thay đường CSV cũ 11/09/2026).
  *
  *  `preview` và `commit` trả CÙNG hình dạng — khác đúng ở `da_ghi`. Xem trước chạy y hệt lượt ghi
- *  rồi rollback, nên con số ở đây là con số THẬT. */
+ *  rồi rollback, nên con số ở đây là con số THẬT. Dòng có Mã KH là sửa (`cap_nhat`), không đổi gì
+ *  thì không đụng tới (`khong_doi`). */
 export interface NhapExcelOut {
   hop_le: boolean;
   tong_dong: number;
   tao_moi: number;
+  cap_nhat: number;
+  khong_doi: number;
   da_ghi: boolean;
-  /** File có cột tài chính nhưng người nhập không có quyền ⇒ đã bỏ qua đúng mấy cột đó. */
+  /** Có ô tài chính đã điền / đã sửa nhưng người nhập không có quyền ⇒ đã bỏ qua đúng mấy cột đó. */
   bo_qua_tai_chinh: boolean;
   loi: NhapExcelLoi[];
   canh_bao: NhapExcelCanhBao[];
+  thay_doi: NhapExcelThayDoi[];
 }
 
 /** The read-only Công nợ card. available=false + message → "Chưa có phân hệ Công nợ". */

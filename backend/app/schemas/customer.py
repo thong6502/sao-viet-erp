@@ -419,10 +419,22 @@ class NhapExcelLoi(BaseModel):
 
 
 class NhapExcelCanhBao(BaseModel):
-    """Cảnh báo MỀM — vẫn ghi. Hiện chỉ có trùng MST / tên / email (§34: không chặn)."""
+    """Cảnh báo MỀM — vẫn ghi: trùng MST / tên / email (§34: không chặn), gỡ Sale phụ trách, đổi
+    cùng lúc tên lẫn MST (nghi trỏ nhầm khách)."""
 
     dong: int
     ly_do: str
+
+
+class NhapExcelThayDoi(BaseModel):
+    """Một ô sẽ đổi trên một khách ĐÃ CÓ (bản 2, 17/09/2026) — xem trước đọc được "cũ → mới"."""
+
+    dong: int
+    ma: str
+    ten: str
+    cot: str
+    cu: str
+    moi: str
 
 
 class NhapExcelOut(BaseModel):
@@ -431,11 +443,14 @@ class NhapExcelOut(BaseModel):
     hop_le: bool
     tong_dong: int
     tao_moi: int
+    cap_nhat: int = 0
+    khong_doi: int = 0
     da_ghi: bool
-    #: File có cột tài chính nhưng người nhập không có quyền ⇒ đã bỏ qua đúng mấy cột đó.
+    #: Có ô tài chính đã điền / đã sửa nhưng người nhập không có quyền ⇒ đã bỏ qua đúng mấy cột đó.
     bo_qua_tai_chinh: bool = False
     loi: list[NhapExcelLoi] = []
     canh_bao: list[NhapExcelCanhBao] = []
+    thay_doi: list[NhapExcelThayDoi] = []
 
 
 class ReceivableCard(BaseModel):
