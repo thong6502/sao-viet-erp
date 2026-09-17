@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from app.db import SessionLocal
 from app.repositories.rbac_repo import DepartmentRepository
 from app.repositories.user_repo import UserRepository
+from tests.test_luong_api import _du_cong
 
 ADMIN = {"username": "admin", "password": "admin123"}
 NAM, THANG = 2026, 6
@@ -219,7 +220,7 @@ def _dong_ho_so(client, h, lid: int) -> dict:
     return next(r for r in rows if r["source"] == "employee")
 
 
-def test_de_khoan_tu_ho_so_va_TINH_LAI_khong_ghi_de(client):
+def test_de_khoan_tu_ho_so_va_TINH_LAI_khong_ghi_de(client, monkeypatch):
     """⭐ Ca quan trọng nhất của §6c — canh CẢ HAI vế của cơ chế đè.
 
     Vế 1: `replace_employee_line_components` phải chừa dòng đã đè khi xoá.
@@ -230,6 +231,7 @@ def test_de_khoan_tu_ho_so_va_TINH_LAI_khong_ghi_de(client):
     h = _h(client)
     eid = _nv_gan_admin(client, h)
     _khoan_ho_so(client, h, eid)
+    _du_cong(monkeypatch, eid)      # khoản hồ sơ đi theo công (15/09/2026) — đủ công mới ra đủ 200.000
     gen = client.post("/api/luong/generate", json={"year": NAM, "month": THANG},
                       headers=h).json()
     lid = next(l["id"] for l in gen["lines"] if l["employee_id"] == eid)
@@ -252,11 +254,12 @@ def test_de_khoan_tu_ho_so_va_TINH_LAI_khong_ghi_de(client):
     assert cua_ho_so[0]["amount"] == 350_000, "Tính lại đã ghi đè số đè tay"
 
 
-def test_tra_ve_theo_ho_so(client):
+def test_tra_ve_theo_ho_so(client, monkeypatch):
     """Người bấm "Trả về theo hồ sơ" muốn thấy số cũ NGAY, không phải chờ bấm Tính lại."""
     h = _h(client)
     eid = _nv_gan_admin(client, h)
     _khoan_ho_so(client, h, eid)
+    _du_cong(monkeypatch, eid)      # "số hồ sơ của kỳ" = số khai × công hưởng ÷ công chuẩn (15/09/2026)
     gen = client.post("/api/luong/generate", json={"year": NAM, "month": THANG},
                       headers=h).json()
     lid = next(l["id"] for l in gen["lines"] if l["employee_id"] == eid)
@@ -266,6 +269,27 @@ def test_tra_ve_theo_ho_so(client):
     r = client.post(f"/api/luong/lines/components/{row['id']}/bo-de", headers=h)
     assert r.status_code == 200, r.text
     assert r.json()["amount"] == 200_000 and r.json()["da_de_tay"] is False
+
+
+def test_tra_ve_theo_ho_so_khi_THIEU_CONG_ra_dung_so_Tinh_lai(client, monkeypatch):
+    """Phụ cấp đi theo công (15/09/2026): khoản hồ sơ của kỳ = số khai × công hưởng ÷ công chuẩn. Đè tay
+    rồi bấm "Trả về theo hồ sơ" phải về ĐÚNG số Tính lại chụp — không phải số khai nguyên tháng."""
+    h = _h(client)
+    eid = _nv_gan_admin(client, h)
+    _khoan_ho_so(client, h, eid)
+    _du_cong(monkeypatch, eid, cong=13)
+    gen = client.post("/api/luong/generate", json={"year": NAM, "month": THANG},
+                      headers=h).json()
+    dong = next(l for l in gen["lines"] if l["employee_id"] == eid)
+    row = _dong_ho_so(client, h, dong["id"])
+    mong = round(200_000 * dong["cong_phu_cap"] / dong["standard_cong"])
+    assert 0 < mong < 200_000, "đo hỏng: NV thiếu công mà khoản hồ sơ vẫn đủ tháng"
+    assert row["amount"] == mong
+
+    client.put(f"/api/luong/lines/components/{row['id']}", json={"amount": 350_000}, headers=h)
+    r = client.post(f"/api/luong/lines/components/{row['id']}/bo-de", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["amount"] == mong and r.json()["da_de_tay"] is False
 
 
 def test_thuong_nong_van_song_qua_tinh_lai_nhu_cu(client):

@@ -13,6 +13,7 @@ from ..models.payroll import (
     ADV_PENDING,
     DepartmentSalaryComponent,
     EmployeeSalary,
+    KhoanChiTieuNgay,
     LatePenaltyBracket,
     PayrollLine,
     PayrollParams,
@@ -129,6 +130,45 @@ class PayrollRepository:
 
     def delete_late_penalty_bracket(self, b: LatePenaltyBracket) -> None:
         self.db.delete(b)
+        self.db.commit()
+
+    # --- khoan_chi_tieu_ngay (chỉ tiêu ngày của tổ khoán, theo mốc ngày) -----
+
+    def list_chi_tieu_ngay(self, department_id: int) -> list[KhoanChiTieuNgay]:
+        """Các mốc của MỘT tổ, mốc MỚI nhất đứng đầu."""
+        return list(self.db.execute(
+            select(KhoanChiTieuNgay)
+            .where(KhoanChiTieuNgay.department_id == department_id)
+            .order_by(KhoanChiTieuNgay.ap_dung_tu.desc(), KhoanChiTieuNgay.id.desc())
+        ).scalars())
+
+    def get_chi_tieu_ngay(self, muc_id: int) -> KhoanChiTieuNgay | None:
+        return self.db.get(KhoanChiTieuNgay, muc_id)
+
+    def get_chi_tieu_ngay_theo_moc(self, department_id: int, ap_dung_tu: date) -> KhoanChiTieuNgay | None:
+        return self.db.execute(
+            select(KhoanChiTieuNgay).where(
+                KhoanChiTieuNgay.department_id == department_id,
+                KhoanChiTieuNgay.ap_dung_tu == ap_dung_tu,
+            )
+        ).scalar_one_or_none()
+
+    def create_chi_tieu_ngay(self, **fields) -> KhoanChiTieuNgay:
+        m = KhoanChiTieuNgay(**fields)
+        self.db.add(m)
+        self.db.commit()
+        self.db.refresh(m)
+        return m
+
+    def update_chi_tieu_ngay(self, m: KhoanChiTieuNgay, **fields) -> KhoanChiTieuNgay:
+        for k, v in fields.items():
+            setattr(m, k, v)
+        self.db.commit()
+        self.db.refresh(m)
+        return m
+
+    def delete_chi_tieu_ngay(self, m: KhoanChiTieuNgay) -> None:
+        self.db.delete(m)
         self.db.commit()
 
     # --- department_salary_components (thành phần lương theo BỘ PHẬN) -------

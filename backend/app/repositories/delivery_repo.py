@@ -24,7 +24,6 @@ from ..models.delivery import (
     YC_DA_HUY,
     DeliveryRequest,
     DeliveryRequestLine,
-    DeliveryKmBracket,
     DeliveryStatusHistory,
     DeliveryTrip,
     DeliveryTripAttachment,
@@ -348,41 +347,27 @@ class DeliveryRepository:
             .order_by(DeliveryStatusHistory.id)
         ).scalars().all())
 
-    # --- Bậc đơn giá khoán km (mg-free, theo phòng ban) ------------------------------------
-    def brackets_cua_phong(self, department_id: int) -> list[DeliveryKmBracket]:
-        """Các bậc của một phòng, xếp theo `seq`. Bậc `up_to_km IS NULL` (∞) luôn ở cuối."""
-        return list(self.db.execute(
-            select(DeliveryKmBracket)
-            .where(DeliveryKmBracket.department_id == department_id)
-            .order_by(DeliveryKmBracket.seq)
-        ).scalars().all())
+    # --- Chuyến chưa ghi kết quả của một phòng ------------------------------------------------
+    def dem_chuyen_chua_ket_qua_cua_phong(self, department_id: int) -> int:
+        """Số chuyến CHƯA ghi kết quả mà TÀI XẾ đang thuộc phòng này.
 
-    def ghi_lai_brackets(self, department_id: int, rows: list[dict]) -> None:
-        """Xoá sạch rồi ghi mới — bảng bậc là một khối, sửa cả cụm chứ không từng dòng."""
-        self.db.execute(
-            DeliveryKmBracket.__table__.delete().where(
-                DeliveryKmBracket.department_id == department_id
-            )
-        )
-        for i, r in enumerate(rows, start=1):
-            self.db.add(DeliveryKmBracket(
-                department_id=department_id, seq=i,
-                up_to_km=r.get("up_to_km"), don_gia=r["don_gia"],
-            ))
-        self.db.flush()
+        Dùng để CHẶN tắt cờ Giao hàng (chủ chốt 14/09/2026): đơn giá khoán km chụp lúc GHI KẾT
+        QUẢ và tra theo phòng của tài xế — tắt cờ trước lúc đó là chuyến đóng xong với
+        `don_gia_km = NULL`, tài xế mất trắng tiền mà không có lỗi nào (đã đo thực nghiệm).
 
-    def tra_don_gia_km(self, department_id: int, km: int) -> float | None:
-        """Đơn giá của bậc mà `km` rơi vào. None = phòng CHƯA khai bậc nào (nơi gọi tự fallback).
-
-        Bậc đầu tiên (theo seq) có `km ≤ up_to_km` thắng; `up_to_km IS NULL` là bậc ∞ nên luôn
-        khớp — miễn nó đứng cuối, mà `ghi_lai_brackets` đánh seq tăng dần theo thứ tự người dùng
-        xếp, nên UI phải để bậc ∞ ở cuối (FE có chặn).
+        Bốn trạng thái, KHÔNG gồm `dang_tra_hang`: chuyến đó đã ghi kết quả (giao thất bại), đơn
+        giá đã chụp rồi, tắt cờ lúc này không làm mất gì. Đếm theo TÀI XẾ chứ không theo phụ xe vì
+        cả đơn giá lẫn % chia đều tra theo phòng của tài xế.
         """
-        rows = self.brackets_cua_phong(department_id)
-        if not rows:
-            return None
-        for b in rows:
-            if b.up_to_km is None or int(km) <= b.up_to_km:
-                return float(b.don_gia)
-        # Không có bậc ∞ và km vượt mọi trần: dùng bậc cao nhất — thà trả hơn là trả 0 âm thầm.
-        return float(rows[-1].don_gia)
+        from ..models.delivery import (
+            LG_DA_LAY_HANG, LG_DA_LEN_KE_HOACH, LG_DANG_CHUAN_BI, LG_DANG_GIAO,
+        )
+        from ..models.employee import Employee
+
+        return int(self.db.execute(
+            select(func.count()).select_from(DeliveryTrip)
+            .join(Employee, Employee.id == DeliveryTrip.employee_id)
+            .where(Employee.department_id == department_id,
+                   DeliveryTrip.trang_thai.in_((LG_DA_LEN_KE_HOACH, LG_DANG_CHUAN_BI,
+                                                LG_DA_LAY_HANG, LG_DANG_GIAO)))
+        ).scalar() or 0)

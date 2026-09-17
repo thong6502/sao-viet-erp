@@ -245,7 +245,8 @@ class AttendancePeriodLine(Base):
     # Nghỉ phép CÓ lương. Numeric vì phiếu nửa buổi có trừ phép = 0,5 ngày (ép int là mất tiền).
     paid_leave_days: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
     unpaid_leave_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")  # nghỉ KHÔNG lương
-    holiday_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # ngày nghỉ lễ hưởng công
+    # Ngày nghỉ lễ HƯỞNG CÔNG — Lương đọc làm `le_nghi_cong` (công lễ trả riêng cho người khoán / tài xế).
+    holiday_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     total_hours: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0, server_default="0")
     ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút vượt ca (chờ duyệt OT — Pha 4)
     night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày làm ca đêm

@@ -3393,6 +3393,8 @@ export interface Department {
    *  "NV phụ trách" ở màn Khách hàng; chưa tick phòng nào thì backend lùi về quy tắc theo quyền. */
   la_kinh_doanh?: boolean;
   la_giao_hang?: boolean;
+  /** Tổ IN (mg 0304) — thợ in ăn khoán: ngày CN / lễ đi làm không có công gốc, trả hết ở phần thêm. */
+  la_to_in?: boolean;
   /** Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật. Đơn giá là số TÀI XẾ
    *  ĐƯỢC HƯỞNG, không phải cước cả xe. Hai ô % bắt buộc cộng đúng 100 (máy chủ chặn). */
   don_gia_km?: number;
@@ -3923,25 +3925,41 @@ export interface NhapExcelLoi {
   ly_do: string;
 }
 
-/** Cảnh báo MỀM — VẪN ghi. Hiện chỉ có trùng MST / tên / email (§34: không chặn). */
+/** Cảnh báo MỀM — VẪN ghi: trùng MST / tên / email (§34: không chặn), gỡ Sale phụ trách, đổi cùng
+ *  lúc tên lẫn MST (nghi trỏ nhầm khách). */
 export interface NhapExcelCanhBao {
   dong: number;
   ly_do: string;
 }
 
+/** Một ô sẽ đổi trên một khách ĐÃ CÓ (nhập lại file Xuất Excel, 17/09/2026). `cu`/`moi` đã là chữ
+ *  người đọc (tên Sale, "Công ty", "5.000.000") — chuỗi rỗng là ô trống. */
+export interface NhapExcelThayDoi {
+  dong: number;
+  ma: string;
+  ten: string;
+  cot: string;
+  cu: string;
+  moi: string;
+}
+
 /** Kết quả một lượt nhập Excel (#23; thay đường CSV cũ 11/09/2026).
  *
  *  `preview` và `commit` trả CÙNG hình dạng — khác đúng ở `da_ghi`. Xem trước chạy y hệt lượt ghi
- *  rồi rollback, nên con số ở đây là con số THẬT. */
+ *  rồi rollback, nên con số ở đây là con số THẬT. Dòng có Mã KH là sửa (`cap_nhat`), không đổi gì
+ *  thì không đụng tới (`khong_doi`). */
 export interface NhapExcelOut {
   hop_le: boolean;
   tong_dong: number;
   tao_moi: number;
+  cap_nhat: number;
+  khong_doi: number;
   da_ghi: boolean;
-  /** File có cột tài chính nhưng người nhập không có quyền ⇒ đã bỏ qua đúng mấy cột đó. */
+  /** Có ô tài chính đã điền / đã sửa nhưng người nhập không có quyền ⇒ đã bỏ qua đúng mấy cột đó. */
   bo_qua_tai_chinh: boolean;
   loi: NhapExcelLoi[];
   canh_bao: NhapExcelCanhBao[];
+  thay_doi: NhapExcelThayDoi[];
 }
 
 /** The read-only Công nợ card. available=false + message → "Chưa có phân hệ Công nợ". */
@@ -4847,6 +4865,9 @@ export interface EmployeeInitialSalaryInput {
   /** Lương cơ bản (đóng BH) — mức đóng BHXH/BHYT/BHTN bám số này. */
   luong_vi_tri: number;
   luong_trach_nhiem?: number;
+  /** MỨC ĐÓNG BHXH khai riêng của NGƯỜI NÀY (16/09/2026) — BHXH 8% + BHYT 1,5% + BHTN 1%
+   *  tính trên số này; đoàn phí công đoàn vẫn theo mức nền. Bắt buộc ở cả hai form nhập. */
+  insurance_base?: number;
   /** "Lương trả 1 lần" (đợt 1) — mức điền sẵn khi lập phiếu thanh toán lương đợt 1. */
   luong_dot_1?: number;
   allowance?: number;
@@ -5157,6 +5178,9 @@ export interface TimesheetDay {
    *  `plain > holiday > restday`, khớp nhánh tính tiền bên Lương). Ô lịch cần chúng để nói
    *  "→ tính N công"; không có cờ thì ngày Chủ nhật đi làm hiện y hệt ngày thường. */
   restday?: boolean;     // ngày NGHỈ TUẦN (CN) có đi làm → tiền ×`he_so_ngay.nghi_tuan`
+  // Lễ rơi ĐÚNG ngày nghỉ tuần có đi làm → ×`he_so_ngay.le_nghi_tuan` (cả `holiday` lẫn `restday`
+  // cùng bật, vì tiền cộng cả hai chế độ).
+  le_nghi_tuan?: boolean;
   plain?: boolean;       // ngày `off1x` có đi làm → 1× phẳng, KHÔNG hệ số
   planned_off?: boolean; // ngày nghỉ theo lịch phân ca (dấu kế hoạch, không sinh hệ số)
 }
@@ -5190,8 +5214,11 @@ export interface TimesheetRow {
  *  ⚠️ Lễ và Chủ nhật CỐ Ý khác nhau: lễ = 1 (tiền lễ Đ112) + hệ số làm lễ ⇒ mặc định 4×;
  *  Chủ nhật = đúng hệ số nghỉ tuần ⇒ mặc định 2×. Đừng "dọn" cho giống nhau. */
 export interface HeSoNgay {
+  /** Ngày lễ đi làm — TỔNG (khách chốt 15/09/2026: 300%, không còn 1 + 3 = 4×). */
   le: number;
   nghi_tuan: number;
+  /** Lễ rơi ĐÚNG ngày nghỉ tuần: cộng cả hai chế độ (200% + 300% = 500%). */
+  le_nghi_tuan: number;
   off1x: number;
 }
 
@@ -5591,6 +5618,9 @@ export interface EmployeeSalaryInput {
   /** Gõ riêng 2 ô mức hợp đồng của chính NV — khai thì amount_mode tự thành 'manual'. */
   luong_vi_tri?: number;
   luong_trach_nhiem?: number;
+  /** MỨC ĐÓNG BHXH khai riêng của NGƯỜI NÀY (16/09/2026) — BHXH 8% + BHYT 1,5% + BHTN 1%
+   *  tính trên số này; đoàn phí công đoàn vẫn theo mức nền. Bắt buộc ở cả hai form nhập. */
+  insurance_base?: number;
   /** Lương trả 1 lần (đợt 1) — mức trả trong 1 lần, dùng để điền sẵn phiếu đợt 1. */
   luong_dot_1?: number;
   /** Phụ cấp KHÁC khai tay của riêng NV — gõ một lần, tháng nào cũng cộng đúng số này. */
@@ -5717,6 +5747,30 @@ export interface PayrollLine {
   special_cong?: number;
   /** TRONG ĐÓ của `ot_pay`: tiền ngày `off1x` (trả 1× phẳng). Đừng cộng lại vào tổng. */
   off1x_pay?: number;
+  /** CHẾ ĐỘ KHOÁN (14/09/2026, chụp lúc Tính lại): tổ bật Lương khoán / sản lượng hoặc tổ Giao hàng
+   *  ⇒ KHÔNG có tiền tăng ca (làm thêm giờ đã trả qua tiền khoán); vẫn có cơm tăng ca + phần thêm làm
+   *  nguyên ngày CN/lễ. Màn hình dùng để nói vì sao có giờ tăng ca mà tiền tăng ca = 0. */
+  che_do_khoan?: boolean;
+  /** Người này thuộc tổ bật cờ **Bộ phận Giao hàng** (chụp lúc Tính lại). Từ 16/09/2026 tổ Giao hàng
+   *  ăn luật RIÊNG trong chế độ khoán: CÓ tiền giờ tăng ca, và tiền đó nằm trong vế thời gian đem so
+   *  với khoán km (PRD bù lỗ §00.10) — nên màn hình phải tách được họ khỏi thợ khoán sản lượng. */
+  la_giao_hang?: boolean;
+  /** LƯƠNG BÙ LỖ (tổ khoán sản xuất, 14/09/2026, chụp lúc Tính lại): số bù lỗ theo công đã đem so
+   *  với tiền khoán — lương sản lượng = MAX(khoán, bù lỗ). `null` = dòng không thuộc luật này.
+   *  Khi có số, `luong_cong` là PHẦN BÙ THÊM cho đủ bù lỗ (0 nếu khoán cao hơn) — đừng in nó là
+   *  "lương theo công". */
+  bu_lo_theo_cong?: number | null;
+  /** true = khoán thấp hơn bù lỗ theo công, tháng này đang trả bù lỗ. */
+  lay_bu_lo?: boolean;
+  /** Công ngày lễ nghỉ hưởng lương của người ăn khoán / tài xế — trả RIÊNG, ngoài khoán, CÓ trong
+   *  `gross` (15/09/2026). 0 với người công nhật: lễ của họ nằm sẵn trong `luong_cong`. */
+  luong_ngay_le?: number;
+  /** Số công ngày lễ nghỉ hưởng lương của kỳ — để phiếu / bảng lương ghi "N ngày" cạnh tiền lễ. */
+  le_nghi_cong?: number;
+  /** Phụ cấp đi theo công (15/09/2026): số tháng đã khai (ô Phụ cấp khác + khoản hồ sơ) và số công
+   *  hưởng — `allowance` = phu_cap_thang ÷ công chuẩn × cong_phu_cap. null = kỳ cũ (cộng phẳng). */
+  phu_cap_thang?: number | null;
+  cong_phu_cap?: number | null;
   /** Công thiếu nhưng có đơn nghỉ theo giờ đã duyệt (được miễn phạt, giữ chuyên cần). */
   excused_cong?: number;
   chuyen_can: number;
@@ -5727,6 +5781,8 @@ export interface PayrollLine {
   phu_cap_tham_nien?: number;
   /** Có công mà mức lương = 0 — chưa khai ở Lương nhân viên (router điền; chốt kỳ bị chặn). */
   chua_khai_luong?: boolean;
+  /** Chưa khai ô "Mức đóng BHXH" ở mốc lương hiện hành (16/09/2026) — đang tạm đóng theo mức nền. */
+  chua_khai_muc_bh?: boolean;
   /** Phần còn lại = allowance − thâm niên (backend tính). */
   phu_cap_khac?: number;
   khoan: number;
@@ -5864,6 +5920,31 @@ export interface DeptComponentInput {
 export interface DeptComponents {
   department_id: number;
   items: DeptComponent[];
+}
+
+/** CHỈ TIÊU NGÀY của tổ lương khoán / sản lượng (16/09/2026): tiền sản lượng MỘT thợ phải làm ra
+ *  trong MỘT công. Mỗi dòng là một mốc "áp dụng từ ngày". CHƯA nối vào tính lương. */
+export interface ChiTieuNgay {
+  id: number;
+  department_id: number;
+  /** `YYYY-MM-DD` */
+  ap_dung_tu: string;
+  /** đ/công */
+  so_tien: number;
+  ghi_chu: string | null;
+  updated_at: string | null;
+}
+export interface ChiTieuNgayList {
+  department_id: number;
+  /** Mốc đang hiệu lực HÔM NAY; null = chưa khai, hoặc mọi mốc đều áp dụng từ ngày tương lai. */
+  hien_hanh: ChiTieuNgay | null;
+  /** Mới nhất đứng đầu. */
+  items: ChiTieuNgay[];
+}
+export interface ChiTieuNgayInput {
+  ap_dung_tu: string;
+  so_tien: number;
+  ghi_chu?: string | null;
 }
 
 // --- Danh mục khoản thu nhập & thu nhập chịu thuế TNCN (chốt chủ 2026-07-27) ---
@@ -10026,6 +10107,8 @@ export const api = {
       khoanKm?: { don_gia_km?: number; pct_tai_xe?: number; pct_phu_xe?: number },
       /** Cờ tổ KCS đích danh. Cùng luật `undefined` = KHÔNG gửi ⇒ backend giữ nguyên. */
       isKcs?: boolean,
+      /** Cờ Tổ in (mg 0304). Cùng luật `undefined` = KHÔNG gửi ⇒ backend giữ nguyên. */
+      laToIn?: boolean,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
@@ -10041,6 +10124,7 @@ export const api = {
           ...(laGiaoHang === undefined ? {} : { la_giao_hang: laGiaoHang }),
           ...(khoanKm ?? {}),
           ...(isKcs === undefined ? {} : { is_kcs: isKcs }),
+          ...(laToIn === undefined ? {} : { la_to_in: laToIn }),
         }),
       });
     },
@@ -11371,6 +11455,17 @@ export const api = {
     setDeptComponents(token: string, deptId: number, items: DeptComponentInput[]): Promise<DeptComponents> {
       return authed<DeptComponents>(`/api/luong/dept-components/${deptId}`, token, { method: "PUT", body: JSON.stringify({ items }) });
     },
+    // --- Cấu hình lương: chỉ tiêu ngày của tổ khoán / sản lượng (chưa nối vào tính lương) ---
+    chiTieuNgay(token: string, deptId: number): Promise<ChiTieuNgayList> {
+      return authed<ChiTieuNgayList>(`/api/luong/khoan/chi-tieu-ngay/${deptId}`, token);
+    },
+    /** Cùng tổ + CÙNG ngày áp dụng ⇒ sửa số của mốc đó (không đẻ mốc trùng ngày). */
+    khaiChiTieuNgay(token: string, deptId: number, input: ChiTieuNgayInput): Promise<ChiTieuNgayList> {
+      return authed<ChiTieuNgayList>(`/api/luong/khoan/chi-tieu-ngay/${deptId}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    xoaChiTieuNgay(token: string, deptId: number, mucId: number): Promise<ChiTieuNgayList> {
+      return authed<ChiTieuNgayList>(`/api/luong/khoan/chi-tieu-ngay/${deptId}/${mucId}`, token, { method: "DELETE" });
+    },
     // --- Danh mục khoản thu nhập (Cấu hình lương, tab "Danh mục khoản thu nhập") ---
     components: {
       /** Cả khoản ĐÃ NGƯNG DÙNG cũng trả — màn cấu hình cần hiện để bật lại được. */
@@ -11559,17 +11654,39 @@ export const api = {
     taiXeChon(token: string): Promise<{ items: DeliveryDriverPick[] }> {
       return authed<{ items: DeliveryDriverPick[] }>("/api/giao-hang/tai-xe-chon", token);
     },
-    /** Bậc đơn giá khoán km của một phòng — cấu hình trong màn Phòng ban. */
-    kmBrackets(token: string, deptId: number): Promise<KmBracketsResp> {
-      return authed<KmBracketsResp>(`/api/giao-hang/departments/${deptId}/km-brackets`, token);
+    /** % chia tiền một chuyến cho kíp xe. Bảng BẬC cấp phòng đã gỡ 12/09/2026 — mọi xe ăn
+     *  theo MỨC; % thì giữ vì nó là luật khác: đơn giá quyết một chuyến bao nhiêu tiền, % quyết
+     *  chia cho mấy người. */
+    khoanKmPct(token: string, deptId: number): Promise<KhoanKmPct> {
+      return authed<KhoanKmPct>(`/api/giao-hang/departments/${deptId}/khoan-km-pct`, token);
     },
-    /** Lưu cả cụm khoán km một lần: bảng bậc + % chia kíp. */
-    saveKmBrackets(
-      token: string, deptId: number, items: KmBracket[],
-      pct?: { pct_tai_xe: number; pct_phu_xe: number },
-    ): Promise<KmBracketsResp> {
-      return authed<KmBracketsResp>(`/api/giao-hang/departments/${deptId}/km-brackets`, token,
-        { method: "PUT", body: JSON.stringify({ items, ...(pct ?? {}) }) });
+    saveKhoanKmPct(token: string, deptId: number, body: KhoanKmPct): Promise<KhoanKmPct> {
+      return authed<KhoanKmPct>(`/api/giao-hang/departments/${deptId}/khoan-km-pct`, token,
+        { method: "PUT", body: JSON.stringify(body) });
+    },
+    /** Mọi MỨC khoán km + bảng bậc + số xe đang dùng mức đó. */
+    mucKhoanKm(token: string): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>("/api/giao-hang/muc-khoan-km", token);
+    },
+    taoMucKhoanKm(token: string, body: MucKmInput): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>("/api/giao-hang/muc-khoan-km", token,
+        { method: "POST", body: JSON.stringify(body) });
+    },
+    /** Chỉ gửi ô muốn đổi — ô KHÔNG gửi thì máy chủ giữ nguyên (đổi tên không làm mất ghi chú). */
+    suaMucKhoanKm(token: string, id: number, body: Partial<MucKmInput>): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>(`/api/giao-hang/muc-khoan-km/${id}`, token,
+        { method: "PUT", body: JSON.stringify(body) });
+    },
+    /** Máy chủ CHẶN nếu còn xe đang ăn mức — lỗi mang số xe, hiện thẳng cho người dùng. */
+    xoaMucKhoanKm(token: string, id: number): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>(`/api/giao-hang/muc-khoan-km/${id}`, token,
+        { method: "DELETE" });
+    },
+    /** Lưu bảng bậc của MỘT mức — cấu hình chung, không theo phòng ban (14/09/2026). Mảng RỖNG
+     *  bị máy chủ chặn khi mức còn xe đang ăn. */
+    saveKmBracketsMuc(token: string, mucId: number, items: KmBracket[]): Promise<{ items: MucKm[] }> {
+      return authed<{ items: MucKm[] }>(`/api/giao-hang/muc-khoan-km/${mucId}/bac`, token,
+        { method: "PUT", body: JSON.stringify({ items }) });
     },
     /** `thang` dạng `YYYY-MM` — chỉ đổi hai cột THÁNG. Cột "hôm nay" và trạng thái luôn là
      *  bây giờ, không đổi theo tháng đang xem. */
@@ -14819,6 +14936,9 @@ export interface DeliveryTrip {
    *  không phải thuộc tính của người: hôm nay lái, mai đi phụ. */
   phu_xe_employee_id?: number | null;
   phu_xe_name?: string | null;
+  vehicle_id?: number | null;
+  xe_bien_so?: string | null;
+  xe_ten?: string | null;
   gio_lay_hang: string;
   gio_du_kien_giao: string;
   ghi_chu_phan_cong: string | null;
@@ -14874,10 +14994,29 @@ export interface DeliveryRequestInput {
   ghi_chu?: string | null;
 }
 
-export interface KmBracketsResp {
-  items: KmBracket[];
+export interface KhoanKmPct {
   pct_tai_xe: number;
   pct_phu_xe: number;
+}
+
+export interface MucKm {
+  id: number;
+  /** Rỗng — ô chọn dùng chung vẽ "mã · tên" nhưng tự giấu phần mã khi rỗng. Mức chỉ có TÊN. */
+  ma?: string;
+  /** Tên mức — thứ người dùng đọc khi gán cho xe ("Xe 2 tấn"). Không được trùng. */
+  ten: string;
+  ghi_chu?: string | null;
+  active: boolean;
+  items: KmBracket[];
+  /** SỐ XE đang ăn mức này — màn phải nói trước khi người ta sửa giá: sửa một mức là đổi tiền
+   *  của cả nhóm xe, khác hẳn sửa bảng giá của riêng một chiếc. */
+  so_xe: number;
+}
+
+export interface MucKmInput {
+  ten: string;
+  ghi_chu?: string | null;
+  active?: boolean;
 }
 
 export interface KmBracket {
@@ -14892,6 +15031,8 @@ export interface PlanInput {
   /** Gửi `null` khi ĐỔI kế hoạch = GỠ phụ xe; KHÔNG gửi = giữ nguyên. Máy chủ phân biệt hai
    *  trường hợp đó, nên đừng gửi `null` chỉ vì ô đang trống ở màn tạo mới. */
   phu_xe_employee_id?: number | null;
+  /** Xe chạy chuyến. TUỲ CHỌN lúc lên kế hoạch, BẮT BUỘC lúc đóng chuyến (máy chủ chặn). */
+  vehicle_id?: number | null;
   gio_lay_hang: string;
   gio_du_kien_giao: string;
   kho_id?: number | null;
@@ -14911,6 +15052,9 @@ export interface KetQuaInput {
   so_thuc_nhan?: { order_line_id: number; qty: number }[] | null;
   /** Bật sau khi người dùng đã xem cảnh báo "km lớn bất thường" và khẳng định đúng. */
   xac_nhan_km_lon?: boolean;
+  /** Xe đã chạy chuyến — gửi để điền/đổi ngay lúc ghi kết quả. Chuyến khối Giao hàng mà cả
+   *  đây lẫn chuyến đều trống thì máy chủ chặn (đơn giá khoán km tra theo mức của xe). */
+  vehicle_id?: number | null;
 }
 
 /** Một dòng SẼ gửi kho — máy suy ra từ yêu cầu giao, người dùng chỉ xem. */

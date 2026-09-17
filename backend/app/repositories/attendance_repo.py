@@ -405,6 +405,7 @@ class AttendanceRepository:
                 "holiday_cong": float(getattr(ln, "holiday_cong", 0) or 0),
                 "restday_cong": float(getattr(ln, "restday_cong", 0) or 0),
                 "plain_cong": float(getattr(ln, "plain_cong", 0) or 0),
+                "le_nghi_cong": float(getattr(ln, "holiday_days", 0) or 0),
                 # PHẢI khớp 1-1 với nhánh LIVE của `AttendanceService.metrics_map`. Thiếu ở đây
                 # thì lương ĐỔI SỐ đúng lúc HCNS bấm Chốt công (draft một số, chốt xong một số).
                 "excused_cong": float(getattr(ln, "excused_cong", 0) or 0),

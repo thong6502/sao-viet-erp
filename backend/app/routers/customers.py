@@ -35,6 +35,7 @@ from ..deps import (
     get_department_repository,
     get_role_repository,
     get_user_repository,
+    require_any_permission,
     require_permission,
 )
 from ..models.customer import Customer
@@ -84,6 +85,7 @@ from ..schemas.customer import (
     NhapExcelCanhBao,
     NhapExcelLoi,
     NhapExcelOut,
+    NhapExcelThayDoi,
     NoteIn,
     NoteOut,
     NotesOut,
@@ -622,8 +624,8 @@ def xuat_excel(
 ) -> Response:
     """Xuất danh bạ trong scope của người gọi ra .xlsx — định danh + chính sách tài chính.
 
-    File này để ĐỌC / ĐỐI CHIẾU, KHÔNG nhập ngược lại được: nó có cột `Mã KH`, còn mẫu nhập cố ý
-    không có (mã là mã hệ tự cấp, nhập chỉ thêm mới). Sửa khách đã có thì sửa trên màn.
+    Sửa trong Excel rồi nhập LẠI được (bản 2, 17/09/2026): dòng có `Mã KH` là sửa khách đó, dòng
+    thêm vào để trống mã là khách mới — xem `customer_excel.nhap`.
     """
     book = svc.list_scoped_all(scope=_scope_for(authz, user), actor=user)
     book.sort(key=lambda c: c.code)
@@ -643,7 +645,7 @@ def mau_excel(
     """File mẫu .xlsx — RỖNG, chỉ dòng tiêu đề (chốt 11/09/2026).
 
     Không kèm khách đang có: mẫu này để THÊM MỚI. Mã khách là mã hệ tự cấp nên file cũng không có
-    cột Mã — muốn sửa hàng loạt thì dùng `GET /export.csv` để đối chiếu, còn sửa thì trên màn.
+    cột Mã — muốn sửa hàng loạt thì dùng `GET /xuat-excel`, sửa, rồi nhập lại chính file đó.
 
     Sáu cột chính sách tài chính CHỈ xuất cho người có `set_credit_terms`: đưa ra một cột họ không
     được ghi chỉ tổ mời họ điền vào chỗ sẽ bị bỏ qua.
@@ -662,11 +664,16 @@ def import_excel(
     db: Annotated[Session, Depends(get_db)],
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    # `create` HOẶC `update` — mỗi dòng tự kiểm quyền của nó (thêm cần `create`, sửa cần `update`).
+    # Không bắt cả hai như danh mục: người chỉ có `create` vẫn đang nhập khách mới được.
+    user: Annotated[
+        User, Depends(require_any_permission((MODULE, "create"), (MODULE, "update")))
+    ],
     file: UploadFile = File(...),
     mode: str = Query(default="preview", pattern="^(preview|commit)$"),
 ) -> NhapExcelOut:
-    """Nhập danh bạ từ .xlsx — mỗi dòng một khách MỚI, CẢ FILE là một giao dịch.
+    """Nhập danh bạ từ .xlsx — dòng Mã KH trống là khách MỚI, dòng có Mã KH là SỬA khách đó (bản
+    2, 17/09/2026). CẢ FILE là một giao dịch.
 
     `mode=preview` chạy y hệt `commit` rồi rollback, nên con số xem trước là con số THẬT (kể cả lỗi
     chỉ lộ ra lúc service validate). Cố ý không làm một bản kiểm "sơ bộ" nhẹ hơn — nếu xem trước dễ
@@ -678,15 +685,23 @@ def import_excel(
             db, svc, file.file.read(),
             actor=user, scope=_scope_for(authz, user),
             co_tai_chinh=authz.can(user, MODULE, "set_credit_terms"),
+            co_quyen_tao=authz.can(user, MODULE, "create"),
+            co_quyen_sua=authz.can(user, MODULE, "update"),
+            co_quyen_dieu_chuyen=authz.can(user, MODULE, "reassign"),
             ghi=(mode == "commit"),
         )
     except ExcelSaiMan as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
     return NhapExcelOut(
-        hop_le=kq.hop_le, tong_dong=kq.tong_dong, tao_moi=kq.tao_moi, da_ghi=kq.da_ghi,
+        hop_le=kq.hop_le, tong_dong=kq.tong_dong, tao_moi=kq.tao_moi,
+        cap_nhat=kq.cap_nhat, khong_doi=kq.khong_doi, da_ghi=kq.da_ghi,
         bo_qua_tai_chinh=kq.bo_qua_tai_chinh,
         loi=[NhapExcelLoi(dong=x.dong, cot=x.cot, ly_do=x.ly_do) for x in kq.loi],
         canh_bao=[NhapExcelCanhBao(dong=x.dong, ly_do=x.ly_do) for x in kq.canh_bao],
+        thay_doi=[
+            NhapExcelThayDoi(dong=x.dong, ma=x.ma, ten=x.ten, cot=x.cot, cu=x.cu, moi=x.moi)
+            for x in kq.thay_doi
+        ],
     )
 
 

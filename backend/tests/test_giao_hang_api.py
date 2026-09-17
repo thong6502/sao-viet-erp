@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from app.db import SessionLocal
 from app.models.customer import Customer
-from app.models.employee import Employee
+from app.models.employee import Employee, STATUS_ACTIVE
 from app.models.order import Order, OrderLine, STATUS_ORDERED
 from app.models.role import SCOPE_ALL, SCOPE_OWN
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
@@ -59,8 +59,11 @@ def _tai_xe(ten: str, *, phong: str = "Sản xuất") -> int:
     db = SessionLocal()
     try:
         dept = DepartmentRepository(db).get_by_name(phong)
+        # CHÍNH THỨC, không để mặc định `probation` của model: từ 16/09/2026 tài xế / phụ xe THỬ
+        # VIỆC ăn bù lỗ theo công chứ không ăn tiền km (PRD §00.9) ⇒ để thử việc thì mọi test tiền
+        # km ở đây đo ra 0đ, không còn khoá được luật nào.
         e = Employee(code=f"NVGH{abs(hash(ten)) % 9000 + 1000}", full_name=ten,
-                     department_id=dept.id, hire_date=date(2020, 1, 1))
+                     department_id=dept.id, hire_date=date(2020, 1, 1), status=STATUS_ACTIVE)
         db.add(e)
         db.commit()
         return e.id

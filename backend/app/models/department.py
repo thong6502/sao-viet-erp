@@ -103,6 +103,13 @@ class Department(Base):
     la_giao_hang: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
+    # TỔ IN (mg 0304, khách chốt 15/09/2026). Thợ in ăn khoán thì ngày CN / lễ đi làm KHÔNG có công
+    # gốc: cả 2 / 3 / 5 công trả ở phần THÊM, và bù lỗ theo công không đếm ngày đó (sản lượng ngày
+    # đó vẫn vào tiền khoán). KHÔNG kế thừa xuống cây con — đặt đích danh từng tổ, như `is_kcs` /
+    # `la_giao_hang`. Cờ chỉ đổi tiền khi tổ bật Lương khoán.
+    la_to_in: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
     # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật -------------------
     # Ba ô để CHUNG một chỗ với cờ Giao hàng: tách đơn giá sang màn Cấu hình lương, tỷ lệ sang màn
     # này là bắt người dùng nhớ hai nơi cho cùng một nhóm thiết lập.

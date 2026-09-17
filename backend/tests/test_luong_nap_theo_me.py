@@ -30,6 +30,7 @@ from app.services.hoa_hong_service import HoaHongService
 from app.services.payroll_service import PayrollService
 
 from .test_hoa_hong_kinh_doanh import KY_DEN, KY_TU, _don, _hoa_don, _sales
+from .test_luong_api import _du_cong
 from .test_work_shifts_api import _admin_token, _h, _mk_emp
 
 
@@ -122,13 +123,14 @@ def test_hoa_hong_nap_ca_me_bang_tinh_tung_nguoi(client):
         db.close()
 
 
-def test_tinh_lai_hai_lan_ra_cung_so(client):
+def test_tinh_lai_hai_lan_ra_cung_so(client, monkeypatch):
     """Bấm "Tính lại" lần thứ hai KHÔNG được đổi một đồng nào — bẫy kinh điển của việc gom ghi
     (xoá/ghi lại khoản snapshot) là cộng đôi ở lượt sau."""
     token = _admin_token(client)
     com = _khoan(client, token, "Phu cap com lap", 400_000)
     emp_id = _mk_emp(client, token, "Tinh Lai Hai Lan")["id"]
     _gan_khoan(client, token, emp_id, [(com, 400_000)])
+    _du_cong(monkeypatch, emp_id)   # khoản hồ sơ đi theo công (15/09/2026) — đủ công mới ra đủ 400.000
 
     nam, thang = 2026, 8
 

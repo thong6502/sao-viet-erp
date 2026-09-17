@@ -144,14 +144,15 @@ PREFIX = {
     "thanh_pham": "/api/vat-lieu-kho/thanh-pham",
     "cong_doan": "/api/cong-doan",
     "may_thiet_bi": "/api/may-thiet-bi",
+    "xe": "/api/xe",
 }
-assert set(PREFIX) == set(SPECS), "PREFIX và SPECS phải phủ đúng 13 màn như nhau."
+assert set(PREFIX) == set(SPECS), "PREFIX và SPECS phải phủ đúng ngần ấy màn như nhau."
 
 MA = {
     "kho_hang": "KHO-T1", "bu_hao": "BH-T1", "khuon_be": "KB-T1", "loai_san_pham": "LSP-T1",
     "cong_viec_khoan": "KH-T1", "don_vi_do": "dvt1",
     "chung_loai_giay": "CL-T1", "giay": "GI-T1", "vat_tu": "VT-T1", "thanh_pham": "TP-T1",
-    "cong_doan": "CD-T1", "may_thiet_bi": "MAY-T1",
+    "cong_doan": "CD-T1", "may_thiet_bi": "MAY-T1", "xe": "51K-99999",
 }
 
 
@@ -233,6 +234,13 @@ def _dung_nen(client, h) -> dict[str, dict]:
                               "hang_muc": [{"id": "hm-1-1", "ten": "Lô nước"},
                                            {"id": "hm-1-2", "ten": "Ru lô mực"}]}],
             "khoa_la_khong_hieu": {"a": 1}}})
+    # Xe BẮT BUỘC có mức (14/09/2026) — dựng một mức trước, đúng thứ tự màn Xe đòi.
+    r = client.post("/api/giao-hang/muc-khoan-km", json={"ten": "Mức thử Excel"}, headers=h)
+    assert r.status_code == 201, r.text
+    muc_id = next(m for m in r.json()["items"] if m["ten"] == "Mức thử Excel")["id"]
+    ra["xe"] = _tao(client, h, "xe", {
+        "ma": MA["xe"], "ten": "Xe thử 5 tấn", "tai_trong": 5, "muc_khoan_km_id": muc_id,
+        "ghi_chu": "gc xe"})
     return ra
 
 

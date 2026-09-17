@@ -26,6 +26,7 @@ from .repositories.payroll_repo import PayrollRepository
 from .repositories.production_output_repo import ProductionOutputRepository
 from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
+from .repositories.delivery_repo import DeliveryRepository
 from .repositories.employee_repo import EmployeeRepository
 from .repositories.noi_quy_repo import NoiQuyRepository
 from .repositories.machine_repo import MachineRepository
@@ -230,7 +231,8 @@ def get_department_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     levels: Annotated[UnitLevelRepository, Depends(get_unit_level_repository)],
 ) -> DepartmentService:
-    return DepartmentService(departments, roles, users, audit, levels, EmployeeRepository(db))
+    return DepartmentService(departments, roles, users, audit, levels, EmployeeRepository(db),
+                             deliveries=DeliveryRepository(db))
 
 
 def get_unit_level_service(
@@ -388,13 +390,16 @@ def get_leave_service(
     calendar: Annotated[CalendarService, Depends(get_calendar_service)],
     late_early: Annotated[LateEarlyRepository, Depends(get_late_early_repository)],
     attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
+    payroll: Annotated[PayrollService, Depends(get_payroll_service)],
 ) -> LeaveService:
     # calendar → loại ngày lễ khỏi quota + tuần T2–T7 (Thứ 7 nay trừ phép).
     # late_early (REPO) → phiếu đi muộn/về sớm có tick "trừ phép" cũng tiêu quỹ phép năm.
     # attendance (REPO) → chặn duyệt/hủy đơn của tháng ĐÃ CHỐT CÔNG (12/08/2026). Thiếu dây này
     # thì duyệt đơn nghỉ cho tháng đã chốt vẫn lọt, bảng công đổi mà bảng lương giữ số cũ.
+    # payroll (SERVICE) → hỏi "tổ này ăn khoán không" để chặn nghỉ phép CÓ LƯƠNG của người khoán /
+    # tài xế (khách chốt 15/09/2026). Một chiều: PayrollService không biết gì về Nghỉ phép.
     return LeaveService(leaves, employees, audit, calendar=calendar, late_early=late_early,
-                        attendance=attendance)
+                        attendance=attendance, payroll=payroll)
 
 
 def get_late_early_service(

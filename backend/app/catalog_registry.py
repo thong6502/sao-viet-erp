@@ -1,6 +1,6 @@
-"""MỘT NGUỒN cho danh sách 11 màn "Cấu hình danh mục".
+"""MỘT NGUỒN cho danh sách các màn "Cấu hình danh mục".
 
-Vì sao có file này: cùng một danh sách 11 màn đang bị CHÉP TAY ở nhiều nơi, mỗi nơi một hình
+Vì sao có file này: cùng một danh sách các màn đang bị CHÉP TAY ở nhiều nơi, mỗi nơi một hình
 dạng và không nơi nào biết nơi kia — seed quyền, `SCOPELESS_MODULES`, bảng loại→module của nhật
 ký, bảng loại→model của luồng xoá (và bên FE là menu + ma trận quyền). Thêm một màn danh mục là
 phải nhớ sửa đủ sáu chỗ; quên một chỗ thì hỏng IM LẶNG: màn hiện ra nhưng không có ô quyền, hoặc
@@ -85,9 +85,12 @@ DANH_MUC: tuple[DanhMuc, ...] = (
     # có gì mà đếm (xem `danh_muc_tham_chieu._san_xuat_kcs_tieu_chi`).
     DanhMuc("san_xuat_kcs_tieu_chi", "dm_kcs_tieu_chi", "Tiêu chí KCS", "kcs-tieu-chi",
             model="models.san_xuat_kcs:SanXuatKcsTieuChi"),
+    # Xe giao hàng (12/09/2026). Chỉ DANH TÍNH xe + xe này ăn MỨC khoán km nào. Bảng bậc giá
+    # thuộc về MỨC và khai ở màn Cấu hình lương — xem docs/prd-khoan-km-giao-hang.md §11.
+    DanhMuc("xe", "dm_xe", "Xe giao hàng", "xe", model="models.xe:Xe"),
 )
 
-#: 11 khoá quyền của nhóm danh mục, đúng thứ tự menu.
+#: Khoá quyền của nhóm danh mục, đúng thứ tự menu.
 MODULE_KEYS: tuple[str, ...] = tuple(d.module for d in DANH_MUC)
 
 #: (key, nhãn) để seed bảng module quyền — cùng hình dạng với `seed.MODULES`.
@@ -100,7 +103,7 @@ _THEO_LOAI_KE_ALIAS: dict[str, DanhMuc] = {
     **_THEO_LOAI,
 }
 
-#: loại bản ghi (kể cả tên đời cũ) → module quyền. 15 khoá cho 11 màn.
+#: loại bản ghi (kể cả tên đời cũ) → module quyền.
 MODULE_THEO_LOAI: dict[str, str] = {k: d.module for k, d in _THEO_LOAI_KE_ALIAS.items()}
 
 

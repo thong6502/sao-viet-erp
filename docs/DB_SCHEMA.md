@@ -93,6 +93,7 @@ belongs to exactly one, and roles are defined per department.
 | `la_kinh_doanh` | `Boolean` → `BOOLEAN`                                 | —                             | no   | `false`        | Đánh dấu phòng ban thuộc khối KINH DOANH (mg 0181) — cùng luật kế thừa cây con như `la_san_xuat`: tick phòng cha ⇒ KD1/KD2 bên dưới cũng là kinh doanh. Trả lời "ai được giao phụ trách khách hàng": hộp chọn NV phụ trách ở màn Khách hàng đổ theo khối này, giao với phạm vi dữ liệu của người xem. **Chưa tick phòng nào ⇒ lùi về quy tắc "ai có quyền module `khach_hang`"** nên DB cũ không cần khai lại. |
 | `is_kcs`       | `Boolean` → `BOOLEAN`                                  | —                             | no   | `false`        | Đánh dấu TỔ KIỂM TRA CHẤT LƯỢNG (KCS) — mg 0220, module Thực hiện sản xuất §3.1/§14. **KHÁC `la_san_xuat`**: KHÔNG kế thừa cây con, KHÔNG suy theo tổ tiên — cờ đặt ĐÍCH DANH lên đúng (các) tổ làm KCS. Dùng để sinh việc "KCS cuối" ở gói phát hành trỏ về tổ này và route lô kiểm KCS. Nhiều tổ KCS được; chưa tick tổ nào ⇒ chưa bật khâu KCS. |
 | `la_giao_hang` | `Boolean` → `BOOLEAN` | — | no | `false` | **Bộ phận GIAO HÀNG** (mg 0205) — kế thừa xuống cây con như hai cờ trên. Trả lời câu *"ai là tài xế"*: tab Nhân viên giao hàng liệt kê MỌI người thuộc khối này, kể cả người chưa chạy chuyến nào. Trước 20/08/2026 tab đó lọc theo quyền RBAC rồi bỏ ai chưa có chuyến, nên tài xế mới tuyển không hiện ra. |
+| `la_to_in` | `Boolean` → `BOOLEAN` | — | no | `false` | **TỔ IN** (mg 0304, khách chốt 15/09/2026) — thợ in ăn khoán thì ngày CN / lễ đi làm KHÔNG có công gốc: cả 2 / 3 / 5 công trả ở phần THÊM và bù lỗ theo công không đếm ngày đó (sản lượng ngày đó vẫn vào tiền khoán). Cờ ĐÍCH DANH, không kế thừa cây con như `is_kcs` / `la_giao_hang`; chỉ đổi tiền khi tổ bật Lương khoán. |
 | `don_gia_km` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | **Khoán km giao hàng** (mg 0231) — đơn giá mỗi km, là số **tài xế được hưởng**, không phải cước cả xe. Chỉ có nghĩa khi `la_giao_hang` bật. Seed 4.330 = 84.031.992đ ÷ 19.406 km, mức giữ NGUYÊN tổng chi T05/2026 của cả bốn xe. Chuyến CHỤP LẠI số này lúc ghi kết quả (`delivery_trips.don_gia_km`) nên sửa ở đây không nắn lại kỳ đã tính. |
 | `pct_tai_xe` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | no | `60` | Phần trăm tiền chuyến chia cho **tài xế** (mg 0231). Cộng với `pct_phu_xe` phải đúng **100** — service chặn; lệch là tổng chi cho một chuyến khác nhau tuỳ đi mấy người. |
 | `pct_phu_xe` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | no | `40` | Phần trăm chia cho **phụ xe** (mg 0231). Chuyến không có phụ xe ⇒ tài xế ăn **100%**, không ai nhận phần này. |
@@ -1952,7 +1953,7 @@ từ đây khi kỳ đã `locked`. Xóa + ghi lại mỗi lần Chốt / Mở l�
 | `total_leave` | `Integer` → `INTEGER` | — | no | `0` | Tổng ngày nghỉ phép đã duyệt. |
 | `paid_leave_days` | `Numeric(6,2)` → `NUMERIC(6, 2)` | — | no | `0` | Nghỉ phép CÓ lương. Số LẺ được (phiếu nghỉ nửa buổi có trừ phép = 0,5 ngày). |
 | `unpaid_leave_days` | `Integer` → `INTEGER` | — | no | `0` | Nghỉ KHÔNG lương. |
-| `holiday_days` | `Integer` → `INTEGER` | — | no | `0` | Ngày nghỉ lễ hưởng công. |
+| `holiday_days` | `Integer` → `INTEGER` | — | no | `0` | Ngày nghỉ lễ hưởng công (không đi làm, không bị đơn nghỉ không lương phủ). Lương đọc làm `le_nghi_cong` để trả công lễ RIÊNG cho người khoán / tài xế (`payroll_lines.luong_ngay_le`). Kỳ chốt trước 15/09/2026 đếm cả ngày lễ bị đơn không lương phủ. |
 | `total_hours` | `Numeric(7,2)` → `NUMERIC` | — | no | `0` | Tổng giờ có mặt. |
 | `ot_minutes` | `Integer` → `INTEGER` | — | no | `0` | Tổng phút vượt ca (chờ duyệt OT — Pha 4). |
 | `night_days` | `Integer` → `INTEGER` | — | no | `0` | Số ngày làm ca đêm. |
@@ -2785,6 +2786,32 @@ theo từng NV ở `employee_salaries`). Bảng do `create_all` tạo.
 
 ---
 
+### `khoan_chi_tieu_ngay`
+
+**Purpose:** CHỈ TIÊU NGÀY của tổ ăn lương khoán / sản lượng (chủ 16/09/2026) — số tiền sản lượng MỘT
+thợ phải làm ra trong MỘT công (đ/công). Khai theo TỔ ở màn Cấu hình lương → Cơ chế lương theo bộ
+phận; mỗi dòng là một MỐC "áp dụng từ ngày", đổi chỉ tiêu thì thêm mốc mới (mốc cũ giữ nguyên). Chỉ
+tiêu hiệu lực tại ngày D = mốc có `ap_dung_tu` lớn nhất ≤ D. **CHƯA nối vào tính lương** — engine không
+đọc bảng này. Chỉ tổ đang bật Lương khoán / sản lượng mới khai được. Bảng do `create_all` tạo.
+
+| Column          | Type            | Key                                | Null | Default | Meaning                                                   |
+| --------------- | --------------- | ---------------------------------- | ---- | ------- | --------------------------------------------------------- |
+| `id`            | `Integer`       | **PK**                             | no   | auto    | PK.                                                       |
+| `department_id` | `Integer`       | **FK→departments.id**, **IX**      | no   | —       | Tổ sở hữu; xoá phòng thì xoá mốc (CASCADE).               |
+| `ap_dung_tu`    | `Date`          | **U(department_id, ap_dung_tu)**   | no   | —       | Áp dụng từ ngày. Khai lại CÙNG ngày = sửa số của mốc đó.  |
+| `so_tien`       | `Numeric(14,2)` | —                                  | no   | —       | Chỉ tiêu: tiền sản lượng một thợ phải làm ra / 1 công (> 0). |
+| `ghi_chu`       | `String(255)`   | —                                  | yes  | —       | Ghi chú tự do (lý do đổi chỉ tiêu…).                      |
+| `created_by`    | `Integer`       | **FK→users.id**                    | yes  | —       | Người khai mốc (SET NULL khi xoá tài khoản).              |
+| `updated_at`    | `DateTime(tz)`  | —                                  | no   | now     | Lần ghi gần nhất.                                         |
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign keys: `department_id FK→departments.id` (CASCADE), `created_by FK→users.id` (SET NULL).
+- Unique: `(department_id, ap_dung_tu)` — `uq_khoan_chi_tieu_ngay_to_ngay`.
+- Index: `ix_khoan_chi_tieu_ngay_department_id`.
+
+---
+
 ### `salary_rate_rules`
 
 > **DORMANT 07/09/2026** — engine không tra bảng này (không còn `_lookup_rule`), route `/api/luong/rules` đã gỡ, seed không đẻ dòng. Giữ bảng để không mất dữ liệu cũ; drop bằng migration sau nếu cần.
@@ -2824,7 +2851,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `luong_vi_tri`   | `Numeric(14,2)` | —                           | no   | `0`     | **Mức hợp đồng RIÊNG của NV — lương vị trí** (PRD v2 C2). Mức nền = vị trí + trách nhiệm (gốc prorate theo công + gốc tính tăng ca). Thêm qua migration 0088 (backfill từ dòng bậc → lương KHÔNG đổi). |
 | `luong_trach_nhiem` | `Numeric(14,2)` | —                        | no   | `0`     | **Mức hợp đồng RIÊNG của NV — lương trách nhiệm**. Thêm qua migration 0088. |
 | `luong_dot_1` | `Numeric(14,2)` | — | no | `0` | "Lương trả 1 lần" — số cố định điền sẵn khi tạo phiếu thanh toán lương đợt 1. Migration 0106. |
-| `insurance_base` | `Numeric(14,2)` | —                           | yes  | —       | Mức đóng BH (NULL = mức lương).      |
+| `insurance_base` | `Numeric(14,2)` | —                           | yes  | —       | **MỨC ĐÓNG BHXH khai riêng từng người** (chủ chốt 16/09/2026 — ô sống lại sau khi ngưng 12/08). BHXH 8% + BHYT 1,5% + BHTN 1% tính trên số này, KHÔNG prorate theo công, KHÔNG × hệ số thử việc, vẫn kẹp trần `bh_base_cap` / `bhtn_base_cap`. NULL / 0 = mốc lương cũ chưa khai ⇒ engine tạm bám mức nền (cơ bản + trách nhiệm) và màn Lương + cảnh báo trước chốt réo tên. **Đoàn phí công đoàn KHÔNG đi theo ô này** — vẫn 0,5% × mức nền. |
 | `allowance`      | `Numeric(14,2)` | —                           | no   | `0`     | **Phụ cấp KHÁC** của riêng NV (xăng/điện thoại/kiêm nhiệm…) — KHAI TAY, cộng phẳng (không prorate theo công, không vào gốc tính tăng ca). |
 | `phu_cap_ca`     | `Numeric(14,2)` | —                           | no   | `0`     | **Phụ cấp CA** (ca đêm/ca tới sáng/cơm ca…) — KHAI TAY một số cố định dùng mọi tháng; hệ thống KHÔNG tự tính. Vào dòng lương ở `payroll_lines.night_pay`. Thêm qua migration 0090. |
 | `phu_cap_tham_nien` | `Numeric(14,2)` | —                        | no   | `0`     | **Phụ cấp THÂM NIÊN** — KHAI TAY (bỏ hẳn cách tự tính theo số kỳ 6 tháng). Thêm qua migration 0090. **NGƯNG 07/09/2026** (chủ bỏ ô ở Lương → Lương nhân viên): engine trả 0, ô chỉ hiện chỉ-đọc khi còn số cũ; cột giữ để tra lịch sử, không drop. |
@@ -2911,6 +2938,14 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `paid_leave_cong` | `Numeric(6,2)` | — | no | `0` | Số công phép CÓ LƯƠNG thực được trả (sau khi kẹp trần công chuẩn). Thêm qua migration 0112. |
 | `special_cong` | `Numeric(6,2)` | — | no | `0` | **TRONG ĐÓ** của `actual_cong`: số công của **ngày LỄ / NGHỈ TUẦN có đi làm**. Tách riêng vì phần công này **KHÔNG đi qua trần** `min(công làm, công chuẩn)` — trước 17/08/2026 nó nằm chung rổ nên ai đã đủ công chuẩn rồi mới làm Chủ nhật thì phần gốc 1× bị trần nuốt, `ot_pay` chỉ bù `(hệ số − 1)` ⇒ thực nhận **1× thay vì 2×** (lễ: 2× thay vì 3×), trái Đ98.1.b/c. Snapshot để đường "Sửa 1 ô" (`update_line`) ra đúng số của "Tính lại". ĐỪNG cộng vào gross: đã nằm trong `luong_cong`. Kỳ cũ = `0` ⇒ **không hồi tố**. Thêm qua migration 0204. |
 | `off1x_pay` | `Numeric(14,2)` | — | no | `0` | **TRONG ĐÓ** của `ot_pay`: tiền của **ngày off1x** (công ty cho nghỉ, ai đi làm được trả 1×, không hệ số). Tách riêng vì khoản này **CHỊU thuế TNCN** — trả đúng 1× nên không có phần "trả cao hơn" nào để miễn theo Luật 109/2025 K8 Đ4 + NĐ 253/2026 Đ26 (kế toán chốt 17/08/2026: *"lương thuế chỉ 1 công bình thường"*). `_auto_pit` nhận nó qua tham số `ot_taxable` và cộng ngược vào thu nhập chịu thuế. Snapshot để đường "Sửa 1 ô" ra đúng số của "Tính lại". **ĐỪNG cộng vào gross**: đã nằm trong `ot_pay`. Kỳ cũ = `0` ⇒ **không hồi tố**. Thêm qua migration 0205. |
+| `tien_gio_tang_ca` | `Numeric(14,2)` | — | yes | — | **TRONG ĐÓ** của `ot_pay`: tiền **GIỜ tăng ca** thực trả (ngày thường ×1,5 · nghỉ tuần ×2 · lễ ×3, theo hệ số cấu hình), tách khỏi phần THÊM làm nguyên ngày CN / lễ và tiền ngày off1x (17/09/2026). File Excel bảng lương theo khuôn công ty (sheet `BL CT`) để phần thêm CN / lễ trong cột "Lương thời gian", còn cột "Ngoài giờ/Tăng ca" chỉ là tiền giờ — `ot_pay` gộp cả hai nên phải chụp lúc tính. Chế độ khoán / tổ tắt tăng ca = `0`. **ĐỪNG cộng vào gross**: đã nằm trong `ot_pay`. `NULL` = kỳ tính trước bản vá (chưa tách) ⇒ **không hồi tố**. Thêm qua migration 0305. |
+| `che_do_khoan` | `Boolean` | — | no | `false` | **CHỤP** "người này thuộc CHẾ ĐỘ KHOÁN" lúc Tính lại (chủ chốt 14/09/2026, `docs/prd-khoan-khong-tien-tang-ca.md`): tổ bật *Lương khoán / sản lượng* HOẶC tổ bật cờ *Giao hàng* ⇒ **KHÔNG có tiền giờ tăng ca** (0đ — đã trả qua tiền khoán), vẫn có cơm tăng ca + phần thêm khi làm nguyên ngày CN/lễ. Chụp chứ không suy lúc đọc: người đổi tổ sau đó thì phiếu lương kỳ cũ vẫn giải thích đúng. Nuôi cảnh báo trước khi chốt (có giờ tăng ca mà tiền khoán = 0). Kỳ cũ = `false` ⇒ **không hồi tố**. Thêm qua migration 0299. |
+| `bu_lo_theo_cong` | `Numeric(14,2)` | — | yes | — | **CHỤP** số LƯƠNG BÙ LỖ theo công đã đem so với tiền khoán lúc Tính lại (chủ chốt 14/09/2026, `docs/prd-luong-bu-lo-khoan-san-xuat.md`) — tổ bật *Lương khoán / sản lượng*: lương sản lượng = MAX(tiền khoán, bù lỗ theo công), hai khoản THAY NHAU. Khi cột này có số, `luong_cong` KHÔNG còn là lương theo công mà là **PHẦN BÙ THÊM** cho đủ bù lỗ (0 khi khoán cao hơn) ⇒ `luong_cong + khoan` = MAX, mọi chỗ cộng thành phần vẫn đúng. `NULL` = dòng không thuộc luật (tổ thường, kỳ cũ, và tổ *Giao hàng* — tài xế không có bù lỗ, `luong_cong` = 0, chủ chốt 15/09/2026) ⇒ **không hồi tố**. Thêm qua migration 0300. |
+| `lay_bu_lo` | `Boolean` | — | no | `false` | **CHỤP** tháng này lấy bên nào: `true` = tiền khoán thấp hơn bù lỗ theo công, đang trả bù lỗ (`luong_cong` > 0 là phần bù). Nuôi nhãn trên bảng/phiếu lương. Thêm qua migration 0300. |
+| `luong_ngay_le` | `Numeric(14, 2)` | — | no | `0` | **Công ngày lễ nghỉ hưởng lương** của người ăn khoán (luật bù lỗ) và tài xế (chỉ ăn km) — trả RIÊNG, ngoài phần so khoán / bù lỗ: (lương cơ bản + lương trách nhiệm) ÷ công chuẩn × số ngày lễ nghỉ. CỘNG vào `gross`. 0 với người công nhật (ngày lễ nằm sẵn trong `luong_cong`). Thêm qua migration 0301. |
+| `le_nghi_cong` | `Numeric(6, 2)` | — | no | `0` | **CHỤP** số công ngày lễ nghỉ hưởng lương của kỳ (từ Chấm công) — để phiếu / bảng lương ghi "Công ngày lễ — N ngày" cạnh `luong_ngay_le`. Người công nhật cũng chụp nhưng tiền lễ của họ nằm trong `luong_cong`. Thêm qua migration 0302. |
+| `phu_cap_thang` | `Numeric(14, 2)` | — | yes | — | **CHỤP** số phụ cấp THÁNG đã khai (ô Phụ cấp khác + khoản thu nhập gán ở hồ sơ). Từ 15/09/2026 phụ cấp đi theo công: `allowance` = `phu_cap_thang` ÷ công chuẩn × `cong_phu_cap`. NULL = kỳ tính trước bản vá (phụ cấp cộng phẳng). Thêm qua migration 0303. |
+| `cong_phu_cap` | `Numeric(6, 2)` | — | yes | — | **CHỤP** số công hưởng phụ cấp: người công nhật = công theo lương (+ phần thêm CN/lễ, ngày nghỉ 1×); tổ khoán / tài xế = công lễ nghỉ + phần thêm CN/lễ (ngày thường ăn trong khoán / km). NULL = kỳ trước bản vá. Thêm qua migration 0303. |
 | `excused_cong` | `Numeric(6,2)` | — | no | `0` | Công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ đã duyệt) — chỉ để giải trình vì sao công thiếu mà chuyên cần vẫn đủ. Thêm qua migration 0112. |
 | `chuyen_can` | `Numeric(14,2)` | — | no | `0` | Thưởng chuyên cần. |
 | `allowance` | `Numeric(14,2)` | — | no | `0` | TỔNG phụ cấp tháng = phụ cấp KHÁC + khoản danh mục gán ở hồ sơ (+ thâm niên ở kỳ CŨ — cột dưới, ngưng 07/09/2026). Phụ cấp CA đi riêng ở `night_pay`. |
@@ -5955,6 +5990,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `ngay_hen_lai` | `Date` → `DATE` | — | yes | — | **NGƯNG GHI từ 22/08/2026** cùng lượt bỏ kết quả `hen_lai` — đó là trạng thái TREO: chuyến chưa xong mà cũng không kết thúc, hàng nằm trên xe không biết tới bao giờ. Nay khách hẹn lại = ghi `that_bai`, **trả hàng về kho**, rồi lập yêu cầu mới cho ngày hẹn. Giữ cột để đọc dòng cũ. |
 | `ghi_chu_ket_qua` | `Text` → `TEXT` | — | yes | — | Ghi chú khi đóng chuyến. |
 | `phu_xe_employee_id` | `Integer` → `INTEGER` | **IX** | yes | — | **Phụ xe** (mg 0231) — tối đa MỘT người, tuỳ chọn. Không đẻ bảng kíp xe: bảng phụ chỉ đáng khi số người thay đổi được. Vai trò do **ô thả người vào** quyết định, không phải thuộc tính của người — hôm nay lái, mai đi phụ. Service chặn xếp cùng một người vào cả hai ô (không thì họ ăn 60% + 40% của chính chuyến đó) và kiểm trùng lịch cho phụ xe y như tài xế. |
+| `vehicle_id` | `Integer` → `INTEGER` | **FK→xe.id**, **IX** | yes | — | **XE chạy chuyến** (mg `0296`) — qua nó mới biết tra MỨC nào. Đặt ở CHUYẾN chứ không ở đơn: tiền tính theo chuyến, và giao lại lần 2 là một chuyến mới có thể đi xe khác. **Bắt buộc ở cả ba cửa** — lên đơn, đổi kế hoạch, ghi kết quả (chủ chốt 12/09/2026) — cho tài xế thuộc khối Giao hàng; luật chỉ BẬT khi danh mục `xe` đã có xe còn dùng (không thì ngày triển khai chặn cứng cả phân hệ). Xe chọn vào phải ra được giá: chưa gán mức, hoặc mức chưa có bậc ⇒ chặn (14/09/2026). NULL ở chuyến đã đóng = chạy trước khi có tính năng ⇒ rơi về đơn giá phẳng, không hồi tố. |
 | `don_gia_km` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | yes | — | **CHỤP** `departments.don_gia_km` lúc ghi kết quả (mg 0231). Đọc thẳng của phòng ban lúc tính lương thì chủ chỉnh một số là bảng lương mọi tháng cũ đổi theo — bài học `orders.commission_pct`. **NULL = chuyến chạy TRƯỚC khi có tính năng** ⇒ engine bỏ qua, không đẻ tiền ngược cho quá khứ; khác hẳn `0` (đã chụp, và bằng 0). |
 | `pct_tai_xe` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | yes | — | Chụp tỷ lệ tài xế lúc ghi kết quả (mg 0231). NULL cùng nghĩa với `don_gia_km`. |
 | `pct_phu_xe` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | yes | — | Chụp tỷ lệ phụ xe lúc ghi kết quả (mg 0231). |
@@ -6016,24 +6052,81 @@ tài xế chụp mờ/chụp nhầm là chuyện thường, khoá lại là bu�
 | `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** (SET NULL) | yes | — | Ai tải lên. |
 | `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` | Lúc nào. |
 
-### `delivery_km_brackets`
+### `muc_khoan_km`
 
-**Purpose:** bậc **đơn giá khoán km** theo phòng ban (chốt 24/08/2026) — bảng MỚI, `create_all`
-tự dựng, KHÔNG cần migration tạo bảng. Cấu hình trong màn **Phòng ban** ngay dưới cờ
-`la_giao_hang`. Mirror `late_penalty_brackets` nhưng THEO PHÒNG (nhiều tổ giao hàng có thể có
-bảng giá khác nhau) thay vì toàn công ty.
+**Purpose:** một **MỨC khoán km** — một bảng bậc giá dùng chung cho nhiều xe. Bảng MỚI,
+`create_all` tự dựng. Là cấu hình **CHUNG** toàn công ty, KHÔNG thuộc phòng ban nào (chủ chốt
+14/09/2026). Khai ở màn *Cấu hình lương → Khoán km giao hàng*; bậc giá nằm ở `muc_khoan_km_bac`.
+
+Mô hình (chủ chốt 12/09/2026, `docs/prd-khoan-km-giao-hang.md` §11):
+
+```
+muc_khoan_km ──1──n── xe ──1──n── delivery_trips
+(bảng bậc giá)        (biển số)   (tra bậc theo mức của xe)
+```
+
+Cần một giá khác thì TẠO MỨC MỚI, không sửa mức đang có — mức đang có là của những xe khác. Số bậc
+là chuyện riêng của từng mức: mức này 8 bậc, mức kia 9 bậc, mốc km khác nhau đều được.
+
+Vì sao gom theo mức chứ không gắn bảng giá thẳng vào từng xe: đo `SAN LUONG T08.2026.xls` — 4 xe
+nhưng chỉ HAI thang giá (2,5T và hai xe 3,5T dùng chung; 5 tấn dùng thang × 1,1). Gắn vào xe là
+bắt khai ba bảng giống hệt nhau, rồi tăng giá quên một bảng là một xe tụt lại ở giá cũ — vẫn ra
+tiền, chỉ ra thiếu, không ai thấy.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `ten` | `String(150)` → `VARCHAR(150)` | **UQ** | no | — | Tên mức — KHOÁ NGHIỆP VỤ và là thứ duy nhất phải khai ("Xe 2 tấn"). Không có cột tải trọng: cái tên đã nói. |
+| `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú tự do. |
+| `active` | `Boolean` → `BOOLEAN` | — | no | `true` | Tắt = ngừng dùng. |
+| `created_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `now()` | Mốc tạo. |
+| `updated_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `now()` | Mốc sửa gần nhất. |
+
+### `xe`
+
+**Purpose:** danh mục **Xe giao hàng** — biển số, tải trọng, xe này ăn MỨC nào. Bảng MỚI,
+`create_all` tự dựng. Màn *Cấu hình danh mục → Xe giao hàng*, quyền `dm_xe` (mg `0296`).
+
+Vì sao là danh mục riêng chứ không khai vào `tai_san` (chốt 12/09/2026): hiện KHÔNG theo dõi khấu
+hao xe — `tai_san` không có chiếc nào. Xe **không** gắn cứng với tài xế: vai do ô thả người vào
+quyết định (PRD §3b), khai vào hồ sơ là đẻ nguồn sự thật thứ hai.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `ma` | `String(30)` → `VARCHAR(30)` | **UQ**, **IX** | no | — | **BIỂN SỐ**, khoá nghiệp vụ. Nền danh mục chỉ chuẩn hoá hoa/thường, KHÔNG bóc dấu chấm/gạch. |
+| `ten` | `String(150)` → `VARCHAR(150)` | — | no | — | Tên gọi trong xưởng ("Xe a Việt") — người phân chuyến nhớ theo tên này. |
+| `tai_trong` | `Numeric(6,2)` → `NUMERIC(6,2)` | — | yes | — | Tải trọng (tấn). CHỈ để đối chiếu khi chọn xe cho đơn nặng — **KHÔNG lái giá**; giá do MỨC quyết. |
+| `muc_khoan_km_id` | `Integer` → `INTEGER` | **FK→muc_khoan_km.id**, **IX** | yes | — | Xe này ăn MỨC nào. **BẮT BUỘC** từ 14/09/2026 — chặn ở `XeService._validate` (cột để nullable vì không ALTER ràng buộc bảng đã dựng). Lên đơn bằng xe NULL mức, hoặc mức chưa có bậc, cũng bị chặn (`DeliveryService._doi_xe`) — trước đó xe trống âm thầm ăn đơn giá phẳng `departments.don_gia_km`. |
+| `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú tự do. |
+| `active` | `Boolean` → `BOOLEAN` | — | no | `true` | Tắt = xe đã ngưng: không hiện ở ô chọn chuyến MỚI, chuyến cũ vẫn giữ tên xe. |
+| `created_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `now()` | Mốc tạo. |
+| `updated_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `now()` | Mốc sửa gần nhất. |
+
+### `muc_khoan_km_bac`
+
+**Purpose:** một **BẬC** trong bảng giá khoán km của một **MỨC** — km chuyến ≤ `up_to_km` thì ăn
+`don_gia`. Bảng MỚI (14/09/2026), `create_all` tự dựng. Số bậc tự do theo từng mức. Sửa ở màn
+*Cấu hình lương → Khoán km giao hàng*, ghi cả khối qua `PUT /api/giao-hang/muc-khoan-km/{id}/bac`.
+
+⭐ **KHÔNG có `department_id`, cố ý.** Bậc của mức từng nằm trong `delivery_km_brackets` — bảng đẻ
+ra cho bậc CẤP PHÒNG, bắt buộc `department_id` kèm FK xoá dây chuyền ⇒ xoá phòng ban là cuốn luôn
+bảng giá của mức (toàn công ty). Mg `0298` chép dòng có `muc_id` sang đây rồi **DROP**
+`delivery_km_brackets`. Bảng bậc cấp phòng đã gỡ từ trước đó (mg `0297`, 12/09/2026).
 
 **Cách tính (chủ chốt):** toàn bộ km của một chuyến × đơn giá của **MỘT bậc** mà km rơi vào —
 KHÔNG cộng dồn từng đoạn. Chuyến 8 km, bậc 5–10km giá 20.000 ⇒ 8 × 20.000 = 160.000. Đúng cách
 bảng lương thật tính (đo 521 chặng). Lúc ghi kết quả chuyến, đơn giá tra được **chụp** vào
 `delivery_trips.don_gia_km` (một số), nên engine lương đọc số đã chụp — đổi bậc sau không nắn lại
-kỳ đã tính. Phòng chưa khai bậc nào ⇒ fallback về `departments.don_gia_km` (đơn giá phẳng cũ).
+kỳ đã tính.
+
+Không để trống bảng giá được khi mức còn xe đang ăn (`DeliveryService.ghi_bac_muc`).
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `department_id` | `Integer` → `INTEGER` | **FK→departments.id** (CASCADE), **IX** | no | — | Phòng giao hàng sở hữu bảng giá này. |
-| `seq` | `Integer` → `INTEGER` | — | no | — | Thứ tự bậc 1..N. `tra_don_gia_km` duyệt theo thứ tự này; bậc ∞ phải ở cuối. |
+| `muc_id` | `Integer` → `INTEGER` | **FK→muc_khoan_km.id** (CASCADE), **IX** | no | — | MỨC sở hữu bậc này. Xoá mức thì bậc đi theo (repo xoá tường minh — SQLite test không bật FK). |
+| `seq` | `Integer` → `INTEGER` | — | no | — | Thứ tự bậc 1..N. `MucKhoanKmRepository.tra_don_gia` duyệt theo thứ tự này; bậc ∞ phải ở cuối. |
 | `up_to_km` | `Integer` → `INTEGER` | — | yes | — | Trần KM của bậc (≤ trần → giá này). **NULL = bậc cao nhất (∞)**, chỉ một và ở cuối. |
 | `don_gia` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Đồng/km cho bậc này. |
 

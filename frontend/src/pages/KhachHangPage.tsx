@@ -354,6 +354,9 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
   const canReassign = can("khach_hang", "reassign");
   const canExport = true; // Xuất file MẶC ĐỊNH BẬT (gỡ công tắc `export` khách 24/08/2026).
   const canCreate = can("khach_hang", "create");
+  // Nhập Excel: dòng Mã KH trống là thêm (`create`), dòng có Mã là sửa (`update`) — server gác cửa
+  // bằng MỘT trong hai rồi kiểm từng dòng, nên nút hiện khi có một trong hai.
+  const canImport = canCreate || can("khach_hang", "update");
   const colCount = canReassign ? 7 : 6; // [checkbox] · KH · doanh số · số đơn · TB/đơn · NV · ›
 
   // Import / export danh bạ (#23).
@@ -597,7 +600,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
               <Download size={14} /> Xuất Excel
             </Button>
           )}
-          {canCreate && (
+          {canImport && (
             <Button variant="ghost" onClick={() => setImportOpen(true)}>
               Nhập Excel
             </Button>
@@ -1236,6 +1239,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
 
       {importOpen && (
         <ImportDialog
+          coTheTao={canCreate}
           onClose={() => setImportOpen(false)}
           onImported={() => {
             setImportOpen(false);
@@ -5082,11 +5086,17 @@ function AttachmentsTab({ customerId }: { customerId: number }) {
 //     lỗi, chứ không phải "nhập N dòng hợp lệ, bỏ qua dòng hỏng" như trước.
 //   · Xem trước chạy y hệt lượt ghi rồi rollback ⇒ con số ở đây là con số THẬT.
 //   · Trùng MST/tên/email là CẢNH BÁO, vẫn ghi — nên tách hẳn khỏi khối lỗi.
+//
+// Bản 2 (17/09/2026): nhập lại file Xuất Excel — dòng có Mã KH là SỬA khách đó. Sửa là việc ghi
+// đè, nên xem trước phải liệt kê từng ô "cũ → mới" trước khi cho bấm Ghi.
 
 function ImportDialog({
+  coTheTao,
   onClose,
   onImported,
 }: {
+  /** Có quyền `create`: mới cho tải mẫu rỗng (endpoint mẫu gác bằng `create`). */
+  coTheTao: boolean;
   onClose: () => void;
   onImported: () => void;
 }) {
@@ -5195,6 +5205,7 @@ function ImportDialog({
   };
 
   const shown = result ?? preview;
+  const soGhi = preview ? preview.tao_moi + preview.cap_nhat : 0;
 
   const step1Done = Boolean(file);
   const step2Done = Boolean(file && preview);
@@ -5252,22 +5263,27 @@ function ImportDialog({
               </div>
               <h3 className="kh__im-success-title">Nhập danh bạ thành công!</h3>
               <p className="kh__im-success-desc">
-                Hệ thống đã thêm mới thành công <strong>{result.tao_moi} khách hàng</strong> từ tệp Excel.
+                Đã thêm <strong>{result.tao_moi} khách hàng mới</strong> và sửa{" "}
+                <strong>{result.cap_nhat} khách hàng</strong> từ tệp Excel.
               </p>
 
               <div className="kh__im-success-stats">
-                <div className="kh__im-success-stat">
-                  <span className="kh__im-success-stat-val">{result.tong_dong}</span>
-                  <span className="kh__im-success-stat-lbl">Tổng dòng xử lý</span>
-                </div>
                 <div className="kh__im-success-stat kh__im-success-stat--highlight">
                   <span className="kh__im-success-stat-val">{result.tao_moi}</span>
-                  <span className="kh__im-success-stat-lbl">Khách hàng tạo mới</span>
+                  <span className="kh__im-success-stat-lbl">Thêm mới</span>
+                </div>
+                <div className="kh__im-success-stat kh__im-success-stat--diff">
+                  <span className="kh__im-success-stat-val">{result.cap_nhat}</span>
+                  <span className="kh__im-success-stat-lbl">Đã sửa</span>
+                </div>
+                <div className="kh__im-success-stat">
+                  <span className="kh__im-success-stat-val">{result.khong_doi}</span>
+                  <span className="kh__im-success-stat-lbl">Không đổi</span>
                 </div>
                 {result.canh_bao.length > 0 && (
                   <div className="kh__im-success-stat kh__im-success-stat--warn">
                     <span className="kh__im-success-stat-val">{result.canh_bao.length}</span>
-                    <span className="kh__im-success-stat-lbl">Cảnh báo trùng (đã ghi)</span>
+                    <span className="kh__im-success-stat-lbl">Cảnh báo (đã ghi)</span>
                   </div>
                 )}
               </div>
@@ -5293,8 +5309,8 @@ function ImportDialog({
                     {step1Done ? <Check size={14} strokeWidth={2.5} /> : "1"}
                   </div>
                   <div className="kh__im-step-info">
-                    <div className="kh__im-step-title">Tải file mẫu</div>
-                    <div className="kh__im-step-desc">Định dạng .xlsx chuẩn</div>
+                    <div className="kh__im-step-title">Chuẩn bị file</div>
+                    <div className="kh__im-step-desc">File mẫu hoặc file Xuất Excel</div>
                   </div>
                 </div>
                 <div className="kh__im-step-divider" />
@@ -5327,23 +5343,31 @@ function ImportDialog({
                 </div>
               </div>
 
-              {/* Step 1 banner: download template */}
+              {/* Step 1 banner: hai loại file nhận được */}
               <div className="kh__im-template-banner">
                 <div className="kh__im-template-left">
-                  <div className="kh__im-template-title">Chưa có tệp dữ liệu theo định dạng chuẩn?</div>
+                  <div className="kh__im-template-title">Dùng file nào?</div>
                   <div className="kh__im-template-desc">
-                    Tải file mẫu Excel chuẩn để điền dữ liệu — mỗi dòng một khách <strong>mới</strong>.
-                    Mã khách do hệ thống tự cấp nên file mẫu không có cột Mã.
+                    {coTheTao && (
+                      <>
+                        <strong>Thêm khách mới:</strong> tải file mẫu, mỗi dòng một khách mới (mã do hệ thống cấp).
+                        <br />
+                      </>
+                    )}
+                    <strong>Sửa khách đã có:</strong> bấm <strong>Xuất Excel</strong> ở màn Khách hàng, sửa trong
+                    Excel rồi nhập lại file đó. Dòng có Mã KH là sửa khách đó, thêm dòng để trống Mã KH là khách mới.
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="kh__im-template-btn"
-                  onClick={downloadTemplate}
-                >
-                  <Download size={15} strokeWidth={2} />
-                  <span>Tải file mẫu Excel (.xlsx)</span>
-                </button>
+                {coTheTao && (
+                  <button
+                    type="button"
+                    className="kh__im-template-btn"
+                    onClick={downloadTemplate}
+                  >
+                    <Download size={15} strokeWidth={2} />
+                    <span>Tải file mẫu Excel (.xlsx)</span>
+                  </button>
+                )}
               </div>
 
               {/* Hidden file input */}
@@ -5459,23 +5483,23 @@ function ImportDialog({
                 <div className="kh__im-validation">
                   {/* Metric Cards Grid */}
                   <div className="kh__im-metrics">
-                    <div className="kh__im-metric-card">
-                      <div className="kh__im-metric-icon kh__im-metric-icon--total">
-                        <List size={18} strokeWidth={2} />
-                      </div>
-                      <div className="kh__im-metric-body">
-                        <div className="kh__im-metric-val">{shown.tong_dong}</div>
-                        <div className="kh__im-metric-lbl">Tổng số dòng</div>
-                      </div>
-                    </div>
-
-                    <div className={`kh__im-metric-card ${shown.hop_le ? "kh__im-metric-card--success" : ""}`}>
+                    <div className={`kh__im-metric-card ${shown.hop_le && shown.tao_moi > 0 ? "kh__im-metric-card--success" : ""}`}>
                       <div className="kh__im-metric-icon kh__im-metric-icon--success">
-                        <CheckCircle2 size={18} strokeWidth={2} />
+                        <UserPlus size={18} strokeWidth={2} />
                       </div>
                       <div className="kh__im-metric-body">
                         <div className="kh__im-metric-val">{shown.tao_moi}</div>
-                        <div className="kh__im-metric-lbl">Hợp lệ / Tạo mới</div>
+                        <div className="kh__im-metric-lbl">Thêm mới</div>
+                      </div>
+                    </div>
+
+                    <div className={`kh__im-metric-card ${shown.hop_le && shown.cap_nhat > 0 ? "kh__im-metric-card--diff" : ""}`}>
+                      <div className="kh__im-metric-icon kh__im-metric-icon--diff">
+                        <PencilLine size={18} strokeWidth={2} />
+                      </div>
+                      <div className="kh__im-metric-body">
+                        <div className="kh__im-metric-val">{shown.cap_nhat}</div>
+                        <div className="kh__im-metric-lbl">Sửa · {shown.khong_doi} không đổi</div>
                       </div>
                     </div>
 
@@ -5495,20 +5519,32 @@ function ImportDialog({
                       </div>
                       <div className="kh__im-metric-body">
                         <div className="kh__im-metric-val">{shown.canh_bao.length}</div>
-                        <div className="kh__im-metric-lbl">Cảnh báo trùng</div>
+                        <div className="kh__im-metric-lbl">Cảnh báo</div>
                       </div>
                     </div>
                   </div>
 
                   {/* Summary Alert */}
-                  {shown.hop_le ? (
+                  {shown.hop_le && shown.tao_moi + shown.cap_nhat === 0 ? (
+                    <div className="kh__im-alert kh__im-alert--success" role="status">
+                      <CheckCircle2 size={20} className="kh__im-alert-icon" />
+                      <div>
+                        <div className="kh__im-alert-title">Không có gì thay đổi</div>
+                        <div className="kh__im-alert-text">
+                          Đã đối soát <strong>{shown.tong_dong} dòng</strong>: file khớp y hệt dữ liệu đang có, không có khách
+                          mới và không có ô nào bị sửa.
+                        </div>
+                      </div>
+                    </div>
+                  ) : shown.hop_le ? (
                     <div className="kh__im-alert kh__im-alert--success" role="status">
                       <CheckCircle2 size={20} className="kh__im-alert-icon" />
                       <div>
                         <div className="kh__im-alert-title">Toàn bộ dữ liệu hợp lệ!</div>
                         <div className="kh__im-alert-text">
-                          Đã kiểm tra đối soát <strong>{shown.tong_dong} dòng</strong>, tất cả đều hợp lệ. Bạn có thể nhấn
-                          nút <strong>"Xác nhận nhập"</strong> bên dưới để lưu <strong>{shown.tao_moi} khách hàng mới</strong>.
+                          Đã đối soát <strong>{shown.tong_dong} dòng</strong>: thêm <strong>{shown.tao_moi} khách mới</strong>,
+                          sửa <strong>{shown.cap_nhat} khách</strong>, {shown.khong_doi} khách không đổi. Kiểm tra bảng thay
+                          đổi bên dưới rồi nhấn <strong>"Xác nhận nhập"</strong>.
                         </div>
                       </div>
                     </div>
@@ -5536,6 +5572,52 @@ function ImportDialog({
                         <div className="kh__im-alert-text">
                           Đã bỏ qua các cột chính sách tài chính — bạn không có quyền Đặt hạn mức công nợ. Phần còn lại vẫn được ghi bình thường.
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Change Table — sửa là ghi đè, nên phải thấy "cũ → mới" trước khi bấm Ghi */}
+                  {shown.thay_doi.length > 0 && (
+                    <div className="kh__im-table-card kh__im-table-card--diff">
+                      <div className="kh__im-table-head">
+                        <div className="kh__im-table-title">
+                          <PencilLine size={15} />
+                          <span>
+                            Thay đổi trên khách đã có ({new Set(shown.thay_doi.map((t) => t.ma)).size} khách)
+                          </span>
+                        </div>
+                        <span className="kh__im-table-tag kh__im-table-tag--diff">Ghi đè</span>
+                      </div>
+                      <div className="kh__im-table-wrap">
+                        <table className="kh__im-table">
+                          <thead>
+                            <tr>
+                              {/* Dialog rộng tối đa 760px: nhường chỗ cho cột "Cũ → Mới" (địa chỉ dài). */}
+                              <th style={{ width: "70px" }}>Dòng</th>
+                              <th style={{ width: "165px" }}>Khách</th>
+                              <th style={{ width: "105px" }}>Cột</th>
+                              <th>Cũ → Mới</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {shown.thay_doi.map((t, i) => (
+                              <tr key={`td-${t.dong}-${i}`}>
+                                <td>
+                                  <span className="kh__im-row-badge kh__im-row-badge--diff">#{t.dong}</span>
+                                </td>
+                                <td className="kh__im-reason">
+                                  <strong>{t.ma}</strong> · {t.ten}
+                                </td>
+                                <td className="kh__im-col-name">{t.cot}</td>
+                                <td className="kh__im-reason">
+                                  <span className="kh__im-diff-old">{t.cu || "(trống)"}</span>
+                                  <span className="kh__im-diff-arrow" aria-hidden="true"> → </span>
+                                  <span className="kh__im-diff-new">{t.moi || "(trống)"}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   )}
@@ -5583,7 +5665,7 @@ function ImportDialog({
                       <div className="kh__im-table-head">
                         <div className="kh__im-table-title">
                           <AlertTriangle size={15} />
-                          <span>Cảnh báo nghi trùng thông tin ({shown.canh_bao.length} dòng)</span>
+                          <span>Cảnh báo ({shown.canh_bao.length} dòng)</span>
                         </div>
                         <span className="kh__im-table-tag kh__im-table-tag--soft">Vẫn cho phép nhập</span>
                       </div>
@@ -5635,6 +5717,8 @@ function ImportDialog({
                     ? "Đang phân tích và đối soát dữ liệu file..."
                     : preview && !preview.hop_le
                       ? "Vui lòng sửa hết lỗi trước khi xác nhận nhập."
+                      : preview && preview.hop_le && soGhi === 0
+                      ? "File không có gì thay đổi so với dữ liệu đang có."
                       : preview && preview.hop_le
                         ? "Dữ liệu hợp lệ, sẵn sàng ghi vào hệ thống."
                         : ""}
@@ -5648,12 +5732,12 @@ function ImportDialog({
                   onClick={commit}
                   loading={busy}
                   /* Cả file là một giao dịch: còn lỗi thì không có gì để ghi. */
-                  disabled={!file || !preview || !preview.hop_le || preview.loi.length > 0 || preview.tao_moi === 0}
+                  disabled={!file || !preview || !preview.hop_le || preview.loi.length > 0 || soGhi === 0}
                 >
                   <Check size={15} />
                   <span>
-                    {preview?.hop_le
-                      ? `Xác nhận nhập ${preview.tao_moi} khách hàng`
+                    {preview?.hop_le && soGhi > 0
+                      ? `Xác nhận nhập (thêm ${preview.tao_moi} · sửa ${preview.cap_nhat})`
                       : "Xác nhận nhập"}
                   </span>
                 </Button>

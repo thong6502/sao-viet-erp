@@ -20,9 +20,14 @@ export const FAULT_LABEL: Record<string, string> = Object.fromEntries(
 );
 
 /** Hệ số dự phòng khi response chưa có `he_so_ngay` — KHỚP mặc định của `payroll_params`
- *  (`holiday_work_multiplier` 3 ⇒ lễ 1+3 = 4×; `restday_work_multiplier` 2 ⇒ CN 2×).
+ *  (`holiday_work_multiplier` 3 ⇒ lễ 3×; `restday_work_multiplier` 2 ⇒ CN 2×; lễ trùng CN = 5×).
  *  Chỉ là lưới an toàn: số thật luôn đọc từ máy chủ vì nhà máy khai được ở Cấu hình lương. */
-export const HE_SO_NGAY_MAC_DINH: HeSoNgay = { le: 4, nghi_tuan: 2, off1x: 1 };
+export const HE_SO_NGAY_MAC_DINH: HeSoNgay = {
+  le: 3,
+  nghi_tuan: 2,
+  le_nghi_tuan: 5,
+  off1x: 1,
+};
 
 // --- Mã ca ngắn + màu: SUY DIỄN Ở FE (backend không có cột code/color) -------
 // CẤM `signal` (màu lỗi hệ thống) — chỉ 5 họ dưới đây.

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..models.department import Department
 from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.delivery_repo import DeliveryRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository, UnitLevelRepository
 from ..repositories.user_repo import UserRepository
@@ -49,6 +50,25 @@ class InvalidLevelOrder(DepartmentError):
     """A child unit's level must rank BELOW its parent's level (spec-06 / PBI-4007)."""
 
 
+class GiaoHangConChuyenChay(DepartmentError):
+    """Tắt cờ Giao hàng khi tài xế của phòng còn chuyến CHƯA ghi kết quả (chủ chốt 14/09/2026).
+
+    Đơn giá khoán km chụp lúc GHI KẾT QUẢ và tra theo phòng của tài xế — tắt cờ trước lúc đó là
+    chuyến đóng xong với `don_gia_km = NULL`: tài xế mất trắng tiền chuyến đó, không lỗi, không
+    cảnh báo (đã đo thực nghiệm, PRD khoán km §12.1).
+    """
+
+
+class GiaoHangKemKhoanSanLuong(DepartmentError):
+    """Một tổ KHÔNG được vừa có cờ Giao hàng vừa bật Lương khoán / sản lượng (chủ chốt 16/09/2026).
+
+    Hai cờ là hai NGUỒN TIỀN đem so với lương bù lỗ: cờ Giao hàng lấy tiền km của chuyến giao, công
+    tắc Lương khoán lấy tiền sản lượng của phiếu phân bổ sản xuất. Bật cả hai thì engine cộng hai
+    khoản thành MỘT vế rồi mới so — tài xế được gán nhầm một phiếu sản lượng là vế khoán vọt lên,
+    tháng đó mất trắng tiền tăng ca và phần bù lỗ mà không ai thấy. Chặn ở cửa khai cho hết đường.
+    """
+
+
 class KhoanKmInvalid(DepartmentError):
     """Ba ô khoán km sai luật — hai tỷ lệ không cộng đủ 100, hoặc đơn giá âm (mg 0231)."""
 
@@ -80,6 +100,7 @@ class DepartmentService:
         audit: AuditLogRepository,
         levels: UnitLevelRepository,
         employees: EmployeeRepository,
+        deliveries: DeliveryRepository | None = None,
     ) -> None:
         self.departments = departments
         self.roles = roles
@@ -87,6 +108,9 @@ class DepartmentService:
         self.audit = audit
         self.levels = levels
         self.employees = employees
+        # Chỉ để đếm chuyến đang chạy khi TẮT cờ Giao hàng. Tuỳ chọn để test dựng service gọn vẫn
+        # chạy; `deps.get_department_service` luôn truyền.
+        self.deliveries = deliveries
 
     def _head_name(self, dept: Department) -> str | None:
         if dept.head_user_id is None:
@@ -204,6 +228,7 @@ class DepartmentService:
                     "la_kinh_doanh": dept.la_kinh_doanh,
                     "is_kcs": dept.is_kcs,
                     "la_giao_hang": dept.la_giao_hang,
+                    "la_to_in": dept.la_to_in,
                     "don_gia_km": float(dept.don_gia_km or 0),
                     "pct_tai_xe": float(dept.pct_tai_xe if dept.pct_tai_xe is not None else 60),
                     "pct_phu_xe": float(dept.pct_phu_xe if dept.pct_phu_xe is not None else 40),
@@ -242,6 +267,7 @@ class DepartmentService:
             "la_kinh_doanh": dept.la_kinh_doanh,
             "is_kcs": dept.is_kcs,
             "la_giao_hang": dept.la_giao_hang,
+            "la_to_in": dept.la_to_in,
             "don_gia_km": float(dept.don_gia_km or 0),
             "pct_tai_xe": float(dept.pct_tai_xe if dept.pct_tai_xe is not None else 60),
             "pct_phu_xe": float(dept.pct_phu_xe if dept.pct_phu_xe is not None else 40),
@@ -315,12 +341,19 @@ class DepartmentService:
         la_kinh_doanh: bool = False,
         is_kcs: bool = False,
         la_giao_hang: bool = False,
+        la_to_in: bool = False,
         don_gia_km: float = 0.0,
         pct_tai_xe: float = 60.0,
         pct_phu_xe: float = 40.0,
         actor_id: int | None,
     ) -> Department:
         name = name.strip()
+        if la_giao_hang and has_piece_work:
+            raise GiaoHangKemKhoanSanLuong(
+                "Một tổ không vừa là Bộ phận Giao hàng vừa ăn Lương khoán / sản lượng: hai bên là "
+                "hai nguồn tiền khác nhau (tiền km và tiền sản lượng), bật cả hai thì máy cộng "
+                "chung rồi mới so với lương bù lỗ. Chọn một."
+            )
         if self.departments.get_by_name(name) is not None:
             raise DepartmentNameTaken("Tên phòng ban đã tồn tại")
         if parent_id is not None and self.departments.get_by_id(parent_id) is None:
@@ -346,6 +379,8 @@ class DepartmentService:
             self.departments.set_is_kcs(dept, True)
         if la_giao_hang:
             self.departments.set_la_giao_hang(dept, True)
+        if la_to_in:
+            self.departments.set_la_to_in(dept, True)
         self._dat_khoan_km(dept, don_gia_km, pct_tai_xe, pct_phu_xe)
         _dong_bo_quyen_to(self.departments.db)
         self.audit.create(
@@ -373,6 +408,7 @@ class DepartmentService:
         la_kinh_doanh: object = _KEEP,
         is_kcs: object = _KEEP,
         la_giao_hang: object = _KEEP,
+        la_to_in: object = _KEEP,
         don_gia_km: object = _KEEP,
         pct_tai_xe: object = _KEEP,
         pct_phu_xe: object = _KEEP,
@@ -401,6 +437,26 @@ class DepartmentService:
             raise DepartmentNotFound("Không tìm thấy phòng cha")
         # No cycle (parent ∉ this unit's subtree) + child level ranks below parent (PBI-4007).
         self._validate_hierarchy(dept_id=dept_id, parent_id=parent_id, level_id=level_id)
+        # Cờ Giao hàng ⟷ Lương khoán loại trừ nhau (chủ chốt 16/09/2026) — soi TRẠNG THÁI SAU
+        # lượt sửa này, vì hai ô có thể gửi lên trong cùng một lượt hoặc chỉ gửi một ô.
+        gh_sau = bool(la_giao_hang) if la_giao_hang is not _KEEP else bool(dept.la_giao_hang)
+        khoan_sau = bool(has_piece_work) if has_piece_work is not None else bool(dept.has_piece_work)
+        if gh_sau and khoan_sau:
+            raise GiaoHangKemKhoanSanLuong(
+                "Tổ này đang ăn Lương khoán / sản lượng nên không bật được cờ Bộ phận Giao hàng "
+                "(và ngược lại): hai bên là hai nguồn tiền khác nhau, bật cả hai thì máy cộng "
+                "chung rồi mới so với lương bù lỗ. Tắt bớt một bên ở Lương → Cấu hình lương → Cơ "
+                "chế lương theo bộ phận."
+            )
+        # Tắt cờ Giao hàng: kiểm TRƯỚC mọi thao tác ghi, chặn là chặn cả lượt sửa.
+        if (la_giao_hang is not _KEEP and not bool(la_giao_hang) and dept.la_giao_hang
+                and self.deliveries is not None):
+            n = self.deliveries.dem_chuyen_chua_ket_qua_cua_phong(dept_id)
+            if n:
+                raise GiaoHangConChuyenChay(
+                    f"Còn {n} chuyến đang chạy của tài xế phòng này — đóng hoặc huỷ hết rồi mới "
+                    "tắt được cờ Giao hàng."
+                )
         # The code is system-owned and never edited here (spec-05).
         self.departments.rename(dept, name)
         self.departments.set_description(dept, (description or "").strip() or None)
@@ -431,6 +487,10 @@ class DepartmentService:
         # giao hàng, và tab Nhân viên giao hàng trống trơn mà không ai báo.
         if la_giao_hang is not _KEEP:
             self.departments.set_la_giao_hang(dept, bool(la_giao_hang))
+        # Cờ Tổ in: cùng luật "KHÔNG gửi = giữ nguyên" như cờ Giao hàng ngay trên — tắt nhầm là
+        # ngày CN / lễ của thợ in đổi tiền mà không ai báo.
+        if la_to_in is not _KEEP:
+            self.departments.set_la_to_in(dept, bool(la_to_in))
         if don_gia_km is not _KEEP or pct_tai_xe is not _KEEP or pct_phu_xe is not _KEEP:
             self._dat_khoan_km(
                 dept,

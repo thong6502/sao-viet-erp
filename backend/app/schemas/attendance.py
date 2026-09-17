@@ -217,6 +217,9 @@ class TimesheetDay(BaseModel):
     # nhánh tính tiền). Ô lịch cần chúng để nói "→ tính N công": không có cờ thì ngày nghỉ tuần
     # đi làm hiện y hệt ngày thường và người lao động tưởng bị trả thiếu.
     restday: bool = False          # ngày NGHỈ TUẦN (CN) có đi làm → premium Đ98.1.b
+    # Lễ rơi ĐÚNG ngày nghỉ tuần có đi làm (khách chốt 15/09/2026): trả CẢ HAI chế độ ⇒ 500%.
+    # Ngày này bật cả `holiday` lẫn `restday`; ô lịch phải đọc cờ NÀY trước, kẻo hứa 300%.
+    le_nghi_tuan: bool = False
     plain: bool = False            # ngày `off1x` có đi làm → trả 1×, KHÔNG hệ số
     # Nghỉ luân phiên đã khai trên lưới phân ca — để phân biệt "nghỉ theo lịch" với
     # "vắng". Chỉ là dấu kế hoạch: không công, không tiền.
@@ -254,12 +257,12 @@ class HolidayMark(BaseModel):
 
 
 class HeSoNgay(BaseModel):
-    """Hệ số công theo loại ngày — để màn hình khỏi viết cứng số. Xem
-    `AttendanceService.he_so_ngay` cho lý do lễ và nghỉ tuần dùng hai công thức khác nhau."""
+    """Hệ số công theo loại ngày — để màn hình khỏi viết cứng số. Xem `AttendanceService.he_so_ngay`."""
 
-    le: float = 4.0          # 1 (tiền lễ Đ112) + holiday_work_multiplier
-    nghi_tuan: float = 2.0   # restday_work_multiplier (KHÔNG cộng 1)
-    off1x: float = 1.0       # phẳng, không hệ số
+    le: float = 3.0            # holiday_work_multiplier (khách chốt 15/09/2026: lễ TỔNG 300%)
+    nghi_tuan: float = 2.0     # restday_work_multiplier
+    le_nghi_tuan: float = 5.0  # lễ rơi đúng ngày nghỉ tuần = cộng cả hai (200% + 300%)
+    off1x: float = 1.0         # phẳng, không hệ số
 
 
 class TimesheetOut(BaseModel):

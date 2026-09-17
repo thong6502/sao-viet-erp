@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { DeliveryDriverPick, DeliveryRequest } from "../../../../api/client";
 import { api } from "../../../../api/client";
+import { crud, type Row } from "../../../../api/rebuildCatalog";
 import { Button } from "../../../../components/Button";
 import { Icon } from "../../../../components/Icons";
 import {
@@ -27,6 +28,13 @@ export function DialogLenKeHoach({
   // Phụ xe — TUỲ CHỌN, tối đa một người (mg 0231). Cùng danh sách với tài xế: vai trò do Ô THẢ
   // NGƯỜI VÀO quyết định, không phải thuộc tính của người. Hôm nay lái, mai đi phụ.
   const [phuXeId, setPhuXeId] = useState("");
+  // XE — BẮT BUỘC (chủ chốt 12/09/2026). Đơn giá khoán km tra theo MỨC mà xe đang ăn, nên bỏ
+  // trống là đẩy việc sang người đóng chuyến, lúc đó hàng đã đi rồi mới biết chuyến nào thiếu.
+  //
+  // Chỉ đòi khi danh mục ĐÃ CÓ xe — máy chủ cũng chặn theo đúng điều kiện đó (`_phai_khai_xe`).
+  // Đòi vô điều kiện thì ngày triển khai, lúc chưa ai kịp khai chiếc nào, không lên nổi đơn nào.
+  const [xeId, setXeId] = useState("");
+  const [xeDs, setXeDs] = useState<Row[]>([]);
   const [taiXe, setTaiXe] = useState<DeliveryDriverPick[]>([]);
   const [lay, setLay] = useState("");
   const [giao, setGiao] = useState("");
@@ -35,11 +43,17 @@ export function DialogLenKeHoach({
   const [canhBao, setCanhBao] = useState<string[]>([]);
   const [dangGui, setDangGui] = useState(false);
   const gioSai = gioNhapSai(lay) || gioNhapSai(giao);
+  // Danh mục đã có xe mà ô Xe còn trống ⇒ chưa gửi được. Mờ nút NGAY thay vì để bấm rồi ăn 400:
+  // máy chủ vẫn chặn (đó mới là chốt thật), đây chỉ là để người dùng thấy trước.
+  const thieuXe = xeDs.length > 0 && !xeId;
 
   // Bắt quản lý GÕ MÃ nhân viên là bắt họ nhớ số — sai một chữ số là phân công nhầm người mà
   // không có gì báo. Chọn trong danh sách thì không sai được.
   useEffect(() => {
     api.giaoHang.taiXeChon(token).then((r) => setTaiXe(r.items)).catch(() => setTaiXe([]));
+    // Chỉ xe CÒN DÙNG: xe đã ngưng vẫn giữ tên ở chuyến cũ nhưng không mời xếp chuyến mới.
+    crud("/api/xe").list(token, { active: true })
+      .then((r) => setXeDs(r.items)).catch(() => setXeDs([]));
   }, [token]);
 
   const gui = () => {
@@ -52,6 +66,7 @@ export function DialogLenKeHoach({
         // KHÔNG gửi khi để trống (đừng gửi `null`): ở đường ĐỔI kế hoạch `null` nghĩa là GỠ phụ
         // xe, nên giữ hai nghĩa tách bạch ngay từ màn tạo cho khỏi lẫn về sau.
         ...(phuXeId ? { phu_xe_employee_id: Number(phuXeId) } : {}),
+        ...(xeId ? { vehicle_id: Number(xeId) } : {}),
         gio_lay_hang: new Date(lay).toISOString(),
         gio_du_kien_giao: new Date(giao).toISOString(),
         ghi_chu_phan_cong: ghiChu || null,
@@ -155,6 +170,24 @@ export function DialogLenKeHoach({
             xế ăn trọn.
           </p>
           <label>
+            Xe {xeDs.length > 0 && <span className="gh-bat-buoc">*</span>}
+            <select className="input" value={xeId} onChange={(e) => setXeId(e.target.value)}>
+              <option value="">— Chọn xe —</option>
+              {xeDs.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {String(x.ma ?? "")}
+                  {x.ten ? ` · ${String(x.ten)}` : ""}
+                  {x.tai_trong != null ? ` · ${Number(x.tai_trong).toLocaleString("vi-VN")} tấn` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="rc__sub">
+            {xeDs.length === 0
+              ? "Chưa khai chiếc xe nào ở Cấu hình danh mục → Xe giao hàng."
+              : "Đơn giá khoán km tra theo MỨC mà xe này đang ăn. Chạy xe khác thì đổi lại ở bước ghi kết quả."}
+          </p>
+          <label>
             Giờ lấy hàng
             <input className="input" type="datetime-local" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
               value={lay} onChange={(e) => setLay(e.target.value)} />
@@ -193,7 +226,7 @@ export function DialogLenKeHoach({
 
           <Button
             variant="accent"
-            disabled={!employeeId || !gioNhapHopLe(lay) || !gioNhapHopLe(giao) || dangGui}
+            disabled={!employeeId || !gioNhapHopLe(lay) || !gioNhapHopLe(giao) || dangGui || thieuXe}
             onClick={gui}
           >
             Lưu kế hoạch
