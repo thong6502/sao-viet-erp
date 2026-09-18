@@ -114,7 +114,7 @@ def test_pham_vi_tinh_tu_vi_tri_nguoi_xem(db, cay, scope, noi_ngoi, thay_tron):
     assert tron == thay_tron
     # Phạm vi áp cho cả quyền chi tiết; quyền không bật thì không có ở đâu.
     assert {k for k, d in cay.items() if q.muc("run_order", d.id) == MUC_TAT_CA} == thay_tron
-    assert all(q.muc("qc", d.id) is None for d in cay.values())
+    assert all(q.muc("warehouse", d.id) is None for d in cay.values())
     # Ngoài vùng của dòng thì không bao giờ có gì.
     assert q.muc("read", cay["sx"].id) is None
     assert q.muc("read", cay["cat"].id) is None
@@ -150,7 +150,7 @@ def test_nguoi_nhan_thong_bao_cap_to(db, cay):
     assert set(nguoi_co_quyen(db, cay["dem"].id, "confirm_output")) == {
         truong_in.id, truong_nhom.id, quan_ly.id}
     assert set(nguoi_co_quyen(db, cay["in"].id, "confirm_output")) == {truong_in.id, quan_ly.id}
-    assert nguoi_co_quyen(db, cay["in"].id, "qc") == []
+    assert nguoi_co_quyen(db, cay["in"].id, "warehouse") == []
 
 
 def test_migration_chep_quyen_san_xuat_cu_sang_dong_to(db, cay):
@@ -178,8 +178,8 @@ def test_migration_chep_quyen_san_xuat_cu_sang_dong_to(db, cay):
         return roles.get_permission(role.id, khoa_to(dept.id))
 
     p = dong(truong, cay["in"])
-    assert (p.can_read, p.scope, p.can_run_order, p.can_confirm_output, p.can_qc, p.can_warehouse) \
-        == (True, SCOPE_DEPARTMENT, True, True, True, True)
+    assert (p.can_read, p.scope, p.can_run_order, p.can_confirm_output, p.can_warehouse) \
+        == (True, SCOPE_DEPARTMENT, True, True, True)
     p = dong(tho, cay["in"])
     assert (p.can_read, p.scope, p.can_run_order) == (True, SCOPE_OWN, False)
     assert dong(tho_khong_xem, cay["in"]) is None

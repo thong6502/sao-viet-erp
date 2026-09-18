@@ -128,7 +128,7 @@ vẫn **không tự viết được phiếu chi**. Đó là cố ý.
 tăng ca, tự xin phiếu đi muộn — tab luôn hiện. Chỉ khi muốn **duyệt của người khác** mới cần ô.
 
 **Ô chi tiết `nhan_su`:** Xem lương & BHXH · Sửa lương & BHXH · Thao tác vòng đời (chính thức /
-nghỉ / đình chỉ) · Điều chuyển & nâng bậc · Duyệt yêu cầu cập nhật · Xuất Excel.
+nghỉ / đình chỉ) · Điều chuyển & đổi chức danh · Duyệt yêu cầu cập nhật · Xuất Excel.
 
 **Ô chi tiết `cham_cong`:** Bảng công tháng · Duyệt phiếu đi muộn/về sớm/nghỉ nửa buổi · Điểm chấm
 công · Khai ca · Lịch & Ngày lễ · Xem nhật ký · **Chấm bù / sửa công** · **Chốt kỳ công / Mở lại** ⚠️.
@@ -149,9 +149,9 @@ Mọi thứ còn lại là **ô chi tiết riêng**:
 | Ô | Việc |
 |---|---|
 | Bảng lương tháng | mở bảng lương của người khác |
-| Lương nhân viên | thang bậc / khung lương từng người |
+| Lương nhân viên | mức lương / lịch sử lương từng người |
 | Lương khoán | đơn giá khoán theo tổ |
-| Xem cấu hình lương | thang bậc, KPI, phụ cấp, bảo hiểm, lịch sử lương |
+| Xem cấu hình lương | cơ chế lương theo bộ phận, khoản thu nhập, bảo hiểm & thuế, lịch sử lương |
 | Duyệt tạm ứng | |
 | Xuất bảng lương / file chuyển khoản | |
 | **Chốt bảng lương / Mở lại kỳ** ⚠️ | chốt kỳ **TOÀN CÔNG TY** — máy chủ còn đòi phạm vi **Tất cả** |

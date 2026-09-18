@@ -14,9 +14,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SxThucTeKhoang, SxWorkItem } from "../api/client";
 import { Icon } from "../components/Icons";
-import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
+import { ChipKcs, ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { khungLuoi, nhanNgay, ngayGio, soNgayGiua, themNgay } from "./xl3Shared";
 import { slText, sxSerial, ttMeta } from "./thsxShared";
+import { ChamCho, type SxChoCuaViec } from "./thsxChoXacNhan";
 
 interface Props {
   /** Ngày đầu cửa sổ (YYYY-MM-DD). */
@@ -26,6 +27,8 @@ interface Props {
   viec: SxWorkItem[];
   selectedId: number | null;
   onChon: (w: SxWorkItem) => void;
+  /** Việc chờ tổ bấm theo công đoạn (§11.5) — chấm đỏ ở ô nhãn của dòng. */
+  cho?: ReadonlyMap<number, SxChoCuaViec>;
   /** Đang lọc theo từ khoá? Lưới rỗng thì báo "không khớp" thay vì "khoảng ngày trống". */
   dangTim?: boolean;
 }
@@ -155,7 +158,7 @@ export function dongHaiThanh(w: SxWorkItem, co: CoThanh): string {
   }
 }
 
-export function ThsxLichNgay({ tu, soNgay, viec, selectedId, onChon, dangTim = false }: Props) {
+export function ThsxLichNgay({ tu, soNgay, viec, selectedId, onChon, dangTim = false, cho }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // Bề ngang KHUNG (không phải cửa sổ trình duyệt): bàn tổ còn cột Hàng chờ bên trái nên lưới hẹp
@@ -335,7 +338,7 @@ export function ThsxLichNgay({ tu, soNgay, viec, selectedId, onChon, dangTim = f
             thanh = (
               <button
                 type="button"
-                className={`thsx-ln__thanh thsx-ln__thanh--${w.trang_thai} thsx-ln__thanh--${ratHep ? "hep" : co}${sel ? " thsx-ln__thanh--chon" : ""}${w.la_kcs ? " thsx-ln__thanh--kcs" : ""}${o.tranTrai ? " thsx-ln__thanh--tran-trai" : ""}${o.tranPhai ? " thsx-ln__thanh--tran-phai" : ""}`}
+                className={`thsx-ln__thanh thsx-ln__thanh--${w.trang_thai} thsx-ln__thanh--${ratHep ? "hep" : co}${sel ? " thsx-ln__thanh--chon" : ""}${o.tranTrai ? " thsx-ln__thanh--tran-trai" : ""}${o.tranPhai ? " thsx-ln__thanh--tran-phai" : ""}`}
                 style={{ left: trai, width: rong }}
                 title={`${ma}${cd ? ` · ${cd}` : ""}${w.nguon_ten ? ` · ${w.nguon_ten}` : ""} · ${meta.label} · ${d2Du}\nKế hoạch: ${ngayGio(w.du_kien_bat_dau)} → ${ngayGio(w.du_kien_ket_thuc)}${thucTeTitle ? `\nThực tế: ${thucTeTitle}` : ""}`}
                 aria-label={`${ma}${cd ? `, ${cd}` : ""}, ${meta.label}, ${d2Du}`}
@@ -369,7 +372,8 @@ export function ThsxLichNgay({ tu, soNgay, viec, selectedId, onChon, dangTim = f
                   <span className={`thsx-ln__tt thsx-ln__tt--${w.trang_thai}`} role="img" aria-label={meta.label} title={meta.label}>
                     <Icon name={meta.icon} size={12} />
                   </span>
-                  {w.la_kcs && <span className="thsx-ln__kcs">KCS</span>}
+                  <ChipKcs so_lan={w.kcs_so_lan} loi={w.kcs_loi} />
+                  <ChamCho c={cho?.get(w.id)} />
                 </div>
                 <div className="thsx-ln__cd" title={cd}>{cd || "—"}</div>
                 {phu && <div className="thsx-ln__phu" title={phu}>{phu}</div>}

@@ -100,9 +100,9 @@ from ...models.order import Order
 from ...models.san_xuat import (
     CV_DANG_CHAY, CV_HOAN_THANH, CV_PHAT_HANH, CV_TAM_DUNG, SanXuatCongViec,
 )
-from ...models.san_xuat_thuc_thi import PC_HOAT_DONG, SanXuatPhanCong
+from ...models.san_xuat_thuc_thi import PC_HOAT_DONG, SanXuatPhanCong, SanXuatPhienChay
 from ...repositories.attendance_repo import AttendanceRepository
-from ..gio_xuong import gio_xuong, lich_hien_thi
+from ..gio_xuong import gio_xuong, lich_hien_thi, thuc_te_hien_thi, ve_utc_that
 from . import boi_canh, danh_sach, pham_vi
 from .boi_canh import BoiCanh
 
@@ -1171,7 +1171,94 @@ def _cua_so_ngay_xuong(ngay: date, cas: list[WorkShift]) -> tuple[datetime, date
     return tu, den
 
 
-def _viec_theo_ca_dict(bc: BoiCanh, cv: SanXuatCongViec, lsx_cua_cv: dict[int, dict[int, str]]) -> dict:
+def _khung_ca(ca: WorkShift, ngay: date) -> tuple[datetime, datetime]:
+    """`[bd, kt)` giờ TƯỜNG naive của `ca` trong ngày xưởng `ngay` — ca qua nửa đêm kết thúc sang
+    `ngay+1`, đúng neo "ca tính theo mốc BẮT ĐẦU" của `_ca_cua_moc` (C120)."""
+    goc = datetime(ngay.year, ngay.month, ngay.day)
+    return (
+        goc + timedelta(minutes=ca.start_minute),
+        goc + timedelta(days=1 if ca.is_overnight else 0, minutes=ca.end_minute),
+    )
+
+
+def _tron_phut(dt: datetime) -> datetime:
+    return dt.replace(second=0, microsecond=0)
+
+
+def _khoang_chay_that(
+    phien: list[SanXuatPhienChay], bay_gio: datetime,
+) -> list[tuple[datetime, datetime]]:
+    """Các khoảng máy CHẠY THẬT của một công việc, giờ TƯỜNG naive (cùng thước với khung ca).
+
+    Phiên đang mở (`ket_thuc IS NULL`) tính tới `bay_gio`. Cắt về PHÚT — đúng độ mịn màn hình
+    hiện ra, và là thứ chặn ca giao ca: thợ Ca 1 bấm Tạm dừng lúc 14:00:20 thì việc KHÔNG được
+    hiện sang Ca 2 chỉ vì 20 giây lấn giờ. Phiên chạy chưa tròn một phút thành một ĐIỂM `(a, a)` —
+    vẫn giữ, không thì việc đã bấm Bắt đầu mà rơi khỏi mọi ca."""
+    ket: list[tuple[datetime, datetime]] = []
+    for p in phien:
+        a = _tron_phut(thuc_te_hien_thi(p.bat_dau))
+        b = _tron_phut(thuc_te_hien_thi(p.ket_thuc)) if p.ket_thuc is not None else bay_gio
+        ket.append((a, max(a, b)))
+    return ket
+
+
+def _cham_khung(khoang: tuple[datetime, datetime], khung: tuple[datetime, datetime]) -> bool:
+    """Khoảng chạy `[a, b]` có lấn vào khung nửa mở `[bd, kt)` không. Khoảng dài 0 là một điểm:
+    thuộc khung khi `bd <= a < kt` — hai mép khớp đúng khuôn `_ca_cua_moc`."""
+    (a, b), (bd, kt) = khoang, khung
+    if a == b:
+        return bd <= a < kt
+    return a < kt and b > bd
+
+
+def _con_ngoai_ca(
+    khoang: tuple[datetime, datetime], ngay: date, khung_ca: list[tuple[datetime, datetime]],
+) -> bool:
+    """Phần của `khoang` nằm trong NGÀY LỊCH `ngay` có đoạn nào không ca nào phủ không — đúng
+    nghĩa rổ "Ngoài ca" (lọc theo ngày lịch của chính mốc, Vòng sửa 1 mục A). `khung_ca` phải gồm
+    cả khung ca đêm của HÔM TRƯỚC: rạng sáng `ngay` là đuôi của ca đó, không phải ngoài ca."""
+    d0 = datetime(ngay.year, ngay.month, ngay.day)
+    d1 = d0 + timedelta(days=1)
+    a, b = khoang
+    if a == b:
+        return d0 <= a < d1 and not any(bd <= a < kt for bd, kt in khung_ca)
+    con, het = max(a, d0), min(b, d1)
+    for bd, kt in sorted(khung_ca):
+        if con >= het:
+            break
+        if bd <= con < kt:
+            con = kt
+    return con < het
+
+
+def _ngay_ca_cua(cas: list[WorkShift], moc: datetime) -> date:
+    tim = _ca_cua_moc(cas, moc)
+    return tim[1] if tim is not None else moc.date()
+
+
+def _lech_lich_da_chay(cas: list[WorkShift], cv: SanXuatCongViec, ngay: date) -> str | None:
+    """Việc ĐÃ chạy đang được bày ở ngày `ngay`: `"som"` nếu ngày đó TRƯỚC khoảng ngày kế hoạch,
+    `"tre"` nếu SAU, `None` nếu nằm trong (hoặc việc không có kế hoạch để so). Khoảng ngày kế
+    hoạch là từ ngày ca của `du_kien_bat_dau` tới ngày ca của `du_kien_ket_thuc` — việc kế hoạch
+    vắt hai ngày chạy đúng ngày thứ hai không phải trễ."""
+    bd = lich_hien_thi(cv.du_kien_bat_dau)
+    if bd is None:
+        return None
+    ngay_bd = _ngay_ca_cua(cas, bd)
+    kt = lich_hien_thi(cv.du_kien_ket_thuc)
+    # Mốc kết thúc là mép MỞ: xong đúng 00:00 thì ngày cuối là hôm trước, lùi một phút mới tra.
+    ngay_kt = _ngay_ca_cua(cas, kt - timedelta(minutes=1)) if kt is not None and kt > bd else ngay_bd
+    if ngay < ngay_bd:
+        return "som"
+    if ngay > max(ngay_bd, ngay_kt):
+        return "tre"
+    return None
+
+
+def _viec_theo_ca_dict(
+    bc: BoiCanh, cv: SanXuatCongViec, lsx_cua_cv: dict[int, dict[int, str]],
+    *, bat_dau_thuc_te: datetime | None = None, lech_lich: str | None = None,
+) -> dict:
     """MỘT công việc trong `viec: [...]` — dùng CHUNG cho ca thật lẫn rổ "Ngoài ca" (Vòng sửa 1
     mục A). `may`/`may_id` qua `_ten_may` (mục G) — trước đó trả `None` cho máy chưa gán, khác
     hẳn nhãn `"Chưa xếp máy"` mà `/theo-may` đã dùng cho đúng một sự thật.
@@ -1190,6 +1277,8 @@ def _viec_theo_ca_dict(bc: BoiCanh, cv: SanXuatCongViec, lsx_cua_cv: dict[int, d
             for lid, ma in sorted(lsx_cua_cv.get(cv.id, {}).items(), key=lambda kv: (kv[1], kv[0]))
         ],
         "du_kien_bat_dau": lich_hien_thi(cv.du_kien_bat_dau),
+        "bat_dau_thuc_te": bat_dau_thuc_te,
+        "lech_lich": lech_lich,
         "nguoi": bc.nguoi_cua(cv.id),
         "nhan": _nhan(cv),
     }
@@ -1206,6 +1295,17 @@ def theo_ca(
     (`XepLichService._ca_lich_may()` nay gọi lại chính nó, Ruling C117): tập ca của hai bàn phải
     TRÙNG NHAU. Bài canh: `test_tap_ca_trung_voi_xep_lich` + `test_ca_lich_may_mot_nguon_duy_nhat`
     (khoá bằng `inspect.getsource`, Vòng sửa 1 mục B).
+
+    --- 16/09/2026 — VIỆC ĐÃ CHẠY XẾP THEO GIỜ CHẠY THẬT (chủ dự án duyệt, chọn "gán nhãn") ---------
+    Trước đây MỌI việc xếp theo `du_kien_bat_dau`: việc đang chạy ngay lúc này nhưng kế hoạch là
+    ngày mai thì ca hiện tại trống trơn, việc vắt qua hai ca chỉ hiện ở ca bắt đầu. Luật nay:
+      · Có ≥1 phiên chạy (`bc.phien`) → xếp theo KHOẢNG CHẠY THẬT: chạm ca nào hiện ở ca đó, vắt
+        hai ca hiện ở cả hai, phiên đang mở tính tới bây giờ, đoạn không ca nào phủ vào "Ngoài
+        ca". KHÔNG hiện thêm ở ô kế hoạch cũ. Việc tạm dừng vì thế chỉ còn ở ca nó đã thực chạy.
+        `lech_lich` = `"som"`/`"tre"` khi ngày đang xem nằm trước/sau khoảng ngày kế hoạch.
+      · Chưa có phiên nào → giữ nguyên ô kế hoạch như cũ; còn `released` mà đã qua giờ bắt đầu
+        dự kiến thì `lech_lich="tre"` — vẫn ở ngày cũ, KHÔNG gom lên hôm nay (không có nhóm riêng).
+    Cửa sổ SQL nới thêm vế "có phiên chạm cửa sổ" trong CÙNG một câu — số câu SQL không đổi.
 
     --- VÒNG SỬA 1 MỤC A (điều phối, 2026-09-03) — CHẶN-1: rổ "Ngoài ca" LUÔN có mặt --------------
     C117 gom được MỘT trong BA đường lùi (`or cas` khi không ca nào tick `ca_san_xuat`) nhưng bỏ sót
@@ -1268,14 +1368,30 @@ def theo_ca(
         nào để gõ vào URL, phải có một giá trị tường minh riêng cho nó — im lặng bỏ sót khả năng
         này là đúng lỗi Task 16 đã tốn một vòng sửa.
     """
-    ngay = ngay if ngay is not None else gio_xuong().date()
+    bay_gio = _tron_phut(gio_xuong().replace(tzinfo=None))
+    ngay = ngay if ngay is not None else bay_gio.date()
     cas = AttendanceRepository(db).ca_lich_xuong()
     tu, den = _cua_so_ngay_xuong(ngay, cas)
 
+    # Ứng viên = việc có KẾ HOẠCH bắt đầu trong cửa sổ HOẶC có phiên chạy THẬT chạm cửa sổ. Phiên
+    # ghi UTC THẬT nên mép cửa sổ (thang lịch) phải đổi thang trước khi so. `>=` ở mép `tu` để
+    # phiên dài 0 đúng 00:00 vẫn lọt — thừa một chút thì tầng Python dưới tự loại.
+    chay_trong_cua_so = SanXuatCongViec.id.in_(
+        select(SanXuatPhienChay.cong_viec_id)
+        .where(SanXuatPhienChay.bat_dau < ve_utc_that(den))
+        .where(or_(
+            SanXuatPhienChay.ket_thuc.is_(None),
+            SanXuatPhienChay.ket_thuc >= ve_utc_that(tu),
+        ))
+    )
+    dieu_kien_ngay = or_(
+        and_(SanXuatCongViec.du_kien_bat_dau >= tu, SanXuatCongViec.du_kien_bat_dau < den),
+        chay_trong_cua_so,
+    )
     truc_tiep = (
         select(SanXuatCongViec.lsx_id)
         .where(SanXuatCongViec.lsx_id.isnot(None))
-        .where(SanXuatCongViec.du_kien_bat_dau >= tu, SanXuatCongViec.du_kien_bat_dau < den)
+        .where(dieu_kien_ngay)
     )
     qua_ghep = (
         select(BaiGhepCongDoanMap.lsx_id)
@@ -1284,7 +1400,7 @@ def theo_ca(
             SanXuatCongViec.bai_ghep_cong_doan_id == BaiGhepCongDoanMap.bai_ghep_cong_doan_id,
         )
         .where(SanXuatCongViec.lsx_id.is_(None))
-        .where(SanXuatCongViec.du_kien_bat_dau >= tu, SanXuatCongViec.du_kien_bat_dau < den)
+        .where(dieu_kien_ngay)
     )
     ung_vien = truc_tiep.union(qua_ghep).subquery()
     ids = list(db.execute(
@@ -1304,20 +1420,54 @@ def theo_ca(
             cv_theo_id[cv.id] = cv
             lsx_cua_cv.setdefault(cv.id, {})[lsx.id] = lsx.ma
 
-    viec_theo_ca: dict[int, list[SanXuatCongViec]] = {ca.id: [] for ca in cas}
-    ngoai_ca: list[SanXuatCongViec] = []
+    # Khung của mọi ca trong `ngay`, cộng khung ca ĐÊM của hôm trước (đuôi của nó phủ rạng sáng
+    # `ngay` — chỉ dùng để quyết "ngoài ca", không bày ca hôm trước ra).
+    khung_hom_nay = {ca.id: _khung_ca(ca, ngay) for ca in cas}
+    khung_phu_ngay = list(khung_hom_nay.values()) + [
+        _khung_ca(ca, ngay - timedelta(days=1)) for ca in cas if ca.is_overnight
+    ]
+
+    # (cv, mốc để sắp, giờ bắt đầu chạy thật, nhãn lệch lịch)
+    viec_theo_ca: dict[int, list[tuple]] = {ca.id: [] for ca in cas}
+    ngoai_ca: list[tuple] = []
     for cv in cv_theo_id.values():
+        khoang = _khoang_chay_that(bc.phien.get(cv.id, []), bay_gio)
+        if khoang:
+            # ĐÃ CHẠY → xếp theo giờ chạy thật: chạm ca nào hiện ở ca đó (vắt hai ca thì cả hai),
+            # còn đoạn nào ngoài mọi ca thì thêm vào "Ngoài ca". KHÔNG hiện lại ở ô kế hoạch cũ.
+            bat_dau_that = min(a for a, _ in khoang)
+            lech = _lech_lich_da_chay(cas, cv, ngay)
+            for ca in cas:
+                cham = [k for k in khoang if _cham_khung(k, khung_hom_nay[ca.id])]
+                if cham:
+                    moc_sap = max(min(a for a, _ in cham), khung_hom_nay[ca.id][0])
+                    viec_theo_ca[ca.id].append((cv, moc_sap, bat_dau_that, lech))
+            doan_ngoai = [k for k in khoang if _con_ngoai_ca(k, ngay, khung_phu_ngay)]
+            if doan_ngoai:
+                moc_sap = max(min(a for a, _ in doan_ngoai), datetime(ngay.year, ngay.month, ngay.day))
+                ngoai_ca.append((cv, moc_sap, bat_dau_that, lech))
+            continue
+
+        # CHƯA CHẠY → giữ ô kế hoạch như cũ; quá giờ bắt đầu mà còn chờ thì gắn "trễ lịch" và vẫn
+        # nằm ở ngày cũ (không dời sang hôm nay).
         moc = lich_hien_thi(cv.du_kien_bat_dau)
         if moc is None:
             continue
+        lech = "tre" if cv.trang_thai == CV_PHAT_HANH and moc < bay_gio else None
         tim = _ca_cua_moc(cas, moc)
         if tim is None:
             if moc.date() == ngay:  # Vòng sửa 1 mục A — "Ngoài ca", KHÔNG bỏ đi nữa
-                ngoai_ca.append(cv)
+                ngoai_ca.append((cv, moc, None, lech))
             continue
         ca, ngay_ca = tim
         if ngay_ca == ngay:
-            viec_theo_ca[ca.id].append(cv)
+            viec_theo_ca[ca.id].append((cv, moc, None, lech))
+
+    def _bay(dong: list[tuple]) -> list[dict]:
+        return [
+            _viec_theo_ca_dict(bc, cv, lsx_cua_cv, bat_dau_thuc_te=bd_that, lech_lich=lech)
+            for cv, _, bd_that, lech in sorted(dong, key=lambda d: (d[1], d[0].id))
+        ]
 
     ca_that = [
         {
@@ -1326,13 +1476,7 @@ def theo_ca(
             "bat_dau_phut": ca.start_minute,
             "ket_thuc_phut": ca.end_minute,
             "qua_nua_dem": bool(ca.is_overnight),
-            "viec": [
-                _viec_theo_ca_dict(bc, cv, lsx_cua_cv)
-                for cv in sorted(
-                    viec_theo_ca[ca.id],
-                    key=lambda cv: (lich_hien_thi(cv.du_kien_bat_dau), cv.id),
-                )
-            ],
+            "viec": _bay(viec_theo_ca[ca.id]),
         }
         for ca in cas
     ]
@@ -1342,10 +1486,7 @@ def theo_ca(
         "bat_dau_phut": None,
         "ket_thuc_phut": None,
         "qua_nua_dem": False,
-        "viec": [
-            _viec_theo_ca_dict(bc, cv, lsx_cua_cv)
-            for cv in sorted(ngoai_ca, key=lambda cv: (lich_hien_thi(cv.du_kien_bat_dau), cv.id))
-        ],
+        "viec": _bay(ngoai_ca),
     }
 
     # Task 18a mục W2 (Ruling C134) — lọc `ca_id` SAU khi đã dựng xong cả hai rổ, thuần Python,

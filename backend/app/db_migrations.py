@@ -13704,6 +13704,9 @@ MIGRATIONS.append(("0301_index_danh_muc_tra_nguoc", _migrate_index_danh_muc_tra_
 
 
 _COT_QUYEN_TO_0302 = ("can_run_order", "can_confirm_output", "can_qc", "can_warehouse")
+# Ô KCS (`can_qc`) đã gỡ ở mg `0306` — hàm chép quyền dưới đây (seed còn gọi trên DB trắng) chỉ đòi
+# ba ô còn sống và chỉ ghi `can_qc` khi cột còn trong bảng.
+_COT_QUYEN_TO_CON_SONG = ("can_run_order", "can_confirm_output", "can_warehouse")
 
 
 def chuyen_quyen_san_xuat_sang_to(db) -> None:
@@ -13722,8 +13725,10 @@ def chuyen_quyen_san_xuat_sang_to(db) -> None:
     bang = set(insp.get_table_names())
     if not {"departments", "modules", "roles", "role_permissions"} <= bang:
         return
-    if not set(_COT_QUYEN_TO_0302) <= _existing_columns(insp, "role_permissions"):
+    cot_co = _existing_columns(insp, "role_permissions")
+    if not set(_COT_QUYEN_TO_CON_SONG) <= cot_co:
         return
+    co_qc = "can_qc" in cot_co
     depts = db.execute(text("SELECT id, parent_id, name, la_san_xuat FROM departments")).all()
     by = {d[0]: d for d in depts}
 
@@ -13788,8 +13793,9 @@ def chuyen_quyen_san_xuat_sang_to(db) -> None:
         ct = bool(v["chi_tiet"])
         db.execute(text(
             "INSERT INTO role_permissions (role_id, module_key, can_read, can_create, can_update, "
-            "can_delete, scope, can_run_order, can_confirm_output, can_qc, can_warehouse) "
-            "VALUES (:r, :k, :t, :f, :f, :f, :s, :c, :c, :c, :c)"),
+            "can_delete, scope, can_run_order, can_confirm_output, can_warehouse"
+            + (", can_qc" if co_qc else "") + ") "
+            "VALUES (:r, :k, :t, :f, :f, :f, :s, :c, :c, :c" + (", :c" if co_qc else "") + ")"),
             {"r": role_id, "k": key, "t": True, "f": False, "s": v["scope"], "c": ct})
     db.commit()
 
@@ -13851,6 +13857,341 @@ def _migrate_lsx_dinh_kem(db: Session) -> None:
 
 
 MIGRATIONS.append(("0303_lsx_dinh_kem", _migrate_lsx_dinh_kem))
+
+
+def _migrate_phieu_chi_phi_khac(db: Session) -> None:
+    """Chi phí khác của sản phẩm tính giá (16/09/2026) — bảng `phieu_chi_phi_khac`, một dòng một khoản.
+
+    Bảng MỚI, không backfill: trước hôm nay phiếu không có chỗ nào khai khoản lẻ để mà chép sang.
+    Tiền của các dòng này CÓ cộng vào `gia_von_tp`, nhưng bảng rỗng ⇒ mọi phiếu cũ giữ nguyên số
+    cho tới khi ai đó tự thêm dòng.
+
+    Idempotent: hỏi inspector trước `CREATE TABLE` + `CREATE INDEX IF NOT EXISTS`. DB trắng dựng
+    bằng `create_all` đã có sẵn cả bảng lẫn index (tên index trùng đúng tên `index=True` đặt).
+    """
+    ins = inspect(db.get_bind())
+    if not ins.has_table("phieu_thanh_phan"):
+        return
+    if not ins.has_table("phieu_chi_phi_khac"):
+        pg = db.get_bind().dialect.name == "postgresql"
+        pk = "SERIAL PRIMARY KEY" if pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        ts = "TIMESTAMPTZ" if pg else "DATETIME"
+        db.execute(text(
+            "CREATE TABLE phieu_chi_phi_khac ("
+            f"  id {pk},"
+            "  thanh_phan_id INTEGER NOT NULL REFERENCES phieu_thanh_phan(id) ON DELETE CASCADE,"
+            "  thu_tu INTEGER NOT NULL DEFAULT 0,"
+            "  ten VARCHAR(255) NOT NULL DEFAULT '',"
+            "  so_tien NUMERIC(18,2) NOT NULL DEFAULT 0,"
+            f"  created_at {ts} NOT NULL,"
+            f"  updated_at {ts} NOT NULL"
+            ")"
+        ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_phieu_chi_phi_khac_thanh_phan_id "
+        "ON phieu_chi_phi_khac (thanh_phan_id)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0304_phieu_chi_phi_khac", _migrate_phieu_chi_phi_khac))
+
+
+def _migrate_bo_bac_tay_nghe(db) -> None:
+    """Bỏ hẳn bậc tay nghề khỏi hệ thống (chủ 17/09/2026).
+
+    · `employees.job_grade_id` / `job_grade` (chữ cũ) / `pay_grade_key` — hồ sơ không còn ô bậc.
+    · `san_xuat_khoang_tham_gia.job_grade_id` / `output_coefficient` — ảnh chụp bậc lúc vào máy.
+    · `san_xuat_phan_bo_dong.he_so_bac` — chia sản lượng giờ theo PHÚT hợp lệ, không nhân hệ số.
+    · bảng `job_grades` — danh mục 5 bậc + hệ số. Xoá SAU các cột trỏ vào nó (Postgres bỏ FK
+      cùng cột).
+
+    `salary_rate_rules.pay_grade_key` (chính sách lương theo bậc thợ, đang ngủ) KHÔNG đụng.
+    Mốc Quá trình công tác cũ `field="job_grade"` giữ nguyên làm lịch sử.
+
+    Best-effort từng câu như mg `0300`: SQLite < 3.35 từ chối `DROP COLUMN` → cột mồ côi vô hại
+    vì model không map nữa. Mất bậc/hệ số đã khai — không khôi phục được.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    cot = (
+        ("employees", "job_grade_id"),
+        ("employees", "job_grade"),
+        ("employees", "pay_grade_key"),
+        ("san_xuat_khoang_tham_gia", "job_grade_id"),
+        ("san_xuat_khoang_tham_gia", "output_coefficient"),
+        ("san_xuat_phan_bo_dong", "he_so_bac"),
+    )
+    for bang, ten in cot:
+        if bang not in tables or ten not in _existing_columns(insp, bang):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN {ten}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+    if "job_grades" in tables:
+        try:
+            db.execute(text("DROP TABLE job_grades"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0305_bo_bac_tay_nghe", _migrate_bo_bac_tay_nghe))
+
+
+def _migrate_kcs_theo_lenh(db) -> None:
+    """KCS theo LỆNH (17/09/2026, `docs/design-kcs-theo-lenh.md`).
+
+    Bỏ các cột của cách tổ chức cũ:
+      · `role_permissions.can_qc` — ô quyền KCS theo tổ. KCS nay = thành viên tổ `is_kcs`.
+      · `san_xuat_cong_viec.la_kcs` — cờ "bước KCS" đoán từ routing. Chỉ còn `la_kcs_cuoi`.
+      · `san_xuat_kcs_batch.loai` / `kcs_department_id` / `batch_id` — ba loại mẻ KCS, tổ KCS của
+        trang, mẻ sản lượng đẻ kèm. Mẻ sản lượng cũ GIỮ LẠI làm mẻ của công đoạn đó.
+      · `san_xuat_kcs_loi.trang_thai` / `ly_do_tu_choi` — luồng nhận / từ chối trách nhiệm.
+
+    Trước khi bỏ, nắn lỗi cũ về luật mới (raw SQL, chỉ điền chỗ trống): tổ chịu = tổ của công đoạn,
+    công đoạn = công việc của lần kiểm, và coi như ĐÃ XEM (`phan_hoi_luc = created_at`) để hộp
+    "KCS báo lỗi" của tổ không bị dội lỗi cũ.
+
+    Best-effort từng câu DROP như mg `0305`: SQLite < 3.35 từ chối `DROP COLUMN` → cột mồ côi vô hại
+    (đều có DEFAULT hoặc nullable). Mất phân loại cũ và lý do từ chối — không khôi phục được.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if {"san_xuat_kcs_loi", "san_xuat_kcs_batch", "san_xuat_cong_viec"} <= tables:
+        db.execute(text(
+            "UPDATE san_xuat_kcs_loi SET cong_doan_ref_id = ("
+            "  SELECT b.cong_viec_id FROM san_xuat_kcs_batch b WHERE b.id = san_xuat_kcs_loi.kcs_batch_id"
+            ") WHERE cong_doan_ref_id IS NULL"
+        ))
+        db.execute(text(
+            "UPDATE san_xuat_kcs_loi SET to_chiu_id = ("
+            "  SELECT cv.department_id FROM san_xuat_cong_viec cv"
+            "  WHERE cv.id = san_xuat_kcs_loi.cong_doan_ref_id"
+            ") WHERE to_chiu_id IS NULL"
+        ))
+        db.execute(text(
+            "UPDATE san_xuat_kcs_loi SET phan_hoi_luc = created_at WHERE phan_hoi_luc IS NULL"
+        ))
+        db.commit()
+    # Index của cột phải bỏ TRƯỚC cột trên SQLite (DROP COLUMN từ chối cột còn index).
+    for bang, idx in (
+        ("san_xuat_kcs_batch", "ix_san_xuat_kcs_batch_batch_id"),
+        ("san_xuat_kcs_batch", "ix_san_xuat_kcs_batch_kcs_department_id"),
+    ):
+        if bang not in tables:
+            continue
+        if idx in {i["name"] for i in insp.get_indexes(bang)}:
+            try:
+                db.execute(text(f"DROP INDEX {idx}"))
+                db.commit()
+            except Exception:
+                db.rollback()
+    cot = (
+        ("role_permissions", "can_qc"),
+        ("san_xuat_cong_viec", "la_kcs"),
+        ("san_xuat_kcs_batch", "loai"),
+        ("san_xuat_kcs_batch", "kcs_department_id"),
+        ("san_xuat_kcs_batch", "batch_id"),
+        ("san_xuat_kcs_loi", "trang_thai"),
+        ("san_xuat_kcs_loi", "ly_do_tu_choi"),
+    )
+    for bang, ten in cot:
+        if bang not in tables or ten not in _existing_columns(insp, bang):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN {ten}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0306_kcs_theo_lenh", _migrate_kcs_theo_lenh))
+
+
+def _migrate_bo_co_che_luong_cu(db) -> None:
+    """Dọn cơ chế lương cũ "mức lương theo bảng/tổ" (chủ 17/09/2026) — engine đã tra hồ sơ từng
+    người từ 07/09/2026, mấy chỗ dưới chỉ còn là dữ liệu chết:
+
+    · bảng `salary_rate_rules` — mức lương theo (nhóm lương, bậc thợ, thâm niên, giới tính).
+    · `departments.salary_mechanism` / `probation_ratio` — cơ chế ra mức lương + % thử việc theo
+      phòng (tỷ lệ thử việc thật là `payroll_params.probation_ratio`, KHÔNG đụng).
+    · `employees.payroll_group` — trục tra của bảng trên. Bỏ index trước: SQLite từ chối
+      `DROP COLUMN` trên cột có index.
+    · `employee_salaries.amount_mode` (rule/manual/dept_row) + `source_salary_row_id` — hai lối
+      lấy mức từ bảng/tổ. `base_amount` GIỮ (fallback của bản ghi cũ).
+
+    Best-effort từng câu như mg `0305`. Mất dữ liệu các cột/bảng trên — không khôi phục được.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "employees" in tables and "payroll_group" in _existing_columns(insp, "employees"):
+        try:
+            db.execute(text("DROP INDEX IF EXISTS ix_employees_payroll_group"))
+            db.commit()
+        except Exception:
+            db.rollback()
+    cot = (
+        ("departments", "salary_mechanism"),
+        ("departments", "probation_ratio"),
+        ("employees", "payroll_group"),
+        ("employee_salaries", "amount_mode"),
+        ("employee_salaries", "source_salary_row_id"),
+    )
+    for bang, ten in cot:
+        if bang not in tables or ten not in _existing_columns(insp, bang):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN {ten}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+    if "salary_rate_rules" in tables:
+        try:
+            db.execute(text("DROP TABLE salary_rate_rules"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0307_bo_co_che_luong_cu", _migrate_bo_co_che_luong_cu))
+
+
+def _migrate_go_btp_san_xuat(db) -> None:
+    """Gỡ HẲN bán thành phẩm (BTP) khỏi kho sản xuất và lot đầu vào (17/09/2026).
+
+    Không đường nào ghi các cột dưới đây nữa (phân loại BTP dư gỡ cùng ngày, lot BTP kho chưa từng
+    có màn ghi):
+      · `san_xuat_kho_hang.loai_hang` / `lsx_id` / `cong_doan_ref_id` — subtype `btp` và danh tính
+        LSX + công đoạn nguồn của nó. Registry nay chỉ là thành phẩm theo (đơn, nhóm, quy cách).
+      · `san_xuat_kho_lot.loai_hang` / `lsx_id` / `cong_doan_ref_id` / `nguon_batch_id` /
+        `phan_loai` — lô BTP dư (nhập kho BTP / mẫu lưu / phế).
+      · `san_xuat_batch_lot_vao.nguon_loai` / `nguon_lot_id` — nguồn "lot BTP trong kho".
+
+    Xoá TRƯỚC các dòng mang dữ liệu BTP (lô `loai_hang <> 'thanh_pham'`, hàng `btp` không còn lô
+    hay yêu cầu nào, lot vào không trỏ mẻ) — giữ lại thì chúng thành thành phẩm giả sau khi mất cột
+    phân biệt. Dev + prod lúc viết không có dòng nào; DB worktree cũ `svn_erp_wt_denghi` có 2 lô.
+
+    Index bỏ TRƯỚC cột (SQLite từ chối `DROP COLUMN` trên cột có index); Postgres tự bỏ index + FK
+    theo cột. Best-effort từng câu như mg `0305`. Mất dữ liệu các cột/dòng trên — không khôi phục được.
+
+    Đọc HẾT cột + index trước mọi DML: inspector trên SQLite bộ nhớ mượn đúng kết nối của phiên rồi
+    ROLLBACK lúc trả — hỏi xen giữa là nuốt mất câu DELETE chưa commit.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    bang_co = [b for b in ("san_xuat_kho_hang", "san_xuat_kho_lot", "san_xuat_batch_lot_vao") if b in tables]
+    cot_co = {b: _existing_columns(insp, b) for b in bang_co}
+    idx_co = {b: {i["name"] for i in insp.get_indexes(b)} for b in bang_co}
+
+    if "loai_hang" in cot_co.get("san_xuat_kho_lot", ()):
+        db.execute(text("DELETE FROM san_xuat_kho_lot WHERE loai_hang <> 'thanh_pham'"))
+    if "loai_hang" in cot_co.get("san_xuat_kho_hang", ()):
+        db.execute(text(
+            "DELETE FROM san_xuat_kho_hang WHERE loai_hang <> 'thanh_pham'"
+            " AND NOT EXISTS (SELECT 1 FROM san_xuat_kho_lot l WHERE l.hang_id = san_xuat_kho_hang.id)"
+            " AND NOT EXISTS (SELECT 1 FROM san_xuat_nhap_kho_yc y WHERE y.hang_id = san_xuat_kho_hang.id)"
+        ))
+    if "nguon_loai" in cot_co.get("san_xuat_batch_lot_vao", ()):
+        db.execute(text("DELETE FROM san_xuat_batch_lot_vao WHERE nguon_loai <> 'batch'"))
+    db.commit()
+
+    cot = (
+        ("san_xuat_kho_hang", "loai_hang"),
+        ("san_xuat_kho_hang", "lsx_id"),
+        ("san_xuat_kho_hang", "cong_doan_ref_id"),
+        ("san_xuat_kho_lot", "loai_hang"),
+        ("san_xuat_kho_lot", "lsx_id"),
+        ("san_xuat_kho_lot", "cong_doan_ref_id"),
+        ("san_xuat_kho_lot", "nguon_batch_id"),
+        ("san_xuat_kho_lot", "phan_loai"),
+        ("san_xuat_batch_lot_vao", "nguon_loai"),
+        ("san_xuat_batch_lot_vao", "nguon_lot_id"),
+    )
+    for bang, ten in cot:
+        if ten not in cot_co.get(bang, ()):
+            continue
+        idx = f"ix_{bang}_{ten}"
+        if idx in idx_co[bang]:
+            try:
+                db.execute(text(f"DROP INDEX {idx}"))
+                db.commit()
+            except Exception:
+                db.rollback()
+        try:
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN {ten}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0308_go_btp_san_xuat", _migrate_go_btp_san_xuat))
+
+
+def _migrate_nhap_kho_thanh_pham_cot(db) -> None:
+    """Nhập kho thành phẩm qua Yêu cầu nhập xuất (17/09/2026,
+    `docs/design-nhap-kho-thanh-pham-qua-yeu-cau-nhap-xuat.md`). Bốn cột nullable, soft ref:
+
+      · `stock_requests.san_xuat_cong_viec_id` — công đoạn KCS cuối sinh ra yêu cầu NHẬP này. Lệnh
+        SX / KCS đọc ngược "đã đề nghị bao nhiêu, kho đã nhận bao nhiêu" qua cột này; kho không cần
+        biết gì về nó. Cùng khuôn `purchase_delivery_id` / `delivery_trip_id`.
+      · `stock_request_lines.don_gia_ban` — giá bán một đơn vị cụm lấy từ đơn (Σ thành tiền ÷ SL).
+        Tách khỏi `don_gia` (giá gốc, vào sổ) để báo cáo NXT không lẫn giá bán.
+      · `stock_lots.lo_goc_id` + `stock_voucher_lines.lo_goc_id` — lô gốc khi hàng đi qua điều
+        chuyển: lô ở kho đích nhớ lô sinh ra nó để đọc đúng đơn / khách / giá bán và để sửa giá gốc
+        lan xuống mọi lô con. NULL = chính nó là lô gốc.
+
+    ⚠️ `san_xuat_cong_viec_id` phải có mặt trong `_HEADER_FIELDS` của `stock_request_repo`, không thì
+    bị nuốt im lặng (bẫy đã cắn 19/08/2026). Idempotent: hỏi inspector trước từng `ADD COLUMN`.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    cot = (
+        ("stock_requests", "san_xuat_cong_viec_id", "INTEGER", True),
+        ("stock_request_lines", "don_gia_ban", "BIGINT", False),
+        ("stock_lots", "lo_goc_id", "INTEGER", True),
+        ("stock_voucher_lines", "lo_goc_id", "INTEGER", True),
+    )
+    co = {b: _existing_columns(insp, b) for b, *_ in cot if b in tables}
+    for bang, ten, kieu, index in cot:
+        if bang not in co or ten in co[bang]:
+            continue
+        db.execute(text(f"ALTER TABLE {bang} ADD COLUMN {ten} {kieu}"))
+        db.commit()
+        if not index:
+            continue
+        try:
+            db.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{bang}_{ten} ON {bang} ({ten})"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0309_nhap_kho_thanh_pham_cot", _migrate_nhap_kho_thanh_pham_cot))
+
+
+def _migrate_go_so_kho_san_xuat(db) -> None:
+    """Gỡ sổ kho RIÊNG của sản xuất (`san_xuat_nhap_kho_yc`, `san_xuat_kho_lot`, `san_xuat_kho_hang`).
+
+    Thành phẩm nay nhập kho qua "Yêu cầu nhập xuất" của kho thật (design nhập kho thành phẩm
+    17/09/2026): KCS lập yêu cầu NHẬP, kho nhận bằng phiếu nhập, lô nằm ở `stock_lots`. Sổ riêng chỉ
+    ghi nhận, không nối tồn kho thật — giữ lại là hai sổ lệch nhau.
+
+    Thứ tự: lot → yêu cầu → registry (lot trỏ yêu cầu + registry, yêu cầu trỏ registry). Mất các dòng
+    đã ghi ở ba bảng này, không khôi phục được; hàng thật (nếu có) phải nhập lại qua yêu cầu nhập kho.
+    """
+    insp = inspect(db.get_bind())
+    co = set(insp.get_table_names())
+    pg = db.get_bind().dialect.name == "postgresql"
+    for ten in ("san_xuat_kho_lot", "san_xuat_nhap_kho_yc", "san_xuat_kho_hang"):
+        if ten not in co:
+            continue
+        db.execute(text(f"DROP TABLE {ten}" + (" CASCADE" if pg else "")))
+        db.commit()
+
+
+MIGRATIONS.append(("0310_go_so_kho_san_xuat", _migrate_go_so_kho_san_xuat))
 
 
 def _migrate_khoan_km_theo_muc(db: Session) -> None:

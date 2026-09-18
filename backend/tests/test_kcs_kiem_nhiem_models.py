@@ -1,17 +1,14 @@
-"""Model nền module KCS kiêm nhiệm — Task 1/12 (`.superpowers/sdd/2026-08-31-kcs-kiem-nhiem`).
+"""Model nền KCS — checklist + lần kiểm + danh mục tiêu chí.
 
-Soi TẦNG MODEL (không service, không HTTP — Task 1 chỉ dựng schema):
+Soi TẦNG MODEL (không service, không HTTP):
   · cột JSON checklist (nullable) `san_xuat_cong_viec.kcs_tieu_chi_json` — ảnh chụp lúc phát hành;
     ô "bổ sung" trên bước lệnh/bài ghép ĐÃ GỠ (mg `0283`), xem test cùng tên bên dưới;
-  · 3 cột mới trên `san_xuat_kcs_batch` (`loai` mặc định `routing`, `kcs_department_id`,
-    `checklist_json`) — KHÔNG động tới cột legacy;
-  · 2 bảng danh mục checklist MỚI: `san_xuat_kcs_tieu_chi` + `san_xuat_kcs_tieu_chi_cong_doan`
-    (unique theo cặp tiêu_chi×công_đoạn).
+  · `san_xuat_kcs_batch.checklist_json` (nullable). Hai cột `loai` / `kcs_department_id` ĐÃ GỠ
+    (KCS theo lệnh, mg `0306`): chỉ còn MỘT kiểu kiểm, người kiểm lấy từ tài khoản;
+  · danh mục tiêu chí `san_xuat_kcs_tieu_chi` thuộc MỘT công đoạn (mg `0285`).
 
-Cờ `la_kcs` khai TAY trên `cong_doan`/`lsx_cong_doan`/`bai_ghep_cong_doan` ĐÃ BỎ (2026-08-31, mg
-`0252`) — KCS kiêm nhiệm nay suy TỰ ĐỘNG (bước cuối routing + `departments.is_kcs`), xem
-`services/san_xuat/snapshot.py::dung_cong_viec`. `SanXuatCongViec.la_kcs`/`la_kcs_cuoi` (công việc
-ĐÃ PHÁT HÀNH) không đổi cấu trúc, chỉ đổi nguồn suy ra.
+Cờ `la_kcs` trên công việc đã phát hành ĐÃ GỠ (mg `0306`) — KCS không còn là một bước trong routing;
+`la_kcs_cuoi` = công đoạn cuối của nhóm thành phẩm, suy lúc phát hành.
 
 Dùng `init_db()` (create_all, KHÔNG seed) trên DB in-memory của bộ test — đủ để dựng schema từ
 model, không cần chạy migration (DB fresh)."""
@@ -26,11 +23,7 @@ from app.db import SessionLocal, init_db
 from app.models.bai_ghep_cong_doan import BaiGhepCongDoan
 from app.models.cong_doan import CongDoan
 from app.models.san_xuat import SanXuatCongViec
-from app.models.san_xuat_kcs import (
-    KCS_LOAI_ROUTING,
-    SanXuatKcsBatch,
-    SanXuatKcsTieuChi,
-)
+from app.models.san_xuat_kcs import SanXuatKcsBatch, SanXuatKcsTieuChi
 from app.models.lsx import LsxCongDoan
 
 
@@ -63,7 +56,7 @@ def test_san_xuat_cong_viec_kcs_tieu_chi_json_nullable(db):
     db.add(cv)
     db.commit()
     db.refresh(cv)
-    assert cv.la_kcs is False
+    assert "la_kcs" not in cv.__table__.columns        # gỡ ở mg 0306
     assert cv.la_kcs_cuoi is False
     assert cv.kcs_tieu_chi_json is None
 
@@ -77,7 +70,7 @@ def test_san_xuat_cong_viec_kcs_tieu_chi_json_nullable(db):
     assert cv.kcs_tieu_chi_json[0]["ma"] == "IN-CHONG-MAU"
 
 
-def test_san_xuat_kcs_batch_cot_moi_khong_dung_cot_legacy(db):
+def test_san_xuat_kcs_batch_mot_kieu_kiem(db):
     batch = SanXuatKcsBatch(
         cong_viec_id=1,
         bat_dau=datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc),
@@ -90,20 +83,11 @@ def test_san_xuat_kcs_batch_cot_moi_khong_dung_cot_legacy(db):
     db.commit()
     db.refresh(batch)
 
-    # Cột mới: mặc định đúng hợp đồng.
-    assert batch.loai == KCS_LOAI_ROUTING == "routing"
-    assert batch.kcs_department_id is None
     assert batch.checklist_json is None
-    # Cột legacy KHÔNG bị đụng — vẫn ghi/đọc bình thường.
-    assert batch.so_luong_nhan == 100
-    assert batch.so_luong_dat == 95
-    assert batch.don_vi == "cái"
-
-    batch.loai = "dot_xuat"
-    batch.kcs_department_id = None  # FK mềm SET NULL — hợp lệ dù chưa gán tổ
-    db.commit()
-    db.refresh(batch)
-    assert batch.loai == "dot_xuat"
+    assert batch.so_luong_nhan == 100 and batch.so_luong_dat == 95 and batch.don_vi == "cái"
+    # KCS theo lệnh (mg 0306): không còn phân loại lần kiểm, không còn "tổ KCS đi kiểm".
+    for cot in ("loai", "kcs_department_id"):
+        assert cot not in SanXuatKcsBatch.__table__.columns
 
 
 def test_san_xuat_kcs_tieu_chi_danh_muc(db):

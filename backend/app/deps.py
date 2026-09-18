@@ -536,7 +536,7 @@ O_QUYEN_GAC_O_SERVICE: set[tuple[str, str]] = {
 #: ⚠️ VÌ SAO LÀ DANH SÁCH ĐEN CHỨ KHÔNG PHẢI "cái gì không có trong registry thì chết":
 #: bản đầu tiên (11/08/2026) làm kiểu suy ngược đó và **khoá nhầm hàng loạt ô đang dùng được** —
 #: *In / xuất phiếu chi* · *In / xuất phiếu thu* · *Đặt trưởng phòng* · *Đổi cấp trên* ·
-#: *Xem lương & BHXH* · *Sửa lương & BHXH* · *Thao tác vòng đời* · *Điều chuyển & nâng bậc*.
+#: *Xem lương & BHXH* · *Sửa lương & BHXH* · *Thao tác vòng đời* · *Điều chuyển & đổi chức danh*.
 #: Lý do: registry chỉ thấy cổng ở ROUTER, còn rất nhiều ô được thi hành ở **giao diện** (ẩn/hiện
 #: nút) hoặc ở **tầng service**. Không thấy ≠ không có tác dụng.
 #:
@@ -610,11 +610,14 @@ def require_permission(module_key: str, action: str):
     return dependency
 
 
-def require_quyen_to(viec: str = "read", *hoac: tuple[str, str]):
+def require_quyen_to(viec: str = "read", *hoac: tuple[str, str], cho_kcs: bool = False):
     """Cổng Bàn tổ (mg 0302): cho qua nếu vai của user bật `viec` ("read" | "run_order" |
-    "confirm_output" | "qc" | "warehouse") trên ÍT NHẤT MỘT dòng quyền theo tổ — hoặc có một trong
+    "confirm_output" | "warehouse") trên ÍT NHẤT MỘT dòng quyền theo tổ — hoặc có một trong
     các ô tĩnh `hoac` (màn khác dùng chung endpoint). ĐÚNG TỔ NÀO do service hỏi
     (`services/quyen_to.py`); ở đây chỉ chặn sớm người không có gì.
+
+    `cho_kcs=True`: người thuộc phòng ban "Tổ KCS" cũng qua (KCS theo lệnh, mg 0306) — họ kiểm mọi
+    tổ mà không giữ dòng quyền tổ nào, nên màn KCS đọc chung endpoint phải mở cho họ.
 
     Dòng theo tổ là dòng ĐỘNG (`to_sx_<id>`), không đăng ký vào `O_QUYEN_DUOC_GAC` — ô của nó sống
     theo cây phòng ban, không theo registry."""
@@ -626,8 +629,11 @@ def require_quyen_to(viec: str = "read", *hoac: tuple[str, str]):
         authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
     ) -> User:
         from .services.quyen_to import quyen_to_cua
+        from .services.san_xuat.kcs import la_nguoi_kcs
 
         if any(authz.can(user, k, a) for k, a in hoac) or quyen_to_cua(db, user).co_viec(viec):
+            return user
+        if cho_kcs and la_nguoi_kcs(db, user):
             return user
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

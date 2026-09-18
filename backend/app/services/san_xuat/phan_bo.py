@@ -13,14 +13,14 @@ CÔNG THỨC (§12.2), cho một batch có sản lượng chia Q:
      quy đổi gì; vẫn GIỮ RIÊNG số bản địa (`q_ban_dia`) và số đem chia (§12.2) vì hai cột ấy là
      hợp đồng với tầng lương.
   2. Tổng tỷ lệ hỗ trợ đã xác nhận P (cùng công đoạn + cùng ngày batch).
-  3. Mỗi người hỗ trợ nhận Q × tỷ lệ_riêng (ghi cho TỔ GỐC, KHÔNG chia theo phút×hệ số).
+  3. Mỗi người hỗ trợ nhận Q × tỷ lệ_riêng (ghi cho TỔ GỐC, KHÔNG chia theo phút).
   4. Phần tổ thực hiện = Q − Σ(phần hỗ trợ đã làm tròn) = "phần còn lại" thực, đảm bảo tổng = Q.
-  5. Trọng số mỗi người tổ thực hiện = phút thực tế hợp lệ (giao khoảng tham gia × cửa sổ batch) ×
-     hệ số bậc ẢNH CHỤP (§8).
+  5. Trọng số mỗi người tổ thực hiện = phút thực tế hợp lệ (giao khoảng tham gia × cửa sổ batch).
+     Không còn nhân hệ số bậc tay nghề — bậc đã gỡ khỏi hệ thống (17/09/2026).
   6. Chia phần còn lại theo trọng số.
   7. LÀM TRÒN LỚN-NHẤT-DƯ (milli-đơn-vị) để Σ khớp Q chính xác.
 
-CHẶN CHỐT (§8, §11.3, §12.2): thiếu hệ số bậc / thiếu trọng số hợp lệ / bàn giao đi còn không nhất
+CHẶN CHỐT (§11.3, §12.2): thiếu chấm công / thiếu trọng số hợp lệ / bàn giao đi còn không nhất
 quán ⇒ KHÔNG cho chốt (nhưng KHÔNG chặn ghi sản xuất). Nháp vẫn tính được phần tính được + phơi
 cảnh báo; `chot_phan_bo` tính lại NGHIÊM và ném lỗi nếu vướng.
 
@@ -88,11 +88,63 @@ def _attendance(db: Session) -> AttendanceService:
     )
 
 
-def _ten_nguoi(att: AttendanceService, ids: list[int]) -> str:
+class BoNhoTinhMe:
+    """Những gì GIỐNG NHAU giữa các mẻ của CÙNG một công việc — `_tinh_batch` cho N mẻ trong một
+    lượt đọc thì mỗi thứ chỉ hỏi DB một lần.
+
+    Đo 16/09/2026 drawer Dán 3 mẻ cùng ngày một người: 33/70 truy vấn của drawer nằm trong
+    `_tinh_batch`, mẻ 2 và 3 hỏi lại y hệt mẻ 1 — hỗ trợ trong ngày, loại trừ, khoảng tham gia, hồ
+    sơ NV, ba ngày quẹt thẻ. Mọi thứ nhớ ở đây đều là số ĐỌC; giữ nó qua một lần GHI (loại trừ, bổ
+    sung chấm công, xác nhận hỗ trợ) là tính trên số cũ — mặt ghi để `_tinh_batch` tự dựng mới.
+
+    `khoang`: caller đã nạp `cac_khoang` của công việc thì truyền vào. `batch_ids`: các mẻ sắp tính
+    — loại trừ nạp gộp một truy vấn ở lần hỏi đầu."""
+
+    def __init__(
+        self, db: Session, cv: SanXuatCongViec, pb_repo: SanXuatPhanBoRepository, *,
+        khoang: list | None = None, batch_ids: list[int] | None = None,
+    ) -> None:
+        self.cong_viec_id = cv.id
+        self.att = _attendance(db)
+        self.manh_theo_ngay: dict = {}   # xem `AttendanceService.khoang_co_mat_hop_le`
+        self._db = db
+        self._pb = pb_repo
+        self._khoang = khoang
+        self._batch_ids = batch_ids
+        self._loai_tru: dict[int, set[int]] | None = None
+        self._ho_tro: dict[date, list] = {}
+        self._nhan_vien: dict[int, object] = {}
+
+    def khoang(self) -> list:
+        if self._khoang is None:
+            self._khoang = SanXuatThucThiRepository(self._db).cac_khoang(self.cong_viec_id)
+        return self._khoang
+
+    def ho_tro(self, ngay: date) -> list:
+        if ngay not in self._ho_tro:
+            self._ho_tro[ngay] = self._pb.ho_tro_xac_nhan_trong_pham_vi(self.cong_viec_id, ngay)
+        return self._ho_tro[ngay]
+
+    def loai_tru(self, batch_id: int) -> set[int]:
+        if self._loai_tru is None:
+            self._loai_tru = self._pb.loai_tru_ids_nhieu(self._batch_ids) if self._batch_ids else {}
+        if batch_id not in self._loai_tru:
+            self._loai_tru[batch_id] = self._pb.loai_tru_ids(batch_id)
+        return self._loai_tru[batch_id]
+
+    def nhan_vien(self, eid: int):
+        # Giữ tham chiếu MẠNH: identity map của session chỉ giữ yếu, object rời tay là lần `get` sau
+        # lại SELECT (đo được mỗi mẻ một lượt).
+        if eid not in self._nhan_vien:
+            self._nhan_vien[eid] = self.att.employees.get_by_id(eid)
+        return self._nhan_vien[eid]
+
+
+def _ten_nguoi(bn: BoNhoTinhMe, ids: list[int]) -> str:
     """Chuỗi tên NV cho cảnh báo (mã + họ tên), giữ thứ tự truyền vào."""
     ten = []
     for eid in ids:
-        emp = att.employees.get_by_id(eid)
+        emp = bn.nhan_vien(eid)
         ten.append(f"{emp.full_name} ({emp.code})" if emp is not None else f"NV#{eid}")
     return ", ".join(ten)
 
@@ -130,9 +182,16 @@ class _KetQuaTinh:
 
 
 def _tinh_batch(
-    db: Session, cv: SanXuatCongViec, batch: SanXuatBatch, pb_repo: SanXuatPhanBoRepository
+    db: Session, cv: SanXuatCongViec, batch: SanXuatBatch, pb_repo: SanXuatPhanBoRepository,
+    bo_nho: BoNhoTinhMe | None = None,
 ) -> _KetQuaTinh:
-    """Tính DỰ KIẾN các dòng phân bổ của một batch — HÀM THUẦN (không ghi DB). Đặt cờ `can_chot`."""
+    """Tính DỰ KIẾN các dòng phân bổ của một batch — HÀM THUẦN (không ghi DB). Đặt cờ `can_chot`.
+
+    `bo_nho`: tính NHIỀU mẻ của cùng công việc trong một lượt đọc thì truyền MỘT `BoNhoTinhMe` dùng
+    chung. None ⇒ tự dựng mới, đọc thẳng DB — đường ghi (tính/chốt/loại trừ) đi lối này."""
+    if bo_nho is not None and bo_nho.cong_viec_id != cv.id:
+        raise ValueError("Bộ nhớ tính mẻ thuộc công việc khác.")
+    bn = bo_nho or BoNhoTinhMe(db, cv, pb_repo)
     kq = _KetQuaTinh()
     kq.q_native = float(batch.tot or 0)
     kq.don_vi_native = batch.don_vi
@@ -144,12 +203,12 @@ def _tinh_batch(
     kq.ngay = ngay
 
     # (2) Hỗ trợ đã xác nhận trong phạm vi (công đoạn + ngày batch).
-    ho_tro = pb_repo.ho_tro_xac_nhan_trong_pham_vi(cv.id, ngay)
+    ho_tro = bn.ho_tro(ngay)
     kq.p_percent = sum(float(h.ty_le_phan_tram or 0) for h in ho_tro)
     nguoi_ho_tro_ids = {h.employee_id for h in ho_tro}
 
     # Người đã bị tổ trưởng loại khỏi lương batch (§7.3) — bỏ khỏi vòng chia trọng số.
-    loai_tru_ids = pb_repo.loai_tru_ids(batch.id)
+    loai_tru_ids = bn.loai_tru(batch.id)
     kq.loai_tru = sorted(loai_tru_ids)
 
     if kq.q_pay <= _EPS:
@@ -171,7 +230,6 @@ def _tinh_batch(
             "so_luong_ban_dia": amt,  # identity
             "trong_so": None,
             "phut_thuc_te": None,
-            "he_so_bac": None,
         })
 
     # (4) Phần còn lại THỰC cho tổ thực hiện = Q − Σ(phần hỗ trợ đã làm tròn).
@@ -179,29 +237,27 @@ def _tinh_batch(
     if con_lai < 0:
         con_lai = 0.0
 
-    # (5) Trọng số người tổ thực hiện = Σ(phút HỢP LỆ × hệ số bậc) trên các khoảng của họ.
+    # (5) Trọng số người tổ thực hiện = Σ(phút HỢP LỆ) trên các khoảng của họ.
     #     Phút hợp lệ (§7.3) = giao(khoảng THAM GIA trong batch, khoảng CHẤM CÔNG hợp lệ = cặp
     #     vào/ra thực tế ∩ (trong ca thường ∪ phiếu tăng ca đã duyệt)). Không chấm công hợp lệ ⇒
     #     0 phút ⇒ đánh 'thiếu chấm công' (chặn chốt cho tới khi bổ sung hoặc loại khỏi lương batch).
     # Từ mg 0298 cửa sổ mẻ là UTC THẬT — CÙNG thang với `khoang_tham_gia` (`thuc_thi._moc()`) và
     # `attendance_logs.checked_at`, nên giao khoảng ở dưới mới ra số phút thật.
     b0, b1 = batch.bat_dau, batch.ket_thuc
-    att = _attendance(db)
     hople_cache: dict[int, list[tuple[datetime, datetime]]] = {}
 
     def _khoang_hople(eid: int) -> list[tuple[datetime, datetime]]:
         if eid not in hople_cache:
-            emp = att.employees.get_by_id(eid)
-            hople_cache[eid] = att.khoang_co_mat_hop_le(emp, b0, b1) if emp is not None else []
+            emp = bn.nhan_vien(eid)
+            hople_cache[eid] = (
+                bn.att.khoang_co_mat_hop_le(emp, b0, b1, bn.manh_theo_ngay) if emp is not None else []
+            )
         return hople_cache[eid]
 
     phut_theo_nguoi: dict[int, float] = {}   # phút HỢP LỆ đã cộng dồn (hiển thị + kiểm)
     phut_tham_gia: dict[int, float] = {}     # phút THAM GIA thô (để phát hiện thiếu chấm công)
     ts_theo_nguoi: dict[int, float] = {}
-    heso_theo_nguoi: dict[int, float | None] = {}
-    thieu_heso = False
-    tt_repo = SanXuatThucThiRepository(db)
-    for kh in tt_repo.cac_khoang(cv.id):
+    for kh in bn.khoang():
         eid = kh.employee_id
         if eid in nguoi_ho_tro_ids:
             continue  # người hỗ trợ tính bằng thỏa thuận, không chia lại theo phút (§9.2)
@@ -217,15 +273,8 @@ def _tinh_batch(
         phut_hl = _phut_giao_nhieu(a0, a1, _khoang_hople(eid))
         if phut_hl <= 0:
             continue  # có mặt trong batch nhưng 0 phút chấm công hợp lệ → gom vào 'thiếu chấm công'
-        heso = kh.output_coefficient
         phut_theo_nguoi[eid] = phut_theo_nguoi.get(eid, 0.0) + phut_hl
-        if heso is None:
-            thieu_heso = True
-            # trọng số phần này = 0 (chưa có hệ số) — đánh dấu chặn chốt bên dưới.
-            heso_theo_nguoi.setdefault(eid, None)
-            continue
-        ts_theo_nguoi[eid] = ts_theo_nguoi.get(eid, 0.0) + phut_hl * float(heso)
-        heso_theo_nguoi[eid] = float(heso)
+        ts_theo_nguoi[eid] = ts_theo_nguoi.get(eid, 0.0) + phut_hl
 
     tong_ts = sum(ts_theo_nguoi.values())
     # Thiếu chấm công (§7.3): có tham gia thô nhưng KHÔNG có phút chấm công hợp lệ nào.
@@ -239,21 +288,18 @@ def _tinh_batch(
         if thieu_cham:
             kq.can_chot = False
             kq.canh_bao.append(
-                "Thiếu chấm công hợp lệ: " + _ten_nguoi(att, thieu_cham)
+                "Thiếu chấm công hợp lệ: " + _ten_nguoi(bn, thieu_cham)
                 + " — bổ sung chấm công rồi tính lại, hoặc loại người đó khỏi lương batch kèm lý do."
             )
-        if thieu_heso:
-            kq.can_chot = False
-            kq.canh_bao.append("Có người chưa gán hệ số bậc (§8) — bổ sung bậc trước khi chốt phân bổ.")
         if not phut_theo_nguoi and not thieu_cham:
             kq.can_chot = False
             kq.canh_bao.append("Chưa có ai của tổ thực hiện tham gia trong cửa sổ batch — thiếu trọng số để chia.")
-        elif tong_ts <= _EPS and not thieu_heso and not thieu_cham:
+        elif tong_ts <= _EPS and not thieu_cham:
             kq.can_chot = False
             kq.canh_bao.append("Tổng trọng số bằng 0 — không chia được phần còn lại.")
 
     # (6)+(7) Chia phần còn lại theo trọng số + làm tròn lớn-nhất-dư (milli-đơn-vị) để Σ = con_lai.
-    if con_lai > _EPS and tong_ts > _EPS and not thieu_heso:
+    if con_lai > _EPS and tong_ts > _EPS:
         nguoi = [e for e in ts_theo_nguoi if ts_theo_nguoi[e] > 0]
         pool_milli = int(round(con_lai * 1000))
         raw = {e: pool_milli * ts_theo_nguoi[e] / tong_ts for e in nguoi}
@@ -275,7 +321,6 @@ def _tinh_batch(
                 "so_luong_ban_dia": amt,  # identity
                 "trong_so": ts_theo_nguoi[e],
                 "phut_thuc_te": phut_theo_nguoi.get(e),
-                "he_so_bac": heso_theo_nguoi.get(e),
                 })
 
     return kq

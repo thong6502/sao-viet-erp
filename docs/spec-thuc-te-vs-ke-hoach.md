@@ -14,7 +14,7 @@ Hệ có ĐỦ dữ liệu thực tế, nhưng dữ liệu đó **chỉ chảy m
 | Giờ chạy thật từng phiên | `san_xuat_phien_chay.bat_dau/ket_thuc` |
 | Sản lượng tốt / hỏng từng mẻ | `san_xuat_batch.tot/hong` (`_EPS = 0.0005`, `tong = tot + hong`) |
 | Toả sản lượng bài ghép sang LSX nhánh | `services/san_xuat/san_luong.py::_toa_san_luong` — `sl_nhanh = round(tot * ty_le_ghep, 3)` |
-| Chia công khoán theo người | `services/san_xuat/phan_bo.py` (phút × hệ số bậc, làm tròn dư lớn nhất) |
+| Chia công khoán theo người | `services/san_xuat/phan_bo.py` (theo phút hợp lệ, làm tròn dư lớn nhất) |
 | Bàn giao giữa công đoạn | `san_xuat_ban_giao`, trần = `tong_tot` |
 
 Ba chỗ HỔNG:
@@ -92,7 +92,9 @@ Chỉ lấy công việc của **phiên bản gói đang hiệu lực**; công v
 - Mức công đoạn: `con_thieu = max(so_luong_ra - tong_tot, 0)` (cùng `don_vi_ra`).
 - Mức nhóm thành phẩm: mục tiêu = `Σ so_luong_ra` của các công việc **KCS cuối** trong nhóm;
   đạt được = `Σ tong_tot` của chính các công việc đó.
-- **KHÔNG đổi cổng đóng nhóm.** `_danh_gia` giữ nguyên 6 điều kiện. Con số chỉ đi kèm để người
+- ~~**KHÔNG đổi cổng đóng nhóm.**~~ — ĐÃ ĐỔI 17/09/2026: cổng đóng ĐỦ thêm điều kiện
+  `dat_muc_tieu` (Σ đạt ≥ Σ `so_luong_ra` công đoạn cuối), bỏ điều kiện BTP; xem
+  `spec-thuc-hien-san-xuat.md` §16. Đoạn dưới là quyết định lúc viết: `_danh_gia` giữ nguyên 6 điều kiện. Con số chỉ đi kèm để người
   bấm "đóng thiếu" nhìn thấy mình đang thiếu bao nhiêu — hiện tại họ bấm mù.
 - Không lưu cột mới, không bảng mới: lưu thành cột là mời sai lệch (cùng lý do
   `stock_request_lines` cố ý không lưu "còn lại").
@@ -116,5 +118,5 @@ Pha 2 = (4)(5) + phát hành nhiều phân đoạn.
 - Không tự dời lịch theo thực tế.
 - Không tự sinh LSX bù / lệnh sửa hàng (`spec-thuc-hien-san-xuat.md` §22 đã chốt).
 - Không cho tổ trưởng kéo sửa lịch (§22).
-- Không sửa cổng đóng nhóm.
+- Không sửa cổng đóng nhóm. *(Về sau đã sửa — 17/09/2026, xem §2.3.)*
 - Không đụng module vật tư — chuyện đó nằm ở `docs/spec-de-nghi-cap-vat-tu-cong-doan.md`.

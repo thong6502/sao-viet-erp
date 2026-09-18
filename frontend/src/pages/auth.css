@@ -244,26 +244,9 @@
 .auth__options {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   font-size: 13px;
   margin-top: -2px;
-}
-
-.auth__remember {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--ash, #475569);
-  cursor: pointer;
-  user-select: none;
-}
-
-.auth__checkbox {
-  accent-color: var(--rust, #c5400a);
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  cursor: pointer;
 }
 
 .auth__forgot-btn {
@@ -590,39 +573,19 @@ button:hover .auth__btn-label svg {
 /* ---- Điện thoại: chỗ bấm và cỡ chữ ---------------------------------------- */
 /* Màn đăng nhập là màn ĐẦU TIÊN mọi người thấy trên điện thoại, mà nó nằm ngoài `.shell` nên
    mọi luật trong `responsive.css` (đều mở đầu bằng `.shell__content`) không hề chạm tới. Đo ở
-   375px: nút hiện mật khẩu 27×27, ô tick "Ghi nhớ" 16×16, nút "Quên mật khẩu?" cao 15px —
-   đều nhỏ hơn đầu ngón tay; nhãn ô nhập và tên hệ thống 11px. */
+   375px: nút hiện mật khẩu 27×27, nút "Quên mật khẩu?" cao 15px — đều nhỏ hơn đầu ngón tay;
+   nhãn ô nhập và tên hệ thống 11px. */
 @media (max-width: 768px) {
   .auth__toggle-pw {
     min-width: 44px;
     min-height: 44px;
   }
 
-  /* 24px là ngưỡng bắt buộc WCAG 2.5.8 mức AA — cùng cỡ với ô tick trong bảng ở §9. */
-  .auth__checkbox {
-    /* `.auth__remember` là flex; không chốt `flex` thì ô tick bị co còn 23px. */
-    flex: 0 0 auto;
-    width: 24px;
-    height: 24px;
-  }
-
   /* Nút chữ trần: cho cao 44px bằng đệm dọc, giữ nguyên cỡ chữ. */
   .auth__forgot-btn {
     min-height: 44px;
     padding: 0 4px;
-    /* Ô tick to lên 24px làm hàng chật thêm 8px: hai nhãn cần 267px mà hàng chỉ rộng 254px,
-       nên từ chối gãy chữ thì phải cho CẢ HÀNG xuống dòng — xem `.auth__options` dưới. */
     white-space: nowrap;
-    margin-left: auto;
-  }
-
-  .auth__remember {
-    white-space: nowrap;
-  }
-
-  .auth__options {
-    flex-wrap: wrap;
-    row-gap: 6px;
   }
 
   .auth__brand-name {

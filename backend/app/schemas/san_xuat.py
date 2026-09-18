@@ -21,15 +21,11 @@ class TeamOut(BaseModel):
     # `false` còn thợ trong tổ thấy `true`. FE dựa vào đây để bật băng "Sản lượng của tôi" (§6).
     la_tho: bool = False
     so_viec_cho: int
-    # Task 4 (mg 0250) — badge/cổng cho board KCS kiêm nhiệm, đọc theo `SanXuatCongViec.la_kcs`
-    # (cấp CÔNG VIỆC), KHÁC `la_kcs` phía trên (đó là `Department.is_kcs`, cấp TỔ).
-    so_viec_kcs_cho: int
-    co_viec_kcs: bool
     # Bàn giao đến + thỏa thuận hỗ trợ chéo đang chờ tổ trong vùng xác nhận (người xem giữ Xác nhận
     # sản lượng trọn tổ) — cộng vào badge menu cùng `so_viec_cho`.
     so_cho_xac_nhan: int = 0
     # Quyền theo tổ (mg 0302): cấp thụt lề trên cây khối Sản xuất + mức từng việc trên CHÍNH nút
-    # này (`{"read"|"run_order"|"confirm_output"|"qc"|"warehouse": "all"|"own"}`, vắng = không có).
+    # này (`{"read"|"run_order"|"confirm_output"|"warehouse": "all"|"own"}`, vắng = không có).
     cap: int = 0
     quyen: dict[str, str] = {}
 
@@ -80,8 +76,12 @@ class WorkItemOut(BaseModel):
     ten_cong_doan: str
     nhom_cong_doan: str | None = None
     loai_buoc: str
-    la_kcs: bool
     la_kcs_cuoi: bool
+    # Dấu KCS trên thẻ việc (KCS theo lệnh, mg 0306): số lần kiểm + Σ đạt/lỗi. Chỗ gọi không nạp
+    # thì để 0 — không có nghĩa là "đã kiểm, không lỗi".
+    kcs_so_lan: int = 0
+    kcs_dat: float = 0.0
+    kcs_loi: float = 0.0
     may: str
     may_id: int | None = None    # máy HIỆN TẠI — FE cần để dựng ô chọn "Đổi máy" (§7.2 mở rộng)
     du_kien_bat_dau: datetime | None = None
@@ -204,6 +204,9 @@ class ChoXacNhanBanGiaoOut(BaseModel):
     don_vi: str
     de_xuat_luc: datetime | None = None
     version: int
+    # `True` = công đoạn nằm trên bàn đang xem (tổ thấy trọn) — chấm đỏ trên dòng, xác nhận trong
+    # ngăn chi tiết; `False` = bàn không vẽ công đoạn đó, liệt kê riêng khi bật ô "chờ xác nhận".
+    tren_ban: bool = False
 
 
 class ChoXacNhanHoTroOut(BaseModel):
@@ -222,12 +225,36 @@ class ChoXacNhanHoTroOut(BaseModel):
     cho_ben_goc: bool
     cho_ben_thuc_hien: bool
     version: int
+    # `True` = công đoạn nằm trên bàn đang xem (tổ thấy trọn) — chấm đỏ trên dòng, xác nhận trong
+    # ngăn chi tiết; `False` = bàn không vẽ công đoạn đó, liệt kê riêng khi bật ô "chờ xác nhận".
+    tren_ban: bool = False
+
+
+class ChoXacNhanKcsLoiOut(BaseModel):
+    """Một lỗi KCS báo về tổ mà tổ chưa bấm "Đã xem" (KCS theo lệnh, mg 0306)."""
+    loi_id: int
+    kcs_batch_id: int
+    cong_viec_id: int | None = None
+    to_id: int | None = None
+    ten_cong_doan: str = ""
+    lsx_ma: str | None = None
+    mo_ta: str | None = None
+    so_luong: float
+    don_vi: str | None = None
+    nguoi_kiem: str | None = None
+    luc: datetime | None = None
+    so_anh: int = 0
+    version: int
+    # `True` = công đoạn nằm trên bàn đang xem (tổ thấy trọn) — chấm đỏ trên dòng, xác nhận trong
+    # ngăn chi tiết; `False` = bàn không vẽ công đoạn đó, liệt kê riêng khi bật ô "chờ xác nhận".
+    tren_ban: bool = False
 
 
 class ChoXacNhanOut(BaseModel):
     team_id: int
     ban_giao: list[ChoXacNhanBanGiaoOut]
     ho_tro: list[ChoXacNhanHoTroOut]
+    kcs_loi: list[ChoXacNhanKcsLoiOut] = []
 
 
 # --- Mặt GHI: phân công / phiên chạy (Giai đoạn 2, §7) ---------------------------------------
@@ -303,6 +330,7 @@ class PhanCongItemOut(BaseModel):
     ho_ten: str
     la_luong_khoan: bool
     co_tai_khoan: bool
+    avatar_url: str | None = None   # ảnh tài khoản; null = chưa có tài khoản/chưa đặt ảnh → FE vẽ chữ cái
     trang_thai: str
 
 
@@ -323,6 +351,7 @@ class KhoangThamGiaOut(BaseModel):
     phien_chay_id: int
     employee_id: int
     ho_ten: str
+    avatar_url: str | None = None
     bat_dau: datetime
     ket_thuc: datetime | None = None
 
@@ -330,9 +359,7 @@ class KhoangThamGiaOut(BaseModel):
 # --- Sản lượng · bàn giao · vật tư trên drawer (Giai đoạn 3) --------------------------------
 class LotVaoOut(BaseModel):
     id: int
-    nguon_loai: str                     # "batch" | "kho_lot"
-    nguon_batch_id: int | None = None
-    nguon_lot_id: int | None = None
+    nguon_batch_id: int | None = None   # mẻ công đoạn trước (SET NULL nếu mẻ bị gỡ)
     so_luong: float
     don_vi: str
 
@@ -446,7 +473,9 @@ class SanLuongToOut(BaseModel):
 
 
 class MeSuCoOut(BaseModel):
-    """Một lần DỪNG MÁY rơi vào cửa sổ mẻ — suy từ phiên `loai_dong='tam_dung'`, không bảng mới."""
+    """Một lần DỪNG MÁY rơi vào cửa sổ mẻ — suy từ phiên `loai_dong='tam_dung'`, không bảng mới.
+    Dừng TỪ lúc phiên đó đóng TỚI lúc phiên kế mở (`board._lan_dung_may`); `ket_thuc` trống = chưa
+    chạy lại."""
 
     bat_dau: datetime | None = None
     ket_thuc: datetime | None = None
@@ -461,7 +490,6 @@ class ChiaDongOut(BaseModel):
     ho_ten: str
     so_luong: float
     phut_thuc_te: float | None = None
-    he_so_bac: float | None = None
     la_ho_tro: bool = False
 
 
@@ -515,6 +543,16 @@ class SanLuongOut(BaseModel):
     batches: list[BatchOut]
 
 
+class BanGiaoDieuChinhOut(BaseModel):
+    """Một lần điều chỉnh số đã xác nhận (§11.3) — lịch sử chỉ-thêm, hiện dưới dòng bàn giao."""
+    so_luong_truoc: float
+    so_luong_sau: float
+    mo_ta: str | None = None
+    khong_nhat_quan: bool = False       # lúc đó giảm dưới lượng công đoạn sau đã dùng
+    nguoi: str | None = None
+    luc: datetime | None = None
+
+
 class BanGiaoOut(BaseModel):
     """Một dòng bàn giao trên drawer — `doi_tac_*` là công đoạn ở đầu kia (đích khi giao đi, nguồn
     khi nhận về)."""
@@ -528,11 +566,18 @@ class BanGiaoOut(BaseModel):
     khong_nhat_quan: bool
     version: int
     batch_ids: list[int] = []           # các mẻ của công đoạn nguồn đi theo lần giao này
+    # Ai đề xuất / ai xác nhận, lúc nào — hai bên thấy như nhau. Tên từ tài khoản đã thao tác;
+    # None khi tài khoản không còn. Chưa xác nhận ⇒ `nguoi_xac_nhan`/`xac_nhan_luc` None.
+    nguoi_de_xuat: str | None = None
+    de_xuat_luc: datetime | None = None
+    nguoi_xac_nhan: str | None = None
+    xac_nhan_luc: datetime | None = None
+    dieu_chinh: list[BanGiaoDieuChinhOut] = []   # cũ → mới
 
 
 class BanGiaoChangSauOut(BaseModel):
     """CHẶNG SAU theo routing lệnh — đích bàn giao hợp lệ duy nhất (§11.2). Nhiều dòng khi bước
-    sau tách lần chạy hoặc routing rẽ nhánh; rỗng = bước cuối lệnh, giao ra kho."""
+    sau tách lần chạy hoặc routing rẽ nhánh; rỗng = bước cuối lệnh (không bàn giao — thành phẩm qua KCS)."""
     cong_viec_id: int
     ten_cong_doan: str
     to_id: int | None = None
@@ -584,7 +629,6 @@ class PhanBoDongOut(BaseModel):
     so_luong_ban_dia: float | None = None
     trong_so: float | None = None
     phut_thuc_te: float | None = None
-    he_so_bac: float | None = None
 
 
 class BuTruDongOut(BaseModel):
@@ -708,12 +752,34 @@ class TepLenhOut(BaseModel):
     nhom: list[TepLenhNhomOut]
 
 
+class MayDoiRow(BaseModel):
+    id: int
+    ma: str
+    ten: str | None = None
+    loai_may: str | None = None
+    # Trạng thái LÚC NÀY, cùng nguồn cột Trạng thái của màn Thiết bị (`services/may_trang_thai.py`):
+    # ranh | co_phieu_sua | dang_chay | bao_tri | may_dung | khoa.
+    trang_thai: str
+    nhan: str
+    chi_tiet: str | None = None
+
+
+class MayDoiOut(BaseModel):
+    """Ô "Đổi máy" của bàn tổ — máy làm được công đoạn của việc, kèm tình trạng từng máy."""
+    items: list[MayDoiRow]
+    # True = danh sách đã bị công đoạn thu hẹp (khai máy hoặc nhóm máy); False = chưa khai, mọi máy.
+    theo_cong_doan: bool
+
+
 class WorkItemChiTietOut(BaseModel):
     cong_viec: WorkItemOut
     trang_thai: str
     version: int
     # Bốn quyền chi tiết của NGƯỜI ĐANG XEM trên chính việc này (mg 0302) — drawer bật/tắt nút.
     quyen: dict[str, bool] = {}
+    # Mức của từng quyền đó ở tổ ("all" | "own") — để drawer phân biệt "không được cấp" với
+    # "Của tôi nhưng việc chưa giao cho mình".
+    quyen_muc: dict[str, str] = {}
     phan_cong: list[PhanCongItemOut]
     phien_chay: list[PhienChayOut]
     khoang_tham_gia: list[KhoangThamGiaOut]
@@ -729,9 +795,7 @@ class WorkItemChiTietOut(BaseModel):
 
 # --- Mặt GHI: sản lượng · bàn giao · vật tư (Giai đoạn 3, §10–§11) ---------------------------
 class LotVaoIn(BaseModel):
-    nguon_loai: str = "batch"           # "batch" (lot công đoạn trước) | "kho_lot" (BTP kho)
-    nguon_batch_id: int | None = None
-    nguon_lot_id: int | None = None
+    nguon_batch_id: int | None = None   # mẻ đầu ra của công đoạn trước — bắt buộc (service kiểm)
     so_luong: float
     don_vi: str | None = None           # trống ⇒ đơn vị vào của công việc
 
@@ -749,9 +813,7 @@ class BatchIn(BaseModel):
 
 
 class ThemLotIn(BaseModel):
-    nguon_loai: str = "batch"
     nguon_batch_id: int | None = None
-    nguon_lot_id: int | None = None
     so_luong: float
     don_vi: str | None = None
 
@@ -773,7 +835,7 @@ class SanLuongKetQuaOut(BaseModel):
 
 
 class BanGiaoDeXuatIn(BaseModel):
-    dich_cong_viec_id: int | None = None  # None = giao ra kho — chỉ bước cuối lệnh
+    dich_cong_viec_id: int                # chặng sau theo routing — bước cuối lệnh không bàn giao
     don_vi: str | None = None
     # Mẻ đi theo lần giao (bắt buộc khi còn mẻ chưa giao). Số lượng suy ra từ mẻ, không nhận số gõ.
     batch_ids: list[int] = []
@@ -925,7 +987,7 @@ class BuTruKetQuaOut(BaseModel):
     ky_bu: list[int]
 
 
-# --- KCS: batch kiểm tra · lỗi · phản hồi trách nhiệm (Giai đoạn 5, §13) ---------------------
+# --- KCS theo LỆNH (mg 0306, docs/design-kcs-theo-lenh.md) -----------------------------------
 class KcsChecklistKetQuaIn(BaseModel):
     """Một kết quả checklist khớp theo `thu_tu` của snapshot `kcs_tieu_chi_json` (mg 0250)."""
     thu_tu: int
@@ -933,79 +995,40 @@ class KcsChecklistKetQuaIn(BaseModel):
     ghi_chu: str | None = None
 
 
-class KcsBatchIn(BaseModel):
-    """Ghi một batch kiểm tra KCS (§13.1). `so_luong_nhan = dat + khong_dat` (service kiểm)."""
-    bat_dau: datetime
-    ket_thuc: datetime
-    so_luong_nhan: float
-    so_luong_dat: float
-    so_luong_khong_dat: float = 0
-    co_mau: float | None = None          # cỡ mẫu kiểm (≤ số nhận); trống ⇒ không ghi
-    don_vi: str | None = None            # trống ⇒ đơn vị ra của công việc
-    ghi_chu: str | None = None
-    checklist_ket_qua: list[KcsChecklistKetQuaIn] | None = None   # kết quả checklist (mg 0250)
-
-
-class KcsBatchKetQuaOut(BaseModel):
-    cong_viec_id: int
-    department_id: int | None = None
-    nhom_id: int | None = None
+class KcsKiemKetQuaOut(BaseModel):
+    """Kết quả một lần kiểm công đoạn. `notify_user_ids` KHÔNG phơi FE — router đẩy SSE rồi Pydantic
+    tự nuốt (không khai ở đây là cố ý)."""
     kcs_batch_id: int
-    batch_id: int | None = None          # batch sản lượng nền cho phân bổ năng suất KCS (§13.1)
-    version: int
-
-
-class KcsDotXuatKetQuaOut(BaseModel):
-    """Kết quả kiểm đột xuất (mg 0250). `batch_id` LUÔN None (mục 6) — giữ field để FE dùng CHUNG
-    shape với `KcsBatchKetQuaOut`."""
-    cong_viec_id: int
-    department_id: int | None = None
-    nhom_id: int | None = None
-    kcs_batch_id: int
-    batch_id: int | None = None
     loi_id: int | None = None
-    version: int
-
-
-class KcsLoiKetQuaOut(BaseModel):
-    """Kết quả ghi lỗi KCS (§13.2). `to_chiu_head_user_id` KHÔNG phơi ra FE — router dùng nó để đẩy
-    SSE tới tổ trưởng phụ trách rồi Pydantic tự nuốt (không khai ở đây là cố ý)."""
-    loi_id: int
-    kcs_batch_id: int
     cong_viec_id: int
-    to_chiu_id: int | None = None
-    trang_thai: str                      # pending | accepted | rejected
+    department_id: int | None = None
+    lsx_id: int | None = None
+    nhom_id: int | None = None
+    ten_cong_doan: str = ""
+    so_dat: float
+    so_loi: float
+    ket_luan: str
     version: int
 
 
-class KcsAnhThemKetQuaOut(BaseModel):
+class KcsDaXemKetQuaOut(BaseModel):
     loi_id: int
-    so_anh: int
-
-
-class KcsPhanHoiLoiIn(BaseModel):
-    chap_nhan: bool                      # True = nhận trách nhiệm, False = từ chối (bắt buộc lý do)
-    ly_do_tu_choi: str | None = None
-    expected_version: int | None = None
-
-
-class KcsPhanHoiKetQuaOut(BaseModel):
-    loi_id: int
-    trang_thai: str
     kcs_batch_id: int
     cong_viec_id: int | None = None
+    department_id: int | None = None
+    da_xem_luc: datetime | None = None
+    nguoi_xem: str | None = None
     version: int
 
 
 class KcsDieuChinhIn(BaseModel):
-    """Điều chỉnh kết quả một batch KCS đã ghi (§4.3, §5.5). `so_luong_dat + so_luong_khong_dat`
-    PHẢI khớp đúng `so_luong_nhan` hiện có trên batch (không đổi số nhận khi điều chỉnh)."""
+    """Điều chỉnh một lần kiểm đã ghi. `so_luong_dat + so_luong_khong_dat` PHẢI khớp đúng tổng số
+    đã kiểm của lần đó."""
     so_luong_dat: float
     so_luong_khong_dat: float
     checklist_ket_qua: list[KcsChecklistKetQuaIn] | None = None
     ghi_chu: str | None = None
-    expected_version: int          # BẮT BUỘC (khác các endpoint khác coi optional) — Global
-                                    # Constraint "mọi sửa... kiểm expected_version" áp cho MỌI request
+    expected_version: int
 
 
 class KcsDieuChinhKetQuaOut(BaseModel):
@@ -1016,6 +1039,131 @@ class KcsDieuChinhKetQuaOut(BaseModel):
     so_luong_khong_dat: float
     ket_luan: str
     version: int
+
+
+class KcsAnhOut(BaseModel):
+    id: int
+    file_name: str
+    file_url: str
+    file_type: str | None = None
+
+
+class KcsLanKiemLoiOut(BaseModel):
+    id: int
+    mo_ta: str | None = None
+    so_luong: float
+    don_vi: str | None = None
+    to_chiu_id: int | None = None
+    da_xem_luc: datetime | None = None
+    nguoi_xem: str | None = None
+    anh: list[KcsAnhOut] = []
+
+
+class KcsChiTietTieuChiOut(BaseModel):
+    """Một dòng snapshot tiêu chí KCS (chụp lúc phát hành LSX) — xem `kcs_tieu_chi_json`."""
+    tieu_chi_id: int | None = None
+    ma: str | None = None
+    ten: str | None = None
+    huong_dan: str | None = None
+    bat_buoc: bool = False
+    thu_tu: int = 0
+
+
+class KcsLanKiemOut(BaseModel):
+    id: int
+    nguoi_kiem: str | None = None
+    luc: datetime | None = None
+    so_dat: float
+    so_loi: float
+    don_vi: str | None = None
+    ket_luan: str
+    checklist: list[dict] = []
+    ghi_chu: str | None = None
+    version: int
+    loi: list[KcsLanKiemLoiOut] = []
+
+
+class KcsCongViecOut(BaseModel):
+    """Mục "Kết quả KCS" của một công đoạn (drawer bàn tổ)."""
+    cong_viec_id: int
+    la_kcs_cuoi: bool = False
+    checklist: list[KcsChiTietTieuChiOut] = []
+    lan_kiem: list[KcsLanKiemOut] = []
+
+
+class KcsYeuCauKhoOut(BaseModel):
+    """Một dòng yêu cầu NHẬP kho thành phẩm sinh từ công đoạn cuối — số theo đơn vị của món."""
+    request_id: int
+    ma: str
+    trang_thai: str
+    sl_de_nghi: float
+    sl_da_nhan: float
+    don_vi: str | None = None
+    tao_luc: datetime | None = None
+
+
+class KcsCuoiTomTatOut(BaseModel):
+    tot: float
+    dat: float
+    da_yeu_cau: float
+    con_gui_kho: float
+
+
+class KcsLenhItemOut(BaseModel):
+    lsx_id: int
+    ma: str
+    ten: str = ""
+    khach: str | None = None
+    nhom_ma: str | None = None
+    nhom_trang_thai: str | None = None
+    so_cong_doan: int
+    so_da_kiem: int
+    so_loi: float
+    cuoi: KcsCuoiTomTatOut | None = None
+
+
+class KcsLenhListOut(BaseModel):
+    items: list[KcsLenhItemOut]
+    tong: int
+    trang: int
+    co_trang: int
+
+
+class KcsLenhDauOut(BaseModel):
+    id: int
+    ma: str
+    ten: str = ""
+    khach: str | None = None
+    nhom_id: int | None = None
+    nhom_ma: str | None = None
+    nhom_trang_thai: str | None = None
+
+
+class KcsCongDoanOut(BaseModel):
+    cong_viec_id: int
+    ten: str
+    phan_doan_so: int = 1
+    phan_doan_tong: int = 1
+    to_id: int | None = None
+    to_ten: str = ""
+    trang_thai: str
+    tot: float
+    hong: float
+    don_vi: str | None = None
+    la_kcs_cuoi: bool
+    checklist: list[KcsChiTietTieuChiOut] = []
+    so_lan_kiem: int
+    tong_dat: float
+    tong_loi: float
+    da_yeu_cau_kho: float = 0.0
+    con_gui_kho: float = 0.0
+    yeu_cau_kho: list[KcsYeuCauKhoOut] = []
+    lan_kiem: list[KcsLanKiemOut] = []
+
+
+class KcsChuoiCongDoanOut(BaseModel):
+    lsx: KcsLenhDauOut
+    cong_doan: list[KcsCongDoanOut]
 
 
 class KcsBaoCaoTheoNgayRow(BaseModel):
@@ -1036,6 +1184,33 @@ class KcsBaoCaoToRow(BaseModel):
     tong_so_luong: float
 
 
+class KcsBaoCaoLichSuRow(BaseModel):
+    """Một lần kiểm đã ghi — bảng "Kết quả đã ghi" ở dashboard KCS."""
+    kcs_batch_id: int
+    cong_viec_id: int
+    thoi_diem: datetime | None = None
+    so_luong_dat: float
+    so_luong_khong_dat: float
+    don_vi: str = ""
+    nguon_ma: str = ""
+    nguon_ten: str = ""
+    ten_cong_doan: str = ""
+    nguoi_ghi: str | None = None
+    trang_thai_gui_kho: str = "khong_ap_dung"
+
+
+class KcsCongDoanLocOut(BaseModel):
+    id: int
+    ma: str
+    ten: str
+    nhom: str | None = None
+
+
+class KcsCongDoanLocListOut(BaseModel):
+    """Danh mục công đoạn cho ô lọc dashboard KCS — đọc dưới quyền Xem theo tổ."""
+    items: list[KcsCongDoanLocOut]
+
+
 class KcsBaoCaoOut(BaseModel):
     tong_luot: int
     tong_nhan: float
@@ -1045,235 +1220,28 @@ class KcsBaoCaoOut(BaseModel):
     theo_ngay: list[KcsBaoCaoTheoNgayRow]
     cong_doan: list[KcsBaoCaoCongDoanRow]
     to: list[KcsBaoCaoToRow]
+    lich_su: list[KcsBaoCaoLichSuRow] = []
 
 
-class KcsAnhOut(BaseModel):
-    id: int
-    file_name: str
-    file_url: str
-    file_type: str | None = None
-
-
-class KcsLoiOut(BaseModel):
-    id: int
-    kcs_batch_id: int
-    mo_ta: str | None = None
-    to_chiu_id: int | None = None
-    cong_doan_ref_id: int | None = None
-    so_luong: float
-    don_vi: str | None = None
-    trang_thai: str                      # pending | accepted | rejected
-    ly_do_tu_choi: str | None = None
-    phan_hoi_luc: datetime | None = None
-    version: int
-    anh: list[KcsAnhOut]
-
-
-class KcsBatchChiTietOut(BaseModel):
-    id: int
-    batch_id: int | None = None
-    nhom_id: int | None = None
-    bat_dau: datetime
-    ket_thuc: datetime
-    so_luong_nhan: float
-    co_mau: float | None = None
-    so_luong_dat: float
-    so_luong_khong_dat: float
-    don_vi: str
-    ket_luan: str                        # dat | dat_mot_phan | khong_dat
-    ghi_chu: str | None = None
-    version: int
-    loi: list[KcsLoiOut]
-    # Task 9 (mg 0250) — lộ `loai` để FE phân biệt batch định tuyến (routing, có thể gửi kho) với
-    # batch kiểm đột xuất (dot_xuat, không gửi kho được) mà không phải đoán qua field khác.
-    loai: str = "routing"
-    # Task 9 fix round 1 (I1) — khối "Kết quả đã ghi" (§6.2) cần 2 cột này.
-    nguoi_ghi: str | None = None
-    trang_thai_gui_kho: str = "khong_ap_dung"   # chua_gui | dang_cho | da_nhap | khong_ap_dung
-
-
-class KcsChiTietTieuChiOut(BaseModel):
-    """Một dòng snapshot tiêu chí KCS (chụp lúc phát hành LSX) — xem `kcs_tieu_chi_json`."""
-    tieu_chi_id: int | None = None
-    ma: str | None = None
-    ten: str | None = None
-    huong_dan: str | None = None
-    bat_buoc: bool = False
-    thu_tu: int = 0
-
-
-class KcsChiTietOut(BaseModel):
-    cong_viec_id: int
-    la_kcs: bool
-    # Task 9 (mg 0250) — snapshot tiêu chí checklist để FE hiện khối "Checklist" khi ghi kết quả
-    # KCS theo lộ trình; rỗng nếu công việc không có tiêu chí (hoặc là kiểm đột xuất).
-    checklist: list[KcsChiTietTieuChiOut] = []
-    # Task 9 (mg 0250) — tổng đã bàn giao XÁC NHẬN tới công việc này (`SanXuatBanGiao` trạng thái
-    # confirmed/adjusted — giống hệt số `tao_batch_kcs` dùng để chặn "vượt số bàn giao"). KHÁC
-    # `so_luong_vao` (kế hoạch tĩnh lúc phát hành, không tự đồng bộ khi bàn giao chạy dần từng đợt)
-    # — FE dùng số NÀY để tính "Còn chờ" cho khớp giới hạn thật, tránh cho phép nhập rồi bị 400.
-    da_ban_giao_xac_nhan: float = 0.0
-    batch: list[KcsBatchChiTietOut]
-
-
-class DiemKiemItemOut(WorkItemOut):
-    """Một ĐIỂM KIỂM trên bàn KCS (docs/design-kcs-theo-cong-doan.md mục 4) = thẻ việc + checklist
-    đã chụp + kết quả đã ghi, gói trong MỘT lượt tải. Kế thừa `WorkItemOut` để drawer KCS nhận
-    nguyên thẻ việc như mọi màn khác, và để bàn KCS không phải gọi `/work-items/{id}/kcs` theo
-    từng dòng (N+1) chỉ để biết đã kiểm chưa.
-
-    `to_*`/`nguoi` là cột "TÊN THỢ LÀM · NHÓM LÀM" của tờ ISO — ĐỌC từ thẻ việc, không chép sang
-    bảng KCS."""
-    to_id: int | None = None
-    to_ten: str = ""
-    nguoi: list[str] = []
-    checklist: list[KcsChiTietTieuChiOut] = []
-    batch: list[KcsBatchChiTietOut] = []
-    tong_dat: float = 0.0
-    tong_loi: float = 0.0
-
-
-class DiemKiemGiaiDoanOut(BaseModel):
-    """Một GIAI ĐOẠN (`cong_doan.nhom` đã chụp sang thẻ việc): prepress | print | finishing |
-    other, hoặc "" khi bước không tra được về danh mục. Nhóm rỗng KHÔNG được trả về."""
-    nhom: str
-    cong_viec: list[DiemKiemItemOut]
-
-
-class DiemKiemOut(BaseModel):
-    giai_doan: list[DiemKiemGiaiDoanOut]
-
-
-class KcsHopThuOut(BaseModel):
-    """Hộp thư lỗi KCS chờ tổ của user phản hồi (§13.2)."""
-    loi: list[KcsLoiOut]
-
-
-# --- KHO SẢN XUẤT (§14) ---------------------------------------------------------------------
-class NhapKhoYeuCauIn(BaseModel):
-    """KCS tạo yêu cầu nhập kho thành phẩm một phần từ một batch ĐẠT (§14.1)."""
-    kcs_batch_id: int
-    so_luong: float
-    quy_cach: str | None = None
-    ghi_chu: str | None = None
-
-
-class KhoXacNhanNhapIn(BaseModel):
-    """Kho xác nhận nhận một phần yêu cầu (§14.1)."""
-    so_luong: float
-    kho_id: int                          # KHO ĐÍCH — BẮT BUỘC, không có mặc định ngầm (31/08/2026)
-    expected_version: int | None = None
-
-
-class HuyPhanChuaNhanIn(BaseModel):
-    expected_version: int | None = None
+# --- NHẬP KHO THÀNH PHẨM (yêu cầu nhập xuất của kho thật) -----------------------------------
+class NhapKhoTpDongOut(BaseModel):
+    hang_id: int
+    ma_hang: str
+    ten_hang: str
+    dvt: str | None = None
+    sl_de_nghi: float
+    don_gia_ban: int | None = None
 
 
 class NhapKhoYcKetQuaOut(BaseModel):
-    """Kết quả tạo/đổi yêu cầu nhập kho. `nguoi_tao_id` KHÔNG phơi FE — router dùng để đẩy SSE tới
-    người ghi KCS rồi Pydantic tự nuốt (không khai ở đây là cố ý)."""
-    yc_id: int
-    kcs_batch_id: int
-    nhom_id: int | None = None
-    trang_thai: str                      # cho_kho | nhap_mot_phan | da_nhap | huy
-    version: int
-
-
-class KhoXacNhanNhapKetQuaOut(BaseModel):
-    yc_id: int
-    lot_id: int
-    kcs_batch_id: int
-    nhom_id: int | None = None
-    kho_id: int                          # kho ĐÃ nhận lot vừa đẻ
-    trang_thai: str
-    so_luong_xac_nhan: float
-    version: int
-
-
-class PhanLoaiBtpIn(BaseModel):
-    """Phân loại BTP dư của một công việc trước khi đóng nhóm (§14.2)."""
+    """Kết quả nút "Tạo yêu cầu nhập kho": MỘT yêu cầu NHẬP của kho thật. `so_luong` theo đơn vị ra
+    của công đoạn (số KCS vừa gửi); `dong[].sl_de_nghi` theo đơn vị của món thành phẩm."""
+    request_id: int
+    ma: str
     cong_viec_id: int
     so_luong: float
-    phan_loai: str                       # nhap_btp | mau_luu | phe
-    quy_cach: str | None = None
-    nguon_batch_id: int | None = None
-    ghi_chu: str | None = None
-
-
-class PhanLoaiBtpKetQuaOut(BaseModel):
-    lot_id: int
-    hang_id: int
-    cong_viec_id: int
-    nhom_id: int | None = None
-    phan_loai: str
-    cho_kho: bool                        # còn chờ kho xác nhận nhận (nhap_btp) hay chung cục ngay
-
-
-class KhoXacNhanBtpKetQuaOut(BaseModel):
-    lot_id: int
-    nhom_id: int | None = None
-    cong_viec_id: int | None = None
-
-
-class KhoNhanBuocOut(BaseModel):
-    """Bước đã đẻ ra lô hàng này về từ đâu — hai field, không có khuôn.
-
-    Kho nhận THÀNH PHẨM chứ không nhận dao, nên `khuon_*` của `NhanBuocOut` (bàn theo dõi) không
-    có nghĩa ở đây; nhưng "thuê ngoài hay làm trong nhà" thì đổi hẳn cách kiểm nhập."""
-
-    loai_buoc: str | None = None
-    nha_cung_cap: str | None = None
-
-
-class NhapKhoYcOut(BaseModel):
-    id: int
-    kcs_batch_id: int
-    hang_id: int | None = None
-    nhom_id: int | None = None
-    order_id: int | None = None
-    so_luong_yeu_cau: float
-    so_luong_xac_nhan: float
-    con_lai: float
-    don_vi: str
-    quy_cach: str | None = None
-    kho_id: int | None = None            # kho KCS ĐỀ NGHỊ (kho thật nằm trên từng lot)
-    kho_ten: str | None = None
-    trang_thai: str
-    ghi_chu: str | None = None
-    version: int
-    nhan: KhoNhanBuocOut | None = None
-
-
-class KhoLotOut(BaseModel):
-    id: int
-    hang_id: int
-    loai_hang: str                       # btp | thanh_pham
-    nhom_id: int | None = None
-    lsx_id: int | None = None
-    cong_doan_ref_id: int | None = None
-    kcs_batch_id: int | None = None
-    so_luong: float
-    don_vi: str
-    phan_loai: str | None = None         # BTP dư: nhap_btp | mau_luu | phe
-    kho_id: int | None = None            # kho ĐÃ NHẬN lot (mẫu lưu/phế + lot cũ để trống)
-    kho_ten: str | None = None
-    kho_xac_nhan: bool
-    quy_cach: str | None = None
-    ghi_chu: str | None = None
-
-
-class KhoChiTietOut(BaseModel):
-    """Toàn cảnh kho của một nhóm thành phẩm (panel §14)."""
-    nhom_id: int
-    yeu_cau: list[NhapKhoYcOut]
-    lot: list[KhoLotOut]
-    btp_tra_cho_kho: list[KhoLotOut]     # BTP nhap_btp còn chờ kho xác nhận (chặn đóng nhóm §16)
-
-
-class KhoHopThuOut(BaseModel):
-    """Hộp thư nhân viên kho: mọi việc còn chờ kho hành động (§14, §17)."""
-    yeu_cau_nhap: list[NhapKhoYcOut]     # yêu cầu nhập kho thành phẩm chờ/một phần
-    btp_cho_nhan: list[KhoLotOut]        # BTP nhap_btp chờ kho xác nhận nhận
+    don_vi: str | None = None
+    dong: list[NhapKhoTpDongOut] = []
 
 
 # --- ĐÓNG NHÓM THÀNH PHẨM (§16 tự đóng đủ · §13.3 đóng thiếu) -------------------------------

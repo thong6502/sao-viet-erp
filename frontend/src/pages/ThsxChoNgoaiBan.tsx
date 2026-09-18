@@ -1,32 +1,39 @@
-// Hộp "Chờ tổ bạn xác nhận" mức trang của Bàn tổ — việc GIỮA HAI TỔ mà bên tổ mình phải bấm.
+// Việc chờ tổ bấm mà công đoạn KHÔNG nằm trên bàn đang xem (spec §11.5, cờ `tren_ban` của máy chủ).
 //
-//  · Bàn giao đến chờ nhận: bấm "Mở" → drawer công đoạn đích, tab Bàn giao. Xác nhận ở đó chứ không
-//    ở hộp vì người nhận cần thấy mẻ nào đi theo trước khi đứng tên con số.
-//  · Hỗ trợ chéo chờ bên mình: xác nhận / từ chối NGAY tại hộp — tổ cho mượn người thường không xem
-//    được công đoạn của tổ kia, nên đây là lối vào duy nhất của họ.
+// Việc chờ bình thường gắn vào công đoạn của nó: chấm đỏ trên dòng, trên đầu lệnh, trên tab ngăn chi
+// tiết nơi bấm (xem `thsxChoXacNhan.tsx`). Còn lại đúng những việc không có dòng nào để gắn chấm —
+// điển hình là tổ CHO MƯỢN người: công đoạn thuộc tổ kia, bàn tổ mình không vẽ nó. Danh sách này chỉ
+// hiện khi bật ô "chờ xác nhận" trên thanh lọc, và chỉ khi thật sự có việc như vậy.
 //
-// Chỉ hiện khi CÓ việc; dữ liệu do máy chủ lọc theo quyền Xác nhận sản lượng trọn tổ trong vùng bàn.
+//  · Hỗ trợ chéo chờ bên mình: xác nhận / từ chối NGAY tại đây — lối vào duy nhất của tổ cho mượn.
+//  · Bàn giao đến / KCS báo lỗi ngoài bàn (hiếm — phạm vi xác nhận rộng hơn phạm vi bàn): "Mở" ngăn
+//    chi tiết công đoạn, vào thẳng tab Nhận / KCS.
+//
 // Component không tự gọi API — mọi mặt ghi đi qua callback của controller (toast + nạp lại).
 import { useState } from "react";
-import type { SxChoXacNhan, SxChoXacNhanBanGiao, SxChoXacNhanHoTro } from "../api/client";
+import type { SxChoXacNhan, SxChoXacNhanBanGiao, SxChoXacNhanHoTro, SxChoXacNhanKcsLoi } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
-import { ngay, num } from "./keHoachSxShared";
+import { ngay, ngayGio, num } from "./keHoachSxShared";
 import { Field } from "./ThsxExecPanels";
 import { nhanDonVi } from "./lsxBuoc";
 
-export function ThsxChoXacNhanBar({
-  data, busy, onMoBanGiao, onXacNhanHoTro, onHuyHoTro,
+export function ThsxChoNgoaiBan({
+  data, busy, onMoBanGiao, onXacNhanHoTro, onHuyHoTro, onMoKcs, onDaXemKcs,
 }: {
   data: SxChoXacNhan | null;
   busy: boolean;
   onMoBanGiao: (dichCongViecId: number) => void;
   onXacNhanHoTro: (id: number, version: number) => void;
   onHuyHoTro: (id: number, lyDo: string, version: number) => Promise<boolean>;
+  /** Mở ngăn chi tiết của công đoạn bị báo lỗi, tab KCS (có ảnh). */
+  onMoKcs: (congViecId: number) => void;
+  onDaXemKcs: (loiId: number) => void;
 }) {
   const bg = data?.ban_giao ?? [];
   const ht = data?.ho_tro ?? [];
-  const n = bg.length + ht.length;
+  const kl = data?.kcs_loi ?? [];
+  const n = bg.length + ht.length + kl.length;
   if (n === 0) return null;
 
   return (
@@ -34,10 +41,11 @@ export function ThsxChoXacNhanBar({
       <div className="thsx-hopthu__col">
         <div className="thsx-hopthu__h">
           <Icon name="users" size={14} />
-          <span>Chờ tổ bạn xác nhận</span>
+          <span>Chờ tổ bạn xác nhận · công đoạn không nằm trên bàn này</span>
           <span className="thsx-hopthu__n thsx-num">{n}</span>
         </div>
         <ul className="thsx-hopthu__list">
+          {kl.map((l) => <KcsLoiRow key={`kcs${l.loi_id}`} l={l} busy={busy} onMo={onMoKcs} onDaXem={onDaXemKcs} />)}
           {bg.map((b) => <BanGiaoRow key={`bg${b.id}`} b={b} busy={busy} onMo={onMoBanGiao} />)}
           {ht.map((h) => (
             <HoTroRow key={`ht${h.id}`} h={h} busy={busy} onXacNhan={onXacNhanHoTro} onHuy={onHuyHoTro} />
@@ -45,6 +53,40 @@ export function ThsxChoXacNhanBar({
         </ul>
       </div>
     </div>
+  );
+}
+
+function KcsLoiRow({
+  l, busy, onMo, onDaXem,
+}: {
+  l: SxChoXacNhanKcsLoi; busy: boolean;
+  onMo: (congViecId: number) => void;
+  onDaXem: (loiId: number) => void;
+}) {
+  return (
+    <li className="thsx-hopthu__it">
+      <div className="thsx-hopthu__main">
+        <Icon name="shield" size={14} />
+        <span className="thsx-hopthu__ten">KCS báo lỗi</span>
+        {l.so_luong > 0 && <span className="thsx-num">{num(l.so_luong)} {nhanDonVi(l.don_vi)}</span>}
+      </div>
+      <p className="thsx-hopthu__mo">{l.mo_ta || "Lỗi"}</p>
+      <p className="thsx-hopthu__mo">
+        {[l.lsx_ma, l.ten_cong_doan].filter(Boolean).join(" · ")}
+        {l.nguoi_kiem ? ` · ${l.nguoi_kiem}` : ""}{l.luc ? ` · ${ngayGio(l.luc)}` : ""}
+        {l.so_anh > 0 ? ` · ${l.so_anh} ảnh` : ""}
+      </p>
+      <div className="thsx-x-act thsx-x-act--row">
+        {l.cong_viec_id != null && (
+          <Button variant="ghost" onClick={() => onMo(l.cong_viec_id!)} disabled={busy}>
+            <Icon name="eye" size={13} /> Mở
+          </Button>
+        )}
+        <Button variant="accent" onClick={() => onDaXem(l.loi_id)} disabled={busy}>
+          <Icon name="check" size={13} /> Đã xem
+        </Button>
+      </div>
+    </li>
   );
 }
 

@@ -10,60 +10,16 @@
 // SSE `lsx_dinh_kem_changed` theo lệnh (AppShell): kế hoạch vừa thêm/xoá tệp thì thẻ tự nạp lại.
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, ApiError, assetUrl, type SxTepLenhNhom } from "../api/client";
+import { api, ApiError, type SxTepLenhNhom } from "../api/client";
 import { useAuth } from "../auth/useAuth";
-import { layLopDuoi, XemTruoc } from "../components/DinhKemTep";
+import { XemTruoc } from "../components/DinhKemTep";
 import { Icon } from "../components/Icons";
-import { duoiTep, dungLuong, kieuXemTruoc, type TepDinhKem } from "../components/tepDinhKem";
+import { dungLuong, type TepXem } from "../components/tepDinhKem";
 import { ngayGio } from "./keHoachSxShared";
+import { DongTep } from "./ThsxDongTep";
 
 /** Số tệp hiện sẵn — đủ thấy maket chính, không đẩy Lịch sử phiên chạy xuống quá xa. */
 const HIEN_TRUOC = 3;
-
-function DongTep({ t, onXem }: { t: TepDinhKem; onXem: (t: TepDinhKem) => void }) {
-  const kieu = kieuXemTruoc(t);
-  const url = assetUrl(t.file_url) ?? undefined;
-  const lop = layLopDuoi(t.ten_tep);
-  const duoi = duoiTep(t.ten_tep);
-  const than = (
-    <>
-      <span className={`thsx-tep__thumb ${kieu === "anh" ? "thsx-tep__thumb--anh" : lop}`} aria-hidden="true">
-        {kieu === "anh" ? <img src={url} alt="" loading="lazy" /> : duoi || "TỆP"}
-      </span>
-      <span className="thsx-tep__chu">
-        <span className="thsx-tep__ten" title={t.ten_tep}>{t.ten_tep}</span>
-        <span className="thsx-tep__meta">
-          {dungLuong(t.kich_thuoc)} · {ngayGio(t.tai_luc)}
-          {t.nguoi_tai_ten ? ` · ${t.nguoi_tai_ten}` : ""}
-        </span>
-      </span>
-    </>
-  );
-  return (
-    <li className="thsx-tep">
-      {kieu === "khac" ? (
-        <span className="thsx-tep__chinh">{than}</span>
-      ) : (
-        <button type="button" className="thsx-tep__chinh thsx-tep__chinh--xem" onClick={() => onXem(t)}
-          title={`Xem trước ${t.ten_tep}`}>
-          {than}
-        </button>
-      )}
-      <span className="thsx-tep__nut">
-        {kieu !== "khac" && (
-          <button type="button" className="thsx-tep__icon" onClick={() => onXem(t)}
-            aria-label={`Xem trước ${t.ten_tep}`} title="Xem trước">
-            <Icon name="eye" size={16} />
-          </button>
-        )}
-        <a className="thsx-tep__icon" href={url} download={t.ten_tep} target="_blank" rel="noopener"
-          aria-label={`Tải về ${t.ten_tep}`} title="Tải về">
-          <Icon name="download" size={16} />
-        </a>
-      </span>
-    </li>
-  );
-}
 
 export function ThsxTepLenh({
   congViecId,
@@ -77,7 +33,7 @@ export function ThsxTepLenh({
   const [loi, setLoi] = useState<string | null>(null);
   const [lanNap, setLanNap] = useState(0);
   const [moHet, setMoHet] = useState(false);
-  const [xem, setXem] = useState<TepDinhKem | null>(null);
+  const [xem, setXem] = useState<TepXem | null>(null);
 
   // Chỉ nạp lại khi bộ đếm của CHÍNH các lệnh trong thẻ đổi — lệnh khác thêm tệp không kéo API.
   const lsxIds = nhom?.map((n) => n.lsx_id) ?? [];
@@ -154,7 +110,10 @@ export function ThsxTepLenh({
                   </p>
                 )}
                 <ul className="thsx-tep__ds">
-                  {n.items.map((t) => <DongTep key={t.id} t={t} onXem={setXem} />)}
+                  {n.items.map((t) => (
+                    <DongTep key={t.id} t={t} onXem={setXem}
+                      meta={`${dungLuong(t.kich_thuoc)} · ${ngayGio(t.tai_luc)}${t.nguoi_tai_ten ? ` · ${t.nguoi_tai_ten}` : ""}`} />
+                  ))}
                 </ul>
               </div>
             ),

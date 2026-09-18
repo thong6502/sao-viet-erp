@@ -7,4 +7,7 @@ export interface DongConLai {
   mo_ta: string | null;
   don_vi_tinh: string | null;
   con: number;
+  cum_khoa?: string | null;
+  cum_ten?: string | null;
+  cum_dvt?: string | null;
 }

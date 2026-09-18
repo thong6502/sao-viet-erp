@@ -74,10 +74,6 @@ class DepartmentSummaryOut(BaseModel):
     total_role_count: int = 0
     total_user_count: int = 0
     total_employee_count: int = 0
-    # Bộ nguyên tắc lương của phòng (Pha 1).
-    # DORMANT 07/09/2026 — chỉ còn trả ra cho tương thích, màn không hiện, API không nhận.
-    salary_mechanism: str = "cung"
-    probation_ratio: float = 0.80
     has_piece_work: bool = False
 
 
@@ -103,9 +99,6 @@ class DepartmentMemberOut(BaseModel):
     avatar_url: str | None = None
 
 
-# `_SalaryMechanism` gỡ 07/09/2026 — cơ chế lương theo phòng là ô chết (engine không đọc).
-
-
 class DepartmentCreate(BaseModel):
     # Code is system-generated (spec-05) — never accepted from the client.
     name: str = Field(min_length=1, max_length=255)
@@ -113,9 +106,7 @@ class DepartmentCreate(BaseModel):
     parent_id: int | None = None
     # Optional org tier (spec-06 / PBI-4009).
     level_id: int | None = None
-    # Bộ nguyên tắc lương của phòng (Pha 1).
-    # `salary_mechanism` / `probation_ratio` theo phòng: DORMANT 07/09/2026 (engine dùng tham số
-    # công ty, không đọc cột phòng) — không nhận nữa.
+    # Phòng có lương khoán theo sản lượng.
     has_piece_work: bool = False
     # Khối SẢN XUẤT (spec §13.1) — mặc định không phải sản xuất.
     la_san_xuat: bool = False
@@ -142,9 +133,7 @@ class DepartmentUpdate(BaseModel):
     level_id: int | None = None
     # Re-parent in the org tree (spec-06 / PBI-4007); null = make it a root unit.
     parent_id: int | None = None
-    # Bộ nguyên tắc lương của phòng (Pha 1).
-    # `salary_mechanism` / `probation_ratio` theo phòng: DORMANT 07/09/2026 (engine dùng tham số
-    # công ty, không đọc cột phòng) — không nhận nữa.
+    # Phòng có lương khoán theo sản lượng.
     has_piece_work: bool = False
     # Khối SẢN XUẤT (spec §13.1). FE gửi cả object nên luôn kèm cờ này.
     la_san_xuat: bool = False
@@ -397,7 +386,6 @@ class PermissionRow(BaseModel):
     # Dòng quyền theo tổ `to_sx_<id>` (mg 0302).
     can_run_order: bool = False        # Thực hiện lệnh
     can_confirm_output: bool = False   # Xác nhận sản lượng
-    can_qc: bool = False               # KCS
     can_warehouse: bool = False        # Kho
 
 

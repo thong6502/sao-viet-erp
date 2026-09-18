@@ -1466,3 +1466,42 @@ def test_api_sua_chua_bo_qua_nguoi_bao_client_gui(client):
     assert r.status_code == 200, r.text
     assert r.json()["nguoi_bao_ten"] == ten_goc
     assert r.json()["may_id"] == may["id"]          # máy cũng chốt, PUT không đổi được
+
+
+def test_api_may_chon_mo_cho_nguoi_chi_co_quyen_ban_to(client):
+    """Ngăn chi tiết Bàn tổ đọc `/may-chon` để ghi tên máy nhận sự cố. Người chỉ có dòng quyền theo
+    tổ (không có ô Kỹ thuật máy nào) mở bàn tổ thì phải đọc được — trước đây ăn 403 mỗi lần mở.
+    Người không có quyền gì vẫn bị chặn."""
+    from app.db import SessionLocal
+    from app.models.department import Department
+    from app.models.user import User
+    from app.security import create_access_token
+    from tests.quyen_to_fixtures import cap_quyen_to
+
+    h = _headers(client)
+    client.post("/api/may-thiet-bi", json={"ma": "CHON-01", "ten": "Máy chọn",
+                                          "loai_may": "In offset"}, headers=h)
+    db = SessionLocal()
+    try:
+        goc = Department(name="Sản xuất Máy chọn", code="SX-MAYCHON", la_san_xuat=True)
+        db.add(goc)
+        db.flush()
+        to_in = Department(name="Tổ in Máy chọn", code="TI-MAYCHON", parent_id=goc.id)
+        db.add(to_in)
+        db.flush()
+        tho = User(username="tho_may_chon", name="Thợ máy chọn", password_hash="x",
+                   department_id=to_in.id)
+        nguoi_ngoai = User(username="ngoai_may_chon", name="Người ngoài", password_hash="x")
+        db.add_all([tho, nguoi_ngoai])
+        db.flush()
+        cap_quyen_to(db, tho, to_in, viec=())
+        db.commit()
+        h_tho = {"Authorization": f"Bearer {create_access_token(str(tho.id))}"}
+        h_ngoai = {"Authorization": f"Bearer {create_access_token(str(nguoi_ngoai.id))}"}
+    finally:
+        db.close()
+
+    r = client.get("/api/ky-thuat-may/may-chon", headers=h_tho)
+    assert r.status_code == 200, r.text
+    assert any(m["ma"] == "CHON-01" for m in r.json()["items"])
+    assert client.get("/api/ky-thuat-may/may-chon", headers=h_ngoai).status_code == 403

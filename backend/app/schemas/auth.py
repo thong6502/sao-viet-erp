@@ -100,7 +100,6 @@ class ModuleCapability(BaseModel):
     can_close_book: bool = False         # kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export
     can_run_order: bool = False          # dòng quyền theo tổ — Thực hiện lệnh
     can_confirm_output: bool = False     # dòng quyền theo tổ — Xác nhận sản lượng
-    can_qc: bool = False                 # dòng quyền theo tổ — KCS
     can_warehouse: bool = False          # dòng quyền theo tổ — Kho
     # cham_cong (mg 0194) — MỘT Ô = MỘT TAB. ⚠️ `response_model` của FastAPI CẮT BỎ mọi field
     # không khai ở đây: thiếu một dòng thì cờ vẫn nằm trong `capabilities()` mà KHÔNG tới được
@@ -124,3 +123,6 @@ class PermissionsOut(BaseModel):
 
     modules: list[str]
     permissions: list[ModuleCapability] = []
+    # KCS theo lệnh (mg 0306): thành viên / trưởng một phòng ban `is_kcs` — không phải ô quyền vai.
+    kcs: bool = False
+    truong_kcs: bool = False

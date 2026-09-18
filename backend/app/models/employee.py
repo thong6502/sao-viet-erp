@@ -7,7 +7,7 @@ Three tables:
                              đăng nhập vẫn có hồ sơ. `employees` là PROVIDER sẵn cho SEAM-19
                              (đóng khi Tài xế build, thêm FK `drivers.employee_id`).
   - `employee_events`      — Quá trình công tác: mỗi giai đoạn (thử việc→chính thức, điều
-                             chuyển, nâng bậc, nghỉ…) là 1 dòng theo `effective_date` (ngày
+                             chuyển, đổi chức danh, nghỉ…) là 1 dòng theo `effective_date` (ngày
                              hiệu lực, KHÁC `created_at` ngày nhập máy). Là nguồn timeline.
   - `employee_attachments` — file hồ sơ (HĐ scan / CCCD / bằng cấp), nằm trong kho file
                              (app/storage.py) như avatar; đọc qua /api/files, đòi quyền `nhan_su`.
@@ -25,11 +25,9 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
-    Numeric,
     String,
     UniqueConstraint,
     false as sa_false,
-    true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -69,7 +67,7 @@ EVENT_HIRED = "hired"               # vào làm (mốc đầu, sinh tự động
 EVENT_PROBATION_ENDED = "probation_ended"   # hết hạn thử việc (máy tự đặt, probation → probation_ended)
 EVENT_CONFIRMED = "confirmed"       # chuyển chính thức (probation/probation_ended → active)
 EVENT_TRANSFERRED = "transferred"   # điều chuyển phòng/tổ
-EVENT_PROMOTED = "promoted"         # nâng bậc thợ / đổi chức danh
+EVENT_PROMOTED = "promoted"         # đổi chức danh
 EVENT_LEAVE_START = "leave_start"   # bắt đầu nghỉ dài hạn
 EVENT_LEAVE_END = "leave_end"       # kết thúc nghỉ dài hạn (đi làm lại)
 EVENT_SUSPENDED = "suspended"       # đình chỉ
@@ -99,68 +97,8 @@ DOC_KHAC = "khac"                   # khác
 ATTACHMENT_DOC_KINDS = (DOC_HOP_DONG, DOC_CCCD, DOC_BANG_CAP, DOC_KHAC)
 
 
-# --- Danh mục BẬC TAY NGHỀ (chủ 2026-07-29) ---------------------------------
-# 5 BẬC CHÍNH, hạng CAO NHẤT đứng đầu (seq 1). Tên gọi DÂN DÃ theo cách xưởng gọi nhau
-# (chủ 2026-08-19): thợ cứng tay nhất → mới vào. Mã `bac_1…bac_5` GIỮ NGUYÊN làm khoá ổn định —
-# tên chỉ là nhãn hiển thị, đổi tên không đụng hạng của ai.
-# (Đường đời: bản đầu 3 chính + 2 phụ `tho_*`/`phu_*` → migration 0129 gộp về Bậc 1…5 → migration
-# 0155 đổi sang tên dân dã dưới đây. Tất cả đổi tên TẠI CHỖ giữ id nên không ai mất bậc.)
-# Phần tử thứ 4 = HỆ SỐ SẢN LƯỢNG mặc định (chủ 04/09/2026, "mặc định là những con số đó, người
-# dùng muốn sửa thì sửa sau"). Đây chỉ là số KHỞI ĐIỂM để hệ chạy được ngay — xưởng sửa lại ở
-# Hồ sơ nhân sự → nút "Bậc tay nghề". Bỏ trống hệ số thì KHÔNG chốt được phân bổ sản lượng
-# (xem `services/san_xuat/phan_bo.py`), nên seed/migration phải luôn rót số vào.
-JOB_GRADE_SEED = (
-    ("bac_1", "Thợ lành nghề", 1, 1.3),
-    ("bac_2", "Thợ vững", 2, 1.15),
-    ("bac_3", "Thợ thường", 3, 1.0),
-    ("bac_4", "Tập việc", 4, 0.9),
-    ("bac_5", "Lính mới", 5, 0.8),
-)
-
-
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-class JobGrade(Base):
-    """Danh mục bậc tay nghề — dùng cho khối SẢN XUẤT.
-
-    Bản đầu (chủ 2026-07-29) cố ý chỉ có mã · tên · thứ tự · bật/tắt — "khai bậc thôi", gán bậc
-    KHÔNG đổi một đồng nào — kèm lời dặn: *khi nào cần chia sản lượng khoán theo bậc thì treo
-    thêm cột vào ĐÂY, không phải đi sửa hồ sơ từng người*. Cột đó nay đã treo:
-    `output_coefficient` (mg `0220`). Đó vẫn là lý do bậc là một BẢNG có id, không phải ô chữ —
-    sửa hệ số một lần ở đây là cả xưởng đổi theo.
-
-    ⚠️ Bậc vẫn KHÔNG mang tiền: nó không cộng thẳng vào bảng lương thời gian. Nó chỉ là TỶ LỆ
-    dùng lúc chia một mẻ khoán cho những người đã làm mẻ đó (§8 Thực hiện sản xuất).
-    """
-
-    __tablename__ = "job_grades"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # Mã ổn định: `bac_1`…`bac_5`. Bộ `pay_grade_key` CŨ ('tho_*'/'phu_*') được migration 0127
-    # ánh xạ sang đây khi backfill, nên hồ sơ khai bằng mã cũ vẫn về đúng bậc.
-    code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
-    name: Mapped[str] = mapped_column(String(60), nullable=False)
-    # Thứ tự hiển thị. Số NHỎ = bậc CAO (hạng cứng tay nhất đứng đầu) — theo cách chủ liệt kê.
-    seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    # Tắt thay vì xoá khi một bậc thôi dùng: hồ sơ cũ đang trỏ vào vẫn đọc được tên bậc.
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=sa_true()
-    )
-    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # Hệ số quy đổi SẢN LƯỢNG theo bậc — nền chia khoán ở module Thực hiện sản xuất
-    # (spec-thuc-hien-san-xuat §8). Đây ĐÚNG là "treo cột vào bảng bậc" mà docstring lớp này đã dặn:
-    # khi phân bổ sản lượng lô cho từng người, phần của mỗi người được nhân hệ số bậc này (thợ cứng
-    # tay ăn nhiều hơn tập việc trên cùng một mẻ).
-    # ⚠️ NULL KHÔNG phải "coi như 1.0". `services/san_xuat/phan_bo.py` đặt trọng số phần đó = 0 rồi
-    # CHẶN chốt phân bổ với cảnh báo "Có người chưa gán hệ số bậc (§8)" — tiền mẻ treo, không ai
-    # lĩnh được. Vì vậy `JOB_GRADE_SEED` + mg `0263` luôn rót sẵn số cho cả 5 bậc; ô nhập ở
-    # Hồ sơ nhân sự → "Bậc tay nghề" cũng không cho xoá trắng.
-    output_coefficient: Mapped[float | None] = mapped_column(Numeric(6, 3), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, nullable=False
-    )
 
 
 class Employee(Base):
@@ -184,15 +122,6 @@ class Employee(Base):
         Integer, ForeignKey("users.id"), unique=True, index=True, nullable=True
     )
     position: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # BẬC TAY NGHỀ — nguồn sự thật DUY NHẤT từ 2026-07-29 (chủ). Trỏ danh mục `job_grades`.
-    # Chỉ đổi qua TRANSITION (`promote`/`transfer`), KHÔNG qua sửa hồ sơ thường — xem
-    # `EDITABLE_FIELDS` trong employee_service — nên mọi lần đổi bậc đều có dòng Quá trình công tác.
-    job_grade_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("job_grades.id"), index=True, nullable=True
-    )
-    # DORMANT từ 2026-07-29: bậc thợ chữ tự do (vd "3/7"). Migration 0127 đã chuyển sang
-    # `job_grade_id`; cột giữ lại cho dữ liệu cũ, NGỪNG GHI, chỉ đọc khi `job_grade_id` null.
-    job_grade: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Thâm niên ĐÃ CÓ trước khi vào làm (tháng) — người từng làm nơi khác chuyển sang phải khai.
     # Tổng thâm niên = prior_seniority_months + thời gian từ hire_date. Đợt 1 chỉ LƯU + hiển thị;
     # engine CHƯA dùng số này tính tiền (phụ cấp thâm niên vẫn khai tay per-người).
@@ -240,16 +169,6 @@ class Employee(Base):
     )
     bank_account: Mapped[str | None] = mapped_column(String(30), nullable=True)
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-
-    # --- Lương (module `luong`) ---
-    # Nhóm lương — trục tra bảng chính sách mức lương (salary_rate_rules), vd 'to_in',
-    # 'to_dan', 'van_phong'. Null = chưa gán (tính lương sẽ nhắc khai).
-    payroll_group: Mapped[str | None] = mapped_column(String(40), index=True, nullable=True)
-    # DORMANT từ 2026-07-29: bậc lương chuẩn hóa 'tho_1'…'phu_2'. Bộ mã này ĐÃ THÀNH danh mục
-    # `job_grades` (cùng mã) và bậc của NV nằm ở `job_grade_id`. Cột giữ cho dữ liệu cũ, đã GỠ
-    # khỏi `EDITABLE_FIELDS` ⇒ không ai ghi được nữa. Để hai ô cùng nghĩa cùng sửa được chính là
-    # cái bẫy C-3 (sửa ô này không đổi ô kia) — nên chỉ còn MỘT đường ghi.
-    pay_grade_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # --- Ca kíp ---
     # Ca làm việc mặc định (logical link → work_shifts.id; không FK cứng để tránh vòng
@@ -424,7 +343,7 @@ class EmployeeShiftChangeLog(Base):
 
 class EmployeeEvent(Base):
     """One mốc "Quá trình công tác" of an employee. Written by the service whenever a
-    stage changes (status / department / job_grade) — never edited by hand."""
+    stage changes (status / department / position) — never edited by hand."""
 
     __tablename__ = "employee_events"
 

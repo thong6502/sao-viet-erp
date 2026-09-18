@@ -7,14 +7,11 @@ export function DashboardPage() {
   return (
     <main className="dash">
       <section className="card">
-        <p className="eyebrow">Dashboard</p>
+        <p className="eyebrow">Trang chủ</p>
         <h1 className="auth__title" style={{ marginTop: "var(--sp-2)" }}>
-          Welcome{user?.name ? `, ${user.name}` : ""}.
+          Xin chào{user?.name ? `, ${user.name}` : ""}.
         </h1>
-        <p className="auth__sub">
-          You are authenticated. This protected page is only reachable with a valid token —
-          the first feature beyond auth will land here next spec.
-        </p>
+        <p className="auth__sub">Chọn một mục ở thanh bên trái để bắt đầu làm việc.</p>
       </section>
     </main>
   );

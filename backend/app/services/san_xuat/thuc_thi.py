@@ -21,7 +21,6 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from ...models.department import Department
-from ...models.employee import Employee, JobGrade
 from ...models.may_thiet_bi import MayThietBi
 from ...models.san_xuat import (
     BUOC_MAY,
@@ -46,6 +45,9 @@ from ...models.san_xuat_thuc_thi import (
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ...repositories.san_xuat_thuc_thi_repo import SanXuatThucThiRepository
+from ..bai_ghep_service import BaiGhepService
+from ..may_trang_thai import NHAN as NHAN_TT_MAY
+from ..may_trang_thai import TT_RANH, trang_thai_may
 from ..quyen_to import VIEC_THUC_HIEN, gate_to
 
 
@@ -71,21 +73,6 @@ def _gate(db: Session, user, cv: SanXuatCongViec, viec: str = VIEC_THUC_HIEN) ->
 def _kiem_version(cv: SanXuatCongViec, expected_version: int | None) -> None:
     if expected_version is not None and expected_version != cv.version:
         raise ValueError("Phiên bản không khớp — công việc vừa được cập nhật, hãy tải lại.")
-
-
-def _snapshot_bac(db: Session, employee_id: int) -> tuple[int | None, float | None]:
-    """Ảnh chụp bậc tay nghề + hệ số sản lượng của một người tại lúc mở khoảng tham gia (§8).
-
-    Đóng băng để danh mục bậc đổi về sau KHÔNG viết lại khoảng đang chạy/đã xong. Người chưa gán bậc
-    → (None, None); bậc chưa khai hệ số → (grade_id, None) ⇒ §8 chặn CHỐT phân bổ chứ không chặn ghi
-    sản xuất (engine đọc snapshot này để chia trọng số §12.2)."""
-    emp = db.get(Employee, employee_id)
-    grade_id = getattr(emp, "job_grade_id", None) if emp else None
-    heso = None
-    if grade_id:
-        grade = db.get(JobGrade, grade_id)
-        heso = getattr(grade, "output_coefficient", None) if grade else None
-    return grade_id, heso
 
 
 def _la_luong_khoan(db: Session, emp) -> bool:
@@ -147,7 +134,8 @@ def phan_cong(
         raise ValueError("Không tìm thấy nhân viên.")
     la_khoan = _la_luong_khoan(db, emp)
     if cv.loai_buoc == BUOC_TO and not la_khoan:
-        raise ValueError("Bước nội bộ chỉ được giao cho nhân viên thuộc chế độ lương khoán.")
+        # Câu tổ đọc: nói "công nhật" (ngoại lệ) chứ đừng nói "lương khoán" — cùng chữ với bàn tổ.
+        raise ValueError(f"{emp.full_name} là người công nhật — bước nội bộ không nhận người công nhật.")
     if repo.phan_cong_hoat_dong_cua(cong_viec_id, employee_id) is not None:
         raise ValueError("Nhân viên này đã được giao vào công việc.")
 
@@ -168,15 +156,12 @@ def phan_cong(
                 raise ValueError(
                     "Người này đang tham gia một công việc khác (khoảng tham gia chồng giờ)."
                 )
-            bac_id, heso = _snapshot_bac(db, employee_id)
             repo.add(
                 SanXuatKhoangThamGia(
                     cong_viec_id=cv.id,
                     phien_chay_id=phien.id,
                     employee_id=employee_id,
                     bat_dau=_moc(),
-                    job_grade_id=bac_id,
-                    output_coefficient=heso,
                 )
             )
 
@@ -240,7 +225,13 @@ def bat_dau(
 
     roster = repo.phan_cong_hoat_dong(cv.id)
     if not any(pc.la_luong_khoan for pc in roster):
-        raise ValueError("Phải có ít nhất một thợ lương khoán được phân công mới bắt đầu được.")
+        # Luật vẫn là ≥1 người hưởng khoán, nhưng câu báo dùng đúng chữ chân drawer bàn tổ
+        # (`ThsxDrawer`): chưa giao ai thì bảo giao thợ; chỉ khi roster toàn công nhật mới nói lý do.
+        if not roster:
+            raise ValueError("Cần giao ít nhất 1 thợ mới bắt đầu được.")
+        raise ValueError(
+            "Người đang giao đều là công nhật — cần thêm ít nhất 1 thợ không phải công nhật mới bắt đầu được."
+        )
 
     # §7.1: số người THỰC TẾ bắt đầu khác số dự kiến (chốt lúc phát hành trong dinh_muc_json) ⇒
     # vẫn cho bắt đầu nhưng BẮT BUỘC chọn lý do. Không khai định mức người (None) → miễn kiểm.
@@ -293,15 +284,12 @@ def bat_dau(
     repo.add(phien)
     repo.flush()  # cần phien.id để neo khoảng tham gia
     for pc in roster:
-        bac_id, heso = _snapshot_bac(db, pc.employee_id)
         repo.add(
             SanXuatKhoangThamGia(
                 cong_viec_id=cv.id,
                 phien_chay_id=phien.id,
                 employee_id=pc.employee_id,
                 bat_dau=now,
-                job_grade_id=bac_id,
-                output_coefficient=heso,
             )
         )
 
@@ -418,6 +406,41 @@ def ket_thuc(
     return _ket_qua(cv)
 
 
+def may_doi_duoc(db: Session, *, user, cong_viec_id: int) -> dict:
+    """Ô "Đổi máy" của bàn tổ: máy đổi sang được + TÌNH TRẠNG LÚC NÀY của từng máy.
+
+    Lọc cùng MỘT luật với gợi ý máy ở Xếp lịch (`BaiGhepService.may_ngoai_cong_doan`): công đoạn đã
+    chọn máy cụ thể thì chỉ các máy đó, chưa chọn thì lùi về nhóm máy, chưa khai gì thì mọi máy. Bàn
+    tổ phán khác bàn xếp lịch là tổ đổi sang một máy mà công đoạn không có công thức giờ để chạy.
+    Bỏ sẵn máy đã ngừng dùng và máy đang gán — hai thứ `doi_may` sẽ từ chối.
+
+    Tình trạng lấy ĐÚNG hàm của cột Trạng thái màn Thiết bị (`trang_thai_may`): hai màn tự tính là
+    sớm muộn cùng một máy hiện hai chữ khác nhau. Chỉ để NHÌN, không chặn chọn — đúng lối "chỉ cảnh
+    báo" chủ chốt cho phiếu sửa chữa; tổ đứng cạnh máy biết rõ hơn lịch.
+
+    Tách endpoint riêng thay vì gắn vào chi tiết công việc: tình trạng phải là của LÚC mở ô chọn, và
+    chi tiết nạp lại theo mọi tin SSE thì đừng kéo theo phép tính lịch của cả xưởng.
+    """
+    repo = SanXuatThucThiRepository(db)
+    cv = _lay_cong_viec(repo, cong_viec_id)
+    _gate(db, user, cv)
+    if cv.loai_buoc not in (BUOC_MAY, BUOC_THUE_NGOAI) or cv.trang_thai not in (CV_DANG_CHAY, CV_TAM_DUNG):
+        return {"items": [], "theo_cong_doan": False}
+    cd = repo.cong_doan_cua_viec(cv)
+    mays = [m for m in repo.may_con_dung()
+            if m.id != cv.may_id and not BaiGhepService.may_ngoai_cong_doan(cd, m)]
+    tt = trang_thai_may(db, [m.id for m in mays])
+    ranh = {"trang_thai": TT_RANH, "nhan": NHAN_TT_MAY[TT_RANH], "chi_tiet": None}
+    return {
+        "items": [
+            {"id": m.id, "ma": m.ma, "ten": m.ten, "loai_may": m.loai_may,
+             **{k: tt.get(m.id, ranh)[k] for k in ("trang_thai", "nhan", "chi_tiet")}}
+            for m in mays
+        ],
+        "theo_cong_doan": cd is not None and bool(cd.may_lam_duoc or cd.nhom_may_cho_phep),
+    }
+
+
 def doi_may(
     db: Session,
     *,
@@ -470,7 +493,7 @@ def doi_may(
             phien_cu.loai_dong = PHIEN_DOI_MAY
             phien_cu.ly_do = (ly_do or "Đổi máy").strip()[:255]
             for kh in repo.khoang_mo_cua_phien(phien_cu.id):
-                nguoi.append((kh.employee_id, kh.job_grade_id, kh.output_coefficient))
+                nguoi.append(kh.employee_id)
                 repo.dong_khoang(kh, now)
         phien_moi = SanXuatPhienChay(
             cong_viec_id=cv.id,
@@ -481,15 +504,13 @@ def doi_may(
         )
         repo.add(phien_moi)
         repo.flush()
-        for emp_id, bac_id, heso in nguoi:
+        for emp_id in nguoi:
             repo.add(
                 SanXuatKhoangThamGia(
                     cong_viec_id=cv.id,
                     phien_chay_id=phien_moi.id,
                     employee_id=emp_id,
                     bat_dau=now,
-                    job_grade_id=bac_id,
-                    output_coefficient=heso,
                 )
             )
 
@@ -506,6 +527,10 @@ def nhan_khuon(db: Session, *, user, cong_viec_id: int) -> dict:
 
     Tích MỘT LẦN, không gỡ được — gỡ ra thì cái mốc "ai nói dao đã ở đây, lúc mấy giờ" mất nghĩa,
     mà đó đúng là thứ duy nhất mở được cổng Bắt đầu ở trên.
+
+    Cầm được dao trong tay cũng là bằng chứng dao "làm mới" ĐÃ VỀ: danh mục lật `dang_dat_lam` →
+    `dang_dung` (16/09/2026). Không lật thì dao mang chữ "đang đặt làm" mãi, lệnh sau dùng lại vẫn
+    báo chưa về. Chỉ lật đúng `dang_dat_lam` — hỏng / thanh lý là người phán, cú tích không đè.
     """
     repo = SanXuatThucThiRepository(db)
     cv = _lay_cong_viec(repo, cong_viec_id)
@@ -517,9 +542,42 @@ def nhan_khuon(db: Session, *, user, cong_viec_id: int) -> dict:
     cv.khuon_nhan_luc = _moc()
     cv.khuon_nhan_by_id = getattr(user, "id", None)
     cv.version += 1
-    _audit(db, user, "san_xuat_nhan_khuon", cv, detail=(cv.khuon_json or {}).get("ma") or "")
+    _lat_dao_da_ve(db, repo, user, cv)
+    _audit(db, user, "san_xuat_nhan_khuon", cv, detail=(cv.khuon_json or {}).get("ma") or "",
+           commit=False)
     db.commit()
     return _ket_qua(cv)
+
+
+def _lat_dao_da_ve(db: Session, repo: SanXuatThucThiRepository, user, cv: SanXuatCongViec) -> None:
+    """`dang_dat_lam` → `dang_dung` ở danh mục + mọi ảnh chụp của việc chưa xong trỏ cùng dao.
+
+    Ảnh chụp giữ để tổ thấy đúng CON DAO đã chốt; chữ tình trạng trong đó không phải thứ cần đóng
+    băng, để nguyên là chip bàn tổ khác nói sai. Không cần bắn SSE riêng cho tổ khác: sự kiện
+    `san_xuat_cong_viec_changed` của router đã làm mọi bàn đang mở tải lại. Nhật ký danh mục ghi
+    cùng khuôn với sửa tay ở màn Khuôn."""
+    from ...models.khuon_be import KhuonBe
+    from ...repositories.khuon_be_repo import KhuonBeRepository
+    from .. import nhat_ky_danh_muc as nk
+
+    kid = (cv.khuon_json or {}).get("id")
+    dao: KhuonBe | None = KhuonBeRepository(db).get(kid) if kid else None
+    if dao is None or dao.tinh_trang != "dang_dat_lam":
+        return
+    truoc = nk.anh_chup(dao)
+    dao.tinh_trang = "dang_dung"
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None),
+        action=nk.ACTION_SUA,
+        target=f"khuon_be:{dao.id}",
+        detail=" · ".join(nk.mo_ta_thay_doi(truoc, nk.anh_chup(dao))),
+        commit=False,
+    )
+    for c in {cv, *repo.cong_viec_mo_theo_khuon(dao.id)}:
+        anh = c.khuon_json or {}
+        if anh.get("tinh_trang") == "dang_dat_lam":
+            # Gán dict MỚI: cột JSON không theo dõi sửa tại chỗ, `anh["tinh_trang"] = ...` không ghi.
+            c.khuon_json = {**anh, "tinh_trang": "dang_dung"}
 
 
 def tra_khuon(db: Session, *, user, cong_viec_id: int) -> dict:

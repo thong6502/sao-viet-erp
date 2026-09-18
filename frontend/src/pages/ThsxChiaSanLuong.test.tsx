@@ -22,10 +22,10 @@ const pb = {
   dong: [
     { employee_id: 11, ho_ten: "Lê Văn A", department_id: 7, la_ho_tro: false,
       ngay: "2026-09-11", so_luong_tra_luong: 520, so_luong_ban_dia: 520,
-      trong_so: 156, phut_thuc_te: 120, he_so_bac: 1.3 },
+      trong_so: 156, phut_thuc_te: 120 },
     { employee_id: 12, ho_ten: "Trần Thị B", department_id: 7, la_ho_tro: false,
       ngay: "2026-09-11", so_luong_tra_luong: 460, so_luong_ban_dia: 460,
-      trong_so: 138, phut_thuc_te: 120, he_so_bac: 1.15 },
+      trong_so: 138, phut_thuc_te: 120 },
   ],
 } as unknown as SxPhanBo;
 
@@ -47,12 +47,13 @@ describe("Chia sản lượng", () => {
     expect(screen.queryByRole("columnheader", { name: /Đơn giá/i })).toBeNull();
   });
 
-  it("hiện sản lượng, bậc và PHÚT của từng người", () => {
+  it("hiện sản lượng và PHÚT của từng người, không còn cột bậc", () => {
     render(
       <PhanBoBlock b={batch} pb={pb} canAssign busy={false}
         tenNguoi={new Map()} hoTroUngVien={[]} exec={exec} />,
     );
     expect(screen.getByRole("columnheader", { name: /Phút/i })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /Bậc/i })).toBeNull();
     expect(screen.getByText("Lê Văn A")).toBeInTheDocument();
     expect(screen.getByText("520")).toBeInTheDocument();
   });
@@ -61,8 +62,8 @@ describe("Chia sản lượng", () => {
     const nhap = {
       q: 980, don_vi: "to", can_chot: true, canh_bao: [],
       dong: [
-        { employee_id: 11, ho_ten: "Lê Văn A", so_luong: 520, phut_thuc_te: 120, he_so_bac: 1.3, la_ho_tro: false },
-        { employee_id: 12, ho_ten: "Trần Thị B", so_luong: 460, phut_thuc_te: 120, he_so_bac: 1.15, la_ho_tro: false },
+        { employee_id: 11, ho_ten: "Lê Văn A", so_luong: 520, phut_thuc_te: 120, la_ho_tro: false },
+        { employee_id: 12, ho_ten: "Trần Thị B", so_luong: 460, phut_thuc_te: 120, la_ho_tro: false },
       ],
     };
     render(<PhanBoBlock b={batch} pb={null} chiaNhap={nhap as never} canAssign busy={false}
@@ -88,5 +89,22 @@ describe("Chia sản lượng", () => {
     for (const chu of ["Komori 1050", "Ca 1", "Bế hộp bánh · 1050", "kẹt giấy"]) {
       expect(screen.getByText(new RegExp(chu))).toBeInTheDocument();
     }
+    expect(screen.getByText(/08:00–08:20: kẹt giấy/)).toBeInTheDocument();
+  });
+
+  it("lần dừng qua nửa đêm kèm ngày, dừng chưa chạy lại thì nói rõ", async () => {
+    const b = {
+      ...batch,
+      bat_dau: "2026-09-11T22:00:00", ket_thuc: "2026-09-11T23:50:00",
+      su_co: [
+        { bat_dau: "2026-09-11T23:40:00", ket_thuc: "2026-09-12T00:21:00", ly_do: "hết giấy" },
+        { bat_dau: "2026-09-11T23:45:00", ket_thuc: null, ly_do: "mất điện" },
+      ],
+    } as unknown as SxBatch;
+    render(<BatchRow b={b} canAssign busy={false} pb={pb}
+      tenNguoi={new Map()} hoTroUngVien={[]} exec={exec} />);
+    await userEvent.click(screen.getByRole("button", { expanded: false }));
+    expect(screen.getByText(/23:40–12\/09 00:21: hết giấy/)).toBeInTheDocument();
+    expect(screen.getByText(/từ 23:45, chưa chạy lại: mất điện/)).toBeInTheDocument();
   });
 });

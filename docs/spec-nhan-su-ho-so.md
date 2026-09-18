@@ -10,7 +10,7 @@
 - 3 bảng: `employees`, `employee_events` (Quá trình công tác), `employee_attachments`.
 - Màn **Danh sách** (KPI + tìm/lọc/sắp/phân trang, scope theo phòng) + **Trang hồ sơ**
   (tab **Thông tin · Quá trình công tác · Đính kèm · Nhật ký**).
-- **Wizard** thêm NV (5 bước) + **dialog** Đổi trạng thái / Điều chuyển / Nâng bậc (sinh
+- **Wizard** thêm NV (5 bước) + **dialog** Đổi trạng thái / Điều chuyển / Đổi chức danh (sinh
   `employee_event`) + **nối/tạo tài khoản** login.
 
 **Ngoài lát #1 (làm sau)**
@@ -38,7 +38,7 @@ Xem `DB_SCHEMA.md` mục `employees` / `employee_events` / `employee_attachments
 | bất kỳ → resigned | `resigned` | **resign_date + resign_reason bắt buộc**; sau đó khóa sửa |
 | resigned → active | `reinstated` | tuyển lại |
 | (đổi department) | `transferred` | effective_date, from→to phòng |
-| (đổi job_grade) | `promoted` | from→to bậc |
+| (đổi position) | `promoted` | from→to chức danh (bậc tay nghề đã gỡ 17/09/2026, mg `0305`) |
 
 Chặn chuyển tiếp vô lý (vd resigned→active phải qua `reinstated`, không nhảy thẳng).
 
@@ -50,8 +50,8 @@ Chặn chuyển tiếp vô lý (vd resigned→active phải qua `reinstated`, kh
 | `GET /api/employees/meta` | read | Dropdown: phòng ban, users chưa gắn NV |
 | `POST /api/employees` | create | Tạo NV → cấp `NV###` + event `hired` + (tùy chọn) tạo user; trả cảnh báo trùng CCCD/BHXH |
 | `GET /api/employees/{id}` | read | Chi tiết hồ sơ |
-| `PUT /api/employees/{id}` | update | Sửa hồ sơ (KHÔNG đổi status/dept/grade ở đây) |
-| `POST /api/employees/{id}/transitions` | update | Đổi trạng thái/điều chuyển/nâng bậc → ghi event |
+| `PUT /api/employees/{id}` | update | Sửa hồ sơ (KHÔNG đổi status/dept/chức danh ở đây) |
+| `POST /api/employees/{id}/transitions` | update | Đổi trạng thái/điều chuyển/đổi chức danh → ghi event |
 | `GET /api/employees/{id}/events` | read | Quá trình công tác |
 | `GET /api/employees/{id}/activity` | read | Nhật ký (audit lọc theo NV) |
 | `GET/POST /api/employees/{id}/attachments` · `DELETE …/{aid}` | read/update | Liệt kê / upload (multipart) / xóa file |
@@ -65,7 +65,7 @@ thiện) · mỗi create/update/transition ghi `audit_logs` (target `employee:<i
 1. **Định danh & việc làm** (bắt buộc: họ tên · phòng · ngày vào; status mặc định *Thử việc*
    → hiện `probation_end_date` gợi ý +2 tháng).
 2. **Cá nhân** (+ cảnh báo trùng CCCD inline).
-3. **BHXH / TNCN** (+ bậc thợ).
+3. **BHXH / TNCN**.
 4. **Đính kèm** (upload HĐ/CCCD/bằng cấp).
 5. **Tài khoản** (tùy chọn) → **Xem lại → Lưu**.
 
@@ -75,11 +75,11 @@ Lưu ⇒ cấp mã · tạo `employees` · **tự ghi event `hired`** (effective
 ## 5. RBAC
 - `module_key = 'nhan_su'`; seed thêm `("nhan_su","Nhân sự")` vào `MODULES` + cấp **W**
   (RCU) cho vai trò **Trưởng phòng HCNS**.
-- Scope lát #1: `department` / `all` (HCNS). Sửa BHXH/bậc/trạng thái đều dưới `update` của `nhan_su`.
+- Scope lát #1: `department` / `all` (HCNS). Sửa BHXH/trạng thái đều dưới `update` của `nhan_su`.
 
 ## 6. Seam & ‹chờ SVN›
 - `employees` = **provider sẵn** cho **SEAM-19** (đóng khi Tài xế build; chưa làm gì thêm giờ).
-- ‹mặc định, xác nhận sau›: prefix `NV###`, thang **bậc thợ**.
+- ‹mặc định, xác nhận sau›: prefix `NV###`.
 
 ## 7. File
 - BE: `models/employee.py` · `repositories/employee_repo.py` · `services/employee_service.py`

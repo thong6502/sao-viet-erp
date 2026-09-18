@@ -18,6 +18,7 @@ import {
   kieuXemTruoc,
   nenThuLai,
   type TepDinhKem,
+  type TepXem,
   type ViecTai,
 } from "./tepDinhKem";
 import "./dinh-kem-tep.css";
@@ -461,7 +462,7 @@ export function DinhKemTep({
 }
 
 /** Hộp xem trước ảnh/PDF toàn màn — dùng lại ở thẻ tệp chỉ đọc (Bàn tổ). */
-export function XemTruoc({ tep, onDong }: { tep: TepDinhKem; onDong: () => void }) {
+export function XemTruoc({ tep, onDong }: { tep: TepXem; onDong: () => void }) {
   const nutDong = useRef<HTMLButtonElement | null>(null);
   const onDongRef = useRef(onDong);
   useEffect(() => {
@@ -471,12 +472,16 @@ export function XemTruoc({ tep, onDong }: { tep: TepDinhKem; onDong: () => void 
   useEffect(() => {
     const truoc = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     nutDong.current?.focus();
+    // Bắt ở pha capture + preventDefault: trang chứa (vd bàn tổ) cũng nghe Esc ở `document` để đóng
+    // ngăn chi tiết, đăng ký trước nên chạy trước — không vậy thì một Esc đóng luôn cả ngăn.
     const phim = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDongRef.current();
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      onDongRef.current();
     };
-    document.addEventListener("keydown", phim);
+    document.addEventListener("keydown", phim, true);
     return () => {
-      document.removeEventListener("keydown", phim);
+      document.removeEventListener("keydown", phim, true);
       truoc?.focus();
     };
   }, []);

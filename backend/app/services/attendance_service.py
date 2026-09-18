@@ -2557,35 +2557,62 @@ class AttendanceService:
 
     def khoang_co_mat_hop_le(
         self, employee, start_utc: datetime, end_utc: datetime,
+        manh_theo_ngay: dict[tuple[int, date], list[tuple[datetime, datetime]]] | None = None,
     ) -> list[tuple[datetime, datetime]]:
         """§7.3 — các KHOẢNG CÓ MẶT HỢP LỆ (UTC-aware, KHÔNG chồng lấn) của NV trong [start,end):
         giao của (các cặp chấm công IN/OUT thực tế) với (TRONG CA THƯỜNG ∪ PHIẾU TĂNG CA ĐÃ DUYỆT).
         Phút THÔ — không grace, không làm tròn. Ca qua đêm gom vào ngày VÀO ca (`work_day_of`).
 
         Dùng nuôi lương khoán (§12.2): engine phân bổ lấy phút = giao(khoảng THAM GIA, khoảng này).
-        NV chưa gán ca + không có phiếu TC ⇒ khung trả công rỗng ⇒ trả [] (⇒ đánh 'thiếu chấm công')."""
+        NV chưa gán ca + không có phiếu TC ⇒ khung trả công rỗng ⇒ trả [] (⇒ đánh 'thiếu chấm công').
+
+        `manh_theo_ngay` {(NV, ngày công) → mảnh}: caller hỏi NHIỀU cửa sổ của cùng người trong một
+        lượt đọc (các mẻ của một công việc) truyền MỘT dict dùng chung. Mảnh của một ngày không phụ
+        thuộc cửa sổ — cửa sổ chỉ cắt ở `_gop_khoang` cuối — nên đọc lại từ dict ra đúng số cũ. Đo
+        16/09/2026 drawer 3 mẻ cùng ngày: không nhớ thì hỏi quẹt thẻ 9 lượt cho đúng 3 ngày. Đừng
+        giữ dict qua một lần GHI chấm công/ca/phiếu tăng ca."""
         start_utc, end_utc = _as_utc(start_utc), _as_utc(end_utc)
         if employee is None or end_utc <= start_utc:
             return []
+        nho = manh_theo_ngay if manh_theo_ngay is not None else {}
         # Nới ±1 ngày quanh biên để ôm ca đêm gom về ngày vào ca.
-        d = start_utc.astimezone(VN_TZ).date() - timedelta(days=1)
+        d_dau = start_utc.astimezone(VN_TZ).date() - timedelta(days=1)
         d_het = end_utc.astimezone(VN_TZ).date() + timedelta(days=1)
+        cac_ngay = [d_dau + timedelta(days=i) for i in range((d_het - d_dau).days + 1)]
+        chua_tinh = [d for d in cac_ngay if (employee.id, d) not in nho]
+        if chua_tinh:
+            # Ca của cả dải trong HAI truy vấn — để `_shift_for_day` tự tra thì mỗi ngày tốn tới ba
+            # (ô lưới, mốc ca nền, có lịch sử mốc không). Biên: punch của ngày d nạp từ 00:00 hôm
+            # trước tới trưa hôm sau (`_day_punches`), và `_shift_and_work_day_for_local` còn dò ca
+            # HÔM TRƯỚC của từng punch ⇒ [đầu − 2, cuối + 1]. Thứ tự lưới-rồi-ca-nền y `bang_cong`.
+            tu, den = chua_tinh[0] - timedelta(days=2), chua_tinh[-1] + timedelta(days=1)
+            self.prefetch_shift_days({employee.id}, tu, den)
+            moc = self.employees.shift_assignments_map({employee.id}).get(employee.id, [])
+            self.gieo_ca_nen(employee, moc, tu, den)
         manh: list[tuple[datetime, datetime]] = []
-        while d <= d_het:
-            shift = self._shift_for_day(employee, d)
-            punches = self._day_punches(employee, shift, d)
-            sessions = pair_sessions([(lc, lg.check_type) for lc, lg in punches])
-            if sessions:
-                khung = self._khung_tra_cong_utc(employee, shift, d)
-                for s_in, s_out in sessions:
-                    a0 = s_in.astimezone(timezone.utc)
-                    a1 = s_out.astimezone(timezone.utc)
-                    for w0, w1 in khung:
-                        lo, hi = max(a0, w0), min(a1, w1)
-                        if hi > lo:
-                            manh.append((lo, hi))
-            d += timedelta(days=1)
+        for d in cac_ngay:
+            if (employee.id, d) not in nho:
+                nho[(employee.id, d)] = self._manh_hop_le_ngay(employee, d)
+            manh.extend(nho[(employee.id, d)])
         return _gop_khoang(manh, start_utc, end_utc)
+
+    def _manh_hop_le_ngay(self, employee, d: date) -> list[tuple[datetime, datetime]]:
+        """Mảnh có mặt hợp lệ của MỘT ngày công `d` (UTC, CHƯA cắt theo cửa sổ nào) — thân vòng
+        ngày của `khoang_co_mat_hop_le`, tách ra để nhớ được theo (NV, ngày)."""
+        shift = self._shift_for_day(employee, d)
+        punches = self._day_punches(employee, shift, d)
+        sessions = pair_sessions([(lc, lg.check_type) for lc, lg in punches])
+        manh: list[tuple[datetime, datetime]] = []
+        if sessions:
+            khung = self._khung_tra_cong_utc(employee, shift, d)
+            for s_in, s_out in sessions:
+                a0 = s_in.astimezone(timezone.utc)
+                a1 = s_out.astimezone(timezone.utc)
+                for w0, w1 in khung:
+                    lo, hi = max(a0, w0), min(a1, w1)
+                    if hi > lo:
+                        manh.append((lo, hi))
+        return manh
 
     @staticmethod
     def _cap_bam_theo_phieu(shift, phien_chinh, otw: tuple[int, int], wd: date) -> dict:

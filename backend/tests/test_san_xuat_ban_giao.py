@@ -30,7 +30,9 @@ from app.models.san_xuat_san_luong import (
     SanXuatBanGiaoDieuChinh,
 )
 from app.models.user import User
+from app.repositories.rbac_repo import RoleRepository
 from app.repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
+from app.services.rbac_service import AuthorizationService
 from app.services.san_xuat import ban_giao, board, san_luong
 from tests.quyen_to_fixtures import cap_quyen_to
 
@@ -131,12 +133,22 @@ def test_hop_cho_xac_nhan_cua_to_dich_va_badge(db, orders, lsx_svc, admin, custo
     assert [(x["id"], x["dich_cong_viec_id"], x["so_luong"]) for x in hop["ban_giao"]] == [
         (res["ban_giao_id"], cv2.id, 100)
     ]
+    # Công đoạn đích nằm trên bàn tổ đích ⇒ chấm đỏ trên dòng đó, không liệt kê riêng.
+    assert hop["ban_giao"][0]["tren_ban"] is True
     assert {t["id"]: t["so_cho_xac_nhan"] for t in board.teams(db, ub, None)}[to_b.id] == 1
     assert board.cho_xac_nhan(db, admin, team_id=to.id)["ban_giao"] == []   # tổ nguồn không phải bấm
+    # Ô "chờ xác nhận" của bàn đích: chỉ còn lệnh có công đoạn chờ nhận.
+    az = AuthorizationService(RoleRepository(db))
+    loc = board.work_items(db, ub, az, team_id=to_b.id, cho_xac_nhan=True)
+    assert [[w["id"] for w in l["cong_viec"]] for l in loc["lenh"]] == [[cv2.id]]
+    assert [w["id"] for w in board.work_items(
+        db, ub, az, team_id=to_b.id, nhom="phang", cho_xac_nhan=True)["cong_viec"]] == [cv2.id]
 
     ban_giao.xac_nhan(db, user=ub, ban_giao_id=res["ban_giao_id"])
     assert board.cho_xac_nhan(db, ub, team_id=to_b.id)["ban_giao"] == []
     assert {t["id"]: t["so_cho_xac_nhan"] for t in board.teams(db, ub, None)}[to_b.id] == 0
+    assert board.work_items(db, ub, az, team_id=to_b.id, cho_xac_nhan=True)["lenh"] == []
+    assert board.work_items(db, ub, az, team_id=to_b.id)["trang"]["tong"] == 1
 
 
 def test_cung_to_cung_lsx_tu_xac_nhan(db, orders, lsx_svc, admin, customer):
@@ -256,6 +268,40 @@ def test_dieu_chinh_ghi_lich_su_va_co_khong_nhat_quan(db, orders, lsx_svc, admin
     assert res2["khong_nhat_quan"] is False
 
 
+def test_ngan_chi_tiet_ghi_ai_giao_ai_nhan_va_tung_lan_dieu_chinh(db, orders, lsx_svc, admin, customer):
+    """Cả tổ giao lẫn tổ nhận đều đọc được ai đề xuất, ai xác nhận, lúc nào, và từng lần điều chỉnh
+    (ai, trước → sau, mô tả, lúc). Tên lấy từ tài khoản đã thao tác, không gõ tay."""
+    from app.schemas.san_xuat import WorkItemChiTietOut
+
+    to, cv1, cv2, _lsx = _hai_cv(db, orders, lsx_svc, admin, customer)
+    to_b, ub = _to_dich(db)
+    cv2.department_id = to_b.id
+    db.commit()
+    b = _batch(db, admin, cv1, tot=100)
+    r = ban_giao.de_xuat(db, user=admin, nguon_cong_viec_id=cv1.id, dich_cong_viec_id=cv2.id,
+                         batch_ids=[b])
+    az = AuthorizationService(RoleRepository(db))
+
+    def dong(cv, user, khoa):
+        ct = board.chi_tiet_cong_viec(db, user, az, cong_viec_id=cv.id)
+        return WorkItemChiTietOut.model_validate(ct).model_dump()[khoa][0]
+
+    cho = dong(cv2, ub, "ban_giao_den")
+    assert cho["nguoi_de_xuat"] == admin.name and cho["de_xuat_luc"] is not None
+    assert (cho["nguoi_xac_nhan"], cho["xac_nhan_luc"], cho["dieu_chinh"]) == (None, None, [])
+
+    ban_giao.xac_nhan(db, user=ub, ban_giao_id=r["ban_giao_id"])
+    ban_giao.dieu_chinh(db, user=ub, ban_giao_id=r["ban_giao_id"], so_luong_sau=95,
+                        mo_ta="Đếm lại thiếu 5")
+    for cv, user, khoa in ((cv1, admin, "ban_giao_di"), (cv2, ub, "ban_giao_den")):
+        g = dong(cv, user, khoa)
+        assert (g["nguoi_de_xuat"], g["nguoi_xac_nhan"]) == (admin.name, "Tổ trưởng đích")
+        assert g["xac_nhan_luc"] is not None
+        assert [(d["so_luong_truoc"], d["so_luong_sau"], d["mo_ta"], d["nguoi"], d["khong_nhat_quan"])
+                for d in g["dieu_chinh"]] == [(100, 95, "Đếm lại thiếu 5", "Tổ trưởng đích", False)]
+        assert g["dieu_chinh"][0]["luc"] is not None
+
+
 def test_dieu_chinh_khong_con_doi_ly_do(db, orders, lsx_svc, admin, customer):
     """Danh mục lý do/lỗi ĐÃ GỠ (mg 0288): điều chỉnh bàn giao KHÔNG còn phải nêu lý do."""
     to, cv1, cv2, lsx = _hai_cv(db, orders, lsx_svc, admin, customer)
@@ -287,6 +333,25 @@ def test_dich_phai_la_chang_sau_theo_routing(db, orders, lsx_svc, admin, custome
             db, user=admin, nguon_cong_viec_id=cv1.id, dich_cong_viec_id=None,
             batch_ids=[b],
         )
+
+
+def test_buoc_cuoi_lenh_khong_ban_giao(db, orders, lsx_svc, admin, customer):
+    """Bước cuối của lệnh không có chặng sau ⇒ không bàn giao (giao ra kho đã gỡ 17/09/2026);
+    thành phẩm vào kho qua KCS đề nghị nhập kho."""
+    to, cv1, _cv2, _lsx = _hai_cv(db, orders, lsx_svc, admin, customer)
+    repo = SanXuatSanLuongRepository(db)
+    cuoi = next(c for c in _cvs(db, to) if not repo.cong_viec_chang_sau(c))
+    cuoi.trang_thai = CV_DANG_CHAY
+    cuoi.don_vi_ra = cuoi.don_vi_vao = "tờ"
+    db.commit()
+    b = _batch(db, admin, cuoi, tot=100)
+    for dich in (None, cv1.id):
+        with pytest.raises(ValueError, match="Bước cuối của lệnh không bàn giao"):
+            ban_giao.de_xuat(
+                db, user=admin, nguon_cong_viec_id=cuoi.id, dich_cong_viec_id=dich,
+                batch_ids=[b],
+            )
+    assert db.query(SanXuatBanGiao).count() == 0
 
 
 def _buoc(db, lsx_id, thu_tu, ten):
@@ -358,3 +423,21 @@ def test_giao_theo_me(db, orders, lsx_svc, admin, customer):
     }
     with pytest.raises(ValueError, match="Không còn sản lượng tốt"):
         ban_giao.de_xuat(**chung)
+
+
+# --- SSE bàn giao: MỘT gói cho cả hai tổ (16/09/2026) -----------------------------------------
+@pytest.mark.parametrize(("nguon", "dich", "ky_vong"), [(7, 3, [3, 7]), (5, 5, [5])])
+def test_phat_sse_ban_giao_mot_goi_cho_ca_hai_to(monkeypatch, nguon, dich, ky_vong):
+    """`broadcast` tới mọi kết nối và mỗi gói bump tick chung ở FE — mỗi tổ một gói là mọi màn
+    đang mở nạp lại hai lượt cho một cú bấm."""
+    from app.routers import san_xuat as router_sx
+
+    goi: list[dict] = []
+    monkeypatch.setattr(router_sx.hub, "broadcast", goi.append)
+    monkeypatch.setattr(router_sx.hub, "publish", lambda *a, **k: None)
+    router_sx._phat_sse_ban_giao({
+        "nguon_department_id": nguon, "dich_department_id": dich,
+        "ban_giao_id": 11, "trang_thai_ban_giao": "cho_xac_nhan",
+    })
+    assert goi == [{"type": "san_xuat_ban_giao_changed", "team_ids": ky_vong,
+                    "ban_giao_id": 11, "trang_thai": "cho_xac_nhan"}]

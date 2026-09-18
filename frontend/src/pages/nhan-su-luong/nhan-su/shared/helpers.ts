@@ -2,7 +2,6 @@
 import {
   ApiError,
   EMPLOYEE_FIELD_MAXLEN,
-  type EmployeeMeta,
   type UpdateRequest,
 } from "../../../../api/client";
 import { fmtDate } from "../../../../utils/format";
@@ -38,22 +37,6 @@ export function getAvatarClass(name: string): string {
   ];
   if (validChars.includes(firstChar)) return `ns2-row__av--${firstChar}`;
   return "ns2-row__av--default";
-}
-
-// --- Bậc tay nghề (danh mục `job_grades`) ----------------------------------
-// Bậc CHỈ để khai: không mang tiền, không hệ số. Chỉ khối SẢN XUẤT mới khai.
-
-/** Có hiện ô "Bậc tay nghề" cho phòng/tổ này không. `la_san_xuat` là cờ HIỆU LỰC — backend đã
- *  leo cây cha-con nên FE không phải tự suy. Chưa ai tick cờ ở đâu ⇒ hiện cho MỌI phòng: thà
- *  thừa một ô còn hơn giấu mất đường khai bậc của cả nhà máy. */
-export function isProduction(
-  meta: EmployeeMeta | null,
-  deptId: number | null | undefined,
-): boolean {
-  if (!meta) return false;
-  const marked = meta.departments.some((d) => d.la_san_xuat);
-  if (!marked) return true;
-  return meta.departments.find((d) => d.id === deptId)?.la_san_xuat ?? false;
 }
 
 /** Một giá trị trong đề nghị → chuỗi đọc được. `null`/rỗng phải nói RÕ là "chưa có" hay "bỏ

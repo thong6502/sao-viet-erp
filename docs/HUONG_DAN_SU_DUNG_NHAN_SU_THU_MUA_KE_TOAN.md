@@ -30,8 +30,8 @@
 | Vai trò | Công việc chính |
 |---|---|
 | Giám đốc/Quản trị | Tạo cơ cấu phòng ban, tổ; cấp quyền; có thể kiểm tra toàn bộ dữ liệu; là người **duyệt PMH** mặc định trong dữ liệu khởi tạo. |
-| Hành chính nhân sự | Tạo hồ sơ, khai thông tin hợp đồng, xếp bậc, điều chỉnh lương theo ngày hiệu lực. |
-| Trưởng bộ phận | Phối hợp xác nhận vị trí, tổ, ca làm và mức/bậc công việc. |
+| Hành chính nhân sự | Tạo hồ sơ, khai thông tin hợp đồng, điều chỉnh lương theo ngày hiệu lực. |
+| Trưởng bộ phận | Phối hợp xác nhận vị trí, tổ, ca làm và chức danh. |
 | Nhân viên phòng ban | Tạo Yêu cầu mua hàng của phòng ban, chỉ nhập nhu cầu và số lượng; **sửa/hủy được YCMH do chính mình tạo** khi còn ở trạng thái Chờ Thu mua xử lý. |
 | Nhân viên mua hàng | Lập PMH có giá, giảm giá và VAT; đi mua và nhận hàng. **Không duyệt.** Chỉ thao tác được với **phiếu do chính mình lập**. |
 | Trưởng bộ phận mua hàng | Như Nhân viên mua hàng, nhưng thao tác được với **phiếu của cả phòng Thu mua**, không chỉ của riêng mình. **Không duyệt** (mặc định trong dữ liệu khởi tạo). |
@@ -46,12 +46,11 @@
 ### 2.1. Luồng nghiệp vụ chuẩn
 
 1. Tạo **Phòng ban/Tổ**.
-2. Khai **thang bậc của tổ** nếu đơn vị có phân loại tay nghề hoặc cấp công việc (chỉ để phân loại — xem lưu ý ở 2.3).
-3. Khai **Ca làm việc** kèm mức phụ cấp cơm/phụ cấp ca của từng ca (xem 2.7 và 2.8).
-4. Tạo **hồ sơ nhân viên** và khai mức lương riêng theo hợp đồng.
-5. Gán ca làm việc có ngày hiệu lực.
-6. Khi tăng lương, thay hợp đồng, chuyển tổ hoặc nâng bậc, tạo một mốc mới theo ngày hiệu lực.
-7. Cuối kỳ: kiểm tra công, tạo bảng lương, soát, chốt và xuất dữ liệu.
+2. Khai **Ca làm việc** kèm mức phụ cấp cơm/phụ cấp ca của từng ca (xem 2.7 và 2.8).
+3. Tạo **hồ sơ nhân viên** và khai mức lương riêng theo hợp đồng.
+4. Gán ca làm việc có ngày hiệu lực.
+5. Khi tăng lương, thay hợp đồng, chuyển tổ hoặc đổi chức danh, tạo một mốc mới theo ngày hiệu lực.
+6. Cuối kỳ: kiểm tra công, tạo bảng lương, soát, chốt và xuất dữ liệu.
 
 ### 2.2. Tạo phòng ban và tổ
 
@@ -63,18 +62,9 @@ Menu: **Nhân sự & Lương → Phòng ban**.
 
 > Nên tạo đúng cấp quản lý trước khi nhập nhân viên. Việc chuyển phòng/tổ sau này sẽ được ghi thành một mốc trong quá trình công tác.
 
-### 2.3. Khai thang bậc của tổ
+### 2.3. Thang bậc lương — đã bỏ
 
-Menu: **Nhân sự & Lương → Lương → Cấu hình lương → Bậc lương & KPI**.
-
-1. Chọn phòng/tổ cần cấu hình.
-2. Chọn **Thêm bậc**.
-3. Nhập thứ tự bậc, tên bậc, khung lương tối thiểu/tối đa và điều kiện thăng bậc nếu có.
-4. Lưu bậc.
-
-**Nguyên tắc quan trọng:** bậc lương chỉ dùng để phân loại và đối chiếu khung, hiện **cảnh báo mềm** nếu mức lương thật nằm ngoài khung nhưng vẫn cho lưu. Bậc **không** tự quyết định tiền lương của nhân viên. Hai người cùng bậc có thể có hai mức lương khác nhau theo hợp đồng.
-
-> 🔴 **Mã bậc chuẩn hoá (`pay_grade_key`) và bảng "Quy tắc lương theo bậc" (`/api/luong/rules`) không dùng để tính tiền.** API còn sống, khai được, nhưng engine tính lương **không đọc** hai chỗ này — mọi quy tắc khai ở đó nằm chết trong DB. Đừng dựng thêm màn hoặc kỳ vọng chúng ảnh hưởng phiếu lương.
+Từ 17/09/2026 hệ thống **không còn** thang bậc của tổ, bậc tay nghề, nhóm lương hay quy tắc lương theo bậc/thâm niên. Tiền lương của mỗi người chỉ lấy từ mức khai riêng trong hồ sơ lương của chính người đó (mục 2.4 và 2.5). Hai người cùng tổ, cùng chức danh vẫn có thể có hai mức lương khác nhau theo hợp đồng.
 
 ### 2.4. Tạo hồ sơ nhân viên kèm lương ban đầu
 
@@ -93,17 +83,16 @@ Menu: **Nhân sự & Lương → Hồ sơ nhân sự → Thêm nhân viên**.
 
 Nếu tài khoản có quyền khai lương, nhập:
 
-- **Bậc/mức công việc:** chọn bậc thuộc đúng tổ của nhân viên; chỉ để phân loại.
 - **Lương vị trí:** bắt buộc và phải lớn hơn 0. Đây cũng chính là **mức đóng bảo hiểm** — hệ thống không còn ô "Mức đóng bảo hiểm" riêng.
 - **Lương trách nhiệm:** nhập theo hợp đồng nếu có.
 - **Thưởng chuyên cần:** mức riêng của nhân viên; để 0 nếu không có.
 - **Phụ cấp thâm niên và phụ cấp khác (gộp):** nhập theo thỏa thuận, cộng phẳng vào lương, không chia theo công.
 
-Hệ thống hiển thị **Mức nền theo hợp đồng = Lương vị trí + Lương trách nhiệm**. Nếu mức này nằm ngoài khung của bậc đã chọn, hệ thống cảnh báo để kiểm tra nhưng vẫn cho lưu.
+Hệ thống hiển thị **Mức nền theo hợp đồng = Lương vị trí + Lương trách nhiệm**.
 
 Với nhân viên **Thử việc**, bảng lương tính 80% mức lương riêng trước khi áp công và phụ cấp; nhân viên thử việc **chưa đóng** các khoản bảo hiểm bắt buộc.
 
-> ⚠️ Bước này **không còn ô "Phụ cấp ca"**. Tiền cơm/phụ cấp ca đã chuyển sang tự tính theo ca thực làm — xem mục 2.8. Cũng không còn ô "Nhóm lương/Bậc lương" (`payroll_group`/`pay_grade_key`) — hai trường này đã bị bỏ khỏi màn vì không ảnh hưởng tới tiền lương.
+> ⚠️ Bước này **không còn ô "Phụ cấp ca"**. Tiền cơm/phụ cấp ca đã chuyển sang tự tính theo ca thực làm — xem mục 2.8. Cũng không còn nhóm lương hay bậc lương — đã gỡ hẳn khỏi hệ thống (17/09/2026), file Excel hồ sơ nhân sự cũng không còn cột "Nhóm lương".
 >
 > **Danh mục khoản thu nhập** (chịu thuế/miễn thuế, ví dụ trang phục, tiền nhà, đi lại…) **không gán được ở bước này**. Gán khoản cho từng người làm ở **Lương → Lương nhân viên → Sửa lương → "+ Thêm khoản thu nhập"** sau khi đã tạo hồ sơ — xem mục 2.9.
 
@@ -124,7 +113,7 @@ Menu: **Nhân sự & Lương → Lương → Lương nhân viên → Thiết l�
 1. Tìm nhân viên theo tên hoặc mã.
 2. Chọn **Thiết lập lương**.
 3. Nhập **Hiệu lực từ**.
-4. Điều chỉnh lương vị trí, lương trách nhiệm, bậc, chuyên cần và phụ cấp.
+4. Điều chỉnh lương vị trí, lương trách nhiệm, chuyên cần và phụ cấp.
 5. Chọn **Lưu điều chỉnh**.
 
 Ô **"Phụ cấp ca"** trên màn này giờ mang nhãn **"Phụ cấp ca (đã ngưng)"**, hiện chỉ để đọc — không còn ra tiền từ 03/08/2026, đừng cố sửa số ở đây. Muốn đổi mức cơm/phụ cấp ca thật, vào **Chấm công → Ca làm việc** (mục 2.8).
@@ -137,16 +126,14 @@ Menu: **Nhân sự & Lương → Lương → Lương nhân viên → Thiết l�
 
 **Ví dụ:** Nhân viên có lương 8.000.000 đồng từ 01/01/2026. Tăng lên 9.000.000 đồng từ 01/07/2026 thì phải tạo mốc 01/07/2026. Khi xem kỳ tháng 5, hệ thống vẫn dùng 8.000.000 đồng; kỳ tháng 7 dùng mức mới.
 
-### 2.6. Chuyển tổ và nâng bậc
+### 2.6. Chuyển tổ và đổi chức danh
 
 Tại chi tiết hồ sơ nhân viên:
 
-- Chọn **Điều chuyển phòng/tổ** để chọn tổ mới, bậc thuộc tổ mới và ngày hiệu lực.
-- Chọn **Nâng bậc/Chức danh** để chọn bậc mới, chức danh mới và ngày hiệu lực.
+- Chọn **Điều chuyển phòng/tổ** để chọn tổ mới và ngày hiệu lực.
+- Chọn **Đổi chức danh** để nhập chức danh mới và ngày hiệu lực.
 
-Khi chuyển tổ hoặc nâng bậc, hệ thống tạo mốc lịch sử mới và **giữ nguyên tiền lương hiện tại**. Nếu hợp đồng quy định thay đổi tiền, thực hiện thêm một lần **Điều chỉnh lương** với cùng ngày hiệu lực.
-
-Nếu tổ mới chưa có thang bậc, hệ thống giữ nguyên tiền và để nhân viên ở trạng thái chưa xếp bậc.
+Hồ sơ không còn ô bậc tay nghề. Khi chuyển tổ hoặc đổi chức danh, hệ thống tạo mốc lịch sử mới và **giữ nguyên tiền lương hiện tại**. Nếu hợp đồng quy định thay đổi tiền, thực hiện thêm một lần **Điều chỉnh lương** với cùng ngày hiệu lực.
 
 ### 2.7. Gán ca làm việc
 
@@ -596,11 +583,11 @@ Tài khoản chưa có quyền. Quản trị viên cần cấp đúng quyền đ
 
 ### Không lưu được nhân viên ở bước Lương & BHXH
 
-Kiểm tra Lương vị trí phải lớn hơn 0, bậc phải thuộc đúng tổ và ngày hiệu lực không trước ngày vào làm.
+Kiểm tra Lương vị trí phải lớn hơn 0 và ngày hiệu lực không trước ngày vào làm.
 
-### Đổi bậc nhưng tiền lương không đổi
+### Chuyển tổ hoặc đổi chức danh nhưng tiền lương không đổi
 
-Đây là hành vi đúng. Bậc chỉ để phân loại. Nếu hợp đồng đổi tiền, vào **Lương nhân viên** và tạo điều chỉnh có cùng ngày hiệu lực.
+Đây là hành vi đúng. Tổ và chức danh không tự quyết định tiền lương. Nếu hợp đồng đổi tiền, vào **Lương nhân viên** và tạo điều chỉnh có cùng ngày hiệu lực.
 
 ### Sửa "Phụ cấp ca" ở Lương nhân viên mà lương không đổi
 
@@ -662,9 +649,9 @@ Kiểm lại: nếu kỳ lương đã ở trạng thái **Đã chi**, việc ch�
 
 - Cây phòng ban/tổ đúng cơ cấu thực tế.
 - Mỗi nhân viên thuộc đúng tổ và có ngày vào làm đúng.
-- Mỗi nhân viên có mức lương riêng; bậc không tự thay tiền.
+- Mỗi nhân viên có mức lương riêng theo hợp đồng.
 - Tăng lương tạo mốc ngày hiệu lực mới và xem lại được lịch sử cũ.
-- Chuyển tổ/nâng bậc không làm thay đổi tiền ngoài ý muốn.
+- Chuyển tổ/đổi chức danh không làm thay đổi tiền ngoài ý muốn.
 - Mức **Phụ cấp cơm / Phụ cấp ca của từng ca** (Chấm công → Ca làm việc) đã được doanh nghiệp xác nhận hoặc sửa lại — mặc định 25.000đ/50.000đ chỉ áp cho ca mới tạo.
 - Ngưỡng công tối thiểu để hưởng phụ cấp ca/cơm (mặc định 0,5 công) đúng chính sách doanh nghiệp.
 - Danh mục khoản thu nhập gắn đúng cờ Chịu thuế/Miễn thuế cho từng khoản (trang phục, tiền nhà, đi lại…).

@@ -4,7 +4,6 @@ import {
   api,
   type EmployeeDetail,
   type EmployeeInput,
-  type EmployeeMeta,
 } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { fmtDate } from "../../../../utils/format";
@@ -16,20 +15,17 @@ import {
   Mail,
   MapPin,
   Phone,
-  TrendingUp,
   UserCheck,
   Users,
 } from "lucide-react";
 import { GENDER_LABEL } from "../shared/constants";
-import { errMsg, isProduction } from "../shared/helpers";
+import { errMsg } from "../shared/helpers";
 import { Field } from "../components/form-fields";
 import { InfoCard, InfoField } from "../components/info-display";
 
 export function InfoTab({
   token,
   emp,
-  meta,
-  canUpdate,
   edit,
   setEdit,
   onSaved,
@@ -37,8 +33,6 @@ export function InfoTab({
 }: {
   token: string;
   emp: EmployeeDetail;
-  meta: EmployeeMeta | null;
-  canUpdate: boolean;
   edit: boolean;
   setEdit: (e: boolean) => void;
   onSaved: () => void;
@@ -55,7 +49,6 @@ export function InfoTab({
   // 14/09/2026 tab tự tải lịch sử mốc + cả danh mục ca để tự suy: thêm hai lời gọi mỗi lần mở hồ
   // sơ, mà danh mục ca đòi quyền Khai ca nên HCNS không có quyền đó luôn thấy "chưa gán" oan.
   const shiftName = (emp as unknown as { current_shift_name?: string | null }).current_shift_name ?? null;
-  const resigned = emp.status === "resigned";
 
   function set<K extends keyof EmployeeInput>(k: K, v: EmployeeInput[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -186,21 +179,6 @@ export function InfoTab({
             icon={Users}
           />
           <InfoField label="Chức danh" value={emp.position} icon={UserCheck} />
-          {/* NƠI DUY NHẤT hiện bậc trong hồ sơ. Bậc không dính tiền nên không thuộc tab Lương,
-              và chỉ đổi được qua Thao tác hồ sơ (đường ghi thẳng đã bị backend bỏ qua). */}
-          {(isProduction(meta, emp.department_id) ||
-            (emp.job_grade_name ?? emp.job_grade)) && (
-            <InfoField
-              label="Bậc tay nghề"
-              value={emp.job_grade_name ?? emp.job_grade}
-              icon={TrendingUp}
-              hint={
-                canUpdate && !resigned
-                  ? "Đổi bậc ở Thao tác hồ sơ → Nâng bậc / Chức danh."
-                  : undefined
-              }
-            />
-          )}
           <InfoField
             label="Ngày vào"
             value={fmtDate(emp.hire_date)}

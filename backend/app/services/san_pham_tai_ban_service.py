@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models.phieu_tinh_gia import PhieuThanhPhan, SanPhamTaiBan
-from ..schemas.phieu_tinh_gia import ThanhPhamIn, ThanhPhanIn, VatTuLineIn
+from ..schemas.phieu_tinh_gia import ChiPhiKhacIn, ThanhPhamIn, ThanhPhanIn, VatTuLineIn
 
 _DAU_MAP = str.maketrans({"đ": "d", "Đ": "D"})
 
@@ -76,6 +76,9 @@ def _cau_hinh_tu_thanh_phan(tp: PhieuThanhPhan) -> dict:
                 nha_cung_cap=cd.nha_cung_cap,
                 ghi_chu=cd.ghi_chu,
                 phi_khuon=cd.phi_khuon,
+                # Đi CẶP với `phi_khuon`: thiếu nó thì thẻ nạp lại có tiền dao mà không nút nào được
+                # chọn, còn ô tiền (chỉ mở khi "làm mới") thì ẩn mất.
+                khuon_nguon=cd.khuon_nguon,
                 dai_khuon=cd.dai_khuon,
                 rong_khuon=cd.rong_khuon,
                 so_khuon=cd.so_khuon,
@@ -85,6 +88,13 @@ def _cau_hinh_tu_thanh_phan(tp: PhieuThanhPhan) -> dict:
         vat_tus=[
             VatTuLineIn(vat_tu_id=v.vat_tu_id, ten=v.ten, don_gia=v.don_gia, ghi_chu=v.ghi_chu)
             for v in sorted(tp.vat_tus, key=lambda x: x.thu_tu)
+        ],
+        # Chi phí khác đi theo mẫu tái bản — cùng lẽ với `phi_giao_hang`: bỏ sót thì đơn tái bản
+        # tự nhiên rẻ đi mấy khoản mà không ai được báo. Tên gõ tay cũng chép nguyên, vì đó là
+        # thứ DUY NHẤT nói được khoản tiền ấy là gì.
+        chi_phi_khacs=[
+            ChiPhiKhacIn(ten=c.ten, so_tien=c.so_tien)
+            for c in sorted(tp.chi_phi_khacs, key=lambda x: x.thu_tu)
         ],
     )
     return data.model_dump(mode="json")

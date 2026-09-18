@@ -215,12 +215,6 @@ class LsxCongDoanOut(BaseModel):
     nhom: str | None = None
     loai_buoc: str
     bat_buoc: bool = True
-    # KCS kiêm nhiệm — suy TỰ ĐỘNG (không còn khai tay): bước này có phải bước cuối của routing +
-    # tổ thực hiện có `Department.is_kcs=true` không (xem `lsx_service._cong_doan_dict`). ⚠️ Thêm
-    # field vào schema THÔI CHƯA ĐỦ — `LsxCongDoanOut` được dựng bằng dict thủ công ở
-    # `lsx_service._cong_doan_dict()`, không phải `from_attributes` tự động; PHẢI copy khoá vào
-    # dict đó (đúng bẫy "Pydantic nuốt field im lặng").
-    la_kcs: bool = False
     department_id: int | None = None
     department_ten: str | None = None
     may_id: int | None = None

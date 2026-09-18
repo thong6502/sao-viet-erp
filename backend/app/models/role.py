@@ -295,11 +295,7 @@ class RolePermission(Base):
     can_confirm_output: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # KCS: kiểm · ghi lỗi + ảnh · sửa kết quả · phản hồi lỗi · đóng thiếu nhóm.
-    can_qc: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
-    )
-    # Kho: đề nghị vật tư · xác nhận nhận vật tư · yêu cầu nhập kho · phân loại + xác nhận BTP.
+    # Kho: đề nghị vật tư · xác nhận nhận vật tư · yêu cầu nhập kho.
     can_warehouse: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

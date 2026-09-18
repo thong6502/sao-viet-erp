@@ -34,6 +34,7 @@ from ..models.stock_voucher import (
 )
 
 from ..repositories.kho_khoa_so_repo import KhoKhoaSoRepository
+from ..repositories.stock_lot_repo import goc_cua
 from ..storage import get_storage, key_from_url, url_from_key
 
 # Đính kèm phiếu kho: byte đi qua storage.py (LocalStorage <backend>/static hoặc MinIO) rồi phục vụ
@@ -130,6 +131,7 @@ class StockVoucherService:
 
         lines_by_id = {ln.id: ln for ln in req.lines}
         prepared: list[dict] = []
+        lo_xuat: list = []
         # Cộng dồn theo dòng yêu cầu để chặn cả trường hợp 1 phiếu có nhiều dòng cùng ứng
         # vào một dòng yêu cầu (phân bổ nhiều lô) — kiểm từng dòng lẻ sẽ lọt.
         wanted: dict[int, float] = {}
@@ -170,6 +172,9 @@ class StockVoucherService:
                     # lô nguồn (đích danh, KHÔNG bình quân) để kho đích chạy FEFO/giá vốn như nguồn.
                     item["don_gia"] = int(ln.get("don_gia") or 0)
                     item["hsd"] = ln.get("hsd")
+                    # Lô GỐC đi theo hàng: lô mới ở kho đích vẫn đọc được đơn / khách / giá bán và nhận
+                    # giá gốc sửa sau (design nhập kho thành phẩm §5). Ghi sổ chép sang lô.
+                    item["lo_goc_id"] = ln.get("lo_goc_id")
                 else:
                     # Giá của lô sắp tạo = ĐƠN GIÁ KHAI Ở YÊU CẦU (người yêu cầu nhập). Kho KHÔNG sửa
                     # giá — bỏ qua `don_gia` client gửi. Lô chưa tồn tại nên `lot_id` trống tới ghi sổ.
@@ -179,7 +184,11 @@ class StockVoucherService:
             else:
                 lot = self._require_lot(ln.get("lot_id"), hang, kho_id)
                 item["lot_id"] = lot.id
+                lo_xuat.append(lot)
             prepared.append(item)
+
+        if lo_xuat:
+            self._chan_lo_khac_khach(req.id, lo_xuat)
 
         # Luật 2: không ứng vượt số đã duyệt. + Cấp/nhập THIẾU (SL < còn phải cấp) phải có LÝ DO.
         for rl_id, qty in wanted.items():
@@ -221,6 +230,23 @@ class StockVoucherService:
         # Đã lập phiếu (nháp) → yêu cầu rời "Cần cấp" sang "Đang cấp" (Đang chuẩn bị).
         self.request_service.mark_in_progress(req)
         return voucher
+
+    def _chan_lo_khac_khach(self, request_id: int, lots) -> None:
+        """Xuất cho Giao hàng đơn X: lô thành phẩm sản xuất cho KHÁCH KHÁC ⇒ chặn — cùng mã (danh mục gộp
+        theo tên) nhưng có thể khác file in. Lô đơn khác cùng khách / lô không nguồn vẫn cho xuất (design
+        nhập kho thành phẩm §6)."""
+        dich = self.requests.don_giao_cua_yeu_cau(request_id)
+        if not dich:
+            return
+        nguon = self.lots.nguon_lo([l.id for l in lots])
+        for lot in lots:
+            n = nguon.get(lot.id) or {}
+            if n.get("order_id") is not None and n.get("customer_id") != dich["customer_id"]:
+                raise StockVoucherError(
+                    f"Lô {lot.ma_lo} sản xuất cho khách {n.get('khach_hang') or 'khác'} (đơn "
+                    f"{n.get('order_ma')}) — không xuất cho đơn {dich['order_ma']} của khách "
+                    f"{dich['khach_hang'] or 'khác'}."
+                )
 
     def _require_lot(self, lot_id, hang: tuple[str, int], kho_id: int):
         if not lot_id:
@@ -323,6 +349,7 @@ class StockVoucherService:
                     sl_con_lai=sl_goc,
                     vi_tri=ln.vi_tri,
                     hsd=ln.hsd,
+                    lo_goc_id=ln.lo_goc_id,
                 )
                 ln.lot_id = lot.id
         else:
@@ -721,6 +748,7 @@ class StockVoucherService:
                     "don_gia": int(a["don_gia_nhap"] or 0),  # giá vốn ĐÚNG lô nguồn
                     "hsd": a.get("hsd"),                      # HSD đi theo lô
                     "vi_tri": p.get("vi_tri"),                # vị trí kho đích (khai lúc ấn, nếu có)
+                    "lo_goc_id": a["lo_goc_id"],              # A → B → C vẫn trỏ về MỘT lô gốc
                 })
         nhap = self.create(
             user=user, request_id=dest_req.id, kho_id=kho_den_id, ghi_chu=ghi_chu,
@@ -832,20 +860,41 @@ class StockVoucherService:
     # --- Gợi ý phân bổ lô ----------------------------------------------------
 
     def suggest_allocation(
-        self, hang: tuple[str, int], kho_id: int, qty: float
+        self, hang: tuple[str, int], kho_id: int, qty: float, *, request_id: int | None = None,
     ) -> tuple[list[dict], float]:
         """Gợi ý lấy `qty` (ĐƠN VỊ GỐC) từ những lô nào (FEFO → FIFO): `(dòng phân bổ, còn thiếu)`.
 
         Chỉ là GỢI Ý: thủ kho sửa được, vì BRD §3.19 chốt giá xuất đích danh — người cầm
         hàng mới biết lô nào đang ở đầu kệ. Không đủ hàng thì trả phần lấy được kèm
         `thieu` > 0 để UI báo thiếu thay vì âm thầm cấp non.
+
+        `request_id` là yêu cầu XUẤT do Giao hàng gửi (đơn X): lô của chính đơn X trước → lô không nguồn
+        → lô đơn khác cùng khách (kèm `canh_bao`); lô của khách khác bị bỏ. Trong mỗi nhóm giữ FEFO →
+        FIFO (design nhập kho thành phẩm §6). Không có đơn ⇒ thứ tự như cũ.
         """
+        lots = self.lots.issuable_lots(hang, kho_id)
+        nguon = self.lots.nguon_lo([l.id for l in lots])
+        dich = self.requests.don_giao_cua_yeu_cau(request_id) if request_id else None
+        canh_bao: dict[int, str] = {}
+        if dich:
+            hang_doi = []
+            for lot in lots:
+                n = nguon.get(lot.id) or {}
+                if n.get("order_id") is None:
+                    hang_doi.append((1, lot))
+                elif n["order_id"] == dich["order_id"]:
+                    hang_doi.append((0, lot))
+                elif n.get("customer_id") == dich["customer_id"]:
+                    canh_bao[lot.id] = f"Lô này sản xuất cho đơn {n.get('order_ma')}"
+                    hang_doi.append((2, lot))
+            lots = [lot for _, lot in sorted(hang_doi, key=lambda x: x[0])]  # sort ổn định
         remaining = float(qty)
         out: list[dict] = []
-        for lot in self.lots.issuable_lots(hang, kho_id):
+        for lot in lots:
             if remaining <= 0:
                 break
             take = min(remaining, float(lot.sl_con_lai))
+            n = nguon.get(lot.id) or {}
             out.append({
                 "lot_id": lot.id,
                 "ma_lo": lot.ma_lo,
@@ -854,6 +903,10 @@ class StockVoucherService:
                 "sl_con_lai": float(lot.sl_con_lai),
                 "so_luong": take,
                 "don_gia_nhap": int(lot.don_gia_nhap or 0),
+                "lo_goc_id": goc_cua(lot),
+                "order_ma": n.get("order_ma"),
+                "khach_hang": n.get("khach_hang"),
+                "canh_bao": canh_bao.get(lot.id),
             })
             remaining -= take
         return out, max(0.0, round(remaining, 2))

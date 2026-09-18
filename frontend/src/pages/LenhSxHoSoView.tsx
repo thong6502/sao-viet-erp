@@ -122,20 +122,17 @@ const MUC_DO: Record<string, string> = {
   nghiem_trong: "Nghiêm trọng",
 };
 
-/** Yêu cầu nhập kho thành phẩm (`san_xuat_kho.TRANG_THAI_YC`). */
+/** Yêu cầu nhập kho thành phẩm = yêu cầu NHẬP thật ở màn Yêu cầu nhập xuất (trạng thái `StockRequest`). */
 const KHO_YC_TT: Record<string, { label: string; cls: string }> = {
-  cho_kho: { label: "Chờ kho nhận", cls: "hslsx-pill--amber" },
-  nhap_mot_phan: { label: "Nhập một phần", cls: "hslsx-pill--steel" },
-  da_nhap: { label: "Đã nhập đủ", cls: "hslsx-pill--moss" },
-  huy: { label: "Đã hủy", cls: "hslsx-pill--xong" },
-};
-
-/** Phân loại lot BTP (`san_xuat_kho.PHAN_LOAI_BTP_DU`). `mau_luu`/`phe` KHÔNG vào tồn khả dụng —
- *  bày đúng chữ để không ai cộng chúng vào số giao được. */
-const BTP_PHAN_LOAI: Record<string, string> = {
-  nhap_btp: "Nhập kho BTP",
-  mau_luu: "Mẫu lưu",
-  phe: "Phế / hỏng",
+  draft: { label: "Nháp", cls: "hslsx-pill--xong" },
+  pending: { label: "Chờ duyệt", cls: "hslsx-pill--amber" },
+  approved: { label: "Chờ kho nhận", cls: "hslsx-pill--amber" },
+  received: { label: "Kho đã tiếp nhận", cls: "hslsx-pill--steel" },
+  preparing: { label: "Kho đang lập phiếu", cls: "hslsx-pill--steel" },
+  partial: { label: "Nhận một phần", cls: "hslsx-pill--steel" },
+  done: { label: "Đã nhận đủ", cls: "hslsx-pill--moss" },
+  rejected: { label: "Kho từ chối", cls: "hslsx-pill--signal" },
+  cancelled: { label: "Đã hủy", cls: "hslsx-pill--xong" },
 };
 
 /** Loại sự kiện timeline — nhãn ngắn đứng trước nội dung (nội dung đã là câu đầy đủ do máy chủ
@@ -599,11 +596,8 @@ export function LenhSxHoSoView({
 
               {/* ---------- Dải tổng quan: ba câu hỏi đầu tiên của người mở hồ sơ ---------- */}
               <section className="hslsx-hs__sum" aria-label="Tổng quan lệnh">
-                <div className="hslsx-hs__tile hslsx-hs__tile--progress hslsx-hs__tile--wide">
-                  <div className="hslsx-hs__tile-head">
-                    <span className="hslsx-hs__tile-icon"><Icon name="activity" size={14} /></span>
-                    <span className="hslsx-hs__tile-lb">Tiến độ</span>
-                  </div>
+                <div className="hslsx-hs__tile hslsx-hs__tile--wide">
+                  <span className="hslsx-hs__tile-lb">Tiến độ</span>
                   <span className="hslsx-hs__tile-val">
                     {td.uoc_tinh ? "~" : ""}
                     {pct}%
@@ -630,11 +624,8 @@ export function LenhSxHoSoView({
                   </span>
                 </div>
 
-                <div className="hslsx-hs__tile hslsx-hs__tile--step">
-                  <div className="hslsx-hs__tile-head">
-                    <span className="hslsx-hs__tile-icon"><Icon name="cpu" size={14} /></span>
-                    <span className="hslsx-hs__tile-lb">Bước hiện tại</span>
-                  </div>
+                <div className="hslsx-hs__tile">
+                  <span className="hslsx-hs__tile-lb">Bước hiện tại</span>
                   <span className="hslsx-hs__tile-val hslsx-hs__tile-val--chu">
                     {td.buoc_hien_tai ?? "—"}
                   </span>
@@ -644,11 +635,8 @@ export function LenhSxHoSoView({
                   </span>
                 </div>
 
-                <div className="hslsx-hs__tile hslsx-hs__tile--yield">
-                  <div className="hslsx-hs__tile-head">
-                    <span className="hslsx-hs__tile-icon"><Icon name="box" size={14} /></span>
-                    <span className="hslsx-hs__tile-lb">Sản lượng tốt</span>
-                  </div>
+                <div className="hslsx-hs__tile">
+                  <span className="hslsx-hs__tile-lb">Sản lượng tốt</span>
                   {dvSanLuong.so >= 2 ? (
                     <>
                       <span className="hslsx-hs__tile-val hslsx-hs__tile-val--chu">
@@ -671,11 +659,8 @@ export function LenhSxHoSoView({
                   )}
                 </div>
 
-                <div className="hslsx-hs__tile hslsx-hs__tile--hours">
-                  <div className="hslsx-hs__tile-head">
-                    <span className="hslsx-hs__tile-icon"><Icon name="clock" size={14} /></span>
-                    <span className="hslsx-hs__tile-lb">Giờ máy đã chạy</span>
-                  </div>
+                <div className="hslsx-hs__tile">
+                  <span className="hslsx-hs__tile-lb">Giờ máy đã chạy</span>
                   <span className="hslsx-hs__tile-val">
                     {so(Math.round(td.gio_may * 10) / 10)}
                     <small>giờ</small>
@@ -685,11 +670,8 @@ export function LenhSxHoSoView({
                   </span>
                 </div>
 
-                <div className="hslsx-hs__tile hslsx-hs__tile--deadline">
-                  <div className="hslsx-hs__tile-head">
-                    <span className="hslsx-hs__tile-icon"><Icon name="calendar" size={14} /></span>
-                    <span className="hslsx-hs__tile-lb">Hạn SX nội bộ</span>
-                  </div>
+                <div className="hslsx-hs__tile">
+                  <span className="hslsx-hs__tile-lb">Hạn SX nội bộ</span>
                   <span
                     className={`hslsx-hs__tile-val hslsx-hs__tile-val--chu hslsx__han ${classHan(
                       tt.han_hoan_thanh_sx,
@@ -1156,7 +1138,7 @@ export function LenhSxHoSoView({
                 id="kho"
                 icon="warehouse"
                 ten="Nhập kho"
-                dem={`${d.kho.yeu_cau.length} đề nghị · ${d.kho.btp.length} lô`}
+                dem={`${d.kho.yeu_cau.length} đề nghị`}
               >
                 {/* Số của NHÓM, không phải phần đóng góp của riêng lệnh. `so_lenh_trong_nhom` là
                     SỐ chứ không phải cờ, nên mặt đọc tự quyết được có cộng được hay không. */}
@@ -1177,18 +1159,19 @@ export function LenhSxHoSoView({
                       <table className="hslsx-hs__bang hslsx-hs__bang--kho">
                         <thead>
                           <tr>
+                            <th scope="col">Mã yêu cầu</th>
                             <th scope="col">Đề nghị lúc</th>
-                            <th scope="col">Yêu cầu</th>
-                            <th scope="col">Kho xác nhận</th>
+                            <th scope="col">Đề nghị</th>
+                            <th scope="col">Kho đã nhận</th>
                             <th scope="col">Còn lại</th>
-                            <th scope="col">Quy cách</th>
                             <th scope="col">Trạng thái</th>
-                            <th scope="col">Xác nhận lúc</th>
+                            <th scope="col">Nhận lúc</th>
                           </tr>
                         </thead>
                         <tbody>
                           {d.kho.yeu_cau.map((y) => (
                             <tr key={y.id}>
+                              <td className="hslsx-hs__num">{y.ma ?? "—"}</td>
                               <td className="hslsx-hs__num">
                                 {y.tao_luc ? ngayGio(y.tao_luc) : "—"}
                               </td>
@@ -1197,48 +1180,12 @@ export function LenhSxHoSoView({
                               </td>
                               <td className="hslsx-hs__num">{so(y.so_luong_xac_nhan)}</td>
                               <td className="hslsx-hs__num">{so(y.con_lai)}</td>
-                              <td>{y.quy_cach ?? "—"}</td>
                               <td>
                                 <Pill meta={pillMeta(KHO_YC_TT, y.trang_thai)} />
                               </td>
                               <td className="hslsx-hs__num">
                                 {y.xac_nhan_luc ? ngayGio(y.xac_nhan_luc) : "—"}
                               </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </BangCuon>
-                  )}
-                </div>
-                <div className="hslsx-hs__muc">
-                  <h4 className="hslsx-hs__muc-h">Lô bán thành phẩm của lệnh</h4>
-                  {d.kho.btp.length === 0 ? (
-                    <Trong>Lệnh chưa có lô bán thành phẩm nào trong kho.</Trong>
-                  ) : (
-                    <BangCuon>
-                      <table className="hslsx-hs__bang hslsx-hs__bang--btp">
-                        <thead>
-                          <tr>
-                            <th scope="col">Số lượng</th>
-                            <th scope="col">Phân loại</th>
-                            <th scope="col">Quy cách</th>
-                            <th scope="col">Kho xác nhận</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {d.kho.btp.map((l) => (
-                            <tr key={l.id}>
-                              <td className="hslsx-hs__num">
-                                {so(l.so_luong)} {nhanDonVi(l.don_vi)}
-                              </td>
-                              <td>
-                                {l.phan_loai
-                                  ? (BTP_PHAN_LOAI[l.phan_loai] ?? l.phan_loai)
-                                  : "—"}
-                              </td>
-                              <td>{l.quy_cach ?? "—"}</td>
-                              <td>{l.kho_xac_nhan ? "Đã nhận" : "Chưa nhận"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1377,7 +1324,6 @@ function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
               {lb.label}
             </span>
           )}
-          {n.la_kcs && <span className="hslsx-hs__chip">KCS</span>}
           {/* Trạng thái/máy/người của bước ghép là sự thật của CẢ CA in, không riêng lệnh này. */}
           {n.la_buoc_ghep && (
             <span

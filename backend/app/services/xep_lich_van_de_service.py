@@ -699,8 +699,9 @@ class XepLichVanDeService:
             self._chan_thieu_vat_tu(lsx_id=lid)
 
     def _chan_thieu_kcs_cuoi(self, thanh_phan) -> None:
-        """Mỗi nhóm thành phẩm trong cụm phải có ĐÚNG MỘT bước KCS cuối trước khi thả xuống xưởng
-        (§4.4) — thiếu thì không rõ ai nghiệm thu, thừa thì không rõ lệnh nào là thân chính."""
+        """Mỗi nhóm thành phẩm trong cụm phải suy ra được ĐÚNG MỘT công đoạn cuối trước khi thả
+        xuống xưởng — nhiều ứng viên (`kcs_cuoi_nhieu`) thì không rõ công đoạn nào KCS kiểm để
+        tạo yêu cầu nhập kho. KCS không còn là một bước routing nên không có lỗi "thiếu"."""
         from .san_xuat.release import van_de_phat_hanh
 
         van_de = van_de_phat_hanh(self.db, lsx_ids=thanh_phan.lsx_ids,

@@ -20,7 +20,6 @@ from ..models.employee import (
     EmployeeShiftAssignment,
     EmployeeShiftChangeLog,
     EmployeeShiftDay,
-    JobGrade,
     STATUS_PROBATION,
 )
 from ..models.attendance import WorkShift
@@ -805,62 +804,3 @@ class EmployeeRepository:
         return list(self.db.execute(
             stmt.order_by(ProfileUpdateRequest.status.asc(), ProfileUpdateRequest.id.desc())
         ).scalars())
-
-    # --- Danh mục bậc tay nghề (chủ 29/07/2026) -----------------------------
-
-    def list_job_grades(self, *, active_only: bool = False) -> list[JobGrade]:
-        """Bậc tay nghề, xếp theo `seq` (Bậc 1 trước — số nhỏ là bậc cao).
-
-        `active_only=True` cho DANH SÁCH CHỌN ở hồ sơ; màn quản lý danh mục thì lấy hết để còn
-        thấy và bật lại bậc đã tắt (gồm cả bậc migration tự sinh từ dữ liệu cũ)."""
-        stmt = select(JobGrade)
-        if active_only:
-            stmt = stmt.where(JobGrade.is_active.is_(True))
-        return list(self.db.execute(stmt.order_by(JobGrade.seq.asc(), JobGrade.id.asc())).scalars())
-
-    def get_job_grade(self, grade_id: int) -> JobGrade | None:
-        return self.db.get(JobGrade, grade_id)
-
-    def get_job_grade_by_code(self, code: str) -> JobGrade | None:
-        return self.db.execute(
-            select(JobGrade).where(JobGrade.code == code)
-        ).scalars().first()
-
-    def find_job_grade_by_name(self, name: str) -> JobGrade | None:
-        """So khớp theo TÊN, bỏ dấu cách thừa + không phân biệt hoa/thường — chặn cảnh khai
-        "Bậc 1" rồi lại khai " bậc 1 " thành hai bậc khác nhau."""
-        key = " ".join((name or "").split()).lower()
-        for g in self.list_job_grades():
-            if " ".join(g.name.split()).lower() == key:
-                return g
-        return None
-
-    def create_job_grade(self, *, code: str, name: str, seq: int = 0,
-                         is_active: bool = True, note: str | None = None,
-                         output_coefficient=None) -> JobGrade:
-        g = JobGrade(code=code, name=name, seq=seq, is_active=is_active, note=note,
-                     output_coefficient=output_coefficient)
-        self.db.add(g)
-        self.db.commit()
-        self.db.refresh(g)
-        return g
-
-    def update_job_grade(self, grade: JobGrade, **fields) -> JobGrade:
-        for k, v in fields.items():
-            setattr(grade, k, v)
-        self.db.commit()
-        self.db.refresh(grade)
-        return grade
-
-    def count_employees_with_grade(self, grade_id: int) -> int:
-        """Số hồ sơ đang trỏ vào bậc này — cơ sở để CHẶN xoá (xoá là hồ sơ trỏ mồ côi)."""
-        return int(self.db.execute(
-            select(func.count(Employee.id)).where(Employee.job_grade_id == grade_id)
-        ).scalar() or 0)
-
-    def delete_job_grade(self, grade: JobGrade) -> None:
-        self.db.delete(grade)
-        self.db.commit()
-
-    def next_job_grade_seq(self) -> int:
-        return int(self.db.execute(select(func.max(JobGrade.seq))).scalar() or 0) + 1

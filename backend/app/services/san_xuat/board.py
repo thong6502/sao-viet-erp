@@ -9,17 +9,20 @@ dòng Xem · Phạm vi · 4 quyền chi tiết; bàn cấp gom gộp các tổ t
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...models.department import Department
 from ...models.may_thiet_bi import MayThietBi
+from ...models.san_xuat import CV_TAM_DUNG
 from ...models.san_xuat_phan_bo import HT_CHO_HAI_BEN, HT_HUY, PB_DA_CHOT
+from ...models.san_xuat_thuc_thi import PHIEN_TAM_DUNG
 from ...models.user import User
 from ...repositories.attendance_repo import AttendanceRepository
 from ...repositories.rbac_repo import DepartmentRepository
+from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...repositories.san_xuat_phan_bo_repo import SanXuatPhanBoRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
@@ -30,6 +33,7 @@ from ...services.rbac_service import AuthorizationService
 from ..quyen_to import (
     MUC_CUA_TOI,
     MUC_TAT_CA,
+    VIEC_CHI_TIET,
     VIEC_THUC_HIEN,
     VIEC_XAC_NHAN,
     VIEC_XEM,
@@ -38,7 +42,7 @@ from ..quyen_to import (
     quyen_tren_viec,
 )
 from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi
-from .phan_bo import _tinh_batch
+from .phan_bo import BoNhoTinhMe, _tinh_batch
 from .thuc_thi import _aware
 from .vat_tu_de_nghi import _hang_service, _kh_service, can_luc_hien_thi, lan_con_mo
 
@@ -78,9 +82,8 @@ def teams(db: Session, user: User, authz: AuthorizationService) -> list[dict]:
     tổng badge các tổ trong vùng — mỗi tổ đếm đúng phạm vi user: thấy trọn thì đếm cả tổ, chỉ
     "Của tôi" thì đếm việc đang giao cho mình (navbar báo đúng số dòng mở ra thấy).
 
-    `la_kcs` ở đây là `Department.is_kcs` ("tổ KCS chuyên trách") — KHÁC `la_kcs` của công việc
-    (`SanXuatCongViec.la_kcs`, cấp TỪNG bước, do tổ bất kỳ đảm nhiệm — KCS kiêm nhiệm). Field
-    `so_viec_kcs_cho`, `co_viec_kcs` đọc theo cờ công việc, KHÔNG theo `is_kcs`."""
+    KCS không còn nằm trên menu Bàn tổ (KCS theo lệnh, mg 0306) — người KCS vào màn KCS riêng.
+    `la_kcs` ở đây chỉ là `Department.is_kcs` của nút."""
     q = quyen_to_cua(db, user)
     ban = q.ban_thay_duoc()
     if not ban:
@@ -89,8 +92,6 @@ def teams(db: Session, user: User, authz: AuthorizationService) -> list[dict]:
     tron, rieng = q.tron[VIEC_XEM], q.rieng[VIEC_XEM]
     nv_id = _nhan_vien_id(db, user) if rieng else None
     badge = repo.dem_cho_lam_theo_to(tron, employee_id=nv_id, rieng_ids=rieng)
-    kcs_badge = repo.dem_kcs_cho_kiem_theo_to(tron, employee_id=nv_id, rieng_ids=rieng)
-    co_kcs = repo.to_co_viec_kcs(tron, employee_id=nv_id, rieng_ids=rieng)
     ids = {did for did, _, _ in ban}
     dept_map = {d.id: d for d in DepartmentRepository(db).list_all() if d.id in ids}
     bang = q.bang()
@@ -109,8 +110,6 @@ def teams(db: Session, user: User, authz: AuthorizationService) -> list[dict]:
             # (§6). Trả con số đã tính sẵn, đừng để FE tự suy từ phạm vi.
             "la_tho": muc == MUC_CUA_TOI,
             "so_viec_cho": sum(badge.get(x, 0) for x in vung),
-            "so_viec_kcs_cho": sum(kcs_badge.get(x, 0) for x in vung),
-            "co_viec_kcs": bool(vung & co_kcs),
             "so_cho_xac_nhan": sum(1 for cac_to in cho_xn if cac_to & vung),
             # Mức từng việc trên CHÍNH nút này — thao tác cấp tổ (xác nhận vật tư, đóng thiếu nhóm,
             # hỗ trợ chéo) đòi `all`; nút trên từng công việc đọc `quyen` của drawer.
@@ -206,7 +205,7 @@ def _dm(cv, khoa: str):
 
 
 def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=None,
-               chay_ids: set[int] | None = None) -> dict:
+               chay_ids: set[int] | None = None, kcs_map=None) -> dict:
     """Một dòng công việc trên timeline — nhãn nguồn/nhóm/máy đã resolve theo lô (§18)."""
     if cv.bai_ghep_id and cv.bai_ghep_id in bg_map:
         nguon_ma, nguon_ten = bg_map[cv.bai_ghep_id]
@@ -231,8 +230,12 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=No
         "ten_cong_doan": cv.ten_cong_doan,
         "nhom_cong_doan": cv.nhom_cong_doan,
         "loai_buoc": cv.loai_buoc,
-        "la_kcs": cv.la_kcs,
         "la_kcs_cuoi": cv.la_kcs_cuoi,
+        # Dấu KCS trên thẻ việc (KCS theo lệnh): số lần kiểm + Σ đạt/lỗi. Chỗ gọi không nạp
+        # `kcs_map` thì để 0 — drawer đọc chi tiết qua mục "Kết quả KCS".
+        "kcs_so_lan": (kcs_map or {}).get(cv.id, (0, 0.0, 0.0))[0],
+        "kcs_dat": (kcs_map or {}).get(cv.id, (0, 0.0, 0.0))[1],
+        "kcs_loi": (kcs_map or {}).get(cv.id, (0, 0.0, 0.0))[2],
         "may": may_map.get(cv.may_id or 0, ""),
         "may_id": cv.may_id,      # máy HIỆN TẠI — FE cần để dựng ô chọn "Đổi máy" (§7.2 mở rộng)
         # Hai thang giờ khác nhau gặp nhau ở ĐÂY (xem `services/gio_xuong.py`): mốc kế hoạch là
@@ -320,8 +323,9 @@ def _dung_items(db: Session, repo: SanXuatRepository, rows: list,
     cv_ids = {cv.id for cv in rows}
     so_map = _so_lieu_map(rows, sl_repo.tong_tot_nhieu(cv_ids),
                           sl_repo.tong_thuc_nhan_nhieu(cv_ids))
+    kcs_map = SanXuatKcsRepository(db).tong_kiem_nhieu(cv_ids)
     return [
-        _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map, so_map, chay_ids)
+        _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map, so_map, chay_ids, kcs_map)
         for cv in rows
     ]
 
@@ -348,13 +352,13 @@ def _digest(rows) -> dict[str, int]:
 
 def work_items(
     db: Session, user: User, authz: AuthorizationService, *, team_id: int,
-    mode: str = "production",
     nhom: str = "lenh",
     tim: str | None = None,
     trang: int = 1,
     co_trang: int = 20,
     tu_ngay: date | None = None,
     den_ngay: date | None = None,
+    cho_xac_nhan: bool = False,
 ) -> dict:
     """Việc đã phát hành của MỘT tổ. Hai hình, chọn bằng `nhom`:
 
@@ -366,32 +370,37 @@ def work_items(
       lệnh). Nhận thêm cửa sổ `tu_ngay`/`den_ngay` để Gantt chỉ kéo đúng khoảng đang xem thay vì
       cả bàn.
 
-    `mode` lọc như cũ (Task 4, §18 mục 6): "production" → `la_kcs=false`, "kcs" → `la_kcs=true`.
     `tim` (ô tìm kiếm của bàn) lọc Ở SQL, trước khi cắt trang — chỉ có nghĩa với `nhom="lenh"`;
     chế độ phẳng kéo trọn bàn nên màn tự lọc lấy.
 
     Bàn của nút cấp gom phủ cả VÙNG của nút (mg 0302). Trong vùng, tổ nào user thấy trọn thì lấy
     cả tổ; tổ nào chỉ "Của tôi" thì chỉ việc đang giao cho mình — lọc ĐẨY XUỐNG SQL, trước cả lúc
-    gom lệnh và cắt trang (§6 spec). Router ép kiểu `mode`/`nhom` bằng `Literal` trước khi gọi
-    xuống đây — service nhận `str` thô là đủ."""
+    gom lệnh và cắt trang (§6 spec). Router ép kiểu `nhom` bằng `Literal` trước khi gọi
+    xuống đây — service nhận `str` thô là đủ.
+
+    `cho_xac_nhan` (ô "chờ xác nhận" của bàn, §11.5): chỉ giữ lệnh có ÍT NHẤT MỘT công đoạn đang
+    chờ tổ bấm (bàn giao đến · hỗ trợ chéo · lỗi KCS chưa xem) — lọc trước khi cắt trang, cả lệnh
+    vẫn hiện đủ công đoạn của tổ."""
     repo = SanXuatRepository(db)
     q, _muc = _pham_vi_doc(db, user, team_id)
     tron, rieng = q.pham_vi_ban(team_id)
-    la_kcs = (mode == "kcs")
     emp_id = _nhan_vien_id(db, user) if rieng else None
+    chi_ids = _cv_cho_xac_nhan(db, q, team_id) if cho_xac_nhan else None
 
     if nhom == "phang":
-        rows = repo.cong_viec_cua_to(tron, la_kcs=la_kcs, employee_id=emp_id, rieng_ids=rieng)
+        rows = repo.cong_viec_cua_to(tron, employee_id=emp_id, rieng_ids=rieng)
         if tu_ngay is not None or den_ngay is not None:
             rows = [cv for cv in rows if _trong_cua_so(cv, tu_ngay, den_ngay)]
+        if chi_ids is not None:
+            rows = [cv for cv in rows if cv.id in chi_ids]
         return {"team_id": team_id, "nhom": "phang",
                 "cong_viec": _dung_items(db, repo, rows, _viec_chay_duoc(db, user, q, rows))}
 
     khoa_trang, tong = repo.lenh_cua_to_phan_trang(
-        tron, la_kcs=la_kcs, employee_id=emp_id, rieng_ids=rieng, tim=tim, trang=trang,
-        co_trang=co_trang)
+        tron, employee_id=emp_id, rieng_ids=rieng, tim=tim, trang=trang,
+        co_trang=co_trang, chi_cong_viec_ids=chi_ids)
     khoa = [k for k, _, _ in khoa_trang]
-    rows = repo.cong_viec_cua_lenh(tron, khoa, la_kcs=la_kcs, employee_id=emp_id, rieng_ids=rieng)
+    rows = repo.cong_viec_cua_lenh(tron, khoa, employee_id=emp_id, rieng_ids=rieng)
     item_theo_id = {it["id"]: it for it in _dung_items(db, repo, rows, _viec_chay_duoc(db, user, q, rows))}
     cv_theo_khoa: dict[tuple[str, int | None], list] = {}
     for cv in rows:
@@ -462,6 +471,8 @@ def _to_cho_xac_nhan(db: Session, xn_ids: set[int]) -> list[set[int]]:
     ]
     for h in SanXuatPhanBoRepository(db).ho_tro_cho_cua_to(xn_ids):
         ra.append(_ben_cho(h, xn_ids))
+    # Lỗi KCS tổ chưa bấm "Đã xem" — cũng là việc tổ phải bấm, badge đếm chung.
+    ra.extend({l.to_chiu_id} for l in SanXuatKcsRepository(db).loi_chua_xem_nhieu_to(xn_ids))
     return ra
 
 
@@ -475,24 +486,51 @@ def _ben_cho(h, xn_ids: set[int]) -> set[int]:
     return ben
 
 
-def cho_xac_nhan(db: Session, user: User, *, team_id: int) -> dict:
-    """Hộp "Chờ tổ bạn xác nhận" của bàn `team_id` (§9.1, §11.2, §18).
+def _cv_cho_xac_nhan(db: Session, q, team_id: int) -> set[int]:
+    """Công đoạn đang có việc chờ tổ bấm trên bàn `team_id` — cùng ba nguồn, cùng luật tổ với
+    `cho_xac_nhan`, nhưng chỉ lấy id để lọc bảng việc (không dựng nhãn)."""
+    xn_ids = set(q.cay.vung(team_id)) & q.tron[VIEC_XAC_NHAN]
+    if not xn_ids:
+        return set()
+    ids = {bg.dich_cong_viec_id for bg, _dept in SanXuatSanLuongRepository(db).ban_giao_cho_nhan_cua_to(xn_ids)}
+    ids |= {h.cong_viec_id for h in SanXuatPhanBoRepository(db).ho_tro_cho_cua_to(xn_ids)}
+    kcs = SanXuatKcsRepository(db)
+    loi = kcs.loi_chua_xem_nhieu_to(xn_ids)
+    ids |= {b.cong_viec_id for b in kcs.kcs_batch_nhieu({l.kcs_batch_id for l in loi}).values()}
+    return {i for i in ids if i}
 
-    Hai loại việc GIỮA HAI TỔ mà bên tổ mình phải bấm: bàn giao đến chờ nhận, và thỏa thuận hỗ trợ
-    chéo chờ bên mình — kể cả khi tổ mình chỉ CHO MƯỢN người nên không có công đoạn đó trên bàn.
-    Chỉ tính tổ trong vùng của bàn mà user giữ Xác nhận sản lượng trọn tổ (cùng luật với nút ghi)."""
+
+def cho_xac_nhan(db: Session, user: User, *, team_id: int) -> dict:
+    """Việc chờ tổ bấm trên bàn `team_id` (§9.1, §11.2, §11.5, §18).
+
+    Ba loại việc tổ mình phải bấm: bàn giao đến chờ nhận, thỏa thuận hỗ trợ chéo chờ bên mình — kể
+    cả khi tổ mình chỉ CHO MƯỢN người nên không có công đoạn đó trên bàn — và lỗi KCS báo về tổ
+    chưa bấm "Đã xem" (KCS theo lệnh, mg 0306).
+    Chỉ tính tổ trong vùng của bàn mà user giữ Xác nhận sản lượng trọn tổ (cùng luật với nút ghi).
+
+    `tren_ban`: công đoạn của dòng nằm trong tổ user thấy TRỌN trên bàn này ⇒ bàn đã vẽ nó (chấm đỏ
+    trên dòng, xác nhận trong ngăn chi tiết). `False` (thường là tổ cho mượn người) ⇒ không có dòng
+    nào để gắn, bàn liệt kê riêng khi bật ô "chờ xác nhận"."""
     q, _muc = _pham_vi_doc(db, user, team_id)
     xn_ids = set(q.cay.vung(team_id)) & q.tron[VIEC_XAC_NHAN]
     if not xn_ids:
-        return {"team_id": team_id, "ban_giao": [], "ho_tro": []}
+        return {"team_id": team_id, "ban_giao": [], "ho_tro": [], "kcs_loi": []}
+    tron, _rieng = q.pham_vi_ban(team_id)
     repo = SanXuatRepository(db)
     sl = SanXuatSanLuongRepository(db)
     bgs = [bg for bg, _dept in sl.ban_giao_cho_nhan_cua_to(xn_ids)]
     hts = SanXuatPhanBoRepository(db).ho_tro_cho_cua_to(xn_ids)
+    from .kcs import loi_cho_xem  # import muộn: kcs.py đọc ngược board lúc gác phạm vi
+
+    kcs_loi = loi_cho_xem(db, xn_ids)
     cvs = sl.cong_viec_nhieu(
         {b.nguon_cong_viec_id for b in bgs} | {b.dich_cong_viec_id for b in bgs}
-        | {h.cong_viec_id for h in hts}
+        | {h.cong_viec_id for h in hts} | {l["cong_viec_id"] for l in kcs_loi}
     )
+
+    def _tren_ban(cid) -> bool:
+        cv = cvs.get(cid)
+        return cv is not None and cv.department_id in tron
     to_ten = repo.to_ten_nhan(
         {c.department_id for c in cvs.values() if c.department_id}
         | {h.to_goc_id for h in hts if h.to_goc_id}
@@ -522,6 +560,7 @@ def cho_xac_nhan(db: Session, user: User, *, team_id: int) -> dict:
             "don_vi": b.don_vi,
             "de_xuat_luc": thuc_te_hien_thi(b.de_xuat_luc),
             "version": b.version,
+            "tren_ban": _tren_ban(b.dich_cong_viec_id),
         })
     ho_tro = []
     for h in hts:
@@ -541,8 +580,12 @@ def cho_xac_nhan(db: Session, user: User, *, team_id: int) -> dict:
             "cho_ben_goc": h.to_goc_id in ben,
             "cho_ben_thuc_hien": h.to_thuc_hien_id in ben,
             "version": h.version,
+            "tren_ban": _tren_ban(h.cong_viec_id),
         })
-    return {"team_id": team_id, "ban_giao": ban_giao, "ho_tro": ho_tro}
+    for l in kcs_loi:
+        l["tren_ban"] = _tren_ban(l["cong_viec_id"])
+
+    return {"team_id": team_id, "ban_giao": ban_giao, "ho_tro": ho_tro, "kcs_loi": kcs_loi}
 
 
 def ho_tro_ung_vien(
@@ -573,10 +616,42 @@ def ho_tro_ung_vien(
     }
 
 
+def _lan_dung_may(phien_rows, cv) -> list[tuple[datetime, datetime | None, str]]:
+    """Các lần DỪNG MÁY của công việc (§5.2): `(tu, den, ly_do)`, mốc UTC thật.
+
+    Bấm Tạm dừng là ĐÓNG phiên đang chạy (`loai_dong='tam_dung'` + lý do), nên máy dừng TỪ
+    `ket_thuc` của phiên đó TỚI lúc phiên kế tiếp mở. Không có phiên kế: việc còn tạm dừng thì chưa
+    hết dừng (`den` None); đã Kết thúc thẳng từ lúc dừng thì hết ở `hoan_thanh_luc`.
+
+    Khoảng [bat_dau, ket_thuc] của chính phiên tạm dừng là lúc máy CHẠY. Lấy nó làm giờ dừng là mẻ
+    09:09–09:11 hiện "Dừng máy 09:09–00:21" cho lần hết giấy lúc nửa đêm (DB dev 17/09/2026)."""
+    ra = []
+    for i, p in enumerate(phien_rows):
+        if p.loai_dong != PHIEN_TAM_DUNG or not p.ly_do or p.ket_thuc is None:
+            continue
+        tu = _aware(p.ket_thuc)
+        if i + 1 < len(phien_rows):
+            den = _aware(phien_rows[i + 1].bat_dau)
+        elif cv.trang_thai == CV_TAM_DUNG:
+            den = None
+        else:
+            den = _aware(cv.hoan_thanh_luc) if cv.hoan_thanh_luc is not None else tu
+        ra.append((tu, den, p.ly_do))
+    return ra
+
+
+def _dung_giao_me(lan_dung, b) -> list[tuple[datetime, datetime | None, str]]:
+    """Các lần dừng máy GIAO với cửa sổ mẻ. Chạm đúng mép (dừng lúc mẻ vừa xong, chạy lại lúc mẻ
+    sau vừa bắt đầu) không tính — không thì một lần dừng hiện ở cả hai mẻ kề nhau. Dừng chưa hết
+    coi như kéo tới hiện tại."""
+    bd, kt = _aware(b.bat_dau), _aware(b.ket_thuc)
+    return [d for d in lan_dung if d[0] < kt and (d[1] is None or d[1] > bd)]
+
+
 def _phien_giao_me(phien_rows, b) -> list:
-    """Các phiên chạy GIAO với cửa sổ mẻ. Nền của cả "máy nào chạy mẻ này" lẫn "mẻ này có dừng máy
-    lần nào" (§5.2) — máy đứng trên PHIÊN chứ không trên công việc, nên đọc `cv.may_id` chỉ ra máy
-    HIỆN TẠI, sai cho mẻ chạy trước lúc đổi máy.
+    """Các phiên chạy GIAO với cửa sổ mẻ — nền của "máy nào chạy mẻ này" (§5.2). Máy đứng trên
+    PHIÊN chứ không trên công việc, nên đọc `cv.may_id` chỉ ra máy HIỆN TẠI, sai cho mẻ chạy trước
+    lúc đổi máy. Lần dừng máy của mẻ KHÔNG đọc ở đây, xem `_lan_dung_may`.
 
     Ép `_aware` vì SQLite trả naive (bẫy naive/aware của module). Phiên đang mở (`ket_thuc` NULL)
     coi như kéo dài tới hiện tại nên vẫn tính là giao."""
@@ -620,7 +695,9 @@ def _nguoi_trong_batch(khoang, ten_map, b) -> list[dict]:
     return [{"employee_id": eid, "ho_ten": ten} for eid, ten in seen.items()]
 
 
-def _bg_dict(b, doi_tac_id, doi_tac_map, me_map) -> dict:
+def _bg_dict(b, doi_tac_id, doi_tac_map, me_map, dc_map, ten) -> dict:
+    """Một dòng bàn giao — hai bên thấy như nhau ai đề xuất, ai xác nhận, lúc nào và từng lần điều
+    chỉnh; tên đọc từ tài khoản đã thao tác (`ten` = `{user_id: tên}` gom sẵn một lần)."""
     return {
         "id": b.id,
         "doi_tac_cong_viec_id": doi_tac_id,
@@ -632,6 +709,21 @@ def _bg_dict(b, doi_tac_id, doi_tac_map, me_map) -> dict:
         "khong_nhat_quan": b.khong_nhat_quan,
         "version": b.version,
         "batch_ids": me_map.get(b.id, []),
+        "nguoi_de_xuat": ten.get(b.de_xuat_by_id),
+        "de_xuat_luc": thuc_te_hien_thi(b.de_xuat_luc),
+        "nguoi_xac_nhan": ten.get(b.xac_nhan_by_id),
+        "xac_nhan_luc": thuc_te_hien_thi(b.xac_nhan_luc),
+        "dieu_chinh": [
+            {
+                "so_luong_truoc": float(dc.so_luong_truoc),
+                "so_luong_sau": float(dc.so_luong_sau),
+                "mo_ta": dc.mo_ta,
+                "khong_nhat_quan": dc.khong_nhat_quan,
+                "nguoi": ten.get(dc.created_by),
+                "luc": thuc_te_hien_thi(dc.created_at),
+            }
+            for dc in dc_map.get(b.id, [])
+        ],
     }
 
 
@@ -776,6 +868,7 @@ def chi_tiet_cong_viec(
     # theo đúng bảng `may_thiet_bi`, không dùng `may_map` (đó là bảng `machines` cũ, xem
     # `_may_thiet_bi_nhan`).
     phien_may_ten = _may_thiet_bi_nhan(db, {p.may_id for p in phien_rows if p.may_id})
+    lan_dung = _lan_dung_may(phien_rows, cv)
 
     # --- Hỗ trợ chéo · phân bổ (Giai đoạn 4, §9 · §12) --------------------------------------
     pb = SanXuatPhanBoRepository(db)
@@ -794,6 +887,9 @@ def chi_tiet_cong_viec(
         | {lt.employee_id for ll in loai_tru_map.values() for lt in ll}
     )
     ten_map = repo.nhan_vien_nhan(emp_ids) if emp_ids else {}
+    # Ảnh đại diện cho roster + khoảng tham gia — đọc sống từ tài khoản, người đổi ảnh là drawer mở
+    # lần sau thấy ngay. Không có = FE vẽ chữ cái đầu.
+    anh_map = repo.anh_dai_dien({pc.employee_id for pc in roster} | {k.employee_id for k in khoang})
     to_ids = {h.to_goc_id for h in ho_tro_rows if h.to_goc_id} | {
         h.to_thuc_hien_id for h in ho_tro_rows if h.to_thuc_hien_id
     }
@@ -813,13 +909,15 @@ def chi_tiet_cong_viec(
     # Tính LẠI cờ chặn chốt + cảnh báo cho từng phân bổ CHƯA chốt (§7.3/§12): chấm công có thể vừa
     # được bổ sung / loại trừ vừa đổi ⇒ trạng thái can_chot phải phản ánh hiện tại, không đóng băng.
     batch_by_id = {b.id: b for b in batches}
+    # Dùng chung cho MỌI mẻ ở hai vòng dưới — không có lần ghi nào xen giữa. Xem `BoNhoTinhMe`.
+    bo_nho = BoNhoTinhMe(db, cv, pb, khoang=khoang, batch_ids=list(batch_by_id))
     pb_flags: dict[int, dict] = {}
     for h in pb_headers:
         b = batch_by_id.get(h.batch_id)
         if h.trang_thai == PB_DA_CHOT or b is None:
             pb_flags[h.id] = {"can_chot": True, "canh_bao": [], "thieu_cham_cong": []}
             continue
-        kq = _tinh_batch(db, cv, b, pb)
+        kq = _tinh_batch(db, cv, b, pb, bo_nho)
         pb_flags[h.id] = {
             "can_chot": kq.can_chot,
             "canh_bao": kq.canh_bao,
@@ -834,7 +932,7 @@ def chi_tiet_cong_viec(
     for b in batches:
         if b.id in co_ban_chia:
             continue
-        kq = _tinh_batch(db, cv, b, pb)
+        kq = _tinh_batch(db, cv, b, pb, bo_nho)
         chia_nhap[b.id] = {
             "q": float(kq.q_pay or 0),
             "don_vi": kq.don_vi_pay,
@@ -846,7 +944,6 @@ def chi_tiet_cong_viec(
                     "ho_ten": "",
                     "so_luong": float(d["so_luong_tra_luong"] or 0),
                     "phut_thuc_te": d.get("phut_thuc_te"),
-                    "he_so_bac": d.get("he_so_bac"),
                     "la_ho_tro": bool(d.get("la_ho_tro")),
                 }
                 for d in kq.dong
@@ -900,12 +997,17 @@ def chi_tiet_cong_viec(
     vat_tu_cap = _vat_tu_cap(db, sl, kh_svc, cv, cac_dn, du_lieu_cu)
 
     # ĐÍCH bàn giao = chặng sau theo routing lệnh (§11.2) — FE bày cố định, chỉ cho chọn khi bước
-    # sau tách lần chạy/rẽ nhánh. Rỗng = bước cuối lệnh, giao ra kho.
+    # sau tách lần chạy/rẽ nhánh. Rỗng = bước cuối lệnh — không bàn giao, thành phẩm qua KCS.
     chang_sau = sl.cong_viec_chang_sau(cv)
     chang_sau_to_ten = repo.to_ten_nhan({c.department_id for c in chang_sau if c.department_id})
     # Mẻ nào đã đi theo lần giao nào — form bàn giao chỉ tick sẵn mẻ chưa giao.
     me_map = sl.me_cua_ban_giao_nhieu([b.id for b in bg_di] + [b.id for b in bg_den])
     me_da_giao = sl.batch_da_giao_ids(cv.id)
+    dc_map = sl.dieu_chinh_nhieu([b.id for b in bg_di] + [b.id for b in bg_den])
+    ten_bg = SanXuatKcsRepository(db).ten_nguoi(
+        {u for b in (*bg_di, *bg_den) for u in (b.de_xuat_by_id, b.xac_nhan_by_id)}
+        | {dc.created_by for ds in dc_map.values() for dc in ds}
+    )
 
     return {
         # Vòng sửa 1, mục 2: truyền đúng bộ số đã tính ở trên — nếu không, "cong_viec.con_thieu"
@@ -922,6 +1024,10 @@ def chi_tiet_cong_viec(
         "version": cv.version,
         # Bốn quyền chi tiết của người đang xem trên CHÍNH việc này — drawer bật/tắt nút theo đây.
         "quyen": quyen_tren_viec(db, user.id, cv, q=q),
+        # MỨC của từng quyền ở tổ này ("all" | "own"; không có khoá = không được cấp). `quyen` tắt
+        # vì hai lý do khác nhau — không được cấp, hoặc chỉ "Của tôi" mà việc chưa giao cho mình —
+        # và drawer phải nói đúng lý do nào, không thì người đã bật quyền đọc thấy "cần quyền".
+        "quyen_muc": {v: m for v in VIEC_CHI_TIET if (m := q.muc(v, cv.department_id))},
         "phan_cong": [
             {
                 "id": pc.id,
@@ -929,6 +1035,7 @@ def chi_tiet_cong_viec(
                 "ho_ten": ten_map.get(pc.employee_id, ("", None))[0],
                 "la_luong_khoan": pc.la_luong_khoan,
                 "co_tai_khoan": ten_map.get(pc.employee_id, ("", None))[1] is not None,
+                "avatar_url": anh_map.get(pc.employee_id),
                 "trang_thai": pc.trang_thai,
             }
             for pc in roster
@@ -953,6 +1060,7 @@ def chi_tiet_cong_viec(
                 "phien_chay_id": k.phien_chay_id,
                 "employee_id": k.employee_id,
                 "ho_ten": ten_map.get(k.employee_id, ("", None))[0],
+                "avatar_url": anh_map.get(k.employee_id),
                 "bat_dau": thuc_te_hien_thi(k.bat_dau),
                 "ket_thuc": thuc_te_hien_thi(k.ket_thuc),
             }
@@ -986,11 +1094,9 @@ def chi_tiet_cong_viec(
                          if p.may_id), None),
                     "ca_ten": _ca_cua(ca_list, b.bat_dau),
                     "su_co": [
-                        {"bat_dau": thuc_te_hien_thi(p.bat_dau),
-                         "ket_thuc": thuc_te_hien_thi(p.ket_thuc),
-                         "ly_do": p.ly_do}
-                        for p in _phien_giao_me(phien_rows, b)
-                        if p.loai_dong == "tam_dung" and p.ly_do
+                        {"bat_dau": thuc_te_hien_thi(tu), "ket_thuc": thuc_te_hien_thi(den),
+                         "ly_do": ly_do}
+                        for tu, den, ly_do in _dung_giao_me(lan_dung, b)
                     ],
                     "dau_viec_ten": dau_viec_ten,
                     "nguoi_tham_gia": _nguoi_trong_batch(khoang, ten_map, b),
@@ -1000,9 +1106,7 @@ def chi_tiet_cong_viec(
                     "lot_vao": [
                         {
                             "id": lot.id,
-                            "nguon_loai": lot.nguon_loai,
                             "nguon_batch_id": lot.nguon_batch_id,
-                            "nguon_lot_id": lot.nguon_lot_id,
                             "so_luong": float(lot.so_luong),
                             "don_vi": lot.don_vi,
                         }
@@ -1012,8 +1116,12 @@ def chi_tiet_cong_viec(
                 for b in batches
             ],
         },
-        "ban_giao_di": [_bg_dict(b, b.dich_cong_viec_id, doi_tac_map, me_map) for b in bg_di],
-        "ban_giao_den": [_bg_dict(b, b.nguon_cong_viec_id, doi_tac_map, me_map) for b in bg_den],
+        "ban_giao_di": [
+            _bg_dict(b, b.dich_cong_viec_id, doi_tac_map, me_map, dc_map, ten_bg) for b in bg_di
+        ],
+        "ban_giao_den": [
+            _bg_dict(b, b.nguon_cong_viec_id, doi_tac_map, me_map, dc_map, ten_bg) for b in bg_den
+        ],
         "ban_giao_chang_sau": [
             {
                 "cong_viec_id": c.id,
@@ -1103,7 +1211,6 @@ def chi_tiet_cong_viec(
                         "so_luong_ban_dia": float(d.so_luong_ban_dia) if d.so_luong_ban_dia is not None else None,
                         "trong_so": float(d.trong_so) if d.trong_so is not None else None,
                         "phut_thuc_te": float(d.phut_thuc_te) if d.phut_thuc_te is not None else None,
-                        "he_so_bac": float(d.he_so_bac) if d.he_so_bac is not None else None,
                     }
                     for d in dong_map.get(h.id, [])
                 ],

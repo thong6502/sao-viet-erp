@@ -20,43 +20,138 @@
   overflow: hidden;
 }
 
-/* --- Badge trạng thái / mức độ ------------------------------------------------
-   Chỉ tô nền cho thứ CẦN XỬ LÝ. Tô hết thì cả bảng rực lên và mắt không bắt được
-   cái đang hỏng — đúng thứ duy nhất người ta mở màn này để tìm. */
+/* --- Badge trạng thái / mức độ (2026 Modern ERP Design) ------------------- */
 .ktm-badge {
-  display: inline-block;
-  padding: 2px 9px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
   font-size: 11.5px;
-  font-weight: var(--fw-medium, 500);
+  font-weight: 600;
   white-space: nowrap;
-  color: var(--ash, #475569);
+  letter-spacing: 0.01em;
+  transition: all 0.15s ease;
 }
-/* "Trung bình" là mức MẶC ĐỊNH của mọi phiếu ⇒ để nó neutral. Tô vàng cho mức mặc định thì cả
-   cột rực lên và cái NGHIÊM TRỌNG chìm nghỉm giữa đám vàng — hỏng đúng việc mà màu sinh ra để làm. */
-.ktm-badge--muc-nhe { color: var(--ash-2, var(--ash-2)); }
-.ktm-badge--muc-trung_binh { color: var(--ash, #475569); }
-.ktm-badge--muc-nghiem_trong { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
 
+/* Mức độ sự cố — Màu sắc dịu nhẹ & tương phản cao */
+.ktm-badge--muc-nhe {
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+.ktm-badge--muc-trung_binh,
+.ktm-badge--muc-vua {
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+}
+.ktm-badge--muc-nghiem_trong,
+.ktm-badge--muc-nang {
+  color: #b91c1c;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+}
+
+/* Trạng thái xử lý */
 .ktm-badge--tt-cho_sua,
-.ktm-badge--tt-cho_thuc_hien { color: var(--ash, #475569); background: var(--rule-hair, #f1f5f9); }
-/* Bảo trì không còn nấc "đang thực hiện" (12/08/2026) — chỉ Sửa chữa mới có bước giữa. */
-.ktm-badge--tt-dang_sua { color: var(--rust-deep, #8a3208); background: var(--rust-soft, #f6e2d6); }
-.ktm-badge--tt-cho_vat_tu { color: var(--amber-deep, #7a5c0f); background: var(--amber-soft, #efe4c4); }
+.ktm-badge--tt-cho_thuc_hien {
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+}
+.ktm-badge--tt-dang_sua {
+  color: #1d4ed8;
+  background: #dbeafe;
+  border: 1px solid #bfdbfe;
+}
+.ktm-badge--tt-cho_vat_tu {
+  color: #c2410c;
+  background: #ffedd5;
+  border: 1px solid #fed7aa;
+}
 .ktm-badge--tt-da_sua_xong,
-.ktm-badge--tt-hoan_thanh { color: var(--moss, #2f5d3a); }
-.ktm-badge--tt-qua_han { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
-/* Phiếu đã hủy — đóng lại nhưng KHÔNG phải hoàn thành. Mờ + gạch ngang để mắt lướt qua bảng không
-   nhầm với việc còn phải làm; vẫn đọc được khi cần lần lại kỳ nào đã hủy. */
-.ktm-badge--tt-da_huy { color: var(--ash-2, var(--ash-2)); background: var(--rule-hair, #f1f5f9); text-decoration: line-through; }
+.ktm-badge--tt-hoan_thanh {
+  color: #047857;
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+}
+.ktm-badge--tt-qua_han {
+  color: #b91c1c;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+}
+.ktm-badge--tt-da_huy {
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  text-decoration: line-through;
+}
 
-/* Chip cảnh báo cạnh tiêu đề — con số duy nhất dãy tab KHÔNG nói được */
+/* Machine Badge & Code Badge Refinement */
+.ktm-may-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* Class riêng `ktm-ma`, không đè `.rc__code-badge`: CSS global, đè là đổi luôn badge mã của màn
+   Danh mục và Kho (cssKhongCuop). Hai class để thắng `.rc__code-badge` bất kể thứ tự nạp file. */
+.ktm .ktm-ma {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* Photo chip count */
+.ktm-anhchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.ktm-anhchip.is-du {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.ktm-anhchip.is-thieu {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+/* Chip cảnh báo cạnh tiêu đề */
 .ktm-chip {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 10px; border-radius: 999px;
   font-size: 12px; font-weight: var(--fw-medium, 500);
 }
 .ktm-chip--canh-bao { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
+
 
 /* Số ảnh: trả lời "phiếu đủ bằng chứng để đóng chưa" */
 .ktm-anhdem {
@@ -1170,3 +1265,326 @@
 
 /* Nhãn "Nặng" cạnh nhan đề ô Mức độ — chỉ hiện với `nghiem_trong`. */
 .ktm-nhan-muc { margin-left: 6px; vertical-align: middle; }
+
+/* ==========================================================================
+   NÂNG CẤP UI/UX DRAWER PHIẾU SỬA CHỮA MÁY (OVERHAUL - NO SIDE BORDER)
+   ========================================================================== */
+
+/* 1. Header Badges & Status */
+.ktm-header-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.ktm-header-status-badge--cho_sua {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.ktm-header-status-badge--dang_sua {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+.ktm-header-status-badge--da_sua_xong {
+  background: #d1fae5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+/* 2. Hero Context Card — KHÔNG BORDER CẠNH, NỀN MỜ NHẸ GỌN GÀNG */
+.ktm-hero-card {
+  margin: 12px 0 20px 0;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ktm-hero-card__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12.5px;
+}
+
+.ktm-hero-card__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #475569;
+  font-weight: 500;
+}
+
+.ktm-hero-card__item svg {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.ktm-hero-card__item strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.ktm-hero-card__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #ffedd5;
+  color: #c2410c;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+/* 3. Section Form — BỎ KHUNG VIỀN NGOÀI (BỎ BOX IN BOX), DÙNG SECTION TITLE THANH LỊCH */
+.ktm-form-card {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 22px;
+  box-shadow: none;
+}
+
+.ktm-form-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.ktm-form-card__icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #fff7ed;
+  color: #ea580c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ktm-form-card__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+/* 4. Urgency Segmented Selector — VIBRANT, HIGH CONTRAST & TACTILE */
+.ktm-priority-seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 10px;
+  height: 40px;
+  box-sizing: border-box;
+}
+
+.ktm-priority-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+  height: 100%;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ktm-priority-btn:hover:not(:disabled) {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.ktm-priority-btn.is-selected {
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+/* Nhẹ - Green Accent */
+.ktm-priority-btn--nhe.is-selected {
+  border-color: #6ee7b7;
+  color: #047857;
+  background: #ecfdf5;
+}
+
+/* Trung bình / Vừa - Amber/Gold Accent */
+.ktm-priority-btn--vua.is-selected,
+.ktm-priority-btn--trung_binh.is-selected {
+  border-color: #fcd34d;
+  color: #b45309;
+  background: #fef3c7;
+}
+
+/* Nghiêm trọng / Nặng - Red Accent */
+.ktm-priority-btn--nghiem_trong.is-selected,
+.ktm-priority-btn--nang.is-selected {
+  border-color: #fca5a5;
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.ktm-priority-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.ktm-priority-btn.is-selected .ktm-priority-dot {
+  transform: scale(1.25);
+}
+
+.ktm-priority-dot--nhe { background: #10b981; box-shadow: 0 0 4px rgba(16, 185, 129, 0.4); }
+.ktm-priority-dot--vua,
+.ktm-priority-dot--trung_binh { background: #f59e0b; box-shadow: 0 0 4px rgba(245, 158, 11, 0.4); }
+.ktm-priority-dot--nghiem_trong,
+.ktm-priority-dot--nang { background: #ef4444; box-shadow: 0 0 4px rgba(239, 68, 68, 0.4); }
+
+/* 6. Textarea & Input field refinement — KHÔNG CHO KÉO RESIZE & THỊ GIÁC MỀM MẠI */
+.ktm-drawer textarea,
+textarea.ktm-input-modern,
+.ktm-input-modern {
+  resize: none !important;
+  font-family: inherit;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #0f172a;
+  background: #f8fafc;
+  transition: all 0.15s ease-in-out;
+}
+
+.ktm-input-modern::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.ktm-input-modern:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #ffffff;
+}
+
+.ktm-input-modern:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: #ea580c;
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+}
+
+.ktm-input-modern:disabled {
+  background: #f1f5f9;
+  color: #64748b;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+}
+
+/* 7. Emergency Stop Alert Card (Thẻ cảnh báo Máy Đang Dừng) */
+.ktm-emergency-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease-in-out;
+  margin-bottom: 16px;
+}
+
+.ktm-emergency-card:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.ktm-emergency-card.is-active {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.12);
+}
+
+.ktm-emergency-card__checkbox {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: #ef4444;
+  cursor: pointer;
+}
+
+.ktm-emergency-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.ktm-emergency-card__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.ktm-emergency-card.is-active .ktm-emergency-card__title {
+  color: #991b1b;
+}
+
+.ktm-emergency-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 12px;
+  background: #fee2e2;
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ktm-emergency-card__desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.ktm-emergency-card.is-active .ktm-emergency-card__desc {
+  color: #7f1d1d;
+}
+
+
+
+

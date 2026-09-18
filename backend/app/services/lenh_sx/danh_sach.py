@@ -106,6 +106,15 @@ UU_TIEN_CHO_PHEP = (UU_TIEN_GAP, UU_TIEN_THUONG)
 PAGE_SIZE_MAC_DINH = 50
 PAGE_SIZE_TOI_DA = 200
 
+# Trạng thái MỘT chặng trên dải công đoạn của dòng bảng. Bốn giá trị này là HỢP ĐỒNG với
+# `.hslsx__chang--*` bên `frontend/src/pages/lenh-san-xuat.css` — đổi chuỗi ở đây là đốt mất màu
+# bên kia mà không ai báo. Chúng KHÁC `CV_*` của model: `CV_PHAT_HANH` và mọi thứ chưa chạy đều
+# gộp về `cho`, còn một bước tách nhiều lần chạy thì bốn giá trị này nói về CẢ chặng.
+CHANG_XONG = "xong"
+CHANG_CHAY = "chay"
+CHANG_DUNG = "dung"
+CHANG_CHO = "cho"
+
 # Mốc "vô cùng" để sắp xếp: lệnh KHÔNG có hạn SX xuống cuối bảng (không có hạn thì không gấp),
 # công việc chưa xếp lịch xuống cuối chuỗi bước.
 _NGAY_XA = date(9999, 12, 31)
@@ -291,6 +300,89 @@ def may_cua_buoc(bc: BoiCanh, cv: SanXuatCongViec | None) -> int | None:
     return None
 
 
+def _khoa_chang(cv: SanXuatCongViec) -> str:
+    """Khoá gộp của một chặng.
+
+    `step_key` NULLABLE (`models/san_xuat.py`) nên phải có đường lùi, và đường lùi phải là id của
+    CHÍNH công việc chứ không phải tên: hai bước trùng tên trong một lệnh (in mặt trước / in mặt
+    sau đều tên "In") mà lùi về tên là bị gộp làm một chặng.
+    """
+    return cv.step_key or f"cv:{cv.id}"
+
+
+def _ten_chang(cv: SanXuatCongViec) -> str:
+    """Tên công đoạn ĐÃ BỎ hậu tố phân đoạn.
+
+    `snapshot._ten_phan_doan` gắn " (lần 1/2)" vào `ten_cong_doan` của từng lần chạy để tổ phân
+    biệt hai thẻ cùng công đoạn trên bàn. Nhưng dải chặng gộp mọi lần chạy về MỘT đốt, nên đốt đó
+    phải mang tên bước — "In" — chứ không phải "In (lần 1/2)", vốn vừa sai nghĩa vừa dài gấp đôi
+    trong một ô rộng vài chục pixel.
+
+    Dựng lại hậu tố từ CHÍNH cặp cột `phan_doan_so`/`phan_doan_tong` rồi mới cắt, không dò bằng
+    biểu thức chính quy: khớp hụt thì trả nguyên tên (chấp nhận được), còn regex khớp thừa là ăn
+    mất một khúc tên bước thật.
+    """
+    ten = cv.ten_cong_doan or ""
+    tong = cv.phan_doan_tong or 1
+    if tong > 1:
+        hau_to = f" (lần {cv.phan_doan_so}/{tong})"
+        if ten.endswith(hau_to):
+            return ten[: -len(hau_to)]
+    return ten
+
+
+def chang(bc: BoiCanh, lsx_id: int, cv_nay: SanXuatCongViec | None) -> list[dict]:
+    """Dải chặng của MỘT lệnh — mỗi công đoạn một đốt, để bảng vẽ được cả ĐƯỜNG ĐI chứ không chỉ
+    bước đang chạy.
+
+    KHÔNG tốn thêm câu SQL nào: `cong_viec_du` đọc từ `BoiCanh` mà `boi_canh.nap` đã nạp một lượt
+    cho cả trang. Đừng sửa thành đọc `LsxCongDoan` ngay tại đây — làm thế là đẻ ra một vòng N+1
+    đúng 50 lượt mỗi lần lật trang.
+
+    GỘP theo `step_key`: một bước tách N lần chạy (mg `0254`) đẻ N công việc CÙNG `step_key`,
+    nhưng trên dải nó vẫn là MỘT công đoạn. Không gộp thì lệnh nào có bước tách cũng dài gấp đôi
+    và người đọc tưởng xưởng phải chạy thêm bước.
+
+    Sắp theo `du_kien_bat_dau`, KHÔNG theo `thu_tu`: `thu_tu` là thứ tự GÕ ở bảng kế hoạch — bìa
+    và ruột chạy song song vẫn mang số 1 và 2 (xem `ho_so._lop_topo`). Dải này là một trục THỜI
+    GIAN, nên hai bước song song đứng cạnh nhau là đúng; xếp theo `thu_tu` là vẽ ra một chuỗi
+    tuần tự không có thật. Bước chưa xếp lịch (`du_kien_bat_dau IS NULL`) rơi xuống cuối nhờ mốc
+    `_LUC_XA` của `_bat_dau`.
+
+    `hien_tai` bám ĐÚNG `buoc_hien_tai` mà cột "Công đoạn" đang hiện — hai chỗ lệch nhau thì dải
+    chỉ một đốt còn chữ nói một bước khác, và người đọc mất lòng tin vào cả hai.
+    """
+    cvs = bc.cong_viec_du(lsx_id)
+    if not cvs:
+        return []
+    khoa_nay = _khoa_chang(cv_nay) if cv_nay is not None else None
+    # `dict` giữ thứ tự chèn (3.7+) và ta chèn theo thứ tự đã sắp, nên mỗi chặng đứng đúng chỗ
+    # của LẦN CHẠY SỚM NHẤT của nó.
+    nhom: dict[str, list[SanXuatCongViec]] = {}
+    for cv in sorted(cvs, key=lambda c: (_bat_dau(c), c.id)):
+        nhom.setdefault(_khoa_chang(cv), []).append(cv)
+    ra: list[dict] = []
+    for khoa, ds in nhom.items():
+        tts = {cv.trang_thai for cv in ds}
+        # Thứ tự xét CÓ Ý: một bước tách ba lần chạy mà một lần đang chạy thì cả chặng là "đang
+        # chạy", dù hai lần kia đã xong. "Xong" chỉ khi KHÔNG còn lần nào chưa xong.
+        if tts == {CV_HOAN_THANH}:
+            tt = CHANG_XONG
+        elif CV_DANG_CHAY in tts:
+            tt = CHANG_CHAY
+        elif CV_TAM_DUNG in tts:
+            tt = CHANG_DUNG
+        else:
+            tt = CHANG_CHO
+        ra.append({
+            "ten": _ten_chang(ds[0]),
+            "nhom": ds[0].nhom_cong_doan,
+            "trang_thai": tt,
+            "hien_tai": khoa == khoa_nay,
+        })
+    return ra
+
+
 def _dong(bc: BoiCanh, lsx_id: int, tinh: dict, bay_gio: datetime) -> dict:
     """MỘT dòng bảng. Không một con số tiền nào — xem docstring module."""
     lsx = bc.lenh[lsx_id]
@@ -319,6 +411,8 @@ def _dong(bc: BoiCanh, lsx_id: int, tinh: dict, bay_gio: datetime) -> dict:
         # cần đủ tên — cắt sẵn ở đây là FE không còn đường lấy hai người kia mà không gọi thêm API.
         # Rỗng khi bước hiện tại chưa giao ai; ĐỪNG bịa chữ thay thế, đó là việc của UI.
         "nguoi": bc.nguoi_cua(cv.id) if cv is not None else [],
+        # Cả ĐƯỜNG ĐI của lệnh, không chỉ bước đang đứng — xem `chang()`.
+        "chang": chang(bc, lsx_id, cv),
         "tien_do_pct": pct,
         "tien_do_uoc_tinh": uoc_tinh,
         "gio_may": tien_do.gio_may(bc, lsx_id, bay_gio),

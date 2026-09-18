@@ -1,6 +1,6 @@
 // Hồ sơ nhân sự (module `nhan_su`, lát #1). Danh sách + KPI + Wizard thêm (5 bước) +
 // Trang hồ sơ (tab Thông tin / Quá trình công tác / Đính kèm / Nhật ký) + dialog Đổi
-// trạng thái / Điều chuyển / Nâng bậc (sinh Quá trình công tác) + nối/tạo tài khoản.
+// trạng thái / Điều chuyển / Đổi chức danh (sinh Quá trình công tác) + nối/tạo tài khoản.
 // Backend là cổng quyền thật (403); useCan chỉ ẩn/hiện nút cho gọn UX.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -23,7 +23,6 @@ import {
   ChevronDown,
   Download,
   Key,
-  Layers,
   Search,
   Upload,
   UserPlus,
@@ -33,7 +32,6 @@ import { STATUS_LABEL } from "./shared/constants";
 import { errMsg, getAvatarClass } from "./shared/helpers";
 import { KpiStrip, StatusBadge } from "./components/badges";
 import { RequestQueueModal } from "./modals/RequestQueueModal";
-import { JobGradesModal } from "./modals/JobGradesModal";
 import { EmployeeDetailPanel } from "./EmployeeDetailPanel";
 import { EmployeeWizard } from "./EmployeeWizard";
 import { ImportExcelDialog } from "../../../components/ImportExcelDialog";
@@ -51,8 +49,6 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   // Nhập Excel đòi CẢ create lẫn update (cùng luật với nhập Excel danh mục): một lượt nhập vừa
   // tạo người mới vừa sửa người cũ, có đúng một trong hai ô là không đủ. Máy chủ gác y hệt.
   const canImport = can("nhan_su", "create") && can("nhan_su", "update");
-  // Sửa danh mục bậc = `nhan_su:update` (đúng ô backend gác `PUT /bac-tay-nghe/{id}`).
-  const canUpdate = can("nhan_su", "update");
 
   const [data, setData] = useState<{
     items: EmployeeRow[];
@@ -92,9 +88,6 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [reqOpen, setReqOpen] = useState(false);
   const [reqCount, setReqCount] = useState(0);
-  /** Danh mục bậc tay nghề + hệ số chia sản lượng. Ở ĐÂY vì bậc thuộc module `nhan_su` — HCNS
-   *  là người khai bậc, và họ thường không có quyền Lương / Cấu hình danh mục. */
-  const [gradesOpen, setGradesOpen] = useState(false);
 
   const loadReqs = useCallback(() => {
     if (!token || !canApprove) return;
@@ -221,14 +214,6 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
           </p>
         </div>
         <div className="ns2__headact">
-          {/* Bậc tay nghề: danh mục 5 bậc + HỆ SỐ chia sản lượng khoán. Nút ghost, đứng đầu vì
-              đây là việc khai NỀN (làm một lần), không phải việc hằng ngày như duyệt yêu cầu. */}
-          {canUpdate && (
-            <Button type="button" variant="ghost" onClick={() => setGradesOpen(true)}>
-              <Layers size={14} />
-              Bậc tay nghề
-            </Button>
-          )}
           {/* Vai PHỤ → ghost. Cùng hệ `.btn` với nút cam bên cạnh nên hai nút bằng chiều cao;
               trước đây nút này cao 40px (`ns-btn-secondary`) còn nút kia 40px tự chế — đổi một
               cái sang `.btn` mà giữ cái kia là lệch hàng ngay. */}
@@ -431,16 +416,15 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                   <th>Nhân viên</th>
                   <th>Phòng/Tổ</th>
                   <th>Chức danh</th>
-                  <th>Bậc tay nghề</th>
                   <th>Ngày vào làm</th>
                   <th>Trạng thái</th>
                 </tr>
               </thead>
               <tbody>
-                {loading && <EmptyRow colSpan={7} trangThai="dang-tai" />}
+                {loading && <EmptyRow colSpan={6} trangThai="dang-tai" />}
                 {!loading && listError && (
                   <EmptyRow
-                    colSpan={7}
+                    colSpan={6}
                     trangThai="loi"
                     loi={listError}
                     onThuLai={load}
@@ -501,23 +485,6 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                         </td>
                         <td className="ns-cell-dept">{e.department_name ?? "—"}</td>
                         <td className="ns-cell-title">{e.role_name ?? e.position ?? "—"}</td>
-                        {/* Rơi về `job_grade` = bậc kiểu CŨ (chữ tự gõ, chưa vào danh mục) —
-                          nói rõ ở tooltip để HCNS biết vì sao người này không sửa bậc được. */}
-                        <td
-                          title={
-                            e.job_grade_name == null && e.job_grade != null
-                              ? "Bậc kiểu cũ (chữ) — dùng Nâng bậc để chuyển sang danh mục."
-                              : undefined
-                          }
-                        >
-                          {e.job_grade_name || e.job_grade ? (
-                            <span className="ns-grade-chip">
-                              {e.job_grade_name ?? e.job_grade}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
                         <td className="ns-cell-date">{fmtDate(e.hire_date)}</td>
                         <td>
                           <StatusBadge status={e.status} />
@@ -527,7 +494,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                   })}
                 {!loading && !listError && rows.length === 0 && (
                   <EmptyRow
-                    colSpan={7}
+                    colSpan={6}
                     icon="users"
                     title={
                       endingSoon
@@ -633,16 +600,6 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                         <span className="ns-mobile-card__meta-val">{e.role_name ?? e.position ?? "—"}</span>
                       </div>
                       <div className="ns-mobile-card__meta-item">
-                        <span className="ns-mobile-card__meta-label">Bậc nghề</span>
-                        <span className="ns-mobile-card__meta-val">
-                          {e.job_grade_name || e.job_grade ? (
-                            <span className="ns-grade-chip">{e.job_grade_name ?? e.job_grade}</span>
-                          ) : (
-                            "—"
-                          )}
-                        </span>
-                      </div>
-                      <div className="ns-mobile-card__meta-item">
                         <span className="ns-mobile-card__meta-label">Ngày vào</span>
                         <span className="ns-mobile-card__meta-val ns-num">{fmtDate(e.hire_date)}</span>
                       </div>
@@ -706,17 +663,6 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
             load();
             setSelectedId(id);
           }}
-        />
-      )}
-
-      {gradesOpen && (
-        <JobGradesModal
-          token={token!}
-          canEdit={canUpdate}
-          onClose={() => setGradesOpen(false)}
-          // Bảng danh sách in cột "Bậc tay nghề" theo TÊN bậc — nạp lại để đổi tên/tắt bậc hiện
-          // ngay, khỏi bắt người dùng F5.
-          onSaved={() => load()}
         />
       )}
 

@@ -243,6 +243,7 @@ class StockVoucherRepository:
                 ghi_chu=ln.get("ghi_chu"),
                 vi_tri=ln.get("vi_tri"),
                 hsd=ln.get("hsd"),
+                lo_goc_id=ln.get("lo_goc_id"),
             ))
         self.db.add(obj)
         self.db.commit()

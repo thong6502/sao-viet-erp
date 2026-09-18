@@ -51,7 +51,7 @@ def _sales_token() -> str:
         db.close()
 
 
-def _make_emp(client, token, *, name, payroll_group=None, pay_grade_key=None,
+def _make_emp(client, token, *, name,
               gender="male", hire_date="2020-01-01", status=None) -> int:
     body = {"full_name": name, "department_id": _dept_id("Hành chính nhân sự"),
             "hire_date": hire_date, "gender": gender,
@@ -59,10 +59,6 @@ def _make_emp(client, token, *, name, payroll_group=None, pay_grade_key=None,
             # "tự đánh dấu hết thử việc" (22/08/2026) nên hàm quét cố ý bỏ qua — hồ sơ đứng yên ở
             # "probation" đúng như các test này vẫn giả định.
             "probation_end_date": "2025-12-31"}
-    if payroll_group:
-        body["payroll_group"] = payroll_group
-    if pay_grade_key:
-        body["pay_grade_key"] = pay_grade_key
     if status:
         body["status"] = status
     return client.post("/api/employees", json=body, headers=_h(token)).json()["employee"]["id"]
@@ -71,9 +67,9 @@ def _make_emp(client, token, *, name, payroll_group=None, pay_grade_key=None,
 def _sal(**kw):
     """Salary namespace cho engine test — mức nền + BH đều bám `luong_vi_tri` (chủ 2026-07-20:
     lương vị trí = lương cơ bản = mức đóng BH). Field đủ cho mọi getattr của _compute."""
-    base = dict(amount_mode="manual", base_amount=None, luong_vi_tri=0, luong_trach_nhiem=0,
+    base = dict(base_amount=None, luong_vi_tri=0, luong_trach_nhiem=0,
                 insurance_base=None, allowance=0, chuyen_can=0, phu_cap_ca=0, phu_cap_tham_nien=0,
-                insurance_elsewhere=False, union_member=False, source_salary_row_id=None)
+                insurance_elsewhere=False, union_member=False)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -140,13 +136,10 @@ def test_compute_engine(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="ut_grp", monthly_amount=10_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
         on = date(2026, 6, 1)
 
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="ut_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
 
         # nửa công (13/26) → lương công = 5tr; chưa đủ công → chuyên cần 0.
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=10_000_000), params=params, actual_cong=13,
@@ -168,8 +161,7 @@ def test_compute_engine(client):
         assert v2b["chuyen_can"] == 300_000 and v2b["gross"] == 10_300_000
 
         # thử việc → ×0.8.
-        emp_tv = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male",
-                                 payroll_group="ut_grp", pay_grade_key=None)
+        emp_tv = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male")
         v3 = svc._compute(employee=emp_tv, salary=_sal(luong_vi_tri=10_000_000), params=params, actual_cong=26,
                           standard_cong=26, on=on)
         assert v3["monthly_salary"] == 10_000_000       # mức gốc (chưa nhân)
@@ -186,11 +178,8 @@ def test_ot_and_night_pay(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="ot_grp", monthly_amount=26_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()   # standard_hours_per_day=8, ot_multiplier=1.5
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="ot_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         # std 26 → 1 công = 1.000.000; giờ = 125.000. OT 120' (2h)×1.5 = 375.000.
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26,
                          standard_cong=26, ot_minutes=120, night_days=2, on=date(2026, 6, 1))
@@ -213,11 +202,8 @@ def test_piece_work_dept_KHONG_co_tien_gio_tang_ca(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="pw_grp", monthly_amount=26_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="pw_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         # Cùng dữ liệu OT 120', chỉ khác chế độ khoán.
         v_norm = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26,
                               standard_cong=26, ot_minutes=120, on=date(2026, 6, 1), che_do_khoan=False)
@@ -236,11 +222,8 @@ def test_bhxh_cap(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="hi_grp", monthly_amount=60_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()   # bh_base_cap=50.6tr, bhtn_base_cap=106.2tr
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="hi_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=60_000_000), params=params, actual_cong=26,
                          standard_cong=26, on=date(2026, 6, 1))
         # base 60tr > trần BHXH/BHYT 50.6tr → phần đó trên 50.6tr; BHTN 60tr < 106.2tr → trên 60tr.
@@ -255,11 +238,8 @@ def test_probation_no_bhxh(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="pb_grp", monthly_amount=12_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male",
-                              payroll_group="pb_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male")
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=12_000_000), params=params, actual_cong=26,
                          standard_cong=26, on=date(2026, 6, 1))
         assert v["bhxh"] == 0 and v["insurance_base"] == 0
@@ -278,11 +258,8 @@ def test_HET_THU_VIEC_cho_xac_nhan_van_an_tien_THU_VIEC(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="pb_grp2", monthly_amount=12_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        chung = dict(hire_date=date(2026, 5, 1), gender="male",
-                     payroll_group="pb_grp2", pay_grade_key=None)
+        chung = dict(hire_date=date(2026, 5, 1), gender="male")
 
         def tinh(status):
             return svc._compute(employee=SimpleNamespace(status=status, **chung),
@@ -316,8 +293,7 @@ def test_insurance_elsewhere_only_tnld_bnn(client):
         svc.update_params(cong_doan_rate=0.005)
         params = svc.get_params()
         assert float(params.tnld_bnn_rate) == 0.005            # mặc định TNLĐ-BNN 0.5%
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         # union_member=True: đoàn viên nên đoàn phí CĐ VẪN trừ dù BH đóng ở nơi khác.
         v = svc._compute(employee=emp,
                          salary=_sal(luong_vi_tri=10_000_000, insurance_elsewhere=True, union_member=True),
@@ -440,8 +416,7 @@ def test_night_premium_engine(client):
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()   # night_pct 0.3 · ot_night_extra_pct 0.2 · ot_multiplier 1.5 · 8h/ngày
         assert float(params.ot_night_extra_pct) == 0.2 and float(params.night_pct) == 0.3
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         base = dict(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params,
                     actual_cong=26, standard_cong=26, on=date(2026, 6, 1))   # đơn giá 1tr/công → 125k/giờ
         v0 = svc._compute(**base)
@@ -467,8 +442,7 @@ def test_to_khoan_KHONG_tien_gio_tang_ca_nhung_GIU_premium_le_va_off1x(client):
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         base = dict(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params,
                     standard_cong=26, on=date(2026, 6, 1))   # 1.000.000 đ/công · 125.000 đ/giờ
 
@@ -499,8 +473,7 @@ def test_off1x_chiu_thue_khong_duoc_mien(client):
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         base = dict(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params,
                     standard_cong=26, on=date(2026, 6, 1))   # 1.000.000 đ/công · 125.000 đ/giờ
 
@@ -542,8 +515,7 @@ def test_cong_le_cn_khong_bi_tran_cong_nuot_goc(client):
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
         assert float(params.restday_work_multiplier) == 2.0
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         # nền 32.500.000 / 26 = 1.250.000 đ/công — gốc lẫn premium cùng đơn giá này (15/09/2026)
         base = dict(employee=emp, params=params, standard_cong=26, on=date(2026, 6, 1),
                     salary=_sal(luong_vi_tri=26_000_000, luong_trach_nhiem=6_500_000))
@@ -1064,7 +1036,7 @@ def test_ngay_off1x_khong_lam_thi_khong_luong(client):
 def test_update_line_keeps_ot_night_pay(client):
     """Pha 4a (bẫy C2): sửa ô tay (vi phạm) KHÔNG được xóa tăng ca/ca đêm khỏi gross."""
     token = _admin_token(client)
-    emp_id = _make_emp(client, token, name="NV OT", payroll_group="x", status="active")
+    emp_id = _make_emp(client, token, name="NV OT", status="active")
     db = SessionLocal()
     try:
         repo = PayrollRepository(db)
@@ -1201,7 +1173,7 @@ def test_pit_dependents_reduce_tax(client):
 def test_pit_manual_override_and_reset(client):
     """pit tự tính; HCNS ghi đè tay (pit_manual) → giữ; reset (pit_manual=False) → về auto."""
     token = _admin_token(client)
-    emp_id = _make_emp(client, token, name="NV Thuế", payroll_group="x", status="active")
+    emp_id = _make_emp(client, token, name="NV Thuế", status="active")
     db = SessionLocal()
     try:
         repo = PayrollRepository(db)
@@ -1229,7 +1201,7 @@ def test_pit_manual_override_and_reset(client):
 def test_pay_unpay_flow(client):
     """State machine: nháp→chốt→đã chi→hủy chi; chặn pay-khi-chưa-chốt, reopen/generate-khi-đã-chi."""
     token = _admin_token(client)
-    _make_emp(client, token, name="NV Chi", payroll_group="x", status="active")
+    _make_emp(client, token, name="NV Chi", status="active")
     y, m = 2026, 6
     assert client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token)).status_code == 200
     # pay khi CHƯA chốt → 400
@@ -1248,7 +1220,7 @@ def test_pay_unpay_flow(client):
 def test_export_xlsx_smoke(client):
     """Xuất bảng lương + file chuyển khoản .xlsx trả 200 + đúng content-type Excel."""
     token = _admin_token(client)
-    _make_emp(client, token, name="NV Xls", payroll_group="x", status="active")
+    _make_emp(client, token, name="NV Xls", status="active")
     y, m = 2026, 6
     client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token))
     r1 = client.get(f"/api/luong/export.xlsx?year={y}&month={m}", headers=_h(token))
@@ -1264,7 +1236,7 @@ def test_export_xlsx_smoke(client):
 def test_payroll_audit_logged(client):
     """Thao tác lương ghi nhật ký (tạo bảng / chốt) — hiện ở Nhật ký chung."""
     token = _admin_token(client)
-    _make_emp(client, token, name="NV Audit", payroll_group="x", status="active")
+    _make_emp(client, token, name="NV Audit", status="active")
     y, m = 2026, 6
     client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token))
     client.post("/api/luong/lock", json={"year": y, "month": m}, headers=_h(token))
@@ -1401,7 +1373,7 @@ def test_L11_chot_luong_roi_thi_khong_dung_vao_phieu_tam_ung_nua(client):
 
 def test_advance_workflow(client):
     token = _admin_token(client)
-    eid = _make_emp(client, token, name="NV Ứng", payroll_group="van_phong")
+    eid = _make_emp(client, token, name="NV Ứng")
     created = client.post("/api/luong/advances", json={
         "employee_id": eid, "period_year": 2026, "period_month": 6,
         "advance_date": "2026-06-10", "amount": 2_000_000, "reason": "Ứng",
@@ -1638,11 +1610,8 @@ def test_dis_deduction_capped_30pct(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="d102", monthly_amount=20_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="d102", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         # phạt khủng 100tr → cột vi_pham LƯU RAW; phần kẹp chỉ ảnh hưởng gross (trần 30%).
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=20_000_000), params=params, actual_cong=26, standard_cong=26,
                          vi_pham=100_000_000, on=date(2026, 6, 1))
@@ -1663,11 +1632,8 @@ def test_bonus_items_taxable(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="bonus_grp", monthly_amount=30_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="bonus_grp", pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         base = svc._compute(employee=emp, salary=_sal(luong_vi_tri=30_000_000), params=params, actual_cong=26, standard_cong=26,
                             on=date(2026, 6, 1))
         withb = svc._compute(employee=emp, salary=_sal(luong_vi_tri=30_000_000), params=params, actual_cong=26, standard_cong=26,
@@ -1689,11 +1655,8 @@ def test_cong_doan_auto(client):
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         svc.update_params(cong_doan_rate=0.005)
-        svc.payroll.create_rule(payroll_group="cd_grp", monthly_amount=10_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="cd_grp", pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         # Đoàn viên → có trừ đoàn phí.
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=10_000_000, union_member=True),
                          params=params, actual_cong=26, standard_cong=26, on=date(2026, 6, 1))
@@ -1703,8 +1666,7 @@ def test_cong_doan_auto(client):
                             params=params, actual_cong=26, standard_cong=26, on=date(2026, 6, 1))
         assert v_no["cong_doan"] == 0
         # Thử việc (dù là đoàn viên) → 0.
-        emp_tv = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male",
-                                 payroll_group="cd_grp", pay_grade_key=None, dependents_count=0)
+        emp_tv = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male", dependents_count=0)
         v_tv = svc._compute(employee=emp_tv, salary=_sal(luong_vi_tri=10_000_000, union_member=True),
                             params=params, actual_cong=26, standard_cong=26, on=date(2026, 6, 1))
         assert v_tv["cong_doan"] == 0
@@ -1719,11 +1681,8 @@ def test_penalties_share_30pct_cap(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="pen_grp", monthly_amount=20_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="pen_grp", pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=20_000_000), params=params, actual_cong=26, standard_cong=26,
                          vi_pham=30_000_000, di_tre=30_000_000, dt_vuot_troi=30_000_000,
                          phat_bien_ban=30_000_000, phat_5s_dong_phuc=30_000_000, on=date(2026, 6, 1))
@@ -1807,11 +1766,8 @@ def test_luong_cong_capped_at_standard(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="cap_grp", monthly_amount=13_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="cap_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         # 27 công / chuẩn 26 → chặn trần = nguyên 13tr (KHÔNG 27/26 = dư)
         over = svc._compute(employee=emp, salary=_sal(luong_vi_tri=13_000_000), params=params, actual_cong=27,
                             standard_cong=26, on=date(2026, 7, 1))
@@ -1834,11 +1790,8 @@ def test_special_day_premium(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="sd", monthly_amount=26_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()   # ot 1.5 · ot_rest 2 · ot_hol 3 · hol_wm 3 · rest_wm 2
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="sd", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         daily = 26_000_000 / 26   # 1.000.000 ; giờ = 125.000
         # 1 công ngày lễ (nằm trong 26 công) → phần thêm = 1×(3−1)×daily = 2.000.000, không OT.
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26, standard_cong=26,
@@ -1871,8 +1824,7 @@ def test_ngay_phep_tra_du_muc_nen(client):
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
         on = date(2026, 6, 1)
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         sal = _sal(luong_vi_tri=10_000_000, luong_trach_nhiem=3_000_000)   # nền 13tr, std 26
 
         def run(actual, leave, **kw):
@@ -1918,8 +1870,7 @@ def test_chuyen_can_nguyen_khi_co_don_nghi_gio(client):
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
         on = date(2026, 6, 1)
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         sal = _sal(luong_vi_tri=10_000_000, chuyen_can=300_000)
 
         def run(excused):

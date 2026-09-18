@@ -2,10 +2,11 @@
 // Thiết kế gọn gàng, hiện đại, tối ưu chiều cao hàng, các thẻ quy cách nằm ngang sắc nét.
 import { Icon } from "../components/Icons";
 import type { SxLenhNhom, SxVatTuDinhMuc, SxWorkItem, SxQuyCachThe } from "../api/client";
-import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
+import { ChipKcs, ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { num, ngayGio } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
 import { ThsxLenhGroups } from "./ThsxLenhGroups";
+import { ChamCho, type SxChoCuaViec } from "./thsxChoXacNhan";
 import { slText, sxNguonIcon, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 
 interface Props {
@@ -16,6 +17,8 @@ interface Props {
   onBatDau?: (w: SxWorkItem) => void;
   onTamDung?: (w: SxWorkItem) => void;
   onKetThuc?: (w: SxWorkItem) => void;
+  /** Việc chờ tổ bấm theo công đoạn (§11.5) — chấm đỏ trên dòng lệnh + dòng công đoạn. */
+  cho?: ReadonlyMap<number, SxChoCuaViec>;
 }
 
 /** Tóm tắt quy cách in gọn gàng trên 1 dòng duy nhất với dấu chấm giữa */
@@ -67,18 +70,20 @@ function phutChayGon(w: SxWorkItem): { main: string; sub?: string } | null {
 }
 
 export function ThsxDanhSach({
-  lenh, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
+  lenh, selectedId, onPick, onBatDau, onTamDung, onKetThuc, cho,
 }: Props) {
   return (
     <div className="thsx-ds__scroll">
       <ThsxLenhGroups
         lenh={lenh}
         selectedId={selectedId}
+        cho={cho}
         render={(viec) => (
           <DsBang
             viec={viec}
             selectedId={selectedId}
             onPick={onPick} onBatDau={onBatDau} onTamDung={onTamDung} onKetThuc={onKetThuc}
+            cho={cho}
           />
         )}
       />
@@ -89,7 +94,7 @@ export function ThsxDanhSach({
 /** Bảng bước CỦA MỘT LỆNH. Nhãn "đang chạy / tạm dừng" của khúc đầu bảng đã dời lên dòng lệnh
  *  (`LenhDigest`), ở đây chỉ còn bảng — khỏi đếm hai lần trên cùng một màn. */
 function DsBang({
-  viec, selectedId, onPick, onBatDau, onTamDung, onKetThuc,
+  viec, selectedId, onPick, onBatDau, onTamDung, onKetThuc, cho,
 }: {
   viec: SxWorkItem[];
   selectedId: number | null;
@@ -97,6 +102,7 @@ function DsBang({
   onBatDau?: (w: SxWorkItem) => void;
   onTamDung?: (w: SxWorkItem) => void;
   onKetThuc?: (w: SxWorkItem) => void;
+  cho?: ReadonlyMap<number, SxChoCuaViec>;
 }) {
   if (viec.length === 0) return null;
 
@@ -123,6 +129,7 @@ function DsBang({
                   key={w.id}
                   w={w}
                   selected={isSelected}
+                  cho={cho?.get(w.id)}
                   onPick={() => onPick(w)}
                   onBatDau={onBatDau ? () => onBatDau(w) : undefined}
                   onTamDung={onTamDung ? () => onTamDung(w) : undefined}
@@ -138,10 +145,11 @@ function DsBang({
 }
 
 function DsRowBlock({
-  w, selected, onPick, onBatDau, onTamDung, onKetThuc,
+  w, selected, onPick, onBatDau, onTamDung, onKetThuc, cho,
 }: {
   w: SxWorkItem;
   selected: boolean;
+  cho?: SxChoCuaViec;
   onPick: () => void;
   onBatDau?: () => void;
   onTamDung?: () => void;
@@ -155,7 +163,7 @@ function DsRowBlock({
 
   return (
     <tr
-      className={`thsx-ds__row ${statusCls}${selected ? " thsx-ds__row--sel" : ""}${w.la_kcs ? " thsx-ds__row--kcs" : ""}`}
+      className={`thsx-ds__row ${statusCls}${selected ? " thsx-ds__row--sel" : ""}`}
       tabIndex={0}
       role="button"
       aria-pressed={selected}
@@ -184,7 +192,8 @@ function DsRowBlock({
         <div className="thsx-ds__cd-cell">
           <div className="thsx-ds__cd-head">
             <span className="thsx-ds__cd-name">{w.ten_cong_doan || "—"}</span>
-            {w.la_kcs && <span className="thsx-lrow__kcs thsx-ds__kcs">KCS</span>}
+            <ChamCho c={cho} />
+            <ChipKcs so_lan={w.kcs_so_lan} loi={w.kcs_loi} />
             <ChipLoaiBuoc loai_buoc={w.loai_buoc} nha_cung_cap={w.nha_cung_cap} />
             <ChipKhuon can_khuon={!!w.khuon} khuon={{ ...(w.khuon ?? {}), da_nhan: w.khuon_da_nhan }} />
           </div>

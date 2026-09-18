@@ -54,7 +54,7 @@ const HOSO: LenhSxHoSoOut = {
       {
         id: 901, thu_tu: 1, lop: 0, phu_thuoc: [], ten: "CTP", nhom: "che_ban",
         loai_buoc: "may", bat_buoc: true, nha_cung_cap: null, cong_viec_id: 500,
-        la_buoc_ghep: false, la_kcs: false, la_buoc_hien_tai: false, trang_thai: "completed",
+        la_buoc_ghep: false, la_buoc_hien_tai: false, trang_thai: "completed",
         may: "Máy ghi kẽm", to: "Tổ chế bản", nguoi: ["Thợ chế bản"],
         du_kien_bat_dau: "2026-09-01T01:00:00Z", du_kien_ket_thuc: "2026-09-01T03:00:00Z",
         hoan_thanh_luc: "2026-09-01T03:10:00Z",
@@ -65,7 +65,7 @@ const HOSO: LenhSxHoSoOut = {
       {
         id: 902, thu_tu: 2, lop: 1, phu_thuoc: [901], ten: "In", nhom: "in",
         loai_buoc: "may", bat_buoc: true, nha_cung_cap: null, cong_viec_id: 501,
-        la_buoc_ghep: true, la_kcs: false, la_buoc_hien_tai: true, trang_thai: "running",
+        la_buoc_ghep: true, la_buoc_hien_tai: true, trang_thai: "running",
         may: "Máy in A", to: "Tổ in", nguoi: ["Thợ Nam", "Thợ Bình"],
         du_kien_bat_dau: "2026-09-02T01:00:00Z", du_kien_ket_thuc: "2026-09-02T09:00:00Z",
         hoan_thanh_luc: null,
@@ -76,7 +76,7 @@ const HOSO: LenhSxHoSoOut = {
       {
         id: 903, thu_tu: 3, lop: 2, phu_thuoc: [902], ten: "Đóng gói", nhom: "thanh_pham",
         loai_buoc: "to", bat_buoc: true, nha_cung_cap: null, cong_viec_id: null,
-        la_buoc_ghep: false, la_kcs: true, la_buoc_hien_tai: false, trang_thai: null,
+        la_buoc_ghep: false, la_buoc_hien_tai: false, trang_thai: null,
         may: null, to: "Tổ đóng gói", nguoi: [],
         du_kien_bat_dau: null, du_kien_ket_thuc: null, hoan_thanh_luc: null,
         so_luong_vao: 0, so_luong_ra: 0, don_vi_vao: "cai", don_vi_ra: "cai",
@@ -158,13 +158,9 @@ const HOSO: LenhSxHoSoOut = {
   kho: {
     so_lenh_trong_nhom: 2,
     yeu_cau: [{
-      id: 21, kcs_batch_id: 61, nhom_id: 5, so_luong_yeu_cau: 500, so_luong_xac_nhan: 500,
-      con_lai: 0, don_vi: "cai", quy_cach: "Thùng 100", trang_thai: "da_nhap",
+      id: 21, request_id: 9, ma: "DNN0009", hang_id: 55, so_luong_yeu_cau: 500, so_luong_xac_nhan: 500,
+      con_lai: 0, don_vi: "cai", trang_thai: "done",
       tao_luc: "2026-09-02T07:00:00Z", xac_nhan_luc: "2026-09-02T08:00:00Z",
-    }],
-    btp: [{
-      id: 31, so_luong: 24, don_vi: "to", phan_loai: "mau_luu",
-      kho_xac_nhan: true, quy_cach: "Kẹp mẫu",
     }],
   },
   giao_hang: {

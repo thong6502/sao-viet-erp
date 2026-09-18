@@ -10,11 +10,11 @@ from app.models.role import SCOPE_ALL, Role
 from app.repositories.rbac_repo import RoleRepository
 from app.services.quyen_to import COT_VIEC, dong_bo_dong_quyen_to, khoa_to
 
-BON_VIEC = ("run_order", "confirm_output", "qc", "warehouse")
+BON_VIEC = ("run_order", "confirm_output", "warehouse")  # tên giữ cho gọn diff — KCS đã gỡ ở mg 0306
 
 
 def cap_quyen_to(db, user, dept, *, scope: str = SCOPE_ALL, viec=BON_VIEC, xem: bool = True):
-    """Bật Xem + `viec` (mặc định cả bốn quyền chi tiết) trên dòng tổ `dept` cho vai của `user`.
+    """Bật Xem + `viec` (mặc định cả ba quyền chi tiết) trên dòng tổ `dept` cho vai của `user`.
 
     User chưa có vai thì dựng một vai riêng ở phòng của họ (hoặc chính tổ) rồi gán — y như quản trị
     tạo vai trước khi cấp quyền. Trả lại `user` để viết gọn trong fixture."""

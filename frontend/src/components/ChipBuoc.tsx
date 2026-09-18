@@ -10,6 +10,18 @@ import "./chip-buoc.css";
 
 const NHAN_LOAI: Record<string, string> = { may: "Máy", to: "Tổ" };
 
+/** Dấu KCS trên thẻ việc (KCS theo lệnh, mg 0306): công đoạn đã được KCS kiểm thì tổ thấy ngay
+ *  "KCS: đạt" hoặc "KCS: N lỗi" (N = tổng số lỗi các lần kiểm). Chưa kiểm lần nào ⇒ không vẽ gì. */
+export function ChipKcs({ so_lan, loi }: { so_lan?: number | null; loi?: number | null }) {
+  if (!so_lan) return null;
+  const coLoi = (loi ?? 0) > 0;
+  return (
+    <span className={`chip-kcs chip-kcs--${coLoi ? "loi" : "dat"}`} title={`KCS đã kiểm ${so_lan} lần`}>
+      {coLoi ? `KCS: ${(loi ?? 0).toLocaleString("vi-VN")} lỗi` : "KCS: đạt"}
+    </span>
+  );
+}
+
 export function ChipLoaiBuoc({
   loai_buoc,
   nha_cung_cap,

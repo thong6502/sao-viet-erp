@@ -92,6 +92,24 @@ class VatTuLineOut(BaseModel):
     ghi_chu: str | None = None
 
 
+# ============================ CHI PHÍ KHÁC (khoản lẻ một lần) ============================
+class ChiPhiKhacIn(BaseModel):
+    """1 dòng chi phí khác — cặp (tên tự gõ, số tiền). Khoản MỘT LẦN cho cả sản lượng."""
+    thu_tu: int | None = None
+    ten: str | None = Field(default=None, max_length=255)
+    so_tien: float | None = Field(default=None, ge=0)
+
+
+class ChiPhiKhacOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    thanh_phan_id: int
+    thu_tu: int
+    ten: str
+    so_tien: float
+
+
 # ============================ THÀNH PHẦN (paper component) ============================
 class ThanhPhanIn(BaseModel):
     """1 thành phần (tờ giấy) — đầu vào (mọi trường optional)."""
@@ -148,6 +166,9 @@ class ThanhPhanIn(BaseModel):
     phi_giao_hang: float | None = Field(default=None, ge=0)
     thanh_phams: list[ThanhPhamIn] | None = None
     vat_tus: list[VatTuLineIn] | None = None
+    # ⑥ Chi phí khác: các khoản lẻ MỘT LẦN (làm kẽm ngoài, phí thiết kế…) — mỗi dòng một cặp
+    # (tên tự gõ, số tiền), cộng thẳng vào giá vốn như `phi_giao_hang`.
+    chi_phi_khacs: list[ChiPhiKhacIn] | None = None
 
 
 class ThanhPhanOut(BaseModel):
@@ -201,6 +222,7 @@ class ThanhPhanOut(BaseModel):
     gia_von_tp: float
     thanh_phams: list[ThanhPhamOut] = Field(default_factory=list)
     vat_tus: list[VatTuLineOut] = Field(default_factory=list)
+    chi_phi_khacs: list[ChiPhiKhacOut] = Field(default_factory=list)
 
 
 # ============================ PHIẾU (header) ============================

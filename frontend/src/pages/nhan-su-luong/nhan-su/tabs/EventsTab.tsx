@@ -4,17 +4,20 @@ import { api, type EmployeeEvent, type EmployeeMeta } from "../../../../api/clie
 import { EmptyState } from "../../../../components/EmptyState";
 import { Timeline, type TimelineEntry } from "../../../../components/Timeline";
 import { fmtDate } from "../../../../utils/format";
-import { EVENT_LABEL, STATUS_LABEL } from "../shared/constants";
+import { STATUS_LABEL, nhanMocQuaTrinh } from "../shared/constants";
 import { errMsg } from "../shared/helpers";
 
 export function EventsTab({
   token,
   employeeId,
   meta,
+  lanNap,
 }: {
   token: string;
   employeeId: number;
   meta: EmployeeMeta | null;
+  /** Đổi mỗi lần khay hồ sơ nạp lại sau thao tác — tải lại timeline để mốc mới hiện ngay. */
+  lanNap: number;
 }) {
   const [events, setEvents] = useState<EmployeeEvent[] | null>(null);
   const [loi, setLoi] = useState<string | null>(null);
@@ -30,12 +33,12 @@ export function EventsTab({
   }, [token, employeeId]);
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, lanNap]);
   if (loi)
     return <EmptyState trangThai="loi" loi={loi} onThuLai={load} />;
   if (!events) return <EmptyState trangThai="dang-tai" />;
 
-  // Dịch giá trị thô (mã trạng thái / id phòng / bậc) sang chữ dễ hiểu cho nhân viên.
+  // Dịch giá trị thô (mã trạng thái / id phòng) sang chữ dễ hiểu cho nhân viên.
   const humanize = (field: string | null, v: string | null): string | null => {
     if (!v) return null;
     if (field === "status") return STATUS_LABEL[v] ?? v;
@@ -43,7 +46,7 @@ export function EventsTab({
       const d = meta?.departments.find((x) => String(x.id) === v);
       return d ? d.name : `phòng #${v}`;
     }
-    return v; // bậc tay nghề ("Thợ vững"), chức danh…
+    return v; // chức danh…
   };
 
   const items: TimelineEntry[] = events.map((ev) => {
@@ -74,8 +77,8 @@ export function EventsTab({
               : undefined;
     return {
       title: change
-        ? `${EVENT_LABEL[ev.event_type] ?? ev.event_type}: ${change}`
-        : (EVENT_LABEL[ev.event_type] ?? ev.event_type),
+        ? `${nhanMocQuaTrinh(ev)}: ${change}`
+        : nhanMocQuaTrinh(ev),
       meta: detailBits.join(" · "),
       accent: tone === "moss" || tone === "rust",
       tone,

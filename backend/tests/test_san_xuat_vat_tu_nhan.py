@@ -100,7 +100,7 @@ def test_gate_kho_phai_tron_to(db, orders, lsx_svc, admin, customer):
     kho_own = _nguoi(db, "kho_own_vt", to)
     cap_quyen_to(db, kho_own, to, scope=SCOPE_OWN, viec=("warehouse",))
     thieu_kho = _nguoi(db, "thieu_kho_vt", to)
-    cap_quyen_to(db, thieu_kho, to, viec=("run_order", "confirm_output", "qc"))
+    cap_quyen_to(db, thieu_kho, to, viec=("run_order", "confirm_output"))
     kho_tron = _nguoi(db, "kho_tron_vt", to)
     cap_quyen_to(db, kho_tron, to, viec=("warehouse",))
     db.commit()

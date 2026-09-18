@@ -100,10 +100,10 @@ TEMPLATES: list[dict] = [
             },
         },
         # Dòng quyền theo tổ của phòng mà vai thuộc về: Xem + Cả phòng (tổ mình + các nhóm trực
-        # thuộc) + bật cả bốn quyền chi tiết.
+        # thuộc) + bật cả ba quyền chi tiết.
         "quyen_to_cua_vai": {
             "can_read": True, "can_run_order": True, "can_confirm_output": True,
-            "can_qc": True, "can_warehouse": True, "scope": SCOPE_DEPARTMENT,
+            "can_warehouse": True, "scope": SCOPE_DEPARTMENT,
         },
     },
     {

@@ -29,7 +29,7 @@ from tests.quyen_to_fixtures import cap_quyen_to
 
 ADMIN = {"username": "admin", "password": "admin123"}
 _T0 = "2026-08-31T08:00:00"
-_BA_VIEC_TRU_KHO = ("run_order", "confirm_output", "qc")
+_BA_VIEC_TRU_KHO = ("run_order", "confirm_output")
 
 
 def _admin_h(client) -> dict[str, str]:

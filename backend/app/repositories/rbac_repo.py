@@ -69,8 +69,6 @@ class DepartmentRepository:
         head_user_id: int | None = None,
         description: str | None = None,
         parent_id: int | None = None,
-        salary_mechanism: str = "cung",
-        probation_ratio: float = 0.80,
         has_piece_work: bool = False,
     ) -> Department:
         dept = Department(
@@ -79,8 +77,6 @@ class DepartmentRepository:
             description=description,
             parent_id=parent_id,
             head_user_id=head_user_id,
-            salary_mechanism=salary_mechanism,
-            probation_ratio=probation_ratio,
             has_piece_work=has_piece_work,
         )
         self.db.add(dept)
@@ -88,17 +84,8 @@ class DepartmentRepository:
         self.db.refresh(dept)
         return dept
 
-    def set_salary_policy(
-        self,
-        dept: Department,
-        *,
-        salary_mechanism: str,
-        probation_ratio: float,
-        has_piece_work: bool,
-    ) -> Department:
-        """Bộ nguyên tắc lương của phòng (Pha 1): cơ chế + % thử việc + cờ có khoán."""
-        dept.salary_mechanism = salary_mechanism
-        dept.probation_ratio = probation_ratio
+    def set_has_piece_work(self, dept: Department, has_piece_work: bool) -> Department:
+        """Cờ phòng có lương khoán theo sản lượng."""
         dept.has_piece_work = has_piece_work
         self.db.commit()
         self.db.refresh(dept)
@@ -502,7 +489,6 @@ class RoleRepository:
         can_close_book: bool = False,
         can_run_order: bool = False,
         can_confirm_output: bool = False,
-        can_qc: bool = False,
         can_warehouse: bool = False,
         commit: bool = True,
     ) -> RolePermission:
@@ -567,7 +553,6 @@ class RoleRepository:
         perm.can_close_book = can_close_book
         perm.can_run_order = can_run_order
         perm.can_confirm_output = can_confirm_output
-        perm.can_qc = can_qc
         perm.can_warehouse = can_warehouse
         if commit:
             self.db.commit()

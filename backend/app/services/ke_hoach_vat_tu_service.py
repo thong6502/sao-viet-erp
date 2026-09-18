@@ -212,6 +212,8 @@ class KeHoachVatTuService:
         self.dpr = dpr or DepartmentPurchaseRequestRepository(db)
         self.suppliers = suppliers      # SupplierRepository
         self.don_vi = don_vi            # DonViDoRepository
+        # Bật bởi `_bo_qua_ngay_can`, tắt bởi `_nap_lich` — xem hai hàm đó.
+        self._khong_tinh_ngay = False
 
     # ================== (c) QUY VỀ ĐƠN VỊ GỐC ==================
 
@@ -386,6 +388,7 @@ class KeHoachVatTuService:
 
     def _nap_lich(self, lsx_ids: set[int], bai_ids: set[int]) -> None:
         """Giờ bắt đầu đã xếp, tra theo bước — nguồn chính của NGÀY CẦN."""
+        self._khong_tinh_ngay = False
         self._start_buoc: dict[int, datetime] = {}
         self._start_buoc_bai: dict[int, datetime] = {}
         if not lsx_ids and not bai_ids:
@@ -400,6 +403,20 @@ class KeHoachVatTuService:
         from .xep_lich_3.moc import moc_theo_buoc
         for buoc_id, (bat_dau, _kt) in moc_theo_buoc(self.db, sorted(lsx_ids)).items():
             self._start_buoc[buoc_id] = bat_dau
+
+    def _bo_qua_ngay_can(self) -> None:
+        """Ngữ cảnh cho đường CHỈ cần mặt hàng + số (`nhu_cau_cua_cong_viec`): không nạp lịch, không
+        nạp thời lượng, không suy mốc tạm.
+
+        Lịch và thời lượng chỉ nuôi `ngay_can`/`moc_tam` và cảnh báo "chưa suy được thời gian dẫn"
+        trên dòng — cả ba bị vứt khi `nhu_cau_cua_cong_viec` gom về mặt hàng. Đo 16/09/2026 ở drawer
+        bàn tổ: `_nap_lich` (quét bảng lịch + dẫn mốc Xếp lịch 3 cho cả lệnh) ăn 77 trong 113 ms
+        của khối vật tư cấp. `_nap_lich` tắt cờ lại, nên cùng instance chạy `can_doi()` sau đó vẫn
+        tính ngày đầy đủ."""
+        self._khong_tinh_ngay = True
+        self._start_buoc = {}
+        self._start_buoc_bai = {}
+        self._qc_cache = {}
 
     # ================== (b) NGÀY CẦN ==================
 
@@ -805,6 +822,7 @@ class KeHoachVatTuService:
             return []
 
         self._nap_don_vi()
+        self._bo_qua_ngay_can()
         # Phạm vi HẸP thật: đúng lệnh/bài của công việc này. Đừng quay lại `_lenh_trong_pham_vi`
         # — nó đi qua `cho_mrp`, hàm luôn OR thêm `trang_thai IN TRANG_THAI_TINH`, nên nó kéo về
         # mọi lệnh còn sống của xưởng và biến một lần mở form thành một lần `can_doi()` toàn bảng.
@@ -823,9 +841,6 @@ class KeHoachVatTuService:
         lenh = self.lsx_repo.theo_ids(lsx_ids)
         lenh_map = {l.id: l for l in lenh}
         thanh_vien = {tv.lsx_id for b in bais for tv in b.thanh_viens}
-
-        self._nap_thoi_luong(lenh)
-        self._nap_lich(set(lenh_map), {b.id for b in bais})
 
         tho, _bo_qua = self._gom_nhu_cau(lenh, lenh_map, bais, thanh_vien)
 
@@ -1059,7 +1074,7 @@ class KeHoachVatTuService:
         moc_tam = ngay is None
         suy_duoc = True
         moc_ly_do = ""
-        if moc_tam:
+        if moc_tam and not self._khong_tinh_ngay:
             ngay, suy_duoc, moc_ly_do = self._moc_tam(l)
         return {
             "hang": hang, "loai": "vat_tu", "lsx_id": l.id, "bai_ghep_id": None,
@@ -1087,7 +1102,7 @@ class KeHoachVatTuService:
         moc_tam = ngay is None
         suy_duoc = True
         moc_ly_do = ""
-        if moc_tam:
+        if moc_tam and not self._khong_tinh_ngay:
             # Bài chạy chung một lượt: mốc tạm là mốc SỚM NHẤT trong các lệnh thành viên — cả bài
             # phải có giấy trước khi lệnh gấp nhất của nó cần.
             cap = [self._moc_tam(l) for l in (lsx_map or {}).values()]

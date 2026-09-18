@@ -3,7 +3,7 @@
 Thin HTTP shell over EmployeeService. Every route is guarded by
 `require_permission('nhan_su', <action>)`; list/detail narrow to the caller's data scope
 (own/department/all) resolved from their role. Stage changes (trạng thái / điều chuyển /
-nâng bậc) go through `/transitions` so each writes a Quá trình công tác event.
+đổi chức danh) go through `/transitions` so each writes a Quá trình công tác event.
 """
 from __future__ import annotations
 
@@ -67,10 +67,6 @@ from ..schemas.employee import (
     EmployeeRow,
     EmployeeUpdate,
     EmployeeUpdateOut,
-    JobGradeIn,
-    JobGradeOut,
-    JobGradeUpdateIn,
-    JobGradesOut,
     MyContactIn,
     MyProfileOut,
     MyUpdateRequestsOut,
@@ -176,22 +172,11 @@ def _actor_names(users: UserRepository, actor_ids) -> dict[int, str]:
     return {uid: (u.name or u.username) for uid, u in users.map_by_ids(actor_ids).items()}
 
 
-def _grade_name(employee, svc) -> str | None:
-    """Tên bậc tay nghề để hiển thị. Rơi về cột chữ CŨ khi hồ sơ chưa được gán bậc danh mục —
-    người cũ vẫn thấy đúng bậc mình đang mang, không bị trống trơn sau khi đổi cơ chế."""
-    if employee.job_grade_id is not None:
-        g = svc.employees.get_job_grade(employee.job_grade_id)
-        if g is not None:
-            return g.name
-    return employee.job_grade
-
-
 def _row(
     employee,
     dept_names: dict[int, str],
     user_names: dict[int, str],
     role_names: dict[int, str] | None = None,
-    grade_names: dict[int, str] | None = None,
 ) -> EmployeeRow:
     row = EmployeeRow.model_validate(employee)
     if employee.department_id is not None:
@@ -200,21 +185,14 @@ def _row(
         row.account_username = user_names.get(employee.user_id)
         if role_names is not None:
             row.role_name = role_names.get(employee.user_id)
-    # Tra sẵn thành dict ở endpoint (danh mục chỉ vài dòng) — không query trong vòng lặp.
-    if employee.job_grade_id is not None and grade_names is not None:
-        row.job_grade_name = grade_names.get(employee.job_grade_id)
-    if row.job_grade_name is None:
-        row.job_grade_name = employee.job_grade
     return row
 
 
 def _full(employee, depts: DepartmentRepository, users: UserRepository,
-          svc=None, *, che_luong: bool = False) -> EmployeeOut:
+          *, che_luong: bool = False) -> EmployeeOut:
     """`che_luong`: người gọi không có `view_salary` ⇒ che trường nhạy cảm. Response của các
     đường GHI (tạo/sửa/chuyển trạng thái/gắn tài khoản) cũng phải che, không chỉ GET."""
     out = EmployeeOut.model_validate(employee)
-    if svc is not None:
-        out.job_grade_name = _grade_name(employee, svc)
     if employee.department_id is not None:
         d = depts.get_by_id(employee.department_id)
         out.department_name = d.name if d is not None else None
@@ -341,7 +319,7 @@ def mau_nhap_xlsx(
     user: Annotated[User, Depends(require_all_permissions((MODULE, "create"), (MODULE, "update")))],
 ) -> Response:
     """File mẫu: đúng tiêu đề của file xuất, không kèm ai, cộng sheet Hướng dẫn liệt kê giá trị
-    hợp lệ (tên phòng/tổ · bậc · ca · trạng thái) — người khai không phải đoán gõ gì vào ô."""
+    hợp lệ (tên phòng/tổ · ca · trạng thái) — người khai không phải đoán gõ gì vào ô."""
     return Response(
         content=excel_nhan_su.mau_nhap(excel_nhan_su.dung_ngu_canh(svc)),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -414,10 +392,8 @@ def list_employees(
     )
     names = depts.names_by_ids({e.department_id for e in rows})
     unames, rnames = _account_names(users, roles, {e.user_id for e in rows if e.user_id})
-    gnames = {g.id: g.name for g in svc.list_job_grades()}
-
     return EmployeeListOut(
-        items=[_row(e, names, unames, rnames, gnames) for e in rows],
+        items=[_row(e, names, unames, rnames) for e in rows],
         total=total, page=page, size=size,
         kpis=EmployeeKpis(**svc.employee_kpis(scope=scope, actor=user)),
     )
@@ -431,11 +407,7 @@ def get_meta(
 ) -> EmployeeMetaOut:
     """Dropdown data: departments + roles. Hai truy vấn cố định, không theo số phòng."""
     departments = depts.list_all()
-    # `fallback_all=False`: chưa ai tick cờ Sản xuất thì trả về RỖNG — cờ phải là sự thật.
-    # FE tự xử trường hợp "chưa ai tick" (hiện ô Bậc cho mọi phòng còn hơn giấu mất ô).
-    prod_ids = {d.id for d in depts.production_departments(fallback_all=False, depts=departments)}
-    dept_opts = [DepartmentOption(id=d.id, name=d.name, la_san_xuat=(d.id in prod_ids))
-                 for d in departments]
+    dept_opts = [DepartmentOption(id=d.id, name=d.name) for d in departments]
     # Vai trò gắn tài khoản (wizard + tab Tài khoản & Quyền). Role thuộc 1 phòng ban; FE lọc
     # theo phòng của hồ sơ đang mở.
     dept_ids = {d.id for d in departments}
@@ -492,7 +464,6 @@ def create_employee(
             payroll_svc.set_salary(
                 employee_id=employee.id,
                 actor=user,
-                amount_mode="manual",
                 **initial_salary,
             )
         account_username = None
@@ -508,7 +479,7 @@ def create_employee(
     except PayrollError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     return EmployeeCreateOut(
-        employee=_full(employee, depts, users, svc,
+        employee=_full(employee, depts, users,
                        che_luong=not authz.can(user, MODULE, "view_salary")),
         duplicate_national_id=_dup(dup_nid),
         duplicate_social_insurance=_dup(dup_si),
@@ -520,12 +491,11 @@ def create_employee(
 # Phải khai TRƯỚC route "/{employee_id}" để "me" không bị hiểu là id.
 
 # Field nội bộ HCNS — ẩn khỏi self-view của chính nhân viên.
-_MY_HIDDEN = ("note", "payroll_group", "pay_grade_key")
+_MY_HIDDEN = ("note",)
 
 
-def _my_out(employee, depts: DepartmentRepository, users: UserRepository,
-            svc=None) -> EmployeeOut:
-    out = _full(employee, depts, users, svc)
+def _my_out(employee, depts: DepartmentRepository, users: UserRepository) -> EmployeeOut:
+    out = _full(employee, depts, users)
     for f in _MY_HIDDEN:
         setattr(out, f, None)
     # "Quản lý trực tiếp của tôi" — chỉ tra ở đây (1 hồ sơ/lượt), KHÔNG đưa vào `_full` vì màn
@@ -545,7 +515,7 @@ def my_profile(svc: Service, depts: Depts, users: Users, user: SelfUser) -> MyPr
     emp = svc.my_employee(user=user)
     if emp is None:
         return MyProfileOut(has_employee=False, employee=None)
-    return MyProfileOut(has_employee=True, employee=_my_out(emp, depts, users, svc))
+    return MyProfileOut(has_employee=True, employee=_my_out(emp, depts, users))
 
 
 @router.put("/me", response_model=MyProfileOut)
@@ -554,7 +524,7 @@ def update_my_profile(body: MyContactIn, svc: Service, depts: Depts, users: User
         emp = svc.update_my_contact(user=user, fields=body.model_dump(exclude_unset=True))
     except EmployeeError as exc:
         _raise(exc)
-    return MyProfileOut(has_employee=True, employee=_my_out(emp, depts, users, svc))
+    return MyProfileOut(has_employee=True, employee=_my_out(emp, depts, users))
 
 
 def _events_out(events, users: UserRepository) -> EmployeeEventsOut:
@@ -682,68 +652,6 @@ def reject_request(request_id: int, body: RequestDecisionIn, svc: Service, authz
 # --- detail / edit ----------------------------------------------------------
 
 
-# --- Danh mục bậc tay nghề (chủ 29/07/2026) ---------------------------------
-# Nằm trong module `nhan_su` chứ KHÔNG ở Cấu hình lương: HCNS quản hồ sơ mới là người cần thêm
-# bậc (đang tạo hồ sơ mà thiếu bậc thì phải khai được ngay), mà họ thường không có quyền lương.
-
-
-@router.get("/bac-tay-nghe", response_model=JobGradesOut)
-def list_job_grades(
-    svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-    active_only: bool = False,
-) -> JobGradesOut:
-    return JobGradesOut(items=[JobGradeOut.model_validate(g)
-                               for g in svc.list_job_grades(active_only=active_only)])
-
-
-@router.post("/bac-tay-nghe", response_model=JobGradeOut, status_code=201)
-def create_job_grade(
-    body: JobGradeIn,
-    svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-) -> JobGradeOut:
-    try:
-        g = svc.create_job_grade(actor=user, name=body.name, code=body.code,
-                                 seq=body.seq, note=body.note,
-                                 output_coefficient=body.output_coefficient)
-    except EmployeeError as exc:
-        _raise(exc)
-    return JobGradeOut.model_validate(g)
-
-
-@router.put("/bac-tay-nghe/{grade_id}", response_model=JobGradeOut)
-def update_job_grade(
-    grade_id: int,
-    body: JobGradeUpdateIn,
-    svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
-) -> JobGradeOut:
-    try:
-        g = svc.update_job_grade(actor=user, grade_id=grade_id,
-                                 **body.model_dump(exclude_unset=True))
-    except EmployeeError as exc:
-        _raise(exc)
-    return JobGradeOut.model_validate(g)
-
-
-@router.delete(
-    "/bac-tay-nghe/{grade_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
-)
-def delete_job_grade(
-    grade_id: int,
-    svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
-) -> Response:
-    try:
-        svc.delete_job_grade(actor=user, grade_id=grade_id)
-    except EmployeeError as exc:
-        _raise(exc)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
 @router.get("/{employee_id}", response_model=EmployeeOut)
 def get_employee(
     employee_id: int,
@@ -757,7 +665,7 @@ def get_employee(
         employee = svc.get_employee(employee_id=employee_id, scope=_scope_for(authz, user), actor=user)
     except EmployeeError as exc:
         _raise(exc)
-    out = _full(employee, depts, users, svc,
+    out = _full(employee, depts, users,
                 che_luong=not authz.can(user, MODULE, "view_salary"))
     out.current_shift_id, out.current_shift_name = svc.current_shift(employee)
     return out
@@ -789,7 +697,7 @@ def update_employee(
     except EmployeeError as exc:
         _raise(exc)
     return EmployeeUpdateOut(
-        employee=_full(employee, depts, users, svc,
+        employee=_full(employee, depts, users,
                        che_luong=not authz.can(user, MODULE, "view_salary")),
         duplicate_national_id=_dup(dup_nid),
         duplicate_social_insurance=_dup(dup_si),
@@ -913,15 +821,14 @@ def apply_transition(
         employee = svc.apply_transition(
             employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
             kind=body.kind, effective_date=body.effective_date, note=body.note,
-            new_department_id=body.new_department_id, new_job_grade=body.new_job_grade,
-            new_job_grade_id=body.new_job_grade_id,
+            new_department_id=body.new_department_id,
             new_position=body.new_position, resign_reason=body.resign_reason,
         )
     except EmployeeError as exc:
         _raise(exc)
     except PayrollError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
-    return _full(employee, depts, users, svc,
+    return _full(employee, depts, users,
                  che_luong=not authz.can(user, MODULE, "view_salary"))
 
 
@@ -1069,7 +976,7 @@ def attach_account(
             )
     except EmployeeError as exc:
         _raise(exc)
-    return _full(employee, depts, users, svc,
+    return _full(employee, depts, users,
                  che_luong=not authz.can(user, MODULE, "view_salary"))
 
 

@@ -16,7 +16,8 @@
 // lõi TRỐNG (chỉ tô phẳng theo trạng thái) — khi có vế thực tế, chỉ cần thêm MỘT `<span>` con tô
 // dải `--moss` từ mép trái vùng lõi rộng theo `%` tiến độ (đúng khuôn "lớp thực tế đè lên, không vẽ
 // lại" đã chạy ở `Xl2Gantt`/`ThucHienSxPage`) — không phải sửa cấu trúc DOM/CSS của khối.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 
 import { ApiError, api } from "../api/client";
 import type { TdsxLsxThamChieu, TdsxMayLane, TdsxMayLaneBlock, TdsxThanhLocParams } from "../api/client";
@@ -26,27 +27,15 @@ import { Icon } from "../components/Icons";
 import { EmptyState } from "./keHoachSxShared";
 import { TDSX_TT_META, tdsxTtMeta } from "./TdsxKanban";
 import { ChonLenhPopover, useChonLenh } from "./tdsxChonLenh";
-import { useTdsxTimeline, NGUONG_DAI_GIO, type TdsxTimelineMoc } from "./tdsxTimeline";
+import { useCotNhanW, useTdsxTimeline, NGUONG_DAI_GIO, type TdsxTimelineMoc } from "./tdsxTimeline";
 
-/** Bề rộng cột nhãn máy (sticky trái) — hằng SỐ vì cả nhãn lẫn track đều cần biết để tính
- *  `grid-template-columns` bằng tay (CSS Grid không tự đồng bộ được state layout kiểu này). */
-const LABEL_W = 200;
 /** Block hẹp hơn mức này (px) thì rút nhãn chỉ còn mã lệnh — đúng cách `Xl2Gantt` rút gọn theo
  *  `isWide`/`isMedium`, không đẻ quy ước mới. */
 const BLOCK_HEP_PX = 90;
-/** Dưới mức này thì KHÔNG in chữ nào. `.tdsx-tm__inner` chừa 4px mỗi mép, chữ số `--fs-2xs` của
- *  Be Vietnam Pro rộng ~7px/ký tự ⇒ 44px chỉ vừa 4-5 ký tự. Trước đây mọi block hẹp đều in NGUYÊN
- *  `LSX26-0029` rồi để `text-overflow` cắt: block 20px thật sự hiện ra "5-", block 24px ra "6-" —
- *  rác, tệ hơn là để trống (tooltip `title` vẫn có đủ mã + trạng thái). */
+/** Dưới mức này thì trong lòng thanh không còn chỗ cho cả dấu gọn (🚚 / 🔧) — nhãn đã ra ngoài
+ *  từ mốc `BLOCK_HEP_PX` rồi, mốc này chỉ còn quyết định hai cái dấu đó. */
 const BLOCK_RAT_HEP_PX = 44;
 const BLOCK_TOI_THIEU_PX = 20;
-
-/** "LSX26-0029" → "0029". Đoạn đuôi là phần người xưởng đọc để phân biệt lệnh; tiền tố năm giống
- *  nhau ở mọi lệnh nên cắt đi không mất thông tin phân biệt. */
-function maNgan(ma: string): string {
-  const i = ma.lastIndexOf("-");
-  return i >= 0 && i < ma.length - 1 ? ma.slice(i + 1) : ma;
-}
 
 export function TdsxTheoMay({
   active,
@@ -55,6 +44,7 @@ export function TdsxTheoMay({
   refreshTick,
   onOpenHoSo,
   onXoaLoc,
+  khay,
 }: {
   active: boolean;
   token: string | null;
@@ -62,8 +52,14 @@ export function TdsxTheoMay({
   refreshTick: number;
   onOpenHoSo: (lsxId: number) => void;
   onXoaLoc: () => void;
+  /** Khay điều khiển trên dải tab — xem ghi chú cùng tên ở `TdsxKanban`. */
+  khay: HTMLElement | null;
 }) {
   const [lanes, setLanes] = useState<TdsxMayLane[]>([]);
+  /** Máy KHÔNG có việc nào mặc định gập lại. Đo thật: 37/43 lane trống, mỗi lane cao 56px ⇒ 2072px
+   *  cuộn dọc toàn dòng rỗng, việc thật nằm lẫn đâu đó giữa. Bảng kế hoạch là để thấy chỗ tắc và
+   *  chỗ còn chỗ nhét việc, không phải để liệt kê tài sản. */
+  const [hienTrong, setHienTrong] = useState(false);
   const [loading, setLoading] = useState(true);
   const [daTai, setDaTai] = useState(false);
   const [loi, setLoi] = useState<{ text: string; cam: boolean } | null>(null);
@@ -96,20 +92,37 @@ export function TdsxTheoMay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, load, refreshTick]);
 
-  const lanesXep = useMemo(() => {
+  // Ba nhóm, theo mức cần nhìn tới: (1) rổ "Chưa xếp máy" — việc điều độ phải xử (C129 giữ nguyên
+  // ở đầu); (2) máy CÓ việc, trong đó máy đang CHẠY lên trước máy chỉ có việc chờ/tạm dừng; (3) máy
+  // trống, gập lại. Trong mỗi nhóm giữ NGUYÊN thứ tự máy chủ trả (thứ tự danh mục máy) — lane chỉ
+  // đổi chỗ khi máy đó thật sự bắt đầu/kết thúc việc, không nhảy lung tung mỗi lượt vẽ.
+  const { lanesHien, soTrong } = useMemo(() => {
     const chuaXep = lanes.filter((l) => l.may_id === null);
-    const conLai = lanes.filter((l) => l.may_id !== null);
-    return [...chuaXep, ...conLai];
-  }, [lanes]);
+    const may = lanes.filter((l) => l.may_id !== null);
+    const coViec = may.filter((l) => l.blocks.length > 0);
+    const dangChay = coViec.filter((l) => l.blocks.some((b) => b.trang_thai === "running"));
+    const coViecKhac = coViec.filter((l) => !l.blocks.some((b) => b.trang_thai === "running"));
+    const trong = may.filter((l) => l.blocks.length === 0);
+    return {
+      lanesHien: [...chuaXep, ...dangChay, ...coViecKhac, ...(hienTrong ? trong : [])],
+      soTrong: trong.length,
+    };
+  }, [lanes, hienTrong]);
+  // Trục thời gian phải tính trên MỌI lane, kể cả lane đang gập — không thì bấm "hiện" một cái là
+  // cả miền thời gian nhảy.
+  const lanesXep = lanes;
 
   const mocs = useMemo<TdsxTimelineMoc[]>(
     () =>
       lanesXep.flatMap((l) => l.blocks.map((b) => ({ batDau: b.du_kien_bat_dau, ketThuc: b.du_kien_ket_thuc }))),
     [lanesXep],
   );
-  const { domain, spanGio, pxPerGio, trackWidth, ticks, monthGroups, xOf, nowX, hasNowLine, dateRangeLabel } = useTdsxTimeline(mocs);
+  const { domain, spanGio, pxPerGio, trackWidth, ticks, monthGroups, luoiDoc, xOf, nowX, hasNowLine, dateRangeLabel } =
+    useTdsxTimeline(mocs);
 
   const [picker, moPicker, dongPicker] = useChonLenh();
+  /** Cột tên máy (sticky trái): 240px, co về 120px ở màn ≤480px — cùng một hook với tab Gantt. */
+  const labelW = useCotNhanW();
 
   const boCoViec = lanesXep.some((l) => l.blocks.length > 0);
   const dangLoc = Object.values(params).some((v) => v !== undefined);
@@ -117,53 +130,41 @@ export function TdsxTheoMay({
 
   return (
     <div className="tdsx-tm" aria-label="Mini-Gantt theo máy" role="group">
-      <div className="tdsx-tm__control-bar">
-        <div className="tdsx-tm__control-left">
-          {daTai && (
-            <div className="tdsx-lg" aria-hidden="true">
-              {(Object.keys(TDSX_TT_META) as (keyof typeof TDSX_TT_META)[]).map((k) => (
-                <span key={k} className={`tdsx-lg__item tdsx-lg__item--${k}`}>
-                  <i /> {TDSX_TT_META[k].label}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="tdsx-tm__control-center">
-          <span className="tdsx-tm__control-range">
-            <Icon name="calendar" size={14} />
-            <span>{dateRangeLabel}</span>
-          </span>
-          <button
-            type="button"
-            className="tdsx-tm__today-btn"
-            onClick={() => {
-              if (scrollRef.current && hasNowLine) {
-                scrollRef.current.scrollTo({ left: Math.max(0, nowX - 250), behavior: "smooth" });
-              }
-            }}
-            title="Cuộn tới vạch thời gian thực hiện tại"
-          >
-            <Icon name="clock" size={13} />
-            <span>Đến Hôm Nay</span>
-          </button>
-        </div>
-
-        <div className="tdsx-tm__control-right">
-          <span
-            className="tdsx-tm__note-tooltip"
-            title="Thanh hiển thị KẾ HOẠCH của cả công việc đang gán trên máy — không phải khoảng máy này thật sự bận. Sau khi đổi máy, việc nằm trọn ở lane máy hiện tại."
-          >
-            <Icon name="alert" size={13} />
-            <span>Lưu ý kế hoạch</span>
-          </span>
-          <span className="tdsx-tm__density-chip">
-            <Icon name="clock" size={12} />
-            <span>{spanGio <= NGUONG_DAI_GIO ? "Thu phóng: Giờ" : "Thu phóng: Ngày"}</span>
-          </span>
-        </div>
-      </div>
+      {/* Thanh điều khiển lên dải tab. Hai chip đã bỏ: "Lưu ý kế hoạch" (câu giải thích dài, nay là
+          `title` của chính ô góc bảng — chỗ nó nói về) và "Thu phóng: Giờ/Ngày" (suy được từ nhãn
+          trục ngay bên dưới, nay là `title` của dải ngày). */}
+      {active &&
+        khay &&
+        createPortal(
+          <>
+            {daTai && (
+              <span className="tdsx-lg" aria-hidden="true">
+                {(Object.keys(TDSX_TT_META) as (keyof typeof TDSX_TT_META)[]).map((k) => (
+                  <span key={k} className={`tdsx-lg__item tdsx-lg__item--${k}`}>
+                    <i /> {TDSX_TT_META[k].label}
+                  </span>
+                ))}
+              </span>
+            )}
+            <span
+              className="tdsx__ctlnote"
+              title={spanGio <= NGUONG_DAI_GIO ? "Lưới trục chia theo giờ" : "Lưới trục chia theo ngày"}
+            >
+              {dateRangeLabel}
+            </span>
+            {hasNowLine && (
+              <button
+                type="button"
+                className="hslsx__linkbtn"
+                onClick={() => scrollRef.current?.scrollTo({ left: Math.max(0, nowX - 250), behavior: "smooth" })}
+                title="Cuộn tới vạch thời gian hiện tại"
+              >
+                Đến hôm nay
+              </button>
+            )}
+          </>,
+          khay,
+        )}
 
       {loi && (
         <EmptyState
@@ -202,19 +203,19 @@ export function TdsxTheoMay({
         <div className="tdsx-tm__scroll" ref={scrollRef}>
           <div
             className={`tdsx-tm__grid${loading && daTai ? " is-mo" : ""}`}
-            style={{ gridTemplateColumns: `${LABEL_W}px ${trackWidth}px` }}
+            style={{ gridTemplateColumns: `${labelW}px ${trackWidth}px`, "--tdsx-cot-nhan-w": `${labelW}px`, ...luoiDoc } as CSSProperties}
           >
-            <div className="tdsx-tm__corner" aria-hidden="true">
-              <span className="tdsx-tm__corner-head">
-                <Icon name="cpu" size={13} />
-                <span>MÁY VẬN HÀNH</span>
-              </span>
+            <div
+              className="tdsx-tm__corner"
+              title="Thanh vẽ KẾ HOẠCH của công việc đang gán trên máy — không phải khoảng máy này thật sự bận. Sau khi đổi máy, việc nằm trọn ở lane máy hiện tại."
+            >
+              <span className="tdsx-tm__corner-head">Máy</span>
             </div>
             <div className="tdsx-tm__axis" style={{ width: trackWidth }}>
               <div className="tdsx-tm__axis-top">
                 {monthGroups.map((g, i) => (
                   <span key={i} className="tdsx-tm__month-bar" style={{ left: g.left, width: g.width }}>
-                    {g.label}
+                    <span className="tdsx-tm__month-chu">{g.label}</span>
                   </span>
                 ))}
               </div>
@@ -232,10 +233,8 @@ export function TdsxTheoMay({
             </div>
 
             {hasNowLine && (
-              <div className="tdsx-tm__now-line" style={{ left: LABEL_W + nowX }} title="Thời gian hiện tại">
-                <span className="tdsx-tm__now-badge">
-                  <Icon name="clock" size={10} /> NOW
-                </span>
+              <div className="tdsx-tm__now-line" style={{ left: labelW + nowX }} title="Thời gian hiện tại">
+                <span className="tdsx-tm__now-badge">bây giờ</span>
               </div>
             )}
 
@@ -243,16 +242,26 @@ export function TdsxTheoMay({
               ? Array.from({ length: 3 }).map((_, i) => (
                   <FragmentSkeleton key={i} trackWidth={trackWidth} />
                 ))
-              : lanesXep.map((lane) => (
+              : lanesHien.map((lane, i) => (
                   <Lane
                     key={lane.may_id ?? "chua-xep"}
                     lane={lane}
+                    soc={i % 2 === 1}
                     trackWidth={trackWidth}
                     xOf={xOf}
                     onOpenHoSo={onOpenHoSo}
                     onChon={moPicker}
                   />
                 ))}
+
+            {daTai && soTrong > 0 && (
+              <div className="tdsx-tm__foldrow">
+                <button type="button" className="tdsx-tm__fold" onClick={() => setHienTrong((v) => !v)}>
+                  <Icon name="chevron" size={12} />
+                  {hienTrong ? `Ẩn ${soTrong} máy đang trống` : `${soTrong} máy đang trống`}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -279,12 +288,16 @@ function FragmentSkeleton({ trackWidth }: { trackWidth: number }) {
 
 function Lane({
   lane,
+  soc,
   trackWidth,
   xOf,
   onOpenHoSo,
   onChon,
 }: {
   lane: TdsxMayLane;
+  /** Lane ở vị trí LẺ — tô vằn để mắt lần được từ tên máy ở mép trái sang thanh việc cách đó cả
+   *  nghìn pixel. 43 lane trắng bong xếp chồng nhau chính là thứ làm tab này trông như tờ giấy. */
+  soc: boolean;
   trackWidth: number;
   xOf: (iso: string) => number;
   onOpenHoSo: (lsxId: number) => void;
@@ -293,19 +306,50 @@ function Lane({
   const rong = lane.blocks.length === 0;
   const isChuaXep = lane.may_id === null;
 
+  // Nhãn đứng ngoài của thanh hẹp chiếm khoảng trống TỚI thanh kế bên. Lane dày (việc nối đuôi
+  // nhau, mỗi việc vài giờ trên thang 14px/giờ) thì thanh kế bên vẽ SAU nên che mất nửa mã, còn trơ
+  // "LSX26-00" — đúng khuôn lỗi ⓓ. Đo thật sau khi vẽ: nhãn nào lấn sang một thanh khác thì ẩn hẳn
+  // (mã vẫn ở `title`, bấm vẫn mở đúng lệnh). Ẩn bằng `visibility` để lượt đo sau vẫn lấy được bề
+  // rộng chữ; đo lại khi phông tải xong vì chữ phông dự phòng hẹp hơn.
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const [nhanBiChe, setNhanBiChe] = useState<ReadonlySet<number>>(() => new Set());
+  useLayoutEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const doLai = () => {
+      const khoi = Array.from(track.children)
+        .filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains("tdsx-tm__block"))
+        .map((el) => ({
+          id: Number(el.dataset.cv),
+          r: el.getBoundingClientRect(),
+          nhan: el.querySelector(".tdsx-tm__nhan--ngoai")?.getBoundingClientRect() ?? null,
+        }));
+      const che = new Set<number>();
+      for (const k of khoi) {
+        const nhan = k.nhan;
+        if (nhan && khoi.some((o) => o !== k && o.r.left < nhan.right && o.r.right > nhan.left)) che.add(k.id);
+      }
+      setNhanBiChe((cu) => (cu.size === che.size && [...che].every((id) => cu.has(id)) ? cu : che));
+    };
+    doLai();
+    let conSong = true;
+    document.fonts?.ready.then(() => {
+      if (conSong) doLai();
+    });
+    return () => {
+      conSong = false;
+    };
+  }, [lane.blocks, xOf]);
+
   return (
     <>
-      <div className={`tdsx-tm__label${lane.ngung_dung ? " is-ngung" : ""}${isChuaXep ? " is-chua-xep" : ""}`}>
+      <div
+        className={`tdsx-tm__label${soc ? " is-soc" : ""}${lane.ngung_dung ? " is-ngung" : ""}${isChuaXep ? " is-chua-xep" : ""}`}
+      >
         {isChuaXep ? (
-          <span className="tdsx-tm__unassigned-tag">
-            <Icon name="alert" size={13} />
-            <span>Chưa xếp máy</span>
-          </span>
+          <span className="tdsx-tm__unassigned-tag">Chưa xếp máy</span>
         ) : (
           <>
-            <span className="tdsx-tm__label-icon">
-              <Icon name={lane.ngung_dung ? "lock" : "cpu"} size={13} />
-            </span>
             <span className="tdsx-tm__labelten" title={lane.ten}>
               {lane.ten}
             </span>
@@ -313,26 +357,27 @@ function Lane({
           </>
         )}
       </div>
-      <div className={`tdsx-tm__track${lane.ngung_dung ? " is-ngung" : ""}${isChuaXep ? " is-chua-xep" : ""}`} style={{ width: trackWidth }}>
+      <div
+        className={`tdsx-tm__track${soc ? " is-soc" : ""}${lane.ngung_dung ? " is-ngung" : ""}${isChuaXep ? " is-chua-xep" : ""}`}
+        style={{ width: trackWidth }}
+        ref={trackRef}
+      >
         {rong &&
           (lane.ngung_dung ? (
-            <span className="tdsx-tm__trongchu">
-              <Icon name="lock" size={12} /> Máy đã ngừng dùng
-            </span>
+            <span className="tdsx-tm__trongchu">Máy đã ngừng dùng</span>
           ) : isChuaXep ? (
-            <span className="tdsx-tm__trongchu">
-              <Icon name="check" size={12} /> Không có việc nào đang chờ xếp máy
-            </span>
+            <span className="tdsx-tm__trongchu">Không có việc nào đang chờ xếp máy</span>
           ) : (
-            <span className="tdsx-tm__trongchu tdsx-tm__trongchu--idle">
-              <Icon name="check" size={12} /> Máy đang trống — sẵn sàng nhận việc
-            </span>
+            // Chữ xám nhạt, không huy hiệu. Trước đây mỗi lane trống đeo một viên xanh lá "Máy đang
+            // trống — sẵn sàng nhận việc": đo thật 37 viên trên một màn có đúng 2 việc thật.
+            <span className="tdsx-tm__trongchu">Trống</span>
           ))}
         {lane.blocks.map((b) => (
           <Khoi
             key={b.cong_viec_id}
             block={b}
             ngungDung={lane.ngung_dung}
+            nhanBiChe={nhanBiChe.has(b.cong_viec_id)}
             xOf={xOf}
             onOpenHoSo={onOpenHoSo}
             onChon={onChon}
@@ -346,12 +391,15 @@ function Lane({
 function Khoi({
   block,
   ngungDung,
+  nhanBiChe,
   xOf,
   onOpenHoSo,
   onChon,
 }: {
   block: TdsxMayLaneBlock;
   ngungDung: boolean;
+  /** Nhãn đứng ngoài sẽ lấn lên một thanh khác — `Lane` đo rồi báo xuống. */
+  nhanBiChe: boolean;
   xOf: (iso: string) => number;
   onOpenHoSo: (lsxId: number) => void;
   onChon: (ds: TdsxLsxThamChieu[], x: number, y: number) => void;
@@ -388,8 +436,12 @@ function Khoi({
   return (
     <button
       type="button"
-      className={`tdsx-tm__block${ngungDung ? " tdsx-tm__block--khoa" : ` ${meta.cls}`}`}
+      className={
+        `tdsx-tm__block${ngungDung ? " tdsx-tm__block--khoa" : ` ${meta.cls}`}` +
+        (hep ? " tdsx-tm__block--nhanngoai" : "")
+      }
       style={{ left, width }}
+      data-cv={block.cong_viec_id}
       onClick={bam}
       disabled={ngungDung}
       title={
@@ -411,9 +463,6 @@ function Khoi({
             )}
           </span>
         )}
-        {hep && !ratHep && (
-          <span className="tdsx-tm__nhan tdsx-tm__nhan--gon">{nhieuLenh ? block.lsx.length : maNgan(maChinh)}</span>
-        )}
         {!ratHep && tomTat && (
           <span className="tdsx-tm__dau" aria-hidden="true">
             {block.nhan?.loai_buoc === "thue_ngoai" ? "🚚" : ""}
@@ -421,6 +470,15 @@ function Khoi({
           </span>
         )}
       </span>
+      {/* Việc 20 phút trên thang 4 ngày chỉ được 20px — không chữ nào lọt vào trong. Trước đây
+          nhánh hẹp bỏ nhãn luôn (thành hộp rỗng), rồi đến lượt bản vá đầu ghi mã cụt "0004". Nhãn
+          nay đứng NGOÀI mép phải thanh nên hết giới hạn bề ngang: ghi thẳng MÃ ĐẦY ĐỦ.
+          `pointer-events: none` để chữ không cướp cú bấm của thanh kế bên. */}
+      {hep && (
+        <span className={`tdsx-tm__nhan tdsx-tm__nhan--ngoai${nhanBiChe ? " is-che" : ""}`}>
+          {nhieuLenh ? `${block.lsx.length} lệnh ghép` : maChinh}
+        </span>
+      )}
     </button>
   );
 }

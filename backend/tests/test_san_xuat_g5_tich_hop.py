@@ -1,30 +1,29 @@
 """Thực hiện sản xuất — Giai đoạn 5/6: TÍCH HỢP tầng router (§16 chốt chặn · §17 · nghiệm thu §21).
 
 Các test service lẻ (test_san_xuat_kcs / _kho / _dong_nhom) đã soi TỪNG luật. File này soi cái
-service-lẻ KHÔNG chạm tới: **đường dây hội tụ ở router** — sau một thao tác gỡ điều kiện CUỐI
-(phản hồi lỗi KCS, kho xác nhận BTP), chốt chặn `_thu_dong_nhom` tự đóng ĐỦ nhóm. Đây đúng seam mà
-endpoint gọi (`phan_hoi_loi` → `_thu_dong_nhom`; `kho_xac_nhan_btp` → `_thu_dong_nhom`).
+service-lẻ KHÔNG chạm tới: **đường dây hội tụ ở router** — sau một thao tác gỡ điều kiện CUỐI (KCS
+kiểm nốt công đoạn cuối / kiểm tới đủ mục tiêu), chốt chặn `_thu_dong_nhom` tự đóng ĐỦ nhóm. Đây
+đúng seam mà endpoint gọi (`kiem_cong_doan` → `_thu_dong_nhom`).
 
-Nghiệm thu §21 (dòng khó nhất): "lỗi KCS chờ phản hồi KHÔNG chặn nhập kho phần ĐẠT, NHƯNG vẫn
-chặn đóng nhóm" — hai đường (nhập kho thành phẩm vs cổng đóng nhóm) độc lập nhau.
+Nghiệm thu §21 theo KCS theo lệnh (mg 0306): lỗi KCS tổ chưa bấm "Đã xem" KHÔNG chặn nhập kho phần
+ĐẠT, và cũng KHÔNG chặn đóng nhóm — lỗi là thông báo một chiều cho tổ.
 
-Tái dùng NGUYÊN dàn cảnh + helper từ các test G5 (không dựng cảnh mới): `_batch` (batch KCS đạt một
-phần 100/90/10), `_hoan_thanh_het` (đánh dấu mọi việc của nhóm xong), `_to_chiu`/`_anh`.
+Tái dùng NGUYÊN dàn cảnh + helper từ các test G5: `_batch` (một lần kiểm của KCS), `_hoan_thanh_het`
+(đánh dấu mọi việc của nhóm xong).
 """
 from __future__ import annotations
 
 from app.models.san_xuat import NHOM_DONG_DU
-from app.models.san_xuat_kcs import TN_CHAP_NHAN, TN_CHO, SanXuatKcsLoi, SanXuatKcsLoiAnh
-from app.models.san_xuat_kho import PL_NHAP_BTP, YC_CHO_KHO
+from app.models.stock_request import REQ_APPROVED, StockRequest
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.routers.san_xuat import _thu_dong_nhom
 from app.services.san_xuat import dong_nhom, kcs, kho
 
 # Fixtures + helper dàn cảnh từ các test G5 (kéo cả cây fixture xếp lịch).
-from tests.test_san_xuat_dong_nhom import _hoan_thanh_het
+from tests.test_san_xuat_dong_nhom import _hoan_thanh_het, _muc_tieu
 from tests.test_san_xuat_kcs import (  # noqa: F401
     _batch,
-    _to_chiu,
+    _ghi_tot,
     admin,
     customer,
     db,
@@ -37,106 +36,45 @@ def _trang_thai_nhom(db, nhom_id):
     return SanXuatRepository(db).nhom(nhom_id).trang_thai
 
 
-def _ghi_loi_cho(db, *, admin, kcs_batch_id, to_chiu_id):
-    """Lỗi kiểu CŨ (trang_thai=pending), chèn thẳng qua model — các test dưới đây soi luồng
-    phản hồi legacy (chốt chặn `het_loi_kcs_cho` + `phan_hoi_loi`). KHÔNG qua `kcs.ghi_loi()`
-    vì lỗi MỚI ghi `recorded`, không còn vào `pending` nữa (Task 11.5) — xem cùng lý do ở
-    `tests/test_san_xuat_kcs.py::_mot_loi`."""
-    loi = SanXuatKcsLoi(
-        kcs_batch_id=kcs_batch_id, mo_ta="Lem mực", to_chiu_id=to_chiu_id,
-        so_luong=6, don_vi="cái", trang_thai=TN_CHO, created_by=admin.id,
-    )
-    db.add(loi)
-    db.flush()
-    db.add(SanXuatKcsLoiAnh(loi_id=loi.id, file_name="loi.jpg",
-                             file_url="/api/files/san-xuat/kcs-loi/1/x_loi.jpg",
-                             file_type="image/jpeg", uploaded_by=admin.id))
-    db.commit()
-    return loi.id
-
-
 # --- §16 + §17: chốt chặn router hội tụ khi gỡ điều kiện CUỐI --------------------------------
-def test_phan_hoi_loi_la_chot_cuoi_thi_router_tu_dong_dong_du(db, orders, lsx_svc, admin, customer):
-    """Lỗi KCS chờ là chốt DUY NHẤT còn treo; người giữ KCS ở tổ bị yêu cầu phản hồi CHẤP NHẬN →
-    endpoint gọi `_thu_dong_nhom` → nhóm tự đóng ĐỦ (không cần ai đóng thiếu bằng tay)."""
-    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
+def test_kcs_kiem_not_cong_doan_cuoi_thi_router_tu_dong_dong_du(db, orders, lsx_svc, admin, customer):
+    """Công đoạn cuối chưa kiểm hết là chốt DUY NHẤT còn treo; KCS kiểm nốt phần còn lại → endpoint
+    gọi `_thu_dong_nhom` → nhóm tự đóng ĐỦ (không cần ai đóng thiếu bằng tay)."""
+    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer, dat=60, khong_dat=0, cuoi=True, tot=100)
+    _muc_tieu(db, cv.nhom_id, 100)
     _hoan_thanh_het(db, cv.nhom_id)
-    to2, tt2 = _to_chiu(db)
-    loi_id = _ghi_loi_cho(
-        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], to_chiu_id=to2.id,
-    )
-
-    # Còn lỗi chờ → chưa hội đủ, chốt chặn không đóng.
     assert dong_nhom.tu_dong_dong_neu_du(db, nhom_id=cv.nhom_id) is None
 
-    ph = kcs.phan_hoi_loi(db, user=tt2, loi_id=loi_id, chap_nhan=True)
-    assert ph["trang_thai"] == TN_CHAP_NHAN
-    # Router chốt chặn (đúng nơi endpoint phan_hoi_loi gọi) lần ra nhóm qua cong_viec_id.
-    _thu_dong_nhom(db, ph, user=tt2, su_kien="phan_hoi_loi_kcs")
+    res = kcs.kiem_cong_doan(db, user=rb["nguoi_kcs"], cong_viec_id=cv.id, so_dat=40)
+    _thu_dong_nhom(db, res, user=rb["nguoi_kcs"], su_kien="kcs_kiem")
     assert _trang_thai_nhom(db, cv.nhom_id) == NHOM_DONG_DU
 
 
-def test_kho_xac_nhan_btp_la_chot_cuoi_thi_router_tu_dong_dong_du(db, orders, lsx_svc, admin, customer):
-    """BTP dư chờ kho là chốt DUY NHẤT còn treo; kho xác nhận nhận → endpoint gọi `_thu_dong_nhom`
-    → nhóm tự đóng ĐỦ."""
-    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
+def test_kcs_kiem_not_toi_muc_tieu_thi_router_tu_dong_dong_du(db, orders, lsx_svc, admin, customer):
+    """Hụt mục tiêu là chốt DUY NHẤT còn treo (việc đã xong, KCS đã kiểm hết số tốt đang có): tổ ghi
+    thêm mẻ, KCS kiểm nốt tới mục tiêu → endpoint gọi `_thu_dong_nhom` → nhóm tự đóng ĐỦ."""
+    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer, dat=60, khong_dat=0, cuoi=True)
+    _muc_tieu(db, cv.nhom_id, 100)
     _hoan_thanh_het(db, cv.nhom_id)
-    lb = kho.phan_loai_btp_du(
-        db, user=admin, cong_viec_id=cv.id, so_luong=5, phan_loai=PL_NHAP_BTP
-    )
-    assert lb["cho_kho"] is True
+    _thu_dong_nhom(db, {"nhom_id": cv.nhom_id}, user=rb["nguoi_kcs"], su_kien="kcs_kiem")
+    assert _trang_thai_nhom(db, cv.nhom_id) != NHOM_DONG_DU           # đạt 60/100 → chưa đủ
 
-    assert dong_nhom.tu_dong_dong_neu_du(db, nhom_id=cv.nhom_id) is None  # BTP chờ kho → chặn
-
-    xn = kho.kho_xac_nhan_btp(db, user=admin, lot_id=lb["lot_id"])
-    assert xn["nhom_id"] == cv.nhom_id
-    _thu_dong_nhom(db, xn, user=admin, su_kien="kho_xac_nhan_btp")
+    _ghi_tot(db, cv, 40)
+    res = kcs.kiem_cong_doan(db, user=rb["nguoi_kcs"], cong_viec_id=cv.id, so_dat=40)
+    _thu_dong_nhom(db, res, user=rb["nguoi_kcs"], su_kien="kcs_kiem")
     assert _trang_thai_nhom(db, cv.nhom_id) == NHOM_DONG_DU
 
 
-def test_chot_chan_la_cong_VA_go_mot_chot_chua_du(db, orders, lsx_svc, admin, customer):
-    """Hai chốt cùng treo (lỗi KCS + BTP chờ kho): gỡ MỘT cái, `_thu_dong_nhom` KHÔNG được đóng non;
-    chỉ khi gỡ NỐT cái còn lại lần chốt chặn kế mới đóng ĐỦ."""
-    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
+# --- Nghiệm thu §21: lỗi chưa xem không chặn nhập kho lẫn đóng nhóm ---------------------------
+def test_loi_chua_xem_khong_chan_nhap_kho_phan_dat_va_dong_nhom(db, orders, lsx_svc, admin, customer):
+    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer, cuoi=True)  # đạt 90, lỗi 10
+    assert kcs.loi_cho_xem(db, [cv.department_id])
+    _muc_tieu(db, cv.nhom_id, 90)
     _hoan_thanh_het(db, cv.nhom_id)
-    to2, tt2 = _to_chiu(db)
-    loi_id = _ghi_loi_cho(
-        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], to_chiu_id=to2.id,
-    )
-    lb = kho.phan_loai_btp_du(
-        db, user=admin, cong_viec_id=cv.id, so_luong=5, phan_loai=PL_NHAP_BTP
-    )
 
-    # Gỡ chốt lỗi trước; BTP vẫn treo → chốt chặn KHÔNG đóng non.
-    ph = kcs.phan_hoi_loi(db, user=tt2, loi_id=loi_id, chap_nhan=True)
-    _thu_dong_nhom(db, ph, user=tt2, su_kien="phan_hoi_loi_kcs")
-    assert _trang_thai_nhom(db, cv.nhom_id) != NHOM_DONG_DU
+    yc = kho.tao_yeu_cau_nhap_kho_cong_doan(db, user=rb["nguoi_kcs"], cong_viec_id=cv.id)
+    assert yc["so_luong"] == 90
+    assert db.get(StockRequest, yc["request_id"]).trang_thai == REQ_APPROVED
 
-    # Gỡ nốt BTP → lần chốt chặn kế đóng ĐỦ.
-    xn = kho.kho_xac_nhan_btp(db, user=admin, lot_id=lb["lot_id"])
-    _thu_dong_nhom(db, xn, user=admin, su_kien="kho_xac_nhan_btp")
+    assert dong_nhom.tu_dong_dong_neu_du(db, nhom_id=cv.nhom_id) is not None
     assert _trang_thai_nhom(db, cv.nhom_id) == NHOM_DONG_DU
-
-
-# --- Nghiệm thu §21: hai đường (nhập kho vs đóng nhóm) độc lập -------------------------------
-def test_loi_kcs_cho_khong_chan_nhap_kho_phan_dat_nhung_chan_dong_nhom(db, orders, lsx_svc, admin, customer):
-    """§21: lỗi KCS chờ phản hồi KHÔNG chặn KCS tạo yêu cầu nhập kho phần ĐẠT (90), NHƯNG vẫn chặn
-    cổng đóng nhóm — điều kiện `het_loi_kcs_cho` chưa đạt."""
-    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)  # dat = 90
-    _hoan_thanh_het(db, cv.nhom_id)
-    to2, tt2 = _to_chiu(db)
-    _ghi_loi_cho(
-        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], to_chiu_id=to2.id,
-    )
-
-    # Đường nhập kho phần ĐẠT vẫn chạy: lỗi (số không đạt) không liên quan số đạt.
-    yc = kho.tao_yeu_cau_nhap_thanh_pham(
-        db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=90
-    )
-    assert yc["trang_thai"] == YC_CHO_KHO
-
-    # Nhưng cổng đóng nhóm vẫn đóng: còn lỗi KCS chờ.
-    assert dong_nhom.tu_dong_dong_neu_du(db, nhom_id=cv.nhom_id) is None
-    dk = dong_nhom.dieu_kien_dong_nhom(db, cv.nhom_id)
-    het_loi = next(d for d in dk["dieu_kien"] if d["ma"] == "het_loi_kcs_cho")
-    assert het_loi["dat"] is False and dk["du_dong_du"] is False

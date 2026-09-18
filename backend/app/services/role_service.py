@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..catalog_registry import MODULE_KEYS
 from ..models.role import Role, RolePermission
+from ..quyen_notify import bao_quyen_doi
 from .role_templates import danh_sach_mau
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, ModuleRepository, RoleRepository
@@ -126,7 +127,6 @@ READ_IMPLYING_KEYS = (
     "can_close_book",
     "can_run_order",
     "can_confirm_output",
-    "can_qc",
     "can_warehouse",
 )
 
@@ -368,7 +368,6 @@ class RoleService:
                     # Dòng quyền theo tổ (mg 0302).
                     "can_run_order": bool(p.can_run_order) if p else False,
                     "can_confirm_output": bool(p.can_confirm_output) if p else False,
-                    "can_qc": bool(p.can_qc) if p else False,
                     "can_warehouse": bool(p.can_warehouse) if p else False,
                 }
             )
@@ -449,7 +448,6 @@ class RoleService:
                 can_close_book=normalized.get("can_close_book", False),
                 can_run_order=normalized.get("can_run_order", False),
                 can_confirm_output=normalized.get("can_confirm_output", False),
-                can_qc=normalized.get("can_qc", False),
                 can_warehouse=normalized.get("can_warehouse", False),
             )
         self.audit.create(
@@ -458,4 +456,6 @@ class RoleService:
             target=f"role:{role_id}",
             detail=role.name,
         )
+        # Mọi người đang giữ vai này (kể cả người vừa bấm Lưu) tự hỏi lại quyền — menu đổi ngay.
+        bao_quyen_doi(self.users.list_ids_by_role(role_id))
         return self.get_matrix(role_id)

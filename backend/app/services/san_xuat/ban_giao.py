@@ -140,7 +140,9 @@ def de_xuat(
     Cùng tổ + cùng LSX → `confirmed` ngay. Khác → `proposed`, chờ bên đích xác nhận.
 
     ĐÍCH phải là chặng sau theo routing lệnh (`cong_viec_chang_sau`) — không còn chọn tự do trong
-    mọi việc cùng lệnh. Bước cuối lệnh (không có chặng sau) mới được giao ra ngoài (`dich=None`).
+    mọi việc cùng lệnh. Bước cuối lệnh (không có chặng sau) KHÔNG bàn giao: thành phẩm rời tổ qua
+    KCS kiểm rồi đề nghị nhập kho. "Giao ra kho" (`dich=None`) ĐÃ GỠ 17/09/2026 — nó đẻ một bàn giao
+    không ai xác nhận được, treo mãi ở `proposed`.
 
     GIAO THEO MẺ: số lượng suy ra từ mẻ chọn (`_so_theo_me`), không nhận số gõ tay. Đếm thực tế lệch
     thì bên nhận xác nhận xong rồi ĐIỀU CHỈNH (§11.3)."""
@@ -151,14 +153,15 @@ def de_xuat(
     _gate(db, user, nguon_cv, VIEC_XAC_NHAN)
 
     chang_sau = {c.id: c for c in repo.cong_viec_chang_sau(nguon_cv)}
-    if chang_sau:
-        if not dich_cong_viec_id:
-            raise ValueError("Bước này còn chặng sau theo routing — phải giao cho chặng sau.")
-        if dich_cong_viec_id not in chang_sau:
-            raise ValueError("Đích bàn giao không phải chặng sau của bước này theo routing.")
-    elif dich_cong_viec_id:
-        raise ValueError("Bước cuối của lệnh không có chặng sau — chỉ giao ra kho.")
-    dich_cv = chang_sau.get(dich_cong_viec_id) if dich_cong_viec_id else None
+    if not chang_sau:
+        raise ValueError(
+            "Bước cuối của lệnh không bàn giao — thành phẩm vào kho qua KCS kiểm và đề nghị nhập kho."
+        )
+    if not dich_cong_viec_id:
+        raise ValueError("Bước này còn chặng sau theo routing — phải giao cho chặng sau.")
+    if dich_cong_viec_id not in chang_sau:
+        raise ValueError("Đích bàn giao không phải chặng sau của bước này theo routing.")
+    dich_cv = chang_sau[dich_cong_viec_id]
 
     chon, sl = _so_theo_me(repo, nguon_cv, batch_ids)
 
@@ -170,7 +173,7 @@ def de_xuat(
     now = _moc()
     bg = SanXuatBanGiao(
         nguon_cong_viec_id=nguon_cv.id,
-        dich_cong_viec_id=dich_cv.id if dich_cv else None,
+        dich_cong_viec_id=dich_cv.id,
         cung_to=cung_to,
         so_luong=sl,
         don_vi=don_vi_bg,
@@ -189,13 +192,13 @@ def de_xuat(
         action="san_xuat_ban_giao_de_xuat",
         target=f"san_xuat_ban_giao:{bg.id}",
         detail=(
-            f"nguon={nguon_cv.id} dich={dich_cv.id if dich_cv else '-'} sl={sl} "
+            f"nguon={nguon_cv.id} dich={dich_cv.id} sl={sl} "
             f"me={','.join(map(str, chon)) or '-'} {'cung_to' if cung_to else 'de_xuat'}"
         ),
     )
     db.commit()
     # Chờ xác nhận → báo người xác nhận được ở tổ ĐÍCH; tự xác nhận → không cần báo ai đợi.
-    notify = [] if cung_to else _nguoi_nhan(db, user, dich_cv.department_id if dich_cv else None)
+    notify = [] if cung_to else _nguoi_nhan(db, user, dich_cv.department_id)
     return _ket_qua(bg, nguon_cv, dich_cv, notify_user_ids=notify, su_kien="de_xuat")
 
 
@@ -262,7 +265,7 @@ def xac_nhan(
     if bg.trang_thai != BG_DE_XUAT:
         raise ValueError("Bàn giao này không ở trạng thái chờ xác nhận.")
     if bg.dich_cong_viec_id is None:
-        raise ValueError("Bàn giao ra ngoài chưa neo công đoạn sau, không xác nhận tại tổ.")
+        raise ValueError("Công đoạn nhận của bàn giao này không còn — không xác nhận được.")
     nguon_cv = repo.cong_viec(bg.nguon_cong_viec_id)
     dich_cv = repo.cong_viec(bg.dich_cong_viec_id)
     _gate(db, user, dich_cv, VIEC_XAC_NHAN)

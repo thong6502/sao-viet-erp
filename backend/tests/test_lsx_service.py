@@ -5,6 +5,7 @@ Luồng thật: đơn từ báo giá → thu đủ cọc → chốt → Sale "Ch
 """
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 from math import ceil
 from types import SimpleNamespace
@@ -25,7 +26,12 @@ from app.models.lsx import (
     LsxCongDoan,
 )
 from app.models.may_thiet_bi import MayThietBi
-from app.models.phieu_tinh_gia import PhieuThanhPhan, PhieuThanhPham, PhieuTinhGia
+from app.models.phieu_tinh_gia import (
+    PhieuChiPhiKhac,
+    PhieuThanhPhan,
+    PhieuThanhPham,
+    PhieuTinhGia,
+)
 from app.models.quotation import STATUS_ACCEPTED, Quote, QuoteItem, QuoteVersion
 from app.models.user import User
 from app.models.vat_lieu_kho import GiayNguyen, VatTuInAn
@@ -561,6 +567,34 @@ def test_tao_moi_dong_mot_lenh_ngang_hang_va_copy_routing(db, orders, lsx_svc, a
     assert float(be.he_so_quy_doi) == float(hop.so_con) > 1
     dan = next(cd for cd in hop.cong_doans if cd.ten == "Dán hộp")
     assert float(dan.so_luong_ra) == 20_000
+
+
+def test_lenh_khong_mang_chi_phi_khac_cua_phieu_tinh_gia(db, orders, lsx_svc, admin, customer):
+    """Khoản CHI PHÍ KHÁC (tên tự gõ + số tiền) là tiền nội bộ của giá vốn — xuống lệnh là hết.
+
+    Hai bài `test_khong_lo_tien` ở tầng API cấm chuỗi "chi_phi" trong body, nhưng fixture của chúng
+    không có khoản nào nên xanh cả khi lọt. Bài này dựng phiếu CÓ khoản "làm kẽm" thật: khoá không
+    được có trong `quy_cach` (preview lẫn ảnh chụp lệnh), và cả CÁI TÊN cũng không được đi theo —
+    tên gõ tay đứng một mình vẫn cho thợ biết đơn này gánh thêm một khoản.
+    """
+    ptg = _ptg_2_san_pham(db)
+    ptg.thanh_phans[0].chi_phi_khacs.append(
+        PhieuChiPhiKhac(thu_tu=0, ten="làm kẽm ngoài", so_tien=800_000)
+    )
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    dong = lsx_svc.preview(d.id)["lines"][0]
+    assert "chi_phi_khacs" not in dong["quy_cach"]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=[dong["order_line_id"]], actor=admin)[0]
+
+    qc = lsx.quy_cach_json or {}
+    assert not any(k.startswith("chi_phi") for k in qc), sorted(qc)
+    toan_bo = json.dumps(
+        [dong, qc, lsx_svc.detail_dict(lsx)], ensure_ascii=False, default=str
+    ).lower()
+    assert "làm kẽm ngoài" not in toan_bo
+    assert "800000" not in toan_bo.replace(".0", "")
 
 
 def test_tao_chan_trung_lenh_tren_cung_dong_don(db, orders, lsx_svc, admin, customer):

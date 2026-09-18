@@ -60,8 +60,8 @@ def _canh_2_nguoi(db, orders, lsx_svc, admin, customer, *, ma):
     db.commit()
     _giao(db, cv.id, a.id)
     _giao(db, cv.id, b.id)
-    _khoang(db, cv, a, batch.bat_dau, batch.ket_thuc, heso=1.0)
-    _khoang(db, cv, b, batch.bat_dau, batch.ket_thuc, heso=1.0)
+    _khoang(db, cv, a, batch.bat_dau, batch.ket_thuc)
+    _khoang(db, cv, b, batch.bat_dau, batch.ket_thuc)
     db.commit()
     return to, cv, batch, u_a, a, b
 

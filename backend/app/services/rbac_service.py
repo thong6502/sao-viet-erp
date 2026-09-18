@@ -71,7 +71,6 @@ ACTION_VIEW_DRIVERS = "view_drivers"  # giao_hang: tab Nhân viên giao hàng (l
 # định tổ nào — đi qua `services/quyen_to.py`.
 ACTION_RUN_ORDER = "run_order"            # Thực hiện lệnh
 ACTION_CONFIRM_OUTPUT = "confirm_output"  # Xác nhận sản lượng
-ACTION_QC = "qc"                          # KCS
 ACTION_WAREHOUSE = "warehouse"            # Kho
 # Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn");
 # ACTION_APPROVE_EXCEPTION TÁCH RIÊNG (chỉ GĐ) — duyệt đơn đặc thù mới được chốt.
@@ -129,7 +128,6 @@ _ACTION_ATTR = {
     ACTION_VIEW_DRIVERS: "can_view_drivers",
     ACTION_RUN_ORDER: "can_run_order",
     ACTION_CONFIRM_OUTPUT: "can_confirm_output",
-    ACTION_QC: "can_qc",
     ACTION_WAREHOUSE: "can_warehouse",
 }
 
@@ -228,7 +226,6 @@ class AuthorizationService:
                 # "của tôi" vẫn phải trả đủ cột để không có ô nào tàng hình.
                 "can_run_order": p.can_run_order,
                 "can_confirm_output": p.can_confirm_output,
-                "can_qc": p.can_qc,
                 "can_warehouse": p.can_warehouse,
             }
             for p in self.roles.permissions_for(user.role_id)

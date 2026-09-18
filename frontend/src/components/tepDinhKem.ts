@@ -11,6 +11,10 @@ export interface TepDinhKem {
   tai_luc: string;
 }
 
+/** Đủ để vẽ ảnh thu nhỏ, mở hộp xem trước và tải về — nguồn ảnh không lưu cỡ/người tải (ảnh lỗi KCS)
+ *  vẫn dùng chung được hộp xem trước. */
+export type TepXem = Pick<TepDinhKem, "ten_tep" | "file_url" | "content_type">;
+
 export type TrangThaiViec = "cho" | "dang" | "loi";
 
 /** Một tệp trong hàng đợi tải lên. Tải xong thì RỜI hàng (tệp đã hiện trong danh sách thật). */

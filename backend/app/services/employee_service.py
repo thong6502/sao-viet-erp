@@ -4,7 +4,7 @@ Framework-agnostic: raises domain errors the router maps to HTTP. Enforces:
   - full_name required (non-blank);
   - CCCD / số sổ BHXH duplicates are SOFT warnings — the employee is STILL saved;
   - status / gender / event_type must be a known enum value;
-  - every stage change (status / department / job_grade) goes through a TRANSITION that
+  - every stage change (status / department / position) goes through a TRANSITION that
     writes an `employee_events` row (Quá trình công tác) — never a bare column edit;
   - a resigned employee's hồ sơ is read-only (edit blocked; only `reinstate` reopens it);
   - `user_id` link is 1–1 (one login ↔ at most one employee);
@@ -53,6 +53,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
+from ..quyen_notify import bao_quyen_doi
 from ..security import hash_password
 from ..shift_notify import push_shift_changes
 
@@ -90,7 +91,7 @@ _STATUS_TRANSITIONS: dict[str, tuple[set[str], str, str]] = {
     # là thử việc: tiền 85%, chưa BHXH), xem `_trang_thai_truoc_dinh_chi`.
     "unsuspend": ({STATUS_SUSPENDED}, STATUS_ACTIVE, EVENT_UNSUSPENDED),
 }
-# Fields the plain edit (PUT) may set — deliberately EXCLUDES status/department_id/job_grade
+# Fields the plain edit (PUT) may set — deliberately EXCLUDES status/department_id
 # and resign_*, which only a transition may change.
 EDITABLE_FIELDS = (
     "full_name", "position", "probation_end_date", "date_of_birth", "gender",
@@ -101,10 +102,7 @@ EDITABLE_FIELDS = (
     "permanent_address", "current_address", "emergency_contact_name",
     "emergency_contact_phone", "social_insurance_no", "pit_tax_code",
     "dependents_count", "bank_account", "bank_name", "default_shift_id",
-    # `pay_grade_key` ĐÃ GỠ 29/07/2026: bậc nay chỉ có MỘT đường ghi là `job_grade_id`, và
-    # đường đó là TRANSITION (nâng bậc/điều chuyển) chứ không phải sửa hồ sơ thường. Để cột
-    # cũ ở đây là dựng lại đúng cái bẫy hai-ô-cùng-nghĩa (C-3).
-    "payroll_group", "photo_url", "note",
+    "photo_url", "note",
     # Cách tính thuế TNCN (luy_tien / khau_tru_10 / cam_ket_08) — chủ 2026-07-27.
     "pit_mode",
 )
@@ -125,7 +123,6 @@ REQUESTABLE_FIELDS = (
 # Dùng CHUNG với router (che khi đọc `_mask_salary`) để đọc/ghi đối xứng, không lệch danh sách.
 SENSITIVE_FIELDS = (
     "social_insurance_no", "pit_tax_code", "bank_account", "bank_name",
-    "payroll_group", "pay_grade_key",
     # `pit_mode` quyết định TIỀN THUẾ của người đó ⇒ chỉ người có quyền sửa lương mới được đổi.
     "pit_mode",
 )
@@ -155,8 +152,8 @@ FIELD_LABELS: dict[str, str] = {
     "permanent_address": "Hộ khẩu", "current_address": "Chỗ ở hiện tại",
     "emergency_contact_name": "Người liên hệ khẩn", "emergency_contact_phone": "SĐT người liên hệ",
     "social_insurance_no": "Số sổ BHXH", "pit_tax_code": "MST cá nhân",
-    "bank_account": "Số tài khoản", "bank_name": "Ngân hàng", "job_grade": "Bậc tay nghề",
-    "payroll_group": "Nhóm lương", "note": "Ghi chú",
+    "bank_account": "Số tài khoản", "bank_name": "Ngân hàng",
+    "note": "Ghi chú",
 }
 
 
@@ -270,11 +267,6 @@ class EmployeeService:
                 out[key] = self._validate_gender(value)
             elif key == "dependents_count":
                 out[key] = self._validate_dependents(value)
-            elif key == "job_grade_id":
-                # Kiểm ở đây thay vì để FK dưới DB nổ: lỗi FK ra 500 kèm SQL, người dùng không
-                # hiểu gì. Đường vào duy nhất là TẠO hồ sơ (sửa thường bị `EDITABLE_FIELDS` chặn).
-                g = self._resolve_job_grade(value, None)
-                out[key] = g.id if g is not None else None
             elif isinstance(value, str):
                 out[key] = self._check_len(key, _clean(value))
             else:
@@ -431,7 +423,7 @@ class EmployeeService:
         can_edit_salary: bool = True,
     ) -> tuple[Employee, Employee | None, Employee | None]:
         """Edit hồ sơ (personal / BHXH / contacts). Does NOT touch status /
-        department / job_grade (those are transitions). Blocked once resigned."""
+        department (those are transitions). Blocked once resigned."""
         employee = self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
         if employee.status == STATUS_RESIGNED:
             raise EmployeeValidationError(
@@ -777,8 +769,6 @@ class EmployeeService:
         effective_date: date | None = None,
         note: str | None = None,
         new_department_id: int | None = None,
-        new_job_grade: str | None = None,
-        new_job_grade_id: int | None = None,
         new_position: str | None = None,
         resign_reason: str | None = None,
     ) -> Employee:
@@ -797,13 +787,9 @@ class EmployeeService:
         if kind in _STATUS_TRANSITIONS:
             return self._apply_status(employee, actor, kind, effective_date, note, resign_reason)
         if kind == "transfer":
-            return self._apply_transfer(
-                employee, actor, effective_date, note, new_department_id,
-                new_job_grade=new_job_grade, new_job_grade_id=new_job_grade_id,
-            )
+            return self._apply_transfer(employee, actor, effective_date, note, new_department_id)
         if kind == "promote":
-            return self._apply_promote(employee, actor, effective_date, note, new_job_grade,
-                                       new_position, new_job_grade_id)
+            return self._apply_promote(employee, actor, effective_date, note, new_position)
         raise EmployeeValidationError(f"Loại thao tác không hợp lệ: {kind!r}")
 
     def _apply_status(self, employee, actor, kind, effective_date, note, resign_reason) -> Employee:
@@ -932,8 +918,7 @@ class EmployeeService:
             doi += 1
         return doi
 
-    def _apply_transfer(self, employee, actor, effective_date, note, new_department_id,
-                        new_job_grade=None, new_job_grade_id=None) -> Employee:
+    def _apply_transfer(self, employee, actor, effective_date, note, new_department_id) -> Employee:
         if employee.status == STATUS_RESIGNED:
             raise EmployeeValidationError("Nhân viên đã nghỉ việc — không điều chuyển được.")
         if new_department_id is None:
@@ -941,13 +926,7 @@ class EmployeeService:
         old = employee.department_id
         if old == new_department_id:
             raise EmployeeValidationError("Phòng/tổ mới trùng phòng hiện tại.")
-        # Chuyển tổ thì bậc phải khai LẠI theo tổ mới: không khai gì ⇒ XOÁ bậc, chứ không kéo
-        # nhãn bậc của tổ cũ sang tổ mới (bậc tổ In không có nghĩa gì ở tổ Dán).
-        grade = self._resolve_job_grade(new_job_grade_id, _clean(new_job_grade))
-        self.employees.update(
-            employee, department_id=new_department_id,
-            job_grade_id=(grade.id if grade is not None else None),
-        )
+        self.employees.update(employee, department_id=new_department_id)
         self._sync_user_from_employee(employee)  # Đ1/Đ2: chuyển phòng → tài khoản đổi phòng (scope)
         # Đ2: NV đang là trưởng phòng CŨ → gỡ chức (không để head phòng cũ treo người đã đi).
         if old is not None and employee.user_id is not None:
@@ -964,6 +943,7 @@ class EmployeeService:
                     account, department_id=new_department_id, role_id=None,
                     is_active=account.is_active,
                 )
+                bao_quyen_doi([account.id])
         self.employees.add_event(
             employee_id=employee.id,
             event_type=EVENT_TRANSFERRED,
@@ -1010,32 +990,24 @@ class EmployeeService:
             self._apply_transfer(emp, actor, date.today(), note, target_department_id)
         return len(employees)
 
-    def _apply_promote(self, employee, actor, effective_date, note, new_job_grade, new_position,
-                       new_job_grade_id=None) -> Employee:
+    def _apply_promote(self, employee, actor, effective_date, note, new_position) -> Employee:
+        """Đổi chức danh — ghi một mốc Quá trình công tác."""
         if employee.status == STATUS_RESIGNED:
-            raise EmployeeValidationError("Nhân viên đã nghỉ việc — không nâng bậc được.")
-        new_job_grade = _clean(new_job_grade)
-        new_position = _clean(new_position)
-        # Từ 29/07/2026 bậc là DANH MỤC (`job_grade_id`). `new_job_grade` (chữ) chỉ còn cho
-        # tương thích API cũ: có chữ mà không có id thì tra ngược danh mục theo tên.
-        grade = self._resolve_job_grade(new_job_grade_id, new_job_grade)
-        if grade is None and new_position is None:
-            raise EmployeeValidationError("Cần chọn bậc tay nghề mới hoặc chức danh mới.")
-        old_label = self._grade_label(employee)
-        updates: dict = {}
-        if grade is not None:
-            updates["job_grade_id"] = grade.id
-        if new_position is not None:
-            updates["position"] = new_position
-        self.employees.update(employee, **updates)
-        new_label = grade.name if grade is not None else old_label
+            raise EmployeeValidationError("Nhân viên đã nghỉ việc — không đổi chức danh được.")
+        new_position = self._check_len("position", _clean(new_position))
+        if new_position is None:
+            raise EmployeeValidationError("Cần nhập chức danh mới.")
+        old_position = employee.position
+        if new_position == old_position:
+            raise EmployeeValidationError("Chức danh mới trùng chức danh hiện tại.")
+        self.employees.update(employee, position=new_position)
         self.employees.add_event(
             employee_id=employee.id,
             event_type=EVENT_PROMOTED,
             effective_date=effective_date,
-            field="job_grade",
-            from_value=old_label,
-            to_value=new_label,
+            field="position",
+            from_value=old_position,
+            to_value=new_position,
             note=note,
             actor_user_id=actor.id,
         )
@@ -1043,98 +1015,9 @@ class EmployeeService:
             actor_user_id=actor.id,
             action="employee_promoted",
             target=f"employee:{employee.id}",
-            detail=f"{employee.code} bậc {old_label}→{new_label}",
+            detail=f"{employee.code} chức danh {old_position}→{new_position}",
         )
         return employee
-
-    # --- Bậc tay nghề (danh mục) --------------------------------------------
-
-    def _grade_label(self, employee) -> str | None:
-        """Tên bậc để hiển thị / ghi Quá trình công tác. Rơi về cột chữ CŨ khi hồ sơ chưa được
-        gán bậc danh mục — người cũ vẫn thấy đúng bậc mình đang mang."""
-        if employee.job_grade_id is not None:
-            g = self.employees.get_job_grade(employee.job_grade_id)
-            if g is not None:
-                return g.name
-        return employee.job_grade
-
-    def _resolve_job_grade(self, grade_id, label):
-        """Ra đối tượng bậc từ id (chính) hoặc từ tên (tương thích API cũ). None = không đổi bậc."""
-        if grade_id is not None:
-            g = self.employees.get_job_grade(int(grade_id))
-            if g is None:
-                raise EmployeeValidationError("Bậc tay nghề không tồn tại.")
-            if not g.is_active:
-                raise EmployeeValidationError(f"Bậc '{g.name}' đang tắt — bật lại rồi mới gán được.")
-            return g
-        if label:
-            g = self.employees.find_job_grade_by_name(label)
-            if g is None:
-                raise EmployeeValidationError(
-                    f"Chưa có bậc '{label}' trong danh mục. Thêm vào danh mục bậc rồi chọn lại.")
-            return g
-        return None
-
-    def list_job_grades(self, *, active_only: bool = False):
-        return self.employees.list_job_grades(active_only=active_only)
-
-    def create_job_grade(self, *, actor, name: str, code: str | None = None,
-                         seq: int | None = None, note: str | None = None,
-                         output_coefficient=None):
-        name = _clean(name)
-        if not name:
-            raise EmployeeValidationError("Cần nhập tên bậc.")
-        if self.employees.find_job_grade_by_name(name) is not None:
-            raise EmployeeValidationError(f"Bậc '{name}' đã có trong danh mục.")
-        code = _clean(code) or f"bac_{self.employees.next_job_grade_seq()}"
-        if self.employees.get_job_grade_by_code(code) is not None:
-            raise EmployeeValidationError(f"Mã bậc '{code}' đã dùng.")
-        g = self.employees.create_job_grade(
-            code=code, name=name, note=_clean(note),
-            seq=self.employees.next_job_grade_seq() if seq is None else int(seq),
-            output_coefficient=output_coefficient,
-        )
-        self.audit.create(actor_user_id=actor.id, action="job_grade_created",
-                          target=f"job_grade:{g.id}", detail=g.name)
-        return g
-
-    def update_job_grade(self, *, actor, grade_id: int, **fields):
-        g = self.employees.get_job_grade(grade_id)
-        if g is None:
-            raise EmployeeNotFound("Không tìm thấy bậc tay nghề.")
-        clean = {k: v for k, v in fields.items()
-                 if k in ("name", "seq", "is_active", "note") and v is not None}
-        # Hệ số sản lượng: cho phép đặt VÀ xoá (null) — có mặt trong `fields` = client chủ ý gửi
-        # (router dùng `exclude_unset`), nên None ở đây nghĩa "xoá hệ số" chứ không phải "không đụng".
-        if "output_coefficient" in fields:
-            clean["output_coefficient"] = fields["output_coefficient"]
-        if "name" in clean:
-            clean["name"] = _clean(clean["name"])
-            if not clean["name"]:
-                raise EmployeeValidationError("Cần nhập tên bậc.")
-            dup = self.employees.find_job_grade_by_name(clean["name"])
-            if dup is not None and dup.id != g.id:
-                raise EmployeeValidationError(f"Bậc '{clean['name']}' đã có trong danh mục.")
-        g = self.employees.update_job_grade(g, **clean)
-        self.audit.create(actor_user_id=actor.id, action="job_grade_updated",
-                          target=f"job_grade:{g.id}", detail=g.name)
-        return g
-
-    def delete_job_grade(self, *, actor, grade_id: int) -> None:
-        """Xoá CHỈ khi không ai đang mang bậc này — xoá bừa là hồ sơ trỏ vào bậc không còn tồn
-        tại, mất luôn thông tin bậc của người ta. Muốn ẩn thì tắt `is_active`."""
-        g = self.employees.get_job_grade(grade_id)
-        if g is None:
-            raise EmployeeNotFound("Không tìm thấy bậc tay nghề.")
-        used = self.employees.count_employees_with_grade(grade_id)
-        if used:
-            raise EmployeeValidationError(
-                f"Còn {used} nhân viên đang ở bậc '{g.name}' — không xoá được. "
-                f"Chuyển họ sang bậc khác, hoặc TẮT bậc này để thôi dùng mà vẫn giữ lịch sử.")
-        name = g.name
-        self.employees.delete_job_grade(g)
-        self.audit.create(actor_user_id=actor.id, action="job_grade_deleted",
-                          target=f"job_grade:{grade_id}", detail=name)
 
     # --- account link (nguoi_dung) -----------------------------------------
 

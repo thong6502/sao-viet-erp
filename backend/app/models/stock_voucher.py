@@ -168,6 +168,9 @@ class StockVoucherLine(Base):
     # hạn → mỗi (hạn, SL) là MỘT dòng phiếu; phần dư không hạn là dòng hsd=NULL. Ghi sổ chép sang
     # `stock_lots.hsd` (đã dùng cho FIFO/FEFO: hạn sớm xuất trước). Thêm qua migration 0205.
     hsd: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Phiếu NHẬP của điều chuyển: lô gốc của lô nguồn bị trừ — ghi sổ chép sang
+    # `stock_lots.lo_goc_id` của lô mới ở kho đích. NULL với phiếu nhập thường. Mg 0309.
+    lo_goc_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     voucher: Mapped[StockVoucher] = relationship("StockVoucher", back_populates="lines")
 

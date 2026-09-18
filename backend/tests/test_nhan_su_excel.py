@@ -41,14 +41,6 @@ def _dept_id(name: str) -> int:
         db.close()
 
 
-def _ten_bac() -> str:
-    db = SessionLocal()
-    try:
-        return EmployeeRepository(db).list_job_grades()[0].name
-    finally:
-        db.close()
-
-
 def _sales_token() -> str:
     """Tài khoản KHÔNG có quyền nhan_su — dùng để kiểm hàng rào quyền."""
     db = SessionLocal()
@@ -121,19 +113,20 @@ def test_xuat_ra_du_o_cua_ho_so(client):
     wb = _tai_xuat(client, token)
     ws = wb[SHEET]
     cot = _cot(ws)
-    for nhan in ("Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc tay nghề", "Trạng thái",
+    for nhan in ("Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Trạng thái",
                  "Ngày vào", "Ngày hết thử việc", "Ngày sinh", "Giới tính", "CCCD",
                  "Ngày cấp CCCD", "Nơi cấp CCCD", "Điện thoại", "Email",
                  "Hộ khẩu thường trú", "Chỗ ở hiện tại", "Người liên hệ khẩn",
                  "SĐT liên hệ khẩn", "Số sổ BHXH", "MST cá nhân", "Số người phụ thuộc",
-                 "Cách tính thuế TNCN", "Số tài khoản NH", "Ngân hàng", "Nhóm lương",
+                 "Cách tính thuế TNCN", "Số tài khoản NH", "Ngân hàng",
                  "Thâm niên trước (tháng)"):
         assert nhan in cot, f"thiếu cột {nhan!r}"
     # Bỏ 10/09/2026 — ca nền gán ở Khai ca, hai cột nghỉ việc do luồng trên màn sinh ra,
     # hai cột tài khoản là dữ liệu của RBAC (file không tạo/gán tài khoản được).
+    # "Nhóm lương" bỏ 17/09/2026 — cột `employees.payroll_group` đã drop (mg 0307).
     for nhan in ("Ca mặc định", "Ghi chú", "Ngày nghỉ việc (chỉ xem)",
                  "Lý do nghỉ việc (chỉ xem)", "Tài khoản (chỉ xem)",
-                 "Vai trò tài khoản (chỉ xem)"):
+                 "Vai trò tài khoản (chỉ xem)", "Nhóm lương"):
         assert nhan not in cot, f"còn cột {nhan!r}"
 
     dong = next(r for r in ws.iter_rows(min_row=2, values_only=False)
@@ -213,7 +206,7 @@ def test_file_xuat_duoc_ke_bang_va_co_o_chon(client):
     assert o_nhay.fill.fgColor.rgb == MAU_TIEU_DE_NHAY_CAM, "khối lương/BHXH phải tô khác"
 
     vung = " ".join(str(o.sqref) for o in ws.data_validations.dataValidation)
-    for nhan in ("Trạng thái", "Giới tính", "Cách tính thuế TNCN", "Phòng/Tổ", "Bậc tay nghề"):
+    for nhan in ("Trạng thái", "Giới tính", "Cách tính thuế TNCN", "Phòng/Tổ"):
         chu = ws.cell(row=1, column=cot[nhan]).column_letter
         assert f"{chu}2:" in vung, f"cột {nhan!r} chưa có ô chọn"
 

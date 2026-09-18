@@ -41,14 +41,15 @@ from app.models.department import Department
 from app.models.lsx import Lsx
 from app.models.may_thiet_bi import MayThietBi
 from app.models.order import Order
-from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, SanXuatCongViec
+from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG, SanXuatCongViec
+from app.models.san_xuat_thuc_thi import SanXuatPhienChay
 from app.repositories.attendance_repo import AttendanceRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 from app.repositories.audit_repo import AuditLogRepository
 from app.security import hash_password
-from app.services.gio_xuong import lich_hien_thi
+from app.services.gio_xuong import lich_hien_thi, ve_utc_that
 from app.services.lenh_sx import bang_theo_doi
 from app.services.san_xuat import thuc_thi
 from app.services.xep_lich_service import XepLichService
@@ -1073,11 +1074,19 @@ def test_theo_ca_loc_trang_thai_viec_qua_cau_bai_ghep(client, seed_credentials, 
     """Đỏ nếu vế 2 của `_co_viec` không tới được `/theo-ca`: `completed` chỉ nằm trên công việc
     CHUNG của ca in ghép. `ghep_doi` không tự đặt mốc kế hoạch cho `cv_chung` — gán tay vào cửa sổ
     ngày đang hỏi, đúng khuôn `test_theo_ca_thay_viec_ghep_qua_cau_bai_ghep`. Lệnh thường (`c`, vẫn
-    `released`, vẫn CÓ việc trong CÙNG cửa sổ ngày) là phần tử KHÔNG thoả."""
+    `released`, vẫn CÓ việc trong CÙNG cửa sổ ngày) là phần tử KHÔNG thoả.
+
+    Từ 16/09/2026 việc ĐÃ chạy xếp theo PHIÊN THẬT chứ không theo kế hoạch — `_dat_xong_luc` đặt
+    phiên ở 18:00–19:00 UTC thật (rạng sáng 01/09 giờ xưởng), nên phiên cũng phải dời vào đúng
+    khung giờ kế hoạch của ngày đang hỏi, không thì việc hiện ở 01/09 và bài đỏ vì luật xếp chứ
+    không vì cầu lọc."""
     g = ghep_bon_truc
     cv_chung = sess.get(SanXuatCongViec, g["cv_chung"])
     cv_chung.du_kien_bat_dau = datetime(2026, 8, 31, 10, 0, tzinfo=timezone.utc)
     cv_chung.du_kien_ket_thuc = datetime(2026, 8, 31, 11, 0, tzinfo=timezone.utc)
+    for p in sess.query(SanXuatPhienChay).filter_by(cong_viec_id=cv_chung.id).all():
+        p.bat_dau = ve_utc_that(cv_chung.du_kien_bat_dau)
+        p.ket_thuc = ve_utc_that(cv_chung.du_kien_ket_thuc)
     sess.commit()
 
     h = _h(_tok(client, seed_credentials))
@@ -2003,3 +2012,152 @@ def test_theo_may_hoi_may_id_khong_ton_tai_van_ra_mot_lane_may_da_xoa(
     assert lanes[0]["ten"] == "Máy đã xoá"
     assert lanes[0]["ngung_dung"] is False
     assert lanes[0]["blocks"] == []
+
+
+
+# ==================================================================================================
+# 16/09/2026 — VIỆC ĐÃ CHẠY XẾP VÀO CA THEO PHIÊN CHẠY THẬT (chủ dự án duyệt, chọn "gán nhãn").
+# Chưa chạy → giữ ô kế hoạch; đã chạy → theo khoảng chạy thật; `lech_lich` "som"/"tre".
+# ==================================================================================================
+NGAY_XEM = date(2026, 9, 10)
+
+
+def _gio(ngay: date, gio: int, phut: int = 0, giay: int = 0) -> datetime:
+    """Giờ TƯỜNG dán nhãn UTC — đúng thang `du_kien_*` (xem `gio_xuong.py`)."""
+    return datetime(ngay.year, ngay.month, ngay.day, gio, phut, giay, tzinfo=timezone.utc)
+
+
+def _phien_that(sess, cv, khoang, trang_thai: str) -> None:
+    """Ghi phiên ĐÚNG hình dạng `thuc_thi` để lại (mốc UTC THẬT) ở những giờ bài test chọn —
+    khuôn `_dat_xong_luc`. `khoang` là giờ TƯỜNG; `None` ở vế sau = phiên đang mở."""
+    for i, (bd, kt) in enumerate(khoang, start=1):
+        sess.add(SanXuatPhienChay(
+            cong_viec_id=cv.id, so_thu_tu=i, bat_dau=ve_utc_that(bd),
+            ket_thuc=ve_utc_that(kt) if kt is not None else None,
+            loai_dong=None if kt is None else "tam_dung",
+        ))
+    cv.trang_thai = trang_thai
+    sess.commit()
+
+
+@pytest.fixture
+def lich_va_chay_that(sess, orders, lsx_svc, admin, customer, monkeypatch) -> dict:
+    """Ca 1 (06–14) + Ca 2 (14–22), không ca đêm. "Bây giờ" GHIM ở 10/09 16:00 giờ xưởng.
+
+        bước          kế hoạch            phiên chạy thật (giờ xưởng)   trạng thái  kỳ vọng ngày 10/09
+        Chạy sớm      11/09 08:00–10:00   10/09 08:00–09:30             paused      Ca 1 · sớm lịch
+        Vắt hai ca    10/09 12:00–15:00   10/09 12:30–14:30             completed   Ca 1 + Ca 2
+        Chờ trễ       10/09 07:00–08:00   —                             released    Ca 1 · trễ lịch
+        Chờ đúng hạn  10/09 17:00–18:00   —                             released    Ca 2
+        Đang chạy     09/09 09:00–10:00   10/09 15:00 → (mở)            running     Ca 2 · trễ lịch
+        Trước ca      10/09 06:00–07:00   10/09 05:00–06:30             completed   Ngoài ca + Ca 1
+        Giao ca       10/09 13:00–14:00   10/09 13:00:00–14:00:40       completed   CHỈ Ca 1
+
+    Mỗi dòng chặn một bản cài sai: "Chạy sớm"/"Đang chạy" chặn bản vẫn xếp theo kế hoạch; "Vắt hai
+    ca" chặn bản chỉ lấy mốc bắt đầu; "Chờ đúng hạn" là phần tử KHÔNG thoả của nhãn trễ; "Trước ca"
+    chặn bản bỏ quên đoạn ngoài ca; "Giao ca" chặn bản so tới giây (40 giây lấn giờ lúc giao ca
+    không được kéo việc sang ca sau)."""
+    ca1 = WorkShift(name="Ca 1 (chạy thật)", start_minute=6 * 60, end_minute=14 * 60,
+                    is_active=True, ca_san_xuat=True)
+    ca2 = WorkShift(name="Ca 2 (chạy thật)", start_minute=14 * 60, end_minute=22 * 60,
+                    is_active=True, ca_san_xuat=True)
+    sess.add_all([ca1, ca2])
+    sess.commit()
+
+    d, truoc, sau = NGAY_XEM, NGAY_XEM - timedelta(days=1), NGAY_XEM + timedelta(days=1)
+    bang = {
+        "Chạy sớm": ((_gio(sau, 8), _gio(sau, 10)), [(_gio(d, 8), _gio(d, 9, 30))], CV_TAM_DUNG),
+        "Vắt hai ca": ((_gio(d, 12), _gio(d, 15)), [(_gio(d, 12, 30), _gio(d, 14, 30))], CV_HOAN_THANH),
+        "Chờ trễ": ((_gio(d, 7), _gio(d, 8)), [], None),
+        "Chờ đúng hạn": ((_gio(d, 17), _gio(d, 18)), [], None),
+        "Đang chạy": ((_gio(truoc, 9), _gio(truoc, 10)), [(_gio(d, 15), None)], CV_DANG_CHAY),
+        "Trước ca": ((_gio(d, 6), _gio(d, 7)), [(_gio(d, 5), _gio(d, 6, 30))], CV_HOAN_THANH),
+        "Giao ca": ((_gio(d, 13), _gio(d, 14)), [(_gio(d, 13), _gio(d, 14, 0, 40))], CV_HOAN_THANH),
+    }
+    _dot_dong_don(sess, 97)
+    lsx_id = _phat_hanh_that(
+        sess, orders, lsx_svc, admin, customer, buoc=[(ten, 60, 500) for ten in bang],
+    )
+    cvs = {cv.ten_cong_doan: cv for cv in _cvs(sess, lsx_id)}
+    for ten, ((bd, kt), khoang, trang_thai) in bang.items():
+        cvs[ten].du_kien_bat_dau, cvs[ten].du_kien_ket_thuc = bd, kt
+        sess.commit()
+        if khoang:
+            _phien_that(sess, cvs[ten], khoang, trang_thai)
+    ket = {ten: cvs[ten].id for ten in bang}
+    ket.update(ca1=ca1.id, ca2=ca2.id)
+    sess.expire_all()
+
+    monkeypatch.setattr(bang_theo_doi, "gio_xuong", lambda: _gio(d, 16))
+    return ket
+
+
+def _viec_theo_o(client, h, ngay: date) -> dict:
+    d = client.get(f"/api/theo-doi-san-xuat/theo-ca?ngay={ngay.isoformat()}", headers=h).json()
+    return {c["id"]: {v["cong_viec_id"]: v for v in c["viec"]} for c in d["ca"]}
+
+
+def test_theo_ca_viec_da_chay_xep_theo_phien_that(client, seed_credentials, lich_va_chay_that):
+    g = lich_va_chay_that
+    h = _h(_tok(client, seed_credentials))
+    o = _viec_theo_o(client, h, NGAY_XEM)
+    ca1, ca2, ngoai = set(o[g["ca1"]]), set(o[g["ca2"]]), set(o[None])
+
+    assert g["Chạy sớm"] in ca1 and g["Chạy sớm"] not in ca2, "việc chạy sớm phải hiện ở ca nó chạy"
+    assert g["Vắt hai ca"] in ca1 and g["Vắt hai ca"] in ca2, "việc vắt hai ca phải hiện ở CẢ HAI ca"
+    assert g["Vắt hai ca"] not in ngoai
+    assert g["Đang chạy"] in ca2 and g["Đang chạy"] not in ca1, "phiên mở tính tới bây giờ, không hơn"
+    assert g["Trước ca"] in ngoai and g["Trước ca"] in ca1, "đoạn chạy trước giờ ca phải vào Ngoài ca"
+    assert g["Giao ca"] in ca1 and g["Giao ca"] not in ca2, "40 giây lấn giờ giao ca kéo việc sang ca sau"
+    assert g["Chờ trễ"] in ca1 and g["Chờ đúng hạn"] in ca2, "việc chưa chạy phải giữ ô kế hoạch"
+
+
+def test_theo_ca_viec_da_chay_khong_hien_lai_o_ngay_ke_hoach(
+    client, seed_credentials, lich_va_chay_that,
+):
+    """Đỏ nếu việc đã chạy vẫn còn bày ở ô kế hoạch cũ — đúng triệu chứng chủ dự án báo: ca hôm nay
+    trống trơn trong khi máy đang chạy việc của ngày khác."""
+    g = lich_va_chay_that
+    h = _h(_tok(client, seed_credentials))
+    hom_sau = _viec_theo_o(client, h, NGAY_XEM + timedelta(days=1))
+    hom_truoc = _viec_theo_o(client, h, NGAY_XEM - timedelta(days=1))
+    assert all(g["Chạy sớm"] not in viec for viec in hom_sau.values())
+    assert all(g["Đang chạy"] not in viec for viec in hom_truoc.values())
+
+
+def test_theo_ca_nhan_lech_lich(client, seed_credentials, lich_va_chay_that):
+    g = lich_va_chay_that
+    h = _h(_tok(client, seed_credentials))
+    o = _viec_theo_o(client, h, NGAY_XEM)
+    ca1, ca2 = o[g["ca1"]], o[g["ca2"]]
+
+    assert ca1[g["Chạy sớm"]]["lech_lich"] == "som"
+    assert ca2[g["Đang chạy"]]["lech_lich"] == "tre"
+    assert ca1[g["Chờ trễ"]]["lech_lich"] == "tre", "quá giờ bắt đầu mà chưa chạy phải gắn trễ lịch"
+    assert ca2[g["Chờ đúng hạn"]]["lech_lich"] is None
+    assert ca1[g["Vắt hai ca"]]["lech_lich"] is None
+
+    assert ca1[g["Chạy sớm"]]["bat_dau_thuc_te"] == "2026-09-10T08:00:00"
+    assert ca1[g["Chờ trễ"]]["bat_dau_thuc_te"] is None
+
+
+def test_theo_ca_viec_ghep_chay_ngoai_ngay_ke_hoach(client, seed_credentials, sess, ghep_doi):
+    """Vế "có phiên chạm cửa sổ" phải có ở CẢ nhánh cầu bài ghép: việc ghép kế hoạch 20/09 nhưng
+    chạy thật 10/09 — thiếu vế này thì hai lệnh ghép không lọt vào `ids` và việc biến mất."""
+    a_id, b_id, cv_chung = ghep_doi
+    ca1 = WorkShift(name="Ca 1 (ghép chạy thật)", start_minute=6 * 60, end_minute=14 * 60,
+                    is_active=True, ca_san_xuat=True)
+    sess.add(ca1)
+    cv = sess.get(SanXuatCongViec, cv_chung.id)
+    cv.du_kien_bat_dau = _gio(date(2026, 9, 20), 8)
+    cv.du_kien_ket_thuc = _gio(date(2026, 9, 20), 9)
+    sess.commit()
+    _phien_that(sess, cv, [(_gio(NGAY_XEM, 9), _gio(NGAY_XEM, 10))], CV_HOAN_THANH)
+    ca1_id, cv_id = ca1.id, cv.id
+
+    h = _h(_tok(client, seed_credentials))
+    o = _viec_theo_o(client, h, NGAY_XEM)
+    viec = o[ca1_id].get(cv_id)
+    assert viec is not None, "việc ghép chạy ngoài ngày kế hoạch rớt khỏi bàn Theo ca"
+    assert {x["lsx_id"] for x in viec["lsx"]} == {a_id, b_id}
+    assert viec["lech_lich"] == "som"

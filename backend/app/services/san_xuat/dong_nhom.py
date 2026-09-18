@@ -5,15 +5,17 @@ nhóm rồi chuyển `san_xuat_nhom.trang_thai`.
 
   · Đóng ĐỦ (auto) — khi HỘI ĐỦ mọi điều kiện thì nhảy sang `closed_full`. Gọi như CHỐT CHẶN
     sau mỗi thao tác có thể hoàn tất điều kiện cuối (hoàn thành việc · xác nhận bàn giao · chốt
-    phân bổ · trả lời lỗi KCS · kho xác nhận nhập/BTP). Không đủ ⇒ no-op, để lần sau.
-  · Đóng THIẾU (§13.3) — trưởng KCS chủ động đóng nhóm còn dở, KHÔNG cần Kế hoạch duyệt, nhưng
-    BẮT BUỘC lý do (danh mục nhóm `dong_thieu`) và vẫn phải sạch các điều kiện TOÀN VẸN khác
-    (không lệch bàn giao · phân bổ đã chốt · hết lỗi KCS chờ · hết BTP chờ kho). ⇒ `closed_short`.
+    phân bổ · KCS kiểm công đoạn). Không đủ ⇒ no-op, để lần sau.
+  · Đóng THIẾU (§13.3) — trưởng tổ KCS (`head_user_id` của phòng ban `is_kcs`) chủ động đóng nhóm
+    còn dở HOẶC hụt mục tiêu, KHÔNG cần Kế hoạch duyệt, nhưng vẫn phải sạch các điều kiện TOÀN VẸN
+    (không lệch bàn giao · công đoạn cuối đã kiểm hết · phân bổ đã chốt). ⇒ `closed_short`.
 
-ĐO ĐIỀU KIỆN 3 (KCS cuối) bằng tỷ lệ ĐÃ PHÂN LOẠI trên SỐ ĐÃ XÁC NHẬN NHẬN, KHÔNG đo bằng đã
-đạt mục tiêu đơn hàng hay chưa (chủ dự án chốt 20/08). Điều kiện 7 (BTP dư) ĐÃ BỎ khỏi cổng.
-Phần "vật tư trả kho" của điều kiện 6 chưa có tầng dữ liệu (§10 mới có nhận, chưa có trả) nên
-cổng chỉ soi BTP; bổ sung khi module vật tư-trả-kho ra đời.
+"ĐỦ" nghĩa là ĐỦ HÀNG, không chỉ "làm xong": Σ số KCS ĐẠT ở công đoạn cuối phải ≥ mục tiêu
+(Σ `so_luong_ra` của công đoạn cuối, chốt lúc phát hành — gồm mọi phân đoạn khi bước bị tách lần
+chạy). Đổi 17/09/2026: trước đó cổng chỉ đòi "KCS đã kiểm hết số tốt tổ ghi" (chốt 20/08), nên nhóm
+làm xong mà hụt hàng vẫn tự đóng ĐỦ và báo Sale "đơn có thể giao".
+Điều kiện 3 vẫn giữ: Σ(đạt + lỗi) KCS đã kiểm ở công đoạn cuối ≥ Σ tốt tổ đã ghi. Lỗi KCS chỉ cần
+tổ bấm "Đã xem", không chặn đóng nhóm. BTP dư (điều kiện 6–7) ĐÃ GỠ hẳn 17/09/2026.
 """
 from __future__ import annotations
 
@@ -27,26 +29,32 @@ from ...models.san_xuat import (
 )
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
-from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ...repositories.san_xuat_phan_bo_repo import SanXuatPhanBoRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
-from ..quyen_to import VIEC_KCS, quyen_cua_uid
-from .kcs import _EPS
+from .kcs import _EPS, gate_truong_kcs
 
-# Điều kiện KHÔNG thuộc "hoàn thành" — đóng thiếu vẫn phải thoả (§13.3).
+# Hai điều kiện "đã ĐỦ" — đóng thiếu chính là đóng khi hụt một trong hai; mọi điều kiện còn lại là
+# TOÀN VẸN, đóng thiếu vẫn phải thoả (§13.3).
 _MA_HOAN_THANH = "moi_viec_xong"
+_MA_DAT_MUC_TIEU = "dat_muc_tieu"
+_MA_DU = (_MA_HOAN_THANH, _MA_DAT_MUC_TIEU)
 
 
-def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list, list[dict]]:
-    """Chấm từng điều kiện đóng nhóm (tính-lúc-đọc). Trả (nhom, công-việc-hiện-tại, list điều kiện)."""
+def _so(v: float) -> str:
+    """Số kiểu Việt cho dòng chi tiết: 10000 → "10.000", 12.5 → "12,5". `:g` in 1e+06 từ một triệu."""
+    t = f"{v:,.3f}".rstrip("0").rstrip(".")
+    return t.translate(str.maketrans(",.", ".,"))
+
+
+def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list[dict], dict]:
+    """Chấm từng điều kiện đóng nhóm (tính-lúc-đọc). Trả (nhom, list điều kiện, số mục tiêu/đã đạt)."""
     repo = SanXuatRepository(db)
     nhom = repo.nhom(nhom_id)
     if nhom is None:
         raise ValueError("Không tìm thấy nhóm thành phẩm.")
     cvs = repo.cong_viec_hien_tai_cua_nhom(nhom_id)
     kcs_repo = SanXuatKcsRepository(db)
-    kho_repo = SanXuatKhoRepository(db)
     pb_repo = SanXuatPhanBoRepository(db)
 
     # (1) mọi công việc phiên hiện tại đã hoàn thành.
@@ -55,30 +63,25 @@ def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list, list[dict]]
     # (2 + 8) không còn bàn giao ĐI bị đánh dấu không nhất quán.
     lech = [cv for cv in cvs if pb_repo.co_ban_giao_khong_nhat_quan(cv.id)]
 
-    # (3) KCS cuối đã phân loại HẾT số đã xác nhận nhận (tỷ lệ classified/received ≥ 1), KHÔNG so
-    #     với mục tiêu đơn. Bất biến batch `nhan = dat + khong_dat` nên chỉ vỡ nếu có batch dở.
-    #     "Chưa nhận gì" KHÔNG được ngầm hiểu là "đạt" — release.van_de_phat_hanh (§4.4) đã chặn
-    #     phát hành thiếu KCS cuối nên `co_kcs_cuoi=False` ở đây là dữ liệu tồn từ trước khi có
-    #     gate đó, không phải quy tắc "không cần KCS" (quy tắc đó phải chốt riêng, không suy từ 0).
-    #     `la_kcs_cuoi` chỉ được gán thật khi qua release.phat_hanh (snapshot.danh_dau_kcs_cuoi);
-    #     dữ liệu/test dựng tay chỉ có `la_kcs` (rộng hơn) — dùng lại đúng cách rơi-về đã có ở
-    #     dong_thieu (bên dưới) để không vỡ khi thiếu cờ hẹp.
-    kcs_final_cvs = [cv for cv in cvs if cv.la_kcs_cuoi] or [cv for cv in cvs if cv.la_kcs]
-    co_kcs_cuoi = bool(kcs_final_cvs)
-    da_nhan = 0.0
-    da_phan_loai = 0.0
-    for cv in kcs_final_cvs:
-        for b in kcs_repo.cac_kcs_batch(cv.id):
-            da_nhan += float(b.so_luong_nhan or 0)
-            da_phan_loai += float(b.so_luong_dat or 0) + float(b.so_luong_khong_dat or 0)
-    kcs_du = co_kcs_cuoi and da_nhan > _EPS and da_phan_loai + _EPS >= da_nhan
+    # (3) công đoạn cuối: KCS đã kiểm hết số tốt tổ ghi. `la_kcs_cuoi` do release gán
+    #     (`snapshot.danh_dau_kcs_cuoi`); nhóm không có cờ đó thì không có gì để đưa vào kho.
+    cuoi = [cv for cv in cvs if cv.la_kcs_cuoi]
+    tot_map = SanXuatSanLuongRepository(db).tong_tot_nhieu([cv.id for cv in cuoi])
+    kiem_map = kcs_repo.tong_kiem_nhieu([cv.id for cv in cuoi])
+    tot = sum(tot_map.get(cv.id, 0.0) for cv in cuoi)
+    da_kiem = sum(sum(kiem_map.get(cv.id, (0, 0.0, 0.0))[1:]) for cv in cuoi)
+    kcs_du = bool(cuoi) and tot > _EPS and da_kiem + _EPS >= tot
+
+    # (3b) KCS ĐẠT đủ mục tiêu. "Đạt" = số KCS đạt, KHÔNG phải số tốt tổ tự ghi (KCS theo lệnh §6:
+    #     hàng chưa qua KCS không vào kho). Bước không có `so_luong_ra` thì không có gì để so ⇒ chưa
+    #     đạt: nhóm như vậy chỉ đóng thiếu được, không tự nhận là đủ.
+    co_muc_tieu = [cv for cv in cuoi if cv.so_luong_ra is not None]
+    muc_tieu = sum(float(cv.so_luong_ra) for cv in co_muc_tieu) if co_muc_tieu else None
+    da_dat = sum(kiem_map.get(cv.id, (0, 0.0, 0.0))[1] for cv in co_muc_tieu) if co_muc_tieu else None
+    dat_muc_tieu = muc_tieu is not None and da_dat + _EPS >= muc_tieu
 
     # (4) mọi phân bổ lương khoán đã chốt (không còn draft/mở lại).
     chua_chot = [cv for cv in cvs if pb_repo.con_phan_bo_chua_chot(cv.id)]
-
-    # (5) hết lỗi KCS chờ trả lời; (6) hết BTP chờ kho xác nhận.
-    con_loi = kcs_repo.co_loi_chua_tra_loi(nhom_id)
-    con_btp = kho_repo.co_btp_tra_cho_kho(nhom_id)
 
     dieu_kien = [
         {
@@ -94,14 +97,24 @@ def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list, list[dict]]
             "chi_tiet": f"{len(lech)} công đoạn bàn giao chưa nhất quán" if lech else "",
         },
         {
-            "ma": "kcs_cuoi_phan_loai_du",
-            "ten": "KCS cuối đã phân loại hết số nhận",
+            "ma": "kcs_cuoi_kiem_het",
+            "ten": "KCS đã kiểm hết công đoạn cuối",
             "dat": kcs_du,
             "chi_tiet": (
                 "" if kcs_du else
-                "nhóm chưa xác định bước KCS cuối" if not co_kcs_cuoi else
-                "KCS cuối chưa nhận sản phẩm nào" if da_nhan <= _EPS else
-                f"mới phân loại {da_phan_loai:g}/{da_nhan:g}"
+                "nhóm chưa xác định công đoạn cuối" if not cuoi else
+                "công đoạn cuối chưa ghi số tốt" if tot <= _EPS else
+                f"mới kiểm {_so(da_kiem)}/{_so(tot)}"
+            ),
+        },
+        {
+            "ma": _MA_DAT_MUC_TIEU,
+            "ten": "KCS đạt đủ mục tiêu",
+            "dat": dat_muc_tieu,
+            "chi_tiet": (
+                "" if dat_muc_tieu else
+                "công đoạn cuối chưa có số mục tiêu" if muc_tieu is None else
+                f"mới đạt {_so(da_dat)}/{_so(muc_tieu)}"
             ),
         },
         {
@@ -110,49 +123,21 @@ def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list, list[dict]]
             "dat": not chua_chot,
             "chi_tiet": f"{len(chua_chot)} công đoạn còn phân bổ chưa chốt" if chua_chot else "",
         },
-        {
-            "ma": "het_loi_kcs_cho",
-            "ten": "Hết lỗi KCS chờ trả lời",
-            "dat": not con_loi,
-            "chi_tiet": "còn lỗi KCS chờ trả lời" if con_loi else "",
-        },
-        {
-            "ma": "het_btp_cho_kho",
-            "ten": "Hết BTP chờ kho nhận",
-            "dat": not con_btp,
-            "chi_tiet": "còn BTP chờ kho xác nhận" if con_btp else "",
-        },
     ]
-    return nhom, cvs, dieu_kien
+    return nhom, dieu_kien, {"muc_tieu": muc_tieu, "da_dat": da_dat}
 
 
 def dieu_kien_dong_nhom(db: Session, nhom_id: int) -> dict:
     """Đọc tình trạng cổng đóng nhóm — FE hiện checklist "vì sao chưa đóng" + bật nút đóng thiếu."""
-    nhom, cvs, dk = _danh_gia(db, nhom_id)
-    # Con số CÒN THIẾU của cả nhóm — CHỈ ĐỂ BÀY (spec-thuc-te-vs-ke-hoach §2.3).
-    # `_danh_gia` vẫn giữ nguyên 6 điều kiện: nó đo "đã phân loại / đã nhận", CỐ Ý không so mục
-    # tiêu đơn (chú thích dòng 63). Người bấm "đóng thiếu" trước đây bấm mù — nay thấy thiếu bao
-    # nhiêu, nhưng quyền đóng không đổi.
-    # Tập KCS cuối dùng ĐÚNG biểu thức rơi-về đã có ở `_danh_gia` (dòng ~67) và `dong_thieu` (dòng
-    # ~217) trong chính module này: `la_kcs_cuoi` chỉ được gán thật khi qua release.phat_hanh
-    # (snapshot.danh_dau_kcs_cuoi); dữ liệu/test dựng tay chỉ có `la_kcs` (rộng hơn). Lọc theo
-    # `so_luong_ra is not None` PHẢI làm SAU khi đã chọn xong tập bằng `or`, không nhét vào vế
-    # trái — nhét vào sẽ rơi-về sai khi nhóm có `la_kcs_cuoi` nhưng chưa khai số. Đổi luật rơi-về
-    # thì phải sửa cả BA chỗ (đây + hai chỗ trên), không chỉ chỗ này.
-    kcs_final_cvs = [c for c in cvs if c.la_kcs_cuoi] or [c for c in cvs if c.la_kcs]
-    kcs_cuoi = [c for c in kcs_final_cvs if c.so_luong_ra is not None]
-    tot_map = SanXuatSanLuongRepository(db).tong_tot_nhieu([c.id for c in kcs_cuoi])
-    muc_tieu = sum(float(c.so_luong_ra) for c in kcs_cuoi) if kcs_cuoi else None
-    da_dat = (
-        sum(tot_map.get(c.id, 0.0) for c in kcs_cuoi) if muc_tieu is not None else None
-    )
+    nhom, dk, so = _danh_gia(db, nhom_id)
+    muc_tieu, da_dat = so["muc_tieu"], so["da_dat"]
     return {
         "nhom_id": nhom.id,
         "order_id": nhom.order_id,
         "trang_thai": nhom.trang_thai,
         "version": nhom.version,
         "du_dong_du": all(d["dat"] for d in dk),
-        "du_dong_thieu": all(d["dat"] for d in dk if d["ma"] != _MA_HOAN_THANH),
+        "du_dong_thieu": all(d["dat"] for d in dk if d["ma"] not in _MA_DU),
         "dieu_kien": dk,
         "muc_tieu": muc_tieu,
         "da_dat": da_dat,
@@ -171,7 +156,7 @@ def tu_dong_dong_neu_du(
     nhom = repo.nhom(nhom_id)
     if nhom is None or nhom.trang_thai in (NHOM_DONG_DU, NHOM_DONG_THIEU):
         return None
-    _n, _cvs, dk = _danh_gia(db, nhom_id)
+    _n, dk, _so_lieu = _danh_gia(db, nhom_id)
     if not all(d["dat"] for d in dk):
         return None
     nhom.trang_thai = NHOM_DONG_DU
@@ -192,14 +177,6 @@ def tu_dong_dong_neu_du(
     }
 
 
-def _gate_truong_kcs(db: Session, user, kcs_cvs: list) -> None:
-    """Đóng thiếu (§13.3) đòi quyền KCS trên TRỌN MỘT tổ KCS cuối trong nhóm."""
-    q = quyen_cua_uid(db, getattr(user, "id", None))
-    if q is not None and any(q.co_tron(VIEC_KCS, cv.department_id) for cv in kcs_cvs):
-        return
-    raise PermissionError("Cần quyền KCS ở tổ KCS cuối của nhóm mới được đóng thiếu nhóm này.")
-
-
 def dong_thieu(
     db: Session,
     *,
@@ -207,8 +184,10 @@ def dong_thieu(
     nhom_id: int,
     expected_version: int | None = None,
 ) -> dict:
-    """Trưởng KCS đóng THIẾU nhóm còn dở (§13.3). Vẫn phải sạch điều kiện toàn vẹn (mọi điều kiện
-    TRỪ "mọi việc xong"). Chuyển sang `closed_short`, ghi audit sự kiện."""
+    """Trưởng tổ KCS đóng THIẾU nhóm còn dở hoặc hụt mục tiêu (§13.3). Vẫn phải sạch điều kiện toàn
+    vẹn (mọi điều kiện TRỪ "mọi việc xong" và "đạt đủ mục tiêu"). Chuyển sang `closed_short`, ghi
+    audit sự kiện."""
+    gate_truong_kcs(db, user)
     repo = SanXuatRepository(db)
     nhom = repo.nhom(nhom_id)
     if nhom is None:
@@ -218,14 +197,8 @@ def dong_thieu(
     if expected_version is not None and expected_version != nhom.version:
         raise ValueError("Nhóm vừa được cập nhật, hãy tải lại rồi thao tác.")
 
-    cvs = repo.cong_viec_hien_tai_cua_nhom(nhom_id)
-    kcs_cvs = [cv for cv in cvs if cv.la_kcs_cuoi] or [cv for cv in cvs if cv.la_kcs]
-    if not kcs_cvs:
-        raise PermissionError("Nhóm không có bước KCS nên không có ai đóng thiếu.")
-    _gate_truong_kcs(db, user, kcs_cvs)
-
-    _n, _c, dk = _danh_gia(db, nhom_id)
-    thieu = [d for d in dk if d["ma"] != _MA_HOAN_THANH and not d["dat"]]
+    _n, dk, _so_lieu = _danh_gia(db, nhom_id)
+    thieu = [d for d in dk if d["ma"] not in _MA_DU and not d["dat"]]
     if thieu:
         raise ValueError("Chưa thể đóng thiếu — " + "; ".join(d["ten"] for d in thieu) + ".")
 

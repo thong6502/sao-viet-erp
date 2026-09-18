@@ -12,10 +12,10 @@
 //     `ThsxExecPanels`; mọi mặt GHI đi qua `exec.*` (controller lo khoá lạc quan + refetch + toast).
 //
 // Component KHÔNG tự gọi API ghi: phát ý định qua callback; controller lo dialog lý do + version lạc quan.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { assetUrl } from "../api/client";
 import type {
-  SxNhanVienChon, SxWorkItemChiTiet, SxHoTroUngVien,
-  SxKcsChiTiet, SxKhoChiTiet, SxDongNhomDieuKien, SxQuyCachThe,
+  SxNhanVienChon, SxWorkItemChiTiet, SxHoTroUngVien, SxQuyCachThe,
 } from "../api/client";
 import type { MayChon } from "../api/kyThuatMay";
 import { Button } from "../components/Button";
@@ -25,9 +25,11 @@ import { num, ngayGio } from "./keHoachSxShared";
 import { nhanChang } from "./lsxBuoc";
 import { phutChayText, slText, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 import { ThsxBaoSuCoDialog } from "./ThsxBaoSuCoDialog";
-import { ThsxExecPanels, type ThsxExec } from "./ThsxExecPanels";
-import { ThsxKcsPanel, ThsxKhoPanel, ThsxDongNhomPanel, type Opt } from "./ThsxG5";
+import { ThsxDoiMay } from "./ThsxDoiMay";
+import { ThsxExecPanels, ThsxNhanVe, type ThsxExec } from "./ThsxExecPanels";
+import type { SxChoCuaViec } from "./thsxChoXacNhan";
 import { ThsxTepLenh } from "./ThsxTepLenh";
+import { ThsxKetQuaKcs } from "./ThsxKetQuaKcs";
 
 interface Props {
   chiTiet: SxWorkItemChiTiet | null;
@@ -36,22 +38,11 @@ interface Props {
   candidates: SxNhanVienChon[];
   /** Ứng viên HỖ TRỢ CHÉO (§9) — thợ tổ SX khác đang làm (endpoint riêng module). */
   hoTroUngVien: SxHoTroUngVien[];
-  /** Máy chọn được cho ô "Đổi máy" (`may-chon` — không đòi quyền `dm_thiet_bi` như thợ đứng máy). */
+  /** Danh mục máy (`may-chon` — không đòi quyền `dm_thiet_bi`), chỉ để dựng nhãn máy hiện tại cho
+   *  Báo sự cố. Ô "Đổi máy" KHÔNG dùng: nó tự nạp danh sách theo công đoạn + tình trạng (`ThsxDoiMay`). */
   mayOptions: MayChon[];
   /** Hợp đồng các mặt GHI của Giai đoạn 3+4+5. */
   exec: ThsxExec;
-  /** Giai đoạn 5 — KCS §13: mẻ kiểm tra + lỗi + ảnh (chỉ nạp khi bước `la_kcs`). */
-  kcsCt: SxKcsChiTiet | null;
-  /** Giai đoạn 5 — Kho §14: yêu cầu nhập + BTP dư (chỉ nạp khi `la_kcs` + có `nhom_id`). */
-  khoCt: SxKhoChiTiet | null;
-  /** Giai đoạn 5 — §16/§13.3: checklist cổng đóng nhóm (chỉ nạp khi `la_kcs_cuoi` + có `nhom_id`). */
-  dieuKien: SxDongNhomDieuKien | null;
-  /** §8 — thưởng/phạt tổ trưởng của nhóm. Nạp cho MỌI bước có `nhom_id`, không riêng KCS cuối:
-   *  tổ trưởng tổ In cũng phải xem được điểm chất lượng của tổ mình ngay tại bước của họ. */
-  /** Danh sách tổ có thể chỉ định "chịu trách nhiệm lỗi" (dẫn xuất từ ứng viên hỗ trợ). */
-  toChiuOpts: Opt[];
-  /** Công đoạn thượng nguồn có thể gán "liên đới lỗi" (dẫn xuất từ bàn giao đến). */
-  congDoanRefOpts: Opt[];
   /** Có một lệnh ghi đang bay (khoá nút để tránh double-submit). */
   busy: boolean;
   onGiao: (employeeId: number) => void;
@@ -64,11 +55,22 @@ interface Props {
   onTamDung: () => void;
   onKetThuc: () => void;
   onClose: () => void;
-  /** Tab mở sẵn — hộp "Chờ tổ bạn xác nhận" mở thẳng tab Bàn giao. Chỉ đọc lúc mount. */
-  tabDau?: "van_hanh" | "ban_giao" | "kcs_kho";
+  /** Tab mở sẵn — công đoạn đang có việc chờ tổ bấm thì mở thẳng chỗ bấm (Nhận / KCS / Bàn giao).
+   *  Chỉ đọc lúc mount. */
+  tabDau?: ThsxDrawerTab;
   /** Bộ đếm SSE tệp đính kèm theo lệnh (AppShell) — thẻ "Tệp của lệnh" tự nạp lại khi lệnh của nó đổi. */
   dinhKemDem?: Record<number, number>;
+  /** Nhịp nạp lại mục "Kết quả KCS" (SSE + sau mỗi lần ghi của bàn). */
+  kcsTick?: number;
+  /** Lỗi KCS đang chờ người xem bấm "Đã xem" — chỉ những lỗi này mới bày nút. */
+  kcsLoiChoXem?: ReadonlySet<number>;
+  /** Việc chờ tổ bấm của CHÍNH công việc đang mở (§11.5) — chấm đỏ trên tab nơi bấm: Nhận (bàn
+   *  giao đến), Bàn giao & Vật tư (hỗ trợ chéo), KCS (lỗi chưa xem). */
+  cho?: SxChoCuaViec;
+  onDaXemKcs?: (loiId: number) => void;
 }
+
+export type ThsxDrawerTab = "van_hanh" | "nhan" | "ban_giao" | "kcs";
 
 const DONG_LABEL: Record<string, string> = {
   tam_dung: "tạm dừng",
@@ -121,27 +123,47 @@ function khoangTimeText(batDau: string | null | undefined, ketThuc: string | nul
   return `${str1} → ${dt2}/${m2} ${hh2}:${mm2}`;
 }
 
+/** Ảnh đại diện của thợ; chưa có ảnh (hoặc ảnh tải hỏng) thì vẽ chữ cái đầu như cũ. */
+function AnhNguoi({ ten, url, size }: { ten: string; url?: string | null; size?: number }) {
+  const [srcHong, setSrcHong] = useState<string | null>(null);
+  const src = assetUrl(url);
+  const style = size ? { width: size, height: size, fontSize: size / 2 } : undefined;
+  return (
+    <span className="thsx-roster-avatar-glow" style={style}>
+      {src && src !== srcHong
+        ? <img src={src} alt="" onError={() => setSrcHong(src)} />
+        : (ten ? ten.trim().charAt(0).toUpperCase() : "T")}
+    </span>
+  );
+}
+
 export function ThsxDrawer({
   chiTiet, loading, candidates, hoTroUngVien, mayOptions, exec, busy,
-  kcsCt, khoCt, dieuKien, toChiuOpts, congDoanRefOpts,
   onGiao, onRut, onBatDau, onNhanKhuon, onTraKhuon, onTamDung, onKetThuc, onClose, tabDau = "van_hanh", dinhKemDem,
+  kcsTick, kcsLoiChoXem, cho, onDaXemKcs,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<"van_hanh" | "ban_giao" | "kcs_kho">(tabDau);
+  const [activeTab, setActiveTab] = useState<ThsxDrawerTab>(tabDau);
+  // Ba tab dùng chung MỘT khung cuộn — đổi tab mà không kéo về đầu thì tab mới mở ra ở vị trí cuộn
+  // của tab cũ (cuộn Vận hành tới đáy rồi bấm Bàn giao là thấy ngay đáy Bàn giao, mất phần đầu).
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [activeTab]);
   const [giaoOpen, setGiaoOpen] = useState(false);
   const [q, setQ] = useState("");
   const [moKhoang, setMoKhoang] = useState(false);
   const [doiMayOpen, setDoiMayOpen] = useState(false);
-  const [mayChonId, setMayChonId] = useState<number | "">("");
-  const [lyDoMay, setLyDoMay] = useState("");
   // Báo sự cố (§7.2 mở rộng 31/08/2026) — ô nhập nằm trong ngăn kéo `ThsxBaoSuCoDialog`.
   const [suCoOpen, setSuCoOpen] = useState(false);
 
   const cv = chiTiet?.cong_viec ?? null;
   // Quyền TRÊN CHÍNH công việc này (máy chủ tính theo dòng quyền của tổ; mức "Của tôi" chỉ bật khi
-  // việc đang giao cho mình). Vận hành = Thực hiện lệnh; KCS = KCS; nhập kho/BTP = Kho.
+  // việc đang giao cho mình). Vận hành = Thực hiện lệnh; KCS = KCS; nhập kho = Kho.
   const canAssign = !!chiTiet?.quyen?.run_order;
-  const canKcs = !!chiTiet?.quyen?.qc;
-  const canKho = !!chiTiet?.quyen?.warehouse;
+  // Nút tắt vì hai lý do khác nhau: không được cấp Thực hiện lệnh, hoặc có nhưng mức "Của tôi" mà
+  // việc chưa giao cho mình. Câu báo phải nói đúng lý do — người đã bật quyền đọc "cần quyền" là
+  // tưởng hệ thống lỗi (16/09/2026).
+  const chuaGiaoChoToi = !canAssign && chiTiet?.quyen_muc?.run_order === "own";
   const tt = chiTiet?.trang_thai ?? cv?.trang_thai ?? "released";
   const isTo = cv?.loai_buoc === "to";
   const isMay = cv?.loai_buoc === "may" || cv?.loai_buoc === "thue_ngoai";
@@ -151,10 +173,6 @@ export function ThsxDrawer({
   const rosterActive = useMemo(
     () => (chiTiet?.phan_cong ?? []).filter((p) => p.trang_thai === "active"),
     [chiTiet],
-  );
-  const mayOptionsKhaDung = useMemo(
-    () => mayOptions.filter((m) => m.id !== cv?.may_id),
-    [mayOptions, cv?.may_id],
   );
   const mayHienTai = mayOptions.find((m) => m.id === cv?.may_id);
   const mayNhanSuCo = mayHienTai ? `${mayHienTai.ma} · ${mayHienTai.ten}` : (cv?.may ?? "—");
@@ -184,10 +202,11 @@ export function ThsxDrawer({
       .filter((c) => !kw || c.full_name.toLowerCase().includes(kw) || (c.code ?? "").toLowerCase().includes(kw));
   }, [candidates, activeIds, q]);
 
-  const hasKcsKho = !!(cv?.la_kcs || cv?.la_kcs_cuoi || cv?.nhom_id != null);
 
-  // Tiến độ sản xuất %
-  const targetVal = cv?.thuc_nhan || cv?.so_luong_vao || 0;
+  // Tiến độ sản xuất % — cùng mốc với dòng bảng (`ThsxDanhSach`) và ô "Còn thiếu": mục tiêu ĐẦU RA
+  // (đã rút theo thực nhận), không phải lượng vào. Lấy `thuc_nhan`/`so_luong_vao` như trước là chia
+  // sản lượng tờ ra cho số tờ vào có bù hao: In 0004 làm đủ 5.340 cũng chỉ 94% "của 5.690".
+  const targetVal = cv?.muc_tieu ?? cv?.so_luong_ra ?? 0;
   const currentVal = cv?.da_lam || 0;
   const progressPct = targetVal > 0 ? Math.min(100, Math.round((currentVal / targetVal) * 100)) : 0;
 
@@ -196,16 +215,6 @@ export function ThsxDrawer({
     onGiao(c.id);
     setGiaoOpen(false);
     setQ("");
-  }
-
-  async function xacNhanDoiMay() {
-    if (mayChonId === "") return;
-    const ok = await exec.doiMay(mayChonId, lyDoMay.trim() || null);
-    if (ok) {
-      setDoiMayOpen(false);
-      setMayChonId("");
-      setLyDoMay("");
-    }
   }
 
   const serial = cv ? sxSerial(cv.nguon_ma) : "";
@@ -249,41 +258,53 @@ export function ThsxDrawer({
 
       {/* 2 · TAB NAVIGATION BAR (OPTION 2: TABBED SIDEBAR) */}
       {cv && (
-        <div className="thsx-drawer-tabs" role="tablist">
-          <button
-            type="button"
-            className={`thsx-drawer-tab${activeTab === "van_hanh" ? " is-active" : ""}`}
-            onClick={() => setActiveTab("van_hanh")}
-            role="tab"
-            aria-selected={activeTab === "van_hanh"}
-          >
-            <Icon name="cpu" size={13} /> Vận hành &amp; Quy cách
-          </button>
-          <button
-            type="button"
-            className={`thsx-drawer-tab${activeTab === "ban_giao" ? " is-active" : ""}`}
-            onClick={() => setActiveTab("ban_giao")}
-            role="tab"
-            aria-selected={activeTab === "ban_giao"}
-          >
-            <Icon name="check" size={13} /> Bàn giao &amp; Vật tư
-          </button>
-          {hasKcsKho && (
+        <div className="thsx-drawer-tabs">
+          <div className="thsx-drawer-tabs__track" role="tablist">
             <button
               type="button"
-              className={`thsx-drawer-tab${activeTab === "kcs_kho" ? " is-active" : ""}`}
-              onClick={() => setActiveTab("kcs_kho")}
+              className={`thsx-drawer-tab${activeTab === "van_hanh" ? " is-active" : ""}`}
+              onClick={() => setActiveTab("van_hanh")}
               role="tab"
-              aria-selected={activeTab === "kcs_kho"}
+              aria-selected={activeTab === "van_hanh"}
             >
-              <Icon name="alert" size={13} /> KCS &amp; Kho
-              {(cv.la_kcs || cv.la_kcs_cuoi) && <span className="thsx-drawer-tab__dot" />}
+              <Icon name="cpu" size={13} /> Vận hành &amp; Quy cách
             </button>
-          )}
+            {/* Nhận đứng TRƯỚC Bàn giao: thứ tự việc đến tay tổ — nhận hàng, làm, giao đi. */}
+            <button
+              type="button"
+              className={`thsx-drawer-tab${activeTab === "nhan" ? " is-active" : ""}`}
+              onClick={() => setActiveTab("nhan")}
+              role="tab"
+              aria-selected={activeTab === "nhan"}
+            >
+              <Icon name="packageCheck" size={13} /> Nhận
+              {!!cho?.nhan && <span className="thsx-drawer-tab__dot" title="Có bàn giao chờ tổ nhận" />}
+            </button>
+            <button
+              type="button"
+              className={`thsx-drawer-tab${activeTab === "ban_giao" ? " is-active" : ""}`}
+              onClick={() => setActiveTab("ban_giao")}
+              role="tab"
+              aria-selected={activeTab === "ban_giao"}
+            >
+              <Icon name="truck" size={13} /> Bàn giao &amp; Vật tư
+              {!!cho?.hoTro && <span className="thsx-drawer-tab__dot" title="Có hỗ trợ chéo chờ tổ xác nhận" />}
+            </button>
+            <button
+              type="button"
+              className={`thsx-drawer-tab${activeTab === "kcs" ? " is-active" : ""}`}
+              onClick={() => setActiveTab("kcs")}
+              role="tab"
+              aria-selected={activeTab === "kcs"}
+            >
+              <Icon name="shield" size={13} /> KCS
+              {!!cho?.kcs && <span className="thsx-drawer-tab__dot" title="Có lỗi KCS chờ tổ xem" />}
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="thsx-panel__body">
+      <div className="thsx-panel__body" ref={bodyRef}>
         {loading && !chiTiet ? (
           <div className="thsx-panel__loading">Đang tải…</div>
         ) : !cv || !chiTiet ? (
@@ -464,6 +485,15 @@ export function ThsxDrawer({
                           Đã nhận khuôn
                         </Button>
                       )}
+                      {/* Thiếu quyền thì nói ra, đừng để khối trống trơn: người xem tưởng hệ thống
+                          không có chỗ tích nhận (16/09/2026). */}
+                      {!cv.khuon_da_nhan && !canAssign && (
+                        <span className="thsx-khuon__xong">
+                          {chuaGiaoChoToi
+                            ? "Việc này chưa giao cho bạn — quyền Thực hiện lệnh của bạn ở tổ này là “Của tôi”, chỉ áp cho việc được giao."
+                            : "Cần quyền Thực hiện lệnh ở tổ này mới xác nhận nhận khuôn được."}
+                        </span>
+                      )}
                       {cv.khuon_da_nhan && !cv.khuon_da_tra && done && canAssign && (
                         <Button variant="ghost" onClick={onTraKhuon} disabled={busy}>
                           Đã trả khuôn về kệ
@@ -491,7 +521,7 @@ export function ThsxDrawer({
                             </div>
                             {isTo && (
                               <p className="thsx-giao__note">
-                                Bước nội bộ chỉ nhận thợ <b>lương khoán</b>.
+                                Bước nội bộ không nhận người <b>công nhật</b>.
                               </p>
                             )}
                             <div className="thsx-giao__list">
@@ -505,9 +535,8 @@ export function ThsxDrawer({
                                     title={chan ? "Công nhật — không giao vào bước nội bộ" : undefined}>
                                     <span className="thsx-giao__nm">{c.full_name}</span>
                                     {c.code && <span className="thsx-giao__code">{c.code}</span>}
-                                    <span className={`thsx-tag ${c.la_luong_khoan ? "thsx-tag--khoan" : "thsx-tag--nhat"}`}>
-                                      {c.la_luong_khoan ? "khoán" : "công nhật"}
-                                    </span>
+                                    {/* Thợ tổ sản xuất mặc định hưởng khoán — chỉ đánh dấu ngoại lệ công nhật. */}
+                                    {!c.la_luong_khoan && <span className="thsx-tag thsx-tag--nhat">công nhật</span>}
                                   </button>
                                 );
                               })}
@@ -518,19 +547,15 @@ export function ThsxDrawer({
                     )}
                   </div>
                   {rosterActive.length === 0 ? (
-                    <p className="thsx-note">Chưa giao ai. Cần ≥1 thợ lương khoán để bắt đầu.</p>
+                    <p className="thsx-note">Chưa giao ai — giao ít nhất 1 thợ để bắt đầu.</p>
                   ) : (
                     <ul className="thsx-roster-grid-2col">
                       {rosterActive.map((p) => (
                         <li key={p.id} className="thsx-roster-chip-card">
                           <div className="thsx-roster-chip-left">
-                            <span className="thsx-roster-avatar-glow">
-                              {p.ho_ten ? p.ho_ten.trim().charAt(0).toUpperCase() : "T"}
-                            </span>
+                            <AnhNguoi ten={p.ho_ten} url={p.avatar_url} />
                             <span className="thsx-roster__nm">{p.ho_ten}</span>
-                            <span className={`thsx-tag ${p.la_luong_khoan ? "thsx-tag--khoan" : "thsx-tag--nhat"}`}>
-                              {p.la_luong_khoan ? "khoán" : "công nhật"}
-                            </span>
+                            {!p.la_luong_khoan && <span className="thsx-tag thsx-tag--nhat">công nhật</span>}
                           </div>
                           {canAssign && !done && (
                             <button type="button" className="thsx-roster__rut-chip" onClick={() => onRut(p.id)}
@@ -590,9 +615,7 @@ export function ThsxDrawer({
                           {chiTiet.khoang_tham_gia.map((k) => (
                             <li key={k.id} className="thsx-kthamgia-chip-row">
                               <div className="thsx-kthamgia-left">
-                                <span className="thsx-roster-avatar-glow" style={{ width: 20, height: 20, fontSize: 10 }}>
-                                  {k.ho_ten ? k.ho_ten.trim().charAt(0).toUpperCase() : "T"}
-                                </span>
+                                <AnhNguoi ten={k.ho_ten} url={k.avatar_url} size={20} />
                                 <span className="thsx-kthamgia-name">{k.ho_ten}</span>
                                 <span className="thsx-phien__no" style={{ fontSize: 10, padding: "0 4px" }}>
                                   #{chiTiet.phien_chay.find((p) => p.id === k.phien_chay_id)?.so_thu_tu ?? "?"}
@@ -611,6 +634,9 @@ export function ThsxDrawer({
               </>
             )}
 
+            {/* ================= TAB NHẬN: BÀN GIAO ĐẾN ================= */}
+            {activeTab === "nhan" && <ThsxNhanVe chiTiet={chiTiet} busy={busy} exec={exec} />}
+
             {/* ================= TAB 2: BÀN GIAO & VẬT TƯ ================= */}
             {activeTab === "ban_giao" && (
               <ThsxExecPanels
@@ -621,63 +647,58 @@ export function ThsxDrawer({
               />
             )}
 
-            {/* ================= TAB 3: KCS & KHO ================= */}
-            {activeTab === "kcs_kho" && hasKcsKho && (
-              <>
-                {cv.la_kcs && (
-                  <ThsxKcsPanel
-                    chiTiet={chiTiet}
-                    ct={kcsCt}
-                    canAssign={canKcs}
-                    busy={busy}
-                    toChiuOpts={toChiuOpts}
-                    congDoanRefOpts={congDoanRefOpts}
-                    exec={exec}
-                  />
-                )}
-                {cv.la_kcs && cv.nhom_id != null && (
-                  <ThsxKhoPanel
-                    chiTiet={chiTiet}
-                    kho={khoCt}
-                    kcsBatches={kcsCt?.batch ?? []}
-                    canAssign={canKho}
-                    busy={busy}
-                    exec={exec}
-                  />
-                )}
-                {cv.la_kcs_cuoi && cv.nhom_id != null && (
-                  <ThsxDongNhomPanel
-                    dieuKien={dieuKien}
-                    canAssign={canKcs}
-                    busy={busy}
-                    onDongThieu={exec.dongThieu}
-                  />
-                )}
-              </>
+            {/* ================= TAB 3: KCS ================= */}
+            {/* KCS kiểm công đoạn này (theo lệnh, mg 0306): các lần kiểm, lỗi + ảnh, nút "Đã xem". */}
+            {activeTab === "kcs" && (
+              <ThsxKetQuaKcs congViecId={cv.id} kcsTick={kcsTick} loiChoXem={kcsLoiChoXem}
+                busy={busy} onDaXem={onDaXemKcs} />
             )}
+
           </>
         )}
       </div>
 
-      {/* PINNED BOTTOM ACTION FOOTER BAR */}
-      {cv && (
+      {/* PINNED BOTTOM ACTION FOOTER BAR — việc Hoàn thành thì bỏ hẳn: mọi nút dưới đây (Bắt đầu,
+          Đổi máy, Báo sự cố) chỉ chạy khi việc đang chạy/tạm dừng, để lại chỉ là hàng nút mờ vô dụng;
+          trạng thái đã có ở đầu ngăn. */}
+      {cv && !done && (
         <div className="thsx-glass-footer">
-          {lechKip && !done && (
+          {/* Lý do lệch kíp chỉ được hỏi lúc Bắt đầu / Tiếp tục (`thuc_thi.bat_dau`) — đang chạy thì câu
+              này hứa một bước không còn nút nào dẫn tới. Chưa giao ai thì câu dưới ("Cần giao ít nhất
+              1 thợ") mới là chỗ chặn thật; hiện thêm câu này chỉ gây nhầm là đang lệch GIỜ kế hoạch. */}
+          {lechKip && rosterActive.length > 0 && (tt === "released" || tt === "paused") && (
             <div className="thsx-alert-capsule">
               <Icon name="alert" size={14} style={{ color: "#d97706" }} />
-              <span>Kíp lệch so với kế hoạch — Bắt đầu sẽ chọn lý do.</span>
+              <span>
+                Số thợ khác kíp chuẩn ({rosterActive.length}/{cv.du_kien_so_nguoi}) — {tt === "paused" ? "Tiếp tục" : "Bắt đầu"} sẽ chọn lý do.
+              </span>
             </div>
           )}
           {!hasKhoan && !done && tt !== "running" && (
             <div className="thsx-alert-capsule">
               <Icon name="alert" size={14} style={{ color: "#d97706" }} />
-              <span>Cần ≥1 thợ lương khoán mới bắt đầu được.</span>
+              {/* Máy chủ đòi ≥1 người hưởng khoán (`thuc_thi.bat_dau`); tổ không cần nghe chữ "khoán" —
+                  chỉ khi người đang giao toàn công nhật mới phải nói vì sao vẫn chưa bắt đầu được. */}
+              <span>
+                {rosterActive.length === 0
+                  ? "Cần giao ít nhất 1 thợ mới bắt đầu được."
+                  : "Người đang giao đều là công nhật — cần thêm ít nhất 1 thợ không phải công nhật mới bắt đầu được."}
+              </span>
             </div>
           )}
           {khuonChoNhan && !done && tt !== "running" && (
             <div className="thsx-alert-capsule">
               <Icon name="alert" size={14} style={{ color: "#d97706" }} />
-              <span>Chưa nhận khuôn/khung — tích “Đã nhận” ở khối trên trước.</span>
+              {/* Gọi đúng tên nút + tên mục, không chỉ hướng "khối trên": mục nằm dưới tầm mắt khi
+                  mới mở drawer. Thiếu quyền thì nút không có — nói lý do thay vì bảo đi tìm nó. */}
+              <span>
+                Chưa nhận khuôn/khung{cv.khuon?.ma ? ` ${cv.khuon.ma}` : ""} —{" "}
+                {canAssign
+                  ? "bấm “Đã nhận khuôn” ở mục Khuôn & khung rồi mới Bắt đầu."
+                  : chuaGiaoChoToi
+                    ? "việc chưa giao cho bạn, mà quyền của bạn ở tổ này là “Của tôi”."
+                    : "cần quyền Thực hiện lệnh ở tổ này mới xác nhận được."}
+              </span>
             </div>
           )}
 
@@ -716,29 +737,9 @@ export function ThsxDrawer({
           </div>
 
           {/* FORM ĐỔI MÁY & BÁO SỰ CỐ */}
-          {doiMayOpen && (
-            <div className="thsx-x-form thsx-x-form--sub" style={{ marginTop: "12px" }}>
-              <div className="thsx-x-grid2">
-                <label className="thsx-x-fld">
-                  <span className="thsx-x-fld__l">Máy mới</span>
-                  <select className="thsx-x-sel" value={mayChonId} disabled={mayOptionsKhaDung.length === 0}
-                    onChange={(e) => setMayChonId(e.target.value ? Number(e.target.value) : "")}>
-                    <option value="">— Chọn máy —</option>
-                    {mayOptionsKhaDung.map((m) => (
-                      <option key={m.id} value={m.id}>{m.ma}{m.ten ? ` — ${m.ten}` : ""}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="thsx-x-fld">
-                  <span className="thsx-x-fld__l">Lý do (không bắt buộc)</span>
-                  <input className="thsx-x-in" value={lyDoMay} onChange={(e) => setLyDoMay(e.target.value)} placeholder="Máy hỏng, đổi ca…" />
-                </label>
-              </div>
-              <div className="thsx-run" style={{ marginTop: "8px" }}>
-                <Button variant="ghost" onClick={() => { setDoiMayOpen(false); setMayChonId(""); setLyDoMay(""); }}>Huỷ</Button>
-                <Button variant="accent" onClick={xacNhanDoiMay} disabled={busy || mayChonId === ""}>Xác nhận đổi máy</Button>
-              </div>
-            </div>
+          {doiMayOpen && cv && (
+            <ThsxDoiMay congViecId={cv.id} mayHienTaiId={cv.may_id} tenCongDoan={cv.ten_cong_doan} busy={busy}
+              onDoi={exec.doiMay} onClose={() => setDoiMayOpen(false)} />
           )}
 
           {suCoOpen && cv && (

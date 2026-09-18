@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { AuthProvider } from "./auth/AuthContext";
+import { chanLanChuotDoiSo } from "./lib/chanLanChuotDoiSo";
 import "./styles/global.css";
 // Nạp CUỐI: `import { App }` ở trên chạy trước nên CSS của từng màn đã được chèn xong, rồi
 // mới tới global.css và file này — nhờ vậy luật ở đây thắng khi cùng độ đặc hiệu. Mọi luật
@@ -12,6 +13,8 @@ import "./styles/responsive-chu.css";
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element #root not found");
+
+chanLanChuotDoiSo();
 
 createRoot(rootEl).render(
   <StrictMode>

@@ -313,8 +313,6 @@ Ghi ở đây để đọc tài liệu không hiểu nhầm là đã xong hết.
 |---|---|
 | **Tiền khoán** | Luôn = 0 — thiếu nguồn **sản lượng**, chờ Lệnh sản xuất |
 | **Tổ tích "Làm khoán"** | Mất tăng ca mà cũng không có khoán ⇒ **thiệt hơn tổ thường**. Chữa tạm: bỏ tích |
-| **Quy tắc lương theo bậc thợ** | Khai được nhưng **không bao giờ áp dụng** |
-| **Ô "Loại / Bậc thợ"** | Gõ được nhưng **không ra tiền** — chỉ để xem |
 | **Điều chỉnh lương ±** | Máy cộng được nhưng **không có ô nhập** trên màn |
 
 ## 🔴 Một con số chờ quyết, không phải lỗi

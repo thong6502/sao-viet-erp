@@ -40,6 +40,7 @@ from ..schemas.stock import (
     StockRequestUpdate,
 )
 from ..services.rbac_service import AuthorizationService
+from ..services.san_xuat.kho import phat_su_kien_kho
 from ..services.san_xuat.vat_tu_de_nghi import can_luc_hien_thi
 from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestError, StockRequestService
@@ -416,7 +417,7 @@ def update_request(
 
 
 def _act(svc: StockRequestService, request_id: int, user: User, authz: AuthorizationService,
-         db: Session, fn) -> StockRequestOut:
+         db: Session, fn, *, bao_nguoi_tao: bool = False) -> StockRequestOut:
     req = svc.requests.get_with_lines(request_id)
     if req is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy yêu cầu")
@@ -424,6 +425,8 @@ def _act(svc: StockRequestService, request_id: int, user: User, authz: Authoriza
         req = fn(req)
     except StockRequestError as e:
         raise _err(e) from None
+    # Yêu cầu nhập thành phẩm từ KCS: màn KCS / hồ sơ lệnh đọc ngược yêu cầu này ⇒ đẩy ngay.
+    phat_su_kien_kho(req, bao_nguoi_tao=bao_nguoi_tao)
     return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE, "view_stock"),
                       levels=None, on_hand=None)
 
@@ -455,7 +458,8 @@ def cancel_kho(request_id: int, payload: StockRequestReject, svc: Service, db: D
     """Kho HỦY yêu cầu (quyết định KHÔNG lập phiếu) — kèm lý do; gate bằng `create` (quyền lập
     phiếu), KHÔNG cần là người tạo. Yêu cầu chuyển 'Đã hủy'; số đã cấp bởi phiếu đã ghi sổ (nếu
     có) vẫn giữ nguyên trong kho."""
-    return _act(svc, request_id, user, authz, db, lambda r: svc.cancel_by_kho(r, payload.ly_do))
+    return _act(svc, request_id, user, authz, db, lambda r: svc.cancel_by_kho(r, payload.ly_do),
+                bao_nguoi_tao=True)
 
 
 @router.post("/{request_id}/tiep-nhan", response_model=StockRequestOut)
