@@ -69,8 +69,6 @@ class DepartmentRepository:
         head_user_id: int | None = None,
         description: str | None = None,
         parent_id: int | None = None,
-        salary_mechanism: str = "cung",
-        probation_ratio: float = 0.80,
         has_piece_work: bool = False,
     ) -> Department:
         dept = Department(
@@ -79,8 +77,6 @@ class DepartmentRepository:
             description=description,
             parent_id=parent_id,
             head_user_id=head_user_id,
-            salary_mechanism=salary_mechanism,
-            probation_ratio=probation_ratio,
             has_piece_work=has_piece_work,
         )
         self.db.add(dept)
@@ -88,17 +84,8 @@ class DepartmentRepository:
         self.db.refresh(dept)
         return dept
 
-    def set_salary_policy(
-        self,
-        dept: Department,
-        *,
-        salary_mechanism: str,
-        probation_ratio: float,
-        has_piece_work: bool,
-    ) -> Department:
-        """Bộ nguyên tắc lương của phòng (Pha 1): cơ chế + % thử việc + cờ có khoán."""
-        dept.salary_mechanism = salary_mechanism
-        dept.probation_ratio = probation_ratio
+    def set_has_piece_work(self, dept: Department, has_piece_work: bool) -> Department:
+        """Cờ phòng có lương khoán theo sản lượng."""
         dept.has_piece_work = has_piece_work
         self.db.commit()
         self.db.refresh(dept)
@@ -136,11 +123,14 @@ class DepartmentRepository:
                     queue.append(child.id)
         return result
 
-    def _khoi_theo_co(self, co: str, *, fallback_all: bool) -> list[Department]:
+    def _khoi_theo_co(self, co: str, *, fallback_all: bool,
+                      depts: list[Department] | None = None) -> list[Department]:
         """Phòng/tổ thuộc một KHỐI: tự bật cờ `co` HOẶC có tổ tiên bật (đi ngược cây `parent_id`).
         Dùng chung cho khối Sản xuất (`la_san_xuat`) và khối Kinh doanh (`la_kinh_doanh`) — cùng
-        một luật kế thừa, chỉ khác tên cờ."""
-        depts = self.list_all()
+        một luật kế thừa, chỉ khác tên cờ. `depts`: người gọi đã nạp sẵn cả bảng thì truyền vào,
+        khỏi đọc lại."""
+        if depts is None:
+            depts = self.list_all()
         by_id = {d.id: d for d in depts}
 
         def thuoc_khoi(d: Department) -> bool:
@@ -157,12 +147,13 @@ class DepartmentRepository:
             return depts
         return khoi
 
-    def production_departments(self, *, fallback_all: bool = True) -> list[Department]:
+    def production_departments(self, *, fallback_all: bool = True,
+                               depts: list[Department] | None = None) -> list[Department]:
         """Phòng/tổ thuộc khối SẢN XUẤT (§13.1): tự `la_san_xuat` HOẶC có tổ tiên `la_san_xuat`
         (đi ngược cây `parent_id`). `fallback_all=True` (mặc định): chưa đánh dấu phòng nào → trả
         tất cả (an toàn cho dropdown Công đoạn không rỗng). `fallback_all=False`: trả ĐÚNG tập tổ
         khối SX (rỗng nếu chưa tick cờ) — navbar Sản xuất dùng cái này để không phun ra mọi phòng ban."""
-        return self._khoi_theo_co("la_san_xuat", fallback_all=fallback_all)
+        return self._khoi_theo_co("la_san_xuat", fallback_all=fallback_all, depts=depts)
 
     def kinh_doanh_departments(self) -> list[Department]:
         """Phòng/tổ thuộc khối KINH DOANH: tự `la_kinh_doanh` HOẶC có tổ tiên bật cờ — tick phòng
@@ -242,15 +233,38 @@ class DepartmentRepository:
         self.db.refresh(dept)
         return dept
 
-    def dept_ids_giao_hang(self) -> set[int]:
-        """Id phòng/tổ thuộc bộ phận GIAO HÀNG — tự bật cờ HOẶC có tổ tiên bật cờ.
+    def set_la_to_in(self, dept: Department, value: bool) -> Department:
+        """Đánh dấu / bỏ dấu TỔ IN (mg 0304). Đích danh — KHÔNG cascade cây con, như `is_kcs`."""
+        dept.la_to_in = bool(value)
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
 
-        `fallback_all=False`: chưa tick phòng nào thì trả RỖNG, không phải "tất cả". Trả tất cả ở
-        đây là mọi nhân viên công ty hiện trong tab Nhân viên giao hàng.
+    def dept_ids_to_in(self) -> set[int]:
+        """Id tổ bật cờ TỔ IN — CHỈ tổ TỰ bật, KHÔNG kế thừa cây (cùng luật `dept_ids_giao_hang`).
+
+        Lương hỏi đúng câu này để biết ngày CN / lễ của người đó có công gốc hay không."""
+        return set(self.db.execute(
+            select(Department.id).where(Department.la_to_in.is_(True))
+        ).scalars().all())
+
+    def dept_ids_giao_hang(self) -> set[int]:
+        """Id phòng/tổ thuộc bộ phận GIAO HÀNG — CHỈ phòng TỰ bật cờ, KHÔNG kế thừa theo cây.
+
+        ⭐ MỘT định nghĩa cho cả phân hệ (chủ chốt 14/09/2026): ô chọn tài xế, tab Nhân viên giao
+        hàng, tính tiền khoán km, luật bắt buộc chọn xe, luật chặn tắt cờ — đều hỏi đúng câu này.
+
+        Trước đó hàm này đi qua `_khoi_theo_co` (kế thừa theo cây, dùng chung với khối Sản xuất /
+        Kinh doanh) trong khi tính tiền lại đọc cờ RIÊNG của phòng tài xế. Hai định nghĩa ⇒ tài xế
+        ở tổ con được phân chuyến bình thường mà KHÔNG có tiền khoán km, không ai báo. Chủ chốt:
+        *"nếu mà phòng con thì nó cũng phải bật cái phòng đó là giao hàng lên thôi"*.
+
+        Trả RỖNG khi chưa phòng nào bật cờ, không phải "tất cả" — trả tất cả là mọi nhân viên công
+        ty hiện trong tab Nhân viên giao hàng.
         """
-        # `_khoi_theo_co` trả DANH SÁCH Department — phải rút ra id, không thì nơi gọi so
-        # `department_id not in <list Department>` sẽ LUÔN đúng và loại hết mọi người, im lặng.
-        return {d.id for d in self._khoi_theo_co("la_giao_hang", fallback_all=False)}
+        return set(self.db.execute(
+            select(Department.id).where(Department.la_giao_hang.is_(True))
+        ).scalars().all())
 
     def count_by_level(self, level_id: int) -> int:
         """How many departments are tagged with a given unit level (delete guard)."""
@@ -270,6 +284,15 @@ class DepartmentRepository:
 
     def list_all(self) -> list[Department]:
         return list(self.db.execute(select(Department).order_by(Department.id)).scalars())
+
+    def names_by_ids(self, dept_ids) -> dict[int, str]:
+        """`{id: tên}` của nhiều phòng trong MỘT truy vấn (danh sách nhân sự)."""
+        ids = sorted({int(i) for i in (dept_ids or []) if i is not None})
+        if not ids:
+            return {}
+        return dict(self.db.execute(
+            select(Department.id, Department.name).where(Department.id.in_(ids))
+        ).all())
 
     def count(self) -> int:
         return self.db.execute(select(func.count()).select_from(Department)).scalar_one()
@@ -338,6 +361,20 @@ class RoleRepository:
             ).scalars()
         )
 
+    def list_all(self) -> list[Role]:
+        """Mọi vai trò, gom theo phòng rồi theo id — cùng thứ tự với việc gọi
+        `list_by_department` lần lượt từng phòng, nhưng chỉ MỘT truy vấn."""
+        return list(
+            self.db.execute(select(Role).order_by(Role.department_id, Role.id)).scalars()
+        )
+
+    def names_by_ids(self, role_ids) -> dict[int, str]:
+        """`{id: tên}` của nhiều vai trò trong MỘT truy vấn."""
+        ids = sorted({int(i) for i in (role_ids or []) if i is not None})
+        if not ids:
+            return {}
+        return dict(self.db.execute(select(Role.id, Role.name).where(Role.id.in_(ids))).all())
+
     def count_by_department(self, department_id: int) -> int:
         return self.db.execute(
             select(func.count()).select_from(Role).where(Role.department_id == department_id)
@@ -362,9 +399,16 @@ class RoleRepository:
         """User ids NÊN nhận tín hiệu 'việc kho mới' cho yêu cầu ở phòng `bo_phan_id`.
 
         = người XỬ LÝ kho (`can_create` HOẶC `can_view_stock`) mà PHẠM VI của vai PHỦ phòng đó:
-        `all` (mọi phòng) · `department` (phòng người nhận khớp phòng yêu cầu) · `own` (chính
-        người tạo). Tôn trọng ĐÚNG scope như danh sách yêu cầu (kho_request._scoped_filters):
-        'phòng nào thấy phòng đó', còn kho scope=all vẫn thấy mọi phòng."""
+        `all` (mọi phòng) · `department` (phòng người nhận là phòng yêu cầu hoặc phòng cha/ông của
+        nó) · và chính người tạo. Tôn trọng ĐÚNG scope như danh sách yêu cầu
+        (kho_request._scoped_filters, 16/09/2026): ai thấy yêu cầu trong danh sách thì nhận tín hiệu."""
+        phong_tren: list[int] = []
+        if bo_phan_id is not None:
+            cha = dict(self.db.execute(select(Department.id, Department.parent_id)).all())
+            cur: int | None = bo_phan_id
+            while cur is not None and cur not in phong_tren:
+                phong_tren.append(cur)
+                cur = cha.get(cur)
         stmt = (
             select(User.id)
             .join(RolePermission, RolePermission.role_id == User.role_id)
@@ -378,9 +422,9 @@ class RoleRepository:
                     RolePermission.scope == SCOPE_ALL,
                     and_(
                         RolePermission.scope == SCOPE_DEPARTMENT,
-                        User.department_id == bo_phan_id,
+                        User.department_id.in_(phong_tren),
                     ),
-                    and_(RolePermission.scope == SCOPE_OWN, User.id == creator_id),
+                    User.id == creator_id,
                 ),
             )
         )
@@ -443,6 +487,9 @@ class RoleRepository:
         can_set_threshold: bool = False,
         can_post: bool = False,
         can_close_book: bool = False,
+        can_run_order: bool = False,
+        can_confirm_output: bool = False,
+        can_warehouse: bool = False,
         commit: bool = True,
     ) -> RolePermission:
         """Upsert the (role, module) permission row.
@@ -504,6 +551,9 @@ class RoleRepository:
         perm.can_set_threshold = can_set_threshold
         perm.can_post = can_post
         perm.can_close_book = can_close_book
+        perm.can_run_order = can_run_order
+        perm.can_confirm_output = can_confirm_output
+        perm.can_warehouse = can_warehouse
         if commit:
             self.db.commit()
             self.db.refresh(perm)

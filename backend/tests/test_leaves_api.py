@@ -86,6 +86,28 @@ def _link_admin_employee(client, token) -> int:
     return eid
 
 
+def _le_nghi_cong(employee_id: int, year: int = 2026, month: int = 9) -> float:
+    """Công lễ nghỉ hưởng lương mà Lương đọc (`metrics_map`) — API bảng công không trả trường này."""
+    from app.repositories.attendance_repo import AttendanceRepository
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.repositories.calendar_repo import CalendarRepository
+    from app.repositories.employee_repo import EmployeeRepository
+    from app.repositories.leave_repo import LeaveRepository
+    from app.services.attendance_service import AttendanceService
+    from app.services.calendar_service import CalendarService
+
+    db = SessionLocal()
+    try:
+        svc = AttendanceService(
+            AttendanceRepository(db), EmployeeRepository(db), AuditLogRepository(db),
+            leaves=LeaveRepository(db),
+            calendar=CalendarService(CalendarRepository(db), AuditLogRepository(db)),
+        )
+        return svc.metrics_map(year, month)[employee_id]["le_nghi_cong"]
+    finally:
+        db.close()
+
+
 def _set_hire_date(employee_id: int, hire_date: date) -> None:
     from app.models.employee import Employee
     db = SessionLocal()
@@ -312,6 +334,8 @@ def test_paid_holiday_beats_leave_on_timesheet(client):
     assert row["days"]["2"]["holiday"] is True and row["days"]["2"]["cong"] == 1.0
     assert row["total_leave"] == 2  # 1/9 + 3/9; 2/9 là lễ, không tính vào phép
     assert row["days"]["1"]["leave"] == "Phép năm" and row["days"]["3"]["leave"] == "Phép năm"
+    # Ngày lễ NGHỈ HƯỞNG CÔNG — Lương đọc số này trả công lễ riêng cho người khoán / tài xế (15/09/2026).
+    assert _le_nghi_cong(row["employee_id"]) == 1
 
 
 def test_unpaid_leave_over_holiday_gets_no_pay(client):
@@ -331,6 +355,9 @@ def test_unpaid_leave_over_holiday_gets_no_pay(client):
     row = next(r for r in ts["rows"] if r["employee_name"] == "NV Nghỉ")
     assert row["days"]["2"]["holiday"] is True and row["days"]["2"]["cong"] == 0.0
     assert row["total_leave"] == 2  # 1/9 + 3/9 (không lương); 2/9 là lễ, không tính phép
+    # 0 công lễ ⇒ KHÔNG đếm là ngày lễ hưởng công: người ăn khoán không được trả công lễ riêng cho
+    # ngày đang nghỉ không lương (trước 15/09/2026 `holiday_days` đếm cả ngày này).
+    assert _le_nghi_cong(row["employee_id"]) == 0
 
 
 def test_sunday_in_leave_not_counted_on_timesheet(client):

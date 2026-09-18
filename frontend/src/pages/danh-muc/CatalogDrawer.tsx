@@ -16,14 +16,21 @@ import {
   BandsField, ChuanBiKhoanField, DinhMucDauViecField, DonViTocDoField, FormulaField,
   LichBaoTriField, MayCuaCongDoanField, NhomMayField, NhomMayMultiField, RefMultiField,
   RefSearchField,
-  SelfRefMultiField,
+  SelfRefMultiField, ViecPhatSinhField,
 } from "./fields";
 import { goiYMaTiepTheo } from "./maGoiY";
 import { useNapTenDonVi } from "../tenDonVi";
 import { NhatKyTab } from "./nhat-ky/NhatKyTab";
 import type {
   BacRow, CatalogConfig, ChuanBiKhoanRow, DinhMucRow, FieldDef, LichBaoTriRow, MayCongDoanRow,
+  ViecPhatSinhRow,
 } from "./types";
+
+/** Ô mà GIÁ TRỊ là một MẢNG (bảng con / chọn nhiều) — khởi tạo `[]` và gửi lên nguyên mảng. */
+const KIEU_MANG = new Set<string>([
+  "ref-multi", "self-ref-multi", "nhom_may-multi", "bands", "dau-viec-dinh-muc", "may-cua-cong-doan",
+  "viec-phat-sinh",
+]);
 
 /** Bỏ mục đã NGỪNG DÙNG khỏi một ô chọn — TRỪ mục bản ghi đang trỏ tới; mục đó ở lại, và mang
  *  thêm chữ "(ngừng dùng)" nếu ô lưu ID/MÃ.
@@ -56,6 +63,23 @@ function locConDung(rows: Row[], dangChon: unknown, nhan = true): Row[] {
   return rows
     .filter((r) => r.active !== false || dangDung(r))
     .map((r) => (nhan && r.active === false ? { ...r, ten: `${r.ten} (ngừng dùng)` } : r));
+}
+
+const KIEU_CO_THAM_CHIEU = new Set<string>([
+  "ref", "ref-multi", "self-ref-multi", "ref-search", "ref-search-ma", "dau-viec-dinh-muc",
+  "may-cua-cong-doan", "don_vi_toc_do", "nhom_may", "nhom_may-multi", "viec-phat-sinh",
+]);
+
+/** Danh mục nguồn cần nạp cho các ô chọn của drawer: `{prefix: query}`. Gộp `refParams` theo
+ *  prefix — nhiều field có thể cùng trỏ một danh mục (vd ĐVT và Đơn vị đóng gói đều lấy
+ *  `/api/don-vi`) — nạp một lần, query là hợp của các field đó. */
+function nguonThamChieu(fields: FieldDef[]): Map<string, Record<string, unknown>> {
+  const theoPrefix = new Map<string, Record<string, unknown>>();
+  for (const f of fields) {
+    if (!f.refPrefix || !KIEU_CO_THAM_CHIEU.has(f.type ?? "")) continue;
+    theoPrefix.set(f.refPrefix, { ...(theoPrefix.get(f.refPrefix) ?? {}), ...(f.refParams ?? {}) });
+  }
+  return theoPrefix;
 }
 
 /** Tách đuôi đơn vị khỏi nhãn: "Khổ rộng (cm)" → nhãn "Khổ rộng" + hậu tố "cm" dán trong ô. */
@@ -91,7 +115,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan") {
+      if (KIEU_MANG.has(f.type ?? "")) {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -107,6 +131,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
       }
     }
     if (config.deriveInitial) Object.assign(init, config.deriveInitial(existing));  // vd suy _method từ pricing_basis
+    // `macDinhTheo` (xem `types.ts`) chạy SAU cả vòng trên: nó đọc form, nên phải thấy đủ mọi ô
+    // chứ không chỉ những ô khai TRƯỚC nó. Chỉ khi TẠO MỚI.
+    if (!existing) {
+      for (const f of config.fields) {
+        if (f.macDinhTheo) init[f.key] = f.macDinhTheo(init) ?? "";
+      }
+    }
     return init;
   });
   const [saving, setSaving] = useState(false);
@@ -145,7 +176,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
   // Mã gợi ý cho bản ghi MỚI (màn nào để người dùng tự đặt mã). Hỏi xong mới điền, và chỉ điền
   // khi ô mã vẫn còn trống — người khai gõ tay trước thì tôn trọng cái họ gõ.
   useEffect(() => {
-    if (isEdit || config.autoCode || !token) return;
+    if (isEdit || config.autoCode || config.khongGoiYMa || !token) return;
     let huy = false;
     goiYMaTiepTheo(config.prefix, token)
       .then((ma) => {
@@ -162,6 +193,27 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
       .catch(() => {});   // hỏng thì để trống, người khai tự gõ — không chặn việc tạo mới
     return () => { huy = true; };
   }, [isEdit, config.autoCode, config.prefix, token]);
+  /** Giá trị MÁY đã điền cho từng ô `macDinhTheo`. Ô còn khớp con số này ⇒ chưa ai chạm vào, được
+   *  phép tính lại; lệch (kể cả vì bị xoá trắng) ⇒ đó là chữ của người khai, thôi đụng vào. So
+   *  theo mốc RIÊNG chứ không so với `mocBanDau`: ô nguồn đổi thì mốc chung đằng nào cũng lệch. */
+  const macDinhDaDien = useRef<Record<string, unknown>>(
+    Object.fromEntries(config.fields.filter((f) => f.macDinhTheo).map((f) => [f.key, form[f.key]])),
+  );
+  useEffect(() => {
+    if (isEdit) return;
+    const daDien = macDinhDaDien.current;
+    const doi: Record<string, unknown> = {};
+    for (const f of config.fields) {
+      if (!f.macDinhTheo) continue;
+      const moi = f.macDinhTheo(form) ?? "";
+      if (moi === form[f.key]) continue;              // đã đúng rồi, đừng đẻ thêm một vòng render
+      if (form[f.key] !== daDien[f.key]) continue;    // người khai tự sửa ⇒ giữ nguyên chữ của họ
+      daDien[f.key] = moi;
+      doi[f.key] = moi;
+    }
+    if (Object.keys(doi).length) setForm((p) => ({ ...p, ...doi }));
+  }, [form, config.fields, isEdit]);
+
   const setRef = (key: string, value: string) => {
     if (key !== "department_id" || String(form.department_id ?? "") === value) {
       set(key, value);
@@ -177,26 +229,35 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
   };
 
   // Đổ dropdown "chọn theo tên" cho field ref/ref-multi từ danh mục nguồn.
-  const [refData, setRefData] = useState<Record<string, Row[]>>({});
+  // Bản đã nhớ thì bày NGAY lần render đầu — đợi tới effect là drawer vẽ một nhịp "#13" trước đã.
+  const [refData, setRefData] = useState<Record<string, Row[]>>(() => {
+    if (!token) return {};
+    const d: Record<string, Row[]> = {};
+    for (const [p, params] of nguonThamChieu(config.fields)) {
+      const nho = crud(p).daNho(token, params);
+      if (nho) d[p] = nho;
+    }
+    return d;
+  });
   // Nạp lại danh mục nguồn sau khi người dùng sửa nó NGAY TRONG drawer (vd bật/gỡ đơn vị tốc độ) —
   // `config.fields` là hằng nên effect dưới không tự chạy lại.
   const [refTick, setRefTick] = useState(0);
   const onRefChanged = useCallback(() => setRefTick((t) => t + 1), []);
   useEffect(() => {
     if (!token) return;
-    // Gộp `refParams` theo prefix: nhiều field có thể cùng trỏ một danh mục (vd ĐVT và Đơn vị đóng
-    // gói đều lấy `/api/don-vi`) — nạp một lần, query là hợp của các field đó.
-    const theoPrefix = new Map<string, Record<string, unknown>>();
-    for (const f of config.fields) {
-      if (!f.refPrefix) continue;
-      if (!(f.type === "ref" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "ref-search" || f.type === "ref-search-ma" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan" || f.type === "don_vi_toc_do" || f.type === "nhom_may" || f.type === "nhom_may-multi")) continue;
-      theoPrefix.set(f.refPrefix, { ...(theoPrefix.get(f.refPrefix) ?? {}), ...(f.refParams ?? {}) });
-    }
+    const theoPrefix = nguonThamChieu(config.fields);
     if (theoPrefix.size === 0) return;
     let alive = true;
-    Promise.all([...theoPrefix].map(([p, params]) =>
-      crud(p).list(token, params).then((r) => [p, r.items] as const).catch(() => [p, [] as Row[]] as const)))
-      .then((entries) => { if (alive) setRefData(Object.fromEntries(entries)); });
+    // Mỗi danh mục nguồn ĐỔ VÀO NGAY khi về, không chờ cả bộ: trước 14/09/2026 là `Promise.all`,
+    // nên tên tổ (vài byte) cũng phải đợi danh sách máy (33 KB) — ô nào cũng trống tới request chậm
+    // nhất. Có bản nhớ từ lần mở trước thì bày luôn, bản mới về thì đè (xem `crud().thamChieu`).
+    const doVao = (p: string, items: Row[]) => setRefData((d) => d[p] === items ? d : { ...d, [p]: items });
+    for (const [p, params] of theoPrefix) {
+      const { nho, moi } = crud(p).thamChieu(token, params, refTick > 0);
+      if (nho) doVao(p, nho);
+      moi.then((items) => { if (alive) doVao(p, items); })
+        .catch(() => { if (alive && !nho) doVao(p, []); });
+    }
     return () => { alive = false; };
   }, [token, config.fields, refTick]);
 
@@ -219,10 +280,10 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
     const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
     const laDonVi = config.prefix.includes("don-vi");
-    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan" || f.type === "viec-phat-sinh" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
-    const Tag = f.type === "formula" || f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" ? "div" : "label";
+    const Tag = f.type === "formula" || f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "viec-phat-sinh" ? "div" : "label";
     return (
       <Tag className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}${isFullWidth ? " rc-field--full" : ""}`} key={f.key}>
         <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
@@ -232,6 +293,12 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "chuan_bi_khoan" ? (
           <ChuanBiKhoanField value={Array.isArray(form[f.key]) ? (form[f.key] as ChuanBiKhoanRow[]) : []}
+            onChange={(v) => set(f.key, v)} />
+        ) : f.type === "viec-phat-sinh" ? (
+          <ViecPhatSinhField value={Array.isArray(form[f.key]) ? (form[f.key] as ViecPhatSinhRow[]) : []}
+            // Giữ lại đơn vị ĐANG được các dòng chọn dù đã ngừng dùng (xem `locConDung`).
+            donViOptions={locConDung(refData[f.refPrefix ?? ""] ?? [],
+              Array.isArray(form[f.key]) ? (form[f.key] as ViecPhatSinhRow[]).map((r) => r.don_vi ?? "") : [])}
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "bands" ? (
           <BandsField value={Array.isArray(form[f.key]) ? (form[f.key] as BacRow[]) : []}
@@ -389,13 +456,16 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     if (!config.autoCode || isEdit) body.ma = form.ma;
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (KIEU_MANG.has(f.type ?? "")) { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) {
         const kieuChu = !f.type || f.type === "text" || f.type === "date" || f.type === "nhom_may";
         const voonCoGiaTri = isEdit && existing != null && existing[f.key] != null
           && existing[f.key] !== "";
         if (!f.required && !(kieuChu && voonCoGiaTri)) continue;
       }
+      // Ô tìm-chọn BẮT BUỘC còn trống: gửi `null`, KHÔNG gửi chuỗi rỗng — "" vào cột số thì pydantic
+      // trả 422 tiếng Anh ("valid integer"), còn `null` để máy chủ nói đúng câu "Phải chọn …".
+      if (f.type === "ref-search" && v === "") v = null;
       if ((f.type === "number" || f.type === "ref" || f.type === "ref-search") && v !== "" && v != null) v = Number(v);
       if (f.jsonKey) {
         const box = (body[f.jsonKey] as Record<string, unknown>) ??
@@ -505,14 +575,16 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const baseFields = !(config.autoCode && !isEdit) ? (
       <>
         <label className="rc-field">
-          <span className="rc-field__label">Mã <em>*</em></span>
+          <span className="rc-field__label">{config.nhanMa ?? "Mã"} <em>*</em></span>
           <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
             <input className="rc-input rc-mono" value={String(form.ma ?? "")}
-              disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
+              disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder={`${config.nhanMa ?? "Mã"}...`} />
           </div>
           {!isEdit && typedMa && (
             <span style={{ fontSize: "12px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
-              {isMaDuplicate ? "Mã đã tồn tại!" : "Mã hợp lệ!"}
+              {isMaDuplicate
+                ? `${config.nhanMa ?? "Mã"} đã tồn tại!`
+                : `${config.nhanMa ?? "Mã"} hợp lệ!`}
             </span>
           )}
         </label>

@@ -1,6 +1,6 @@
 // MASTER của "Tính giá" — danh sách phiếu tính giá (giá vốn). Bấm dòng → detail. Nút "+ Lập phiếu
 // tính giá" tạo nháp rồi mở detail. StatusTabs lọc theo tab; search debounce. Bám pattern list nhà
-// (RebuildCatalogPage): row hover, code mono badge, số liệu mono/tabular/vi-VN căn phải.
+// (RebuildCatalogPage): row hover, code badge, số liệu vi-VN căn phải.
 import { useCallback, useEffect, useState } from "react";
 import {
   api,

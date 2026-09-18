@@ -35,7 +35,7 @@
 }
 .xl2 [class*="xl2-num"],
 .xl2 .xl2-num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -74,7 +74,7 @@
 }
 .xl2-win-label {
   font-size: 11.5px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-semibold);
   color: var(--ink);
@@ -267,7 +267,7 @@
 }
 .xl2-chip .chip-count {
   margin-left: 5px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-bold);
   font-size: 10.5px;
@@ -297,7 +297,7 @@
   font-weight: var(--fw-bold);
 }
 .xl2-filterbtn__n {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -331,7 +331,7 @@
   opacity: 0.65;
 }
 .xl2-cluster-toggle__n {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 10.5px;
   color: var(--ash);
@@ -369,7 +369,7 @@
   border: 1px solid var(--rule);
   background: var(--canvas);
   color: var(--ash);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-2xs);
   font-weight: var(--fw-bold);
@@ -418,7 +418,7 @@
 }
 .xl2-digest__chip svg { color: var(--ash-2); }
 .xl2-digest__chip b {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   font-weight: var(--fw-bold);
@@ -444,7 +444,7 @@
   cursor: pointer;
   transition: all var(--duration-fast) ease;
 }
-.xl2-digest__muc b { font-family: var(--ff-num); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
+.xl2-digest__muc b { font-family: var(--ff-sans); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
 .xl2-digest__muc-lb { font-weight: var(--fw-medium); }
 .xl2-digest__muc:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
 .xl2-digest__muc--dat { border-color: color-mix(in srgb, var(--signal) 32%, transparent); }
@@ -536,7 +536,7 @@
   color: var(--rust-deep);
   font-size: 11px;
   font-weight: var(--fw-bold);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
 }
 .xl2-queue__railtext {
   writing-mode: vertical-rl;
@@ -578,7 +578,7 @@
   color: var(--ink);
 }
 .xl2-queue__count {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   font-weight: var(--fw-bold);
@@ -694,7 +694,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-bold);
   font-size: 13px;
@@ -801,7 +801,7 @@
 }
 .xl2-qrow__qty b {
   color: var(--ink);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-bold);
 }
@@ -836,7 +836,7 @@
   align-items: center;
   gap: 4px;
   color: var(--ash);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -1039,7 +1039,7 @@
   color: var(--ash);
 }
 .xl2-ruler__dnum {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-medium);
   font-size: 11px;
@@ -1078,7 +1078,7 @@
   align-items: center;
   padding-left: 4px;
   font-size: 10px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ash-2);
   border-left: 1px solid var(--rule-hair);
@@ -1111,7 +1111,7 @@
   background: var(--charcoal);
   color: var(--on-charcoal);
   font-size: 10.5px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   box-shadow: var(--shadow-4);
   white-space: nowrap;
@@ -1145,7 +1145,7 @@
   color: var(--ash-2);
 }
 .xl2-cluster__count b {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -1216,7 +1216,7 @@
   color: var(--ash);
 }
 .xl2-lane__spec {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-medium);
   font-size: 10.5px;
@@ -1628,7 +1628,7 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   font-weight: 800;
@@ -1637,7 +1637,7 @@
 }
 .xl2-bar__step-pill {
   flex: none;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 9px;
   font-weight: var(--fw-bold);
   padding: 0 4px;
@@ -1650,7 +1650,7 @@
    con số cạnh nhau: "B3" là bước thứ mấy, "2/3" là lần chạy thứ mấy của chính bước đó. */
 .xl2-bar__run-pill {
   flex: none;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 9px;
   font-weight: var(--fw-bold);
   padding: 0 4px;
@@ -1689,7 +1689,7 @@
   flex: 0 200 auto;
   min-width: 0;
   overflow: hidden;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 9px;
   font-weight: var(--fw-bold);
@@ -1771,7 +1771,7 @@
   background: var(--rust);
   color: var(--on-rust);
   font-size: 10.5px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
 }
 .xl2-ghost--bad {
@@ -1826,7 +1826,7 @@
   flex: none;
 }
 .xl2-panel__head-ma {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   white-space: nowrap;
@@ -1868,7 +1868,7 @@
 }
 .xl2-kbd {
   display: inline-block;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   padding: 1px 5px;
@@ -1940,7 +1940,7 @@
   text-align: right;
 }
 .xl2-kv__v--num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 /* ô giá trị HAI TẦNG: mốc/số chính ở trên, dải sớm–muộn nhất ở dưới (hàng Kết thúc, Chiếm máy).
@@ -2064,7 +2064,7 @@
 .xl2-step__res svg { color: var(--ash-2); }
 .xl2-step__time {
   margin-top: 3px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-2xs);
   color: var(--ash-2);
@@ -2172,7 +2172,7 @@
 /* Dải nhanh-nhất … chậm-nhất đi kèm con số trung bình (chính là hai cái râu trên thanh Gantt). */
 .xl2-dai {
   font-style: normal;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ash-2);
   border-left: 1px solid var(--rule);
@@ -2188,7 +2188,7 @@
 .xl2-goiy__name { font-size: 12.5px; font-weight: var(--fw-medium); color: var(--ink); }
 .xl2-goiy__sub {
   margin-left: auto;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   color: var(--ash);
@@ -2208,7 +2208,7 @@
   min-width: 26px;
   padding: 1px 6px;
   border-radius: var(--r-pill);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   font-weight: var(--fw-medium);
@@ -2331,7 +2331,7 @@
   border-radius: var(--r-1);
   background: var(--rule-hair);
   color: var(--ash);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
 }
 .xl2-tuxep__cd {
@@ -2350,7 +2350,7 @@
   color: var(--ash);
 }
 .xl2-tuxep__b-time {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   color: var(--ink);
@@ -2416,7 +2416,7 @@
 }
 .xl2-khe__row:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
 .xl2-khe__time {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 12.5px;
   font-weight: var(--fw-medium);
@@ -2480,7 +2480,7 @@
   margin-top: 3px;
 }
 .xl2-issue__ma {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 10px;
   color: var(--ash-2);
 }
@@ -2546,7 +2546,7 @@
   text-align: center;
 }
 .xl2-ah__cd { flex: 1 1 auto; min-width: 0; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.xl2-ah__t { flex: none; color: var(--ash); font-family: var(--ff-num); }
+.xl2-ah__t { flex: none; color: var(--ash); font-family: var(--ff-sans); }
 
 .xl2-note {
   font-size: var(--fs-xs);
@@ -2574,7 +2574,7 @@
 .xl2-mucpill--sm { font-size: var(--fs-2xs); padding: 2px 9px; }
 .xl2-mucpill--xs { font-size: 10px; padding: 1px 7px; }
 .xl2-mucpill__n {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-bold);
   margin-left: 2px;
@@ -2627,7 +2627,7 @@
   color: color-mix(in srgb, var(--canvas) 82%, var(--charcoal));
 }
 .xl2-foot__count b {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-bold);
 }
@@ -2702,7 +2702,7 @@
   flex: none;
   font-size: var(--fs-xs);
   color: var(--ash);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 .xl2-verhist__lydo {
@@ -2887,7 +2887,7 @@
   letter-spacing: 0.04em;
 }
 .xl2-dlg-timeval {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 13.5px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -2943,7 +2943,7 @@
   border-radius: var(--r-pill);
   font-size: 11px;
   font-weight: var(--fw-bold);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
 }
 .xl2-slack-pill--ok {
   background: var(--moss-soft);
@@ -2985,7 +2985,7 @@
   color: var(--ink);
 }
 .xl2-dlg-impact__tt {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   color: #b45309;
   min-width: 24px;
@@ -2994,7 +2994,7 @@
   flex: 1 1 auto;
 }
 .xl2-dlg-impact__t {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-medium);
   color: var(--ash);
 }
@@ -3043,7 +3043,7 @@
   color: var(--ash);
 }
 .xl2-dlg-finish b {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-md);
   color: var(--ink);
@@ -3080,7 +3080,7 @@
   border-radius: var(--r-2);
   background: var(--canvas);
   color: var(--ink);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-sm);
   text-align: right;
@@ -3133,7 +3133,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
@@ -3250,7 +3250,7 @@
   transition: all var(--duration-fast) ease;
 }
 .xl2-kpipill:hover { border-color: var(--rule); background: var(--canvas); color: var(--ink); }
-.xl2-kpipill b { font-family: var(--ff-num); font-weight: var(--fw-bold); color: var(--ink); }
+.xl2-kpipill b { font-family: var(--ff-sans); font-weight: var(--fw-bold); color: var(--ink); }
 .xl2-kpipill--rush { border-color: color-mix(in srgb, var(--signal) 30%, transparent); background: var(--signal-soft); color: var(--signal); font-weight: var(--fw-bold); }
 .xl2-kpipill--rush b { color: var(--signal); }
 .xl2-kpipill--ok { border-color: color-mix(in srgb, var(--moss) 30%, transparent); background: var(--moss-soft); color: var(--moss-deep); }
@@ -3289,7 +3289,7 @@
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
 .xl2-qtab__count {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: var(--fw-bold);
   padding: 0 5px;
@@ -3467,7 +3467,7 @@
 }
 
 .xl2-smartcard__date {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -3482,7 +3482,7 @@
 }
 
 .xl2-smartcard__time {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 13.5px;
   font-weight: var(--fw-bold);
   color: var(--ink);

@@ -60,6 +60,8 @@ TEMPLATES: list[dict] = [
             "nghi_phep": _tu_phuc_vu_nghi_phep(),
             "tang_ca": {"can_read": True, "can_create": True, "can_cancel": True, "scope": SCOPE_OWN},
         },
+        # Dòng quyền theo tổ của CHÍNH phòng mà vai thuộc về (mg 0302): xem Bàn tổ, chỉ việc của mình.
+        "quyen_to_cua_vai": {"can_read": True, "scope": SCOPE_OWN},
     },
     {
         "key": "to_truong",
@@ -71,10 +73,9 @@ TEMPLATES: list[dict] = [
         ),
         "quyen": {
             "dashboard": _xem(SCOPE_OWN),
-            "san_xuat": {
-                "can_read": True, "can_assign_work": True, "can_record_output": True,
-                "can_handover": True, "scope": SCOPE_OWN,
-            },
+            # Ba ô Gán việc · Ghi sản lượng · Bàn giao/nhận ĐÃ GỠ (14/09/2026): việc ở Bàn tổ nay do
+            # dòng quyền theo tổ quyết — xem `quyen_to_cua_vai` bên dưới.
+            "san_xuat": {"can_read": True, "scope": SCOPE_OWN},
             # Tách khoá 17/08/2026: ba màn này trước đây đi kèm `san_xuat:read`. Mẫu GIỮ NGUYÊN
             # mức cũ — mẫu chỉ điền sẵn, siết hay không là quyết định của người bấm Lưu.
             "ke_hoach_vat_tu": {"can_read": True, "scope": SCOPE_ALL},
@@ -97,6 +98,12 @@ TEMPLATES: list[dict] = [
                 "can_read": True, "can_create": True, "can_update": True,
                 "scope": SCOPE_DEPARTMENT,
             },
+        },
+        # Dòng quyền theo tổ của phòng mà vai thuộc về: Xem + Cả phòng (tổ mình + các nhóm trực
+        # thuộc) + bật cả ba quyền chi tiết.
+        "quyen_to_cua_vai": {
+            "can_read": True, "can_run_order": True, "can_confirm_output": True,
+            "can_warehouse": True, "scope": SCOPE_DEPARTMENT,
         },
     },
     {
@@ -243,6 +250,7 @@ def danh_sach_mau() -> list[dict]:
             "label": m["label"],
             "mo_ta": m["mo_ta"],
             "quyen": {k: dict(v) for k, v in m["quyen"].items()},
+            "quyen_to_cua_vai": dict(m.get("quyen_to_cua_vai") or {}),
         }
         for m in TEMPLATES
     ]

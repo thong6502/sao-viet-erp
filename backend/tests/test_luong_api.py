@@ -51,7 +51,7 @@ def _sales_token() -> str:
         db.close()
 
 
-def _make_emp(client, token, *, name, payroll_group=None, pay_grade_key=None,
+def _make_emp(client, token, *, name,
               gender="male", hire_date="2020-01-01", status=None) -> int:
     body = {"full_name": name, "department_id": _dept_id("Hành chính nhân sự"),
             "hire_date": hire_date, "gender": gender,
@@ -59,10 +59,6 @@ def _make_emp(client, token, *, name, payroll_group=None, pay_grade_key=None,
             # "tự đánh dấu hết thử việc" (22/08/2026) nên hàm quét cố ý bỏ qua — hồ sơ đứng yên ở
             # "probation" đúng như các test này vẫn giả định.
             "probation_end_date": "2025-12-31"}
-    if payroll_group:
-        body["payroll_group"] = payroll_group
-    if pay_grade_key:
-        body["pay_grade_key"] = pay_grade_key
     if status:
         body["status"] = status
     return client.post("/api/employees", json=body, headers=_h(token)).json()["employee"]["id"]
@@ -71,9 +67,9 @@ def _make_emp(client, token, *, name, payroll_group=None, pay_grade_key=None,
 def _sal(**kw):
     """Salary namespace cho engine test — mức nền + BH đều bám `luong_vi_tri` (chủ 2026-07-20:
     lương vị trí = lương cơ bản = mức đóng BH). Field đủ cho mọi getattr của _compute."""
-    base = dict(amount_mode="manual", base_amount=None, luong_vi_tri=0, luong_trach_nhiem=0,
+    base = dict(base_amount=None, luong_vi_tri=0, luong_trach_nhiem=0,
                 insurance_base=None, allowance=0, chuyen_can=0, phu_cap_ca=0, phu_cap_tham_nien=0,
-                insurance_elsewhere=False, union_member=False, source_salary_row_id=None)
+                insurance_elsewhere=False, union_member=False)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -140,13 +136,10 @@ def test_compute_engine(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="ut_grp", monthly_amount=10_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
         on = date(2026, 6, 1)
 
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="ut_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
 
         # nửa công (13/26) → lương công = 5tr; chưa đủ công → chuyên cần 0.
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=10_000_000), params=params, actual_cong=13,
@@ -168,8 +161,7 @@ def test_compute_engine(client):
         assert v2b["chuyen_can"] == 300_000 and v2b["gross"] == 10_300_000
 
         # thử việc → ×0.8.
-        emp_tv = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male",
-                                 payroll_group="ut_grp", pay_grade_key=None)
+        emp_tv = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male")
         v3 = svc._compute(employee=emp_tv, salary=_sal(luong_vi_tri=10_000_000), params=params, actual_cong=26,
                           standard_cong=26, on=on)
         assert v3["monthly_salary"] == 10_000_000       # mức gốc (chưa nhân)
@@ -186,11 +178,8 @@ def test_ot_and_night_pay(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="ot_grp", monthly_amount=26_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()   # standard_hours_per_day=8, ot_multiplier=1.5
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="ot_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         # std 26 → 1 công = 1.000.000; giờ = 125.000. OT 120' (2h)×1.5 = 375.000.
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26,
                          standard_cong=26, ot_minutes=120, night_days=2, on=date(2026, 6, 1))
@@ -202,32 +191,27 @@ def test_ot_and_night_pay(client):
         db.close()
 
 
-def test_piece_work_dept_van_co_ot(client):
-    """⚠️ ĐẢO 17/08/2026 — tổ khoán (has_piece_work) VẪN CÓ tăng ca, y hệt tổ thường.
+def test_piece_work_dept_KHONG_co_tien_gio_tang_ca(client):
+    """⚠️ ĐẢO LẦN HAI 14/09/2026 — người ăn khoán KHÔNG có tiền GIỜ tăng ca (0đ, không phải 1×).
 
-    Trước đó cờ này ép `ot_pay = 0` với lý do "khoán đã trả theo sản lượng"; nhưng cột `khoan`
-    LUÔN bằng 0 (nguồn sản lượng chưa dựng) ⇒ tổ khoán mất trắng. NĐ 145/2020 Đ55.2 cũng buộc
-    trả làm thêm cho người hưởng lương theo sản phẩm. Nay chỉ còn MỘT cổng: công tắc `tang_ca`.
-    07/09/2026: tham số chết `has_piece_work` của `_compute` đã GỠ hẳn — tổ khoán hay không, engine
-    nhận cùng một bộ tham số; test giữ vế "tổ khoán = tổ thường" bằng chính bộ số đó."""
+    17/08/2026 chủ đảo sang "tổ khoán VẪN CÓ tăng ca" vì cột `khoan` khi đó LUÔN = 0. Nay tiền khoán
+    chảy thật và khách phản hồi: "làm thêm giờ thì thêm sản lượng, đã ăn tiền sản lượng rồi". Chế độ
+    khoán giữ cơm tăng ca + phần thêm làm nguyên ngày CN/lễ — xem `test_khoan_khong_tien_tang_ca.py`
+    và `docs/prd-khoan-khong-tien-tang-ca.md`."""
     client
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="pw_grp", monthly_amount=26_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="pw_grp", pay_grade_key=None)
-        # Cùng dữ liệu OT 120', chỉ khác cờ tổ khoán.
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
+        # Cùng dữ liệu OT 120', chỉ khác chế độ khoán.
         v_norm = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26,
-                              standard_cong=26, ot_minutes=120, on=date(2026, 6, 1))
-        # Tổ khoán đi qua ĐÚNG bộ tham số ấy (không còn cờ riêng để ép về 0).
+                              standard_cong=26, ot_minutes=120, on=date(2026, 6, 1), che_do_khoan=False)
         v_piece = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26,
-                               standard_cong=26, ot_minutes=120, on=date(2026, 6, 1))
+                               standard_cong=26, ot_minutes=120, on=date(2026, 6, 1), che_do_khoan=True)
         assert v_norm["ot_pay"] == 375_000          # tổ thường
-        assert v_piece["ot_pay"] == 375_000         # tổ khoán — Y HỆT, không còn bị ép về 0
-        assert v_piece["gross"] == v_norm["gross"]
+        assert v_piece["ot_pay"] == 0               # tổ khoán — giờ tăng ca không có tiền
+        assert v_norm["gross"] - v_piece["gross"] == 375_000
     finally:
         db.close()
 
@@ -238,11 +222,8 @@ def test_bhxh_cap(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="hi_grp", monthly_amount=60_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()   # bh_base_cap=50.6tr, bhtn_base_cap=106.2tr
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="hi_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=60_000_000), params=params, actual_cong=26,
                          standard_cong=26, on=date(2026, 6, 1))
         # base 60tr > trần BHXH/BHYT 50.6tr → phần đó trên 50.6tr; BHTN 60tr < 106.2tr → trên 60tr.
@@ -257,11 +238,8 @@ def test_probation_no_bhxh(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="pb_grp", monthly_amount=12_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male",
-                              payroll_group="pb_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male")
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=12_000_000), params=params, actual_cong=26,
                          standard_cong=26, on=date(2026, 6, 1))
         assert v["bhxh"] == 0 and v["insurance_base"] == 0
@@ -280,11 +258,8 @@ def test_HET_THU_VIEC_cho_xac_nhan_van_an_tien_THU_VIEC(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="pb_grp2", monthly_amount=12_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        chung = dict(hire_date=date(2026, 5, 1), gender="male",
-                     payroll_group="pb_grp2", pay_grade_key=None)
+        chung = dict(hire_date=date(2026, 5, 1), gender="male")
 
         def tinh(status):
             return svc._compute(employee=SimpleNamespace(status=status, **chung),
@@ -318,8 +293,7 @@ def test_insurance_elsewhere_only_tnld_bnn(client):
         svc.update_params(cong_doan_rate=0.005)
         params = svc.get_params()
         assert float(params.tnld_bnn_rate) == 0.005            # mặc định TNLĐ-BNN 0.5%
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         # union_member=True: đoàn viên nên đoàn phí CĐ VẪN trừ dù BH đóng ở nơi khác.
         v = svc._compute(employee=emp,
                          salary=_sal(luong_vi_tri=10_000_000, insurance_elsewhere=True, union_member=True),
@@ -442,8 +416,7 @@ def test_night_premium_engine(client):
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()   # night_pct 0.3 · ot_night_extra_pct 0.2 · ot_multiplier 1.5 · 8h/ngày
         assert float(params.ot_night_extra_pct) == 0.2 and float(params.night_pct) == 0.3
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         base = dict(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params,
                     actual_cong=26, standard_cong=26, on=date(2026, 6, 1))   # đơn giá 1tr/công → 125k/giờ
         v0 = svc._compute(**base)
@@ -458,32 +431,31 @@ def test_night_premium_engine(client):
         db.close()
 
 
-def test_to_khoan_VAN_CO_tang_ca(client):
-    """Chủ đảo quyết định 17/08/2026: "Tổ khoán VẪN CÓ tăng ca".
+def test_to_khoan_KHONG_tien_gio_tang_ca_nhung_GIU_premium_le_va_off1x(client):
+    """Chủ chốt 14/09/2026 (đảo lần hai quyết định 17/08 "Tổ khoán VẪN CÓ tăng ca").
 
-    Trước đó `has_piece_work` ép `ot_pay = 0` với lý do "khoán đã trả theo sản lượng" — nhưng cột
-    `khoan` LUÔN bằng 0 (nguồn sản lượng chưa dựng) ⇒ tổ khoán mất trắng cả giờ OT, cả premium
-    lễ/CN, cả tiền ngày off1x. NĐ 145/2020 Đ55.2 cũng buộc trả làm thêm cho người hưởng lương
-    theo sản phẩm. Nay chỉ còn MỘT cổng: công tắc `tang_ca` của bộ phận."""
+    Người ăn khoán: giờ tăng ca KHÔNG có tiền — "làm thêm giờ thì thêm sản lượng, đã ăn tiền sản
+    lượng rồi". NHƯNG vẫn giữ phần thêm khi làm NGUYÊN NGÀY lễ / CN (đó là công, không phải giờ tăng
+    ca) và tiền 1× ngày off1x (lương chính của ngày, không phải hệ số). Lần đảo 17/08 từng mất trắng
+    cả hai thứ này — không được lặp lại."""
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         base = dict(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params,
                     standard_cong=26, on=date(2026, 6, 1))   # 1.000.000 đ/công · 125.000 đ/giờ
 
-        thuong = svc._compute(**base, actual_cong=26, ot_minutes=120)
-        khoan = svc._compute(**base, actual_cong=26, ot_minutes=120)   # cờ khoán đã gỡ 07/09/2026
-        # 2h tăng ca thường × 1,5 × 125.000 = 375.000 — tổ khoán nhận Y HỆT tổ thường.
+        thuong = svc._compute(**base, actual_cong=26, ot_minutes=120, che_do_khoan=False)
+        khoan = svc._compute(**base, actual_cong=26, ot_minutes=120, che_do_khoan=True)
+        # 2h tăng ca thường × 1,5 × 125.000 = 375.000 — tổ khoán: 0.
         assert thuong["ot_pay"] == 375_000
-        assert khoan["ot_pay"] == thuong["ot_pay"]
+        assert khoan["ot_pay"] == 0
 
-        # Premium ngày lễ và tiền ngày off1x cũng không còn bị nuốt.
-        k2 = svc._compute(**base, actual_cong=27, holiday_cong=1)
-        assert k2["ot_pay"] == 3_000_000                      # trọn 300%
-        k3 = svc._compute(**base, actual_cong=26, plain_cong=1)
+        # Premium làm nguyên ngày lễ và tiền ngày off1x: tổ khoán VẪN có.
+        k2 = svc._compute(**base, actual_cong=27, holiday_cong=1, che_do_khoan=True)
+        assert k2["ot_pay"] == 2_000_000                      # phần thêm (3−1) ⇒ lễ tổng 300%
+        k3 = svc._compute(**base, actual_cong=26, plain_cong=1, che_do_khoan=True)
         assert k3["off1x_pay"] == 1_000_000 and k3["ot_pay"] == 1_000_000
     finally:
         db.close()
@@ -501,8 +473,7 @@ def test_off1x_chiu_thue_khong_duoc_mien(client):
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         base = dict(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params,
                     standard_cong=26, on=date(2026, 6, 1))   # 1.000.000 đ/công · 125.000 đ/giờ
 
@@ -536,17 +507,16 @@ def test_cong_le_cn_khong_bi_tran_cong_nuot_goc(client):
     1× bị nuốt, `ot_pay` chỉ bù `(hệ số − 1)` ⇒ thực nhận 1× thay vì 2×. Người CHƯA chạm trần thì
     số KHÔNG được đổi một đồng — test canh cả hai chiều.
 
-    Cố ý khai CẢ lương trách nhiệm: phần gốc phải ăn đơn giá MỨC NỀN (vị trí + trách nhiệm), chỉ
-    premium mới ăn đơn giá lương vị trí (chốt 12/08/2026). Vá sai cách sẽ hạ gốc xuống đơn giá vị
-    trí và cắt lương người có trách nhiệm — kể cả người không chạm trần."""
+    Cố ý khai CẢ lương trách nhiệm: phần gốc lẫn premium đều ăn đơn giá MỨC NỀN (vị trí + trách
+    nhiệm) — premium theo mức nền từ 15/09/2026 (chủ đảo chốt 12/08 "premium theo lương vị trí").
+    Vá sai cách sẽ hạ gốc xuống đơn giá vị trí và cắt lương người có trách nhiệm."""
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
         assert float(params.restday_work_multiplier) == 2.0
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
-        # nền 32.500.000 / 26 = 1.250.000 đ/công · đơn giá vị trí 26.000.000 / 26 = 1.000.000 đ/công
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
+        # nền 32.500.000 / 26 = 1.250.000 đ/công — gốc lẫn premium cùng đơn giá này (15/09/2026)
         base = dict(employee=emp, params=params, standard_cong=26, on=date(2026, 6, 1),
                     salary=_sal(luong_vi_tri=26_000_000, luong_trach_nhiem=6_500_000))
 
@@ -556,31 +526,34 @@ def test_cong_le_cn_khong_bi_tran_cong_nuot_goc(client):
         # để khi lỗi tái phát thì thông báo hiện thẳng số tiền sai, không dừng ở cột phụ trợ.
         assert v["luong_cong"] == 35_000_000
         assert v["special_cong"] == 2
-        # premium 2 công × (2−1) × đơn giá VỊ TRÍ 1.000.000 (không phải đơn giá nền).
-        assert v["ot_pay"] == 2_000_000
-        # ⇒ mỗi ngày Chủ nhật nhận 1.250.000 gốc + 1.000.000 premium = đúng 2× của đơn giá vị trí
-        #   cộng phần trách nhiệm; trước bản vá chỉ có 1.000.000/ngày.
+        # premium 2 công × (2−1) × đơn giá NỀN 1.250.000 (15/09/2026).
+        assert v["ot_pay"] == 2_500_000
+        # ⇒ mỗi ngày Chủ nhật nhận 1.250.000 gốc + 1.250.000 premium = đúng 2× mức nền — khớp bảng
+        #   lương T05 (công CN người công nhật ×2 trên cả trách nhiệm).
 
         # (2) CHƯA CHẠM TRẦN: 24 ngày thường + 2 Chủ nhật = 26 công ⇒ số KHÔNG đổi.
         v2 = svc._compute(**base, actual_cong=26, restday_cong=2)
-        assert v2["luong_cong"] == 32_500_000 and v2["ot_pay"] == 2_000_000
+        assert v2["luong_cong"] == 32_500_000 and v2["ot_pay"] == 2_500_000
 
         # (3) Không có ngày lễ/CN nào ⇒ hành vi cũ nguyên vẹn.
         v3 = svc._compute(**base, actual_cong=26)
         assert v3["special_cong"] == 0 and v3["luong_cong"] == 32_500_000
 
-        # (4) NGÀY LỄ = 4× chứ không phải 3× (chủ chốt 17/08/2026).
-        # Đ98.1.c: "ít nhất 300% CHƯA KỂ tiền lương ngày lễ" — mà tiền lương ngày lễ (Đ112) người
-        # đó đã được hưởng dù nghỉ ở nhà. Phần 1× trong `luong_cong` CHÍNH LÀ khoản Đ112 đó.
+        # (4) NGÀY LỄ = TỔNG 3× (khách chốt 15/09/2026 chiều, ĐẢO chốt 17/08/2026 "4×").
         v4 = svc._compute(**base, actual_cong=27, holiday_cong=1)
         assert v4["luong_cong"] == 33_750_000          # 27 công × 1.250.000 (ngày lễ ngoài trần)
-        assert v4["ot_pay"] == 3_000_000               # TRỌN 300% × đơn giá vị trí 1.000.000
-        # ⇒ ngày lễ nhận 1.250.000 + 3.000.000 = 4.250.000 (4× của đơn giá vị trí + phần trách nhiệm)
+        assert v4["ot_pay"] == 2_500_000               # phần thêm (3−1) × 1.250.000
+        # ⇒ ngày lễ nhận 1.250.000 + 2.500.000 = 3.750.000 (3× mức nền)
 
-        # (5) Chủ nhật KHÁC ngày lễ: chỉ 2×, vì nghỉ CN ở nhà thì KHÔNG có lương.
-        #     Cho CN ăn trọn hệ số là trả THỪA 1× — test này canh không cho "dọn cho giống nhau".
+        # (5) Chủ nhật: 2×, vì nghỉ CN ở nhà thì KHÔNG có lương.
         v5 = svc._compute(**base, actual_cong=27, restday_cong=1)
-        assert v5["ot_pay"] == 1_000_000               # (2−1) × 1.000.000, KHÔNG phải 2.000.000
+        assert v5["ot_pay"] == 1_250_000               # (2−1) × 1.250.000
+
+        # (6) LỄ RƠI ĐÚNG CHỦ NHẬT = 5× (khách chốt 15/09/2026 chiều): Chấm công ghi công ngày đó
+        #     vào CẢ hai rổ ⇒ 2 công gốc trong `luong_cong` + phần thêm (3−1) + (2−1) = 3 công.
+        v6 = svc._compute(**base, actual_cong=28, holiday_cong=1, restday_cong=1)
+        assert v6["luong_cong"] == 35_000_000          # 28 công × 1.250.000
+        assert v6["ot_pay"] == 3_750_000               # 3 × 1.250.000 ⇒ ngày đó tổng 5 công
     finally:
         db.close()
 
@@ -686,6 +659,23 @@ def _gen_line(client, token, eid):
     gen = client.post("/api/luong/generate", json={"year": 2026, "month": 6},
                       headers=_h(token)).json()
     return next(l for l in gen["lines"] if l["employee_id"] == eid)
+
+
+def _du_cong(monkeypatch, *eids, cong: float = 31.0) -> None:
+    """Cho NV ĐỦ CÔNG mọi kỳ mà không phải dựng từng ngày chấm công (31 > mọi công chuẩn — trần kẹp về
+    đủ tháng). Từ 15/09/2026 phụ cấp + khoản gán hồ sơ ĐI THEO CÔNG: tháng 0 công thì phụ cấp 0, nên
+    test về thuế / khoản danh mục phải có công mới đo được thứ nó muốn đo."""
+    from app.services.attendance_service import AttendanceService
+
+    goc = AttendanceService.metrics_map
+
+    def co_cong(self, year, month):
+        m = goc(self, year, month)
+        for e in eids:
+            m[e] = {**(m.get(e) or {}), "cong": cong}
+        return m
+
+    monkeypatch.setattr(AttendanceService, "metrics_map", co_cong)
 
 
 def _line_of(client, token, eid, *, year=2026, month=6):
@@ -1046,7 +1036,7 @@ def test_ngay_off1x_khong_lam_thi_khong_luong(client):
 def test_update_line_keeps_ot_night_pay(client):
     """Pha 4a (bẫy C2): sửa ô tay (vi phạm) KHÔNG được xóa tăng ca/ca đêm khỏi gross."""
     token = _admin_token(client)
-    emp_id = _make_emp(client, token, name="NV OT", payroll_group="x", status="active")
+    emp_id = _make_emp(client, token, name="NV OT", status="active")
     db = SessionLocal()
     try:
         repo = PayrollRepository(db)
@@ -1183,7 +1173,7 @@ def test_pit_dependents_reduce_tax(client):
 def test_pit_manual_override_and_reset(client):
     """pit tự tính; HCNS ghi đè tay (pit_manual) → giữ; reset (pit_manual=False) → về auto."""
     token = _admin_token(client)
-    emp_id = _make_emp(client, token, name="NV Thuế", payroll_group="x", status="active")
+    emp_id = _make_emp(client, token, name="NV Thuế", status="active")
     db = SessionLocal()
     try:
         repo = PayrollRepository(db)
@@ -1211,7 +1201,7 @@ def test_pit_manual_override_and_reset(client):
 def test_pay_unpay_flow(client):
     """State machine: nháp→chốt→đã chi→hủy chi; chặn pay-khi-chưa-chốt, reopen/generate-khi-đã-chi."""
     token = _admin_token(client)
-    _make_emp(client, token, name="NV Chi", payroll_group="x", status="active")
+    _make_emp(client, token, name="NV Chi", status="active")
     y, m = 2026, 6
     assert client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token)).status_code == 200
     # pay khi CHƯA chốt → 400
@@ -1230,7 +1220,7 @@ def test_pay_unpay_flow(client):
 def test_export_xlsx_smoke(client):
     """Xuất bảng lương + file chuyển khoản .xlsx trả 200 + đúng content-type Excel."""
     token = _admin_token(client)
-    _make_emp(client, token, name="NV Xls", payroll_group="x", status="active")
+    _make_emp(client, token, name="NV Xls", status="active")
     y, m = 2026, 6
     client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token))
     r1 = client.get(f"/api/luong/export.xlsx?year={y}&month={m}", headers=_h(token))
@@ -1246,7 +1236,7 @@ def test_export_xlsx_smoke(client):
 def test_payroll_audit_logged(client):
     """Thao tác lương ghi nhật ký (tạo bảng / chốt) — hiện ở Nhật ký chung."""
     token = _admin_token(client)
-    _make_emp(client, token, name="NV Audit", payroll_group="x", status="active")
+    _make_emp(client, token, name="NV Audit", status="active")
     y, m = 2026, 6
     client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token))
     client.post("/api/luong/lock", json={"year": y, "month": m}, headers=_h(token))
@@ -1383,7 +1373,7 @@ def test_L11_chot_luong_roi_thi_khong_dung_vao_phieu_tam_ung_nua(client):
 
 def test_advance_workflow(client):
     token = _admin_token(client)
-    eid = _make_emp(client, token, name="NV Ứng", payroll_group="van_phong")
+    eid = _make_emp(client, token, name="NV Ứng")
     created = client.post("/api/luong/advances", json={
         "employee_id": eid, "period_year": 2026, "period_month": 6,
         "advance_date": "2026-06-10", "amount": 2_000_000, "reason": "Ứng",
@@ -1620,11 +1610,8 @@ def test_dis_deduction_capped_30pct(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="d102", monthly_amount=20_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="d102", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         # phạt khủng 100tr → cột vi_pham LƯU RAW; phần kẹp chỉ ảnh hưởng gross (trần 30%).
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=20_000_000), params=params, actual_cong=26, standard_cong=26,
                          vi_pham=100_000_000, on=date(2026, 6, 1))
@@ -1645,11 +1632,8 @@ def test_bonus_items_taxable(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="bonus_grp", monthly_amount=30_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="bonus_grp", pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         base = svc._compute(employee=emp, salary=_sal(luong_vi_tri=30_000_000), params=params, actual_cong=26, standard_cong=26,
                             on=date(2026, 6, 1))
         withb = svc._compute(employee=emp, salary=_sal(luong_vi_tri=30_000_000), params=params, actual_cong=26, standard_cong=26,
@@ -1671,11 +1655,8 @@ def test_cong_doan_auto(client):
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         svc.update_params(cong_doan_rate=0.005)
-        svc.payroll.create_rule(payroll_group="cd_grp", monthly_amount=10_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="cd_grp", pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         # Đoàn viên → có trừ đoàn phí.
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=10_000_000, union_member=True),
                          params=params, actual_cong=26, standard_cong=26, on=date(2026, 6, 1))
@@ -1685,8 +1666,7 @@ def test_cong_doan_auto(client):
                             params=params, actual_cong=26, standard_cong=26, on=date(2026, 6, 1))
         assert v_no["cong_doan"] == 0
         # Thử việc (dù là đoàn viên) → 0.
-        emp_tv = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male",
-                                 payroll_group="cd_grp", pay_grade_key=None, dependents_count=0)
+        emp_tv = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male", dependents_count=0)
         v_tv = svc._compute(employee=emp_tv, salary=_sal(luong_vi_tri=10_000_000, union_member=True),
                             params=params, actual_cong=26, standard_cong=26, on=date(2026, 6, 1))
         assert v_tv["cong_doan"] == 0
@@ -1701,11 +1681,8 @@ def test_penalties_share_30pct_cap(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="pen_grp", monthly_amount=20_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="pen_grp", pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=20_000_000), params=params, actual_cong=26, standard_cong=26,
                          vi_pham=30_000_000, di_tre=30_000_000, dt_vuot_troi=30_000_000,
                          phat_bien_ban=30_000_000, phat_5s_dong_phuc=30_000_000, on=date(2026, 6, 1))
@@ -1789,11 +1766,8 @@ def test_luong_cong_capped_at_standard(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="cap_grp", monthly_amount=13_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="cap_grp", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         # 27 công / chuẩn 26 → chặn trần = nguyên 13tr (KHÔNG 27/26 = dư)
         over = svc._compute(employee=emp, salary=_sal(luong_vi_tri=13_000_000), params=params, actual_cong=27,
                             standard_cong=26, on=date(2026, 7, 1))
@@ -1807,26 +1781,22 @@ def test_luong_cong_capped_at_standard(client):
 
 
 def test_special_day_premium(client):
-    """#3 Đ98: làm nguyên công ngày lễ = +300% premium TRỌN (chủ chốt 17/08/2026).
+    """#3 Làm nguyên công ngày lễ = TỔNG 300% (khách chốt 15/09/2026 chiều, ĐẢO chốt 17/08/2026).
 
-    Đ98.1.c trả "ít nhất 300% CHƯA KỂ tiền lương ngày lễ" — 100% gốc trong `luong_cong` chính là
-    tiền ngày lễ Đ112 (hưởng dù nghỉ ở nhà) ⇒ tổng 400%. Trước 17/08 engine chỉ cộng (3−1) = 200%
-    nên ra 300%, trả THIẾU 1 công. Ngày NGHỈ TUẦN vẫn là (2−1) — xem
-    `test_cong_le_cn_khong_bi_tran_cong_nuot_goc` case (5). OT ngày lễ ×3, OT nghỉ tuần ×2."""
+    1 công gốc nằm trong `luong_cong` (tiền ngày lễ Đ112) + phần thêm (3 − 1) = 2 công ⇒ 300%.
+    Rủi ro trả dưới Đ98.1.c ("300% chưa kể tiền lương ngày lễ" ⇒ 400%) đã báo, khách vẫn chọn —
+    PRD bù lỗ §00.7. Ngày NGHỈ TUẦN vẫn (2−1). Giờ OT ngày lễ vẫn ×3, OT nghỉ tuần ×2."""
     client
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        svc.payroll.create_rule(payroll_group="sd", monthly_amount=26_000_000,
-                                effective_from=date(2020, 1, 1))
         params = svc.get_params()   # ot 1.5 · ot_rest 2 · ot_hol 3 · hol_wm 3 · rest_wm 2
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group="sd", pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         daily = 26_000_000 / 26   # 1.000.000 ; giờ = 125.000
-        # 1 công ngày lễ (nằm trong 26 công) → premium = 1×3×daily = 3.000.000 TRỌN, không OT.
+        # 1 công ngày lễ (nằm trong 26 công) → phần thêm = 1×(3−1)×daily = 2.000.000, không OT.
         v = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26, standard_cong=26,
                          holiday_cong=1, on=date(2026, 6, 1))
-        assert v["ot_pay"] == round(daily * 3)   # 3.000.000 premium lễ (TRỌN 300%, không trừ 1)
+        assert v["ot_pay"] == round(daily * 2)   # 2.000.000 phần thêm ⇒ ngày lễ tổng 3 công
         # OT: 60' ngày lễ ×3 + 60' ngày nghỉ tuần ×2 (tổng ot_minutes = 120, không có OT thường).
         v2 = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26, standard_cong=26,
                           ot_minutes=120, ot_holiday_minutes=60, ot_restday_minutes=60,
@@ -1854,8 +1824,7 @@ def test_ngay_phep_tra_du_muc_nen(client):
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
         on = date(2026, 6, 1)
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         sal = _sal(luong_vi_tri=10_000_000, luong_trach_nhiem=3_000_000)   # nền 13tr, std 26
 
         def run(actual, leave, **kw):
@@ -1901,8 +1870,7 @@ def test_chuyen_can_nguyen_khi_co_don_nghi_gio(client):
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
         on = date(2026, 6, 1)
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male")
         sal = _sal(luong_vi_tri=10_000_000, chuyen_can=300_000)
 
         def run(excused):
@@ -1949,7 +1917,7 @@ def _set_emp_comp(client, token, eid, values: dict[int, float | None], expect=20
     return r.json() if r.status_code < 400 else None
 
 
-def test_khoan_mien_thue_khong_vao_thu_nhap_chiu_thue(client):
+def test_khoan_mien_thue_khong_vao_thu_nhap_chiu_thue(client, monkeypatch):
     """⭐ Ruột của yêu cầu: TÍCH 'chịu thuế' thì tính thuế, BỎ TÍCH thì miễn.
 
     Trước đây mọi phụ cấp gộp một cục nên bị tính thuế hết — người có trang phục / tiền nhà /
@@ -1964,6 +1932,7 @@ def test_khoan_mien_thue_khong_vao_thu_nhap_chiu_thue(client):
     # Số phải ĐỦ LỚN mới vượt giảm trừ gia cảnh 15,5tr — nhỏ quá thì thuế bằng 0 cả hai vế và
     # test không chứng minh được gì.
     _set_emp_comp(client, token, eid, {mien: 6_000_000, chiu: 22_000_000})
+    _du_cong(monkeypatch, eid)      # khoản hồ sơ đi theo công (15/09/2026) — đủ công mới ra đủ số
 
     line = _gen_line(client, token, eid)
     # Cả 2 khoản đều cộng vào thu nhập; chỉ khoản CHỊU thuế mới vào thu nhập tính thuế.
@@ -2059,7 +2028,7 @@ def test_luat_xoa_khoan_theo_muc_do_dang_dung(client):
     assert next(x for x in items if x["id"] == da_chot)["is_active"] is False
 
 
-def test_doi_co_chiu_thue_khong_sua_so_ky_da_tinh(client):
+def test_doi_co_chiu_thue_khong_sua_so_ky_da_tinh(client, monkeypatch):
     """Snapshot: sửa 1 ô trên dòng lương CŨ không được lấy cờ chịu thuế HÔM NAY để tính lại."""
     token = _admin_token(client)
     eid = _make_emp(client, token, name="NV Snapshot", status="active")
@@ -2067,6 +2036,7 @@ def test_doi_co_chiu_thue_khong_sua_so_ky_da_tinh(client):
                 "luong_vi_tri": 30_000_000}, headers=_h(token))
     cid = _comp(client, token, name="Tiền cơm snapshot", taxable=False)
     _set_emp_comp(client, token, eid, {cid: 3_000_000})
+    _du_cong(monkeypatch, eid)
     line = _gen_line(client, token, eid)
     assert line["thu_nhap_mien_thue"] == 3_000_000
     pit_cu = line["pit"]
@@ -2078,7 +2048,7 @@ def test_doi_co_chiu_thue_khong_sua_so_ky_da_tinh(client):
     assert r.json()["pit"] == pit_cu, "sửa ô ghi chú mà thuế đổi — đang đọc cờ sống thay vì snapshot"
 
 
-def test_khoan_loai_tru_tru_vao_thuc_nhan(client):
+def test_khoan_loai_tru_tru_vao_thuc_nhan(client, monkeypatch):
     """Khoản kind='tru' trừ thẳng vào THỰC NHẬN, không gộp vào trần 30% của Điều 102."""
     token = _admin_token(client)
     eid = _make_emp(client, token, name="NV Khấu Trừ", status="active")
@@ -2086,6 +2056,7 @@ def test_khoan_loai_tru_tru_vao_thuc_nhan(client):
                 "luong_vi_tri": 10_000_000}, headers=_h(token))
     thu = _comp(client, token, name="Thưởng thêm test", kind="thu", taxable=True)
     _set_emp_comp(client, token, eid, {thu: 8_000_000})
+    _du_cong(monkeypatch, eid)
     base = _gen_line(client, token, eid)
     assert base["net_pay"] > 0, "cần thực nhận > 0 mới quan sát được khấu trừ"
 
@@ -2175,13 +2146,18 @@ def _emp_luong(client, token, *, name, luong=30_000_000, thu_nhap=0, **kw):
     """NV có lương + (tuỳ chọn) một khoản thu nhập CHỊU THUẾ để gross khác 0.
 
     NV không có chấm công thì `actual_cong = 0` ⇒ lương công = 0 ⇒ gross = 0 ⇒ thuế luôn bằng 0,
-    test không chứng minh được gì. Bơm thu nhập qua khoản danh mục là cách nhẹ nhất."""
+    test không chứng minh được gì. Bơm thu nhập qua KHOẢN PHÁT SINH của kỳ (thưởng nóng): từ
+    15/09/2026 khoản gán ở hồ sơ là phụ cấp đi theo công (0 công ⇒ 0đ), còn khoản phát sinh giữ
+    nguyên số và sống sót qua mọi lần "Tính lại" ⇒ gross đúng bằng thu nhập bơm vào."""
     eid = _make_emp(client, token, name=name, status="active", **kw)
     client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
                 "luong_vi_tri": luong}, headers=_h(token))
     if thu_nhap:
         cid = _comp(client, token, name=f"Thu nhập test {name}", taxable=True)
-        _set_emp_comp(client, token, eid, {cid: thu_nhap})
+        line = _gen_line(client, token, eid)
+        r = client.post(f"/api/luong/lines/{line['id']}/components",
+                        json={"component_id": cid, "amount": thu_nhap}, headers=_h(token))
+        assert r.status_code == 201, r.text
     return eid
 
 
@@ -2413,18 +2389,16 @@ def test_xuat_excel_cot_thuong_co_khoan_danh_muc(client):
     r = client.get("/api/luong/export.xlsx?year=2026&month=6", headers=_h(token))
     assert r.status_code == 200, r.text
     ws = load_workbook(BytesIO(r.content)).active
-    # Khuôn mới (09/09/2026, theo bảng lương kế toán đang dùng): tiêu đề ở DÒNG 4, dữ liệu từ dòng 5.
+    # Khuôn `BL CT` của công ty (17/09/2026): tiêu đề ở DÒNG 4, dữ liệu từ dòng 5.
     head = [c.value for c in ws[4]]
     row = next(r for r in ws.iter_rows(min_row=5, values_only=True) if r[2] == "NV Xuất Excel")
     lay = lambda ten: float(row[head.index(ten)] or 0)      # noqa: E731
-    assert lay("Khoản phát sinh") == 1_200_000, "mất khoản danh mục phát sinh"
-    assert lay("TỔNG LƯƠNG") == _line_of(client, token, eid)["gross"]
-    # ⭐ File phải TỰ CỘNG RA Thực nhận — bản cũ thiếu đoàn phí / khoản trừ / lương đợt 1.
-    assert lay("CỘNG THU") - lay("Phạt/trừ thực tế") == lay("TỔNG LƯƠNG")
-    con_lai = (lay("TỔNG LƯƠNG") - lay("BHXH") - lay("BHYT") - lay("BHTN")
-               - lay("Đoàn phí công đoàn") - lay("Thuế TNCN") - lay("Khoản trừ danh mục")
-               - lay("Tạm ứng trừ kỳ này"))
-    assert con_lai == lay("THỰC NHẬN")
+    assert lay("Thưởng/khoản phát sinh") == 1_200_000, "mất khoản danh mục phát sinh"
+    assert lay("Tổng lương") == _line_of(client, token, eid)["gross"]
+    # ⭐ File phải TỰ CỘNG RA Thực nhận — bản 09/09 cũ thiếu đoàn phí / khoản trừ / lương đợt 1. Các khoản
+    # trừ là mọi cột nằm giữa "Tổng lương" và "Thực nhận".
+    tru = sum(float(row[i] or 0) for i in range(head.index("Tổng lương") + 1, head.index("Thực nhận")))
+    assert lay("Tổng lương") - tru == lay("Thực nhận")
 
 
 def _bulk(client, token, cid, **body):
@@ -2510,12 +2484,13 @@ def test_gan_hang_loat_chan_khoan_da_ngung_ap_dung(client):
     assert _emp_comp_amount(client, token, eid, cid) is None
 
 
-def test_gan_hang_loat_vao_dung_luong(client):
+def test_gan_hang_loat_vao_dung_luong(client, monkeypatch):
     """⭐ Gán xong chạy lương thì tiền phải vào thật — không dừng ở màn cấu hình."""
     token = _admin_token(client)
     eid = _make_emp(client, token, name="NV Bulk Ra Tiền", status="active")
     client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
                 "luong_vi_tri": 10_000_000}, headers=_h(token))
+    _du_cong(monkeypatch, eid)      # khoản hồ sơ đi theo công — đủ công mới ra đủ 750.000
     goc = _gen_line(client, token, eid)["allowance"]
 
     cid = _comp(client, token, name="PC bulk ra tiền")
@@ -2793,3 +2768,80 @@ def test_ky_da_chot_khong_con_chon_duoc(client):
     }, headers=_h(token))
     assert r2.status_code == 409, r2.text
     assert "đã chốt" in r2.json()["detail"]
+
+
+def test_MUC_DONG_BH_khai_tay_tung_nguoi_doan_phi_van_theo_muc_nen(client):
+    """⭐ Chủ chốt 16/09/2026: *"phải có ô điền số tiền đóng bảo hiểm xã hội cho từng nhân viên …
+    mỗi nhân viên nó có mức đóng tiền bảo hiểm xã hội khác"*.
+
+    Ô `employee_salaries.insurance_base` sống lại (ngưng từ 12/08/2026):
+    - Khai > 0 ⇒ BHXH/BHYT/BHTN bám ĐÚNG số khai, KHÔNG prorate theo công, vẫn kẹp trần.
+    - Để trống ⇒ tạm bám mức nền (cơ bản + trách nhiệm) như trước + cờ `chua_khai_muc_bh` để màn
+      hình réo tên.
+    - ĐOÀN PHÍ công đoàn GIỮ gốc cũ = mức nền, KHÔNG đi theo ô khai tay (chủ chốt cùng ngày).
+    """
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        params = svc.get_params()
+        params.cong_doan_rate = 0.005          # bật đoàn phí để đo gốc tính
+        ty_le = float(params.bhxh_rate) + float(params.bhyt_rate) + float(params.bhtn_rate)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
+                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        nen = dict(luong_vi_tri=10_000_000, luong_trach_nhiem=5_000_000, union_member=True)
+        goc = dict(employee=emp, params=params, standard_cong=26, actual_cong=26,
+                   on=date(2026, 5, 1))
+
+        khai = svc._compute(**goc, salary=_sal(**nen, insurance_base=6_000_000))
+        assert khai["insurance_base"] == 6_000_000
+        assert khai["bhxh"] == round(6_000_000 * ty_le)
+        assert khai["chua_khai_muc_bh"] is False
+        # Đoàn phí vẫn 0,5% × mức nền 15.000.000 = 75.000, KHÔNG phải 0,5% × 6.000.000.
+        assert khai["cong_doan"] == 75_000
+
+        chua = svc._compute(**goc, salary=_sal(**nen))
+        assert chua["insurance_base"] == 15_000_000 and chua["chua_khai_muc_bh"] is True
+        assert chua["bhxh"] == round(15_000_000 * ty_le)
+
+        # Tick "BH đóng ở nơi khác" ⇒ bên kia đóng, công ty không trừ 3 khoản ⇒ KHÔNG bắt khai mức
+        # đóng, KHÔNG gắn cờ nhắc (chủ chốt 16/09/2026: *"bên khác đóng cho họ rồi"*).
+        noi_khac = svc._compute(**goc, salary=_sal(**nen, insurance_elsewhere=True))
+        assert noi_khac["bhxh"] == 0 and noi_khac["chua_khai_muc_bh"] is False
+
+        # Thiếu công (nhưng chưa tới ngưỡng 14 ngày miễn đóng) KHÔNG làm giảm mức đóng.
+        thieu = svc._compute(**{**goc, "actual_cong": 20}, salary=_sal(**nen, insurance_base=6_000_000))
+        assert thieu["insurance_base"] == 6_000_000 and thieu["bhxh"] == khai["bhxh"]
+        cao = svc._compute(**goc, salary=_sal(**nen, insurance_base=80_000_000))
+        tran_bh = float(params.bh_base_cap)
+        assert cao["bhxh"] == round(tran_bh * (float(params.bhxh_rate) + float(params.bhyt_rate))
+                                    + min(80_000_000, float(params.bhtn_base_cap)) * float(params.bhtn_rate))
+    finally:
+        db.close()
+
+
+def test_MUC_DONG_BH_khai_qua_API_va_canh_bao_truoc_chot(client):
+    """Khai ô này ở màn Sửa lương (API `/api/luong/salaries/{id}`) ⇒ Tính lại đóng theo số khai;
+    ai chưa khai thì dòng lương bật cờ + cảnh báo trước chốt réo tên (chủ chốt 16/09/2026)."""
+    token = _admin_token(client)
+    khai = _make_emp(client, token, name="NV Khai BH", status="active")
+    chua = _make_emp(client, token, name="NV Chưa khai BH", status="active")
+    for eid, bh in ((khai, 7_000_000), (chua, None)):
+        body = {"effective_from": "2026-01-01", "luong_vi_tri": 20_000_000}
+        if bh is not None:
+            body["insurance_base"] = bh
+        r = client.post(f"/api/luong/salaries/{eid}", json=body, headers=_h(token))
+        assert r.status_code in (200, 201), r.text
+
+    xem = client.get(f"/api/luong/salaries/{khai}/preview?on=2026-05-31", headers=_h(token)).json()
+    assert xem["insurance_base"] == 7_000_000 and xem["chua_khai_muc_bh"] is False
+
+    r = client.post("/api/luong/generate", json={"year": 2026, "month": 5}, headers=_h(token))
+    assert r.status_code == 200, r.text
+    dong = {x["employee_id"]: x for x in r.json()["lines"]}
+    assert dong[khai]["insurance_base"] == 7_000_000
+    assert dong[khai]["chua_khai_muc_bh"] is False
+    assert dong[chua]["insurance_base"] == 20_000_000 and dong[chua]["chua_khai_muc_bh"] is True
+    canh_bao = r.json()["canh_bao_chot"] or ""
+    assert "chưa khai Mức đóng BHXH" in canh_bao, canh_bao
+    assert "NV Chưa khai BH" in canh_bao and "NV Khai BH" not in canh_bao, canh_bao

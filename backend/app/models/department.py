@@ -16,13 +16,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
 
-# Cơ chế lương của phòng (Pha 1 — bộ nguyên tắc lương). Cách một phòng ra mức lương cho
-# mọi người trong phòng:
-#   cung                 = lương cứng, ấn định tay từng người (khối quản lý/hành chính).
-#   bac_tho              = theo bậc thợ (thợ 1/2/3, phụ 1/2) — vd tổ In.
-#   tham_nien            = theo thâm niên (<1 / 1–5 / 5–10 / >10 năm) — vd Cắt, Bồi, Cán.
-#   tham_nien_gioi_tinh  = theo thâm niên × nam/nữ — vd Dán, Thành phẩm.
-SALARY_MECHANISMS = ("cung", "bac_tho", "tham_nien", "tham_nien_gioi_tinh")
 
 
 def _utcnow() -> datetime:
@@ -52,17 +45,6 @@ class Department(Base):
     # Logical reference to users.id (the trưởng phòng). Kept as a plain column to avoid a
     # users<->departments FK cycle under create_all; the DB-level FK can land with Alembic.
     head_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # --- Bộ nguyên tắc lương của phòng (Pha 1) — HAI CỘT DƯỚI DORMANT 07/09/2026 ------------
-    # `salary_mechanism` và `probation_ratio` theo phòng: engine chưa bao giờ đọc (mức lương khai ở hồ
-    # sơ từng người, tỷ lệ thử việc là tham số công ty). Màn + API đã gỡ; giữ cột, không drop.
-    # Cơ chế ra mức lương (xem SALARY_MECHANISMS). Mặc định 'cung' = ấn định tay.
-    salary_mechanism: Mapped[str] = mapped_column(
-        String(24), nullable=False, default="cung", server_default="cung"
-    )
-    # % lương thử việc của phòng (công ty dùng 0.80; Đ26 BLLĐ tối thiểu 0.85).
-    probation_ratio: Mapped[float] = mapped_column(
-        Numeric(5, 4), nullable=False, default=0.80, server_default="0.80"
-    )
     # Phòng sản xuất có lương khoán theo sản lượng (nối engine khoán ở pha sau).
     has_piece_work: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
@@ -87,8 +69,8 @@ class Department(Base):
     )
     # Đánh dấu TỔ KIỂM TRA CHẤT LƯỢNG (KCS) — nền cho module Thực hiện sản xuất (spec-thuc-hien-san-xuat
     # §3.1, §14). KHÁC `la_san_xuat`: không kế thừa cây con, không suy theo tổ tiên — cờ đặt ĐÍCH DANH
-    # trên đúng (các) tổ làm KCS. Dùng để: (1) sinh việc "KCS cuối" ở gói phát hành trỏ về tổ này,
-    # (2) route lô kiểm KCS. Một hệ có thể có nhiều tổ KCS; chưa tick tổ nào ⇒ chưa bật khâu KCS.
+    # trên đúng (các) tổ làm KCS. Từ mg `0306` (`docs/design-kcs-theo-lenh.md`): THÀNH VIÊN tổ này là
+    # người KCS — kiểm được công đoạn của mọi tổ; người đứng đầu tổ (`head_user_id`) đóng thiếu nhóm.
     is_kcs: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
@@ -101,6 +83,13 @@ class Department(Base):
     # người chưa chạy chuyến nào. Trước 20/08/2026 tab đó lọc theo quyền RBAC rồi bỏ qua ai chưa
     # có chuyến, nên tài xế mới tuyển không hiện ra — không ai phân chuyến cho họ được.
     la_giao_hang: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    # TỔ IN (mg 0304, khách chốt 15/09/2026). Thợ in ăn khoán thì ngày CN / lễ đi làm KHÔNG có công
+    # gốc: cả 2 / 3 / 5 công trả ở phần THÊM, và bù lỗ theo công không đếm ngày đó (sản lượng ngày
+    # đó vẫn vào tiền khoán). KHÔNG kế thừa xuống cây con — đặt đích danh từng tổ, như `is_kcs` /
+    # `la_giao_hang`. Cờ chỉ đổi tiền khi tổ bật Lương khoán.
+    la_to_in: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
     # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật -------------------

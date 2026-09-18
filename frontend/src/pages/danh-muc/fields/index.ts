@@ -12,3 +12,4 @@ export { NhomMayField, NhomMayMultiField } from "./NhomMay";
 export { RefMultiField, RefSearchField } from "./RefFields";
 export { RowEditor } from "./RowEditor";
 export { SelfRefMultiField } from "./SelfRefMulti";
+export { ViecPhatSinhField } from "./ViecPhatSinh";

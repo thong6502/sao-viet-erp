@@ -9,7 +9,30 @@
 // vào tab Gantt (18 props kéo-thả — `khoaMay`/`taiMay`/`onPropose`/`onDropQueue`... — không hợp
 // một màn CHỈ ĐỌC). Giá phải trả: tab Gantt không có 4 mức thu phóng / ruy-băng ca / tô ngày lễ mà
 // `Xl2Gantt` có — chấp nhận được vì đây là bàn TRA tổng thể theo lệnh, không phải bàn xếp lịch.
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+/** Cột nhãn (sticky trái) của hai tab mini-Gantt. Ở màn ≤480px cột 240px chỉ chừa ~71px cho trục
+ *  trên khung 360px thật, nên co về 120px (tên dài tự xuống dòng). */
+const COT_NHAN_W = 240;
+const COT_NHAN_W_HEP = 120;
+
+/** Bề rộng cột nhãn theo viewport. Không dùng `@media` thuần vì con số này còn vào
+ *  `grid-template-columns` và toạ độ vạch "bây giờ" — JS cần biết giá trị thật, không chỉ CSS.
+ *  Đọc `innerWidth` ngay lúc khởi tạo để lượt vẽ đầu (mở thẳng trên điện thoại) đã đúng cột. */
+export function useCotNhanW(): number {
+  const [w, setW] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth <= 480 ? COT_NHAN_W_HEP : COT_NHAN_W,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 480px)");
+    const capNhat = () => setW(mq.matches ? COT_NHAN_W_HEP : COT_NHAN_W);
+    capNhat();
+    mq.addEventListener("change", capNhat);
+    return () => mq.removeEventListener("change", capNhat);
+  }, []);
+  return w;
+}
 
 /** Hai mật độ trục giờ: dải NGẮN (≤30 giờ, ca hiện tại + vài ngày tới) hiện lưới GIỜ cho đọc chi
  *  tiết; dải DÀI hơn (backlog trọn đời có thể vắt qua nhiều tuần) hiện lưới NGÀY để tổng bề rộng
@@ -142,6 +165,18 @@ export function useTdsxTimeline(mocs: TdsxTimelineMoc[]) {
     [domain, pxPerGio],
   );
 
+  // Lưới dọc của hai tab mini-Gantt, tính THEO MỐC THẬT chứ không kẻ cứng: bước là khoảng cách
+  // giữa hai mốc liền nhau (1 giờ ở dải ngắn ⇒ 72px, 24 giờ ở dải dài ⇒ 336px), lệch là vị trí
+  // mốc ĐẦU so với gốc miền — gốc lùi 2 giờ đệm nên hầu như không rơi đúng giờ tròn. CSS không
+  // biết `pxPerGio` nên trước đây nó kẻ cứng mỗi 100px: không vạch nào trùng nhãn giờ nào, mắt
+  // đọc "khối này bắt đầu khoảng 10h" theo một cái lưới nói dối.
+  const luoiDoc = useMemo(() => {
+    const buocMs = ticks.length >= 2 ? ticks[1].t - ticks[0].t : 3_600_000;
+    const w = (buocMs / 3_600_000) * pxPerGio;
+    const x = ticks.length > 0 ? ((ticks[0].t - domain.start) / 3_600_000) * pxPerGio : 0;
+    return { "--tdsx-luoi-w": `${w}px`, "--tdsx-luoi-x": `${x}px` };
+  }, [ticks, domain, pxPerGio]);
+
   const nowMs = new Date().getTime();
   const nowX = ((nowMs - domain.start) / 3_600_000) * pxPerGio;
   const hasNowLine = nowX >= 0 && nowX <= trackWidth;
@@ -150,5 +185,5 @@ export function useTdsxTimeline(mocs: TdsxTimelineMoc[]) {
   const endDateObj = new Date(domain.end);
   const dateRangeLabel = `${String(startDateObj.getDate()).padStart(2, "0")}/${String(startDateObj.getMonth() + 1).padStart(2, "0")}/${startDateObj.getFullYear()} — ${String(endDateObj.getDate()).padStart(2, "0")}/${String(endDateObj.getMonth() + 1).padStart(2, "0")}/${endDateObj.getFullYear()}`;
 
-  return { domain, spanGio, pxPerGio, trackWidth, ticks, monthGroups, xOf, nowX, hasNowLine, dateRangeLabel };
+  return { domain, spanGio, pxPerGio, trackWidth, ticks, monthGroups, luoiDoc, xOf, nowX, hasNowLine, dateRangeLabel };
 }

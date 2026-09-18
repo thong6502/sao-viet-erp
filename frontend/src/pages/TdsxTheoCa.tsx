@@ -22,6 +22,7 @@
 // Ca đêm nhận diện bằng CỜ `qua_nua_dem` — CẤM dò theo `ten` (Ruling C116: xưởng khác gọi ca đêm
 // là "Ca tối"/"Ca C").
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ApiError, api } from "../api/client";
 import type { TdsxBoLocMuc, TdsxCa, TdsxCaViec, TdsxLsxThamChieu, TdsxThanhLocParams } from "../api/client";
@@ -80,6 +81,17 @@ function gioTrongNgay(iso: string | null): string {
   return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
 
+/** Mốc ngắn cho dòng việc: cùng ngày đang xem thì chỉ giờ, khác ngày thì kèm `dd/MM` — việc chạy
+ *  sớm/trễ so với kế hoạch mà chỉ ghi giờ thì người xem không biết mốc đó thuộc hôm nào. Máy chủ trả
+ *  ISO giờ xưởng KHÔNG offset nên 10 ký tự đầu chính là ngày xưởng. */
+function mocNgan(iso: string, ngayStr: string): string {
+  const gio = gioTrongNgay(iso);
+  if (iso.slice(0, 10) === ngayStr) return gio;
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)} ${gio}`;
+}
+
+const NHAN_LECH_LICH = { som: "sớm lịch", tre: "trễ lịch" } as const;
+
 function nguoiText(nguoi: string[]): { text: string; full: string | undefined } {
   if (nguoi.length === 0) return { text: "Chưa gán người", full: undefined };
   if (nguoi.length <= 2) return { text: nguoi.join(", "), full: undefined };
@@ -94,6 +106,7 @@ export function TdsxTheoCa({
   caFacet,
   onOpenHoSo,
   onXoaLoc,
+  khay,
 }: {
   active: boolean;
   token: string | null;
@@ -104,6 +117,8 @@ export function TdsxTheoCa({
   /** Mở lớp phủ hồ sơ đúng lệnh — bấm một dòng việc. Cùng chữ ký với Kanban/Theo máy. */
   onOpenHoSo: (lsxId: number) => void;
   onXoaLoc: () => void;
+  /** Khay điều khiển trên dải tab — xem ghi chú cùng tên ở `TdsxKanban`. */
+  khay: HTMLElement | null;
 }) {
   const [ngay, setNgay] = useState(homNay);
   const [caIdRaw, setCaIdRaw] = useState("");
@@ -170,95 +185,99 @@ export function TdsxTheoCa({
 
   const dangLoc = Object.values(params).some((v) => v !== undefined);
   const khongTimThayCa = daTai && !loi && caList.length === 0;
+  /** Có ca nhưng CẢ NGÀY không việc nào. Khác hẳn "không tìm thấy ca" và khác hẳn lỗi tải — mà
+   *  màn cũ bày ba dòng "Không có công việc nào được xếp trong ca này" giống hệt nhau trên một
+   *  mặt bàn cao bằng màn hình, nên người xem không biết là ngày rỗng thật hay bảng hỏng. */
+  const khongCoViecNao = daTai && !loi && caList.length > 0 && caList.every((c) => c.viec.length === 0);
 
   return (
     <div className="tdsx-tc" aria-label="Bảng theo ca" role="group">
-      <div className="tdsx-tc__toolbar">
-        <div className="hslsx__field">
-          <span className="hslsx__field-lb">Ngày</span>
-          <div className="hslsx__daterow">
-            <button
-              type="button"
-              className="tdsx-tc__daybtn"
-              onClick={() => setNgay((v) => (ngayHopLe(v) ? doiNgay(v, -1) : homNay()))}
-              aria-label="Lùi một ngày"
-              title="Lùi một ngày"
-            >
-              <Icon name="chevron" size={14} />
-            </button>
-            <input
-              type="date"
-              value={ngay}
-              min="2000-01-01"
-              max="2999-12-31"
-              className={ngaySai ? "is-sai" : ""}
-              onChange={(e) => setNgay(e.target.value)}
-              aria-label="Ngày xem"
-            />
-            <button
-              type="button"
-              className="tdsx-tc__daybtn tdsx-tc__daybtn--sau"
-              onClick={() => setNgay((v) => (ngayHopLe(v) ? doiNgay(v, 1) : homNay()))}
-              aria-label="Tới một ngày"
-              title="Tới một ngày"
-            >
-              <Icon name="chevron" size={14} />
-            </button>
+      {/* Ngày + ca lên dải tab. Dòng "Đang áp bộ lọc chung của cả màn · Xóa bộ lọc" đã bỏ: viên lọc
+          ở hàng trên tự sẫm lại khi có giá trị, và nút "Xóa bộ lọc" đứng ngay cạnh chúng. */}
+      {active &&
+        khay &&
+        createPortal(
+          <>
+            <span className="hslsx__field">
+              <span className="hslsx__field-lb">Ngày</span>
+              <span className="hslsx__daterow">
+                <button
+                  type="button"
+                  className="tdsx-tc__daybtn"
+                  onClick={() => setNgay((v) => (ngayHopLe(v) ? doiNgay(v, -1) : homNay()))}
+                  aria-label="Lùi một ngày"
+                  title="Lùi một ngày"
+                >
+                  <Icon name="chevron" size={14} />
+                </button>
+                <input
+                  type="date"
+                  value={ngay}
+                  min="2000-01-01"
+                  max="2999-12-31"
+                  className={ngaySai ? "is-sai" : ""}
+                  onChange={(e) => setNgay(e.target.value)}
+                  aria-label="Ngày xem"
+                />
+                <button
+                  type="button"
+                  className="tdsx-tc__daybtn tdsx-tc__daybtn--sau"
+                  onClick={() => setNgay((v) => (ngayHopLe(v) ? doiNgay(v, 1) : homNay()))}
+                  aria-label="Tới một ngày"
+                  title="Tới một ngày"
+                >
+                  <Icon name="chevron" size={14} />
+                </button>
+              </span>
+            </span>
+
             {ngay !== homNay() && (
               <button type="button" className="hslsx__linkbtn" onClick={() => setNgay(homNay())}>
                 Hôm nay
               </button>
             )}
-          </div>
-          {ngayRong && <span className="hslsx__hint">Chưa nhập ngày — gõ ngày để xem việc trong ca.</span>}
-          {ngaySai && <span className="hslsx__hint">Ngày không hợp lệ — sửa lại rồi thử tiếp.</span>}
-        </div>
 
-        <label className="hslsx__field">
-          <span className="hslsx__field-lb">Ca</span>
-          <select
-            value={caSelectValue}
-            onChange={(e) => {
-              setCaIdRaw(e.target.value);
-              setMaCaKhacDraft("");
-            }}
-          >
-            <option value="">Tất cả ca</option>
-            {caFacet.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.ten}
-              </option>
-            ))}
-            <option value={CA_ID_NGOAI_CA}>Ngoài ca</option>
-          </select>
-        </label>
+            <label className="hslsx__field">
+              <span className="hslsx__field-lb">Ca</span>
+              <select
+                value={caSelectValue}
+                onChange={(e) => {
+                  setCaIdRaw(e.target.value);
+                  setMaCaKhacDraft("");
+                }}
+              >
+                <option value="">Tất cả ca</option>
+                {caFacet.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.ten}
+                  </option>
+                ))}
+                <option value={CA_ID_NGOAI_CA}>Ngoài ca</option>
+              </select>
+            </label>
 
-        <label className="hslsx__field tdsx-tc__macakhac">
-          <span className="hslsx__field-lb">Mã ca khác</span>
-          <input
-            type="number"
-            min={1}
-            placeholder="Nhập mã ca"
-            value={maCaKhacDraft}
-            onChange={(e) => setMaCaKhacDraft(e.target.value)}
-            onBlur={apMaCaKhac}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              apMaCaKhac();
-              (e.target as HTMLInputElement).blur();
-            }}
-          />
-        </label>
-      </div>
+            <label className="hslsx__field tdsx-tc__macakhac">
+              <span className="hslsx__field-lb">Mã ca khác</span>
+              <input
+                type="number"
+                min={1}
+                placeholder="Nhập mã ca"
+                value={maCaKhacDraft}
+                onChange={(e) => setMaCaKhacDraft(e.target.value)}
+                onBlur={apMaCaKhac}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  apMaCaKhac();
+                  (e.target as HTMLInputElement).blur();
+                }}
+              />
+            </label>
 
-      {dangLoc && (
-        <p className="tdsx-tc__locbao">
-          Đang áp bộ lọc chung của cả màn.{" "}
-          <button type="button" className="hslsx__linkbtn" onClick={onXoaLoc}>
-            Xóa bộ lọc
-          </button>
-        </p>
-      )}
+            {ngayRong && <span className="tdsx__ctlwarn">Chưa nhập ngày — gõ ngày để xem việc trong ca.</span>}
+            {ngaySai && <span className="tdsx__ctlwarn">Ngày không hợp lệ — sửa lại rồi thử tiếp.</span>}
+          </>,
+          khay,
+        )}
 
       {loi && (
         <EmptyState
@@ -298,8 +317,33 @@ export function TdsxTheoCa({
         // sách hiện đang bày vẫn là của lần xem HỢP LỆ gần nhất — mờ nó đi để khỏi trông như còn
         // đúng (vòng sửa 1, mục D#1: trước đây xoá ô Ngày thì 6 việc cũ vẫn sáng rõ như thường).
         <div className={`tdsx-tc__list${loading || ngayKhongXemDuoc ? " is-mo" : ""}`}>
+          {khongCoViecNao && (
+            <p className="tdsx-tc__trongngay">
+              Ngày này không có việc nào — không việc nào xếp kế hoạch, cũng không việc nào chạy thật.
+              Bảng vẫn tải bình thường.
+              {dangLoc ? (
+                <>
+                  {" "}
+                  Bộ lọc chung của màn đang áp.{" "}
+                  <button type="button" className="hslsx__linkbtn" onClick={onXoaLoc}>
+                    Xóa bộ lọc
+                  </button>
+                </>
+              ) : (
+                " Bấm mũi tên cạnh ô Ngày để xem ngày khác."
+              )}
+            </p>
+          )}
           {caList.map((ca) => (
-            <CaSection key={ca.id ?? "ngoai"} ca={ca} ngayStr={ngay} onOpenHoSo={onOpenHoSo} onChon={moPicker} />
+            <CaSection
+              key={ca.id ?? "ngoai"}
+              ca={ca}
+              ngayStr={ngay}
+              dangLoc={dangLoc}
+              onXoaLoc={onXoaLoc}
+              onOpenHoSo={onOpenHoSo}
+              onChon={moPicker}
+            />
           ))}
         </div>
       )}
@@ -349,18 +393,21 @@ function getShiftProgress(ca: TdsxCa): number | null {
 function CaSection({
   ca,
   ngayStr,
+  dangLoc,
+  onXoaLoc,
   onOpenHoSo,
   onChon,
 }: {
   ca: TdsxCa;
   ngayStr: string;
+  dangLoc: boolean;
+  onXoaLoc: () => void;
   onOpenHoSo: (lsxId: number) => void;
   onChon: (ds: TdsxLsxThamChieu[], x: number, y: number) => void;
 }) {
   const [expanded, setExpanded] = useState(ca.viec.length > 0);
   const khung = khungGio(ca);
   const isActive = checkShiftActive(ca, ngayStr);
-  const isNight = ca.qua_nua_dem;
   const hasViec = ca.viec.length > 0;
   const progressPct = isActive ? getShiftProgress(ca) : null;
 
@@ -377,15 +424,12 @@ function CaSection({
         style={{ cursor: !hasViec ? "pointer" : "default" }}
       >
         <div className="tdsx-tc__cahead-left">
-          <span className="tdsx-tc__ca-icon">
-            <Icon name={isNight ? "clock" : "calendar"} size={14} />
-          </span>
           <span className="tdsx-tc__caten">{ca.ten}</span>
           {khung && <span className="tdsx-tc__cakhung">{khung}</span>}
           {isActive && (
             <span className="tdsx-tc__live-badge">
-              <span className="tdsx-live-dot" /> ĐANG DIỄN RA
-              {progressPct != null ? ` (${progressPct}%)` : ""}
+              <span className="tdsx-live-dot" />
+              đang diễn ra{progressPct != null ? ` ${progressPct}%` : ""}
             </span>
           )}
         </div>
@@ -408,15 +452,21 @@ function CaSection({
       {(hasViec || expanded) && (
         <div className="tdsx-tc__body">
           {ca.viec.length === 0 ? (
-            <div className="tdsx-tc__empty-slot">
-              <span className="tdsx-tc__empty-icon">
-                <Icon name="calendar" size={14} />
-              </span>
-              <span className="tdsx-tc__empty-text">Không có công việc nào được xếp trong ca này.</span>
-            </div>
+            <p className="tdsx-tc__empty-slot">
+              Ca này không có việc nào theo kế hoạch hay chạy thật.
+              {dangLoc && (
+                <>
+                  {" "}
+                  Bộ lọc chung của màn đang áp.{" "}
+                  <button type="button" className="hslsx__linkbtn" onClick={onXoaLoc}>
+                    Xóa bộ lọc
+                  </button>
+                </>
+              )}
+            </p>
           ) : (
             ca.viec.map((v) => (
-              <ViecRow key={v.cong_viec_id} viec={v} onOpenHoSo={onOpenHoSo} onChon={onChon} />
+              <ViecRow key={v.cong_viec_id} viec={v} ngayStr={ngayStr} onOpenHoSo={onOpenHoSo} onChon={onChon} />
             ))
           )}
         </div>
@@ -427,10 +477,12 @@ function CaSection({
 
 function ViecRow({
   viec,
+  ngayStr,
   onOpenHoSo,
   onChon,
 }: {
   viec: TdsxCaViec;
+  ngayStr: string;
   onOpenHoSo: (lsxId: number) => void;
   onChon: (ds: TdsxLsxThamChieu[], x: number, y: number) => void;
 }) {
@@ -438,6 +490,15 @@ function ViecRow({
   const nguoi = nguoiText(viec.nguoi);
   const nhieuLenh = viec.lsx.length >= 2;
   const maChinh = viec.lsx[0]?.ma ?? null;
+  const keHoach = viec.du_kien_bat_dau ? mocNgan(viec.du_kien_bat_dau, ngayStr) : null;
+  const giaiThichLech =
+    viec.lech_lich === "som"
+      ? `Chạy trước ngày kế hoạch${keHoach ? ` (dự kiến ${keHoach})` : ""}`
+      : viec.lech_lich === "tre"
+        ? viec.bat_dau_thuc_te
+          ? `Chạy sau ngày kế hoạch${keHoach ? ` (dự kiến ${keHoach})` : ""}`
+          : "Đã quá giờ bắt đầu dự kiến mà chưa chạy"
+        : undefined;
 
   function bam(e: React.MouseEvent<HTMLButtonElement>) {
     if (viec.lsx.length === 0) return;
@@ -464,32 +525,33 @@ function ViecRow({
       }
     >
       <div className="tdsx-tc__viecrow1">
-        <span className="tdsx-tc__code-pill">
-          <span className="tdsx-tc__vma">{nhieuLenh ? `${maChinh} +${viec.lsx.length - 1}` : (maChinh ?? "—")}</span>
-        </span>
+        <span className="tdsx-tc__vma">{nhieuLenh ? `${maChinh} +${viec.lsx.length - 1}` : (maChinh ?? "—")}</span>
         <span className="tdsx-tc__vten">{viec.ten ?? "—"}</span>
         <span className={`tdsx-tt ${meta.cls}`}>
           <i aria-hidden="true" />
           {meta.label}
         </span>
+        {viec.lech_lich && (
+          <span className={`tdsx-tc__lech tdsx-tc__lech--${viec.lech_lich}`} title={giaiThichLech}>
+            {NHAN_LECH_LICH[viec.lech_lich]}
+          </span>
+        )}
       </div>
+      {/* Máy · người · giờ gộp thành MỘT dòng chữ nhỏ. Trước đây mỗi mẩu là một viên có viền + nền +
+          icon riêng: ba khung cho ba mẩu chữ ngắn, trong khi hai chip thật sự mang nhãn nghiệp vụ
+          (thuê ngoài / khuôn) lại chìm nghỉm giữa chúng. Việc đã chạy ghi thêm giờ chạy thật, vì
+          máy chủ xếp nó vào ca theo giờ đó chứ không theo giờ dự kiến. */}
       <div className="tdsx-tc__viecrow2">
-        {viec.may && (
-          <span className="tdsx-tc__vpill" title={viec.may}>
-            <Icon name="cpu" size={12} />
-            <span>{viec.may}</span>
-          </span>
-        )}
-        <span className="tdsx-tc__vpill" title={nguoi.full}>
-          <Icon name="users" size={12} />
-          <span>{nguoi.text}</span>
+        <span className="tdsx-tc__vphu" title={nguoi.full ?? viec.may ?? undefined}>
+          {[
+            viec.may,
+            nguoi.text,
+            viec.bat_dau_thuc_te ? `chạy từ ${mocNgan(viec.bat_dau_thuc_te, ngayStr)}` : null,
+            keHoach ? `dự kiến ${keHoach}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </span>
-        {viec.du_kien_bat_dau && (
-          <span className="tdsx-tc__vpill">
-            <Icon name="clock" size={12} />
-            <span>Dự kiến {gioTrongNgay(viec.du_kien_bat_dau)}</span>
-          </span>
-        )}
         <ChipLoaiBuoc loai_buoc={viec.nhan?.loai_buoc} nha_cung_cap={viec.nhan?.nha_cung_cap} />
         <ChipKhuon can_khuon={!!viec.nhan?.khuon_ma} khuon={nhanKhuon(viec.nhan)} />
       </div>

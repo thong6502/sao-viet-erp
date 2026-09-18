@@ -17,7 +17,6 @@ export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -143,15 +142,6 @@ export function LoginPage() {
             />
 
             <div className="auth__options">
-              <label className="auth__remember">
-                <input
-                  type="checkbox"
-                  className="auth__checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                />
-                <span>Ghi nhớ đăng nhập</span>
-              </label>
               <button
                 type="button"
                 className="auth__forgot-btn"

@@ -16,6 +16,7 @@ import { useAuth } from "../../../auth/useAuth";
 import { useCan } from "../../../auth/permissions";
 import { Button } from "../../../components/Button";
 import { fmtDate } from "../../../utils/format";
+import { gomCum, nhanCum } from "../gomCum";
 import "../../giao-hang.css";
 
 /** Hôm nay dạng `YYYY-MM-DD` — cùng dạng với `input[type=date]`, so sánh chuỗi là đủ.
@@ -82,13 +83,14 @@ export function TaoYeuCauGiaoHang({
     if (!token) return;
     setLoi(null);
     setDangGui(true);
-    const lines = con.lines
-      .filter((l) => chon[l.order_line_id])
-      // Mặt hàng kho KHÔNG gửi từ đây: máy chủ tự khai vào danh mục Vật tư khác từ chính mô tả
-      // dòng đơn. Sản phẩm in là hàng đặt riêng — không có sẵn trong danh mục để mà chọn.
-      .map((l) => ({
-        order_line_id: l.order_line_id,
-        qty: Number(soLuong[l.order_line_id] ?? 0),
+    // Một cụm gửi MỘT dòng (dòng đầu) — máy chủ bung ra mọi dòng của cụm cùng số.
+    const lines = gomCum(con.lines)
+      .filter((c) => chon[c.dau.order_line_id])
+      // Mặt hàng kho KHÔNG gửi từ đây: máy chủ tự khai vào danh mục Thành phẩm từ chính dòng đơn.
+      // Sản phẩm in là hàng đặt riêng — không có sẵn trong danh mục để mà chọn.
+      .map((c) => ({
+        order_line_id: c.dau.order_line_id,
+        qty: Number(soLuong[c.dau.order_line_id] ?? 0),
       }))
       .filter((l) => l.qty > 0);
     api.giaoHang
@@ -175,9 +177,11 @@ export function TaoYeuCauGiaoHang({
               Hàng của đơn đã được tự khai vào danh mục <strong>Thành phẩm</strong> khi chốt đơn —
               không phải chọn mặt hàng kho.
             </p>
-            {con.lines
-              .filter((l) => l.con_phai_giao > 0)
-              .map((l) => {
+            {gomCum(con.lines.filter((l) => l.con_phai_giao > 0))
+              .map((c) => {
+                // Ô của cả cụm: khoá = dòng đầu; trần = phần còn ít nhất trong các dòng của cụm.
+                const l = c.dau;
+                const conCum = Math.min(...c.dong.map((d) => d.con_phai_giao));
                 const tich = Boolean(chon[l.order_line_id]);
                 return (
                   <Fragment key={l.order_line_id}>
@@ -194,13 +198,13 @@ export function TaoYeuCauGiaoHang({
                           // giao ít hơn thì sửa số, đỡ hơn bắt mọi người gõ số mỗi lần.
                           setSoLuong((p) => ({
                             ...p,
-                            [l.order_line_id]: bat ? String(l.con_phai_giao) : "",
+                            [l.order_line_id]: bat ? String(conCum) : "",
                           }));
                         }}
                       />
                       <span>
-                        {l.mo_ta}
-                        <em> · còn {l.con_phai_giao} {l.don_vi_tinh}</em>
+                        {nhanCum(c)}
+                        <em> · còn {conCum} {c.donVi}</em>
                       </span>
                     </label>
                     {/* `type="number"` chứ KHÔNG phải `inputMode="numeric"`: inputMode chỉ đổi
@@ -208,9 +212,9 @@ export function TaoYeuCauGiaoHang({
                         thay vì để máy chủ trả lỗi sau khi đã bấm Gửi. */}
                     <input
                       className="input gh-pick__qty"
-                      type="number" min="1" step="1" max={l.con_phai_giao}
+                      type="number" min="1" step="1" max={conCum}
                       disabled={!tich}
-                      aria-label={`Số lượng giao — ${l.mo_ta ?? ""}`}
+                      aria-label={`Số lượng giao — ${c.ten}`}
                       value={soLuong[l.order_line_id] ?? ""}
                       onChange={(e) =>
                         setSoLuong((p) => ({ ...p, [l.order_line_id]: e.target.value }))

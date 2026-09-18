@@ -184,7 +184,7 @@ class SanXuatCongViec(Base):
     phiên bản đang hiệu lực của gói. Thanh KẾ HOẠCH giữ nguyên theo phiên bản đã phát hành; lớp
     THỰC TẾ (pha sau) đè lên.
 
-    Đóng băng theo §4.2: tổ (`department_id`) + trạng thái KCS (`la_kcs`, `la_kcs_cuoi`), máy,
+    Đóng băng theo §4.2: tổ (`department_id`) + cờ công đoạn cuối (`la_kcs_cuoi`), máy,
     thời gian/ca dự kiến, định mức + đơn vị + `khoan_json`, dữ liệu vật tư. Neo công đoạn nguồn
     bằng `step_key` + id LỎNG (không FK — replace_routing tái sinh id; xem docstring module).
 
@@ -238,18 +238,15 @@ class SanXuatCongViec(Base):
     department_id: Mapped[int | None] = mapped_column(
         ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    la_kcs: Mapped[bool] = mapped_column(
-        nullable=False, server_default=sa_false(), default=False
-    )
+    # CÔNG ĐOẠN CUỐI của nhóm thành phẩm (bất kể tổ nào làm) — phần KCS kiểm đạt ở đây mới được
+    # đề nghị nhập kho (mg `0306`, `docs/design-kcs-theo-lenh.md` mục 6).
     la_kcs_cuoi: Mapped[bool] = mapped_column(
         nullable=False, server_default=sa_false(), default=False
     )
     # SNAPSHOT checklist KCS của bước tại lúc PHÁT HÀNH, lấy từ danh mục tiêu chí gắn theo công
     # đoạn (nguồn DUY NHẤT từ mg `0283`). Hình dạng:
     # list[{tieu_chi_id, ma, ten, huong_dan, bat_buoc, nguon, thu_tu}].
-    # NULL ⇔ bước KHÔNG phải điểm kiểm — đây là bộ lọc của bàn KCS (`repo.diem_kiem`), nên đừng
-    # ghi `[]` thay NULL. KHÁC `la_kcs` ("thẻ việc thuộc tổ KCS"): xem
-    # `docs/design-kcs-theo-cong-doan.md` mục 3.
+    # NULL ⇔ công đoạn chưa gắn tiêu chí nào ở danh mục — đừng ghi `[]` thay NULL.
     # `none_as_null=True` là BẮT BUỘC ở cột này: mặc định của kiểu JSON ghi Python `None` thành
     # chuỗi JSON `'null'` chứ KHÔNG phải NULL của SQL, đọc ORM ra vẫn thấy `None` nên nhìn không
     # ra — mà `WHERE ... IS NOT NULL` thì khớp SẠCH mọi dòng, bàn KCS nuốt trọn cả xưởng. Dòng cũ

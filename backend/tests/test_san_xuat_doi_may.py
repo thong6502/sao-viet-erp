@@ -6,16 +6,16 @@
   · Giờ máy = tổng khoảng phiên ĐÃ ĐÓNG + phần phiên đang chạy — đổi máy không làm mất giờ cũ.
 
 Điều chỉnh so với brief gốc (31/08/2026): `test_api_doi_may_gate_quyen` KHÔNG khẳng định thẳng
-mã 403 — brief giả định "Admin là Giám đốc, KHÔNG có bit `can_assign_work`" nhưng giả định đó
-chưa được xác nhận. Điều cần chứng minh thật sự là "đổi máy đi qua ĐÚNG cùng cổng quyền với bắt
-đầu": gọi cả `bat-dau` lẫn `doi-may` bằng CÙNG một tài khoản trên CÙNG một công việc rồi so hai
-kết luận về quyền (cùng 403, hoặc cùng qua cổng) — không phụ thuộc việc vai admin đang được cấp gì.
+mã 403. Điều cần chứng minh thật sự là "đổi máy đi qua ĐÚNG cùng cổng quyền với bắt đầu" (từ mg
+0302 cả hai cùng `require_quyen_to("run_order")` ở router + `_gate` Thực hiện lệnh ở service): gọi
+cả `bat-dau` lẫn `doi-may` bằng CÙNG một tài khoản trên CÙNG một công việc rồi so hai kết luận về
+quyền (cùng 403, hoặc cùng qua cổng) — không phụ thuộc việc vai admin đang được cấp dòng nào.
 
 REVIEW VÒNG 1 (31/08/2026) — ba khoảng trống bị soi ra:
 
-  · Important 1: bộ test gốc không có kịch bản "chỉ đổi máy (không tạm dừng thật) rồi kết thúc
-    trễ" — lỗ hổng gộp `loai_dong=doi_may` chung với `tam_dung` (miễn lý do trễ nhầm) sẽ lọt qua
-    hết bốn test cũ vì không test nào gọi `ket_thuc()` sau `doi_may()`.
+  · Important 1: lỗ hổng gộp `loai_dong=doi_may` chung với `tam_dung` (hồi đó làm miễn nhầm lý do
+    kết thúc trễ — luật này gỡ 16/09/2026) lọt qua hết bốn test cũ vì không test nào soi loại đóng
+    phiên sau `doi_may()`.
   · Important 2: bộ test gốc DỰA vào chính lỗ hổng "chưa kiểm máy mới có thật không" — mọi
     `may_id_moi` đều là số bịa (501/502/999/777/778/2). Phải dựng máy THẬT trong `may_thiet_bi`
     rồi chữa lại toàn bộ test cho khớp, cộng hai test chặn (máy không tồn tại/đã ngừng dùng, và
@@ -26,16 +26,21 @@ REVIEW VÒNG 1 (31/08/2026) — ba khoảng trống bị soi ra:
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pytest
 
+from app.models.cong_doan import CongDoan, CongDoanMay
 from app.models.department import Department
 from app.models.employee import Employee
+from app.models.lsx import LsxCongDoan
+from app.models.machine_unavailable import KIEU_CHAN, LY_DO_HONG_HOC, MachineUnavailablePeriod
 from app.models.may_thiet_bi import MayThietBi
 from app.models.san_xuat import BUOC_MAY, BUOC_TO, CV_DANG_CHAY, CV_TAM_DUNG, SanXuatCongViec
-from app.models.san_xuat_thuc_thi import SanXuatKhoangThamGia, SanXuatPhienChay
+from app.models.san_xuat_thuc_thi import PHIEN_DOI_MAY, SanXuatKhoangThamGia, SanXuatPhienChay
+from app.schemas.san_xuat import MayDoiOut
 from app.services.san_xuat import thuc_thi
+from tests.quyen_to_fixtures import cap_quyen_to
 
 from tests.test_san_xuat_board import (  # noqa: F401
     _authz, _phat_hanh_vao_to, admin, customer, db, lsx_svc, orders,
@@ -44,13 +49,14 @@ from tests.test_san_xuat_board import (  # noqa: F401
 
 # --- Dàn cảnh dùng chung (theo mẫu tests/test_san_xuat_thuc_thi.py, dòng 55) -----------------
 def _to_khoan(db, admin, ma="TO-DM") -> Department:
-    """Tổ sản xuất bật lương khoán, admin làm tổ trưởng — để qua GATE §6 khi gọi service."""
+    """Tổ sản xuất bật lương khoán, vai của admin được bật đủ quyền trên dòng tổ — để qua cổng ghi."""
     d = Department(
         name=f"Tổ Đổi Máy {ma}", code=ma, la_san_xuat=True,
-        has_piece_work=True, head_user_id=admin.id,
+        has_piece_work=True,
     )
     db.add(d)
     db.flush()
+    cap_quyen_to(db, admin, d)
     return d
 
 
@@ -103,7 +109,8 @@ def _mot_cv_dang_chay(
 
 @pytest.fixture
 def to_truong(admin):
-    """`_to_khoan` gán admin.id làm `head_user_id` của tổ dàn cảnh — admin CHÍNH là tổ trưởng."""
+    """Người bấm ở tổ dàn cảnh: `_to_khoan` bật đủ quyền trên dòng tổ cho vai của admin (tên fixture
+    giữ từ thời còn luật tổ trưởng — nay quyền nằm ở dòng `to_sx_<id>`, không ở `head_user_id`)."""
     return admin
 
 
@@ -200,20 +207,16 @@ def test_doi_may_buoc_khong_chay_may_bi_chan(db, orders, lsx_svc, admin, custome
         thuc_thi.doi_may(db, user=admin, cong_viec_id=cv.id, may_id_moi=cac_may[1].id)
 
 
-# --- Review vòng 1, Important 1: đổi máy KHÔNG được tính là "đã có lý do giải thích trễ" -------
-def test_ket_thuc_tre_van_bat_buoc_ly_do_khi_chi_co_doi_may(db, cv_dang_chay, to_truong, cac_may):
+# --- Review vòng 1, Important 1: đổi máy KHÔNG được ghi thành tạm dừng ---------------------------
+def test_doi_may_khong_ghi_thanh_tam_dung(db, cv_dang_chay, to_truong, cac_may):
     """Bug gốc: `doi_may()` từng đóng phiên với `loai_dong=tam_dung` — công việc CHƯA HỀ tạm dừng
-    thật, nhưng `ket_thuc()` lại đọc thấy một phiên `tam_dung` có lý do và MIỄN luôn lý do kết
-    thúc trễ. Kịch bản: bắt đầu đúng hạn → đổi máy (không tạm dừng thật) → dự kiến kết thúc đã
-    qua → `ket_thuc()` không kèm lý do vẫn phải bị chặn."""
+    thật. Hồi còn luật lý do kết thúc trễ (gỡ 16/09/2026) nó miễn nhầm lý do; nay vẫn phải tách vì
+    lịch sử phiên và bàn tổ đọc `tam_dung` là DỪNG THẬT (đếm lần dừng, nhãn "Tạm dừng")."""
     cv = cv_dang_chay
-    cv.du_kien_ket_thuc = datetime.now(timezone.utc) - timedelta(minutes=5)  # đặt SAU khi đã bắt đầu
-    db.commit()
-
     thuc_thi.doi_may(db, user=to_truong, cong_viec_id=cv.id, may_id_moi=cac_may[1].id)
 
-    with pytest.raises(ValueError, match="Kết thúc trễ"):
-        thuc_thi.ket_thuc(db, user=to_truong, cong_viec_id=cv.id)
+    cu = db.query(SanXuatPhienChay).filter_by(cong_viec_id=cv.id).order_by(SanXuatPhienChay.so_thu_tu).first()
+    assert cu.loai_dong == PHIEN_DOI_MAY
 
 
 # --- Review vòng 1, Important 3: đổi máy không được làm mất/lệch khoảng tham gia ---------------
@@ -250,6 +253,69 @@ def test_doi_may_dang_chay_giu_nguyen_khoang_tham_gia(db, cv_dang_chay_hai_nguoi
     assert moc_dong == moc_mo and len(moc_dong) == 1           # đóng-mở CÙNG một mốc, không hở giây
 
 
+# --- Ô chọn "Đổi máy" chỉ bày máy làm được công đoạn (17/09/2026) --------------------------------
+def _gan_cong_doan(db, cv, **kw) -> CongDoan:
+    """Nối bước lệnh đứng sau `cv` vào một công đoạn danh mục mới."""
+    cd = CongDoan(ma=f"CD-DM-{cv.id}", ten="Dán", nhom="finishing", **kw)
+    db.add(cd)
+    db.flush()
+    db.get(LsxCongDoan, cv.lsx_cong_doan_id).cong_doan_id = cd.id
+    db.commit()
+    return cd
+
+
+def test_may_doi_chi_moi_may_cua_cong_doan(db, cv_dang_chay, to_truong, cac_may):
+    """Công đoạn đã chọn máy ⇒ chỉ các máy đó, trừ máy đang chạy và máy đã ngừng dùng. Máy ngoài
+    danh sách (dù còn dùng) không được mời — tổ đổi sang đó là chạy máy không có công thức giờ."""
+    _may(db, "MAY-DM-NGOAI")
+    cd = _gan_cong_doan(db, cv_dang_chay)
+    cd.may_lam_duoc.extend(CongDoanMay(may_id=m.id) for m in cac_may)
+    cac_may[2].active = False
+    db.commit()
+
+    out = MayDoiOut.model_validate(
+        thuc_thi.may_doi_duoc(db, user=to_truong, cong_viec_id=cv_dang_chay.id))
+    assert [m.id for m in out.items] == [cac_may[1].id]
+    assert out.theo_cong_doan is True
+    assert (out.items[0].trang_thai, out.items[0].nhan) == ("ranh", "Xếp được")
+
+
+def test_may_doi_cong_doan_chua_khai_moi_moi_may(db, cv_dang_chay, to_truong, cac_may):
+    """Chưa khai máy lẫn nhóm máy ⇒ không ràng buộc, cờ tắt để ô chọn nói rõ vì sao danh sách dài."""
+    _gan_cong_doan(db, cv_dang_chay)
+    out = thuc_thi.may_doi_duoc(db, user=to_truong, cong_viec_id=cv_dang_chay.id)
+    ids = {m["id"] for m in out["items"]}
+    assert {cac_may[1].id, cac_may[2].id} <= ids
+    assert cac_may[0].id not in ids
+    assert out["theo_cong_doan"] is False
+
+
+def test_may_doi_mang_tinh_trang_may_hong(db, cv_dang_chay, to_truong, cac_may):
+    """Máy đang bị khoá vì hỏng hiện ĐÚNG chữ của màn Thiết bị — vẫn có trong danh sách (chỉ cảnh
+    báo, không chặn chọn): tổ đứng cạnh máy biết rõ hơn lịch."""
+    bay_gio = datetime.now()
+    db.add(MachineUnavailablePeriod(
+        may_id=cac_may[1].id, kieu=KIEU_CHAN, reason=LY_DO_HONG_HOC, note="Gãy trục cán",
+        unavailable_from=bay_gio - timedelta(hours=1), unavailable_to=bay_gio + timedelta(hours=2),
+    ))
+    db.commit()
+
+    items = {m["id"]: m for m in thuc_thi.may_doi_duoc(
+        db, user=to_truong, cong_viec_id=cv_dang_chay.id)["items"]}
+    assert items[cac_may[1].id]["nhan"] == "Hỏng — chờ sửa"
+    assert items[cac_may[1].id]["chi_tiet"] == "Gãy trục cán"
+    assert items[cac_may[2].id]["trang_thai"] == "ranh"
+
+
+def test_may_doi_rong_khi_buoc_khong_chay_may(db, orders, lsx_svc, admin, customer, cac_may):
+    cv = _mot_cv_dang_chay(
+        db, orders, lsx_svc, admin, customer,
+        ma="TO-DM-RONG", may_id=cac_may[0].id, loai_buoc=BUOC_TO,
+    )
+    assert thuc_thi.may_doi_duoc(db, user=admin, cong_viec_id=cv.id) == {
+        "items": [], "theo_cong_doan": False}
+
+
 # --- Đường dây RBAC: đổi máy đi qua ĐÚNG cùng cổng quyền với Bắt đầu ---------------------------
 def test_api_doi_may_gate_quyen(client, seed_credentials):
     r = client.post("/api/auth/login", json=seed_credentials)
@@ -263,7 +329,13 @@ def test_api_doi_may_gate_quyen(client, seed_credentials):
     # cũng thoả mãn phép so 403-hay-không nên assert dưới KHÔNG tự bắt được lỗi đó.
     assert r_doi_may.status_code != 404, (r_doi_may.status_code, r_doi_may.text)
     # Cùng tài khoản, cùng công việc: hai đường phải cho CÙNG kết luận về quyền (403 hay không),
-    # bất kể vai `seed_credentials` đang được cấp bit `can_assign_work` hay không.
+    # bất kể vai `seed_credentials` đang có dòng quyền theo tổ bật Thực hiện lệnh hay không.
     assert (r_bat_dau.status_code == 403) == (r_doi_may.status_code == 403), (
         r_bat_dau.status_code, r_bat_dau.text, r_doi_may.status_code, r_doi_may.text,
+    )
+    # Danh sách máy của ô Đổi máy đi CÙNG cửa: ai không đổi được máy thì cũng không đọc được nó.
+    r_ds = client.get("/api/san-xuat/work-items/1/may-doi", headers=headers)
+    assert r_ds.status_code != 404, (r_ds.status_code, r_ds.text)
+    assert (r_ds.status_code == 403) == (r_doi_may.status_code == 403), (
+        r_ds.status_code, r_ds.text, r_doi_may.status_code, r_doi_may.text,
     )

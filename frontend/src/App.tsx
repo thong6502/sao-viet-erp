@@ -11,7 +11,7 @@ import "./pages/auth.css";
 //   authed   -> protected Dashboard
 //   anonymous-> Login
 export function App() {
-  const { status } = useAuth();
+  const { status, retrying } = useAuth();
 
   // Tem QR dán kệ mở "#s=<token>": ai quét cũng xem được, KHÔNG qua cổng đăng nhập.
   const scanToken = readScanToken();
@@ -37,7 +37,11 @@ export function App() {
                 <span />
               </span>
             </h2>
-            <p className="splash-sub">Sao Việt Nhật ERP — Hệ thống quản trị sản xuất in</p>
+            <p className="splash-sub">
+              {retrying
+                ? "Chưa kết nối được máy chủ — đang tự thử lại, không cần đăng nhập lại."
+                : "Sao Việt Nhật ERP — Hệ thống quản trị sản xuất in"}
+            </p>
           </div>
         </div>
       </div>

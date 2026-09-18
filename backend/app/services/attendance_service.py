@@ -1301,14 +1301,13 @@ class AttendanceService:
         """Hệ số công HIỂN THỊ theo loại ngày — để ô lịch nói "→ tính N công" mà KHÔNG viết cứng số.
 
         Đây là số ĐỌC RA TỪ CẤU HÌNH LƯƠNG, không phải công thức thứ hai: nó phải khớp từng đồng
-        với `PayrollService._compute`. Hai chỗ dùng HAI công thức khác nhau, CỐ Ý (chủ chốt
-        17/08/2026 — xem `payroll_service.py` khối premium Đ98):
+        với `PayrollService._compute`:
 
-          • NGÀY LỄ  = **1 + holiday_work_multiplier** (mặc định 1 + 3 = 4×). Phần 1× là tiền lương
-            ngày lễ Đ112 — người đó hưởng dù nghỉ ở nhà; Đ98.1.c trả TRỌN 300% "chưa kể" khoản đó.
-          • NGHỈ TUẦN = **restday_work_multiplier** (mặc định 2×), KHÔNG cộng 1. Chủ nhật nghỉ ở nhà
-            thì không có đồng nào, nên phần 1× trong lương công CHÍNH LÀ tiền đi làm ⇒ 1× + 1×.
-            Cộng thêm 1 ở đây là màn hình hứa 3× trong khi phiếu lương trả 2×.
+          • NGÀY LỄ  = **holiday_work_multiplier** (mặc định 3× — khách chốt 15/09/2026 "ngày lễ chỉ
+            300% thôi", ĐẢO cách cũ 1 + 3 = 4×). Phần 1× là tiền lương ngày lễ Đ112, nằm trong 300%.
+          • NGHỈ TUẦN = **restday_work_multiplier** (mặc định 2×). Chủ nhật nghỉ ở nhà không có đồng
+            nào, nên phần 1× trong lương công CHÍNH LÀ tiền đi làm ⇒ 1× + 1×.
+          • LỄ RƠI ĐÚNG NGÀY NGHỈ TUẦN = **cộng cả hai** (mặc định 2 + 3 = 5×) — khách chốt 15/09/2026.
           • off1x = 1× phẳng, không hệ số (Lương trả riêng, uncapped).
 
         Đọc PayrollRepository (đã có sẵn ở `self._payroll`) chứ KHÔNG gọi PayrollService — service
@@ -1316,7 +1315,8 @@ class AttendanceService:
         params = self._payroll.get_params() if self._payroll is not None else None
         m_hol = float(getattr(params, "holiday_work_multiplier", 3.0) or 3.0)
         m_rest = float(getattr(params, "restday_work_multiplier", 2.0) or 2.0)
-        return {"le": round(1.0 + m_hol, 2), "nghi_tuan": round(m_rest, 2), "off1x": 1.0}
+        return {"le": round(m_hol, 2), "nghi_tuan": round(m_rest, 2),
+                "le_nghi_tuan": round(m_hol + m_rest, 2), "off1x": 1.0}
 
     def monthly_timesheet(self, *, year: int, month: int, department_id: int | None = None,
                           scope=None, actor=None, only_employee_id: int | None = None) -> dict:
@@ -1334,6 +1334,20 @@ class AttendanceService:
             allowed: set[int] | None = {only_employee_id}
         else:
             allowed = self._allowed_employee_ids(scope, actor)
+            # LỌC TỔ ĐI VÀO `allowed` (11/09/2026) — trước đây `department_id` chỉ được dùng ở
+            # bộ lọc CUỐI (`emp.department_id != department_id` bên dưới), nên chọn một tổ 50
+            # người vẫn nạp lượt bấm / lưới ca / đơn phép của CẢ XƯỞNG rồi ghép ngày công cho đủ
+            # 500 người — xong mới vứt 450 người đi. Lọc một tổ tốn đúng bằng xem cả xưởng.
+            #
+            # Lấy MỌI NV đang thuộc tổ, KHÔNG lọc biên chế: bộ lọc cuối chỉ hỏi `department_id`,
+            # nên tập này phải là SIÊU TẬP của những ai có thể lên bảng — thu hẹp hơn là làm biến
+            # mất hàng (người đã nghỉ việc còn lượt bấm sót vẫn phải giữ hàng).
+            #
+            # Bộ lọc cuối GIỮ NGUYÊN, cố ý: `allowed` chỉ quyết định nạp bao nhiêu, còn ai được
+            # lên bảng vẫn do nó chốt. Hai lớp nói cùng một câu ⇒ kết quả không đổi một dòng.
+            if department_id is not None:
+                cua_to = self.employees.ids_by_department(department_id)
+                allowed = cua_to if allowed is None else (allowed & cua_to)
 
         # Mốc tháng theo giờ VN → quy về UTC để truy vấn. Nới +12h cuối để lấy lượt RA rạng sáng
         # ngày đầu tháng sau (thuộc ca VÀO ngày cuối tháng này), và −12h đầu để lấy lượt VÀO của ca
@@ -1404,6 +1418,31 @@ class AttendanceService:
                     date(year, month, days_in_month) + timedelta(days=2)):
                 ot_theo_ngay[(t.employee_id, t.work_date)] = (int(t.from_minute), int(t.to_minute))
 
+        # AI LÊN BẢNG = NV còn biên chế trong tháng **HỢP** NV có dấu vết (lượt bấm / đơn phép /
+        # phiếu giờ).
+        #
+        # HỢP chứ không THAY: người đã nghỉ việc tháng trước mà còn lượt bấm sót vẫn phải giữ hàng.
+        # Đổi thành "chỉ biên chế" là làm BIẾN MẤT hàng đang thấy — thay đổi chỉ được phép thuần
+        # cộng thêm.
+        #
+        # Nhánh dấu vết một mình là đủ cho tới 31/07/2026, và nó bỏ rơi đúng người cần thấy nhất:
+        # ai CẢ THÁNG không chấm buổi nào thì không có hàng nào, nên (1) không tự xem được lịch
+        # công, (2) không bấm được ô ngày để xin chỉnh công, (3) HCNS không soi ra họ, (4) mất
+        # công lễ vì nhánh `emp_holidays` bên dưới không bao giờ chạy tới.
+        #
+        # ⚠️ Nạp Ở ĐÂY, TRƯỚC vòng ghép lượt bấm — không phải ngay trên vòng dựng hàng (11/09/2026).
+        # `_employees_in_month` kéo cả mẻ Employee vào identity map của phiên, nên mọi `get_by_id`
+        # sau đó là đọc bộ nhớ. Đặt sau vòng ghép lượt bấm thì đúng vòng đó lại bắn 1 truy vấn/người:
+        # đo được 519 truy vấn cho 500 NV, tuyến tính theo đầu người. Ghi chú "bảng 100 NV bắn 100
+        # query lẻ" ở vòng dựng hàng bên dưới nói đúng bệnh, chỉ là đứng sai chỗ để chữa.
+        emp_cache: dict[int, object] = {}
+        if only_employee_id is not None:
+            base_ids = {only_employee_id}
+        else:
+            emp_cache = {e.id: e for e in self._employees_in_month(
+                year, month, department_id, scope, actor)}
+            base_ids = set(emp_cache)
+
         logs_by_emp: dict[int, list] = {}
         for lg in logs:
             if allowed is not None and lg.employee_id not in allowed:
@@ -1416,7 +1455,8 @@ class AttendanceService:
         # ⇒ THẮNG phiếu. Thợ quên bấm thì không.
         ra_cham_bu: dict[int, dict[int, set]] = {}
         for emp_id, logs_emp in logs_by_emp.items():
-            emp0 = self.employees.get_by_id(emp_id)
+            # Chỉ id đến từ nhánh "có dấu vết" (không còn biên chế trong tháng) mới phải hỏi DB.
+            emp0 = emp_cache.get(emp_id) or self.employees.get_by_id(emp_id)
             if emp0 is None:
                 continue
             # Ghép lượt bấm cũng hỏi ca của ngày ĐÓ và ngày HÔM TRƯỚC ⇒ gieo cache trước.
@@ -1503,24 +1543,6 @@ class AttendanceService:
                     "restday": False, "plain": False,
                     "planned_off": False}
 
-        # AI LÊN BẢNG = NV còn biên chế trong tháng **HỢP** NV có dấu vết (lượt bấm / đơn phép /
-        # phiếu giờ).
-        #
-        # HỢP chứ không THAY: người đã nghỉ việc tháng trước mà còn lượt bấm sót vẫn phải giữ hàng.
-        # Đổi thành "chỉ biên chế" là làm BIẾN MẤT hàng đang thấy — thay đổi chỉ được phép thuần
-        # cộng thêm.
-        #
-        # Nhánh dấu vết một mình là đủ cho tới 31/07/2026, và nó bỏ rơi đúng người cần thấy nhất:
-        # ai CẢ THÁNG không chấm buổi nào thì không có hàng nào, nên (1) không tự xem được lịch
-        # công, (2) không bấm được ô ngày để xin chỉnh công, (3) HCNS không soi ra họ, (4) mất
-        # công lễ vì nhánh `emp_holidays` bên dưới không bao giờ chạy tới.
-        emp_cache: dict[int, object] = {}
-        if only_employee_id is not None:
-            base_ids = {only_employee_id}
-        else:
-            emp_cache = {e.id: e for e in self._employees_in_month(
-                year, month, department_id, scope, actor)}
-            base_ids = set(emp_cache)
         rows = []
         for emp_id in base_ids | set(by_emp) | set(leave_map) | set(hourly_map):
             # Dùng lại object đã nạp ở trên; chỉ những id đến từ nhánh "có dấu vết" mới phải hỏi
@@ -1553,6 +1575,7 @@ class AttendanceService:
             restday_cong = 0.0   # công LÀM ngày nghỉ tuần (Đ98 → premium)
             plain_cong = 0.0     # công LÀM ngày nghỉ 'off1x' — Lương trả 1× (KHÔNG hệ số), uncapped
             excused_cong = 0.0   # công THIẾU nhưng CÓ ĐƠN — chỉ nuôi chuyên cần, KHÔNG cộng vào công
+            le_nghi_cong = 0.0   # công ngày LỄ NGHỈ hưởng lương (không đi làm) — ĐÃ nằm trong total_cong
             ot_holiday = 0       # phút OT ngày lễ
             ot_restday = 0       # phút OT ngày nghỉ tuần
             paid_leave = 0
@@ -1739,11 +1762,29 @@ class AttendanceService:
                             holiday_cong += info["cong"]
                             ot_holiday += info["ot_minutes"]
                             cell["holiday"] = True
-                            # Ngày lễ HƯỞNG LƯƠNG có đi làm (chủ chốt 07/09/2026, bản rà liên thông D3):
-                            # công lễ 1,0 (Đ112) GIỮ NGUYÊN dù làm nửa ngày hay chỉ vào tối; giờ thực
-                            # (`holiday_cong`) chỉ là NỀN cho hệ số lễ 300%. Trước đó làm nửa ngày lễ
-                            # là mất nửa tiền lễ.
-                            total_cong += max(0.0, 1.0 - float(info["cong"]))
+                            # ⚠️ `is_restday` = "không phải ngày làm việc" nên nó TRUE ở MỌI ngày lễ.
+                            # Hỏi riêng lịch TUẦN để biết ngày lễ đó có rơi đúng Chủ nhật hay không.
+                            le_trung_nghi_tuan = (
+                                self._work_calendar is not None
+                                and self._work_calendar.la_ngay_nghi_tuan(date(year, month, d)))
+                            if le_trung_nghi_tuan:
+                                # LỄ RƠI ĐÚNG NGÀY NGHỈ TUẦN (khách chốt 15/09/2026): trả CẢ HAI chế độ —
+                                # 200% của ngày Chủ nhật + 300% của ngày lễ = 500%. Cách ghi: công làm
+                                # ngày đó vào CẢ `holiday_cong` LẪN `restday_cong`, nên Lương tự cộng hai
+                                # premium (lễ 2× + nghỉ tuần 1× = 3× phần thêm) mà không cần rổ thứ ba, và
+                                # `special_cong` = 2 công gốc (1 công lễ Đ112 + 1 công đi làm ngày nghỉ).
+                                # Giờ TĂNG CA của ngày này vẫn tính hệ số NGÀY LỄ (`ot_holiday` ở trên) —
+                                # khách chốt không nhân thêm.
+                                restday_cong += info["cong"]
+                                cell["restday"] = True
+                                cell["le_nghi_tuan"] = True      # ô lịch nói rõ "lễ trùng ngày nghỉ tuần"
+                                total_cong += 1.0
+                            else:
+                                # Ngày lễ HƯỞNG LƯƠNG có đi làm (chủ chốt 07/09/2026, bản rà liên thông D3):
+                                # công lễ 1,0 (Đ112) GIỮ NGUYÊN dù làm nửa ngày hay chỉ vào tối; giờ thực
+                                # (`holiday_cong`) chỉ là NỀN cho hệ số lễ 300%. Trước đó làm nửa ngày lễ
+                                # là mất nửa tiền lễ.
+                                total_cong += max(0.0, 1.0 - float(info["cong"]))
                             cell["cong_le"] = 1.0
                         elif is_restday:
                             restday_cong += info["cong"]
@@ -1805,6 +1846,7 @@ class AttendanceService:
                     cell.update(cong=cong, leave=lv["name"] if lv is not None else paid_holidays[d],
                                 leave_paid=paid, holiday=True)
                     total_cong += cong
+                    le_nghi_cong += cong
                 elif d not in lv_days:
                     # Ngày CHỈ mang dấu 'nghỉ theo lịch' HOẶC ngày đã XẾP CA nhưng chưa tới (tương
                     # lai): giữ ô để bảng công hiện ca / "nghỉ theo lịch" thay vì để trống giống
@@ -1857,7 +1899,9 @@ class AttendanceService:
                 "total_days": total_days, "total_leave": total_leave,
                 "paid_leave_days": round(paid_leave + paid_leave_cong, 2),
                 "unpaid_leave_days": unpaid_leave,
-                "holiday_days": len(emp_holidays), "ot_minutes": total_ot, "night_days": night_days,
+                # Ngày lễ NGHỈ HƯỞNG CÔNG (15/09/2026: trước đếm cả ngày lễ bị đơn không lương phủ). Lương
+                # đọc làm `le_nghi_cong`: người ăn khoán / tài xế được trả công lễ RIÊNG, ngoài tiền khoán.
+                "holiday_days": int(round(le_nghi_cong)), "ot_minutes": total_ot, "night_days": night_days,
                 "holiday_cong": round(holiday_cong, 2), "restday_cong": round(restday_cong, 2),
                 "plain_cong": round(plain_cong, 2),
                 "excused_cong": round(excused_cong, 2),
@@ -2172,6 +2216,9 @@ class AttendanceService:
                 "holiday_cong": float(r.get("holiday_cong") or 0),
                 "restday_cong": float(r.get("restday_cong") or 0),
                 "plain_cong": float(r.get("plain_cong") or 0),
+                # Công ngày lễ NGHỈ hưởng lương — người khoán / tài xế được trả RIÊNG (15/09/2026). PHẢI
+                # có ở cả nhánh ảnh chụp (`period_metrics_map`, đọc cột `holiday_days`).
+                "le_nghi_cong": float(r.get("holiday_days") or 0),
                 # Nghỉ theo giờ có đơn: giữ chuyên cần. Ngày phép có lương: Lương trả theo
                 # lương vị trí. CẢ HAI phải có ở NHÁNH SNAPSHOT nữa, không thì số nhảy lúc chốt công.
                 "excused_cong": float(r.get("excused_cong") or 0),
@@ -2510,35 +2557,62 @@ class AttendanceService:
 
     def khoang_co_mat_hop_le(
         self, employee, start_utc: datetime, end_utc: datetime,
+        manh_theo_ngay: dict[tuple[int, date], list[tuple[datetime, datetime]]] | None = None,
     ) -> list[tuple[datetime, datetime]]:
         """§7.3 — các KHOẢNG CÓ MẶT HỢP LỆ (UTC-aware, KHÔNG chồng lấn) của NV trong [start,end):
         giao của (các cặp chấm công IN/OUT thực tế) với (TRONG CA THƯỜNG ∪ PHIẾU TĂNG CA ĐÃ DUYỆT).
         Phút THÔ — không grace, không làm tròn. Ca qua đêm gom vào ngày VÀO ca (`work_day_of`).
 
         Dùng nuôi lương khoán (§12.2): engine phân bổ lấy phút = giao(khoảng THAM GIA, khoảng này).
-        NV chưa gán ca + không có phiếu TC ⇒ khung trả công rỗng ⇒ trả [] (⇒ đánh 'thiếu chấm công')."""
+        NV chưa gán ca + không có phiếu TC ⇒ khung trả công rỗng ⇒ trả [] (⇒ đánh 'thiếu chấm công').
+
+        `manh_theo_ngay` {(NV, ngày công) → mảnh}: caller hỏi NHIỀU cửa sổ của cùng người trong một
+        lượt đọc (các mẻ của một công việc) truyền MỘT dict dùng chung. Mảnh của một ngày không phụ
+        thuộc cửa sổ — cửa sổ chỉ cắt ở `_gop_khoang` cuối — nên đọc lại từ dict ra đúng số cũ. Đo
+        16/09/2026 drawer 3 mẻ cùng ngày: không nhớ thì hỏi quẹt thẻ 9 lượt cho đúng 3 ngày. Đừng
+        giữ dict qua một lần GHI chấm công/ca/phiếu tăng ca."""
         start_utc, end_utc = _as_utc(start_utc), _as_utc(end_utc)
         if employee is None or end_utc <= start_utc:
             return []
+        nho = manh_theo_ngay if manh_theo_ngay is not None else {}
         # Nới ±1 ngày quanh biên để ôm ca đêm gom về ngày vào ca.
-        d = start_utc.astimezone(VN_TZ).date() - timedelta(days=1)
+        d_dau = start_utc.astimezone(VN_TZ).date() - timedelta(days=1)
         d_het = end_utc.astimezone(VN_TZ).date() + timedelta(days=1)
+        cac_ngay = [d_dau + timedelta(days=i) for i in range((d_het - d_dau).days + 1)]
+        chua_tinh = [d for d in cac_ngay if (employee.id, d) not in nho]
+        if chua_tinh:
+            # Ca của cả dải trong HAI truy vấn — để `_shift_for_day` tự tra thì mỗi ngày tốn tới ba
+            # (ô lưới, mốc ca nền, có lịch sử mốc không). Biên: punch của ngày d nạp từ 00:00 hôm
+            # trước tới trưa hôm sau (`_day_punches`), và `_shift_and_work_day_for_local` còn dò ca
+            # HÔM TRƯỚC của từng punch ⇒ [đầu − 2, cuối + 1]. Thứ tự lưới-rồi-ca-nền y `bang_cong`.
+            tu, den = chua_tinh[0] - timedelta(days=2), chua_tinh[-1] + timedelta(days=1)
+            self.prefetch_shift_days({employee.id}, tu, den)
+            moc = self.employees.shift_assignments_map({employee.id}).get(employee.id, [])
+            self.gieo_ca_nen(employee, moc, tu, den)
         manh: list[tuple[datetime, datetime]] = []
-        while d <= d_het:
-            shift = self._shift_for_day(employee, d)
-            punches = self._day_punches(employee, shift, d)
-            sessions = pair_sessions([(lc, lg.check_type) for lc, lg in punches])
-            if sessions:
-                khung = self._khung_tra_cong_utc(employee, shift, d)
-                for s_in, s_out in sessions:
-                    a0 = s_in.astimezone(timezone.utc)
-                    a1 = s_out.astimezone(timezone.utc)
-                    for w0, w1 in khung:
-                        lo, hi = max(a0, w0), min(a1, w1)
-                        if hi > lo:
-                            manh.append((lo, hi))
-            d += timedelta(days=1)
+        for d in cac_ngay:
+            if (employee.id, d) not in nho:
+                nho[(employee.id, d)] = self._manh_hop_le_ngay(employee, d)
+            manh.extend(nho[(employee.id, d)])
         return _gop_khoang(manh, start_utc, end_utc)
+
+    def _manh_hop_le_ngay(self, employee, d: date) -> list[tuple[datetime, datetime]]:
+        """Mảnh có mặt hợp lệ của MỘT ngày công `d` (UTC, CHƯA cắt theo cửa sổ nào) — thân vòng
+        ngày của `khoang_co_mat_hop_le`, tách ra để nhớ được theo (NV, ngày)."""
+        shift = self._shift_for_day(employee, d)
+        punches = self._day_punches(employee, shift, d)
+        sessions = pair_sessions([(lc, lg.check_type) for lc, lg in punches])
+        manh: list[tuple[datetime, datetime]] = []
+        if sessions:
+            khung = self._khung_tra_cong_utc(employee, shift, d)
+            for s_in, s_out in sessions:
+                a0 = s_in.astimezone(timezone.utc)
+                a1 = s_out.astimezone(timezone.utc)
+                for w0, w1 in khung:
+                    lo, hi = max(a0, w0), min(a1, w1)
+                    if hi > lo:
+                        manh.append((lo, hi))
+        return manh
 
     @staticmethod
     def _cap_bam_theo_phieu(shift, phien_chinh, otw: tuple[int, int], wd: date) -> dict:

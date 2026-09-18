@@ -404,29 +404,53 @@ class FollowupsOut(BaseModel):
     items: list[FollowupRow]
 
 
-# --- Import CSV (#23) ---------------------------------------------------------
+# --- Nhập Excel (#23; thay đường CSV cũ 11/09/2026) ---------------------------
+#
+# `dong` LUÔN là số dòng THẬT trên sheet Excel (tính cả dòng tiêu đề), không phải số thứ tự bản
+# ghi: người dùng đang nhìn file trong Excel, nói "dòng 7" thì họ bấm Ctrl+G tới đúng dòng 7.
 
 
-class ImportRowResult(BaseModel):
-    """Kết quả một dòng import: `row` là số dòng trong file (1-based, không tính header).
-    status ∈ created|warning|error — warning = đã tạo nhưng có cảnh báo trùng."""
+class NhapExcelLoi(BaseModel):
+    """Một dòng KHÔNG ghi được. Còn một dòng lỗi thì cả file không ghi gì."""
 
-    row: int
-    status: str
-    message: str | None = None
-    code: str | None = None
-    name: str | None = None
+    dong: int
+    cot: str = ""
+    ly_do: str
 
 
-class ImportResultOut(BaseModel):
-    """Tổng kết import. `dry_run=True` → chưa ghi gì, chỉ xem trước."""
+class NhapExcelCanhBao(BaseModel):
+    """Cảnh báo MỀM — vẫn ghi: trùng MST / tên / email (§34: không chặn), gỡ Sale phụ trách, đổi
+    cùng lúc tên lẫn MST (nghi trỏ nhầm khách)."""
 
-    dry_run: bool
-    total: int
-    created: int
-    warnings: int
-    errors: int
-    rows: list[ImportRowResult]
+    dong: int
+    ly_do: str
+
+
+class NhapExcelThayDoi(BaseModel):
+    """Một ô sẽ đổi trên một khách ĐÃ CÓ (bản 2, 17/09/2026) — xem trước đọc được "cũ → mới"."""
+
+    dong: int
+    ma: str
+    ten: str
+    cot: str
+    cu: str
+    moi: str
+
+
+class NhapExcelOut(BaseModel):
+    """Tổng kết một lượt nhập. `preview` và `commit` trả CÙNG hình dạng; khác đúng ở `da_ghi`."""
+
+    hop_le: bool
+    tong_dong: int
+    tao_moi: int
+    cap_nhat: int = 0
+    khong_doi: int = 0
+    da_ghi: bool
+    #: Có ô tài chính đã điền / đã sửa nhưng người nhập không có quyền ⇒ đã bỏ qua đúng mấy cột đó.
+    bo_qua_tai_chinh: bool = False
+    loi: list[NhapExcelLoi] = []
+    canh_bao: list[NhapExcelCanhBao] = []
+    thay_doi: list[NhapExcelThayDoi] = []
 
 
 class ReceivableCard(BaseModel):
@@ -601,8 +625,9 @@ __all__ = [
     "AddressesOut",
     "CustomerAttachmentOut",
     "CustomerAttachmentsOut",
-    "ImportRowResult",
-    "ImportResultOut",
+    "NhapExcelLoi",
+    "NhapExcelCanhBao",
+    "NhapExcelOut",
     "CustomerRow",
     "CustomerKpis",
     "CustomerListOut",

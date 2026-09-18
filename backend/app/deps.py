@@ -23,10 +23,10 @@ from .repositories.leave_repo import LeaveRepository
 from .repositories.overtime_repo import OvertimeRepository
 from .repositories.payroll_component_repo import PayrollComponentRepository
 from .repositories.payroll_repo import PayrollRepository
-from .repositories.piece_work_repo import PieceWorkRepository
 from .repositories.production_output_repo import ProductionOutputRepository
 from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
+from .repositories.delivery_repo import DeliveryRepository
 from .repositories.employee_repo import EmployeeRepository
 from .repositories.noi_quy_repo import NoiQuyRepository
 from .repositories.machine_repo import MachineRepository
@@ -231,7 +231,8 @@ def get_department_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     levels: Annotated[UnitLevelRepository, Depends(get_unit_level_repository)],
 ) -> DepartmentService:
-    return DepartmentService(departments, roles, users, audit, levels, EmployeeRepository(db))
+    return DepartmentService(departments, roles, users, audit, levels, EmployeeRepository(db),
+                             deliveries=DeliveryRepository(db))
 
 
 def get_unit_level_service(
@@ -389,13 +390,16 @@ def get_leave_service(
     calendar: Annotated[CalendarService, Depends(get_calendar_service)],
     late_early: Annotated[LateEarlyRepository, Depends(get_late_early_repository)],
     attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
+    payroll: Annotated[PayrollService, Depends(get_payroll_service)],
 ) -> LeaveService:
     # calendar → loại ngày lễ khỏi quota + tuần T2–T7 (Thứ 7 nay trừ phép).
     # late_early (REPO) → phiếu đi muộn/về sớm có tick "trừ phép" cũng tiêu quỹ phép năm.
     # attendance (REPO) → chặn duyệt/hủy đơn của tháng ĐÃ CHỐT CÔNG (12/08/2026). Thiếu dây này
     # thì duyệt đơn nghỉ cho tháng đã chốt vẫn lọt, bảng công đổi mà bảng lương giữ số cũ.
+    # payroll (SERVICE) → hỏi "tổ này ăn khoán không" để chặn nghỉ phép CÓ LƯƠNG của người khoán /
+    # tài xế (khách chốt 15/09/2026). Một chiều: PayrollService không biết gì về Nghỉ phép.
     return LeaveService(leaves, employees, audit, calendar=calendar, late_early=late_early,
-                        attendance=attendance)
+                        attendance=attendance, payroll=payroll)
 
 
 def get_late_early_service(
@@ -434,12 +438,6 @@ def get_payroll_repository(
     return PayrollRepository(db)
 
 
-def get_piece_work_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> PieceWorkRepository:
-    return PieceWorkRepository(db)
-
-
 def get_cong_doan_repository(
     db: Annotated[Session, Depends(get_db)],
 ) -> CongDoanRepository:
@@ -447,12 +445,11 @@ def get_cong_doan_repository(
 
 
 def get_piece_work_service(
-    piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
     db: Annotated[Session, Depends(get_db)],
 ) -> PieceWorkService:
     # Tiền khoán theo NGƯỜI = Phiếu phân bổ ĐÃ CHỐT (Giai đoạn 4, §12). `list_nguoi_by_period` trả
     # rỗng tới khi tổ trưởng chốt một phân bổ ⇒ nối seam này KHÔNG đổi lương cho tới lúc đó.
-    return PieceWorkService(piece, outputs=ProductionOutputRepository(db))
+    return PieceWorkService(outputs=ProductionOutputRepository(db))
 
 
 def get_payroll_component_repository(
@@ -539,7 +536,7 @@ O_QUYEN_GAC_O_SERVICE: set[tuple[str, str]] = {
 #: ⚠️ VÌ SAO LÀ DANH SÁCH ĐEN CHỨ KHÔNG PHẢI "cái gì không có trong registry thì chết":
 #: bản đầu tiên (11/08/2026) làm kiểu suy ngược đó và **khoá nhầm hàng loạt ô đang dùng được** —
 #: *In / xuất phiếu chi* · *In / xuất phiếu thu* · *Đặt trưởng phòng* · *Đổi cấp trên* ·
-#: *Xem lương & BHXH* · *Sửa lương & BHXH* · *Thao tác vòng đời* · *Điều chuyển & nâng bậc*.
+#: *Xem lương & BHXH* · *Sửa lương & BHXH* · *Thao tác vòng đời* · *Điều chuyển & đổi chức danh*.
 #: Lý do: registry chỉ thấy cổng ở ROUTER, còn rất nhiều ô được thi hành ở **giao diện** (ẩn/hiện
 #: nút) hoặc ở **tầng service**. Không thấy ≠ không có tác dụng.
 #:
@@ -609,6 +606,39 @@ def require_permission(module_key: str, action: str):
                 detail="Bạn không có quyền thực hiện thao tác này",
             )
         return user
+
+    return dependency
+
+
+def require_quyen_to(viec: str = "read", *hoac: tuple[str, str], cho_kcs: bool = False):
+    """Cổng Bàn tổ (mg 0302): cho qua nếu vai của user bật `viec` ("read" | "run_order" |
+    "confirm_output" | "warehouse") trên ÍT NHẤT MỘT dòng quyền theo tổ — hoặc có một trong
+    các ô tĩnh `hoac` (màn khác dùng chung endpoint). ĐÚNG TỔ NÀO do service hỏi
+    (`services/quyen_to.py`); ở đây chỉ chặn sớm người không có gì.
+
+    `cho_kcs=True`: người thuộc phòng ban "Tổ KCS" cũng qua (KCS theo lệnh, mg 0306) — họ kiểm mọi
+    tổ mà không giữ dòng quyền tổ nào, nên màn KCS đọc chung endpoint phải mở cho họ.
+
+    Dòng theo tổ là dòng ĐỘNG (`to_sx_<id>`), không đăng ký vào `O_QUYEN_DUOC_GAC` — ô của nó sống
+    theo cây phòng ban, không theo registry."""
+    O_QUYEN_DUOC_GAC.update(hoac)
+
+    def dependency(
+        user: CurrentUser,
+        db: Annotated[Session, Depends(get_db)],
+        authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    ) -> User:
+        from .services.quyen_to import quyen_to_cua
+        from .services.san_xuat.kcs import la_nguoi_kcs
+
+        if any(authz.can(user, k, a) for k, a in hoac) or quyen_to_cua(db, user).co_viec(viec):
+            return user
+        if cho_kcs and la_nguoi_kcs(db, user):
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền thực hiện thao tác này",
+        )
 
     return dependency
 

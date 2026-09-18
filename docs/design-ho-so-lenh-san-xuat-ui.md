@@ -223,7 +223,7 @@ chip GẤP.
 
 | # | Cột | Rộng | Nội dung | Cắt chữ? |
 |---|---|---|---|---|
-| 1 | **Mã** | `11%` (~124px) | `ma` trong badge mã (`--ff-num`, tabular-nums) + chip **GẤP** khi `is_rush` | **KHÔNG BAO GIỜ** — `nowrap`, không ellipsis. Mã là định danh; cắt mã là hỏng cả dòng. |
+| 1 | **Mã** | `11%` (~124px) | `ma` trong badge mã (`--ff-sans`) + chip **GẤP** khi `is_rush` | **KHÔNG BAO GIỜ** — `nowrap`, không ellipsis. Mã là định danh; cắt mã là hỏng cả dòng. |
 | 2 | **Sản phẩm / SL** | `20%` (~226px) | dòng 1 `ten`; dòng 2 `so_luong_dat` + `don_vi_tinh`, thêm `· đã giao {da_giao}` **chỉ khi `da_giao > 0`** | Xuống dòng, clamp **2 dòng** + `title` đủ chữ ở ≥769px; **bỏ clamp** ở ≤768px |
 | 3 | **Khách** | `13%` (~147px) | dòng 1 `khach_hang`; dòng 2 `sale` (nhỏ, `--ash-2`) | như cột 2 |
 | 4 | **Máy / người** | `13%` (~147px) | dòng 1 `may`; dòng 2 `nguoi[]` — hiện **2 tên đầu + `+N`**, `title` đủ tên | cắt **từ cuối** (thứ tự mảng là thứ tự giao) |
@@ -496,9 +496,9 @@ gio_may · han_hoan_thanh_sx · han_giao_khach · du_kien_xong · trang_thai · 
   `khach_hang`, mà vai QC / tổ trưởng không có ⇒ bày link ra là mời ăn 403 giữa luồng.
 - `page` / `page_size` trong response — chỉ để đối chiếu; `Pager` đọc state của FE.
 
-**Realtime (Bước 4 của plan, ghi ở đây cho trọn thiết kế):** thêm `lenh_san_xuat` và
-`theo_doi_san_xuat` vào `REALTIME_MODULES` (`components/appShellRealtime.ts` — hiện chưa có hai
-khoá này, nên vai chỉ có `lenh_san_xuat` **không mở nổi kênh SSE**). Khi nhận sự kiện SX:
+**Realtime (Bước 4 của plan, ghi ở đây cho trọn thiết kế):** ~~thêm `lenh_san_xuat` và
+`theo_doi_san_xuat` vào `REALTIME_MODULES`~~ — từ 17/09/2026 danh sách đó đã gỡ, kênh SSE mở cho
+MỌI tài khoản đăng nhập (để ai cũng nghe được `quyen_doi` khi quyền đổi). Khi nhận sự kiện SX:
 - **Gộp sự kiện, debounce 2 giây** rồi mới gọi lại — chuyền chạy thì sự kiện tới liên tục, refetch
   mỗi cái là bảng nhấp nháy dưới tay người đang đọc.
 - Gọi lại **cả `/summary` lẫn danh sách**, **giữ nguyên** `page` / `tab` / bộ lọc / vị trí cuộn.
@@ -575,8 +575,7 @@ spacing lấy từ `ke-hoach-sx.css`.
 | Tab đang chọn | `--charcoal` nền, `--on-charcoal` chữ |
 | Chip GẤP · focus ring · hover hàng | `--rust` / `--rust-deep` / `--rust-soft` |
 | Trạng thái | `--steel` · `--signal` · `--plum` · `--amber` · `--moss` (+ `-soft`) |
-| Mã, số lượng, %, giờ, ngày | `--ff-num` + `font-variant-numeric: tabular-nums` |
-| Chữ thường (tên SP, khách, công đoạn) | `--ff-sans` — **đừng** dùng `--ff-num` cho chữ |
+| Chữ và số (tên SP, khách, công đoạn, mã, số lượng, %, giờ, ngày) | `--ff-sans` |
 | Cỡ chữ / giãn cách / bo góc | `--fs-*` · `--sp-*` (thang 4px) · `--r-2`/`--r-3`/`--r-5`, pill `--r-pill` |
 
 Bề rộng trang: `max-width: 1360px; margin: 0 auto; padding: var(--sp-5) var(--sp-6)` — rộng hơn

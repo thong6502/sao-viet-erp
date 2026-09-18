@@ -32,26 +32,30 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
 
   // Danh mục Vật tư khác cho dropdown gắn vật tư. Nạp TẠI ĐÂY chứ không qua `refData` chung: cột
   // này là danh mục thứ HAI của cùng một field, mà bộ nạp chung khoá theo một `refPrefix` mỗi field.
-  const [vatTu, setVatTu] = useState<Row[]>([]);
+  const [vatTu, setVatTu] = useState<Row[]>(
+    () => (token && crud("/api/vat-lieu-kho/vat-tu-in-an").daNho(token, { active: true })) || []);
   useEffect(() => {
     if (!token) return;
     let alive = true;
-    crud("/api/vat-lieu-kho/vat-tu-in-an").list(token, { active: true })
-      .then((r) => { if (alive) setVatTu(r.items); })
-      .catch(() => { if (alive) setVatTu([]); });
+    const { nho, moi } = crud("/api/vat-lieu-kho/vat-tu-in-an").thamChieu(token, { active: true });
+    if (nho) setVatTu(nho);
+    moi.then((items) => { if (alive) setVatTu(items); })
+      .catch(() => { if (alive && !nho) setVatTu([]); });
     return () => { alive = false; };
   }, [token]);
   const vatTuTheoId = useMemo(() => new Map(vatTu.map((v) => [Number(v.id), v])), [vatTu]);
   // Danh mục Đơn vị & quy đổi cho ô chọn "Đơn vị" của Năng suất khoán. Nạp TẠI ĐÂY chứ không qua
   // `refData` chung: bộ nạp chung khoá theo MỘT `refPrefix` mỗi field, mà field này đã dùng
   // `refPrefix` cho danh sách đầu việc.
-  const [donVi, setDonVi] = useState<Row[]>([]);
+  const [donVi, setDonVi] = useState<Row[]>(
+    () => (token && crud("/api/don-vi").daNho(token, { active: true, size: 200 })) || []);
   useEffect(() => {
     if (!token) return;
     let alive = true;
-    crud("/api/don-vi").list(token, { active: true, size: 200 })
-      .then((r) => { if (alive) setDonVi(r.items); })
-      .catch(() => { if (alive) setDonVi([]); });
+    const { nho, moi } = crud("/api/don-vi").thamChieu(token, { active: true, size: 200 });
+    if (nho) setDonVi(nho);
+    moi.then((items) => { if (alive) setDonVi(items); })
+      .catch(() => { if (alive && !nho) setDonVi([]); });
     return () => { alive = false; };
   }, [token]);
   // Hàng phụ đang mở — mỗi lúc một dòng, mở cái khác thì cái cũ đóng (bảng đã 10 cột, bung hai

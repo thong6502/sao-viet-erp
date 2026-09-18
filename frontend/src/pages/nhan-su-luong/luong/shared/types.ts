@@ -46,9 +46,12 @@ export type SysRow = {
   key: string;
   name: string;
   note: string;
-  taxable: boolean;
+  /** `null` = ô KHÔNG phải khoản thu (vd "Mức đóng BHXH") ⇒ không gắn chip Chịu thuế / Miễn thuế. */
+  taxable: boolean | null;
   value: number;
   set: (v: number) => void;
   /** Khoản đã NGƯNG: cho xem số cũ để tra lịch sử nhưng không cho sửa (sửa cũng không ra tiền). */
   readOnly?: boolean;
+  /** Ô chỉ là MỨC căn cứ, không phải tiền trả ⇒ không cộng vào tổng "ô cố định" ở cuối màn. */
+  khongTinhTong?: boolean;
 };

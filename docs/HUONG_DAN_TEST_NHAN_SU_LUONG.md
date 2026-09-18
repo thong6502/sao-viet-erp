@@ -302,8 +302,6 @@ Mấy chỗ dưới đây **đã rà ra và ghi nhận**, chưa sửa. Gặp th�
 |---|---|---|
 | **Tiền khoán luôn = 0** | Khai đơn giá khoán, khai mốc thưởng/phạt tổ trưởng — cột khoán vẫn 0đ | Thiếu nguồn **sản lượng**; chờ Lệnh sản xuất |
 | **Tổ có tích "Làm khoán" mất tăng ca** | Người tổ đó làm thêm giờ nhưng cột tăng ca = 0, mà khoán cũng = 0 ⇒ **thiệt hơn tổ thường** | Do hai cái trên cộng lại. Cách chữa tạm: **bỏ tích "Làm khoán"** ở tổ đó |
-| **Quy tắc lương theo bậc thợ** | Khai được qua API nhưng **không bao giờ áp dụng** | Chưa có màn, và phần tính đã ngừng dùng |
-| **Ô "Loại / Bậc thợ" trong hồ sơ** | Gõ được nhưng **không ra tiền** — chỉ để xem | Chưa có cơ chế chia theo bậc |
 | **Điều chỉnh lương ±** | Máy cộng được nhưng **không có ô nhập** trên màn | Thiếu đường vào |
 
 ### 🔴 Một con số cần chủ quyết, không phải lỗi

@@ -332,7 +332,6 @@ def _routing(bc: BoiCanh, lsx_id: int, buocs: list[LsxCongDoan], ten_to: dict[in
             "nha_cung_cap": b.nha_cung_cap,
             "cong_viec_id": cv.id if cv is not None else None,
             "la_buoc_ghep": la_ghep,
-            "la_kcs": bool(cv.la_kcs) if cv is not None else False,
             "la_buoc_hien_tai": cv is not None and hien_tai is not None and cv.id == hien_tai.id,
             "trang_thai": cv.trang_thai if cv is not None else None,
             "may": may.ten if may is not None else None,
@@ -561,8 +560,10 @@ def _san_luong(bc: BoiCanh, lsx_id: int) -> dict:
                 "cong_viec_id": cv.id,
                 "ten_viec": cv.ten_cong_doan,
                 "la_buoc_ghep": cv.id in ghep,
-                "bat_dau": b.bat_dau,
-                "ket_thuc": b.ket_thuc,
+                # Cửa sổ mẻ là mốc THỰC THI (UTC thật) — trả thô thì Postgres gắn `+00:00` và FE
+                # `new Date(iso)` cộng thêm offset máy chủ. Cùng khuôn với `hoan_thanh_luc`.
+                "bat_dau": thuc_te_hien_thi(b.bat_dau),
+                "ket_thuc": thuc_te_hien_thi(b.ket_thuc),
                 "tong": _f(b.tong),
                 "tot": _f(b.tot),
                 "hong": _f(b.hong),
@@ -590,7 +591,7 @@ def _kcs(bc: BoiCanh, lsx_id: int) -> dict:
                 "ten_viec": cv.ten_cong_doan,
                 "la_buoc_ghep": cv.id in ghep,
                 "la_kcs_cuoi": bool(cv.la_kcs_cuoi),
-                "ket_thuc": k.ket_thuc,
+                "ket_thuc": thuc_te_hien_thi(k.ket_thuc),
                 "so_luong_nhan": _f(k.so_luong_nhan),
                 "so_luong_dat": _f(k.so_luong_dat),
                 "so_luong_khong_dat": _f(k.so_luong_khong_dat),
@@ -656,50 +657,35 @@ def _su_co(db: Session, bc: BoiCanh, lsx_id: int) -> list[dict]:
 
 
 def _kho(bc: BoiCanh, lsx_id: int, *, so_lenh_trong_nhom: int) -> dict:
-    """Yêu cầu nhập kho thành phẩm + lot BTP của lệnh.
+    """Yêu cầu NHẬP kho thành phẩm (kho thật) sinh từ công đoạn KCS cuối của nhóm — mỗi dòng yêu cầu
+    một dòng. Số theo đơn vị của món thành phẩm.
 
-    ⚠️ `so_luong_yeu_cau`/`so_luong_xac_nhan` ở đây là số của NHÓM, không phải phần đóng góp của
-    riêng lệnh này: một nhóm gồm nhiều lệnh (Ruột + Bìa → Kỷ yếu) cùng đọc CHUNG một tập yêu cầu.
-    Cộng qua các lệnh của một trang là nhân con số thật lên đúng bằng số thành viên nhóm.
-
-    Nói ra bằng `so_lenh_trong_nhom` — SỐ, không phải cờ. Bản trước trả `cap_nhom=True` hằng, tức
-    một lời chú thích đội lốt trường dữ liệu: nó đúng cả khi nhóm chỉ có một lệnh (lúc đó số của
-    nhóm CHÍNH LÀ số của lệnh, cộng thoải mái) lẫn khi nhóm có ba lệnh (cộng là sai gấp ba). Có
-    con số thì mặt đọc tự quyết được; có mỗi cờ thì không. `0` = lệnh chưa vào nhóm nào.
+    ⚠️ Số ở đây là của NHÓM, không phải phần đóng góp của riêng lệnh này: một nhóm gồm nhiều lệnh
+    (Ruột + Bìa → Kỷ yếu) cùng đọc CHUNG một tập dòng. `so_lenh_trong_nhom` nói mức gộp; `0` = lệnh
+    chưa vào nhóm nào.
     """
     yeu_cau = []
-    for yc in sorted(bc.nhap_kho_yc[lsx_id], key=lambda y: y.id):
+    for d in sorted(bc.nhap_kho_tp[lsx_id], key=lambda x: x.line_id):
         yeu_cau.append({
-            "id": yc.id,
-            "kcs_batch_id": yc.kcs_batch_id,
-            "nhom_id": yc.nhom_id,
-            "so_luong_yeu_cau": _f(yc.so_luong_yeu_cau),
-            "so_luong_xac_nhan": _f(yc.so_luong_xac_nhan),
-            "con_lai": max(0.0, _f(yc.so_luong_yeu_cau) - _f(yc.so_luong_xac_nhan)),
-            "don_vi": yc.don_vi,
-            "quy_cach": yc.quy_cach,
-            "trang_thai": yc.trang_thai,
-            "tao_luc": yc.created_at,
-            "xac_nhan_luc": yc.xac_nhan_last_luc,
+            "id": d.line_id,
+            "request_id": d.request_id,
+            "ma": d.request_ma,
+            "hang_id": d.hang_id,
+            "so_luong_yeu_cau": d.sl_hieu_luc,
+            "so_luong_xac_nhan": d.sl_da_nhan,
+            "con_lai": max(0.0, d.sl_hieu_luc - d.sl_da_nhan) if d.con_hieu_luc else 0.0,
+            "don_vi": d.dvt,
+            "trang_thai": d.trang_thai,
+            "tao_luc": d.created_at,
+            "xac_nhan_luc": d.nhan_luc,
         })
-    btp = [
-        {
-            "id": l.id,
-            "so_luong": _f(l.so_luong),
-            "don_vi": l.don_vi,
-            "phan_loai": l.phan_loai,
-            "kho_xac_nhan": bool(l.kho_xac_nhan),
-            "quy_cach": l.quy_cach,
-        }
-        for l in sorted(bc.lot[lsx_id], key=lambda l: l.id)
-    ]
-    return {"so_lenh_trong_nhom": so_lenh_trong_nhom, "yeu_cau": yeu_cau, "btp": btp}
+    return {"so_lenh_trong_nhom": so_lenh_trong_nhom, "yeu_cau": yeu_cau}
 
 
 def _giao_hang(db: Session, bc: BoiCanh, lsx_id: int, *, nhom_id: int | None) -> dict:
     """Tồn thành phẩm còn giao được + mọi ô form giao hàng phải điền sẵn.
 
-    KHÔNG có phép tính nào ở đây: gọi thẳng `san_xuat/kho.ton_kha_dung_thanh_pham` — MỘT hàm dùng
+    KHÔNG có phép tính nào ở đây: gọi thẳng `san_xuat/kho.ton_thanh_pham_cua_nhom` — MỘT hàm dùng
     chung với form giao hàng. Hai bên tự tính thì sớm muộn một bên cho bấm cái bên kia từ chối, và
     người dùng không có cách nào biết bên nào đúng.
 
@@ -716,7 +702,7 @@ def _giao_hang(db: Session, bc: BoiCanh, lsx_id: int, *, nhom_id: int | None) ->
     trả rỗng và TẮT nút. Đừng lấy `so_luong_dat` hay tổng đã nhập kho làm "khả dụng" — đó là mời
     người ta lập phiếu vượt số hàng có thật.
     """
-    from ..san_xuat.kho import ton_kha_dung_thanh_pham
+    from ..san_xuat.kho import ton_thanh_pham_cua_nhom
 
     if nhom_id is None:
         return {
@@ -730,7 +716,7 @@ def _giao_hang(db: Session, bc: BoiCanh, lsx_id: int, *, nhom_id: int | None) ->
             "co_the_giao": False,
             "don_vi_lech": False,
         }
-    return ton_kha_dung_thanh_pham(db, nhom_id)
+    return ton_thanh_pham_cua_nhom(db, nhom_id)
 
 
 # --- Phiên bản + timeline -------------------------------------------------------------------------
@@ -868,23 +854,23 @@ def _timeline(db: Session, bc: BoiCanh, lsx_id: int, *, goi_id: int | None,
             "noi_dung": f"Báo sự cố {y.ma}: {y.bo_phan_hong}",
         })
 
-    for yc in bc.nhap_kho_yc[lsx_id]:
+    for d in bc.nhap_kho_tp[lsx_id]:
         ra.append({
             "loai": "de_nghi_nhap_kho",
-            "luc": _aware(yc.created_at),
-            "nguoi_id": yc.created_by,
-            "cong_viec_id": None,
-            "ten_viec": None,
-            "noi_dung": f"Đề nghị nhập kho {_f(yc.so_luong_yeu_cau):g} {nhan_don_vi(dv_ten, yc.don_vi)}",
+            "luc": _aware(d.created_at),
+            "nguoi_id": d.created_by,
+            "cong_viec_id": d.cong_viec_id,
+            "ten_viec": ten_cv.get(d.cong_viec_id),
+            "noi_dung": f"Đề nghị nhập kho {d.request_ma}: {d.sl_de_nghi:g} {nhan_don_vi(dv_ten, d.dvt)}",
         })
-        if yc.xac_nhan_last_luc is not None:
+        if d.nhan_luc is not None:
             ra.append({
                 "loai": "kho_nhan",
-                "luc": _aware(yc.xac_nhan_last_luc),
-                "nguoi_id": yc.xac_nhan_last_by_id,
-                "cong_viec_id": None,
-                "ten_viec": None,
-                "noi_dung": f"Kho đã nhận {_f(yc.so_luong_xac_nhan):g} {nhan_don_vi(dv_ten, yc.don_vi)}",
+                "luc": _aware(d.nhan_luc),
+                "nguoi_id": d.nhan_boi,
+                "cong_viec_id": d.cong_viec_id,
+                "ten_viec": ten_cv.get(d.cong_viec_id),
+                "noi_dung": f"Kho đã nhận {d.sl_da_nhan:g} {nhan_don_vi(dv_ten, d.dvt)} ({d.request_ma})",
             })
 
     for e in lich_su_nhan_luc:
@@ -933,7 +919,7 @@ def _ma_bai_ghep(db: Session, bc: BoiCanh, lsx_id: int) -> dict[int, str]:
 
 def _ten_user(db: Session, ids) -> dict[int, str]:
     """`{user_id: tên}` cho MỘT lượt đọc — mặt đọc phơi tên chứ không phơi id trần, và một câu cho
-    cả danh sách thay vì N+1 (cùng lối `san_xuat_kho_repo.ten_kho_theo_ids`)."""
+    cả danh sách thay vì N+1 (cùng lối `KhoHangRepository.ten_theo_ids`)."""
     can = {int(i) for i in ids if i is not None}
     if not can:
         return {}

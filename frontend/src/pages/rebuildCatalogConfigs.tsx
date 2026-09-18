@@ -520,6 +520,11 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
       } },
     { key: "unit_price", label: "Đơn giá",
       render: (r) => (Number(r.unit_price) ? `${Number(r.unit_price).toLocaleString("vi-VN")} đ` : "") },
+    // Việc phát sinh chỉ hiện TÊN — giá và đơn vị xem trong drawer, dồn cả vào ô là cột phình ngang.
+    { key: "viec_phat_sinh", label: "Việc phát sinh",
+      render: (r) => (Array.isArray(r.viec_phat_sinh)
+        ? (r.viec_phat_sinh as { ten?: string }[]).map((v) => v.ten).filter(Boolean).join(", ")
+        : "") },
     { key: "note", label: "Ghi chú", render: (r) => (r.note ? String(r.note) : "") },
   ],
   fields: [
@@ -527,13 +532,17 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
     // nguồn thì đầu việc khoán và công đoạn không bao giờ trỏ hai danh sách tổ khác nhau (mà lệch
     // là bước lệnh không tìm thấy đầu việc nào của tổ mình).
     { key: "department_id", label: "Tổ làm việc này", type: "ref",
-      refPrefix: "/api/cong-doan/phong-ban", required: true, group: "Thông tin",
-      hint: "Bước lệnh của tổ này sẽ chọn được đơn giá vừa khai." },
+      refPrefix: "/api/cong-doan/phong-ban", required: true, group: "Thông tin"},
     { key: "unit", label: "Đơn vị tính khoán", ...F_DON_VI, required: true, group: "Đơn giá" },
-    { key: "unit_price", label: "Đơn giá (đ)", type: "number", required: true, group: "Đơn giá",
-      hint: "Tiền cho MỘT đơn vị ở trên. Vd bế tay 400 đ/tờ." },
+    { key: "unit_price", label: "Đơn giá (đ)", type: "number", required: true, group: "Đơn giá" },
     // Ô "Cách đo lượng khoán" ĐÃ GỠ (06/09/2026): khai ở dòng đầu việc trong drawer Công đoạn.
     { key: "note", label: "Ghi chú", type: "text", group: "Thông tin" },
+    // Thứ bậc: tổ → công đoạn → công việc khoán → VIỆC PHÁT SINH. Tổ đã có ở trên nên mỗi dòng chỉ
+    // ba ô. Đợt đầu chỉ khai báo — sản xuất chưa đọc danh sách này.
+    // Không khai `hint`: gợi ý nằm DƯỚI bảng bị menu đơn vị của dòng cuối trùm lên — ví dụ đã chuyển
+    // vào dòng "chưa có gì" và chữ mờ trong ô. Trùng tên thì server báo đích danh việc nào.
+    { key: "viec_phat_sinh", label: "", type: "viec-phat-sinh",
+      refPrefix: "/api/don-vi", group: "Việc phát sinh" },
   ],
 };
 
@@ -602,6 +611,35 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
   ],
 };
 
+/** Giấy này bán/đếm theo CÂN hay theo TỜ — câu hỏi quyết định cả hai công thức điền sẵn dưới đây.
+ *
+ *  ĐVT chưa chọn (ô đó không có `default`, mở drawer ra là trống) thì coi như theo CÂN: giấy ở
+ *  đây bán theo cân, ô đơn giá ngay trên cũng ghi đ/kg. Chọn ĐVT xong thì công thức tự đổi lại.
+ *  Cùng tập mã với nhánh dự phòng bên `thanh_phan_engine.py`. */
+const giayTheoCan = (donViGia: unknown): boolean => {
+  const dv = String(donViGia ?? "");
+  return !dv || dv === "kg" || dv === "tan";
+};
+
+/** Công thức TIỀN giấy điền sẵn cho mặt hàng mới.
+ *
+ *  Theo CÂN thì tiền = khối lượng × đ/kg, mà khối lượng phải dựng lại từ định lượng × khổ tờ × số
+ *  tờ. Đếm theo TỜ thì đơn giá đã là tiền một tờ — nhân thêm định lượng và diện tích nữa là lệch
+ *  hàng chục lần, và phiếu vẫn ra một con số trông hợp lý nên không ai soi ra. */
+const congThucGiaGiay = (donViGia: unknown): string =>
+  (giayTheoCan(donViGia)
+    ? "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen * don_gia_giay"
+    : "don_gia_giay * to_nguyen");
+
+/** Công thức ĐỊNH MỨC điền sẵn — cùng phép đếm, nhưng dừng trước đơn giá: ô này trả lời "một lệnh
+ *  ăn bao nhiêu giấy" cho bảng cân đối vật tư, và tuyệt đối không được nhắc tới tiền.
+ *
+ *  Số nó trả về đi so với TỒN KHO, mà kho cộng dồn theo ĐVT gốc của mặt hàng — nên giấy đếm theo
+ *  tờ thì định mức cũng phải ra tờ, không ra kg. Chuỗi theo cân là chuỗi mg `0197` đã backfill cho
+ *  giấy bán theo cân (`_CT_LUONG_GIAY_CAN` ở `seed_rebuild.py`). */
+const congThucLuongGiay = (donViGia: unknown): string =>
+  (giayTheoCan(donViGia) ? "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen" : "to_nguyen");
+
 export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
   moduleQuyen: "dm_giay",
@@ -626,7 +664,12 @@ export const CFG_GIAY: CatalogConfig = {
     // Đơn giá theo cân — CHỐT CỨNG ở danh mục (engine lấy thẳng, phiếu không sửa).
     { key: "don_gia", label: "Đơn giá (đ/kg)", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn (mặc định đ/kg)" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
-      nhanTab: "Công thức tính giá", an: AN_CHIP_KHUON },
+      nhanTab: "Công thức tính giá", an: AN_CHIP_KHUON,
+      // ĐIỀN SẴN khi thêm mới (11/09/2026), sửa/xoá được. Trước đó ô này để trống và engine âm
+      // thầm chạy đúng hai chuỗi dưới đây làm dự phòng — thứ đang tính tiền giấy mà người khai
+      // không nhìn thấy ở đâu cả. Hai chuỗi phải khớp nhánh dự phòng bên
+      // `thanh_phan_engine.py`: sửa một bên thì sửa cả hai.
+      macDinhTheo: (f) => congThucGiaGiay(f.don_vi_gia) },
     // Ô thứ hai ra LƯỢNG, không ra tiền — MỞ LẠI 07/09/2026 sau khi ẩn một ngày (06/09/2026), và
     // đổi tên thành "Công thức tính định mức": chữ "lượng" đứng cạnh ô "tính giá" không nói được
     // nó trả lời câu gì, còn "định mức" là chữ xưởng vẫn dùng cho "một lệnh ăn bao nhiêu giấy".
@@ -638,6 +681,7 @@ export const CFG_GIAY: CatalogConfig = {
     // `sl_vao`/`sl_ra` và KHÔNG có đơn giá — ô này không được phép nhắc tới tiền.
     { key: "cong_thuc_luong", label: "Công thức tính định mức", type: "formula", loaiO: "quy_doi",
       group: "Giá", nhanTab: "Công thức tính định mức",
+      macDinhTheo: (f) => congThucLuongGiay(f.don_vi_gia),
       hint: "vd: dinh_luong * dai_nguyen * rong_nguyen * to_nguyen — ra số kg giấy phải mua" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
     // NVL thay thế (mục 5 "Bảng định mức", mg 0239) — tra cứu/gợi ý khi thiếu giấy, MỘT CHIỀU.
@@ -817,8 +861,7 @@ export const CFG_KHO_HANG: CatalogConfig = {
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
-    { key: "vi_tri", label: "Vị trí kho", type: "text", group: "Thông tin",
-      hint: "Nơi đặt kho, vd: Tầng 1 — xưởng A" },
+    { key: "vi_tri", label: "Vị trí kho", type: "text", group: "Thông tin"},
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
   ],
   // Tab thứ 2 trong drawer: khai DANH SÁCH vị trí cất (kệ/ô) của kho — để lập lô/phiếu chọn dropdown
@@ -882,18 +925,14 @@ export const CFG_KHUON_BE: CatalogConfig = {
     // `size: 200` = trần của nền danh mục. Mặc định chỉ lấy trang đầu, mà ô chọn khách thiếu dòng
     // thì người ta tưởng chưa có khách đó rồi bỏ trống — đúng thứ làm chiều lọc này vô dụng.
     { key: "khach_hang_id", label: "Khách hàng", type: "ref", refPrefix: "/api/customers",
-      refParams: { size: 200 }, group: "Nhận diện",
-      hint: "Dao làm cho khách nào. Đây là đường tìm chính khi đơn lặp lại — bỏ trống thì lần sau dễ đặt lại con dao đã có." },
+      refParams: { size: 200 }, group: "Nhận diện" },
     { key: "loai", label: "Loại", type: "select", group: "Nhận diện",
-      options: mapOpt(LOAI_KHUON),
-      hint: "Bước “Ép nhũ” chỉ thấy dao ép, bước “Bế” chỉ thấy dao bế, bước lụa chỉ thấy khung lụa." },
-    { key: "so_ke", label: "Số kệ / vị trí lưu", type: "text", group: "Lưu trữ",
-      hint: "Nơi cất khuôn, vd: Kệ B3 — xưởng sau in. Thợ đọc đúng ô này để đi lấy." },
+      options: mapOpt(LOAI_KHUON) },
+    { key: "so_ke", label: "Số kệ / vị trí lưu", type: "text", group: "Lưu trữ" },
     // Ô ngày đi kèm ĐÃ GỠ cùng mg `0293`: tình trạng là thứ DUY NHẤT kho khuôn nói về "dao đã có
     // trong tay chưa", và nó có người chịu trách nhiệm cập nhật — khác hẳn một ngày khai một lần.
     { key: "tinh_trang", label: "Tình trạng", type: "select", group: "Lưu trữ",
-      options: mapOpt(TINH_TRANG_KHUON), default: "dang_dung",
-      hint: "“Đang đặt làm” = dao chưa nằm trong tay xưởng; bước dùng dao ở Lệnh sản xuất đọc đúng chữ này để biết chưa chạy được. Lấy được dao rồi thì đổi sang “Đang dùng”." },
+      options: mapOpt(TINH_TRANG_KHUON), default: "dang_dung"},
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Lưu trữ" },
   ],
 };
@@ -977,6 +1016,41 @@ export const CFG_DON_VI: CatalogConfig = {
   renderExtra: (_form, existing) => <QuyDoiCuaDonVi donVi={existing} />,
 };
 
+export const CFG_XE: CatalogConfig = {
+  title: "Xe giao hàng",
+  moduleQuyen: "dm_xe",
+  enableImport: true,
+  prefix: "/api/xe",
+  nhatKyLoai: "xe",
+  // Khoá nghiệp vụ của xe LÀ BIỂN SỐ. Gọi nó là "Mã" + điền sẵn "MA-0001" thì người khai gõ biển
+  // số vào ô Tên rồi để nguyên mã tự sinh — đã dính đúng lỗi đó ngay lần khai đầu tiên.
+  nhanMa: "Biển số",
+  khongGoiYMa: true,
+  // Xoá MỀM: xe bán đi vẫn phải giữ tên cho những chuyến nó đã chạy — xoá hẳn là làm mồ côi
+  // `delivery_trips.vehicle_id` của cả lịch sử.
+  softDelete: true,
+  columns: [
+    { key: "tai_trong", label: "Tải trọng", render: (r) =>
+        r.tai_trong != null ? `${Number(r.tai_trong).toLocaleString("vi-VN")} tấn` : "" },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
+  ],
+  fields: [
+    // MỨC KHOÁN KM — ô quan trọng nhất của màn này: nó quyết định xe chạy một chuyến ra bao nhiêu
+    // tiền. BẮT BUỘC từ 14/09/2026 (máy chủ chặn): trước đó để trống được và xe trống âm thầm ăn
+    // đơn giá phẳng của phòng mà không màn nào hiện số đó. Mức tạo ở Cấu hình lương → Khoán km
+    // giao hàng.
+    // ⚠️ `hint` của ô `ref-search` được `CatalogDrawer` dùng LÀM PLACEHOLDER — viết dài là cả câu
+    // hướng dẫn tràn vào trong ô, trông như đã nhập sẵn. Giữ ngắn đúng một dòng.
+    { key: "muc_khoan_km_id", label: "Mức khoán km", type: "ref-search",
+      refPrefix: "/api/giao-hang/muc-khoan-km", required: true, group: "Thông tin",
+      hint: "Chọn mức…" },
+    { key: "tai_trong", label: "Tải trọng (tấn)", type: "number", group: "Thông tin",
+      hint: "Chỉ để đối chiếu — giá km do MỨC ở trên quyết." },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
+  ],
+};
+
+
 export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "loai-san-pham": CFG_LOAI_SAN_PHAM,
   "khai-bao-kho": CFG_KHO_HANG,
@@ -990,4 +1064,5 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "vat-tu-in-an": CFG_VAT_TU,
   "thanh-pham": CFG_THANH_PHAM,
   "khuon-be": CFG_KHUON_BE,
+  "xe": CFG_XE,
 };

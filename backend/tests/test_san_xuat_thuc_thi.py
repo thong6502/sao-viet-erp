@@ -2,11 +2,15 @@
 
 Soi tầng service `services/san_xuat/thuc_thi.py` (nơi chứa LUẬT), không qua HTTP:
   · phân công snapshot cờ lương khoán từ `departments.has_piece_work`; bước nội bộ chỉ nhận khoán;
-  · GATE §6: chỉ `department.head_user_id` của CHÍNH tổ mới ghi (cấp trên scope rộng KHÔNG ghi đè);
+  · CỔNG GHI theo DÒNG QUYỀN THEO TỔ (mg 0302): phải có quyền Thực hiện lệnh trên tổ của công việc —
+    dòng `all` ở nút cha ghi được tổ con, `department` chỉ phủ cây con của phòng mình, `own` chỉ ghi
+    được việc ĐANG giao cho mình; có Xem mà thiếu Thực hiện lệnh thì bị chặn. `head_user_id` không
+    còn cho quyền gì;
   · bắt đầu cần ≥1 thợ khoán, bắt đầu/kết thúc TRỄ cần lý do, một người không hai khoảng chồng giờ;
   · tạm dừng/kết thúc đóng phiên + mọi khoảng tham gia; version chống bấm trùng.
 
-Một test API cuối chứng minh đường dây RBAC: admin (Giám đốc, KHÔNG có bit `can_assign_work`) → 403.
+Một test API cuối chứng minh cổng router: admin seed (Giám đốc) không có dòng quyền theo tổ nào →
+403; cấp Thực hiện lệnh ở một tổ thì qua cổng router.
 
 Tái dùng luồng thật (đơn → SX → sẵn sàng → phát hành vào một tổ) từ test bàn tổ.
 """
@@ -19,6 +23,7 @@ import pytest
 
 from app.models.department import Department
 from app.models.employee import Employee
+from app.models.role import SCOPE_DEPARTMENT, SCOPE_OWN
 from app.models.user import User
 from app.models.san_xuat import (
     BUOC_MAY,
@@ -39,6 +44,7 @@ from app.models.san_xuat_thuc_thi import (
 )
 from app.models.employee import STATUS_RESIGNED
 from app.services.san_xuat import board, thuc_thi
+from tests.quyen_to_fixtures import cap_quyen_to
 
 # Fixtures luồng thật + helper phát hành vào một tổ (kéo theo cả cây fixture xếp lịch).
 from tests.test_san_xuat_board import (  # noqa: F401
@@ -54,16 +60,17 @@ from tests.test_san_xuat_board import (  # noqa: F401
 
 # --- Dàn cảnh dùng chung --------------------------------------------------------------------
 def _to_khoan(db, admin, ma="TO-TT") -> Department:
-    """Tổ sản xuất bật lương khoán, admin làm tổ trưởng (để qua GATE §6 khi gọi service).
+    """Tổ sản xuất bật lương khoán, vai của admin được bật đủ quyền trên dòng tổ (để qua cổng ghi).
 
     `name` khai theo `ma` — `name` UNIQUE nên test gọi hàm này NHIỀU LẦN (2 tổ khác nhau trong
     cùng một test) phải truyền `ma` khác nhau, không thì đụng UNIQUE constraint."""
     d = Department(
         name=f"Tổ Thực Thi {ma}", code=ma, la_san_xuat=True,
-        has_piece_work=True, head_user_id=admin.id,
+        has_piece_work=True,
     )
     db.add(d)
     db.flush()
+    cap_quyen_to(db, admin, d)
     return d
 
 
@@ -199,8 +206,9 @@ def test_buoc_noi_bo_chi_nhan_tho_khoan(db, orders, lsx_svc, admin, customer):
     cv.loai_buoc = BUOC_TO
     db.commit()
     cn = _emp(db, _to_cong_nhat(db), "NV-CN-1")    # tổ không khoán
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="là người công nhật — bước nội bộ không nhận người công nhật") as loi:
         thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=cn.id)
+    assert "khoán" not in str(loi.value)                   # tổ không cần nghe chữ "khoán"
 
 
 def test_khong_giao_trung_mot_nguoi(db, orders, lsx_svc, admin, customer):
@@ -211,13 +219,111 @@ def test_khong_giao_trung_mot_nguoi(db, orders, lsx_svc, admin, customer):
         thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=e.id)
 
 
-# --- GATE §6: chỉ tổ trưởng đúng tổ -------------------------------------------------------
-def test_gate_chi_to_truong_dung_to(db, orders, lsx_svc, admin, customer):
+# --- Cổng ghi theo dòng quyền của tổ (mg 0302) ---------------------------------------------
+def _user(db, username, dept=None) -> User:
+    u = User(username=username, name=username, password_hash="x",
+             department_id=dept.id if dept is not None else None)
+    db.add(u)
+    db.flush()
+    return u
+
+
+def test_gate_nguoi_khong_co_dong_quyen_bi_chan(db, orders, lsx_svc, admin, customer):
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
     e = _emp(db, to, "NV-TT-4")
-    nguoi_la = SimpleNamespace(id=admin.id + 99_999)   # không phải head_user_id của tổ
+    nguoi_la = SimpleNamespace(id=admin.id + 99_999)   # tài khoản không tồn tại → không dòng quyền nào
     with pytest.raises(PermissionError):
         thuc_thi.phan_cong(db, user=nguoi_la, cong_viec_id=cv.id, employee_id=e.id)
+
+
+def test_gate_co_xem_thieu_thuc_hien_lenh_bi_chan(db, orders, lsx_svc, admin, customer):
+    """Xem + Xác nhận sản lượng trọn tổ vẫn KHÔNG giao người được — giao/rút người là việc của quyền
+    Thực hiện lệnh. Đứng tên trưởng tổ cũng không bù được ô quyền còn thiếu."""
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
+    e = _emp(db, to, "NV-TT-XEM")
+    u = _user(db, "chi_xem_tt", to)
+    cap_quyen_to(db, u, to, viec=("confirm_output",))
+    to.head_user_id = u.id
+    db.commit()
+    with pytest.raises(PermissionError, match="Thực hiện lệnh"):
+        thuc_thi.phan_cong(db, user=u, cong_viec_id=cv.id, employee_id=e.id)
+
+
+def test_gate_own_chi_ghi_viec_dang_giao_cho_minh(db, orders, lsx_svc, admin, customer):
+    """Phạm vi "Của tôi": ghi được việc mình ĐANG được giao (hồ sơ nhân viên nối `user_id`, phân công
+    hoạt động); việc khác cùng tổ bị chặn; bị rút khỏi việc thì mất luôn quyền ghi trên việc đó."""
+    to = _to_khoan(db, admin, ma="TO-OWN")
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+    cv1, cv2 = _cvs(db, to)[:2]
+    for cv in (cv1, cv2):
+        cv.loai_buoc = BUOC_MAY
+        cv.du_kien_bat_dau = None
+    u = _user(db, "tho_own_tt", to)
+    cap_quyen_to(db, u, to, scope=SCOPE_OWN, viec=("run_order",))
+    ban_than = _emp(db, to, "NV-OWN-1", user_id=u.id)
+    phu = _emp(db, to, "NV-OWN-2")
+    db.commit()
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv1.id, employee_id=ban_than.id)
+
+    res = thuc_thi.phan_cong(db, user=u, cong_viec_id=cv1.id, employee_id=phu.id)  # việc của mình
+    assert res["cong_viec_id"] == cv1.id
+    with pytest.raises(PermissionError, match="Thực hiện lệnh"):                   # việc người khác
+        thuc_thi.phan_cong(db, user=u, cong_viec_id=cv2.id, employee_id=phu.id)
+
+    pc = db.query(SanXuatPhanCong).filter_by(cong_viec_id=cv1.id, employee_id=ban_than.id).one()
+    thuc_thi.go_phan_cong(db, user=admin, phan_cong_id=pc.id, ly_do="Đổi người")
+    with pytest.raises(PermissionError):                                           # hết được giao
+        thuc_thi.go_phan_cong(
+            db, user=u,
+            phan_cong_id=db.query(SanXuatPhanCong).filter_by(
+                cong_viec_id=cv1.id, employee_id=phu.id).one().id,
+        )
+
+
+def _xuong_cha(db, ma, *con) -> Department:
+    """Nút cấp gom của khối Sản xuất, treo các tổ `con` bên dưới."""
+    x = Department(name=f"Xưởng {ma}", code=ma, la_san_xuat=True)
+    db.add(x)
+    db.flush()
+    for d in con:
+        d.parent_id = x.id
+    db.flush()
+    return x
+
+
+def test_gate_dong_all_o_nut_cha_ghi_duoc_to_con(db, orders, lsx_svc, admin, customer):
+    """Luật cũ "cấp trên scope rộng KHÔNG ghi đè tổ con" đã gỡ: vùng của dòng = nút + cây con, nên
+    người có Thực hiện lệnh `all` ở XƯỞNG ghi được việc của tổ con dù không đứng ở tổ đó."""
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-CON-ALL")
+    xuong = _xuong_cha(db, "XUONG-ALL", to)
+    quan_doc = _user(db, "quan_doc_tt", xuong)
+    cap_quyen_to(db, quan_doc, xuong, viec=("run_order",))
+    e = _emp(db, to, "NV-CON-ALL")
+    db.commit()
+
+    res = thuc_thi.phan_cong(db, user=quan_doc, cong_viec_id=cv.id, employee_id=e.id)
+    assert res["cong_viec_id"] == cv.id
+
+
+def test_gate_department_duoi_nut_chi_ghi_cay_con_cua_minh(db, orders, lsx_svc, admin, customer):
+    """Dòng `department` ở xưởng, người đứng ở tổ B (dưới nút) → trọn tổ B, còn tổ A cùng xưởng thì
+    không có gì."""
+    to_a = _to_khoan(db, admin, ma="TO-DEP-A")
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to_a.id)
+    cv_a, cv_b = _cvs(db, to_a)[:2]
+    to_b = _to_cong_nhat(db, ma="TO-DEP-B")
+    xuong = _xuong_cha(db, "XUONG-DEP", to_a, to_b)
+    for cv in (cv_a, cv_b):
+        cv.loai_buoc = BUOC_MAY
+    cv_b.department_id = to_b.id                         # snapshot tổ thực hiện của việc thứ hai
+    u = _user(db, "to_b_dep_tt", to_b)
+    cap_quyen_to(db, u, xuong, scope=SCOPE_DEPARTMENT, viec=("run_order",))
+    e = _emp(db, to_b, "NV-DEP-B")
+    db.commit()
+
+    assert thuc_thi.phan_cong(db, user=u, cong_viec_id=cv_b.id, employee_id=e.id)["cong_viec_id"]
+    with pytest.raises(PermissionError, match="Thực hiện lệnh"):
+        thuc_thi.phan_cong(db, user=u, cong_viec_id=cv_a.id, employee_id=e.id)
 
 
 def test_version_lech_bi_chan(db, orders, lsx_svc, admin, customer):
@@ -233,10 +339,14 @@ def test_version_lech_bi_chan(db, orders, lsx_svc, admin, customer):
 # --- Phiên chạy (§7.2) ----------------------------------------------------------------------
 def test_bat_dau_can_it_nhat_mot_khoan(db, orders, lsx_svc, admin, customer):
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
+    with pytest.raises(ValueError, match="^Cần giao ít nhất 1 thợ mới bắt đầu được.$"):   # chưa giao ai
+        thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+
     cn = _emp(db, _to_cong_nhat(db), "NV-CN-2")             # chỉ công nhật → chưa đủ
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=cn.id)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^Người đang giao đều là công nhật — cần thêm ít nhất 1 thợ") as loi:
         thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+    assert "khoán" not in str(loi.value)
 
     khoan = _emp(db, to, "NV-K-1")                          # thêm thợ khoán → mở được
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=khoan.id)
@@ -251,15 +361,29 @@ def test_bat_dau_can_it_nhat_mot_khoan(db, orders, lsx_svc, admin, customer):
     assert len(_mo_khoang(db, cv)) == 2                     # mở khoảng cho cả roster
 
 
-def test_bat_dau_tre_bat_buoc_ly_do(db, orders, lsx_svc, admin, customer):
+def test_bat_dau_tre_khong_hoi_ly_do(db, orders, lsx_svc, admin, customer):
+    """Luật "bắt đầu trễ phải nêu lý do" đã GỠ (16/09/2026, chủ xưởng chốt): lệch giờ đọc thẳng từ
+    mốc thực tế so với dự kiến, không bắt thợ gõ thêm."""
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
     cv.du_kien_bat_dau = datetime.now(timezone.utc) - timedelta(hours=2)
     db.commit()
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=_emp(db, to, "NV-K-2").id)
 
-    with pytest.raises(ValueError):
-        thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)          # trễ, thiếu lý do
-    res = thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id, ly_do_tre="Máy hỏng chờ sửa")
+    res = thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+    assert res["trang_thai"] == CV_DANG_CHAY
+
+
+def test_tiep_tuc_sau_tam_dung_khong_hoi_ly_do_tre(db, orders, lsx_svc, admin, customer):
+    """Tiếp tục đi chung đường với Bắt đầu. Bắt đầu đúng giờ, tạm dừng có lý do, lúc bấm Tiếp tục thì
+    giờ dự kiến bắt đầu dĩ nhiên đã qua — không được đòi "lý do bắt đầu trễ"."""
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=_emp(db, to, "NV-K-2B").id)
+    thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+    thuc_thi.tam_dung(db, user=admin, cong_viec_id=cv.id, ly_do="Hết giấy")
+    cv.du_kien_bat_dau = datetime.now(timezone.utc) - timedelta(hours=2)
+    db.commit()
+
+    res = thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
     assert res["trang_thai"] == CV_DANG_CHAY
 
 
@@ -342,29 +466,18 @@ def test_ket_thuc_hoan_thanh_dong_phien(db, orders, lsx_svc, admin, customer):
     assert len(_mo_khoang(db, cv)) == 0
 
 
-def test_ket_thuc_tre_bat_buoc_ly_do(db, orders, lsx_svc, admin, customer):
+def test_ket_thuc_tre_khong_hoi_ly_do(db, orders, lsx_svc, admin, customer):
+    """Luật "kết thúc trễ phải nêu lý do" đã GỠ cùng lúc với bắt đầu trễ (16/09/2026)."""
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=_emp(db, to, "NV-K-5").id)
     thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
     cv.du_kien_ket_thuc = datetime.now(timezone.utc) - timedelta(hours=1)
     db.commit()
 
-    with pytest.raises(ValueError):
-        thuc_thi.ket_thuc(db, user=admin, cong_viec_id=cv.id)          # trễ, chưa có lý do nào
-    res = thuc_thi.ket_thuc(db, user=admin, cong_viec_id=cv.id, ly_do_tre="Sự cố điện")
+    res = thuc_thi.ket_thuc(db, user=admin, cong_viec_id=cv.id)
     assert res["trang_thai"] == CV_HOAN_THANH
-
-
-def test_ket_thuc_tre_mien_ly_do_khi_da_tam_dung_co_ly_do(db, orders, lsx_svc, admin, customer):
-    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
-    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=_emp(db, to, "NV-K-6").id)
-    thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
-    cv.du_kien_ket_thuc = datetime.now(timezone.utc) - timedelta(hours=1)
-    db.commit()
-    thuc_thi.tam_dung(db, user=admin, cong_viec_id=cv.id, ly_do="Kẹt giấy")  # lý do đã giải thích
-
-    res = thuc_thi.ket_thuc(db, user=admin, cong_viec_id=cv.id)              # trễ nhưng khỏi lý do
-    assert res["trang_thai"] == CV_HOAN_THANH
+    phien = db.query(SanXuatPhienChay).filter_by(cong_viec_id=cv.id).first()
+    assert phien.loai_dong == PHIEN_KET_THUC and phien.ly_do is None
 
 
 def test_go_phan_cong_dong_khoang_dang_mo(db, orders, lsx_svc, admin, customer):
@@ -411,32 +524,50 @@ def test_nhan_vien_chon_to_cong_nhat_khong_khoan(db, orders, lsx_svc, admin, cus
 
 
 def test_nhan_vien_chon_ngoai_pham_vi_bi_chan(db, orders, lsx_svc, admin, customer):
+    """Phạm vi đọc tính từ DÒNG QUYỀN của vai, không từ `head_user_id`: người chỉ có Xem ở tổ
+    ngoài thì không đổ được danh chọn của `to` — kể cả khi đứng tên trưởng tổ `to` (luật "tổ trưởng
+    kiêm nhiệm thấy mọi tổ mình đứng tên" đã gỡ cùng mô hình cũ)."""
     to, _cv = _mot_cv(db, orders, lsx_svc, admin, customer)
-    from app.models.role import SCOPE_OWN
-    from tests.test_san_xuat_board import _FakeAuthz, _to_moi
-    ngoai = _to_moi(db, "Tổ Ngoài TT", "TO-NG-TT")
-    # KHÔNG dùng `admin.id`: `_to_khoan` đặt admin làm tổ trưởng của `to`, mà từ mg `0250`
-    # (KCS kiêm nhiệm) `_to_thay_duoc` cho user thấy MỌI tổ mình đứng `head_user_id` kể cả ngoài
-    # phòng — tổ trưởng kiêm nhiệm được `_gate` cho GHI thì cũng phải có lối vào để XEM. Muốn thử
-    # đúng vế "ngoài phạm vi" thì người gọi phải KHÔNG phải tổ trưởng của tổ đích.
-    nguoi_la = admin.id + 9_999
-    assert to.head_user_id != nguoi_la
-    user = SimpleNamespace(id=nguoi_la, department_id=ngoai.id, role_id=admin.role_id)
+    from tests.test_san_xuat_board import _to_moi
+    ngoai = _to_moi(db, "Tổ Ngoài TT", "TO-NG-TT", quyen_admin=False)
+    u = _user(db, "nguoi_to_ngoai_tt", ngoai)
+    cap_quyen_to(db, u, ngoai)
+    to.head_user_id = u.id
+    db.commit()
+
+    assert board.nhan_vien_chon(db, u, _authz(db), team_id=ngoai.id)["team_id"] == ngoai.id
     with pytest.raises(PermissionError):
-        board.nhan_vien_chon(db, user, _FakeAuthz(SCOPE_OWN), team_id=to.id)
+        board.nhan_vien_chon(db, u, _authz(db), team_id=to.id)
 
 
-# --- Đường dây RBAC: admin KHÔNG có bit can_assign_work → 403 --------------------------------
-def test_api_admin_thieu_bit_assign_work_403(client):
+# --- Cổng router: không có Thực hiện lệnh ở tổ nào → 403 ------------------------------------
+def test_api_khong_co_thuc_hien_lenh_o_to_nao_403(client):
+    """Admin seed (Giám đốc) KHÔNG có bypass và DB test không có dòng `to_sx_*` nào ⇒
+    `require_quyen_to("run_order")` chặn ngay ở router. Cấp Thực hiện lệnh ở một tổ thì qua cổng
+    router — công việc id 1 không có nên rơi xuống lỗi nghiệp vụ 400, không còn 403."""
+    from app.db import SessionLocal
+
     tok = client.post(
         "/api/auth/login", json={"username": "admin", "password": "admin123"}
     ).json()["access_token"]
-    resp = client.post(
-        "/api/san-xuat/work-items/1/phan-cong",
-        json={"employee_id": 1},
-        headers={"Authorization": f"Bearer {tok}"},
-    )
+    goi = dict(json={"employee_id": 1}, headers={"Authorization": f"Bearer {tok}"})
+
+    resp = client.post("/api/san-xuat/work-items/1/phan-cong", **goi)
     assert resp.status_code == 403
+    assert resp.json()["detail"] == "Bạn không có quyền thực hiện thao tác này"
+
+    s = SessionLocal()
+    try:
+        d = Department(name="Tổ API Thực Thi", code="TO-API-TT", la_san_xuat=True)
+        s.add(d)
+        s.flush()
+        cap_quyen_to(s, s.query(User).filter(User.username == "admin").one(), d,
+                     viec=("run_order",))
+        s.commit()
+    finally:
+        s.close()
+    resp = client.post("/api/san-xuat/work-items/1/phan-cong", **goi)
+    assert resp.status_code == 400, resp.text
 
 
 # --- Cổng KHUÔN/KHUNG ở bàn tổ (chốt 04/09/2026) --------------------------------------------
@@ -480,3 +611,76 @@ def test_tra_khuon_khong_chan_gi(db, orders, lsx_svc, admin, customer):
     thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
     thuc_thi.tra_khuon(db, user=admin, cong_viec_id=cv.id)
     assert cv.khuon_tra_luc is not None
+
+
+# --- Tích nhận khuôn lật tình trạng dao (16/09/2026) ----------------------------------------
+def _dao(db, tinh_trang: str, ma: str = "KB-9001"):
+    from app.models.khuon_be import KhuonBe
+
+    k = KhuonBe(ma=ma, ten="Hộp bánh mang đi 4 ngăn", loai="khuon_be", so_ke="Kệ B2",
+                tinh_trang=tinh_trang)
+    db.add(k)
+    db.flush()
+    return k
+
+
+def _chup(k) -> dict:
+    return {"id": k.id, "ma": k.ma, "ten": k.ten, "loai": k.loai, "so_ke": k.so_ke,
+            "tinh_trang": k.tinh_trang}
+
+
+def test_nhan_khuon_lat_dao_dang_dat_lam_sang_dang_dung(db, orders, lsx_svc, admin, customer):
+    """Dao "làm mới" vào kho ở `dang_dat_lam`; tổ cầm được nó trong tay là bằng chứng dao đã về.
+    Không lật thì nó mang chữ "đang đặt làm" mãi — lệnh sau dùng lại dao vẫn báo chưa về."""
+    from app.models.audit import AuditLog
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-DAO-1")
+    k = _dao(db, "dang_dat_lam")
+    cv.khuon_json = _chup(k)
+    db.commit()
+
+    thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
+    db.refresh(k)
+    db.refresh(cv)
+
+    assert k.tinh_trang == "dang_dung"
+    assert cv.khuon_json["tinh_trang"] == "dang_dung"
+    vet = db.query(AuditLog).filter_by(action="dm_sua", target=f"khuon_be:{k.id}").one()
+    assert vet.actor_user_id == admin.id
+    assert "Tình trạng Đang đặt làm → Đang dùng" in vet.detail
+
+
+def test_nhan_khuon_khong_hoi_sinh_dao_hong(db, orders, lsx_svc, admin, customer):
+    """Tình trạng là phán xét của người: dao đã báo hỏng / thanh lý thì một cú tích nhận không được
+    lật ngược nó. Chỉ `dang_dat_lam` mới lật."""
+    from app.models.audit import AuditLog
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-DAO-2")
+    k = _dao(db, "hong", ma="KB-9002")
+    cv.khuon_json = _chup(k)
+    db.commit()
+
+    thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
+    db.refresh(k)
+    db.refresh(cv)
+
+    assert k.tinh_trang == "hong"
+    assert cv.khuon_json["tinh_trang"] == "hong"
+    assert db.query(AuditLog).filter_by(target=f"khuon_be:{k.id}").count() == 0
+
+
+def test_nhan_khuon_cap_nhat_anh_chup_viec_khac_cung_dao(db, orders, lsx_svc, admin, customer):
+    """Việc KHÁC trỏ cùng con dao (lệnh khác, chưa ai nhận) đang in chip "đang đặt làm" theo ảnh
+    chụp lúc phát hành. Dao đã về thì chip đó cũng phải thôi nói sai."""
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-DAO-3")
+    khac = next(c for c in _cvs(db, to) if c.id != cv.id)
+    k = _dao(db, "dang_dat_lam", ma="KB-9003")
+    cv.khuon_json = _chup(k)
+    khac.khuon_json = _chup(k)
+    db.commit()
+
+    thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
+    db.refresh(khac)
+
+    assert khac.khuon_json["tinh_trang"] == "dang_dung"
+    assert khac.khuon_nhan_luc is None        # nhận ở việc này không phải là nhận ở việc kia

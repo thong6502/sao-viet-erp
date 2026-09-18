@@ -302,7 +302,7 @@
 
 /* Cột "Giá trị" ở list — số quyết định, nổi bật nhất hàng */
 .dhb__val {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   font-weight: 700;
@@ -977,7 +977,7 @@
   display: block;
   margin-top: 2px;
   color: var(--ink);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1032,7 +1032,7 @@
 }
 
 .dhb__invoice-money {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -1048,7 +1048,7 @@
 
 .dhb__invoice-preview b {
   color: var(--ink);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1179,7 +1179,7 @@
 }
 
 .dhb__stat-n {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   font-weight: 700;

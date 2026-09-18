@@ -46,6 +46,60 @@ def _khoa(db, may_id: int, *, ly_do: str, kieu: str = KIEU_CHAN, gio_con_lai: fl
     db.commit()
 
 
+def _phieu_sua(db, may_id: int, *, ma: str, bo_phan: str = "Trục cán",
+               muc_do: str = "trung_binh", trang_thai: str = "cho_sua") -> None:
+    from app.models.ky_thuat_may import SuaChuaMay
+    db.add(SuaChuaMay(ma=ma, may_id=may_id, bo_phan_hong=bo_phan,
+                      muc_do=muc_do, trang_thai=trang_thai))
+    db.commit()
+
+
+def test_phieu_sua_dang_mo_chi_la_CANH_BAO_khong_phai_vung_khoa():
+    """Chủ chốt 11/09/2026: "chỉ cảnh báo thôi". Phiếu sửa chữa là lời khai của tổ kỹ thuật, không
+    chặn xếp lệnh — nhưng để nguyên chữ "Xếp được" cho máy đang tháo ra sửa là nói dối."""
+    db = _db()
+    may = _may(db)
+    _phieu_sua(db, may.id, ma="SC-0001", bo_phan="Trục cán")
+
+    tt = mtt.trang_thai_may(db, [may.id])[may.id]
+    assert tt["trang_thai"] == mtt.TT_CO_PHIEU_SUA
+    assert tt["nhan"] == "Có phiếu sửa chữa"
+    assert tt["chi_tiet"] == "SC-0001 · Trục cán"
+    assert tt["den"] is None                     # không có mốc "máy chạy lại" — nó không bị khoá
+
+
+def test_phieu_sua_DA_DONG_thi_thoi_canh_bao():
+    db = _db()
+    may = _may(db)
+    _phieu_sua(db, may.id, ma="SC-0001", trang_thai="da_sua_xong")
+    assert mtt.trang_thai_may(db, [may.id]) == {}
+
+
+def test_canh_bao_phieu_sua_KHONG_de_len_trang_thai_co_that():
+    """Cảnh báo là nguồn YẾU NHẤT. Máy đang chạy / đã bị khoá là sự thật cụ thể hơn một tờ phiếu —
+    đè lên là làm lệch đúng cái thứ tự ưu tiên mà chủ dặn đừng động vào."""
+    db = _db()
+    m1, m2 = _may(db, ma="IN-01"), _may(db, ma="IN-02")
+    _phieu_sua(db, m1.id, ma="SC-0001")
+    _phieu_sua(db, m2.id, ma="SC-0002")
+    _khoa(db, m1.id, ly_do=LY_DO_HONG_HOC)       # m1 có CẢ vùng khoá lẫn phiếu
+
+    kq = mtt.trang_thai_may(db, [m1.id, m2.id])
+    assert kq[m1.id]["trang_thai"] == mtt.TT_MAY_DUNG        # vùng khoá thắng
+    assert kq[m2.id]["trang_thai"] == mtt.TT_CO_PHIEU_SUA    # không có gì khác ⇒ mới cảnh báo
+
+
+def test_nhieu_phieu_mo_thi_lay_cai_NANG_NHAT_va_dem_so_con_lai():
+    db = _db()
+    may = _may(db)
+    _phieu_sua(db, may.id, ma="SC-0001", bo_phan="Lô ép", muc_do="nhe")
+    _phieu_sua(db, may.id, ma="SC-0002", bo_phan="Hệ thuỷ lực", muc_do="nghiem_trong")
+    _phieu_sua(db, may.id, ma="SC-0003", bo_phan="Bạc đạn", muc_do="trung_binh")
+
+    tt = mtt.trang_thai_may(db, [may.id])[may.id]
+    assert tt["chi_tiet"] == "SC-0002 · Hệ thuỷ lực · +2 phiếu"
+
+
 def test_may_khong_co_chuyen_gi_thi_KHONG_co_trong_map():
     """Map chỉ chứa máy CÓ chuyện — bên gọi đã cầm danh sách máy, trả thêm một bản sao "không có
     gì" cho cả bảng là tốn công vô ích."""

@@ -55,7 +55,7 @@ Số thực tế thì có đủ, nằm sẵn:
 | Trạng thái bước | `san_xuat_cong_viec.trang_thai` (`released`/`running`/`paused`/`completed`) |
 | Bước xong lúc nào | `san_xuat_cong_viec.hoan_thanh_luc` (đóng dấu MỘT LẦN ở `thuc_thi.ket_thuc`) |
 | Giờ chạy thật | `san_xuat_phien_chay.bat_dau` / `.ket_thuc` |
-| Trễ có lý do | `san_xuat_phien_chay.ly_do_bat_dau_tre`, cờ `ket_thuc_tre` |
+| Trễ bao nhiêu | So `phien_chay.bat_dau`/`.ket_thuc` với dự kiến. Lý do trễ KHÔNG còn hỏi (gỡ 16/09/2026); `ly_do_bat_dau_tre` chỉ còn ở phiên cũ |
 | Cam kết đã đẩy xuống xưởng | `san_xuat_cong_viec.du_kien_bat_dau` / `.du_kien_ket_thuc` |
 
 `docs/spec-thuc-te-vs-ke-hoach.md` §1.1 đã ghi đúng lỗ này từ 31/08/2026 cho màn 2, chưa ai cài.

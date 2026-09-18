@@ -55,7 +55,7 @@
 
 .purchase__list .purchase__date-cell,
 .purchase__list .purchase__money-cell {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -340,7 +340,7 @@
 }
 
 .supplier__sao-so {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -1451,7 +1451,7 @@
 
 .purchase__money-cell {
   text-align: right !important;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
@@ -1465,7 +1465,7 @@
 }
 
 .purchase__pmh-tag {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 600;
   color: #0369a1;
@@ -1875,7 +1875,7 @@ span.purchase__readonly-field {
 }
 
 .purchase__number-input {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -1888,7 +1888,7 @@ span.purchase__readonly-field {
      - `overflow: hidden` + ellipsis — lưới an toàn cho số vô lý. Số đầy đủ nằm ở `title`.
    Cột đã nới ở `grid-template-columns` để tiền tỷ hiện TRỌN, ellipsis chỉ để chặn ca cực đoan. */
 .purchase__line-sum {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   display: block;
   min-height: 36px;
   min-width: 0;
@@ -2060,7 +2060,7 @@ span.purchase__readonly-field {
 }
 
 .supplier__kpi-val {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
@@ -2274,7 +2274,7 @@ span.purchase__readonly-field {
 }
 
 .supplier-item-vat-calculated {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: var(--fw-bold);
   color: var(--moss-deep);
@@ -2664,7 +2664,7 @@ span.pdot__readonly-money {
 }
 
 /* Bảng khai số thực nhận. Tự khai đủ spec (UI_DESIGN §6) thay vì mượn `.pay-table`: rule
-   `.pay-table .pay-num` gắn --ff-num cho CẢ th, nên dải tiêu đề chạy ra chữ mono. */
+   `.pay-table .pay-num` áp cả lên th. */
 .pdot__linetable {
   width: 100%;
   border-collapse: collapse;
@@ -2720,7 +2720,7 @@ span.pdot__readonly-money {
 
 /* Mono CHỈ cho ô dữ liệu. Gắn lên cả th là lặp lại đúng lỗi của `.pay-table .pay-num`. */
 .pdot__linetable td.pdot__num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2736,7 +2736,7 @@ span.pdot__readonly-money {
   width: 110px;
   flex: none;
   padding: 7px 10px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -2768,7 +2768,7 @@ span.pdot__readonly-money {
 
 .pdot__totals b {
   margin-left: 6px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -2818,7 +2818,7 @@ span.pdot__readonly-money {
 .pdot__moneybar .pdot__moneyinput {
   width: 100%;
   padding-right: 26px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -2859,7 +2859,7 @@ span.pdot__readonly-money {
    mà mọi đợt giao đều sinh ra là báo động vô cớ, và làm mất nghĩa của màu đỏ ở chỗ thật sự hỏng. */
 .pdot__resultnum {
   color: var(--ink);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-xl);
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;

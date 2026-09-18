@@ -11,7 +11,9 @@ export const SO_NGAY = 7;
 /** Bề rộng một ngày (px). Cột nhãn trái + 7 cột này = bề ngang lưới. */
 export const NGAY_W = 168;
 export const NHAN_W = 260;
-export const DONG_H = 66;
+/** Đủ cho BỐN dòng nhãn (mã · tên · khách · sản lượng/tờ/con) và, bên lưới, một dải chữ dưới
+ *  thanh cho vạch "hạn SX" / "giao khách". */
+export const DONG_H = 90;
 
 /** Hình học lưới theo bề ngang cửa sổ. Cột nhãn là cột DÍNH (`position: sticky`) nên trên màn
  *  375px nó ăn 260/375 = 70% chỗ, lưới còn hơn trăm pixel — nhìn thấy đúng một mẩu thanh. Hai nấc
@@ -25,11 +27,45 @@ export function khungLuoi(
   beNgang: number,
   soNgay: number,
 ): { nhanW: number; ngayW: number; dongH: number } {
+  const nac = nacCuaSo(soNgay);
   const ngayRong = (bay: number, muoiBon: number, baMuoi: number) =>
-    soNgay === 30 ? baMuoi : soNgay === 14 ? muoiBon : bay;
-  if (beNgang <= 480) return { nhanW: 184, ngayW: ngayRong(96, 64, 36), dongH: 72 };
-  if (beNgang <= 768) return { nhanW: 184, ngayW: ngayRong(120, 76, 42), dongH: 72 };
+    nac === 30 ? baMuoi : nac === 14 ? muoiBon : bay;
+  if (beNgang <= 480) return { nhanW: 184, ngayW: ngayRong(96, 64, 36), dongH: 90 };
+  if (beNgang <= 768) return { nhanW: 184, ngayW: ngayRong(120, 76, 42), dongH: 90 };
   return { nhanW: NHAN_W, ngayW: ngayRong(NGAY_W, 96, 54), dongH: DONG_H };
+}
+
+/** Nấc hiển thị của cửa sổ — 7, 14 hay 30 ngày. Ba nút có sẵn rơi đúng nấc của mình; khoảng tự
+ *  chọn (20 ngày, 45 ngày…) rơi vào nấc có bề ngang lưới gần nhất. Bề rộng một ngày và kiểu đầu cột
+ *  ngày đều đọc nấc này, nên khoảng lẻ dùng lại đúng bộ số đã chỉnh cho ba nấc chứ không đẻ cỡ mới. */
+export function nacCuaSo(soNgay: number): 7 | 14 | 30 {
+  return soNgay <= 9 ? 7 : soNgay <= 20 ? 14 : 30;
+}
+
+/** Trần một lần xem. `/lich` trải MỌI lệnh chạm cửa sổ, cửa sổ càng dài càng nặng — hai tháng là đủ
+ *  cho người điều độ nhìn trước, dài hơn thì lùi/tiến bằng mũi tên. */
+export const SO_NGAY_TOI_DA = 60;
+
+export const NGAY_NHAP_MIN = "2000-01-01";
+export const NGAY_NHAP_MAX = "2099-12-31";
+
+/** Số ngày tính cả hai đầu của khoảng `tu`..`den` (YYYY-MM-DD). Đếm theo UTC để giờ mùa hè không
+ *  làm hụt một ngày. */
+export function soNgayGiua(tu: string, den: string): number {
+  const [y1, m1, d1] = tu.split("-").map(Number);
+  const [y2, m2, d2] = den.split("-").map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000) + 1;
+}
+
+/** Lời nhắc cho ô chọn khoảng ngày, `null` = dùng được. Ô `date` nhận năm 6 chữ số và năm gõ dở
+ *  (0020) nên soi khuôn + khoảng, không tin mỗi `min`/`max` trên thẻ. */
+export function loiKhoangNgay(tu: string, den: string): string | null {
+  const hopLe = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && v >= NGAY_NHAP_MIN && v <= NGAY_NHAP_MAX;
+  if (!tu || !den) return "Chọn đủ từ ngày và đến ngày.";
+  if (!hopLe(tu) || !hopLe(den)) return "Ngày không hợp lệ.";
+  if (den < tu) return "Đến ngày phải từ ngày bắt đầu trở đi.";
+  if (soNgayGiua(tu, den) > SO_NGAY_TOI_DA) return `Mỗi lần xem tối đa ${SO_NGAY_TOI_DA} ngày.`;
+  return null;
 }
 
 // ---------------------------------------------------------------- ngày tháng
@@ -174,17 +210,83 @@ export function ngayNgan(iso: string | null | undefined): string {
   return m ? `${m[3]}/${m[2]}` : "—";
 }
 
-/** Phút → "2 ngày 3 giờ" theo NGÀY LÀM VIỆC 8 tiếng. Quy ra ngày lịch (24h) là nói dối: 600 phút
- *  chạy không phải "nửa ngày", nó là gần hai ca. */
-export function thoiLuong(phut: number | null | undefined): string {
-  const p = Math.round(phut ?? 0);
-  if (p <= 0) return "—";
-  if (p < 60) return `${p} phút`;
-  const gioTong = p / 60;
-  if (gioTong < 8) return `${gioTong.toFixed(gioTong < 10 ? 1 : 0)} giờ`;
-  const ngayLam = Math.floor(gioTong / 8);
-  const du = Math.round(gioTong % 8);
-  return du ? `${ngayLam} ngày ${du} giờ` : `${ngayLam} ngày`;
+/** "10/09 19:00" — ngày đứng trước giờ, cho nhãn "xong …" cạnh thanh: mắt đang dò theo trục NGÀY
+ *  nên ngày phải đọc được trước. */
+export function ngayGio(iso: string | null | undefined): string {
+  const m = iso?.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  return m ? `${m[3]}/${m[2]} ${m[4]}:${m[5]}` : "—";
+}
+
+/** Phút → "63h15". Giờ ĐỒNG HỒ, không quy ra "ngày làm 8 tiếng": đây là tổng giờ máy
+ *  của nhiều lệnh cộng lại, "7 ngày 7 giờ" đọc thành một lệnh chạy một tuần. */
+export function gioPhut(phut: number): string {
+  const p = Math.max(0, Math.round(phut));
+  return `${Math.floor(p / 60)}h${String(p % 60).padStart(2, "0")}`;
+}
+
+/** Tổng phút MÁY CHẠY nằm TRONG cửa sổ `[tu, tu + soNgay)`. Chỉ cộng phần giao với cửa sổ — lệnh vắt
+ *  qua mép chỉ được tính phần thật sự nằm trong khoảng đang xem. Cộng cả hai lớp khối chạy của
+ *  thanh: `doan` (phần còn lại theo kế hoạch) và `doan_thuc_te` (quãng máy đã quay thật); hai lớp
+ *  không chồng nhau vì một bên nằm trước mốc, một bên sau.
+ *  Cộng ở FE được vì `/lich` trả TRỌN mọi lệnh chạm cửa sổ, không phân trang. */
+export function phutChayTrongCuaSo(dong: Xl3Dong[], tu: string, soNgay: number): number {
+  const a = mocNgay(tu);
+  const b = a + soNgay * NGAY_MS;
+  let tong = 0;
+  for (const d of dong) {
+    for (const k of [...d.doan, ...(d.doan_thuc_te ?? [])]) {
+      const t0 = moc(k.tu);
+      const t1 = moc(k.den);
+      if (t0 === null || t1 === null) continue;
+      tong += Math.max(0, Math.min(t1, b) - Math.max(t0, a));
+    }
+  }
+  return tong / 60_000;
+}
+
+/** Phút → "6 giờ 30 phút" / "45 phút" — giờ ĐỒNG HỒ cho mọi thời lượng của màn: giờ chạy của bước,
+ *  của lệnh, phần nghỉ. KHÔNG quy ra "ngày làm 8 tiếng": hàm cũ `thoiLuong` (gỡ 14/09/2026) ghi 20 giờ
+ *  đóng gói thành "2 ngày 4 giờ", người đọc hiểu 48 giờ; còn chủ nhật 24 giờ nằm chờ thành "3 ngày". */
+export function gioChu(phut: number | null | undefined): string {
+  const p = Math.max(0, Math.round(phut ?? 0));
+  const g = Math.floor(p / 60);
+  const m = p % 60;
+  if (!g) return `${m} phút`;
+  return m ? `${g} giờ ${m} phút` : `${g} giờ`;
+}
+
+/** Phút ĐỒNG HỒ giữa hai mốc → "1 ngày 19 giờ" (ngày 24 tiếng) / "3 giờ 4 phút". Cho độ LỆCH giữa
+ *  mốc kế hoạch và mốc thực tế: quy theo "ngày làm 8 tiếng" thì 43 giờ thành "5 ngày 3 giờ" — khớp
+ *  cả lịch lẫn giờ ca đều không. */
+export function quangDongHo(phut: number | null | undefined): string {
+  const p = Math.max(0, Math.round(phut ?? 0));
+  if (p < 1440) return gioChu(p);
+  const gioTong = Math.round(p / 60);
+  const ngay = Math.floor(gioTong / 24);
+  const g = gioTong % 24;
+  return g ? `${ngay} ngày ${g} giờ` : `${ngay} ngày`;
+}
+
+/** "2026-09-13" → "CN 13/09". */
+export function thuNgay(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  return `${THU[new Date(+m[1], +m[2] - 1, +m[3]).getDay()]} ${m[3]}/${m[2]}`;
+}
+
+/** Diễn giải `nghi_ngoai_ca_phut` của panel — bốn loại `*_phut` cộng lại đúng con số gộp. */
+export interface Xl3KhungLap { tu: string; den: string; so_lan: number; phut: number }
+export interface Xl3PhanTachNghi {
+  ca_san_xuat: { tu: string; den: string }[];
+  /** Từng ca có tên + bữa nghỉ đã khai; rỗng khi xưởng chưa khai ca (khung lùi) — dùng `ca_san_xuat`. */
+  cac_ca?: { ten: string; tu: string; den: string; nghi_tu: string | null; nghi_den: string | null }[];
+  nghi_giua_ca_phut: number;
+  nghi_giua_ca: Xl3KhungLap[];
+  ngoai_ca_phut: number;
+  ngoai_ca: Xl3KhungLap[];
+  ngay_nghi_phut: number;
+  ngay_nghi: { ngay: string; phut: number; ten: string | null }[];
+  gia_cong_ngoai_phut: number;
 }
 
 /** Trễ hạn SX bao nhiêu ngày (âm = còn sớm, null = chưa đủ dữ kiện). Màn KHÔNG chặn theo số này —

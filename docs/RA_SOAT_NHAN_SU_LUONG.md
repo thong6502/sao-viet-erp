@@ -201,7 +201,7 @@ là test đỏ, buộc phải khai báo có ý thức.
 **Chưa siết:** `late_early` vẫn để `scope: str | None = None`. Module đó truyền `scope` đủ mọi
 đường nên không thủng — nhưng nên siết cho đồng bộ ở một đợt riêng.
 
-## C-3. HAI trường "bậc thợ" song song, không đồng bộ
+## C-3. HAI trường "bậc thợ" song song, không đồng bộ — ✅ GỠ HẲN 17/09/2026 (mg `0305`, `0307`)
 
 | Trường | Kiểu | Ở màn? | Ai dùng? |
 |---|---|---|---|
@@ -226,8 +226,7 @@ màn và người tiêu thụ đã chết.
 | `payroll_params.advance_max_pct` | Trần tạm ứng **đã gỡ 24/07**; cột còn, không service nào đọc | Thấp — **không phơi ra màn** |
 | `payroll_params.chuyen_can_default` | Mức mặc định công ty **đã bỏ**; chuyên cần chỉ khai theo từng người | Thấp — không phơi ra màn |
 | `payroll_params.standard_cong_default` | Chỉ còn là **lưới dự phòng** khi chưa cấu hình Lịch làm việc | Thấp — không phơi ra màn |
-| `employees.payroll_group` ("Nhóm lương") | Trơ — PRD v2 bỏ mức mặc định theo nhóm | Thấp — cố ý để ngoài màn |
-| `PieceWorkService.leader_bonus_amount` | **Chưa có caller** — chờ nối khi có sản lượng | Thấp — **có test riêng**, cố ý |
+| ~~`employees.payroll_group` ("Nhóm lương")~~ | ✅ ĐÃ DROP 17/09/2026 (mg `0307`) | — |
 
 > Ba tham số đầu đã được **gỡ khỏi form Cấu hình lương** — người dùng không sửa nhầm được. Đó là
 > xử lý đúng: cột dormant mà vẫn cho sửa mới là bẫy.
@@ -297,8 +296,8 @@ Không tự làm gì; đây là gợi ý thứ tự nếu chủ muốn tiếp.
 | 1 | **Quyết tổ Kho** (B-1) | Đang mất tiền tăng ca **ngay tháng này**. Bỏ tích là xong trong 1 phút |
 | ~~2~~ | ~~**Vá lỗ quyền duyệt tăng ca** (C-2)~~ | ✅ **XONG 29/07** — vá cả 4 luồng, xem C-2b |
 | 3 | **Dựng lại nguồn sản lượng** (B-2) | Việc lớn nhất, mở khoá khoán + thưởng/phạt tổ trưởng + chia theo bậc |
-| 4 | **Bậc thợ có hệ số** (C-3) | Phụ thuộc #3 — có sản lượng rồi mới chia được |
-| 5 | Dọn `salary_rate_rules` (C-1) | Hoặc nối lại `_lookup_rule`, hoặc gỡ API để khỏi ai hiểu nhầm |
+| ~~4~~ | ~~**Bậc thợ có hệ số** (C-3)~~ | ✅ **BỎ 17/09/2026** — chia sản lượng chỉ theo phút (mg `0305`) |
+| ~~5~~ | ~~Dọn `salary_rate_rules` (C-1)~~ | ✅ **ĐÃ DROP bảng 17/09/2026** (mg `0307`) |
 | 6 | Ô nhập `dieu_chinh_luong` (D-2) | Tiện dụng, không gấp — engine đã cộng, API đã nhận, chỉ thiếu đường vào từ màn |
 
 ---

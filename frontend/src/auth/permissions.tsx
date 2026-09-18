@@ -67,11 +67,20 @@ interface PermissionsCtx {
   can: (moduleKey: string, action: PermAction) => boolean;
   /** The caller's data scope on a module (own|department|all), or null if no permission. */
   scopeOf: (moduleKey: string) => Scope | null;
+  /** Hỏi lại máy chủ bộ quyền của CHÍNH người đang đăng nhập (menu + `can`). */
+  reload: () => void;
+  /** Người đang đăng nhập thuộc một phòng ban có cờ "Tổ KCS" (mg 0306) — kiểm được mọi tổ. */
+  kcs: boolean;
+  /** Trưởng một phòng ban "Tổ KCS" — được "Đóng thiếu nhóm". */
+  truongKcs: boolean;
 }
 
 const PermissionsContext = createContext<PermissionsCtx>({
   can: () => false,
   scopeOf: () => null,
+  reload: () => {},
+  kcs: false,
+  truongKcs: false,
 });
 
 export function buildCapabilities(rows: ModuleCapability[]): Capabilities {
@@ -80,9 +89,15 @@ export function buildCapabilities(rows: ModuleCapability[]): Capabilities {
 
 export function PermissionsProvider({
   caps,
+  onReload,
+  kcs = false,
+  truongKcs = false,
   children,
 }: {
   caps: Capabilities;
+  onReload?: () => void;
+  kcs?: boolean;
+  truongKcs?: boolean;
   children: ReactNode;
 }) {
   function can(moduleKey: string, action: PermAction): boolean {
@@ -103,7 +118,9 @@ export function PermissionsProvider({
     return caps.get(moduleKey)?.scope ?? null;
   }
   return (
-    <PermissionsContext.Provider value={{ can, scopeOf }}>{children}</PermissionsContext.Provider>
+    <PermissionsContext.Provider value={{ can, scopeOf, reload: onReload ?? (() => {}), kcs, truongKcs }}>
+      {children}
+    </PermissionsContext.Provider>
   );
 }
 
@@ -136,6 +153,20 @@ export function useSelfServiceWrite(): boolean {
 /** Returns `can(module, action)`. Defaults to deny until the provider is mounted. */
 export function useCan(): (moduleKey: string, action: PermAction) => boolean {
   return useContext(PermissionsContext).can;
+}
+
+/** KCS theo lệnh (mg 0306): KHÔNG phải ô quyền của vai — là tư cách thành viên phòng ban có cờ
+ *  "Tổ KCS". Máy chủ trả hai cờ này ở `GET /api/auth/permissions`; cổng thật vẫn ở máy chủ. */
+export function useKcs(): { kcs: boolean; truongKcs: boolean } {
+  const c = useContext(PermissionsContext);
+  return { kcs: c.kcs, truongKcs: c.truongKcs };
+}
+
+/** Tải lại quyền của người đang đăng nhập. AppShell chỉ hỏi quyền MỘT lần lúc vào phiên, nên màn
+ *  nào vừa ghi thứ có thể đổi quyền của chính mình (lưu ma trận vai trò) phải gọi hàm này — không
+ *  thì menu và nút giữ quyền cũ tới khi bấm F5, người lưu tưởng lưu chưa ăn. */
+export function useReloadPermissions(): () => void {
+  return useContext(PermissionsContext).reload;
 }
 
 /** Returns `scopeOf(module)` → own|department|all|null. */

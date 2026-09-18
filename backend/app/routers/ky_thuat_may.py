@@ -30,7 +30,12 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import get_authorization_service, require_any_permission, require_permission
+from ..deps import (
+    get_authorization_service,
+    require_any_permission,
+    require_permission,
+    require_quyen_to,
+)
 from ..models.ky_thuat_may import (
     GIAI_DOAN_SAU,
     LOAI_PHIEU_BAO_TRI,
@@ -75,6 +80,7 @@ from ..services.ky_thuat_may_service import (
     KyThuatMayNotFound,
     KyThuatMayService,
     KyThuatMayThieuAnh,
+    KyThuatMayTrungKy,
     KyThuatMayValidationError,
     hom_nay_vn,
 )
@@ -128,10 +134,13 @@ YcWriter = Annotated[
     User, Depends(require_any_permission((MODULE_YC, "update"), (MODULE, "update")))
 ]
 # Ô chọn máy: mở cho cả người chỉ mới được cấp quyền GỬI yêu cầu — chưa gửi lần nào thì họ cũng
-# chưa có gì để "read", mà không chọn được máy thì không gửi được.
+# chưa có gì để "read", mà không chọn được máy thì không gửi được. Người mở được Bàn tổ (Xem ở ít
+# nhất một dòng quyền theo tổ) cũng qua: ngăn chi tiết đọc danh sách này để ghi tên máy nhận sự cố,
+# thiếu nó là mỗi lần mở bàn tổ trình duyệt ăn một 403. Danh sách chỉ có mã · tên · loại máy.
 MayChonReader = Annotated[
     User,
-    Depends(require_any_permission(
+    Depends(require_quyen_to(
+        "read",
         (MODULE, "read"), (MODULE_BT, "read"), (MODULE_YC, "read"), (MODULE_YC, "create"),
     )),
 ]
@@ -531,6 +540,9 @@ def create_bao_tri(payload: BaoTriIn, svc: Service, user: BtCreator) -> BaoTriRo
         data["hang_muc"] = [dict(h) for h in data["hang_muc"]]
     try:
         phieu = svc.tao_bao_tri(data, actor_id=user.id)
+    except KyThuatMayTrungKy as e:
+        # 409 chứ không 422: dữ liệu gửi lên hợp lệ, chỉ là kỳ đó đã có phiếu rồi.
+        raise _409(e) from None
     except KyThuatMayValidationError as e:
         raise _400(e) from None
     return _row_bao_tri(svc, phieu, svc.may_map([phieu.may_id]), {})

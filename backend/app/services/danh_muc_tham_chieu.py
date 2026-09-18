@@ -320,6 +320,18 @@ def _dem_cong_doan_theo_nhom(db: Session, ten_nhom: str) -> int:
 
 
 # `loai` ở đây là tên chính trong `catalog_registry` (cũng là key nhật ký) — không đẻ bộ tên thứ hai.
+def _xe(db: Session, obj) -> ThamChieu:
+    """Xe đã chạy chuyến nào thì KHÔNG xoá hẳn — chỉ ngừng dùng.
+
+    Xoá hẳn là làm mồ côi `delivery_trips.vehicle_id` của cả lịch sử: bảng chuyến mất tên xe, mà
+    đó chính là thứ để đối chiếu với sổ tay của xưởng.
+    """
+    from ..models.delivery import DeliveryTrip
+
+    return ThamChieu(chan=_gom(_cau(
+        _dem(db, DeliveryTrip, DeliveryTrip.vehicle_id == obj.id), "chuyến giao đã chạy xe này")))
+
+
 DEM_THEO_LOAI = {
     "cong_doan": _cong_doan,
     "cong_viec_khoan": _cong_viec_khoan,
@@ -332,6 +344,7 @@ DEM_THEO_LOAI = {
     "giay": lambda db, obj: _mat_hang(db, obj, "giay"),
     "vat_tu": lambda db, obj: _mat_hang(db, obj, "vat_tu"),
     "san_xuat_kcs_tieu_chi": _san_xuat_kcs_tieu_chi,
+    "xe": _xe,
 }
 
 

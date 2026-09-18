@@ -23,8 +23,7 @@ class AccountCreateIn(BaseModel):
 
 
 class InitialEmployeeSalaryIn(BaseModel):
-    """Mức lương ban đầu khai cùng hồ sơ NV. Lương vị trí = lương cơ bản = mức đóng BH;
-    bậc tay nghề khai ở bước Định danh (`job_grade_id` → danh mục `job_grades`)."""
+    """Mức lương ban đầu khai cùng hồ sơ NV. Lương vị trí = lương cơ bản = mức đóng BH."""
 
     effective_from: date | None = None
     luong_vi_tri: float = Field(gt=0)
@@ -56,9 +55,6 @@ class EmployeeBase(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     department_id: int | None = None
     position: str | None = Field(default=None, max_length=255)
-    # Bậc tay nghề = ID danh mục `job_grades` (chủ 29/07/2026). Ô CHỮ cũ đã bỏ khỏi API:
-    # để cả hai là dựng lại bẫy hai-ô-cùng-nghĩa. Chỉ khối SẢN XUẤT mới khai ô này.
-    job_grade_id: int | None = None
     hire_date: date | None = None
     probation_end_date: date | None = None
     date_of_birth: date | None = None
@@ -80,8 +76,6 @@ class EmployeeBase(BaseModel):
     bank_account: str | None = Field(default=None, max_length=30)
     bank_name: str | None = Field(default=None, max_length=100)
     default_shift_id: int | None = None  # ca làm việc mặc định (ca kíp)
-    payroll_group: str | None = Field(default=None, max_length=40)   # nhóm lương (module luong)
-    pay_grade_key: str | None = Field(default=None, max_length=20)   # bậc lương chuẩn hóa
     note: str | None = Field(default=None, max_length=1000)
 
 
@@ -93,13 +87,12 @@ class EmployeeCreate(EmployeeBase):
     prior_seniority_months: int = Field(default=0, ge=0)
     # Optional: create + link a login account in the same call (wizard "Lưu").
     account: AccountCreateIn | None = None
-    # Accepted only with `luong:update`; grade ownership is validated against
-    # the selected department before the employee is created.
+    # Accepted only with `luong:update`.
     initial_salary: InitialEmployeeSalaryIn | None = None
 
 
 class EmployeeUpdate(EmployeeBase):
-    """Edit hồ sơ. status / department reassignment / job_grade are NOT here — they are
+    """Edit hồ sơ. status / department reassignment are NOT here — they are
     stage changes done via the transitions endpoint."""
 
 
@@ -111,10 +104,6 @@ class TransitionIn(BaseModel):
     effective_date: date | None = None
     note: str | None = Field(default=None, max_length=500)
     new_department_id: int | None = None      # transfer
-    # Bậc tay nghề mới. `new_job_grade_id` là đường CHÍNH (danh mục `job_grades`);
-    # `new_job_grade` (chữ) giữ cho API cũ — service tra ngược danh mục theo tên.
-    new_job_grade_id: int | None = None                             # promote | transfer
-    new_job_grade: str | None = Field(default=None, max_length=50)   # promote (tương thích)
     new_position: str | None = Field(default=None, max_length=255)   # promote
     resign_reason: str | None = Field(default=None, max_length=255)  # resign
 
@@ -199,9 +188,6 @@ class EmployeeRow(BaseModel):
     department_id: int | None
     department_name: str | None = None
     position: str | None = None
-    job_grade_id: int | None = None
-    job_grade_name: str | None = None   # tên bậc để hiện thẳng, khỏi tra thêm
-    job_grade: str | None = None        # CỘT CŨ (chữ) — chỉ còn để hồ sơ chưa chuyển vẫn hiện
     status: str
     hire_date: date | None = None
     probation_end_date: date | None = None
@@ -234,8 +220,6 @@ class EmployeeOut(EmployeeRow):
     bank_account: str | None = None
     bank_name: str | None = None
     default_shift_id: int | None = None
-    payroll_group: str | None = None
-    pay_grade_key: str | None = None
     resign_date: date | None = None
     resign_reason: str | None = None
     note: str | None = None
@@ -245,6 +229,10 @@ class EmployeeOut(EmployeeRow):
     # Trưởng bộ phận (departments.head_user_id → tên tài khoản). CHỈ route self-service
     # `/me` điền — danh sách HCNS bỏ trống để không phải tra thêm mỗi dòng (N+1).
     department_head_name: str | None = None
+    # Ca nền ĐANG hiệu lực hôm nay (khác `default_shift_id` = mốc mới nhất, có thể là mốc tương
+    # lai). CHỈ `GET /{id}` điền — tab Thông tin hiện thẳng, khỏi tự tải lịch sử mốc + danh mục ca.
+    current_shift_id: int | None = None
+    current_shift_name: str | None = None
 
 
 class EmployeeKpis(BaseModel):
@@ -406,15 +394,6 @@ class EmployeeActivityOut(BaseModel):
 class DepartmentOption(BaseModel):
     id: int
     name: str
-    # Khối SẢN XUẤT — cờ HIỆU LỰC: tự tick HOẶC có tổ tiên tick (server đã leo cây `parent_id`).
-    # FE chỉ đọc một boolean để ẩn/hiện ô Bậc tay nghề, không phải tự đi leo cây.
-    la_san_xuat: bool = False
-
-
-class UserOption(BaseModel):
-    id: int
-    username: str
-    name: str
 
 
 class RoleOption(BaseModel):
@@ -427,45 +406,10 @@ class RoleOption(BaseModel):
 
 
 class EmployeeMetaOut(BaseModel):
-    """Dropdown data for the forms: departments + roles + accounts not yet linked to any NV."""
+    """Dropdown data for the forms: departments + roles.
+
+    `unlinked_users` (tài khoản chưa nối hồ sơ) ĐÃ BỎ 14/09/2026: không màn nào đọc, mà mỗi lần
+    mở màn Nhân sự nó quét cả bảng hồ sơ lẫn cả bảng tài khoản."""
 
     departments: list[DepartmentOption]
-    unlinked_users: list[UserOption]
     roles: list[RoleOption] = []
-
-
-class JobGradeIn(BaseModel):
-    """Thêm một bậc tay nghề. `code` bỏ trống thì service tự sinh."""
-
-    name: str = Field(min_length=1, max_length=60)
-    code: str | None = Field(default=None, max_length=20)
-    seq: int | None = None
-    note: str | None = Field(default=None, max_length=255)
-    # Hệ số chia sản lượng khoán theo bậc (module Thực hiện SX §8). Bỏ trống = chưa khai (engine coi 1.0).
-    output_coefficient: float | None = Field(default=None, ge=0, le=999.999)
-
-
-class JobGradeUpdateIn(BaseModel):
-    """Sửa bậc. `exclude_unset` ở router ⇒ không gửi field nào thì field đó KHÔNG bị đụng."""
-
-    name: str | None = Field(default=None, max_length=60)
-    seq: int | None = None
-    is_active: bool | None = None
-    note: str | None = Field(default=None, max_length=255)
-    output_coefficient: float | None = Field(default=None, ge=0, le=999.999)
-
-
-class JobGradeOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    code: str
-    name: str
-    seq: int
-    is_active: bool
-    note: str | None = None
-    output_coefficient: float | None = None
-
-
-class JobGradesOut(BaseModel):
-    items: list[JobGradeOut]

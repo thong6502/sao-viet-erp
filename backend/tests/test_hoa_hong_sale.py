@@ -94,8 +94,7 @@ def test_khai_hoa_hong_KHONG_lam_doi_mot_dong_nao(client):
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
         params = svc.get_params()
-        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
-                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male", dependents_count=0)
 
         def _v(pct):
             return svc._compute(employee=emp, params=params, actual_cong=26, standard_cong=26,

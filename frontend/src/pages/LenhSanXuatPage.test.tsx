@@ -42,6 +42,14 @@ const LIST: LenhSxListOut = {
     sale: null, so_luong_dat: 10, don_vi_tinh: "cái", da_giao: 0, is_rush: false,
     buoc_hien_tai: null, nhom_cong_doan: null, may: null, nguoi: [],
     tien_do_pct: 0, tien_do_uoc_tinh: false, gio_may: 0,
+    // Dải chặng: bốn công đoạn, lệnh đang đứng ở "In" — đủ cả bốn trạng thái mà `danh_sach.chang()`
+    // biết đẻ ra, để bài canh dưới soi được cả màu lẫn chữ đọc-ra-lời.
+    chang: [
+      { ten: "Cắt tờ", nhom: null, trang_thai: "xong", hien_tai: false },
+      { ten: "In", nhom: null, trang_thai: "chay", hien_tai: true },
+      { ten: "Cán màng", nhom: null, trang_thai: "dung", hien_tai: false },
+      { ten: "Bế", nhom: null, trang_thai: "cho", hien_tai: false },
+    ],
     han_hoan_thanh_sx: null, han_giao_khach: null, du_kien_xong: null,
     trang_thai: "dang_sx", canh_bao: [],
   }],
@@ -81,7 +89,7 @@ const HOSO_77: LenhSxHoSoOut = {
   san_luong: { tong: 0, tot: 0, hong: 0, batch: [] },
   su_co: [],
   kcs: { tong_nhan: 0, tong_dat: 0, tong_khong_dat: 0, ty_le_dat: null, batch: [] },
-  kho: { so_lenh_trong_nhom: 0, yeu_cau: [], btp: [] },
+  kho: { so_lenh_trong_nhom: 0, yeu_cau: [] },
   giao_hang: {
     nhom_id: null, order_id: null, order_line_ids: [], so_lenh_trong_nhom: 0,
     hang: [], da_nhap_kho: 0, da_giao: 0, co_the_giao: false, don_vi_lech: false,
@@ -113,7 +121,8 @@ const HOSO_BY_ID: Record<number, LenhSxHoSoOut> = { 77: HOSO_77, 5: HOSO_5 };
  *  fetch nhầm id vẫn nhận lại `HOSO_77` như thường, bài vẫn xanh). Nay tra theo `HOSO_BY_ID`; id lạ
  *  ⇒ trả 404 thật (không phải "trả bừa `HOSO_77`") để một bug id-sai lộ ra thành lỗi tải hồ sơ, có
  *  thể quan sát được thay vì im lặng trùng khớp. */
-function stubApi() {
+/** `list` đổi được để bài canh dải chặng dựng một bảng khác mà không phải chép lại cả stub. */
+function stubApi(list: LenhSxListOut = LIST) {
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -131,7 +140,7 @@ function stubApi() {
         status = 404;
         data = { detail: `không có lệnh id=${id} trong stub` };
       }
-    } else if (url.includes("/api/lenh-san-xuat")) data = LIST;
+    } else if (url.includes("/api/lenh-san-xuat")) data = list;
     else data = {};
     return Promise.resolve({
       ok: status < 400, status, headers: new Headers({ "content-type": "application/json" }),
@@ -295,5 +304,48 @@ describe("LenhSanXuatPage · quét LẠI đúng lệnh vừa đóng vẫn phải
 
     // Trước vòng sửa 2: effect không chạy lại (deps không đổi) ⇒ dòng dưới đây timeout, bài đỏ.
     await screen.findByRole("heading", { name: "LSX26-0077" });
+  });
+});
+
+// Dải chặng (`DaiChang` trong `LenhSanXuatPage.tsx`): hàng bảng phải nói được lệnh đang ở KHÚC NÀO
+// của đường đi, không chỉ tên bước đang đứng. Hai bài dưới canh đúng hai nhánh của nó — có chuỗi
+// công đoạn thì vẽ dải, chuỗi RỖNG thì lùi về thanh tiến độ cũ chứ không vẽ đốt giả.
+describe("LenhSanXuatPage · dải chặng trong hàng bảng", () => {
+  it("⭐ lệnh có 4 công đoạn ⇒ 4 đốt, đốt đang chạy mang lớp `--chay`, không còn thanh tiến độ", async () => {
+    stubApi();
+    const { container } = ve();
+
+    await screen.findByText("LSX26-0005");
+
+    const dot = container.querySelectorAll(".hslsx__chang");
+    expect(dot).toHaveLength(4);
+    // Thứ tự đốt là thứ tự máy chủ trả (theo giờ dự kiến bắt đầu) — KHÔNG được sort lại ở FE.
+    expect(Array.from(dot).map((d) => d.getAttribute("title"))).toEqual([
+      "Cắt tờ — đã xong",
+      "In — đang chạy",
+      "Cán màng — tạm dừng",
+      "Bế — chưa tới",
+    ]);
+    // Đúng MỘT đốt được tô accent: luật màu của dải (xem `.hslsx__chang--chay` bên CSS).
+    expect(container.querySelectorAll(".hslsx__chang--chay")).toHaveLength(1);
+    // Có dải rồi thì thanh cũ phải biến mất, không vẽ chồng hai chỉ báo tiến độ trong một ô.
+    expect(container.querySelector(".hslsx__bar")).toBeNull();
+
+    // Người đi bàn phím không rê được `title` của từng đốt ⇒ cả dải phải tự xưng vị trí ở một chỗ.
+    expect(screen.getByRole("progressbar")).toHaveAttribute(
+      "aria-valuetext",
+      "công đoạn 2 trên 4, In — 0 phần trăm",
+    );
+  });
+
+  it("⭐ lệnh chưa có công việc nào (chang rỗng) ⇒ lùi về thanh tiến độ, KHÔNG vẽ đốt", async () => {
+    // Dải trống trơn trông y hệt "mọi công đoạn đều chưa tới" — hai chuyện khác hẳn nhau.
+    stubApi({ ...LIST, items: [{ ...LIST.items[0], chang: [] }] });
+    const { container } = ve();
+
+    await screen.findByText("LSX26-0005");
+
+    expect(container.querySelectorAll(".hslsx__chang")).toHaveLength(0);
+    expect(container.querySelector(".hslsx__bar")).not.toBeNull();
   });
 });

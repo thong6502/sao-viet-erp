@@ -21,10 +21,9 @@ class SuaChuaIn(BaseModel):
     bo_phan_hong: str = Field(min_length=1, max_length=150)
     mo_ta: str | None = None
     muc_do: str | None = None                # nhe | trung_binh | nghiem_trong
-    # Người BÁO hỏng — ô chọn nhân viên, KHÔNG mặc định bằng người đăng nhập (thợ đứng máy báo
-    # miệng, tổ kỹ thuật nhập hộ).
-    nguoi_bao_id: int | None = None
-    nguoi_bao_ten: str | None = None
+    # KHÔNG có `nguoi_bao_id`/`nguoi_bao_ten` (14/09/2026): người báo do SERVER chốt — tài khoản lập
+    # phiếu, hoặc người đã gửi yêu cầu nếu phiếu sinh từ yêu cầu. Cho client gõ tên là ký hộ được
+    # bất kỳ ai, và sửa xong là mất dấu ai đã báo máy hỏng.
     thoi_diem: datetime | None = None
     nguyen_nhan_phuong_an: str | None = None
     ghi_chu: str | None = None
@@ -33,12 +32,12 @@ class SuaChuaIn(BaseModel):
 class SuaChuaPatch(BaseModel):
     """Sửa từng phần — mọi field optional, router lọc bằng `exclude_unset`."""
 
-    may_id: int | None = None
+    # KHÔNG có `may_id`: máy chốt lúc lập phiếu (chép từ yêu cầu, hoặc chọn lúc tự lập) — xem
+    # `SUA_DUOC_SUA_CHUA` bên repo.
     bo_phan_hong: str | None = Field(default=None, max_length=150)
     mo_ta: str | None = None
     muc_do: str | None = None
-    nguoi_bao_id: int | None = None
-    nguoi_bao_ten: str | None = None
+    # Người báo KHÔNG sửa được trên phiếu — xem `SuaChuaIn`.
     thoi_diem: datetime | None = None
     nguyen_nhan_phuong_an: str | None = None
     ghi_chu: str | None = None
@@ -327,8 +326,9 @@ class HanGoiRow(BaseModel):
     goi_id: str | None = None
     goi_ten: str | None = None
     han: date | None = None
-    # phieu | ngay_bat_dau | thieu_chu_ky | thieu_ngay_bat_dau — nói rõ hạn này tính từ đâu, hoặc
-    # vì sao KHÔNG tính được (hai lý do là hai ô khác nhau trên form Máy).
+    # phieu | ngay_bat_dau | thieu_chu_ky | thieu_ngay_bat_dau | thieu_ma_goi — nói rõ hạn này tính
+    # từ đâu, hoặc vì sao KHÔNG tính được. Hai lý do đầu là hai ô khác nhau trên form Máy; riêng
+    # `thieu_ma_goi` là dữ liệu hỏng (gói không có `id`), lưu lại máy một lần là hệ tự cấp.
     nguon: str
     phieu_dang_mo_id: int | None = None
 

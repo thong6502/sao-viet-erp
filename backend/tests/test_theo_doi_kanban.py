@@ -105,7 +105,7 @@ def _h(token: str) -> dict[str, str]:
 def _bat_dau_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     """Bắt đầu một bước qua ĐÚNG đường ghi production, KHÔNG kết thúc — dựng ca "đang chạy" đứng
     yên để test dàn cảnh song song. Rút gọn của `lenh_sx_fixtures._chay_that` (bỏ đoạn `ket_thuc`);
-    xem docstring ở đó cho lý do từng bước (`has_piece_work`, `ly_do_tre`, `ly_do_so_nguoi`).
+    xem docstring ở đó cho lý do từng bước (`has_piece_work`, `ly_do_so_nguoi`).
     """
     to = sess.get(Department, cv.department_id)
     to.has_piece_work = True
@@ -113,7 +113,7 @@ def _bat_dau_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     _giao_nguoi(sess, admin, cv, ma=ma, ten=ten)
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_tre="Chờ giấy về", ly_do_so_nguoi="Tổ thiếu người",
+        ly_do_so_nguoi="Tổ thiếu người",
     )
     sess.expire_all()
 

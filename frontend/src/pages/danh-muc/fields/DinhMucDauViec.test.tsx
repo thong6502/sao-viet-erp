@@ -8,7 +8,7 @@ import type { DinhMucRow } from "../types";
 
 // Component tự nạp danh mục vật tư khi mount — chặn lại để test không đụng mạng.
 vi.mock("../../../api/rebuildCatalog", () => ({
-  crud: () => ({ list: async () => ({ items: [] }) }),
+  crud: () => ({ list: async () => ({ items: [] }), thamChieu: () => ({ moi: Promise.resolve([]) }), daNho: () => undefined }),
 }));
 
 // `token: null` ⇒ `useBienCongThuc` trong `FormulaField` không gọi API.

@@ -54,6 +54,11 @@ class DeliveryRequestLineOut(BaseModel):
     hang_id: int | None = None
     hang_ten: str | None = None
     dvt: str | None = None
+    #: Cụm bán nhiều dòng (Ruột + Bìa → Kỷ yếu): các dòng cùng `cum_khoa` giao / nhận cùng một số.
+    #: Trống = dòng đứng một mình.
+    cum_khoa: str | None = None
+    cum_ten: str | None = None
+    cum_dvt: str | None = None
 
 
 class DeliveryRequestOut(BaseModel):
@@ -91,6 +96,10 @@ class PlanIn(BaseModel):
     #: Phụ xe — TUỲ CHỌN, tối đa một người (mg 0231). Vai trò do Ô THẢ NGƯỜI VÀO quyết định, nên
     #: hai ô cùng lấy từ danh sách nhân viên khối Giao hàng; service chặn trùng người.
     phu_xe_employee_id: int | None = None
+    #: Xe chạy chuyến — **BẮT BUỘC** khi danh mục Xe đã có xe và tài xế thuộc khối Giao hàng
+    #: (chủ chốt 12/09/2026). Nullable ở schema chứ không ở luật: máy chủ chặn bằng `_doi_xe` để
+    #: câu báo lỗi nói được LÝ DO, thay vì 422 "field required" trống trơn.
+    vehicle_id: int | None = None
     gio_lay_hang: datetime
     gio_du_kien_giao: datetime
     kho_id: int | None = None
@@ -102,6 +111,8 @@ class PlanUpdate(BaseModel):
     #: Gửi `null` = GỠ phụ xe; KHÔNG gửi = giữ nguyên. Router dùng `exclude_unset=True` nên hai
     #: trường hợp đó xuống service khác nhau (`None` vs mốc `_KHONG_GUI`).
     phu_xe_employee_id: int | None = None
+    #: Gửi `null` = GỠ xe; KHÔNG gửi = giữ nguyên — cùng cơ chế `exclude_unset` như phụ xe.
+    vehicle_id: int | None = None
     gio_lay_hang: datetime | None = None
     gio_du_kien_giao: datetime | None = None
     ghi_chu_phan_cong: str | None = None
@@ -126,6 +137,9 @@ class KetQuaIn(BaseModel):
     so_thuc_nhan: list[SoThucNhanIn] | None = None
     # Bật khi người dùng đã xem cảnh báo "km lớn bất thường" và khẳng định đúng.
     xac_nhan_km_lon: bool = False
+    #: Xe đã chạy chuyến — gửi để điền/đổi ngay lúc ghi kết quả. Chuyến khối Giao hàng mà cả
+    #: đây lẫn chuyến đều trống thì máy chủ chặn (`_doi_xe_truoc_khi_chup`).
+    vehicle_id: int | None = None
 
 
 class TripLineOut(BaseModel):
@@ -145,6 +159,10 @@ class TripOut(BaseModel):
     employee_name: str | None = None
     phu_xe_employee_id: int | None = None
     phu_xe_name: str | None = None
+    vehicle_id: int | None = None
+    #: Biển số + tên xe để bảng chuyến đọc được ngay, khỏi tra danh mục cho từng dòng.
+    xe_bien_so: str | None = None
+    xe_ten: str | None = None
     gio_lay_hang: datetime
     gio_du_kien_giao: datetime
     ghi_chu_phan_cong: str | None = None
@@ -281,6 +299,11 @@ class ConPhaiGiaoLine(BaseModel):
     qty_dat: int
     da_giao: int
     con_phai_giao: int
+    #: Cụm bán nhiều dòng (Ruột + Bìa → Kỷ yếu): các dòng cùng `cum_khoa` giao / nhận cùng một số.
+    #: Trống = dòng đứng một mình.
+    cum_khoa: str | None = None
+    cum_ten: str | None = None
+    cum_dvt: str | None = None
 
 
 class ConPhaiGiaoOut(BaseModel):
@@ -307,7 +330,7 @@ class DinhKemListOut(BaseModel):
     items: list[DinhKemOut] = []
 
 
-# --- Bậc đơn giá khoán km (theo phòng ban) -------------------------------------------------
+# --- Bậc đơn giá khoán km (bảng bậc của một MỨC) -------------------------------------------
 class KmBracketIn(BaseModel):
     """Một bậc. `up_to_km=None` = bậc cao nhất (từ đó trở lên) — CHỈ được có một, và ở CUỐI."""
 
@@ -315,20 +338,62 @@ class KmBracketIn(BaseModel):
     don_gia: float = Field(ge=0)
 
 
-class KmBracketsIn(BaseModel):
-    items: list[KmBracketIn] = []
-    # Tỷ lệ chia kíp xe — TUỲ CHỌN gửi kèm (màn Cấu hình lương lưu cả cụm khoán km một lần).
-    # None = không đụng tới %, chỉ ghi bậc. Gửi cả hai thì service kiểm cộng đúng 100.
-    pct_tai_xe: float | None = Field(default=None, ge=0, le=100)
-    pct_phu_xe: float | None = Field(default=None, ge=0, le=100)
-
-
 class KmBracketOut(BaseModel):
     up_to_km: int | None = None
     don_gia: float = 0
 
 
-class KmBracketsOut(BaseModel):
-    items: list[KmBracketOut] = []
-    pct_tai_xe: float = 60
-    pct_phu_xe: float = 40
+# --- MỨC khoán km (PRD §11) -------------------------------------------------------------------
+class MucKmIn(BaseModel):
+    """Tạo / sửa một MỨC. Tên là khoá người dùng đọc ("Xe 2 tấn") nên không được trùng."""
+    ten: str = Field(min_length=1, max_length=150)
+    ghi_chu: str | None = None
+    active: bool = True
+
+
+class MucKmSua(BaseModel):
+    """Sửa một MỨC — mọi ô TUỲ CHỌN, KHÔNG gửi = giữ nguyên (router đọc `exclude_unset`).
+
+    Tách khỏi `MucKmIn` (14/09/2026): dùng chung thì màn đổi tên chỉ gửi `{ten}` mà pydantic điền
+    mặc định `ghi_chu=None` + `active=True` rồi GHI ĐÈ — đổi tên là mất ghi chú, mức đang tắt tự
+    bật lại.
+    """
+    ten: str | None = Field(default=None, min_length=1, max_length=150)
+    ghi_chu: str | None = None
+    active: bool | None = None
+
+
+class MucKmBracketsIn(BaseModel):
+    """Danh sách RỖNG = xoá trắng bảng giá — chỉ được khi mức không còn xe nào ăn."""
+    items: list[KmBracketIn] = Field(default_factory=list)
+
+
+class MucKmOut(BaseModel):
+    id: int
+    #: Luôn RỖNG — mức chỉ có TÊN. Khoá vẫn phải có: ô chọn dùng chung của nền danh mục vẽ
+    #: "ma · ten" (tự giấu phần mã khi rỗng), thiếu khoá thì menu hiện "undefined · Xe 5 tấn".
+    ma: str = ""
+    ten: str
+    ghi_chu: str | None = None
+    active: bool
+    items: list[KmBracketOut]
+    #: SỐ XE đang ăn mức này — màn cấu hình phải nói trước khi người ta sửa giá: sửa một mức là
+    #: đổi tiền của cả nhóm xe, khác hẳn sửa bảng giá của riêng một chiếc.
+    so_xe: int
+
+
+class MucKmListOut(BaseModel):
+    items: list[MucKmOut]
+
+
+# --- % chia tiền một chuyến cho kíp xe -------------------------------------------------------
+# Tách khỏi endpoint bảng bậc cấp phòng khi bảng đó GỠ (12/09/2026). Hai ô này vẫn là luật thật:
+# tiền một chuyến chia cho tài xế và phụ xe; đi một mình thì tài xế ăn trọn.
+class KhoanKmPctIn(BaseModel):
+    pct_tai_xe: float = Field(ge=0, le=100)
+    pct_phu_xe: float = Field(ge=0, le=100)
+
+
+class KhoanKmPctOut(BaseModel):
+    pct_tai_xe: float
+    pct_phu_xe: float

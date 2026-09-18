@@ -432,6 +432,9 @@ def test_FILE_XUAT_hoa_hong_co_COT_RIENG_khong_lan_vao_Thuong(client):
 
     Nên test này khoá HAI chiều: cột Hoa hồng phải nhận đủ tiền, và cột Thưởng phải KHÔNG đổi —
     thiếu vế sau thì cộng hai cột lại vượt "Tổng" mà vẫn xanh.
+
+    Từ 17/09/2026 file theo khuôn `BL CT` của công ty: hoa hồng nằm ở cột "Lương kinh doanh/Sản lượng" (cột Q
+    của họ — người kinh doanh không có sản lượng, thợ không có hoa hồng), vẫn là cột mang tên nó, không lẫn thưởng.
     """
     from io import BytesIO
 
@@ -441,7 +444,7 @@ def test_FILE_XUAT_hoa_hong_co_COT_RIENG_khong_lan_vao_Thuong(client):
         r = client.get("/api/luong/export.xlsx?year=2026&month=8", headers=_h(client))
         assert r.status_code == 200, r.text
         ws = load_workbook(BytesIO(r.content)).active
-        # Khuôn mới 09/09/2026: tiêu đề DÒNG 4, dữ liệu từ dòng 5, cột 3 là Họ và tên.
+        # Khuôn `BL CT` (17/09/2026): tiêu đề DÒNG 4, dữ liệu từ dòng 5, cột 3 là Họ và tên.
         head = [c.value for c in ws[4]]
         return head, next(x for x in ws.iter_rows(min_row=5, values_only=True) if x[2] == ten_nv)
 
@@ -454,11 +457,11 @@ def test_FILE_XUAT_hoa_hong_co_COT_RIENG_khong_lan_vao_Thuong(client):
     _tinh_luong(client, emp)
     _, sau = _xuat("file xuat")
 
-    i_thuong, i_hh, i_tong = (head.index("Thưởng"), head.index("Hoa hồng"),
-                              head.index("TỔNG LƯƠNG"))
+    i_thuong, i_hh, i_tong = (head.index("Thưởng/khoản phát sinh"),
+                              head.index("Lương kinh doanh/Sản lượng"), head.index("Tổng lương"))
     assert sau[i_tong] - truoc[i_tong] == 5_000_000, "Tổng không nhận hoa hồng"
     assert sau[i_hh] - truoc[i_hh] == 5_000_000, (
-        "Tổng có thêm 5tr mà cột Hoa hồng không tăng — file xuất cộng lại không khớp")
+        "Tổng có thêm 5tr mà cột Lương kinh doanh không tăng — file xuất cộng lại không khớp")
     assert sau[i_thuong] == truoc[i_thuong], (
         "hoa hồng vẫn còn lẫn trong cột Thưởng ⇒ cộng hai cột lại là đếm đôi")
 

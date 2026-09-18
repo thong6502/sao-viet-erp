@@ -105,7 +105,7 @@
    suông (0,1,1), canh trái đè mất canh phải nếu viết ngắn. */
 .md-page__table thead th.acct-amount-cell,
 td.acct-amount-cell {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -120,7 +120,7 @@ td.acct-amount-cell small {
 .md-page__table thead th.acct-count-cell,
 td.acct-count-cell {
   width: 76px;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -148,7 +148,7 @@ td.acct-count-cell {
 /* Dải nhóm PMH: các phiếu chi cùng một PMH nằm liền dưới một dải; dòng đầu
    mỗi trang luôn lặp lại dải nên sang trang không mất ngữ cảnh. Phân biệt
    với dòng được chọn (.purchase__row--selected cùng nền rule-hair) bằng
-   border đậm phía trên + chữ mono, không chỉ bằng màu nền. */
+   border đậm phía trên, không chỉ bằng màu nền. */
 .acct-list tr.acct-group-row {
   cursor: default;
 }
@@ -183,7 +183,7 @@ td.acct-count-cell {
 }
 
 .acct-group-row__total {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   margin-left: auto;
   white-space: nowrap;
   color: var(--ash);
@@ -193,7 +193,7 @@ td.acct-count-cell {
 
 /* Ô "Lập lúc": giờ phút giây + ngày, không gãy dòng. */
 .acct-list td.acct-time-cell {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-size: 13px;
@@ -733,7 +733,7 @@ td.acct-count-cell {
 }
 
 .acct-money-input {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -1094,7 +1094,7 @@ td.acct-count-cell {
   flex: 1;
 }
 .odq__code {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: 700;
   color: var(--rust-deep, #8a2d07);
 }
@@ -1344,13 +1344,13 @@ td.acct-count-cell {
 /* Mã đơn (cột đầu) là MÃ nên dùng font số theo UI_DESIGN §7 — bản thiết kế gọi đây là việc
    của ".acct-dmh__frame" thay vì đổi tên class riêng cho ô, nên ép trực tiếp qua khung. */
 .acct-dmh .acct-dmh__frame td.acct-code-cell strong {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
 
 .acct-dmh__date {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1388,7 +1388,7 @@ td.acct-count-cell {
 
 .acct-dmh__due {
   display: block;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-bold);
@@ -1458,7 +1458,7 @@ td.acct-count-cell {
 }
 .acct-pc td.acct-code-cell strong,
 .acct-pc td.acct-user-cell small {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
 }
 .acct-pc__state {
@@ -1500,7 +1500,7 @@ td.acct-count-cell {
 /* purchase.css có sẵn !important trên font-family của .purchase__hero-code (dùng chung 19 màn)
    — phải !important để thắng, không có cách khác đúng luật (đã xác nhận khi soi). */
 .acct-pc-drawer .purchase__hero-code {
-  font-family: var(--ff-num) !important;
+  font-family: var(--ff-sans) !important;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -1509,7 +1509,7 @@ td.acct-count-cell {
   background: rgba(248,250,252,.12); border-color: rgba(248,250,252,.22); color: var(--on-charcoal);
 }
 .acct-pc-drawer .acct-voucher-amount strong {
-  font-size: var(--fs-2xl); font-family: var(--ff-num);
+  font-size: var(--fs-2xl); font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums; font-weight: var(--fw-bold);
 }
 .acct-pc-drawer .purchase__drawer-footer { background: var(--canvas); border-top: 1px solid var(--rule-soft); }
@@ -1537,7 +1537,7 @@ td.acct-count-cell {
   background: var(--rust-soft); box-shadow: inset 3px 0 0 var(--rust);
 }
 .acct-pt table td.acct-code-cell strong {
-  font-family: var(--ff-num); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums;
+  font-family: var(--ff-sans); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums;
 }
 .acct-pt table td.acct-amount-cell strong { font-weight: var(--fw-bold); }
 .acct-pt__state {
@@ -1579,13 +1579,13 @@ td.acct-count-cell {
 /* purchase.css có sẵn !important trên font-family của .purchase__hero-code (dùng chung 19 màn)
    — phải !important để thắng, không có cách khác đúng luật (đã xác nhận khi soi, giống Phiếu chi). */
 .acct-pt-drawer .purchase__hero-code {
-  font-family: var(--ff-num) !important;
+  font-family: var(--ff-sans) !important;
   font-weight: var(--fw-medium); letter-spacing: 0; font-variant-numeric: tabular-nums;
 }
 .acct-pt-drawer .acct-voucher-amount strong {
-  font-family: var(--ff-num); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums;
+  font-family: var(--ff-sans); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums;
 }
 .acct-pt-drawer .acct-voucher-amount small {
-  font-family: var(--ff-num); font-variant-numeric: tabular-nums;
+  font-family: var(--ff-sans); font-variant-numeric: tabular-nums;
 }
 .acct-pt-drawer .acct-pt__body { padding: var(--sp-5) var(--sp-6); gap: var(--sp-5); }

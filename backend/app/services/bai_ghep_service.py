@@ -910,12 +910,14 @@ class BaiGhepService:
             chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
 
     def _khoan_chung_dict(self, c: BaiGhepCongDoan, quy_cach: dict) -> dict:
-        """Khối khoán của thẻ bước chung: phần ghim + danh sách chọn được + tiền DỰ KIẾN.
+        """Khối đầu việc của thẻ bước chung: phần GHIM + danh sách chọn được. KHÔNG có tiền.
 
-        Tiền tính bằng đúng `_khoan_derived` của bước lệnh, nay ăn `quy_cach` = quy cách TỜ GHÉP
-        (`qc_bien`) thay `{}` cũ: đơn giá khoán theo `so_kem`/số màu ra số thật. Cầu quy đổi nào cần
-        biến riêng-từng-lệnh (số lượng đặt…) vẫn báo thiếu qua `khoan_thieu` vì biến đó = 0 theo
-        `BIEN_KHONG_CO_O_BAI`, không mượn số của một thành viên bất kỳ.
+        Bỏ tiền 11/09/2026 cùng bước lệnh (`LsxService._khoan_derived` đã xoá): sản xuất chỉ ghi SỐ
+        LƯỢNG, quy ra tiền là việc của kế toán lương. Bàn bài ghép và drawer lệnh dùng chung một
+        nguồn nên phải cùng bỏ, để một chỗ mà hai màn nói hai kiểu là chỗ sinh lệch.
+
+        `quy_cach` = quy cách TỜ GHÉP (`qc_bien`) vẫn truyền xuống: danh sách chọn được mang theo
+        VẬT TƯ đã tính số cho đúng tờ ghép này, và đó là lý do tham số còn ở đây.
         """
         svc = self._lsx_svc()
         cd_obj = self.db.get(CongDoan, c.cong_doan_id) if c.cong_doan_id else None
@@ -923,12 +925,9 @@ class BaiGhepService:
         return {
             "khoan_rate_id": kh.get("rate_id"),
             "khoan_ten": kh.get("ten"),
-            "khoan_don_vi": kh.get("don_vi"),
-            "khoan_don_gia": _f(kh.get("don_gia")) or None,
             "khoan_chon_duoc": svc._dau_viec_option_dicts(
                 cd_obj, c.department_id, buoc=c, quy_cach=quy_cach,
             ),
-            **svc._khoan_derived(c, quy_cach),
         }
 
     def _thay_vat_tu_chung(self, chung: BaiGhepCongDoan, vat_tus: list[dict]) -> None:

@@ -311,19 +311,17 @@ def test_phu_thuoc_noi_theo_phan_doan_cuoi(db, orders, lsx_svc, xl_svc, admin, c
 
 
 def test_kcs_cuoi_danh_dau_moi_phan_doan_cua_buoc(db, orders, lsx_svc, xl_svc, admin, customer):
-    """Bước KCS cuối bị tách ⇒ MỌI phân đoạn của nó mang `la_kcs_cuoi`.
+    """Công đoạn cuối bị tách ⇒ MỌI phân đoạn của nó mang `la_kcs_cuoi`.
 
-    Không phải chỉ phân đoạn cuối: `kho.tao_yeu_cau_kho_mot_nut` chặn thẳng công việc không có cờ
-    này, nên bỏ cờ ở lần chạy 1 là số ĐẠT của mẻ 7.000 không có đường vào kho; và
+    Không phải chỉ phân đoạn cuối: `kho.tao_yeu_cau_nhap_kho_cong_doan` chặn thẳng công việc không
+    có cờ này, nên bỏ cờ ở lần chạy 1 là số ĐẠT của mẻ 7.000 không có đường vào kho; và
     `dong_nhom.dieu_kien_dong_nhom` cộng mục tiêu trên đúng tập ấy — thiếu một phân đoạn là mục
     tiêu nhóm tụt còn 3.000.
     """
-    from tests.test_san_xuat_release import _kcs_dept, _steps
+    from tests.test_san_xuat_release import _steps
 
     a, _buoc, cuoi, _m1, may_2 = _lsx_da_xep_va_tach(db, orders, lsx_svc, xl_svc, admin, customer)
-    kcs = _kcs_dept(db)
     cuoi = _steps(db, a.id)[-1]
-    cuoi.department_id = kcs.id
     cuoi.so_luong_vao, cuoi.so_luong_ra = 10_000, 10_000
     cuoi.nang_suat, cuoi.don_vi_nang_suat = 5_000, "to_gio"
     db.commit()
@@ -346,7 +344,6 @@ def test_kcs_cuoi_danh_dau_moi_phan_doan_cua_buoc(db, orders, lsx_svc, xl_svc, a
         SanXuatCongViec.goi_id == goi.id, SanXuatCongViec.lsx_cong_doan_id == cuoi.id
     ).all()
     assert len(cvs) == 2
-    assert all(c.la_kcs for c in cvs)
     assert all(c.la_kcs_cuoi for c in cvs)
 
 

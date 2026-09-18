@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date, timedelta
 from typing import Annotated
 
@@ -23,7 +24,6 @@ from ..deps import (
     get_payroll_component_repository,
     get_payroll_component_service,
     get_payroll_service,
-    get_piece_work_service,
     get_user_repository,
     require_any_permission,
     require_permission,
@@ -47,6 +47,9 @@ from ..repositories.user_repo import UserRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.payroll_component_repo import PayrollComponentRepository
 from ..schemas.payroll import (
+    ChiTieuNgayIn,
+    ChiTieuNgayListOut,
+    ChiTieuNgayOut,
     CongBoIn,
     ComponentDeleteOut,
     BulkAssignIn,
@@ -97,11 +100,6 @@ from ..schemas.payroll import (
     SalaryPreviewOut,
     TableOut,
 )
-from ..schemas.piece_work import (
-    LeaderBracketOut,
-    LeaderBracketsIn,
-    LeaderBracketsOut,
-)
 from ..services.payroll_service import (
     PayrollError,
     PayrollForbidden,
@@ -109,12 +107,6 @@ from ..services.payroll_service import (
     PayrollNotFound,
     PayrollService,
     PayrollValidationError,
-)
-from ..services.piece_work_service import (
-    PieceWorkError,
-    PieceWorkNotFound,
-    PieceWorkService,
-    PieceWorkValidationError,
 )
 
 router = APIRouter(prefix="/api/luong", tags=["luong"])
@@ -156,7 +148,6 @@ SalaryProfileViewer = Annotated[
     Depends(require_any_permission((MODULE, "manage_salary_profiles"), (MODULE, "view_salary"))),
 ]
 Service = Annotated[PayrollService, Depends(get_payroll_service)]
-PieceService = Annotated[PieceWorkService, Depends(get_piece_work_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Departments = Annotated[DepartmentRepository, Depends(get_department_repository)]
@@ -221,13 +212,13 @@ def _emp_scope_for(authz: AuthorizationService, user: User) -> str:
 
 
 def _raise(exc: Exception) -> None:
-    if isinstance(exc, (PayrollNotFound, PieceWorkNotFound)):
+    if isinstance(exc, PayrollNotFound):
         raise HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, PayrollForbidden):
         raise HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, PayrollLocked):
         raise HTTPException(status_code=409, detail=str(exc))
-    if isinstance(exc, (PayrollValidationError, PieceWorkValidationError)):
+    if isinstance(exc, PayrollValidationError):
         raise HTTPException(status_code=400, detail=str(exc))
     raise exc
 
@@ -263,6 +254,20 @@ def _insurance_lines(ln, params) -> list[InsuranceLineOut]:
 def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepository,
                svc: PayrollService | None = None) -> list[LineOut]:
     dept_names = {d.id: d.name for d in departments.list_all()} if lines else {}
+    gh_ids = set(departments.dept_ids_giao_hang()) if lines else set()
+    # Ai CHƯA khai ô "Mức đóng BHXH" (16/09/2026) — đọc mốc lương hiện hành của kỳ, 1 truy vấn cho
+    # cả mẻ. Không suy từ số tiền trên dòng: khai đúng bằng mức nền là chuyện thường, suy kiểu đó
+    # sẽ báo nhầm cả những người đã khai.
+    chua_khai_bh: set[int] = set()
+    if lines and svc is not None:
+        _p = svc.payroll.get_period(lines[0].period_id)
+        if _p is not None:
+            _cuoi = date(_p.year, _p.month, monthrange(_p.year, _p.month)[1])
+            for _eid, _s in svc.payroll.latest_salaries_map(_cuoi).items():
+                # Tick "BH đóng ở nơi khác" ⇒ không cần khai mức đóng (chủ chốt 16/09/2026).
+                if (float(getattr(_s, "insurance_base", None) or 0) <= 0
+                        and not bool(getattr(_s, "insurance_elsewhere", False))):
+                    chua_khai_bh.add(_eid)
     # Tỷ lệ + trần BH: lấy MỘT lần cho cả mẻ. Không có `svc` (đường xuất Excel) → bỏ qua phần tách.
     params = svc.get_params() if svc is not None else None
     # NV của cả mẻ trong 1 truy vấn — bảng lương 300 dòng thì hỏi từng dòng là 300 round-trip.
@@ -279,6 +284,10 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
         # Có công mà mức lương = 0 ⇒ chưa khai lương (bản rà A2) — màn hình gắn nhãn, chốt kỳ chặn (L13).
         o.chua_khai_luong = (float(ln.monthly_salary or 0) <= 0 and float(ln.actual_cong or 0) > 0)
         o.night_premium_pay = float(getattr(ln, "night_premium_pay", 0) or 0)
+        emp_ln = emp_map.get(ln.employee_id)
+        o.la_giao_hang = bool(emp_ln is not None and emp_ln.department_id in gh_ids)
+        # Thử việc không đóng BH nên không nhắc khai.
+        o.chua_khai_muc_bh = bool(not ln.is_probation and ln.employee_id in chua_khai_bh)
         # "Phụ cấp khác" = phần còn lại của TỔNG phụ cấp sau khi tách 2 khoản khai ở tổ →
         # 3 dòng trên phiếu cộng lại đúng bằng `allowance` (dòng lương cũ: khác = allowance).
         o.phu_cap_khac = max(0.0, float(ln.allowance) - float(ln.phu_cap_tham_nien))
@@ -288,7 +297,6 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
         if emp is not None:
             o.employee_code = emp.code
             o.employee_name = emp.full_name
-            o.payroll_group = emp.payroll_group
             o.bank_account = emp.bank_account
             o.bank_name = emp.bank_name
             o.department_name = dept_names.get(emp.department_id)
@@ -405,6 +413,52 @@ def delete_pit_bracket(bracket_id: int, svc: Service,
 # --- bảng phạt đi trễ / về sớm (sửa được) -----------------------------------
 
 
+# --- CHỈ TIÊU NGÀY của tổ khoán / sản lượng (16/09/2026) --------------------------------------
+# Chỗ KHAI BÁO thôi — chủ dặn *"chưa cần phải đâu vào đâu cả, chỉ cần tạo ra đã"*: engine tính lương
+# không đọc số này. Cùng quyền với cấu hình thành phần lương theo bộ phận (xem: ConfigViewer · sửa:
+# `luong:update`), vì nó nằm ngay trên màn đó.
+
+
+def _chi_tieu_out(d: dict) -> ChiTieuNgayListOut:
+    return ChiTieuNgayListOut(
+        department_id=d["department_id"],
+        hien_hanh=(ChiTieuNgayOut.model_validate(d["hien_hanh"]) if d["hien_hanh"] is not None
+                   else None),
+        items=[ChiTieuNgayOut.model_validate(m) for m in d["items"]],
+    )
+
+
+@router.get("/khoan/chi-tieu-ngay/{dept_id}", response_model=ChiTieuNgayListOut)
+def xem_chi_tieu_ngay(dept_id: int, svc: Service, user: ConfigViewer) -> ChiTieuNgayListOut:
+    try:
+        return _chi_tieu_out(svc.chi_tieu_ngay(dept_id))
+    except PayrollError as exc:
+        _raise(exc)
+
+
+@router.put("/khoan/chi-tieu-ngay/{dept_id}", response_model=ChiTieuNgayListOut)
+def khai_chi_tieu_ngay(dept_id: int, body: ChiTieuNgayIn, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]
+                       ) -> ChiTieuNgayListOut:
+    """Thêm mốc chỉ tiêu ngày; cùng ngày áp dụng thì sửa số của mốc đó."""
+    try:
+        return _chi_tieu_out(svc.khai_chi_tieu_ngay(
+            dept_id, ap_dung_tu=body.ap_dung_tu, so_tien=body.so_tien, ghi_chu=body.ghi_chu,
+            actor=user))
+    except PayrollError as exc:
+        _raise(exc)
+
+
+@router.delete("/khoan/chi-tieu-ngay/{dept_id}/{muc_id}", response_model=ChiTieuNgayListOut)
+def xoa_chi_tieu_ngay(dept_id: int, muc_id: int, svc: Service,
+                      user: Annotated[User, Depends(require_permission(MODULE, "update"))]
+                      ) -> ChiTieuNgayListOut:
+    try:
+        return _chi_tieu_out(svc.xoa_chi_tieu_ngay(dept_id, muc_id, actor=user))
+    except PayrollError as exc:
+        _raise(exc)
+
+
 @router.get("/late-penalty-brackets", response_model=LatePenaltyBracketsOut)
 def list_late_penalty_brackets(svc: Service, user: ConfigViewer) -> LatePenaltyBracketsOut:
     return LatePenaltyBracketsOut(
@@ -493,7 +547,7 @@ def set_salary(employee_id: int, body: SalaryIn, svc: Service, authz: Authz,
     try:
         s = svc.set_salary(employee_id=employee_id, actor=user, scope=_emp_scope_for(authz, user),
                            effective_from=body.effective_from,
-                           amount_mode=body.amount_mode, base_amount=body.base_amount,
+                           base_amount=body.base_amount,
                            insurance_base=body.insurance_base, allowance=body.allowance, note=body.note,
                            chuyen_can=body.chuyen_can,
                            luong_vi_tri=body.luong_vi_tri, luong_trach_nhiem=body.luong_trach_nhiem,
@@ -792,7 +846,40 @@ def _canh_bao_chot(lines: list[LineOut]) -> str | None:
              and (float(l.advance_total or 0) + float(l.luong_dot_1_total or 0)
                   + float(getattr(l, "no_ung_ky_truoc", 0) or 0)) > 0]
     no = [l for l in lines if float(getattr(l, "no_ung_chuyen_ky_sau", 0) or 0) > 0]
-    if not khong and not no:
+    # CHẾ ĐỘ KHOÁN có giờ tăng ca mà tiền khoán kỳ này = 0 (14/09/2026): giờ tăng ca của họ không
+    # nhân hệ số vì "đã trả qua tiền khoán" — khoán = 0 (chưa chốt phân bổ sản xuất, không có chuyến)
+    # thì phần làm thêm mất trắng mà không ai thấy. Chỉ NÓI, không chặn.
+    # LƯƠNG BÙ LỖ (14/09/2026): người tổ khoán có công mà tiền khoán kỳ này = 0 ⇒ đang trả TRỌN bù lỗ
+    # theo công. Hay gặp nhất là phân bổ sản xuất chưa chốt — chốt muộn thì Tính lại sẽ đổi số, nên
+    # phải nói trước khi chốt kỳ. Chỉ NÓI, không chặn.
+    # ⚠️ TRỪ NGƯỜI THỬ VIỆC: từ 16/09/2026 họ LUÔN ăn bù lỗ, tiền khoán để 0 vì LUẬT chứ không
+    # phải vì phân bổ chưa chốt (PRD §00.9) ⇒ réo tên họ mỗi kỳ là câu nhắc sai, HCNS đi tìm một
+    # phiếu phân bổ không bao giờ có.
+    bu_lo_khong_khoan = [l for l in lines if getattr(l, "bu_lo_theo_cong", None) is not None
+                         and float(l.bu_lo_theo_cong or 0) > 0 and float(l.khoan or 0) <= 0
+                         and not getattr(l, "la_giao_hang", False)
+                         and not getattr(l, "is_probation", False)]
+    # TÀI XẾ / PHỤ XE: có công mà tiền km = 0 ⇒ đang trả bù lỗ theo công (khách chốt 15/09/2026 chiều:
+    # tài xế CÓ bù lỗ). Hay gặp nhất là chuyến giao chưa ghi kết quả. Chỉ NÓI. Tách khỏi câu trên bằng
+    # cờ Giao hàng của tổ — không đọc ra được từ số tiền nữa vì hai bên nay cùng có bù lỗ.
+    tai_xe_khong_km = [l for l in lines if getattr(l, "la_giao_hang", False)
+                       and float(getattr(l, "actual_cong", 0) or 0) > 0
+                       and float(l.khoan or 0) + float(getattr(l, "khoan_km", 0) or 0) <= 0
+                       # Tài xế / phụ xe THỬ VIỆC: km = 0 vì luật bù lỗ, không phải chuyến chưa ghi.
+                       and not getattr(l, "is_probation", False)]
+    # Ai đã có câu bù lỗ / tài xế ở trên thì không nhắc thêm câu giờ tăng ca — một người, một lời nhắc.
+    da_nhac = {id(l) for l in bu_lo_khong_khoan + tai_xe_khong_km}
+    khoan_trong = [l for l in lines if getattr(l, "che_do_khoan", False)
+                   and id(l) not in da_nhac
+                   and int(l.ot_minutes or 0) > 0
+                   and float(l.khoan or 0) + float(getattr(l, "khoan_km", 0) or 0) <= 0]
+    # Ô "Mức đóng BHXH" BẮT BUỘC khai từ 16/09/2026 (chủ chốt) — mốc lương CŨ còn trống thì engine
+    # tạm đóng theo cơ bản + trách nhiệm, nên phải réo tên trước khi chốt kỳ, không thì tháng sau
+    # vẫn không ai khai. Chỉ NÓI, không chặn.
+    thieu_muc_bh = [l for l in lines if getattr(l, "chua_khai_muc_bh", False)
+                    and float(getattr(l, "insurance_base", 0) or 0) > 0]
+    if (not khong and not no and not khoan_trong and not bu_lo_khong_khoan and not tai_xe_khong_km
+            and not thieu_muc_bh):
         return None
     ten = lambda xs: ", ".join((x.employee_name or f"NV #{x.employee_id}") for x in xs[:3]) + (
         f" và {len(xs) - 3} người nữa" if len(xs) > 3 else "")
@@ -801,6 +888,22 @@ def _canh_bao_chot(lines: list[LineOut]) -> str | None:
         parts.append(f"{len(khong)} người thực lĩnh 0đ vì trừ tạm ứng/nợ kỳ trước ({ten(khong)})")
     if no:
         parts.append(f"{len(no)} người còn nợ tạm ứng chuyển sang kỳ sau ({ten(no)})")
+    if khoan_trong:
+        parts.append(f"{len(khoan_trong)} người ăn khoán có giờ tăng ca nhưng tiền khoán kỳ này = 0 "
+                     f"({ten(khoan_trong)}) — giờ tăng ca của họ không có tiền (tính vào sản lượng), "
+                     "kiểm lại phân bổ sản xuất / chuyến giao")
+    if bu_lo_khong_khoan:
+        parts.append(f"{len(bu_lo_khong_khoan)} người tổ khoán có công nhưng tiền khoán kỳ này = 0 "
+                     f"({ten(bu_lo_khong_khoan)}) — đang trả bù lỗ theo công, kiểm lại phân bổ sản "
+                     "xuất đã chốt chưa")
+    if thieu_muc_bh:
+        parts.append(f"{len(thieu_muc_bh)} người chưa khai Mức đóng BHXH ở hồ sơ lương "
+                     f"({ten(thieu_muc_bh)}) — đang tạm đóng theo lương cơ bản + trách nhiệm, khai lại "
+                     "ở Lương → Lương nhân viên → Sửa lương")
+    if tai_xe_khong_km:
+        parts.append(f"{len(tai_xe_khong_km)} tài xế / phụ xe có công nhưng tiền km kỳ này = 0 "
+                     f"({ten(tai_xe_khong_km)}) — đang trả bù lỗ theo công, kiểm lại chuyến giao đã "
+                     "ghi kết quả chưa")
     return "Lưu ý trước khi chốt: " + "; ".join(parts) + "."
 
 
@@ -851,11 +954,13 @@ def export_table_xlsx(svc: Service, employees: Employees, departments: Departmen
     # bằng 0 trong khi cột "Tổng" đã gồm tiền thưởng — kế toán đối chiếu là lệch.
     lines = _lines_out(data["lines"], employees, departments, svc)
     params = svc.get_params()
-    # Chức vụ · ngày vào làm · người phụ thuộc: bảng lương KHÔNG giữ, mà bảng của kế toán có.
+    # Chức vụ · ngày vào làm · người phụ thuộc · mức lương tháng tách cơ bản / trách nhiệm / từng khoản phụ
+    # cấp: bảng lương KHÔNG giữ, mà bảng của kế toán có (khuôn `BL CT`, chủ chốt 17/09/2026).
     emp_map = employees.map_by_ids({ln.employee_id for ln in lines})
+    muc_thang = svc.muc_luong_thang_cho_file(year, month, emp_map.keys())
     nhan_vien = {
         eid: {"chuc_vu": getattr(e, "position", None), "ngay_vao_lam": getattr(e, "hire_date", None),
-              "nguoi_phu_thuoc": getattr(e, "dependents_count", 0)}
+              "nguoi_phu_thuoc": getattr(e, "dependents_count", 0), **muc_thang.get(eid, {})}
         for eid, e in emp_map.items()
     }
     # Phiếu ứng ĐÃ CHI của kỳ — sheet "Tạm ứng" xếp theo NGÀY CHI như bảng của kế toán. Lọc theo
@@ -870,6 +975,7 @@ def export_table_xlsx(svc: Service, employees: Employees, departments: Departmen
         # ba cột luôn cộng đúng tổng đã đóng băng.
         bh_tach=lambda ln: tuple(float(x.amount) for x in _insurance_lines(ln, params)),
         tam_ung=tam_ung,
+        ty_le_thu_viec=float(params.probation_ratio or 1),
     )
     return _xlsx_response(noi_dung, f"bang-luong-{year}-{month:02d}.xlsx")
 
@@ -913,52 +1019,6 @@ def my_payslip(svc: Service, employees: Employees, departments: Departments, use
                       period=period, line=line,
                       ky_xem_duoc=res.get("ky_xem_duoc") or [],
                       cho_phat=res.get("cho_phat"))
-
-
-# --- Lương khoán (nhịp 2) ---------------------------------------------------
-#
-# ⚠️ BẢNG ĐƠN GIÁ KHOÁN KHÔNG CÒN Ở ĐÂY. Năm route `/khoan/rates` (list · tạo · sửa · xoá) và
-# `/khoan/units` đã gỡ ngày 17/08/2026: `piece_rates` thành màn "Công việc khoán" của Cấu hình danh
-# mục, đi qua `routers/cong_viec_khoan.py` (`/api/cong-viec-khoan`).
-#
-# Vì sao gỡ chứ không để song song: hai đường ghi vào cùng một bảng thì đường không đi qua
-# `CongViecKhoanService` không ghi nhật ký, và tab Nhật ký của màn thiếu dòng mà chẳng ai biết vì
-# sao. Panel "Đơn giá khoán của tổ" trong Cấu hình lương vẫn khai ngay tại chỗ — nó gọi API mới,
-# lọc theo `?to=<tên tổ>`, và đọc được nhờ OR-gate `luong` ở router kia.
-#
-# Còn lại ở đây: THƯỞNG/PHẠT tổ trưởng theo tỷ lệ hàng lỗi (bảng khác, chuyện khác).
-
-
-@router.get("/khoan/leader-brackets", response_model=LeaderBracketsOut)
-def list_leader_brackets(svc: PieceService,
-                         user: Annotated[User, Depends(require_permission(MODULE, "manage_piece_rates"))],
-                         department_id: int) -> LeaderBracketsOut:
-    """Bậc thưởng/phạt TỔ TRƯỞNG theo KHOẢNG SẢN LƯỢNG × tỷ lệ hàng lỗi — mỗi tổ một bộ riêng.
-
-    ⚠️ Engine CHƯA gọi bảng này: `leader_bonus_amount` tính đúng nhưng phần nối vào bảng lương lúc
-    lệnh sản xuất kết thúc làm sau. Xem docstring `PieceLeaderBonusBracket`."""
-    return LeaderBracketsOut(
-        department_id=department_id,
-        items=[LeaderBracketOut.model_validate(b) for b in svc.leader_brackets(department_id)],
-    )
-
-
-@router.put("/khoan/leader-brackets", response_model=LeaderBracketsOut)
-def set_leader_brackets(body: LeaderBracketsIn, svc: PieceService,
-                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]
-                        ) -> LeaderBracketsOut:
-    """Thay CẢ BỘ bậc của một tổ. `items` rỗng = tổ này không áp thưởng/phạt tổ trưởng."""
-    try:
-        rows = svc.set_leader_brackets(
-            department_id=body.department_id,
-            rows=[i.model_dump() for i in body.items],
-        )
-    except PieceWorkError as exc:
-        _raise(exc)
-    return LeaderBracketsOut(
-        department_id=body.department_id,
-        items=[LeaderBracketOut.model_validate(b) for b in rows],
-    )
 
 
 # --- Danh mục khoản thu nhập (chủ 2026-07-27) --------------------------------

@@ -91,23 +91,16 @@ class _SoPhatHanh:
         return self._quy_cach_lsx(lsx_id) if lsx_id else {}
 
     def khoan_json(self, cd, *, lsx_id: int | None = None, bai_ghep_id: int | None = None):
-        """`khoan_json` đem ghim vào công việc = ảnh chụp của bước, GẮN THÊM `don_gia_hd` nếu có.
+        """`khoan_json` đem ghim vào công việc = ĐÚNG ảnh chụp của bước, không gắn thêm gì.
 
-        Chỉ những bước có ô tiền công RA THẲNG TIỀN (gọi chip `don_gia_khoan`) mới có khoá mới:
-        công thức của chúng ra tổng tiền của bước, mà tầng trả lương thì nhân `đơn giá × phần sản
-        lượng của từng người`, nên phải quy về một đơn giá trên đơn vị TRƯỚC khi đóng băng vào
-        công việc. Xem `LsxService.don_gia_hieu_dung`.
+        Trước 11/09/2026 chỗ này gắn thêm `don_gia_hd` (đơn giá hiệu dụng gộp từ công thức tiền
+        công) cho tầng trả lương. Đã bỏ cùng cả cơ chế tiền khoán ở sản xuất: sản xuất ghi số
+        lượng, kế toán lương định giá. Hai tham số nguồn (`lsx_id`/`bai_ghep_id`) giữ trong chữ ký
+        vì hai chỗ gọi đang truyền, và vì bộ biến quy cách vẫn cần cho các ô GIỜ.
 
-        Khoá mới nằm CẠNH `don_gia` chứ không đè lên: `don_gia` vẫn là đơn giá gốc của đầu việc để
-        đọc lại ảnh chụp và đối chiếu nhật ký, `don_gia_hd` mới là số tầng lương nhân. Đè lên thì
-        không còn cách nào biết bước này ăn công thức hay ăn đơn giá thẳng.
+        Xem `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
         """
-        kh = getattr(cd, "khoan_json", None)
-        if not kh:
-            return kh
-        qc = self.quy_cach(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
-        dg = self._lsx_svc().don_gia_hieu_dung(cd, qc)
-        return kh if dg is None else {**kh, "don_gia_hd": round(dg, 4)}
+        return getattr(cd, "khoan_json", None)
 
     def _cong_doan(self, cd):
         """Dòng DANH MỤC đứng sau bước. `db.get` đi qua identity map nên gọi lặp không sinh query."""
@@ -348,19 +341,11 @@ def _ten_phan_doan(ten: str | None, phan_doan_so: int, phan_doan_tong: int) -> s
 
 
 def _checklist(cd, tieu_chi_theo_cd: dict[int, list]) -> list[dict] | None:
-    """Checklist KCS của bước — lấy từ danh mục theo `cong_doan_id`, KHÔNG gate theo `la_kcs`.
+    """Checklist KCS của bước — lấy từ danh mục theo `cong_doan_id`. KCS kiểm được MỌI công đoạn
+    (KCS theo lệnh, mg 0306); checklist chỉ là các tiêu chí gợi ý khi kiểm công đoạn đó.
 
-    08/09/2026 (`docs/design-kcs-theo-cong-doan.md`): KCS đổi sang ba tầng Giai đoạn → Công đoạn →
-    Checklist, nên MỌI công đoạn có tiêu chí gắn vào đều là một điểm kiểm — không riêng bước cuối
-    routing. Gate cũ (`if not la_kcs: return None`) làm bàn KCS chỉ thấy đúng một bước cuối, đúng
-    thứ tờ ISO của xưởng KHÔNG làm: tờ đó kiểm ở cả khâu in lẫn từng công đoạn sau in.
-
-    `la_kcs` vẫn sống nhưng nói việc KHÁC — "thẻ việc này thuộc về tổ KCS" (và `la_kcs_cuoi` mở cửa
-    nhập kho thành phẩm). Đừng gộp hai khái niệm: bật `la_kcs` cho mọi công đoạn có checklist là ném
-    toàn bộ việc sản xuất lên bàn KCS.
-
-    TRẢ None (không phải `[]`) khi công đoạn không có tiêu chí nào: cột NULL chính là bộ lọc "thẻ
-    việc này có phải điểm kiểm không" mà bàn KCS truy vấn. Ghi `[]` là đẻ ra điểm kiểm rỗng.
+    TRẢ None (không phải `[]`) khi công đoạn không có tiêu chí nào — "không có tiêu chí" khác
+    "tiêu chí rỗng".
 
     Nguồn DUY NHẤT là danh mục — ô "Tiêu chí KCS bổ sung" của bước lệnh đã gỡ ở mg `0283`.
     """
@@ -396,7 +381,6 @@ def _cong_viec_theo_phan_doan(
     lich: list[tuple],
     cd,
     tieu_chi_theo_cd: dict[int, list],
-    la_kcs: bool,
     chung: dict,
     khoan_json: dict | None,
     hanh_ly: dict,
@@ -410,9 +394,6 @@ def _cong_viec_theo_phan_doan(
     Bước CHƯA vào kế hoạch (không dòng lịch nào) vẫn phải ra đúng một công việc — trước đây
     `thoi_gian_*_step` trả `(None, None, None)` và snapshot vẫn ghi; giữ nguyên hành vi đó bằng
     một phần tử giả, không thì lệnh phát hành khi chưa xếp giờ sẽ RỖNG bàn tổ.
-
-    `la_kcs` tính MỘT LẦN cho cả bước rồi áp cho mọi phân đoạn: KCS là tính chất của BƯỚC (vị trí
-    trong routing + tổ), không phải của lần chạy.
     """
     if not lich:
         # Lệnh xếp ở Xếp lịch 3 KHÔNG có dòng `xep_lich_cong_doan` — mốc từng bước là số dẫn xuất
@@ -436,7 +417,7 @@ def _cong_viec_theo_phan_doan(
             phan_doan_so=phan_doan_so, phan_doan_tong=tong,
             ten_cong_doan=_ten_phan_doan(cd.ten, phan_doan_so, tong),
             nhom_cong_doan=cd.nhom, loai_buoc=cd.loai_buoc or BUOC_MAY,
-            department_id=cd.department_id, la_kcs=la_kcs,
+            department_id=cd.department_id,
             may_id=may_id or cd.may_id,
             du_kien_bat_dau=start, du_kien_ket_thuc=finish,
             so_luong_vao=sl_vao, so_luong_ra=sl_ra,
@@ -489,15 +470,7 @@ def dung_cong_viec(
     so = _SoPhatHanh(repo.db)
     tram = ban_do_tram(repo.db)
 
-    # KCS kiêm nhiệm — suy TỰ ĐỘNG (không còn khai tay ở danh mục Công đoạn): một bước là KCS khi
-    # nó là bước CUỐI CÙNG trong routing của một LSX VÀ tổ thực hiện có `Department.is_kcs=true`
-    # (xem docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md). Nạp trước "bước cuối
-    # của mỗi LSX" một lần để tra O(1) ở cả hai nhánh dưới (LSX riêng + bước dùng chung bài ghép).
-    kcs_dept_ids = repo.kcs_department_ids()
     steps_by_lsx = {lsx_id: repo.routing_steps(lsx_id) for lsx_id in lsx_ids}
-    buoc_cuoi_key_by_lsx = {
-        lid: steps[-1].step_key for lid, steps in steps_by_lsx.items() if steps
-    }
 
     # (1) Bước dùng chung của bài ghép — MỘT công việc mỗi bước, phủ nhiều bước LSX.
     covered_step_keys: set[str] = set()
@@ -514,14 +487,9 @@ def dung_cong_viec(
                 if lid in nhom_by_lsx
             }
             nhom_id = next(iter(nhom_ids)) if len(nhom_ids) == 1 else None
-            # KCS: bước chung này có phải bước cuối của ÍT NHẤT MỘT LSX nó phủ, VÀ tổ thực hiện
-            # (của chính lượt chạy chung — gán lúc lập kế hoạch gộp) có `is_kcs=true`.
-            la_kcs = cd.department_id in kcs_dept_ids and any(
-                buoc_cuoi_key_by_lsx.get(lid) in covered for lid in covered_lsx_ids
-            )
             cvs = _cong_viec_theo_phan_doan(
                 repo, lich=repo.lich_bg_step(cd.id), cd=cd,
-                tieu_chi_theo_cd=tieu_chi_theo_cd, la_kcs=la_kcs,
+                tieu_chi_theo_cd=tieu_chi_theo_cd,
                 khoan_json=so.khoan_json(cd, bai_ghep_id=bg_id),
                 hanh_ly=_hanh_ly(so, cd, lsx_id=None, bai_ghep_id=bg_id, tram=tram),
                 chung=dict(
@@ -537,14 +505,12 @@ def dung_cong_viec(
     # (2) Bước RIÊNG của từng LSX — bỏ bước đã bị bài ghép phủ.
     for lsx_id in sorted(lsx_ids):
         grp = nhom_by_lsx.get(lsx_id)
-        buoc_cuoi_key = buoc_cuoi_key_by_lsx.get(lsx_id)
         for cd in steps_by_lsx.get(lsx_id) or []:
             if cd.step_key in covered_step_keys:
                 continue
-            la_kcs = cd.step_key == buoc_cuoi_key and cd.department_id in kcs_dept_ids
             cv_by_step[cd.step_key] = _cong_viec_theo_phan_doan(
                 repo, lich=repo.lich_lsx_step(cd.id), cd=cd,
-                tieu_chi_theo_cd=tieu_chi_theo_cd, la_kcs=la_kcs,
+                tieu_chi_theo_cd=tieu_chi_theo_cd,
                 khoan_json=so.khoan_json(cd, lsx_id=lsx_id),
                 hanh_ly=_hanh_ly(so, cd, lsx_id=lsx_id, bai_ghep_id=None, tram=tram),
                 chung=dict(
@@ -557,6 +523,37 @@ def dung_cong_viec(
     return cv_by_step
 
 
+def cong_doan_cuoi_theo_nhom(
+    repo: SanXuatRepository,
+    *,
+    nhom_cua_lsx: dict[int, object],
+    dinh_danh,
+) -> dict[object, dict[object, set[int]]]:
+    """{khoá nhóm: {định danh công đoạn cuối: {lsx_id}}} — NGUỒN DUY NHẤT của luật "công đoạn cuối
+    của nhóm thành phẩm" (KCS theo lệnh, mg 0306), dùng chung cho snapshot lúc phát hành lẫn cửa
+    soi trước phát hành.
+
+    Luật: mỗi LSX thành viên lấy bước CUỐI routing (theo `thu_tu`, rồi id), bỏ bước còn chảy tiếp
+    sang lệnh khác (đầu `truoc` của một cạnh nối chéo — nó là bán thành phẩm, không ra thành
+    phẩm). Không xét tổ: công đoạn cuối do tổ nào làm cũng là chỗ ra thành phẩm. Các ứng viên cùng
+    `dinh_danh(lsx_id, bước)` gộp làm một — hai lệnh chạy chung bước cuối trên MỘT bài ghép là MỘT
+    công đoạn. `dinh_danh` trả None thì bỏ ứng viên.
+
+    `nhom_cua_lsx`: {lsx_id: khoá nhóm}, lệnh không có nhóm thì vắng mặt."""
+    lsx_ids = set(nhom_cua_lsx)
+    chay_tiep = {truoc.id for truoc, _sau in repo.cross_lsx_edges_chi_tiet(lsx_ids)}
+    ket: dict[object, dict[object, set[int]]] = {}
+    for lsx_id in sorted(lsx_ids):
+        steps = repo.routing_steps(lsx_id)
+        if not steps or steps[-1].id in chay_tiep:
+            continue
+        khoa = dinh_danh(lsx_id, steps[-1])
+        if khoa is None:
+            continue
+        ket.setdefault(nhom_cua_lsx[lsx_id], {}).setdefault(khoa, set()).add(lsx_id)
+    return ket
+
+
 def danh_dau_kcs_cuoi(
     repo: SanXuatRepository,
     *,
@@ -564,38 +561,34 @@ def danh_dau_kcs_cuoi(
     nhom_by_lsx: dict[int, SanXuatNhom],
     cv_by_step: dict[str, list[SanXuatCongViec]],
 ) -> dict[int, int]:
-    """Suy KCS-cuối của MỖI nhóm (spec §3.2/§4.4): bước KCS nằm ở CUỐI routing của một LSX thành
-    viên. Đúng một ứng viên/nhóm → đánh `la_kcs_cuoi` + chốt LSX thân chính. Không có / nhiều hơn
-    một → để engine kiểm-phát-hành báo (không tự đoán).
+    """Đánh `la_kcs_cuoi` cho công đoạn cuối của MỖI nhóm (luật ở `cong_doan_cuoi_theo_nhom`).
+    Đúng một công đoạn/nhóm → đánh cờ + chốt LSX thân chính. Nhiều hơn một → để cửa soi phát hành
+    báo (không tự đoán).
 
-    Bước KCS-cuối bị TÁCH lần chạy: đánh dấu MỌI phân đoạn, không riêng phân đoạn cuối. `la_kcs_cuoi`
-    là tính chất của BƯỚC, và ba chỗ đọc nó đều đọc theo TẬP: `kho.tao_yeu_cau_kho_mot_nut` chặn
-    thẳng công việc thiếu cờ (bỏ cờ ở lần chạy 1 ⇒ số ĐẠT của mẻ đầu không có đường vào kho), còn
-    `dong_nhom` cộng `so_luong_ra` + gom batch KCS trên đúng tập ấy (thiếu một phân đoạn ⇒ mục tiêu
-    nhóm tụt đúng phần của nó). "Nhóm chỉ đóng khi mẻ cuối xong" vẫn giữ, do điều kiện "mọi công
-    việc đã hoàn thành" của `dong_nhom._danh_gia` lo.
+    Công đoạn cuối bị TÁCH lần chạy: đánh dấu MỌI phân đoạn, không riêng phân đoạn cuối —
+    `la_kcs_cuoi` là tính chất của BƯỚC. Thiếu cờ ở lần chạy 1 ⇒ số đạt của lần đó không có đường
+    vào kho, và điều kiện "KCS đã kiểm hết công đoạn cuối" của đóng nhóm hụt đúng phần đó.
 
-    Trả map nhom_id → lsx_id thân chính (chỉ nhóm xác định được).
-    """
-    kcs_dept_ids = repo.kcs_department_ids()
-    ung_vien: dict[int, list[tuple[int, str]]] = {}  # nhom_id → [(lsx_id, step_key)]
-    for lsx_id in lsx_ids:
-        grp = nhom_by_lsx.get(lsx_id)
-        if grp is None:
-            continue
-        steps = repo.routing_steps(lsx_id)
-        if not steps:
-            continue
-        cuoi = steps[-1]  # đã sort theo thu_tu, id
-        if cuoi.department_id in kcs_dept_ids and cuoi.step_key in cv_by_step:
-            ung_vien.setdefault(grp.id, []).append((lsx_id, cuoi.step_key))
+    Trả map nhom_id → lsx_id thân chính (chỉ nhóm xác định được)."""
+    nhom_cua_lsx = {lid: g.id for lid in lsx_ids if (g := nhom_by_lsx.get(lid)) is not None}
+    buoc_cuoi: dict[int, str] = {}
+
+    def dinh_danh(lsx_id, buoc):
+        cvs = cv_by_step.get(buoc.step_key)
+        if not cvs:
+            return None
+        buoc_cuoi[lsx_id] = buoc.step_key
+        return cvs[0].id
 
     than_chinh: dict[int, int] = {}
-    for nhom_id, ds in ung_vien.items():
-        if len(ds) != 1:
+    for nhom_id, ung_vien in cong_doan_cuoi_theo_nhom(
+        repo, nhom_cua_lsx=nhom_cua_lsx, dinh_danh=dinh_danh
+    ).items():
+        if len(ung_vien) != 1:
             continue
-        lsx_id, step_key = ds[0]
-        for cv in cv_by_step[step_key]:
+        (cac_lsx,) = ung_vien.values()
+        lsx_id = min(cac_lsx)
+        for cv in cv_by_step[buoc_cuoi[lsx_id]]:
             cv.la_kcs_cuoi = True
         than_chinh[nhom_id] = lsx_id
     return than_chinh

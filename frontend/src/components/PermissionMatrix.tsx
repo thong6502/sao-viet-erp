@@ -7,7 +7,7 @@
 // tiết" → bấm BUNG INLINE ngay dưới hàng (không popover portal). Data contract KHÔNG đổi.
 import { useState } from "react";
 import type { ModuleDef, PermissionRow, Scope, RoleTemplate } from "../api/client";
-import { BAI_GHEP_ENABLED } from "../constants/features";
+import { BAI_GHEP_ENABLED, XEP_LICH_2_ENABLED } from "../constants/features";
 import { Icon } from "./Icons";
 import "./permission-matrix.css";
 
@@ -70,7 +70,11 @@ export type ActionKey =
   | "can_manage_piece_rates"
   | "can_manage_leave_types"
   | "can_plan"
-  | "can_view_drivers";
+  | "can_view_drivers"
+  // Dòng quyền theo tổ (mg 0302) — ba quyền chi tiết của Bàn tổ.
+  | "can_run_order"
+  | "can_confirm_output"
+  | "can_warehouse";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -120,22 +124,9 @@ const FINE_ACTIONS: Record<
       hint: 'Ghi / sửa / xóa phiếu thu tiền cọc của khách trên đơn (tiền mặt hoặc chuyển khoản, có đối chiếu). Tách riêng cho Kế toán bán hàng — Sale lập đơn nhưng KHÔNG tự ghi tiền cọc (chống "tự thu tự chốt").',
     },
   ],
+  // "Gán việc" · "Ghi sản lượng" · "Bàn giao / nhận" ĐÃ GỠ 14/09/2026: Bàn tổ thôi hỏi ô "Kế hoạch
+  // sản xuất", mọi thao tác tại tổ nay nằm ở nhóm "Tổ sản xuất" (một dòng một tổ, `FINE_TO` dưới).
   san_xuat: [
-    {
-      key: "can_assign_work",
-      label: "Gán việc (tổ trưởng)",
-      hint: "Tổ trưởng gán thợ vào công đoạn của lệnh đã phát. Vai có cờ này (hoặc phạm vi Cả phòng/Tất cả) thấy TOÀN BỘ lệnh của tổ + nút gán; thợ được gán mới hứng thông báo + xem lệnh của mình.",
-    },
-    {
-      key: "can_record_output",
-      label: "Ghi sản lượng",
-      hint: "Tổ trưởng ghi sản lượng ĐẠT/HỎNG cho công đoạn của tổ (cộng dồn nhiều đợt, ghi nhận — không chặn). Thợ chỉ xem.",
-    },
-    {
-      key: "can_handover",
-      label: "Bàn giao / nhận",
-      hint: "Tổ trưởng GIAO số sang tổ kế + XÁC NHẬN NHẬN (2 con dấu, lệch được để truy thất thoát). Không gate cứng chặn tổ nhận chạy.",
-    },
     {
       key: "can_export",
       label: "Xuất Excel báo cáo KCS",
@@ -239,7 +230,7 @@ const FINE_ACTIONS: Record<
       hint: "Cho nhập/sửa các trường lương, bảo hiểm, thuế trên hồ sơ nhân sự và lúc tạo hồ sơ mới. Quyền này luôn phải đi cùng quyền xem lương.",
     },
     { key: "can_manage_status", label: "Thao tác vòng đời (chính thức/nghỉ/đình chỉ)" },
-    { key: "can_transfer", label: "Điều chuyển & nâng bậc" },
+    { key: "can_transfer", label: "Điều chuyển & đổi chức danh" },
     { key: "can_approve", label: "Duyệt yêu cầu cập nhật" },
     { key: "can_export", label: "Xuất Excel danh sách" },
   ],
@@ -353,7 +344,7 @@ const FINE_ACTIONS: Record<
     {
       key: "can_view_salary",
       label: "Xem cấu hình lương",
-      hint: "Cho xem thang bậc, khung lương, KPI, phụ cấp, bảo hiểm và lịch sử lương nhân viên. Không cần cấp quyền này để nhân viên xem Phiếu lương của tôi.",
+      hint: "Cho xem cơ chế lương theo bộ phận, khoản thu nhập, bảo hiểm & thuế và lịch sử lương nhân viên. Không cần cấp quyền này để nhân viên xem Phiếu lương của tôi.",
     },
     { key: "can_approve", label: "Duyệt tạm ứng" },
     { key: "can_export", label: "Xuất bảng lương / file chuyển khoản" },
@@ -504,6 +495,9 @@ const MODULE_DA_NGUNG = new Set([
   // vì màn đã rút khỏi menu: để ô lại thì quản trị tick xong vẫn không ai thấy màn nào mở ra.
   // Dòng `role_permissions` đã cấp GIỮ NGUYÊN trong DB, bật cờ lại là ô hiện y như cũ.
   ...(BAI_GHEP_ENABLED ? [] : ["bai_ghep_2"]),
+  // `xep_lich_2` (Xếp lịch công đoạn) cùng lối: màn ĐANG ẨN theo `XEP_LICH_2_ENABLED`, ô quyền
+  // ẩn theo — quyền đã cấp giữ nguyên trong DB, API màn 2 vẫn đọc nó.
+  ...(XEP_LICH_2_ENABLED ? [] : ["xep_lich_2"]),
 ]);
 
 const MODULE_GROUPS: {
@@ -514,6 +508,8 @@ const MODULE_GROUPS: {
    *  Danh mục là nhóm duy nhất như vậy — `scope` của nó không service nào đọc, để dropdown ở đó
    *  chỉ khiến người cấp quyền tưởng mình vừa giới hạn được cái gì. Backend ép `all` khi lưu. */
   noScope?: boolean;
+  /** Nhóm KHÔNG có cột Thao tác (Tổ sản xuất — ba quyền chi tiết thay nó). */
+  noWrite?: boolean;
 }[] = [
   {
     key: "kinh_doanh",
@@ -618,6 +614,39 @@ const MODULE_GROUPS: {
   },
 ];
 
+// Nhóm "Tổ sản xuất" (mg 0302, chốt 14/09/2026): MỖI NÚT của khối sản xuất trong Phòng ban là một
+// dòng `to_sx_<id>`, máy chủ tự sinh / đổi tên / gỡ theo cây. Dòng không có cột Thao tác — ba quyền
+// chi tiết dưới đây thay nó, và cùng Xem đi theo Phạm vi của dòng. Không có ô "KCS" (gỡ mg 0306):
+// người KCS là thành viên phòng ban có cờ "Tổ KCS", kiểm được mọi tổ — không cấp theo từng tổ.
+const KHOA_TO_TIEN_TO = "to_sx_";
+const laDongTo = (moduleKey: string) => moduleKey.startsWith(KHOA_TO_TIEN_TO);
+
+const FINE_TO: { key: ActionKey; label: string; hint: string }[] = [
+  {
+    key: "can_run_order",
+    label: "Thực hiện lệnh",
+    hint: "Giao / rút người; bắt đầu, tạm dừng, đổi máy, kết thúc, báo sự cố; nhận / trả khuôn; ghi mẻ + lô đầu vào.",
+  },
+  {
+    key: "can_confirm_output",
+    label: "Xác nhận sản lượng",
+    hint: "Chia sản lượng (tính, chốt, mở lại, bù trừ, loại trừ chấm công); bàn giao / nhận; hỗ trợ chéo.",
+  },
+  {
+    key: "can_warehouse",
+    label: "Kho",
+    hint: "Đề nghị vật tư, xác nhận nhận vật tư, yêu cầu nhập kho thành phẩm.",
+  },
+];
+
+const HINT_PHAM_VI_TO =
+  "Tính từ VỊ TRÍ người được cấp, trong vùng của dòng (tổ đó + mọi đơn vị trực thuộc). " +
+  "Của tôi: chỉ phần của mình. Cả phòng: phòng mình đang thuộc + các đơn vị trực thuộc của nó. " +
+  "Tất cả: toàn bộ vùng của dòng, dù mình ở nấc nào. Áp cho cả Xem lẫn ba quyền chi tiết.";
+
+const fineCua = (moduleKey: string) =>
+  FINE_ACTIONS[moduleKey] ?? (laDongTo(moduleKey) ? FINE_TO : undefined);
+
 /** A fresh all-off matrix (scope "own") for every module — used when creating a new role. */
 export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
   return modules.map((m) => ({
@@ -662,13 +691,16 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_set_threshold: false,
     can_post: false,
     can_close_book: false,
+    can_run_order: false,
+    can_confirm_output: false,
+    can_warehouse: false,
   }));
 }
 
 /** Một module có "quyền" nào không (để đếm N/M ở đầu nhóm + quyết định nhóm nào mở sẵn). */
 function rowHasAny(row: PermissionRow): boolean {
   if (row.can_read || WRITE_ACTIONS.some((k) => row[k])) return true;
-  const fine = FINE_ACTIONS[row.module_key];
+  const fine = fineCua(row.module_key);
   return fine ? fine.some((a) => row[a.key]) : false;
 }
 
@@ -750,12 +782,13 @@ export function PermissionMatrix({
   onApplyTemplate,
 }: PermissionMatrixProps) {
   const moduleLabel = new Map(modules.map((m) => [m.key, m.label]));
+  const moduleDef = new Map(modules.map((m) => [m.key, m]));
   // Máy chủ khai những ô ĐÃ XÁC MINH là chết (`/api/rbac/modules` → `viec_chet`). Chỉ tắt + khoá
   // đúng mấy ô đó.
   //
   // ⚠️ ĐỪNG đảo lại thành "cái gì máy chủ không gác thì chết". Bản đầu (11/08/2026) làm vậy và
   // khoá nhầm hàng loạt ô đang dùng được — In/xuất phiếu chi · phiếu thu · Đặt trưởng phòng · Đổi
-  // cấp trên · Xem lương & BHXH · Sửa lương & BHXH · Thao tác vòng đời · Điều chuyển & nâng bậc.
+  // cấp trên · Xem lương & BHXH · Sửa lương & BHXH · Thao tác vòng đời · Điều chuyển & đổi chức danh.
   // Lý do: rất nhiều ô chỉ thi hành ở GIAO DIỆN (ẩn/hiện nút), máy chủ không hề biết.
   const viecChet = new Map(
     modules.filter((m) => m.viec_chet).map((m) => [m.key, new Set(m.viec_chet!)]),
@@ -772,20 +805,35 @@ export function PermissionMatrix({
 
   // Dựng danh sách nhóm hiển thị: nhóm đã map + nhóm "Khác" cho module chưa map.
   const mapped = new Set(MODULE_GROUPS.flatMap((g) => g.modules));
-  const orphans = matrixHienThi.map((r) => r.module_key).filter((k) => !mapped.has(k));
+  const orphans = matrixHienThi
+    .map((r) => r.module_key)
+    .filter((k) => !mapped.has(k) && !laDongTo(k));
+  // Dòng tổ theo ĐÚNG thứ tự cây máy chủ trả (`modules` đã xếp duyệt sâu) — thứ tự của ma trận đã
+  // lưu thì không có nghĩa gì với cây.
+  const dongTo = modules
+    .filter((m) => laDongTo(m.key))
+    .map((m) => byKey.get(m.key))
+    .filter((r): r is PermissionRow => !!r);
+  const iSanXuat = MODULE_GROUPS.findIndex((g) => g.key === "san_xuat");
+  const nhomTinh = MODULE_GROUPS.map((g) => ({
+    key: g.key,
+    label: g.label,
+    noScope: g.noScope === true,
+    noWrite: g.noWrite === true,
+    rows: g.modules.map((k) => byKey.get(k)).filter((r): r is PermissionRow => !!r),
+  }));
   const groups = [
-    ...MODULE_GROUPS.map((g) => ({
-      key: g.key,
-      label: g.label,
-      noScope: g.noScope === true,
-      rows: g.modules.map((k) => byKey.get(k)).filter((r): r is PermissionRow => !!r),
-    })),
+    ...nhomTinh.slice(0, iSanXuat + 1),
+    // Đứng ngay sau nhóm Sản xuất: người cấp quyền tìm Bàn tổ ở đúng khu Sản xuất.
+    { key: "to_san_xuat", label: "Tổ sản xuất", noScope: false, noWrite: true, rows: dongTo },
+    ...nhomTinh.slice(iSanXuat + 1),
     ...(orphans.length
       ? [
           {
             key: "khac",
             label: "Khác",
             noScope: false,
+            noWrite: false,
             rows: orphans.map((k) => byKey.get(k)!).filter(Boolean),
           },
         ]
@@ -853,28 +901,33 @@ export function PermissionMatrix({
 
             {open && (
               <div
-                className={`rdx-perm__rows${g.noScope ? " rdx-perm__rows--noscope" : ""}`}
+                className={`rdx-perm__rows${g.noScope ? " rdx-perm__rows--noscope" : ""}${g.noWrite ? " rdx-perm__rows--to" : ""}`}
                 role="group"
                 aria-label={g.label}
               >
                 <div className="rdx-perm__colhead" aria-hidden="true">
-                  <span className="rdx-perm__c-mod">Module</span>
+                  <span className="rdx-perm__c-mod">{g.noWrite ? "Đơn vị" : "Module"}</span>
                   <span className="rdx-perm__c-act">
                     Xem
                     <span className="rdx-perm__fine-hint" title={COL_HINTS.read}>
                       <Icon name="help" size={13} />
                     </span>
                   </span>
-                  <span className="rdx-perm__c-act">
-                    Thao tác
-                    <span className="rdx-perm__fine-hint" title={COL_HINTS.write}>
-                      <Icon name="help" size={13} />
+                  {!g.noWrite && (
+                    <span className="rdx-perm__c-act">
+                      Thao tác
+                      <span className="rdx-perm__fine-hint" title={COL_HINTS.write}>
+                        <Icon name="help" size={13} />
+                      </span>
                     </span>
-                  </span>
+                  )}
                   {!g.noScope && (
                     <span className="rdx-perm__c-scope">
                       Phạm vi
-                      <span className="rdx-perm__fine-hint" title={COL_HINTS.scope}>
+                      <span
+                        className="rdx-perm__fine-hint"
+                        title={g.noWrite ? HINT_PHAM_VI_TO : COL_HINTS.scope}
+                      >
                         <Icon name="help" size={13} />
                       </span>
                     </span>
@@ -896,7 +949,8 @@ export function PermissionMatrix({
                     oSong(row.module_key, k.replace("can_", "")),
                   );
                   const phamViChoPhep = PHAM_VI_CHO_PHEP[row.module_key];
-                  const fineActs = FINE_ACTIONS[row.module_key];
+                  const fineActs = fineCua(row.module_key);
+                  const def = moduleDef.get(row.module_key);
                   // Công tắc gộp (`keys`): bật = TẤT CẢ cột bật.
                   const fineOn = (a: { key: ActionKey; keys?: ActionKey[] }) =>
                     a.keys ? a.keys.every((k) => row[k]) : !!row[a.key];
@@ -904,9 +958,14 @@ export function PermissionMatrix({
                   const fineIsOpen = openFine.has(row.module_key);
                   return (
                     <div key={row.module_key} className="rdx-perm__row">
-                      <div className="rdx-perm__cell rdx-perm__cell--mod">
+                      <div
+                        className="rdx-perm__cell rdx-perm__cell--mod"
+                        // Dòng tổ thụt lề theo cấp trong cây khối sản xuất.
+                        style={def?.cap ? { paddingLeft: `${def.cap * 18}px` } : undefined}
+                      >
                         <span className="rdx-perm__mod">
                           {label}
+                          {def?.la_kcs && <span className="rdx-perm__tag">KCS</span>}
                           {MODULE_HINTS[row.module_key] && (
                             <span
                               className="rdx-perm__fine-hint"
@@ -955,6 +1014,7 @@ export function PermissionMatrix({
                           />
                         )}
                       </div>
+                      {!g.noWrite && (
                       <div className="rdx-perm__cell rdx-perm__cell--act">
                         <input
                           type="checkbox"
@@ -974,6 +1034,7 @@ export function PermissionMatrix({
                           }
                         />
                       </div>
+                      )}
                       {/* Nhóm `noScope` (Danh mục) KHÔNG dựng ô này. Trước 17/08/2026 chỉ tiêu đề
                           cột bị ẩn còn ô chọn vẫn render → lưới 3 cột đẩy nó rớt xuống dòng dưới,
                           nằm ngay dưới tên module. Người cấp quyền thấy một ô "Tất cả" tưởng chọn

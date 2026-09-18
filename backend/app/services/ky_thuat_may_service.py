@@ -53,7 +53,8 @@ from ..models.ky_thuat_may import (
 )
 from ..models.may_thiet_bi import MayThietBi
 from ..realtime import hub
-from ..repositories.ky_thuat_may_repo import KyThuatMayRepository
+from ..repositories.employee_repo import EmployeeRepository
+from ..repositories.ky_thuat_may_repo import SUA_DUOC_SUA_CHUA, KyThuatMayRepository
 
 NHAT_KY_LOAI_SUA_CHUA = "ky_thuat_sua_chua"
 NHAT_KY_LOAI_BAO_TRI = "ky_thuat_bao_tri"
@@ -67,6 +68,14 @@ MODULE_SUA_CHUA = "ky_thuat_may"
 # ("chưa khai Bắt đầu từ") thay vì im lặng bỏ gói đó ra khỏi lịch.
 BO_QUA_THIEU_CHU_KY = "thieu_chu_ky"
 BO_QUA_THIEU_NGAY_BAT_DAU = "thieu_ngay_bat_dau"
+# Gói khai trong JSON của máy mà KHÔNG có `id`. Không có id thì không neo được: `ky_thuat_bao_tri
+# .goi_id` để trống ⇒ không tra ra "kỳ trước làm ngày nào", và nguy nhất là cửa chống trùng của
+# ticker (`sinh_phieu_den_han`) vốn chỉ chạy khi `goi_id` khác rỗng — gói thiếu id là MỖI VÒNG QUÉT
+# lại đẻ thêm một phiếu, 10 phút một cái, không có gì dừng lại.
+# Form Máy và đường nhập Excel đều tự cấp id, và `MayThietBiService._chuan_hoa` cấp nốt cho dữ liệu
+# cũ ngay lần lưu lại đầu tiên. Đây là LƯỚI AN TOÀN cho hàng chưa kịp lưu lại: bỏ qua gói, nhưng nói
+# ra lý do thay vì im lặng biến nó khỏi lịch.
+BO_QUA_THIEU_MA_GOI = "thieu_ma_goi"
 
 # Nguồn của hạn — để màn hình nói rõ "tính từ đâu" thay vì phun ra một ngày không ai kiểm được.
 NGUON_PHIEU = "phieu"
@@ -95,6 +104,14 @@ class KyThuatMayDaXuLy(KyThuatMayError):
 
 class KyThuatMayValidationError(KyThuatMayError):
     pass
+
+
+class KyThuatMayTrungKy(KyThuatMayError):
+    """Tạo phiếu bảo trì cho một kỳ ĐÃ CÓ phiếu — 409, không phải 422.
+
+    Dữ liệu gửi lên hợp lệ, chỉ là kỳ đó xử lý rồi. Cùng hạng với `KyThuatMayDaXuLy`: người dùng
+    cần biết "đã có rồi, mở cái cũ ra" chứ không phải "bạn nhập sai".
+    """
 
 
 class KyThuatMayThieuAnh(KyThuatMayError):
@@ -289,10 +306,25 @@ class KyThuatMayService:
             )
 
     def tao_sua_chua(self, data: dict, *, actor_id: int | None = None) -> SuaChuaMay:
+        """Tổ kỹ thuật TỰ lập phiếu: người báo là CHÍNH tài khoản đang lập (14/09/2026).
+
+        Trước đây là ô chữ "nhập hộ người báo miệng" — gõ tên ai cũng được, sửa lại lúc nào cũng
+        được, nên phiếu không còn là vết ai-báo-lúc-nào. Thợ thấy máy hỏng thì tự bấm "Báo sự cố" ở
+        bàn tổ (hoặc "Báo máy hỏng"), tên đi theo tài khoản của họ qua đường yêu cầu.
+        `nguoi_bao_id` trỏ `employees.id` ⇒ lấy hồ sơ nối với tài khoản; chưa nối thì chỉ giữ tên.
+        """
+        nv = EmployeeRepository(self.db).get_by_user_id(actor_id) if actor_id else None
+        return self._tao_sua_chua(data, actor_id=actor_id,
+                                  nguoi_bao_id=nv.id if nv else None,
+                                  nguoi_bao_ten=self._ten_user(actor_id))
+
+    def _tao_sua_chua(self, data: dict, *, actor_id: int | None, nguoi_bao_id: int | None,
+                      nguoi_bao_ten: str | None) -> SuaChuaMay:
         self._validate_sua_chua(data)
         may = self._may(int(data["may_id"]))
         data = {**data, "muc_do": data.get("muc_do") or MUC_DO_TRUNG_BINH}
-        phieu = self.repo.create_sua_chua(data, ma=self.repo.next_ma_sua_chua())
+        phieu = self.repo.create_sua_chua(data, ma=self.repo.next_ma_sua_chua(),
+                                          nguoi_bao_id=nguoi_bao_id, nguoi_bao_ten=nguoi_bao_ten)
         self._ghi(NHAT_KY_LOAI_SUA_CHUA, phieu.id, "create",
                   f"{phieu.ma} · {may.ma} · {phieu.bo_phan_hong}", actor_id)
         return phieu
@@ -301,28 +333,11 @@ class KyThuatMayService:
         phieu = self.get_sua_chua(phieu_id)
         if phieu.trang_thai == TT_SC_DA_SUA_XONG:
             raise KyThuatMayValidationError("Phiếu đã đóng — không sửa được nữa.")
-        # NGƯỜI BÁO của phiếu sinh từ yêu cầu là SNAPSHOT tài khoản đã bấm gửi lời báo — chặn ở
-        # ĐÂY chứ không chỉ khoá ô trên màn (20/08/2026): khoá mỗi FE thì gọi thẳng API vẫn ghi đè
-        # được, mà ghi đè xong là hết đường lần ra ai đã báo máy hỏng — đúng người duy nhất trả
-        # lời được "hỏng thế nào" khi phiếu thiếu chi tiết. Chỉ chặn khi THẬT SỰ đổi giá trị: bản
-        # FE cũ gửi kèm đúng tên đang có thì cho qua, khỏi chặn oan một cú lưu hợp lệ.
-        doi_nguoi_bao = (
-            ("nguoi_bao_ten" in data and (data["nguoi_bao_ten"] or None) != phieu.nguoi_bao_ten)
-            or ("nguoi_bao_id" in data and data["nguoi_bao_id"] != phieu.nguoi_bao_id)
-        )
-        if doi_nguoi_bao:
-            nguon = self.repo.yeu_cau_map([phieu.id]).get(phieu.id)
-            if nguon:
-                raise KyThuatMayValidationError(
-                    f"Người báo lấy từ {nguon['ma']} — không đổi trên phiếu được."
-                )
-        if "may_id" in data or "bo_phan_hong" in data:
-            self._validate_sua_chua({**{"may_id": phieu.may_id,
-                                        "bo_phan_hong": phieu.bo_phan_hong}, **data})
-        # Đổi sang máy KHÔNG CÓ THẬT thì trước đây lọt: `_validate_sua_chua` chỉ xem ô có trống
-        # không. Phiếu neo vào id máy đã xoá là cột Máy trống trơn và không ai lần ra được máy nào.
-        if data.get("may_id") and int(data["may_id"]) != phieu.may_id:
-            self._may(int(data["may_id"]))
+        # NGƯỜI BÁO không sửa được ở BẤT KỲ phiếu nào (14/09/2026) — `ASSIGNABLE_SUA_CHUA` không có
+        # hai khoá người báo nên `update_sua_chua` bỏ qua dù client/người gọi có gửi lên.
+        # MÁY cũng không đổi được (`SUA_DUOC_SUA_CHUA` bỏ `may_id`) — kiểm bộ phận hỏng trên máy CŨ.
+        if "bo_phan_hong" in data:
+            self._validate_sua_chua({"may_id": phieu.may_id, "bo_phan_hong": data["bo_phan_hong"]})
         phieu = self.repo.update_sua_chua(phieu, data)
         self._ghi(NHAT_KY_LOAI_SUA_CHUA, phieu.id, "update", f"{phieu.ma} · sửa nội dung", actor_id)
         return phieu
@@ -529,15 +544,18 @@ class KyThuatMayService:
             "bo_phan_hong": yc.bo_phan_hong,
             "mo_ta": yc.mo_ta,
             "muc_do": yc.muc_do,
-            # CHỈ chép TÊN người báo, KHÔNG chép id: `SuaChuaMay.nguoi_bao_id` trỏ `employees.id`
-            # còn `YeuCauSuaChua.nguoi_bao_id` trỏ `users.id`. Chép id sang là gán phiếu cho một
-            # nhân sự khác tình cờ mang cùng con số.
-            "nguoi_bao_ten": yc.nguoi_bao_ten,
         }
+        # MÁY lấy từ yêu cầu, không đè được: vòng lặp trước đây nhận MỌI khoá ⇒ gọi service kèm
+        # `may_id` là phiếu sang máy khác với máy người ta báo (HTTP lọt không nổi chỉ nhờ
+        # `TaoPhieuTuYeuCauIn` không khai field đó).
         for k, v in (data or {}).items():
-            if v not in (None, ""):
+            if k in SUA_DUOC_SUA_CHUA and v not in (None, ""):
                 goc[k] = v
-        phieu = self.tao_sua_chua(goc, actor_id=actor_id)
+        # Người báo là người GỬI yêu cầu, không phải tổ sửa chữa đang tiếp nhận. CHỈ chép TÊN,
+        # KHÔNG chép id: `SuaChuaMay.nguoi_bao_id` trỏ `employees.id` còn `YeuCauSuaChua.nguoi_bao_id`
+        # trỏ `users.id`. Chép id sang là gán phiếu cho một nhân sự khác tình cờ mang cùng con số.
+        phieu = self._tao_sua_chua(goc, actor_id=actor_id,
+                                   nguoi_bao_id=None, nguoi_bao_ten=yc.nguoi_bao_ten)
 
         so_anh = self.repo.chuyen_anh_sang_phieu(yc.id, phieu.id)
         yc.trang_thai = TT_YC_DA_TAO_PHIEU
@@ -626,6 +644,20 @@ class KyThuatMayService:
         # Lập tay theo một gói có sẵn ⇒ chép luôn chu kỳ + việc con của gói đó, khỏi gõ lại.
         goi_id = (data.get("goi_id") or "").strip() or None
         if goi_id:
+            # MỘT KỲ = MỘT PHIẾU. Ticker đã tự chặn trùng từ đầu, nhưng đường BẤM TAY (ô "kỳ dự
+            # kiến" trên lịch) thì chưa — và nó còn tự mời bấm lại: chuỗi kỳ dự kiến neo theo phiếu
+            # mở SỚM NHẤT, nên tạo phiếu cho 18/09 xong lịch VẪN vẽ chấm dự kiến ở 18/09, bấm nữa là
+            # ra phiếu thứ hai, thứ ba (đã dính thật: PBT-0002/0003/0004 cùng gói cùng ngày).
+            # `lich()` nay thôi vẽ chấm ở ngày đã có phiếu — nhưng cửa phải nằm ở ĐÂY: bấm đúp, hai
+            # người cùng bấm, hay gọi thẳng API đều không đi qua màn hình.
+            # Chỉ áp cho phiếu THEO GÓI: phiếu đột xuất (`goi_id` trống) không thuộc kỳ nào, một máy
+            # hỏng hai việc trong cùng ngày là chuyện thường.
+            trung = self.repo.phieu_cua_ky(may.id, goi_id, ngay)
+            if trung is not None:
+                raise KyThuatMayTrungKy(
+                    f"Kỳ {ngay:%d/%m/%Y} của gói này đã có phiếu {trung.ma} "
+                    f"({trung.trang_thai}) — mở phiếu đó ra thay vì tạo thêm."
+                )
             goi = next((g for g in goi_bao_tri_cua(may) if g.get("id") == goi_id), None)
             if goi is not None:
                 payload.setdefault("goi_ten", (goi.get("viec") or "").strip() or None)
@@ -814,19 +846,28 @@ class KyThuatMayService:
     def han_ke_tiep(self, may_id: int, goi: dict, *, moc: Any = _CHUA_NAP) -> tuple[date | None, str]:
         """(hạn, nguồn). `hạn = None` ⇒ KHÔNG tính được, và lý do nằm ở `nguồn`:
 
+          · `thieu_ma_goi`      — gói trong JSON của máy không có `id`, nên phiếu không neo vào đâu
+            được. Mở máy ra bấm Lưu một lần là hệ tự cấp id (`MayThietBiService._chuan_hoa`);
           · `thieu_chu_ky`      — gói khai tên nhưng bỏ trống "Mỗi … tháng";
           · `thieu_ngay_bat_dau` — có chu kỳ nhưng chưa từng làm lần nào VÀ chưa khai "Bắt đầu từ",
             nên không có gốc để cộng chu kỳ. KHÔNG đoán là hôm nay (xem ghi chú ở đầu file).
 
+        Trả `None` ở đây là CHẶN luôn cả ba đường đọc lịch: ticker không sinh phiếu, màn Lịch không
+        vẽ kỳ dự kiến, tab Lịch bảo trì không hiện "Kỳ tới" — một chốt, không phải ba.
+
         `moc` = ngày hoàn thành gần nhất của gói. Người gọi duyệt NHIỀU gói (lịch, ticker) truyền
         sẵn từ `repo.moc_hoan_thanh_map()` để khỏi hỏi DB từng gói; bỏ trống thì hàm tự hỏi.
         """
+        # Kiểm ID TRƯỚC chu kỳ: thiếu chu kỳ là người khai làm dở dang (khai tiếp là xong), còn
+        # thiếu id là dữ liệu hỏng — nói đúng cái đang hỏng thì người ta mới sửa đúng chỗ.
+        goi_id = str(goi.get("id") or "").strip()
+        if not goi_id:
+            return None, BO_QUA_THIEU_MA_GOI
         so = _f(goi.get("so"))
         if so <= 0:
             return None, BO_QUA_THIEU_CHU_KY
-        goi_id = (goi.get("id") or "").strip()
         if moc is _CHUA_NAP:
-            moc = self.repo.ngay_hoan_thanh_gan_nhat(may_id, goi_id) if goi_id else None
+            moc = self.repo.ngay_hoan_thanh_gan_nhat(may_id, goi_id)
         if moc is not None:
             return cong_chu_ky(moc, so, goi.get("don_vi")), NGUON_PHIEU
         bat_dau = _parse_date(goi.get("ngay_bat_dau"))
@@ -912,6 +953,13 @@ class KyThuatMayService:
         huy_map = self.repo.moc_huy_map()
         mo_map = self.repo.phieu_dang_mo_map()
 
+        # Ngày nào ĐÃ CÓ phiếu thật của gói đó thì thôi vẽ chấm dự kiến đè lên. Không có chốt này
+        # thì chấm dự kiến nằm ngay cạnh phiếu vừa tạo — đúng một lời mời bấm thêm lần nữa, và mỗi
+        # lần bấm là một phiếu trùng (xem `tao_bao_tri`). Lấy CẢ phiếu đã hoàn thành / đã hủy, cùng
+        # định nghĩa "kỳ này xử lý rồi" với `repo.phieu_cua_ky` — hai nơi lệch nhau thì màn hình lại
+        # mời làm đúng cái việc mà server sắp chặn.
+        da_co_phieu = {(p.may_id, p.goi_id, p.ngay_ke_hoach) for p in phieu if p.goi_id}
+
         du_kien: list[dict] = []
         for may in self._may_co_lich():
             for goi in goi_bao_tri_cua(may):
@@ -932,7 +980,7 @@ class KyThuatMayService:
                 for _ in range(60):
                     if moc > den:
                         break
-                    if moc >= tu:
+                    if moc >= tu and (may.id, goi_id, moc) not in da_co_phieu:
                         du_kien.append({
                             "may_id": may.id, "may_ma": may.ma, "may_ten": may.ten,
                             "may_loai": may.loai_may,

@@ -146,7 +146,7 @@ div.mine__stat { cursor: default; }
 
 .mine__stat-val {
   display: inline-flex; align-items: baseline; gap: 4px;
-  font-family: var(--ff-num); font-variant-numeric: tabular-nums;
+  font-family: var(--ff-sans); font-variant-numeric: tabular-nums;
   font-size: 21px; font-weight: var(--fw-bold); line-height: 1.2; color: var(--ink); white-space: nowrap;
 }
 .mine__stat-val--money { font-size: 16.5px; }
@@ -187,7 +187,7 @@ div.mine__stat { cursor: default; }
 .mine__nudge-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .mine__nudge-title { font-weight: var(--fw-bold); font-size: 14px; color: var(--ink); }
 .mine__nudge-badge {
-  font-family: var(--ff-num); font-variant-numeric: tabular-nums;
+  font-family: var(--ff-sans); font-variant-numeric: tabular-nums;
   font-size: 11px; font-weight: var(--fw-bold); padding: 1px 8px; border-radius: var(--r-pill);
   background: var(--rust-soft); color: var(--rust-deep);
 }
@@ -265,7 +265,7 @@ div.mine__stat { cursor: default; }
 
 .mine__reqcol-date {
   width: 104px; white-space: nowrap;
-  font-family: var(--ff-num); font-variant-numeric: tabular-nums; color: var(--ash);
+  font-family: var(--ff-sans); font-variant-numeric: tabular-nums; color: var(--ash);
 }
 .mine__reqcol-st { width: 152px; }
 .mine__reqcol-who { width: 164px; }
@@ -544,7 +544,7 @@ div.mine__stat { cursor: default; }
 }
 
 .mine__input-num {
-  font-family: var(--ff-num) !important;
+  font-family: var(--ff-sans) !important;
   font-variant-numeric: tabular-nums !important;
 }
 .mine__input-num::placeholder,

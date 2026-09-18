@@ -7,7 +7,6 @@ import {
   type PayrollComponent,
 } from "../../../api/client";
 import { Button } from "../../../components/Button";
-import { useCan } from "../../../auth/permissions";
 import { fmtDate, money } from "../../../utils/format";
 import { Trash2 } from "lucide-react";
 import { DOC_KIND_LABEL } from "./shared/constants";
@@ -15,11 +14,9 @@ import {
   errMsg,
   formatFileSize,
   getFileTypeInfo,
-  isProduction,
   seniorityLabel,
 } from "./shared/helpers";
-import { useJobGrades } from "./hooks/useJobGrades";
-import { Field, FilePicker, JobGradeField } from "./components/form-fields";
+import { Field, FilePicker } from "./components/form-fields";
 
 // --- Wizard thêm nhân viên (5 bước) ----------------------------------------
 
@@ -46,9 +43,6 @@ export function EmployeeWizard({
     "Đính kèm",
     "Tài khoản",
   ];
-  const can = useCan();
-  const canCreateGrade = can("nhan_su", "create");
-  const jg = useJobGrades(token);
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<EmployeeInput>({
     full_name: "",
@@ -70,6 +64,9 @@ export function EmployeeWizard({
   // 20/07 "chỉ lương cơ bản"). Các khoản phụ cấp là số cố định khai riêng từng nhân viên.
   const [luongViTri, setLuongViTri] = useState(0);
   const [luongTrachNhiem, setLuongTrachNhiem] = useState(0);
+  // MỨC ĐÓNG BHXH khai riêng từng người (chủ chốt 16/09/2026) — BẮT BUỘC, không suy từ mức nền nữa.
+  // `null` = chưa gõ ⇒ ô gợi ý theo mức nền, chặn Lưu cho tới khi HCNS xác nhận số.
+  const [mucDongBh, setMucDongBh] = useState<number | null>(null);
   // "Lương trả 1 lần" (đợt 1): mức trả trong MỘT lần — số điền sẵn khi lập phiếu đợt 1 ở màn Lương.
   const [luongDot1, setLuongDot1] = useState(0);
   // % hoa hồng NV kinh doanh — nhập theo PHẦN TRĂM ở UI, gửi lên là PHÂN SỐ. Chỉ để KHAI:
@@ -79,11 +76,13 @@ export function EmployeeWizard({
   // Không đọc được (thiếu quyền `luong`) thì nói chung chung, không bịa số.
   const [probationRatio, setProbationRatio] = useState<number | null>(null);
   useEffect(() => {
+    // Câu gợi ý này chỉ nằm trong bước Lương — không có quyền khai lương thì khỏi hỏi (vốn cũng 403).
+    if (!canSalary) return;
     api.luong
       .getParams(token)
       .then((p) => setProbationRatio(p.probation_ratio))
       .catch(() => setProbationRatio(null));
-  }, [token]);
+  }, [token, canSalary]);
   // Khoản thu nhập chọn từ DANH MỤC (Tầng 1 → Tầng 2). Giữ ở state cục bộ tới lúc tạo xong hồ
   // sơ mới gán được — API gán khoản cần `employee_id` mà lúc này chưa có.
   const [comps, setComps] = useState<PayrollComponent[] | null>(null);
@@ -115,8 +114,6 @@ export function EmployeeWizard({
   const salaryBase = luongViTri + luongTrachNhiem;
   // Chỉ để XEM: tổng thâm niên = thâm niên trước khi vào + thời gian từ ngày vào tới nay.
   const seniorityText = seniorityLabel(priorSeniorityYears, form.hire_date);
-  const gradeName =
-    jg.grades?.find((g) => g.id === form.job_grade_id)?.name ?? null;
 
   async function submit() {
     setError(null);
@@ -128,6 +125,12 @@ export function EmployeeWizard({
     if (canSalary && luongViTri <= 0) {
       setStep(2);
       setError("Lương cơ bản của nhân viên phải lớn hơn 0.");
+      return;
+    }
+    // Tick "BH đóng ở nơi khác" ⇒ không bắt buộc khai mức đóng (chủ chốt 16/09/2026).
+    if (canSalary && !insuranceElsewhere && (mucDongBh ?? salaryBase) <= 0) {
+      setStep(2);
+      setError("Mức đóng BHXH là bắt buộc — mỗi người một mức, không được để 0.");
       return;
     }
     setBusy(true);
@@ -150,6 +153,7 @@ export function EmployeeWizard({
               form.hire_date || new Date().toISOString().slice(0, 10),
             luong_vi_tri: luongViTri,
             luong_trach_nhiem: luongTrachNhiem,
+            insurance_base: mucDongBh ?? salaryBase,
             luong_dot_1: luongDot1,
             chuyen_can: chuyenCan,
             insurance_elsewhere: insuranceElsewhere,
@@ -250,20 +254,12 @@ export function EmployeeWizard({
               <Field label="Phòng/Tổ *">
                 <select
                   value={form.department_id ?? ""}
-                  onChange={(e) => {
-                    const id =
-                      e.target.value === "" ? null : Number(e.target.value);
-                    // Đổi sang phòng KHÔNG phải sản xuất thì phải XOÁ bậc ngay: chỉ ẩn ô mà giữ
-                    // state là vẫn submit bậc lên backend (backend không chặn) ⇒ kế toán nhận
-                    // một nhân viên văn phòng mang bậc thợ.
-                    setForm((f) => ({
-                      ...f,
-                      department_id: id,
-                      job_grade_id: isProduction(meta, id)
-                        ? f.job_grade_id
-                        : null,
-                    }));
-                  }}
+                  onChange={(e) =>
+                    set(
+                      "department_id",
+                      e.target.value === "" ? null : Number(e.target.value),
+                    )
+                  }
                 >
                   {meta.departments.map((d) => (
                     <option key={d.id} value={d.id}>
@@ -278,19 +274,6 @@ export function EmployeeWizard({
                   onChange={(e) => set("position", e.target.value)}
                 />
               </Field>
-              {isProduction(meta, form.department_id) && (
-                <JobGradeField
-                  grades={jg.grades}
-                  err={jg.err}
-                  reload={jg.reload}
-                  addGrade={jg.addGrade}
-                  value={form.job_grade_id ?? null}
-                  onChange={(id) => set("job_grade_id", id)}
-                  label="Bậc tay nghề"
-                  // hint="Chỉ khai cho khối sản xuất. Khai bậc thôi — bậc KHÔNG làm đổi tiền lương."
-                  canCreate={canCreateGrade}
-                />
-              )}
               <Field label="Thâm niên khi vào làm (năm)">
                 <input
                   type="number"
@@ -433,8 +416,9 @@ export function EmployeeWizard({
                   <div className="ns-wizard__salary-intro ns-wizard__full">
                     <strong>Mức lương riêng của nhân viên</strong>
                     <span>
-                      BHXH/BHYT/BHTN đóng trên mức nền (cơ bản + trách nhiệm).
-                      Các khoản phụ cấp là số cố định, cộng phẳng mỗi tháng.
+                      BHXH/BHYT/BHTN đóng trên ô “Mức đóng BHXH” khai riêng cho
+                      từng người. Các khoản phụ cấp là số cố định, cộng phẳng mỗi
+                      tháng.
                     </span>
                   </div>
                   <Field label="Lương cơ bản *">
@@ -461,6 +445,26 @@ export function EmployeeWizard({
                     <span>Mức nền theo hợp đồng</span>
                     <strong>{money(salaryBase)}</strong>
                   </div>
+                  <Field
+                    label={
+                      insuranceElsewhere ? "Mức đóng BHXH" : "Mức đóng BHXH *"
+                    }
+                    hint={
+                      insuranceElsewhere
+                        ? "Nơi khác đã đóng BHXH/BHYT/BHTN cho người này — công ty không trừ, ô này để trống cũng được."
+                        : "Số ghi trên hợp đồng bảo hiểm của người này — BHXH, BHYT, BHTN trừ trên số này. Ô gợi ý sẵn mức nền, sửa lại nếu hợp đồng bảo hiểm ghi khác."
+                    }
+                  >
+                    <input
+                      type="number"
+                      min={0}
+                      step={100000}
+                      value={mucDongBh ?? salaryBase}
+                      onChange={(e) =>
+                        setMucDongBh(Number(e.target.value))
+                      }
+                    />
+                  </Field>
                   <Field label="Thưởng chuyên cần">
                     <input
                       type="number"
@@ -860,7 +864,6 @@ export function EmployeeWizard({
                   {meta.departments.find((d) => d.id === form.department_id)
                     ?.name ?? "—"}{" "}
                   · {form.status === "active" ? "Chính thức" : "Thử việc"}
-                  {gradeName ? ` · ${gradeName}` : ""}
                 </p>
                 {canSalary && (
                   <p>

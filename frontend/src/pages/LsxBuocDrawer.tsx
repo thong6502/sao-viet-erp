@@ -281,26 +281,12 @@ export function LsxBuocDrawer({
       ds.unshift({
         id: row.khoan_rate_id,
         ten: `(đang ghim) đầu việc #${row.khoan_rate_id}`,
-        don_vi: "",
-        don_gia: 0,
       });
     }
     return ds;
   }, [row.khoan_chon_duoc, row.khoan_rate_id]);
   const mayDaChon = mayRefs?.find((m) => m.id === row.may_id);
   const khoanDaChon = dsKhoan.find((k) => k.id === row.khoan_rate_id);
-  // "Nhảy tiền" khi đổi đầu việc: server tính sẵn tiền công của TỪNG lựa chọn cho đúng bước này
-  // (`tien_du_kien`), nên chọn ở dropdown là ra số ngay — khỏi Lưu trước. Có key ⇒ option đến từ
-  // server cho bước hiện tại; đổi tổ nạp lại danh sách KHÔNG kèm số ⇒ rơi về "Lưu công đoạn…".
-  //
-  // `khoan_xem_truoc` THẮNG khi có (07/09/2026): số của dropdown tính theo SỐ LƯỢT ĐÃ LƯU, nên bấm
-  // "2 lượt" mà đọc nó thì tiền đứng im dù công thức có chip `so_luot_chay`. Bản xem trước hỏi lại
-  // server với đúng số lượt đang hiện, nên nó mới là số sẽ thấy sau khi Lưu.
-  const khoanXt = row.khoan_xem_truoc;
-  const khoanLive = khoanXt
-    ? { tien_du_kien: khoanXt.khoan_tien,
-        dien_giai_du_kien: khoanXt.khoan_dien_giai ?? khoanXt.khoan_ly_do }
-    : khoanDaChon && "tien_du_kien" in khoanDaChon ? khoanDaChon : undefined;
   const nhomPhuThuoc = useMemo(() => {
     const currentLsxId = phuThuocRefs.find((o) => o.step_key === row.key)?.lsx_id;
     const groups = new Map<number, typeof phuThuocRefs>();
@@ -956,8 +942,8 @@ export function LsxBuocDrawer({
                   {(row.khoan_chon_duoc.length > 0 || row.khoan_rate_id != null) && (
                     <section className="khsx-section-card">
                       <div className="khsx-section-card__head">
-                        <h3 className="khsx-section-card__title">Đầu việc khoán lương thợ</h3>
-                        <span className="khsx-tag-subtle">bảng khoán của tổ</span>
+                        <h3 className="khsx-section-card__title">Đầu việc thợ làm</h3>
+                        <span className="khsx-tag-subtle">bảng đầu việc của tổ</span>
                       </div>
 
                       <div className="khsx-khoan-body">
@@ -967,42 +953,21 @@ export function LsxBuocDrawer({
                           disabled={!canUpdate}
                           onChange={(e) => chonDauViec(e.target.value)}
                         >
-                          <option value="">— chọn đầu việc khoán —</option>
+                          <option value="">— chọn đầu việc —</option>
                           {dsKhoan.map((k) => (
-                            <option key={k.id} value={k.id}>
-                              {k.don_vi
-                                ? `${k.ten} — ${num(k.don_gia)} đ/${dvNhanChung(k.don_vi)}`
-                                : k.ten}
-                            </option>
+                            <option key={k.id} value={k.id}>{k.ten}</option>
                           ))}
                         </select>
 
                         <div className="khsx-khoan-status-row">
-                          {khoanLive ? (
-                            khoanLive.tien_du_kien != null ? (
-                              <span className="khsx-pill-status khsx-pill-status--ok">
-                                {khoanLive.dien_giai_du_kien ?? row.khoan_dien_giai}
-                              </span>
-                            ) : (
-                              <span className="khsx-pill-status khsx-pill-status--error">
-                                {khoanLive.dien_giai_du_kien ?? "Chưa quy đổi được sản lượng sang đơn vị đơn giá."}
-                              </span>
-                            )
-                          ) : !khoanConKhop ? (
+                          {!khoanConKhop ? (
                             <span className="khsx-pill-status khsx-pill-status--warn">
-                              Lưu công đoạn để tính lại tiền công
-                            </span>
-                          ) : row.khoan_dien_giai ? (
-                            <span className="khsx-pill-status khsx-pill-status--ok">
-                              {row.khoan_dien_giai}
-                            </span>
-                          ) : row.khoan_ly_do ? (
-                            <span className="khsx-pill-status khsx-pill-status--error">
-                              {row.khoan_ly_do}
+                              Lưu công đoạn để tính lại định mức giờ
                             </span>
                           ) : row.khoan_chon_duoc.length > 1 ? (
                             <span className="khsx-field__hint">
-                              Tổ có {row.khoan_chon_duoc.length} đầu việc khoán — chọn đúng việc thợ làm để tự động ra tiền công.
+                              Tổ có {row.khoan_chon_duoc.length} đầu việc — chọn đúng việc thợ làm thì máy mới
+                              lấy được năng suất và kíp chuẩn của việc đó.
                             </span>
                           ) : null}
                         </div>
@@ -1348,7 +1313,7 @@ export function LsxBuocDrawer({
                 <div className="khsx-thoi-gian-grid">
                   {/* 08/09/2026: ô CHỈ hiện ở bước máy/thuê ngoài — làm tay thì không có
                       "lượt qua máy" nào để đếm. Bước tổ ép cứng 1 lượt (payload gửi 1, server ghi
-                      lại 1 lần nữa), nên chip `so_luot_chay` của công thức tiền công vẫn có số
+                      lại 1 lần nữa), nên chip `so_luot_chay` của công thức giờ vẫn có số
                       thật để dùng, chỉ là luôn bằng 1. */}
                   {row.loai_buoc !== "to" && (
                     <div className="khsx-field">

@@ -117,24 +117,24 @@ def van_de_phat_hanh(
     lsx_ids: set[int],
     bai_ghep_ids: set[int] | None = None,
 ) -> list[dict]:
-    """Cửa SOI (read-only) cho hộp thoại phát hành FE: mỗi nhóm thành phẩm phải có ĐÚNG MỘT bước
-    KCS-cuối (§4.4). Không có → chưa chốt được thành phẩm; nhiều hơn một → mập mờ thân chính.
+    """Cửa SOI (read-only) cho hộp thoại phát hành FE: mỗi nhóm thành phẩm phải có KHÔNG QUÁ MỘT
+    công đoạn cuối (luật ở `snapshot.cong_doan_cuoi_theo_nhom`). Nhiều hơn một → không rõ công đoạn
+    nào ra thành phẩm, KCS không biết đề xuất nhập kho ở đâu.
 
-    KHÔNG ghi DB (khác `phat_hanh`): gom LSX theo nhóm bằng cách đọc nguồn, rồi đếm ứng viên
-    KCS-cuối (bước KCS nằm cuối routing). Trả danh sách vấn đề rỗng nghĩa là không chặn.
+    Không còn chặn "thiếu bước KCS cuối" (KCS theo lệnh, mg 0306): công đoạn cuối do tổ nào làm cũng
+    được, KCS kiểm được mọi công đoạn.
+
+    KHÔNG ghi DB (khác `phat_hanh`). Trả danh sách vấn đề rỗng nghĩa là không chặn.
     """
     from ..xep_lich_2.constraint import MUC_CHAN_PHAT_HANH, issue
+    from .snapshot import cong_doan_cuoi_theo_nhom
 
     lsx_ids = set(lsx_ids)
     repo = SanXuatRepository(db)
-    kcs = repo.kcs_department_ids()
-    # Đọc routing MỘT LẦN cho mỗi LSX — dùng lại cho cả suy KCS-cuối lẫn luật 5 dưới đây, khỏi
-    # query trùng cùng một bảng cho cùng một lsx_id.
-    steps_by_lsx = {lsx_id: repo.routing_steps(lsx_id) for lsx_id in lsx_ids}
 
-    # Gom LSX theo (order_id, khoa) — không đụng DB.
+    # Gom LSX theo (order_id, khoa) — cùng khoá `dam_bao_nhom` dùng lúc phát hành.
     from .nhom import _khoa
-    nhom_lsx: dict[tuple[int, str], list[int]] = {}
+    nhom_cua_lsx: dict[int, tuple[int, str]] = {}
     nhan: dict[tuple[int, str], str] = {}
     for lsx_id in lsx_ids:
         nguon = repo.nguon_nhom_cua_lsx(lsx_id)
@@ -142,31 +142,30 @@ def van_de_phat_hanh(
             continue
         order_id, order_line_id, nhom, mo_ta = nguon
         key = (order_id, _khoa(order_line_id, nhom))
-        nhom_lsx.setdefault(key, []).append(lsx_id)
+        nhom_cua_lsx[lsx_id] = key
         nhan[key] = nhom or (mo_ta or "").strip() or f"Dòng {order_line_id}"
 
+    # Bước lệnh bị bài ghép phủ chạy CHUNG một công việc — định danh bằng bước chung của bài ghép.
+    buoc_chung: dict[str, int] = {}
+    for bg_id in sorted(bai_ghep_ids or ()):
+        for cd in repo.bai_ghep_cong_doans(bg_id):
+            for sk in repo.covered_step_keys_of_cd(cd.id):
+                buoc_chung[sk] = cd.id
+
+    def dinh_danh(_lsx_id, buoc):
+        bg_cd = buoc_chung.get(buoc.step_key)
+        return ("bai_ghep", bg_cd) if bg_cd is not None else ("lsx", buoc.id)
+
     van_de: list[dict] = []
-    for key, members in nhom_lsx.items():
-        so_kcs_cuoi = 0
-        for lsx_id in members:
-            steps = steps_by_lsx[lsx_id]
-            if steps and steps[-1].department_id in kcs:
-                so_kcs_cuoi += 1
-        ten = nhan.get(key, "")
-        if so_kcs_cuoi == 0:
-            van_de.append(issue(
-                "kcs_cuoi_thieu", MUC_CHAN_PHAT_HANH,
-                f"Nhóm thành phẩm “{ten}” chưa có bước KCS cuối — không chốt được nghiệm thu.",
-                goi_y="Thêm một công đoạn KCS ở cuối routing của lệnh thân chính trong nhóm.",
-            ))
-        elif so_kcs_cuoi > 1:
+    for key, ung_vien in cong_doan_cuoi_theo_nhom(
+        repo, nhom_cua_lsx=nhom_cua_lsx, dinh_danh=dinh_danh
+    ).items():
+        if len(ung_vien) > 1:
+            ten = nhan.get(key, "")
             van_de.append(issue(
                 "kcs_cuoi_nhieu", MUC_CHAN_PHAT_HANH,
-                f"Nhóm thành phẩm “{ten}” có {so_kcs_cuoi} bước KCS cuối — mập mờ lệnh thân chính.",
-                goi_y="Chỉ giữ KCS cuối trên MỘT lệnh thân chính; các lệnh khác kết ở bước ghép.",
+                f"Nhóm thành phẩm “{ten}” có {len(ung_vien)} công đoạn cuối — chưa rõ công đoạn "
+                "nào ra thành phẩm.",
+                goi_y="Nối công đoạn cuối của các lệnh phụ vào công đoạn ghép của lệnh thân chính.",
             ))
-
-    # Luật 5 (chặn "bước khai la_kcs=true nhưng tổ không có is_kcs") ĐÃ BỎ: từ khi la_kcs suy TỰ
-    # ĐỘNG thẳng từ department.is_kcs (không còn khai tay), tình huống lệch cấu hình này không còn
-    # xảy ra được nữa — xem docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md.
     return van_de

@@ -129,7 +129,7 @@
 .dag-zoom__val {
   min-width: 44px;
   text-align: center;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: 600;
   color: #343a40;
@@ -203,7 +203,7 @@
   border-radius: 999px;
   background: #e2e8f0;
   color: #334155;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 10px;
   line-height: 16px;
   text-align: center;
@@ -254,7 +254,7 @@
 }
 
 .dag-rail__lsx {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   color: #c25e38;
@@ -273,7 +273,7 @@
 .dag-rail__group-count {
   font-size: 10px;
   color: var(--ash-2);
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
 }
 
 .dag-rail__group-chevron {
@@ -559,7 +559,7 @@
 }
 
 .dag-node__lsx {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   padding: 1px 6px;
@@ -597,7 +597,7 @@
 }
 
 .dag-node__seq {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   background: #e2e8f0;
@@ -867,6 +867,6 @@
 .dag-node__type-tag--ghep {
   background: #ffedd5;
   color: #c25e38;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   text-transform: none;
 }

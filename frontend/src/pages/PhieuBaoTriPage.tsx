@@ -292,7 +292,7 @@ export function PhieuBaoTriPage() {
                 className={`ktm-the ktm-the--${r.qua_han ? "qua" : r.trang_thai}`}
                 onClick={() => setMo(r)}>
                 <span className="ktm-the__dau">
-                  <span className="rc__code-badge">{r.ma}</span>
+                  <span className="rc__code-badge ktm-ma">{r.ma}</span>
                   <BadgeBaoTri trangThai={r.trang_thai} quaHan={r.qua_han} />
                 </span>
                 <span className="ktm-the__than">
@@ -377,7 +377,7 @@ export function PhieuBaoTriPage() {
               return (
                 <tr key={r.id} className="rc__row" onClick={() => setMo(r)}>
                   <td className="rc__mono rc__nowrap">
-                    <span className="rc__code-badge">{r.ma}</span>
+                    <span className="rc__code-badge ktm-ma">{r.ma}</span>
                     {r.loai === "dot_xuat" ? (
                       <span className="ktm-tag-dotxuat"><Icon name="zap" size={11} /> Đột xuất</span>
                     ) : (

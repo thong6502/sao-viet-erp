@@ -79,6 +79,7 @@ class LeaveService:
         calendar=None,
         late_early=None,
         attendance=None,
+        payroll=None,
     ) -> None:
         self.leaves = leaves
         self.employees = employees
@@ -93,6 +94,35 @@ class LeaveService:
         # CalendarService | None — lịch chung (loại ngày lễ + tuần T2–T7). Đặt tên `_work_calendar`
         # để KHÔNG che method `calendar()` (lịch nghỉ tháng) của service này. None → fallback Mon–Fri.
         self._work_calendar = calendar
+        # PayrollService | None — CHỈ hỏi "tổ này có ăn khoán không" (`che_do_khoan`) để chặn nghỉ
+        # phép CÓ LƯƠNG của người khoán / tài xế (khách chốt 15/09/2026). Không có dây này (unit
+        # test dựng tối giản) ⇒ không chặn, y như trước.
+        self._payroll = payroll
+
+    def _chan_phep_co_luong_khoan(self, emp, lt) -> None:
+        """Người ăn khoán sản lượng / khoán km KHÔNG được dùng loại nghỉ CÓ LƯƠNG.
+
+        Khách chốt 15/09/2026 (PRD bù lỗ §00 F): *"nghỉ phép có lương ấy bên khoán mình sẽ không cho
+        dùng"*. Lương cũng không đếm công phép của họ vào bù lỗ theo công — chặn ngay từ cửa đơn để
+        không đẻ ra đơn đã duyệt mà không ra tiền. Loại nghỉ KHÔNG lương vẫn dùng bình thường.
+        ⚠️ Rủi ro đã ghi cho khách: Đ113 BLLĐ cho nghỉ hằng năm hưởng nguyên lương — khách vẫn chọn."""
+        if lt is None or not bool(getattr(lt, "is_paid", False)):
+            return
+        if self._payroll is None:
+            return
+        if self._payroll.che_do_khoan(getattr(emp, "department_id", None)):
+            raise LeaveValidationError(
+                # Câu này HIỆN RA MÀN HÌNH cho người tạo đơn ⇒ chỉ nói luật + cách làm tiếp.
+                # Lý do / ngày chốt để ở docstring bên trên, đừng nhét vào câu người dùng đọc.
+                "Người ăn lương khoán / khoán km không dùng nghỉ phép có lương. "
+                    "Chọn loại nghỉ KHÔNG lương cho người này."
+            )
+
+    def chan_phep_khoan(self, emp, leave_type_id) -> None:
+        """Cửa công khai cho phiếu đi muộn / về sớm có tick "trừ phép" — cùng luật với đơn nghỉ."""
+        if leave_type_id is None:
+            return
+        self._chan_phep_co_luong_khoan(emp, self.leaves.get_type(int(leave_type_id)))
 
     def _wd(self, start: date, end: date) -> int:
         """Số NGÀY LÀM VIỆC để trừ hạn mức phép — ưu tiên lịch chung (loại lễ + Thứ 7 nay là
@@ -216,6 +246,7 @@ class LeaveService:
         lt = self.leaves.get_type(leave_type_id)
         if lt is None or not lt.is_active:
             raise LeaveValidationError("Loại nghỉ không hợp lệ.")
+        self._chan_phep_co_luong_khoan(emp, lt)
         if self._wd(start_date, end_date) == 0:
             raise LeaveValidationError("Khoảng nghỉ rơi hết vào ngày nghỉ, không có ngày làm việc.")
         days = (end_date - start_date).days + 1  # số ngày LỊCH (để hiển thị trên đơn)

@@ -16,7 +16,6 @@ from .employee import (
     EmployeeShiftAssignment,
     EmployeeShiftChangeLog,
     EmployeeShiftDay,
-    JobGrade,
 )
 from .noi_quy import (
     NoiQuyAttachment,
@@ -42,6 +41,7 @@ from .order import (
 from .payroll import (
     EmployeeSalary,
     EmployeeSalaryComponent,
+    KhoanChiTieuNgay,
     LatePenaltyBracket,
     PayrollComponent,
     PayrollLine,
@@ -50,9 +50,8 @@ from .payroll import (
     PayrollPeriod,
     PitTaxBracket,
     SalaryAdvance,
-    SalaryRateRule,
 )
-from .piece_work import PieceLeaderBonusBracket, PieceRate
+from .piece_work import PieceRate
 from .product_type_catalog import ProductTypeCatalog
 from .purchase import (
     DepartmentPurchaseRequest,
@@ -107,6 +106,7 @@ from .delivery import (
     DeliveryTrip,
     DeliveryTripLine,
 )
+from .xe import MucKhoanKm, MucKhoanKmBac, Xe
 from .stock_request import StockRequest, StockRequestLine
 from .stock_lot import StockLot, StockThreshold
 from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
@@ -114,7 +114,7 @@ from .khuon_be import KhuonBe
 from .vat_tu_giu_cho import VatTuGiuCho
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham, SanPhamTaiBan
-from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc
+from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc, LsxDinhKem
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
 from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu
 from .xep_lich import XepLichCongDoan
@@ -143,6 +143,7 @@ from .san_xuat_thuc_thi import (
 )
 from .san_xuat_san_luong import (
     SanXuatBanGiao,
+    SanXuatBanGiaoBatch,
     SanXuatBanGiaoDieuChinh,
     SanXuatBatch,
     SanXuatBatchLotVao,
@@ -156,17 +157,11 @@ from .san_xuat_phan_bo import (
     SanXuatPhanBoDong,
     SanXuatPhanBoLoaiTru,
 )
-from .san_xuat_thuong_to_truong import SanXuatThuongToTruong
 from .san_xuat_kcs import (
     SanXuatKcsBatch,
     SanXuatKcsLoi,
     SanXuatKcsLoiAnh,
     SanXuatKcsTieuChi,
-)
-from .san_xuat_kho import (
-    SanXuatKhoHang,
-    SanXuatKhoLot,
-    SanXuatNhapKhoYc,
 )
 from .san_xuat_vat_tu import SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong
 from .cong_doan_tag import CongDoanTag, CongDoanTagCatalog
@@ -197,7 +192,6 @@ __all__ = [
     "EmployeeShiftDay",
     "EmployeeEvent",
     "EmployeeAttachment",
-    "JobGrade",
     "NoiQuyDocument",
     "NoiQuyRecord",
     "NoiQuyVersion",
@@ -250,7 +244,6 @@ __all__ = [
     "OrderApproval",
     "OrderAttachment",
     "PayrollParams",
-    "SalaryRateRule",
     "EmployeeSalary",
     "SalaryAdvance",
     "PayrollPeriod",
@@ -260,7 +253,7 @@ __all__ = [
     "PayrollLineComponent",
     "PitTaxBracket",
     "LatePenaltyBracket",
-    "PieceLeaderBonusBracket",
+    "KhoanChiTieuNgay",
     "PieceRate",
     "PlateDieRate",
     "Norm",
@@ -295,6 +288,7 @@ __all__ = [
     "LsxCongDoan",
     "LsxCongDoanVatTu",
     "LsxCongDoanPhuThuoc",
+    "LsxDinhKem",
     "CongDoanDauViec",
     "CongDoanDauViecVatTu",
     "CongDoanMay",
@@ -324,22 +318,19 @@ __all__ = [
     "SanXuatBatch",
     "SanXuatBatchLotVao",
     "SanXuatBanGiao",
+    "SanXuatBanGiaoBatch",
     "SanXuatBanGiaoDieuChinh",
     "SanXuatVatTuNhan",
     "SanXuatKetQuaNhanh",
     "SanXuatHoTro",
     "SanXuatPhanBo",
     "SanXuatPhanBoDong",
-    "SanXuatThuongToTruong",
     "SanXuatPhanBoBuTru",
     "SanXuatPhanBoLoaiTru",
     "SanXuatKcsBatch",
     "SanXuatKcsLoi",
     "SanXuatKcsLoiAnh",
     "SanXuatKcsTieuChi",
-    "SanXuatKhoHang",
-    "SanXuatKhoLot",
-    "SanXuatNhapKhoYc",
     "SanXuatVatTuDeNghi",
     "SanXuatVatTuDeNghiDong",
     "TaiSan",

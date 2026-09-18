@@ -5,16 +5,13 @@ TÁCH RIÊNG khỏi `kcs.py` (chỉ đọc, không viết) để không làm fil
 (`_hang_kcs_theo_scope`) — bắt buộc để "cùng filter trả cùng tổng" (§9 mục 10) không thể lệch
 khi một bên sửa mà quên bên kia.
 
-`kcs_department_id` trên `SanXuatKcsBatch` được set cho MỌI batch ghi trên thẻ việc của tổ khác
-(`dot_xuat` kiêm nhiệm và `diem_kiem` theo công đoạn); riêng batch `routing` để NULL — tổ sở hữu
-thật của nó là `cong_viec.department_id` (tổ đang chạy việc, vì bước KCS routing đứng sẵn trong
-routing của CHÍNH tổ đó). `_to_kcs_hieu_luc` gộp hai nhánh này — cùng khái niệm "tổ hiệu lực" mà
-`_gate_dieu_chinh` (Task 6) đã dùng cho gate ghi, ở đây dùng cho lọc/scope đọc.
+KCS theo lệnh (mg 0306): một lần kiểm chỉ còn một loại, tổ gắn với nó là tổ của CÔNG ĐOẠN bị kiểm
+(`cong_viec.department_id`). Người thuộc tổ KCS thấy mọi lần kiểm; người khác thấy lần kiểm trên
+công đoạn của tổ mình XEM TRỌN.
 """
 from __future__ import annotations
 
 from datetime import date, datetime
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,45 +25,37 @@ from ...models.san_xuat_kcs import (
     KCS_DAT,
     KCS_DAT_MOT_PHAN,
     KCS_KHONG_DAT,
-    KCS_LOAI_DIEM_KIEM,
-    KCS_LOAI_DOT_XUAT,
-    KCS_LOAI_ROUTING,
     SanXuatKcsBatch,
     SanXuatKcsLoi,
 )
 from ...models.user import User
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...services.rbac_service import AuthorizationService
-from ..gio_xuong import lich_hien_thi
-from .board import _to_thay_duoc
-from .thuc_thi import _aware
+from ..gio_xuong import thuc_te_hien_thi
+from ..quyen_to import VIEC_XEM, quyen_to_cua
 
-_VN_TZ = ZoneInfo("Asia/Bangkok")
-_LOAI_LABEL = {
-    KCS_LOAI_ROUTING: "Bước KCS",
-    KCS_LOAI_DOT_XUAT: "Đột xuất",
-    KCS_LOAI_DIEM_KIEM: "Điểm kiểm",
-}
 _KET_LUAN_LABEL = {KCS_DAT: "Đạt", KCS_DAT_MOT_PHAN: "Đạt một phần", KCS_KHONG_DAT: "Không đạt"}
-_CHUA_GAN_TO = "Chưa gán"
 _CHUA_PHAN_LOAI = "Chưa phân loại"
 
 
-def _to_kcs_hieu_luc(cv: SanXuatCongViec, kcs: SanXuatKcsBatch) -> int | None:
-    """Tổ SỞ HỮU kết quả KCS — bước KCS trong routing lấy tổ đang chạy việc; đột xuất VÀ điểm
-    kiểm lấy tổ ĐI KIỂM (mục 3.4) — hai loại đó ghi trên thẻ việc của tổ KHÁC, quy về tổ bị kiểm
-    là báo cáo tính công KCS cho chính người bị kiểm."""
-    if kcs.loai != KCS_LOAI_ROUTING:
-        return kcs.kcs_department_id
-    return cv.department_id
+def _trang_thai_gui_kho(cv: SanXuatCongViec, dong: list, *, dat: float, tot: float) -> str:
+    """Trạng thái gửi kho của CÔNG ĐOẠN cuối (yêu cầu kho tính theo công đoạn, không theo lần kiểm):
+    kho còn dòng chưa nhận ⇒ `dang_cho`; còn số đạt chưa gửi ⇒ `chua_gui`; không thì `da_nhap`."""
+    if not cv.la_kcs_cuoi:
+        return "khong_ap_dung"
+    if any(d.cho_kho for d in dong):
+        return "dang_cho"
+    da_gui = sum(d.sl_da_de_nghi_kcs for d in dong)
+    if not dong or min(dat, tot) - da_gui > 0.0005:
+        return "chua_gui"
+    return "da_nhap"
 
 
 def _ve_gio_vn(dt: datetime | None) -> datetime | None:
-    """Quy datetime aware/naive-UTC về giờ VN, bỏ tzinfo (wall-clock) — đúng convention `_naive`
-    đã dùng khắp `services/san_xuat/*.py` cho đầu ra hiển thị."""
-    if dt is None:
-        return None
-    return _aware(dt).astimezone(_VN_TZ).replace(tzinfo=None)
+    """Quy mốc THỰC THI (UTC thật) về giờ tường xưởng, bỏ tzinfo — đúng convention đầu ra của
+    `services/san_xuat/*.py`. Đi qua `gio_xuong.thuc_te_hien_thi` để chỉ có MỘT chỗ quy đổi (và
+    lấy đúng múi máy chủ thay vì ghim cứng Asia/Bangkok)."""
+    return thuc_te_hien_thi(dt)
 
 
 def _ngay_vn(dt: datetime | None) -> date | None:
@@ -81,23 +70,22 @@ def _hang_kcs_theo_scope(
     *,
     tu: date | None = None,
     den: date | None = None,
-    kcs_department_id: int | None = None,
     lsx_id: int | None = None,
     tu_khoa: str | None = None,
     cong_doan_id: int | None = None,
-    loai: str | None = None,
 ) -> list[tuple[SanXuatKcsBatch, SanXuatCongViec]]:
     """Danh sách (batch, công việc) đã lọc filter + scope — NGUỒN DUY NHẤT cho cả `bao_cao_kcs`
     và `xuat_excel_kcs` (§9 mục 10: hai đầu ra phải cùng tổng)."""
-    _tos, ids_thay_duoc = _to_thay_duoc(db, user, authz)
+    from .kcs import la_nguoi_kcs
+
+    # Người KCS thấy mọi tổ; người khác chỉ tổ XEM TRỌN — "Của tôi" không mở số liệu cả tổ.
+    ids_thay_duoc = None if la_nguoi_kcs(db, user) else quyen_to_cua(db, user).tron[VIEC_XEM]
 
     stmt = (
         select(SanXuatKcsBatch, SanXuatCongViec)
         .join(SanXuatCongViec, SanXuatKcsBatch.cong_viec_id == SanXuatCongViec.id)
         .order_by(SanXuatKcsBatch.bat_dau, SanXuatKcsBatch.id)
     )
-    if loai:
-        stmt = stmt.where(SanXuatKcsBatch.loai == loai)
     if lsx_id:
         stmt = stmt.where(SanXuatCongViec.lsx_id == lsx_id)
     if cong_doan_id:
@@ -120,10 +108,7 @@ def _hang_kcs_theo_scope(
 
     out: list[tuple[SanXuatKcsBatch, SanXuatCongViec]] = []
     for kcs, cv in db.execute(stmt).all():
-        to_id = _to_kcs_hieu_luc(cv, kcs)
-        if to_id not in ids_thay_duoc:
-            continue
-        if kcs_department_id and to_id != kcs_department_id:
+        if ids_thay_duoc is not None and cv.department_id not in ids_thay_duoc:
             continue
         d = _ngay_vn(kcs.bat_dau)
         if tu and (d is None or d < tu):
@@ -150,7 +135,7 @@ def _checklist_rows_cho_batch(kcs: SanXuatKcsBatch, cv: SanXuatCongViec) -> list
         tc = tieu_chi.get(kq.get("thu_tu")) or {}
         out.append({
             "kcs_batch_id": kcs.id,
-            "thoi_diem": lich_hien_thi(kcs.bat_dau),
+            "thoi_diem": _ve_gio_vn(kcs.bat_dau),
             "ma": tc.get("ma"),
             "ten": tc.get("ten"),
             "bat_buoc": tc.get("bat_buoc"),
@@ -209,11 +194,76 @@ def _xep_hang_loi(db: Session, batch_ids: list[int]) -> dict:
     return {"cong_doan": cong_doan, "to": to}
 
 
+def _lich_su_rows(
+    db: Session, hang: list[tuple[SanXuatKcsBatch, SanXuatCongViec]]
+) -> list[dict]:
+    """Bảng "Kết quả đã ghi" — MỘT dòng/batch, đã áp đúng filter+scope của `_hang_kcs_theo_scope`.
+
+    Dòng dựng thẳng từ DB (không ghép từ state phiên của FE) nên bền qua F5 và mang sẵn người ghi
+    — việc bị kiểm thuộc tổ KHÁC tổ của người KCS nên không thể lấy từ bàn tổ của họ."""
+    if not hang:
+        return []
+    from ...repositories.san_xuat_repo import SanXuatRepository
+
+    repo_sx = SanXuatRepository(db)
+    lsx_map = repo_sx.lsx_nhan({cv.lsx_id for _k, cv in hang if cv.lsx_id})
+    bg_map = repo_sx.bai_ghep_nhan({cv.bai_ghep_id for _k, cv in hang if cv.bai_ghep_id})
+    nguoi_ids = {k.created_by for k, _cv in hang if k.created_by}
+    nguoi_ten = (
+        {u.id: u.name for u in db.scalars(select(User).where(User.id.in_(nguoi_ids)))}
+        if nguoi_ids else {}
+    )
+    from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
+    from .kho import dong_nhap_kho_cua_cong_viec
+
+    cuoi_ids = {cv.id for _k, cv in hang if cv.la_kcs_cuoi}
+    dong_map = dong_nhap_kho_cua_cong_viec(db, cuoi_ids)
+    dat_map = {i: sum(float(k.so_luong_dat or 0) for k in ds)
+               for i, ds in SanXuatKcsRepository(db).cac_kcs_batch_nhieu(cuoi_ids).items()}
+    tot_map = SanXuatSanLuongRepository(db).tong_tot_nhieu(cuoi_ids)
+
+    out: list[dict] = []
+    for kcs, cv in hang:
+        if cv.bai_ghep_id and cv.bai_ghep_id in bg_map:
+            ma, ten = bg_map[cv.bai_ghep_id]
+        elif cv.lsx_id and cv.lsx_id in lsx_map:
+            ma, ten = lsx_map[cv.lsx_id]
+        else:
+            ma, ten = "", ""
+        out.append({
+            "kcs_batch_id": kcs.id,
+            "cong_viec_id": kcs.cong_viec_id,
+            "thoi_diem": _ve_gio_vn(kcs.ket_thuc) or _ve_gio_vn(kcs.bat_dau),
+            "so_luong_dat": float(kcs.so_luong_dat or 0),
+            "so_luong_khong_dat": float(kcs.so_luong_khong_dat or 0),
+            "don_vi": kcs.don_vi or "",
+            "nguon_ma": ma,
+            "nguon_ten": ten,
+            "ten_cong_doan": cv.ten_cong_doan,
+            "nguoi_ghi": nguoi_ten.get(kcs.created_by) if kcs.created_by else None,
+            "trang_thai_gui_kho": _trang_thai_gui_kho(
+                cv, dong_map.get(cv.id, []), dat=dat_map.get(cv.id, 0.0), tot=tot_map.get(cv.id, 0.0)),
+        })
+    out.sort(key=lambda r: (r["thoi_diem"] is not None, r["thoi_diem"]), reverse=True)
+    return out
+
+
+def cong_doan_loc(db: Session) -> list[dict]:
+    """Ô lọc "Công đoạn" của dashboard KCS. Tổ KCS kiểm việc của tổ khác nên cần trọn danh mục,
+    nhưng người chỉ giữ quyền tổ thì không đọc được Danh mục công đoạn (`dm_cong_doan`) — trước
+    đây màn gọi thẳng `/api/cong-doan` và ăn 403 im lặng, ô lọc rỗng. Chỉ trả mã/tên/giai đoạn,
+    không lộ công thức giá hay định mức của danh mục."""
+    return [
+        {"id": cd.id, "ma": cd.ma, "ten": cd.ten, "nhom": cd.nhom}
+        for cd in SanXuatKcsRepository(db).cong_doan_dang_dung()
+    ]
+
+
 def bao_cao_kcs(
     db: Session, user: User, authz: AuthorizationService, **filters,
 ) -> dict:
-    """Tổng hợp cho dashboard (§6.2 KPI + biểu đồ). `**filters` = đúng 7 tham số của
-    `_hang_kcs_theo_scope` (tu/den/kcs_department_id/lsx_id/tu_khoa/cong_doan_id/loai) — router
+    """Tổng hợp cho dashboard (§6.2 KPI + biểu đồ). `**filters` = đúng 5 tham số của
+    `_hang_kcs_theo_scope` (tu/den/lsx_id/tu_khoa/cong_doan_id) — router
     forward nguyên `Query()` params vào đây."""
     hang = _hang_kcs_theo_scope(db, user, authz, **filters)
     batch_ids = [kcs.id for kcs, _cv in hang]
@@ -246,6 +296,7 @@ def bao_cao_kcs(
         "theo_ngay": theo_ngay_list,
         "cong_doan": xep_hang["cong_doan"],
         "to": xep_hang["to"],
+        "lich_su": _lich_su_rows(db, hang),
     }
 
 
@@ -273,7 +324,7 @@ def xuat_excel_kcs(
         {l.id: l.ma for l in db.scalars(select(Lsx).where(Lsx.id.in_(lsx_ids)))}
         if lsx_ids else {}
     )
-    to_ids = {tid for kcs, cv in hang if (tid := _to_kcs_hieu_luc(cv, kcs))}
+    to_ids = {cv.department_id for _kcs, cv in hang if cv.department_id}
     to_ten = (
         {d.id: d.name for d in db.scalars(select(Department).where(Department.id.in_(to_ids)))}
         if to_ids else {}
@@ -293,33 +344,29 @@ def xuat_excel_kcs(
     ws1 = wb.active
     ws1.title = "Kết quả KCS"
     headers1 = [
-        "Mã kết quả", "Thời điểm", "Loại", "Tổ KCS", "Mã LSX", "Công đoạn", "Số nhận",
-        "Số đạt", "Số không đạt", "Đơn vị", "Kết luận", "Ghi chú", "Người ghi",
-        "Số lỗi ghi nhận", "Mô tả lỗi", "Tổ chịu trách nhiệm", "URL ảnh",
+        "Mã kết quả", "Thời điểm", "Mã LSX", "Công đoạn", "Tổ", "Số kiểm",
+        "Số đạt", "Số lỗi", "Đơn vị", "Kết luận", "Ghi chú", "Người kiểm",
+        "Mô tả lỗi", "URL ảnh",
     ]
     ws1.append(headers1)
     for cell in ws1[1]:
         cell.font = Font(bold=True)
-    _COL_SO_LUONG_1 = {7, 8, 9}  # Số nhận / Số đạt / Số không đạt
+    _COL_SO_LUONG_1 = {6, 7, 8}  # Số kiểm / Số đạt / Số lỗi
     for kcs, cv in hang:
         loi_list = loi_by_batch.get(kcs.id, [])
         loi_mo_ta_set = sorted({
             (l.mo_ta or "").strip() or _CHUA_PHAN_LOAI for l in loi_list
         })
-        to_chiu_ten = sorted({
-            (to_ten.get(l.to_chiu_id) if l.to_chiu_id else None) or _CHUA_GAN_TO
-            for l in loi_list
-        })
         anh_urls = [a.file_url for l in loi_list for a in anh_by_loi.get(l.id, [])]
         ws1.append([
-            kcs.id, _ve_gio_vn(kcs.bat_dau), _LOAI_LABEL.get(kcs.loai, kcs.loai),
-            to_ten.get(_to_kcs_hieu_luc(cv, kcs), ""),
+            kcs.id, _ve_gio_vn(kcs.bat_dau),
             lsx_ma.get(cv.lsx_id, "") if cv.lsx_id else "",
-            cv.ten_cong_doan, float(kcs.so_luong_nhan), float(kcs.so_luong_dat),
+            cv.ten_cong_doan, to_ten.get(cv.department_id, "") if cv.department_id else "",
+            float(kcs.so_luong_nhan), float(kcs.so_luong_dat),
             float(kcs.so_luong_khong_dat), kcs.don_vi,
             _KET_LUAN_LABEL.get(kcs.ket_luan, kcs.ket_luan), kcs.ghi_chu or "",
-            nguoi_ten.get(kcs.created_by, ""), len(loi_list),
-            "; ".join(loi_mo_ta_set), "; ".join(to_chiu_ten) if loi_list else "",
+            nguoi_ten.get(kcs.created_by, ""),
+            "; ".join(loi_mo_ta_set) if loi_list else "",
             "; ".join(anh_urls),
         ])
         r = ws1.max_row

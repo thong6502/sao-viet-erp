@@ -1453,7 +1453,7 @@ export function InboxRequestDrawer({
                             </td>
                             {canViewStock && (
                               <td className="kho-num">
-                                <div style={{ fontFamily: "var(--ff-num)", fontWeight: "var(--fw-bold)" }}>
+                                <div style={{ fontFamily: "var(--ff-sans)", fontWeight: "var(--fw-bold)" }}>
                                   {fmtQty(l.ton_kha_dung ?? 0)} <span className="kho-alloc__unit">{dvtGoc}</span>
                                 </div>
                                 {l.ton_kha_dung != null && (
@@ -1609,6 +1609,10 @@ interface LotPick {
   sl_con_lai: number;
   so_luong: number;
   don_gia_nhap: number | null;
+  /** Nguồn lô thành phẩm (đơn / khách) + cảnh báo khi lô thuộc đơn khác cùng khách. */
+  order_ma: string | null;
+  khach_hang: string | null;
+  canh_bao: string | null;
 }
 
 interface AllocBlock {
@@ -1658,6 +1662,9 @@ function toLotPick(a: StockAllocationLine, catalog: StockLot[]): LotPick {
     sl_con_lai: a.sl_con_lai,
     so_luong: a.so_luong,
     don_gia_nhap: a.don_gia_nhap,
+    order_ma: a.order_ma ?? null,
+    khach_hang: a.khach_hang ?? null,
+    canh_bao: a.canh_bao ?? null,
   };
 }
 
@@ -1684,7 +1691,9 @@ function VoucherCreateDrawer({
   // Kho do BƯỚC LẬP PHIẾU quyết định (yêu cầu không còn chọn kho). Mặc định = kho đang xem ở
   // toolbar; thủ kho đổi được ngay tại đây. Đổi kho = nạp lại toàn bộ lô (dep của effect dưới).
   const [khoId, setKhoId] = useState<number>(request.kho_id ?? initialKhoId);
-  const [ngay, setNgay] = useState(todayISO());
+  // NGÀY NHẬP/XUẤT KHO = HÔM NAY, KHÓA CỨNG (không cho chọn). Đây là NGÀY HẠCH TOÁN — mốc
+  // quyết định phiếu thuộc kỳ nào (khóa sổ + Sổ kho + N-X-T), nên không để người lập tự đặt.
+  const [ngay] = useState(todayISO());
   // Người giao/nhận hàng mặc định = NGƯỜI YÊU CẦU (hàng về/ra theo đúng người xin); thủ kho sửa được.
   const [nguoiGiaoNhan, setNguoiGiaoNhan] = useState(request.nguoi_tao_ten ?? "");
   // ĐIỀU CHUYỂN: ghi chú phiếu nhập đích LẤY SẴN từ ghi chú điều chuyển (đã gắn vào yêu cầu); sửa được.
@@ -1779,6 +1788,8 @@ function VoucherCreateDrawer({
             .goiYLo(token, {
               hang_loai: l.hang_loai, hang_id: l.hang_id, kho_id: khoId,
               so_luong: l.sl_con_lai * hs,
+              // Xuất cho Giao hàng: máy chủ ưu tiên lô của đúng đơn, bỏ lô của khách khác.
+              request_id: request.id,
             })
             .catch(() => null),
         ]);
@@ -2089,10 +2100,9 @@ function VoucherCreateDrawer({
                     type="date"
                     className="rc-input"
                     value={ngay}
-                    onChange={(e) => {
-                      setDirty(true);
-                      setNgay(e.target.value);
-                    }}
+                    disabled
+                    readOnly
+                    title="Ngày nhập/xuất kho luôn là hôm nay — đây là mốc phân kỳ khóa sổ nên không sửa được"
                   />
                 </div>
                 <div className="rc-field">
@@ -2638,8 +2648,17 @@ function AllocRow({
                       ) : (
                         block.lots.map((lot) => (
                           <tr key={lot.lot_id}>
-                            {/* Mã phiếu nhập gốc; tồn đầu kỳ không có phiếu → lùi về mã lô. */}
-                            <td className="kho-lines__code">{lot.voucher_ma ?? lot.ma_lo}</td>
+                            {/* Mã phiếu nhập gốc; tồn đầu kỳ không có phiếu → lùi về mã lô. Lô thành
+                                phẩm kèm đơn / khách, lô đơn khác cùng khách kèm cảnh báo. */}
+                            <td className="kho-lines__code">
+                              {lot.voucher_ma ?? lot.ma_lo}
+                              {lot.order_ma && (
+                                <div>Đơn {lot.order_ma}{lot.khach_hang ? ` · ${lot.khach_hang}` : ""}</div>
+                              )}
+                              {lot.canh_bao && (
+                                <div><span className="badge-sem badge-sem--amber">{lot.canh_bao}</span></div>
+                              )}
+                            </td>
                             <td>{fmtDateISO(lot.ngay_nhap)}</td>
                             <td>{lot.vi_tri ?? "—"}</td>
                             <td>{lot.hsd ? fmtDateISO(lot.hsd) : "—"}</td>
@@ -2840,6 +2859,11 @@ export function VoucherDrawer({
     setPopupBlocked(!printStockVoucher(data));
   }
 
+  // Cột giá chỉ hiện khi backend THẬT SỰ trả giá: nơi gọi truyền `canViewCost` true (màn đề nghị,
+  // ngăn Thực hiện SX) để người tạo yêu cầu thấy giá, nhưng người xem khác thì backend trả `null`
+  // ⇒ không dựng hai cột Đơn giá/Thành tiền trống. Có quyền thì `gia_von` luôn là số (kho_voucher.py).
+  const hienGia = canViewCost && v?.gia_von != null;
+
   async function act(fn: () => Promise<StockVoucher>, fallback: string) {
     setBusy(true);
     setError(null);
@@ -3022,8 +3046,8 @@ export function VoucherDrawer({
                           <th style={{ minWidth: 300 }}>Vật tư</th>
                           <th style={{ width: 60, textAlign: "center" }}>ĐVT</th>
                           <th className="kho-num" style={{ width: 110 }}>Số lượng</th>
-                          {canViewCost && <th className="kho-num" style={{ width: 120 }}>Đơn giá</th>}
-                          {canViewCost && <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>}
+                          {hienGia && <th className="kho-num" style={{ width: 120 }}>Đơn giá</th>}
+                          {hienGia && <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -3031,7 +3055,7 @@ export function VoucherDrawer({
                           <tr key={l.id}>
                             <td style={{ minWidth: 300 }}>
                               <div className="kho-lines__name" style={{ fontWeight: "var(--fw-bold)", color: "var(--ink)" }}>{l.hang_ten ?? "—"}</div>
-                              <div className="kho-lines__code" style={{ fontFamily: "var(--ff-num)", fontSize: 12, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
+                              <div className="kho-lines__code" style={{ fontFamily: "var(--ff-sans)", fontSize: 12, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
                             </td>
                             <td className="kho-lines__code" style={{ textAlign: "center" }}>{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
                             <td className="kho-num">
@@ -3047,12 +3071,12 @@ export function VoucherDrawer({
                                 fmtQty(l.so_luong)
                               )}
                             </td>
-                            {canViewCost && (
+                            {hienGia && (
                               <td className="kho-num">
                                 {l.don_gia != null ? money(l.don_gia) : ""}
                               </td>
                             )}
-                            {canViewCost && (
+                            {hienGia && (
                               <td className="kho-num" style={{ fontWeight: "var(--fw-bold)" }}>
                                 {l.thanh_tien != null ? money(l.thanh_tien) : ""}
                               </td>

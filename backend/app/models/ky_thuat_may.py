@@ -121,9 +121,9 @@ class SuaChuaMay(Base):
         String(16), nullable=False, default=MUC_DO_TRUNG_BINH, server_default=MUC_DO_TRUNG_BINH
     )
 
-    # Người BÁO hỏng — thường KHÁC người đang gõ (thợ đứng máy báo miệng, tổ kỹ thuật nhập hộ).
-    # Vì thế là ô chọn nhân viên, không lấy mặc định từ user đăng nhập. Tên snapshot để 3 tháng sau
-    # nhân viên nghỉ việc vẫn tra được ai báo.
+    # Người BÁO hỏng — SERVER chốt lúc tạo phiếu, không ai gõ hay sửa được (14/09/2026): phiếu sinh
+    # từ yêu cầu lấy tên người gửi yêu cầu; phiếu tổ kỹ thuật tự lập lấy tài khoản đang lập (id là
+    # hồ sơ nhân sự nối với tài khoản đó). Tên snapshot để nhân viên nghỉ việc vẫn tra được ai báo.
     nguoi_bao_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # soft → employees.id
     nguoi_bao_ten: Mapped[str | None] = mapped_column(String(150), nullable=True)
     thoi_diem: Mapped[datetime] = mapped_column(
@@ -150,10 +150,9 @@ class YeuCauSuaChua(Base):
 
     Ba điều chốt lại ở đây, khác hẳn phiếu sửa chữa:
 
-    * **`nguoi_bao_id` là TÀI KHOẢN ĐANG ĐĂNG NHẬP**, không phải ô chữ tự gõ. Trên phiếu sửa chữa
-      "Người báo" là ô chữ vì tổ kỹ thuật nhập hộ người báo miệng; ở đây người báo chính là người
-      đang gõ, và cái cần nhất là biết CHÍNH XÁC hỏi lại ai. Tên + bộ phận vẫn snapshot để người
-      nghỉ việc / chuyển phòng rồi vẫn tra được.
+    * **`nguoi_bao_id` là TÀI KHOẢN ĐANG ĐĂNG NHẬP**, không phải ô chữ tự gõ — cái cần nhất là biết
+      CHÍNH XÁC hỏi lại ai. Tên + bộ phận vẫn snapshot để người nghỉ việc / chuyển phòng rồi vẫn tra
+      được. (Cột cùng tên bên phiếu sửa chữa trỏ `employees.id`, không phải `users.id`.)
     * **`muc_do` là mức người báo TỰ THẤY**, không phải kết luận. Tổ sửa chữa đặt lại lúc tạo phiếu.
     * **Không có đường XOÁ.** Yêu cầu là lời của một con người; không dùng thì `tu_choi` kèm lý do —
       người báo phải đọc được vì sao, nếu không lần sau họ không báo nữa.

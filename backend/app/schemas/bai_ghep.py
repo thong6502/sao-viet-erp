@@ -383,19 +383,13 @@ class SoDoBuocChung(BaseModel):
     thoi_luong_dien_giai: dict = Field(default_factory=dict)
     #: Chờ kỹ thuật — vào tổng thời gian dẫn, KHÔNG vào chiếm máy (mục B).
     so_luot_chay: int = 1
-    # Khoán: phần GHIM (đầu việc đã chọn, ảnh chụp) + danh sách chọn được của TỔ đang gán + phần
-    # DẪN XUẤT (SL quy đổi · tiền · diễn giải) — cùng hợp đồng với bước lệnh ở màn KHSX.
+    # Đầu việc: phần GHIM (ảnh chụp lúc chọn) + danh sách chọn được của TỔ đang gán — cùng hợp đồng
+    # với bước lệnh ở màn KHSX. Không ô tiền nào từ 11/09/2026 (bỏ `khoan_don_vi`/`khoan_don_gia` +
+    # bốn ô dẫn xuất `khoan_sl`/`khoan_don_vi_sl`/`khoan_tien`/`khoan_dien_giai` +
+    # `khoan_thieu`/`khoan_ly_do`): sản xuất ghi SỐ LƯỢNG, kế toán lương quy ra tiền.
     khoan_rate_id: int | None = None
     khoan_ten: str | None = None
-    khoan_don_vi: str | None = None
-    khoan_don_gia: float | None = None
     khoan_chon_duoc: list[dict] = Field(default_factory=list)
-    khoan_sl: float | None = None
-    khoan_don_vi_sl: str | None = None
-    khoan_tien: float | None = None
-    khoan_dien_giai: str | None = None
-    khoan_thieu: list[str] = Field(default_factory=list)
-    khoan_ly_do: str | None = None
     vat_tus: list[dict] = Field(default_factory=list)
     # Lượng TÍNH SẴN cho mọi vật tư theo lượt chung này — cùng hợp đồng `{vat_tu_id, so_luong,
     # dien_giai, ly_do}` với bước lệnh. Món chưa tính ra được vẫn có mặt với `so_luong=None` kèm

@@ -216,6 +216,14 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
                     vd["don_gia"] = _f(m.don_gia)
         vts.append(vd)
     d["vat_tus"] = vts
+
+    # Chi phí khác: KHÔNG tra danh mục, KHÔNG công thức — chép nguyên cặp (tên, tiền) người lập
+    # phiếu gõ. Đây chính là chỗ hứng khoản chưa có danh mục nào nhận, nên resolve cái gì cũng
+    # sai. Dòng trống tên lẫn tiền vẫn chép sang: engine tự bỏ dòng 0đ, còn cái tên thì nó giữ.
+    d["chi_phi_khacs"] = [
+        {"ten": (cp.ten or "").strip(), "so_tien": _f(cp.so_tien)}
+        for cp in sorted(getattr(tp, "chi_phi_khacs", []) or [], key=lambda r: (r.thu_tu or 0, r.id or 0))
+    ]
     return d
 
 

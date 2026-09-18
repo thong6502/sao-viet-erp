@@ -15,6 +15,31 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ViecPhatSinhIn(BaseModel):
+    """Một việc phát sinh trong thân POST/PUT — ba ô người khai + `id` của dòng đang sửa.
+
+    Kiểu nới (`ten` rỗng được, `don_gia`/`don_vi` bỏ trống được) là CỐ Ý: luật khai nằm ở
+    `CongViecKhoanService._validate`, câu lỗi tiếng Việt gọi đúng tên việc. Để Pydantic chặn thì
+    người khai nhận "Field required" kèm đường dẫn `viec_phat_sinh.1.don_gia`, không biết dòng nào.
+    """
+
+    #: Id dòng đang có (form nạp từ Row gửi ngược lên). Bỏ trống = dòng mới.
+    id: int | None = None
+    ten: str = Field(default="", max_length=255)
+    don_gia: float | None = None
+    #: MÃ đơn vị trong danh mục Đơn vị & quy đổi (`kem`, `luot`).
+    don_vi: str | None = Field(default=None, max_length=24)
+
+
+class ViecPhatSinhRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ten: str
+    don_gia: float
+    don_vi: str
+
+
 class CongViecKhoanIn(BaseModel):
     """Thân POST/PUT. `ma` bỏ trống ⇒ server cấp `KH-####` (màn không có ô Mã lúc tạo).
 
@@ -34,6 +59,9 @@ class CongViecKhoanIn(BaseModel):
     #: Cách đo lượng ĐÃ GỠ khỏi bảng đơn giá (mg `0274`) — nay khai ở dòng đầu việc của công đoạn.
     note: str | None = Field(default=None, max_length=255)
     active: bool = True
+    #: VIỆC PHÁT SINH (14/09/2026). VẮNG = giữ nguyên danh sách đang có (nhập Excel không mang
+    #: khoá này); `[]` = xoá hết. Xem `CongViecKhoanRepository._sau_gan`.
+    viec_phat_sinh: list[ViecPhatSinhIn] | None = None
 
 
 class CongViecKhoanRow(BaseModel):
@@ -52,6 +80,8 @@ class CongViecKhoanRow(BaseModel):
     #: TÊN đọc được của đơn vị, server gán từ danh mục (`to` → "tờ"). Không có mã trong danh mục
     #: thì `None` — màn hiện nguyên mã kèm dấu hiệu, không im lặng bỏ trắng.
     don_vi_ten: str | None = None
+    #: Theo thứ tự đã khai. Luôn có mặt (kể cả `[]`) — màn vẽ cột "Việc phát sinh" từ đây.
+    viec_phat_sinh: list[ViecPhatSinhRow] = []
 
 
 class CongViecKhoanListOut(BaseModel):

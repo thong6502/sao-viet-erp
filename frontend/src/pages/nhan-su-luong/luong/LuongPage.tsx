@@ -1,8 +1,8 @@
 // Lương (module `luong`, Phase 1 — lương thời gian). 5 tab:
 //   • Bảng lương tháng — Tạo → soát ô vàng → Chốt → xuất Excel + file chuyển khoản.
-//   • Lương nhân viên — khai báo (nhóm/bậc + mức) & điều chỉnh (lịch sử).
+//   • Lương nhân viên — khai báo mức riêng từng người & điều chỉnh (lịch sử).
 //   • Tạm ứng — ghi nhiều lần → duyệt → tự trừ.
-//   • Cấu hình lương — 3 tab con: bậc lương & KPI · cơ chế theo bộ phận · phụ cấp & bảo hiểm.
+//   • Cấu hình lương — 3 tab con: cơ chế theo bộ phận · danh mục khoản thu nhập · bảo hiểm & thuế.
 //   • Phiếu lương của tôi — self-service.
 import { useEffect, useState } from "react";
 import {
@@ -73,7 +73,7 @@ export function LuongPage({
   // Người có quyền sửa luôn được xem để tránh ma trận quyền cũ khóa nhầm quản trị viên.
   // Tab "Cấu hình lương" đi theo ĐÚNG ô của nó (`Xem cấu hình lương`). Trước 11/08/2026 còn
   // `|| canManage`: ai bật ô Thao tác là tab cấu hình tự bung ra — mà sửa một dòng lương và sửa
-  // thang bậc / hệ số / thuế của cả công ty là hai mức khác hẳn nhau.
+  // cơ chế / hệ số / thuế của cả công ty là hai mức khác hẳn nhau.
   const canReadConfig = can("luong", "view_salary");
   const [tab, setTab] = useState<Tab>(
     canOpenBangLuong ? "bang" : canReadConfig ? "cauhinh" : "phieu",
@@ -148,7 +148,7 @@ export function LuongPage({
             <button
               className={`lg-tab-btn ${tab === "cauhinh" ? "is-active" : ""}`}
               onClick={() => go("cauhinh")}
-              title="Cấu hình thang bậc lương & cơ chế"
+              title="Cấu hình cơ chế lương, khoản thu nhập, bảo hiểm & thuế"
             >
               <Sliders className="lg-tab-btn__icon" />
               <span>Cấu hình lương</span>

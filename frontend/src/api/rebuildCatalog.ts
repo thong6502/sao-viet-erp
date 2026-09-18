@@ -24,19 +24,74 @@ function qs(params: Record<string, unknown>): string {
   return str ? `?${str}` : "";
 }
 
+// -- Danh sách THAM CHIẾU cho ô chọn trong drawer (nhớ trong phiên) ---------------------------
+// Đo 14/09/2026, drawer Công đoạn: tên trên ô chọn chỉ hiện sau 0,5–1 s dù mỗi danh sách ở máy
+// chủ chỉ 25–60 ms — mỗi lần MỞ drawer là hỏi lại từ đầu 6 danh mục nguồn (StrictMode ở dev nhân
+// đôi thành 12), socket nghỉ quá 5 s đã bị uvicorn đóng nên phải bắt tay lại. Nhớ lại danh sách lần
+// trước thì mở lần sau có tên NGAY, bản mới vẫn hỏi lại nền rồi đè lên (người khác vừa sửa danh mục
+// thì tên chỉ cũ trong một nhịp mạng). Khoá theo NGƯỜI (sub của token) chứ không theo token: token
+// đổi sau mỗi lượt refresh, khoá theo nó thì cứ refresh là mất nhớ; khoá theo người thì đăng xuất
+// đổi tài khoản không thấy danh mục của người trước.
+const nhoThamChieu = new Map<string, Row[]>();
+const dangHoiThamChieu = new Map<string, Promise<Row[]>>();
+
+function nguoiCuaToken(token: string): string {
+  try {
+    return String(JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).sub);
+  } catch {
+    return token;
+  }
+}
+
+/** Bỏ nhớ mọi danh sách tham chiếu của một danh mục — gọi sau khi GHI vào danh mục đó. */
+function boNhoThamChieu(prefix: string): void {
+  for (const khoa of [...nhoThamChieu.keys()]) {
+    const path = khoa.slice(khoa.indexOf("|") + 1);
+    if (path === prefix || path.startsWith(`${prefix}?`)) nhoThamChieu.delete(khoa);
+  }
+}
+
 /** CRUD generic cho 1 prefix (vd "/api/may-thiet-bi"). */
 export function crud(prefix: string) {
   return {
     list(token: string, params: Record<string, unknown> = {}): Promise<ListOut<Row>> {
       return authed<ListOut<Row>>(`${prefix}${qs({ size: 200, ...params })}`, token);
     },
+    /** Danh sách cho Ô CHỌN tham chiếu: `nho` = bản đã nhớ từ lần trước (có thì bày ngay), `moi` =
+     *  bản vừa hỏi lại. Hai chỗ cùng hỏi một danh sách lúc nó đang bay (StrictMode chạy effect hai
+     *  lần) thì dùng chung MỘT request; `batMoi` bỏ qua request đang bay — dùng khi vừa sửa danh mục
+     *  nguồn ngay trong drawer, request cũ có thể đã rời máy trước lúc sửa. */
+    thamChieu(token: string, params: Record<string, unknown> = {}, batMoi = false): { nho?: Row[]; moi: Promise<Row[]> } {
+      const path = `${prefix}${qs({ size: 200, ...params })}`;
+      const khoa = `${nguoiCuaToken(token)}|${path}`;
+      let moi = batMoi ? undefined : dangHoiThamChieu.get(khoa);
+      if (!moi) {
+        const p: Promise<Row[]> = authed<ListOut<Row>>(path, token)
+          .then((r) => {
+            // Request cũ về SAU request mới (`batMoi`) thì không được đè bản mới vào nhớ.
+            if (dangHoiThamChieu.get(khoa) === p) nhoThamChieu.set(khoa, r.items);
+            return r.items;
+          })
+          .finally(() => { if (dangHoiThamChieu.get(khoa) === p) dangHoiThamChieu.delete(khoa); });
+        dangHoiThamChieu.set(khoa, p);
+        moi = p;
+      }
+      return { nho: nhoThamChieu.get(khoa), moi };
+    },
+    /** Chỉ ĐỌC bản đã nhớ, không hỏi mạng — để khởi tạo state ngay lần render đầu (đợi tới effect
+     *  thì drawer đã vẽ một nhịp "#13" rồi mới ra tên). */
+    daNho(token: string, params: Record<string, unknown> = {}): Row[] | undefined {
+      return nhoThamChieu.get(`${nguoiCuaToken(token)}|${prefix}${qs({ size: 200, ...params })}`);
+    },
     get(token: string, id: number): Promise<Row> {
       return authed<Row>(`${prefix}/${id}`, token);
     },
     create(token: string, body: Record<string, unknown>): Promise<Row> {
+      boNhoThamChieu(prefix);
       return authed<Row>(prefix, token, { method: "POST", body: JSON.stringify(body) });
     },
     update(token: string, id: number, body: Record<string, unknown>): Promise<Row> {
+      boNhoThamChieu(prefix);
       return authed<Row>(`${prefix}/${id}`, token, { method: "PUT", body: JSON.stringify(body) });
     },
     /** BẬT / NGỪNG dùng một dòng. Route RIÊNG chứ không phải `update({active})`.
@@ -46,15 +101,18 @@ export function crud(prefix: string) {
      *  mục xoá mềm. Vẫn gửi ĐÚNG một trường: kèm cả dòng vào là kéo theo field server tự tính
      *  (`don_vi_ten`, `quy_doi_chips`…) rồi nhật ký ghi một đống "thay đổi" ma. */
     datActive(token: string, id: number, active: boolean): Promise<Row> {
+      boNhoThamChieu(prefix);
       return authed<Row>(`${prefix}/${id}/active`, token, {
         method: "PATCH", body: JSON.stringify({ active }),
       });
     },
     remove(token: string, id: number): Promise<void> {
+      boNhoThamChieu(prefix);
       return authed<void>(`${prefix}/${id}`, token, { method: "DELETE" });
     },
     /** Nhân bản một dòng — server copy toàn bộ cột, tự đặt mã/tên "(bản sao)" không trùng. */
     clone(token: string, id: number): Promise<Row> {
+      boNhoThamChieu(prefix);
       return authed<Row>(`${prefix}/${id}/clone`, token, { method: "POST" });
     },
     /** Lịch sử ĐẦY ĐỦ một ô công thức (mục 3+7) — "Xem thêm lịch sử" trong `FormulaField`. Chỉ
@@ -75,6 +133,7 @@ export function crud(prefix: string) {
      *  thứ khiến người dùng bấm Xác nhận rồi mới ăn lỗi. `mode="commit"` mới ghi, và chỉ ghi khi
      *  KHÔNG còn dòng lỗi nào. */
     importExcel(token: string, file: File, mode: "preview" | "commit"): Promise<ImportExcelOut> {
+      if (mode === "commit") boNhoThamChieu(prefix);
       const form = new FormData();
       form.append("file", file);
       return authed<ImportExcelOut>(`${prefix}/import-excel?mode=${mode}`, token, {

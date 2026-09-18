@@ -165,7 +165,7 @@
 }
 
 .dpanel__amount small {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 16px;
   font-weight: var(--fw-regular);
@@ -222,7 +222,7 @@
 }
 
 .dpanel__row--total .dpanel__row-value {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   color: var(--rust);
   font-weight: var(--fw-bold);

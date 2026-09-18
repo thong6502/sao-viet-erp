@@ -52,6 +52,7 @@ export function KeHoachSXPage({
   openOrderId,
   openLsxId,
   eventTick,
+  dinhKemDem,
   onBadgeStale,
 }: {
   navigate?: (id: string, params?: Record<string, unknown>) => void;
@@ -61,6 +62,8 @@ export function KeHoachSXPage({
   openLsxId?: number | null;
   /** Tăng mỗi lần có event SSE → refetch (real-time, không bắt người dùng F5). */
   eventTick?: number;
+  /** Số lần tệp đính kèm đổi, đếm theo id lệnh — chỉ màn chi tiết đúng lệnh nạp lại danh sách tệp. */
+  dinhKemDem?: Record<number, number>;
   onBadgeStale?: () => void;
 }) {
   const { token } = useAuth();
@@ -213,6 +216,7 @@ export function KeHoachSXPage({
           onBack={() => setView({ mode: "list" })}
           onChanged={doiDuLieu}
           eventTick={eventTick}
+          dinhKemTick={dinhKemDem?.[view.id] ?? 0}
         />
       </main>
     );

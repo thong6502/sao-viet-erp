@@ -1,4 +1,4 @@
-/* KCS kiêm nhiệm (mg 0250) — Task 9.
+/* Màn KCS — KCS theo LỆNH (mg 0306, docs/design-kcs-theo-lenh.md).
    Nền tảng: khung `.rc` + class công cụ `.rc__*` (xem rebuild-catalog.css) — `responsive.css` đã
    lo 375px cho toàn bộ phần đó MIỄN PHÍ. File này CHỈ chứa phần không có tiền lệ: KPI strip, dải
    filter riêng, card/table đặc thù KCS, khối checklist + ảnh lỗi trong drawer. */
@@ -79,7 +79,7 @@
 }
 
 .kcs-dash__val {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: 22px;
   font-weight: 700;
@@ -121,49 +121,49 @@
   .kcs-dash__seg:first-child { border-top: none; }
 }
 
-/* ---- Khối ba tầng "Điểm kiểm theo công đoạn": Giai đoạn → Công đoạn → checklist --------- */
-/* Tầng GIAI ĐOẠN là nhóm bên trong một `.kcs-section` sẵn có, nên nó chỉ cần khoảng cách dọc
-   riêng + tiêu đề nhỏ hơn h2 một bậc; không dựng lại khung/viền để tránh hai lớp hộp lồng nhau. */
-.kcs-giaidoan {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
+/* ---- Bảng danh sách lệnh / "Kết quả đã ghi": ô số căn phải, dòng bấm được --------------- */
+.kcs-table--lenh td.num,
+.kcs-table--ketqua td.num {
+  font-family: var(--ff-sans);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
-.kcs-giaidoan + .kcs-giaidoan {
-  margin-top: var(--sp-4);
+.kcs-table--lenh th.num,
+.kcs-table--ketqua th.num {
+  text-align: right;
 }
-.kcs-giaidoan__ten {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-size: 13px;
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ink-soft);
-  margin: 0;
-}
-
-/* Dòng phụ trong ô (tên sản phẩm dưới mã đơn, tên thợ dưới tên tổ): KHÔNG ellipsis — tên thợ
-   Việt bị cắt là mất họ, xem bẫy "ellipsis nuốt tên/mã" ở responsive. */
-.kcs-table--diemkiem .rc__sub {
+/* Dòng phụ trong ô (tên sản phẩm dưới mã lệnh): KHÔNG ellipsis — xem bẫy "ellipsis nuốt tên/mã". */
+.kcs-table--lenh .rc__sub,
+.kcs-table--ketqua .rc__sub {
   font-size: 12px;
   color: var(--ink-soft);
   margin-top: 2px;
 }
 
-/* ---- Bảng "Chờ KCS" / "Kết quả đã ghi": ô số căn phải, dòng bấm được -------------------- */
-.kcs-table--cho td.num,
-.kcs-table--diemkiem td.num,
-.kcs-table--ketqua td.num {
-  font-family: var(--ff-num);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
+.kcs-lenh__loc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
 }
-.kcs-table--cho th.num,
-.kcs-table--diemkiem th.num,
-.kcs-table--ketqua th.num {
-  text-align: right;
+.kcs-lenh__loc input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  padding: 0 var(--sp-3);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.kcs-lenh__dong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink);
 }
 
 .kcs-row--clickable {
@@ -254,7 +254,7 @@
   border: 1px solid var(--rule);
   border-radius: var(--r-2);
   padding: 0 var(--sp-3);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 15px;
   color: var(--ink);
   background: var(--canvas);
@@ -289,18 +289,38 @@
   flex-direction: column;
   gap: 4px;
 }
+/* Ô một dòng trong cột dọc: bỏ `flex-basis` 180px của ô ghi chú tiêu chí (ở hàng ngang) — không
+   thì nó thành chiều CAO 180px. */
+.kcs-drawer__field .kcs-check-row__note { flex: none; }
 .kcs-drawer__field label {
   font-size: 12px;
   font-weight: var(--fw-bold);
   color: var(--ash-2);
 }
 
-/* Ảnh bằng chứng lỗi — MỘT input file gộp nhiều ảnh + dòng chữ đếm, KHÔNG lưới thumbnail
-   (đúng tiền lệ `KcsLoiForm` ở ThsxG5.tsx — "form tối giản", trình duyệt tự lo hộp thoại chọn). */
-.kcs-drawer__anh-input {
-  font-family: var(--ff-sans);
-  font-size: 13px;
+/* Ảnh bằng chứng lỗi — danh sách cộng dồn: đầu mục (nhãn + đếm), hai nút Chụp/Chọn, rồi mỗi ảnh một
+   dòng `.thsx-tep` (cùng kiểu dòng ảnh ở lần kiểm đã ghi) có nút Bỏ. */
+.kcs-drawer__anh-dau {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
 }
+.kcs-drawer__anh-nhan {
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  color: var(--ash-2);
+}
+.kcs-drawer__anh-dem {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.kcs-drawer__anh-nut {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.kcs-drawer__anh-nut .btn { background: var(--canvas); }
 .kcs-drawer__anh-hint {
   margin: 4px 0 0;
   font-size: 12.5px;
@@ -323,63 +343,191 @@
   color: var(--moss-deep);
 }
 
-/* ---- Picker "Kiểm đột xuất": chọn tổ rồi chọn việc --------------------------------------- */
-.kcs-picker {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-}
-.kcs-picker__list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 320px;
-  overflow-y: auto;
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
-}
-.kcs-picker__row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--sp-2) var(--sp-3);
-  text-align: left;
-  border: none;
-  border-bottom: 1px solid var(--rule-hair);
-  background: var(--canvas);
-  cursor: pointer;
-  font-family: var(--ff-sans);
-}
-.kcs-picker__row:last-child { border-bottom: none; }
-.kcs-picker__row:hover { background: var(--rule-hair); }
-.kcs-picker__row-title { font-size: 13px; color: var(--ink); font-weight: var(--fw-bold); }
-.kcs-picker__row-sub { font-size: 12px; color: var(--ash-2); }
-
 @media (max-width: 480px) {
   .kcs-drawer__soluong input { width: 100%; }
 }
 
-/* ===== Chốt nhóm (đóng thiếu · BTP dư) — §13.3/§14.2 ====================== */
+/* ===== Chốt nhóm (đóng thiếu) — §13.3 ===================================== */
 .kcs-chot__hint { margin: 0 0 var(--sp-2); font-size: 12px; color: var(--ash-2); }
-.kcs-chot { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-.kcs-chot__it { border: 1px solid var(--rule-hair); border-radius: 8px; background: var(--canvas); overflow: hidden; }
-.kcs-chot__hd {
-  width: 100%;
+.kcs-chot__sl { font-size: 12px; font-weight: 400; color: var(--ash-2); }
+.kcs-chot__than { padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+
+/* ===== Chuỗi công đoạn của một lệnh ======================================= */
+.kcs-lenh-dau {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+.kcs-lenh-dau__ma { font-size: 15px; font-weight: var(--fw-bold); color: var(--ink); }
+.kcs-lenh-dau__phu { font-size: 13px; color: var(--ash-2); overflow-wrap: anywhere; }
+
+.kcs-chuoi {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.kcs-chuoi__it {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper, var(--canvas));
+}
+.kcs-chuoi__it--dat { border-left-color: var(--moss); }
+.kcs-chuoi__it--loi { border-left-color: var(--rust); }
+
+.kcs-chuoi__hd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+.kcs-chuoi__stt {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--rule-hair);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.kcs-chuoi__ten { font-size: 14px; font-weight: var(--fw-bold); color: var(--ink); overflow-wrap: anywhere; }
+.kcs-chuoi__cuoi-tag {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--moss-deep);
+}
+.kcs-chuoi__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--sp-4);
+  font-size: 13px;
+  color: var(--ash-2);
+}
+.kcs-chuoi__meta b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.kcs-chuoi__nut {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-family: var(--ff-sans);
-  text-align: left;
 }
-.kcs-chot__hd:hover { background: var(--rule-hair); }
-.kcs-chot__ic { transform: rotate(-90deg); transition: transform 120ms ease; }
-.kcs-chot__ic.is-open { transform: none; }
-@media (prefers-reduced-motion: reduce) { .kcs-chot__ic { transition: none; } }
-.kcs-chot__ten { font-size: 13px; font-weight: var(--fw-bold); color: var(--ink); }
-.kcs-chot__sl { margin-left: auto; font-size: 12px; color: var(--ash-2); }
-.kcs-chot__than { padding: 0 var(--sp-3) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
-.kcs-chot__cv { display: flex; align-items: center; gap: var(--sp-2); font-size: 12px; color: var(--ash-2); margin-bottom: var(--sp-2); }
+.kcs-chuoi__kho-ds {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kcs-chuoi__kho-ds li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-3);
+}
+.kcs-chuoi__kho-ma {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+button.kcs-chuoi__kho-ma {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.kcs-chuoi__kho-luc {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.kcs-chuoi__kho {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-2);
+  background: var(--moss-soft);
+  font-size: 13px;
+  color: var(--moss-deep);
+}
+.kcs-chuoi__than { border-top: 1px solid var(--rule-hair); padding-top: var(--sp-2); }
+
+/* ===== Danh sách lần kiểm (màn KCS + mục "Kết quả KCS" ở ngăn chi tiết bàn tổ) ======= */
+.kcs-lk {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.kcs-lk__it { display: flex; flex-direction: column; gap: 4px; }
+.kcs-lk__it + .kcs-lk__it { border-top: 1px dashed var(--rule-hair); padding-top: var(--sp-3); }
+.kcs-lk__dau {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--sp-3);
+}
+.kcs-lk__so { font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.kcs-lk__ai { font-size: 12px; color: var(--ash-2); }
+.kcs-lk__phu { margin: 0; font-size: 12.5px; color: var(--ash-2); overflow-wrap: anywhere; }
+/* Từng tiêu chí của lần kiểm: ✓/✗ + tên + Đạt/Không đạt, ghi chú xuống dòng riêng. */
+.kcs-lk__tc { display: flex; flex-direction: column; gap: 3px; }
+.kcs-lk__tc-ds { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.kcs-lk__tc-it {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  padding: 3px var(--sp-2);
+  border-radius: var(--r-2);
+  font-size: 13px;
+  color: var(--ink);
+}
+.kcs-lk__tc-ic { flex: none; align-self: center; color: var(--moss); }
+.kcs-lk__tc-ten { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.kcs-lk__tc-kq { flex: none; font-size: 12px; color: var(--moss-deep); }
+.kcs-lk__tc-gc { flex-basis: 100%; padding-left: 18px; font-size: 12px; color: var(--ash-2); overflow-wrap: anywhere; }
+.kcs-lk__tc-it.is-khong { background: var(--rust-soft); }
+.kcs-lk__tc-it.is-khong .kcs-lk__tc-ic,
+.kcs-lk__tc-it.is-khong .kcs-lk__tc-kq { color: var(--rust-deep); }
+.kcs-lk__tc-it.is-khong .kcs-lk__tc-kq { font-weight: var(--fw-bold); }
+.kcs-lk__loi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: 4px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-2);
+  background: var(--rust-soft);
+}
+.kcs-lk__loi-dau {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--sp-2);
+  color: var(--rust-deep);
+}
+.kcs-lk__loi-mota { font-size: 13px; font-weight: var(--fw-bold); overflow-wrap: anywhere; }
+.kcs-lk__loi-tt { font-size: 12px; color: var(--ash-2); }
+.kcs-lk__trong { margin: 0; font-size: 13px; color: var(--ash-2); }

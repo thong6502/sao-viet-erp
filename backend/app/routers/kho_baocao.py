@@ -50,8 +50,10 @@ from ..schemas.stock import (
     KhoKhoaSoIn,
     KhoKhoaSoRow,
     KyDaTinhRow,
+    ThanhPhamChuaGiaGocPage,
     TinhGiaKyIn,
 )
+from ..services import kho_gia_goc_service
 
 router = APIRouter(prefix="/api/kho", tags=["kho-bao-cao"])
 MODULE = "kho"
@@ -170,6 +172,20 @@ def bao_cao_dong(
 ) -> BaoCaoKhoPage:
     rows = _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q)
     return BaoCaoKhoPage(items=rows, total=len(rows))
+
+
+@router.get("/bao-cao/thanh-pham-chua-gia-goc", response_model=ThanhPhamChuaGiaGocPage)
+def thanh_pham_chua_gia_goc(
+    db: Db,
+    _: Annotated[User, Depends(require_permission(MODULE, "view_cost"))],
+    q: str | None = Query(default=None, max_length=100),
+    chi_chua_gia: bool = Query(default=True),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
+) -> ThanhPhamChuaGiaGocPage:
+    """Lô gốc thành phẩm nhập từ KCS ở MỌI kho — mặc định chỉ lô còn giá gốc 0 đ. Phân trang máy chủ."""
+    return ThanhPhamChuaGiaGocPage(**kho_gia_goc_service.ds_chua_gia_goc(
+        db, q=q, chi_chua_gia=chi_chua_gia, page=page, size=size))
 
 
 # --- Điều chuyển kho: 1 dòng/mặt hàng (Xuất tại kho → Nhập tại kho) --------------

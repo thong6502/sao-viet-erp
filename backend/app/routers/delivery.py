@@ -32,14 +32,20 @@ from ..repositories.customer_repo import CustomerRepository
 from ..repositories.delivery_repo import DeliveryRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.order_repo import OrderRepository
+from ..repositories.xe_repo import MucKhoanKmRepository, XeRepository
 from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas.delivery import (
     DinhKemListOut,
     DinhKemOut,
     KmBracketOut,
-    KmBracketsIn,
-    KmBracketsOut,
+    KhoanKmPctIn,
+    KhoanKmPctOut,
+    MucKmBracketsIn,
+    MucKmIn,
+    MucKmListOut,
+    MucKmOut,
+    MucKmSua,
     ConPhaiGiaoLine,
     ConPhaiGiaoOut,
     DeliveryRequestCreate,
@@ -72,6 +78,7 @@ from ..services.delivery_service import (
     DeliveryService,
 )
 from ..services.rbac_service import AuthorizationService
+from ..services.thanh_pham_khai_bao import cum_ban
 
 router = APIRouter(prefix="/api/giao-hang", tags=["giao-hang"])
 MODULE = "giao_hang"
@@ -139,6 +146,8 @@ def get_service(db: Annotated[Session, Depends(get_db)]) -> DeliveryService:
         DepartmentRepository(db),
         stock_requests=_stock_request_service(db),
         stock_vouchers=_stock_voucher_service(db),
+        xe=XeRepository(db),
+        muc_km=MucKhoanKmRepository(db),
     )
 
 
@@ -216,6 +225,7 @@ def _request_out(db: Session, svc: DeliveryService, req) -> DeliveryRequestOut:
     if req.customer_id is not None:
         kh = CustomerRepository(db).get_by_id(req.customer_id)
         khach = getattr(kh, "name", None) if kh is not None else None
+    cum = _cum_theo_dong(order)
     return DeliveryRequestOut(
         id=req.id,
         code=req.code,
@@ -236,6 +246,7 @@ def _request_out(db: Session, svc: DeliveryService, req) -> DeliveryRequestOut:
         created_at=req.created_at,
         lines=[
             DeliveryRequestLineOut(
+                **_cum_cua(cum, ln.order_line_id),
                 id=ln.id, order_line_id=ln.order_line_id, qty=ln.qty,
                 mo_ta=mo_ta.get(ln.order_line_id, ("", ""))[0],
                 don_vi_tinh=mo_ta.get(ln.order_line_id, ("", ""))[1],
@@ -249,9 +260,28 @@ def _request_out(db: Session, svc: DeliveryService, req) -> DeliveryRequestOut:
     )
 
 
+def _cum_theo_dong(order) -> dict:
+    """`{order_line_id: CumBan}` — chỉ cụm NHIỀU dòng (dòng đứng một mình không cần gom trên form)."""
+    if order is None:
+        return {}
+    return {ln.id: c for c in cum_ban(order) if len(c.dong) > 1 for ln in c.dong}
+
+
+def _cum_cua(cum: dict, order_line_id: int) -> dict:
+    c = cum.get(order_line_id)
+    return {"cum_khoa": c.khoa, "cum_ten": c.ten, "cum_dvt": c.dvt} if c is not None else {}
+
+
 # `_trang_thai_lsx` GỠ 20/08/2026 (chủ chốt): "bên bộ phận giao hàng chỉ nhận yêu cầu thôi,
 # SX như nào kệ nó". Nó chạy MỘT truy vấn cho MỖI dòng yêu cầu (N+1) để lấy một cột mà bộ phận
 # giao hàng không dùng vào việc gì — PRD §quyết định #1 vốn đã nói rõ là KHÔNG chặn theo nó.
+
+
+def _xe_cua(svc: DeliveryService, vehicle_id):
+    """Bản ghi xe của chuyến, hoặc None. Gói lại vì `_trip_out` hỏi hai lần (biển số + tên)."""
+    if vehicle_id is None or svc.xe is None:
+        return None
+    return svc.xe.get(vehicle_id)
 
 
 def _trip_out(db: Session, svc: DeliveryService, trip, *, tong_km: int | None = None) -> TripOut:
@@ -277,6 +307,9 @@ def _trip_out(db: Session, svc: DeliveryService, trip, *, tong_km: int | None = 
         phu_xe_name=getattr(
             svc.employees.get_by_id(trip.phu_xe_employee_id) if trip.phu_xe_employee_id else None,
             "full_name", None),
+        vehicle_id=trip.vehicle_id,
+        xe_bien_so=getattr(_xe_cua(svc, trip.vehicle_id), "ma", None),
+        xe_ten=getattr(_xe_cua(svc, trip.vehicle_id), "ten", None),
         gio_lay_hang=trip.gio_lay_hang,
         gio_du_kien_giao=trip.gio_du_kien_giao,
         ghi_chu_phan_cong=trip.ghi_chu_phan_cong,
@@ -421,11 +454,13 @@ def con_phai_giao(order_id: int, svc: Service, db: Db, user: Reader):
         raise _err(e)
     order = OrderRepository(db).get_by_id(order_id)
     da_giao = svc.deliveries.da_giao_theo_dong(order_id)
+    cum = _cum_theo_dong(order)
     return ConPhaiGiaoOut(
         order_id=order_id,
         da_giao_du=svc.da_giao_du(order_id),
         lines=[
             ConPhaiGiaoLine(
+                **_cum_cua(cum, ln.id),
                 order_line_id=ln.id, mo_ta=ln.description, don_vi_tinh=ln.don_vi_tinh,
                 qty_dat=int(ln.qty or 0), da_giao=int(da_giao.get(ln.id, 0)),
                 con_phai_giao=int(con.get(ln.id, 0)),
@@ -444,6 +479,7 @@ def len_ke_hoach(body: PlanIn, svc: Service, db: Db, authz: Authz, user: Planner
         kq = svc.len_ke_hoach(
             request_id=body.request_id, employee_id=body.employee_id,
             phu_xe_employee_id=body.phu_xe_employee_id,
+            vehicle_id=body.vehicle_id,
             gio_lay_hang=body.gio_lay_hang, gio_du_kien_giao=body.gio_du_kien_giao,
             actor=user, kho_id=body.kho_id, ghi_chu_phan_cong=body.ghi_chu_phan_cong,
             scope=_scope(authz, user),
@@ -594,6 +630,7 @@ def ghi_ket_qua(trip_id: int, body: KetQuaIn, svc: Service, db: Db,
             ghi_chu=body.ghi_chu,
             so_thuc_nhan=[m.model_dump() for m in (body.so_thuc_nhan or [])] or None,
             xac_nhan_km_lon=body.xac_nhan_km_lon,
+            vehicle_id=body.vehicle_id,
         )
     except DeliveryError as e:
         raise _err(e)
@@ -770,32 +807,96 @@ def dinh_kem_xoa(trip_id: int, attachment_id: int, svc: Service, db: Db, authz: 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# --- Bậc đơn giá khoán km (cấu hình trong màn Phòng ban) --------------------------------------
-# Gate `luong` HOẶC `phong_ban`: khối khoán km nay nằm ở màn Cấu hình lương (quyền `luong`),
-# nhưng vẫn nhận `phong_ban` để không phá luồng cũ / người quản phòng ban.
-@router.get("/departments/{dept_id}/km-brackets", response_model=KmBracketsOut)
-def km_brackets(
+# --- % chia tiền một chuyến cho kíp xe --------------------------------------------------------
+# Trước 12/09/2026 hai ô này đi ké endpoint ghi BẢNG BẬC cấp phòng. Bảng bậc đó đã GỠ (mọi xe ăn
+# theo MỨC, xem khối dưới) nên % tách ra đường riêng — nó vẫn là luật thật: tiền một chuyến chia
+# cho tài xế và phụ xe, đi một mình thì tài xế ăn trọn.
+#
+# Gate `luong` HOẶC `phong_ban`: khối khoán km nằm ở màn Cấu hình lương (quyền `luong`), nhưng vẫn
+# nhận `phong_ban` để không phá luồng cũ / người quản phòng ban.
+@router.get("/departments/{dept_id}/khoan-km-pct", response_model=KhoanKmPctOut)
+def khoan_km_pct(
     dept_id: int, svc: Service,
     _: Annotated[User, Depends(require_any_permission(("luong", "view_salary"),
                                                       ("luong", "update"),
                                                       ("phong_ban", "read")))],
-) -> KmBracketsOut:
+) -> KhoanKmPctOut:
     tx, px = svc.khoan_km_pct(dept_id)
-    return KmBracketsOut(items=[KmBracketOut(**b) for b in svc.km_brackets(dept_id)],
-                         pct_tai_xe=tx, pct_phu_xe=px)
+    return KhoanKmPctOut(pct_tai_xe=tx, pct_phu_xe=px)
 
 
-@router.put("/departments/{dept_id}/km-brackets", response_model=KmBracketsOut)
-def ghi_km_brackets(
-    dept_id: int, body: KmBracketsIn, svc: Service, db: Db,
-    user: Annotated[User, Depends(require_any_permission(("luong", "update"),
-                                                         ("phong_ban", "update")))],
-) -> KmBracketsOut:
+@router.put("/departments/{dept_id}/khoan-km-pct", response_model=KhoanKmPctOut)
+def ghi_khoan_km_pct(
+    dept_id: int, body: KhoanKmPctIn, svc: Service, db: Db,
+    _: Annotated[User, Depends(require_any_permission(("luong", "update"),
+                                                      ("phong_ban", "update")))],
+) -> KhoanKmPctOut:
     try:
-        rows = svc.ghi_km_brackets(dept_id, [it.model_dump() for it in body.items], actor=user,
-                                   pct_tai_xe=body.pct_tai_xe, pct_phu_xe=body.pct_phu_xe)
+        tx, px = svc.ghi_khoan_km_pct(dept_id, pct_tai_xe=body.pct_tai_xe,
+                                      pct_phu_xe=body.pct_phu_xe)
     except DeliveryError as e:
         raise _err(e)
     db.commit()
-    tx, px = svc.khoan_km_pct(dept_id)
-    return KmBracketsOut(items=[KmBracketOut(**b) for b in rows], pct_tai_xe=tx, pct_phu_xe=px)
+    return KhoanKmPctOut(pct_tai_xe=tx, pct_phu_xe=px)
+
+
+# --- MỨC khoán km (PRD §11) ------------------------------------------------------------------
+# Mỗi mức một bảng bậc, nhiều xe dùng chung một mức. Cấu hình CHUNG (14/09/2026), không thuộc phòng
+# ban nào. Cổng GHI là quyền lương: người khai biển số (`dm_xe`) không sửa được giá. Cổng ĐỌC có
+# thêm `dm_xe`: từ 14/09 xe BẮT BUỘC có mức — người khai xe không đọc được danh sách mức thì màn Xe
+# không tạo nổi chiếc nào.
+_DOC_MUC = require_any_permission(("luong", "view_salary"), ("luong", "update"),
+                                  ("phong_ban", "read"), ("dm_xe", "read"))
+_GHI_MUC = require_any_permission(("luong", "update"), ("phong_ban", "update"))
+
+
+@router.get("/muc-khoan-km", response_model=MucKmListOut)
+def danh_sach_muc(svc: Service, _: Annotated[User, Depends(_DOC_MUC)]) -> MucKmListOut:
+    return MucKmListOut(items=[MucKmOut(**m) for m in svc.danh_sach_muc()])
+
+
+@router.post("/muc-khoan-km", response_model=MucKmListOut, status_code=201)
+def tao_muc(body: MucKmIn, svc: Service, db: Db,
+            _: Annotated[User, Depends(_GHI_MUC)]) -> MucKmListOut:
+    try:
+        svc.tao_muc(ten=body.ten, ghi_chu=body.ghi_chu)
+    except DeliveryError as e:
+        raise _err(e)
+    db.commit()
+    return MucKmListOut(items=[MucKmOut(**m) for m in svc.danh_sach_muc()])
+
+
+@router.put("/muc-khoan-km/{muc_id}", response_model=MucKmListOut)
+def sua_muc(muc_id: int, body: MucKmSua, svc: Service, db: Db,
+            _: Annotated[User, Depends(_GHI_MUC)]) -> MucKmListOut:
+    try:
+        # `exclude_unset`: ô KHÔNG gửi thì giữ nguyên. Ghi cả ba ô mỗi lần là màn đổi tên (chỉ gửi
+        # `{ten}`) xoá mất ghi chú và bật lại mức đang tắt — lỗi thật, bắt được 14/09/2026.
+        svc.sua_muc(muc_id, **body.model_dump(exclude_unset=True))
+    except DeliveryError as e:
+        raise _err(e)
+    db.commit()
+    return MucKmListOut(items=[MucKmOut(**m) for m in svc.danh_sach_muc()])
+
+
+@router.delete("/muc-khoan-km/{muc_id}", response_model=MucKmListOut)
+def xoa_muc(muc_id: int, svc: Service, db: Db,
+            _: Annotated[User, Depends(_GHI_MUC)]) -> MucKmListOut:
+    try:
+        svc.xoa_muc(muc_id)
+    except DeliveryError as e:
+        raise _err(e)
+    db.commit()
+    return MucKmListOut(items=[MucKmOut(**m) for m in svc.danh_sach_muc()])
+
+
+@router.put("/muc-khoan-km/{muc_id}/bac", response_model=MucKmListOut)
+def ghi_bac_muc(muc_id: int, body: MucKmBracketsIn, svc: Service, db: Db,
+                _: Annotated[User, Depends(_GHI_MUC)]) -> MucKmListOut:
+    """Ghi bảng bậc của một mức. Hết tham số phòng ban (14/09/2026): bậc thuộc về MỨC."""
+    try:
+        svc.ghi_bac_muc(muc_id, [it.model_dump() for it in body.items])
+    except DeliveryError as e:
+        raise _err(e)
+    db.commit()
+    return MucKmListOut(items=[MucKmOut(**m) for m in svc.danh_sach_muc()])

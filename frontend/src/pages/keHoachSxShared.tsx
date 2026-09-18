@@ -28,6 +28,14 @@ export function ngayGio(v: string | null | undefined): string {
   return `${d.toLocaleDateString("vi-VN")} ${d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+/** Chỉ GIỜ:PHÚT — dùng khi ngày đã rõ từ ngữ cảnh (mốc trong cùng một mẻ, một ca). */
+export function gioNgan(v: string | null | undefined): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+}
+
 /** Số ngày còn lại tới hạn (âm = đã quá hạn). null khi không có hạn. */
 export function conLai(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null;
@@ -129,7 +137,7 @@ export const TRANG_THAI_TABS: { key: string; label: string }[] = [
 // --- trạng thái XẾP LỊCH (bàn Xếp lịch công đoạn) ---------------------------
 // Mọi nhãn của bàn xếp lịch nằm ĐÚNG MỘT chỗ (cùng file với pill/chip lệnh) — không đẻ file nhãn riêng.
 
-/** Thời lượng phút → "1 giờ 13 phút". Chữ CÓ DẤU nên KHÔNG dùng mono; canh cột bằng tabular-nums ở CSS. */
+/** Thời lượng phút → "1 giờ 13 phút". Hiển thị bằng font app (--ff-sans). */
 export function thoiLuong(phut: number | null | undefined): string {
   if (phut == null || phut <= 0) return "—";
   const t = Math.round(phut);

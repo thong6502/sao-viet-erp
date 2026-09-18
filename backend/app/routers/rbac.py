@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..deps import (
     get_activity_service,
@@ -52,6 +52,8 @@ from ..schemas.rbac import (
 from ..services.department_service import (
     DepartmentBranchHasUsers,
     DepartmentCycle,
+    GiaoHangConChuyenChay,
+    GiaoHangKemKhoanSanLuong,
     KhoanKmInvalid,
     DepartmentNameTaken,
     InvalidHead,
@@ -157,6 +159,7 @@ def create_department(
             la_kinh_doanh=payload.la_kinh_doanh,
             is_kcs=payload.is_kcs,
             la_giao_hang=payload.la_giao_hang,
+            la_to_in=payload.la_to_in,
             don_gia_km=payload.don_gia_km,
             pct_tai_xe=payload.pct_tai_xe,
             pct_phu_xe=payload.pct_phu_xe,
@@ -164,7 +167,8 @@ def create_department(
         )
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except (DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid) as e:
+    except (DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid,
+            GiaoHangKemKhoanSanLuong) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
@@ -212,6 +216,9 @@ def update_department(
             if "la_giao_hang" in payload.model_fields_set
             else {}
         )
+        # Cờ Tổ in: cùng luật "không gửi = giữ nguyên".
+        if "la_to_in" in payload.model_fields_set:
+            gh_kw["la_to_in"] = payload.la_to_in
         # Ba ô khoán km: cùng luật "không gửi = giữ nguyên". Ghi đè mặc định 0/60/40 ở luồng chỉ
         # sửa tên phòng là âm thầm xoá đơn giá — tháng sau tài xế nhận 0 đồng km mà không ai biết.
         for _o in ("don_gia_km", "pct_tai_xe", "pct_phu_xe"):
@@ -237,7 +244,8 @@ def update_department(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except (InvalidHead, DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid) as e:
+    except (InvalidHead, DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid,
+            GiaoHangConChuyenChay, GiaoHangKemKhoanSanLuong) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
@@ -399,6 +407,18 @@ def list_users(
     return admin.list_users()
 
 
+@router.get("/users/{user_id}", response_model=UserRow)
+def get_user(
+    user_id: int,
+    admin: Users,
+    _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+) -> dict:
+    try:
+        return admin.get_user_row(user_id)
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+
 # GỠ `POST /users`: mọi tài khoản đăng nhập PHẢI thuộc một hồ sơ nhân viên, nên đường tạo
 # tài khoản duy nhất là qua Hồ sơ nhân sự (`POST /api/employees` kèm `account`, hoặc
 # `POST /api/employees/{id}/account`). Không còn cửa nào đẻ ra tài khoản mồ côi.
@@ -536,6 +556,7 @@ def list_user_activity(
     user_id: int,
     admin: Users,
     _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+    limit: int = Query(default=50, ge=1, le=200),
 ) -> list[AuditRow]:
     return [
         AuditRow(
@@ -546,7 +567,7 @@ def list_user_activity(
             detail=a.detail,
             created_at=a.created_at,
         )
-        for a in admin.list_activity(user_id)
+        for a in admin.list_activity(user_id, limit=limit)
     ]
 
 

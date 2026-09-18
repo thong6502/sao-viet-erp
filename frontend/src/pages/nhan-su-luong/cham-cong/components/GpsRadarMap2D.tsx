@@ -105,10 +105,10 @@ export function GpsRadarMap2D({
           <path d="M 392 164 L 392 172 L 384 172" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
 
           {/* HUD Top Live Status Bar */}
-          <text x="14" y="18" fontSize="8" fontWeight="bold" fill="#94a3b8" letterSpacing="0.08em" style={{ fontFamily: "var(--ff-num)" }}>
+          <text x="14" y="18" fontSize="8" fontWeight="bold" fill="#94a3b8" letterSpacing="0.08em" style={{ fontFamily: "var(--ff-sans)" }}>
             RADAR GPS // THEO DÕI TRỰC TIẾP
           </text>
-          <text x="386" y="18" textAnchor="end" fontSize="8" fontWeight="bold" fill={withinRange ? "#4ade80" : "#f87171"} letterSpacing="0.08em" style={{ fontFamily: "var(--ff-num)" }}>
+          <text x="386" y="18" textAnchor="end" fontSize="8" fontWeight="bold" fill={withinRange ? "#4ade80" : "#f87171"} letterSpacing="0.08em" style={{ fontFamily: "var(--ff-sans)" }}>
             ● VÙNG CHẤM CÔNG: {withinRange ? "ĐẠT" : "NGOÀI VÙNG"}
           </text>
 
@@ -169,10 +169,10 @@ export function GpsRadarMap2D({
           />
 
           {/* Compass Cardinal Points (N, S, E, W) */}
-          <text x={cx} y={cy - radiusPx - 4} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>N</text>
-          <text x={cx} y={cy + radiusPx + 11} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>S</text>
-          <text x={cx - radiusPx - 8} y={cy + 3} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>W</text>
-          <text x={cx + radiusPx + 8} y={cy + 3} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>E</text>
+          <text x={cx} y={cy - radiusPx - 4} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-sans)" }}>N</text>
+          <text x={cx} y={cy + radiusPx + 11} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-sans)" }}>S</text>
+          <text x={cx - radiusPx - 8} y={cy + 3} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-sans)" }}>W</text>
+          <text x={cx + radiusPx + 8} y={cy + 3} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-sans)" }}>E</text>
 
           {/* Crosshair Axes Lines */}
           <line x1={cx - radiusPx - 15} y1={cy} x2={cx + radiusPx + 15} y2={cy} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" />
@@ -257,7 +257,7 @@ export function GpsRadarMap2D({
                   fontSize="8.5"
                   fontWeight="600"
                   fill="#ffffff"
-                  style={{ fontFamily: "var(--ff-num)" }}
+                  style={{ fontFamily: "var(--ff-sans)" }}
                   letterSpacing="0.03em"
                 >
                   {withinRange

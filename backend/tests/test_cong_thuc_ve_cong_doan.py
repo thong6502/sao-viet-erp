@@ -65,19 +65,6 @@ def test_may_khong_nam_trong_danh_sach_cong_doan_thi_lui_ve_cau_quy_doi(
     assert got is not None and round(got[0]) == 800, "cùng đơn vị ⇒ cầu quy đổi trả nguyên số"
 
 
-def test_anh_chup_dau_viec_lay_cong_thuc_tu_dinh_muc_cua_cong_doan():
-    """Ảnh chụp ghim CÔNG THỨC CỦA CÔNG ĐOẠN, không phải của bảng đơn giá khoán."""
-    from types import SimpleNamespace
-
-    from app.services.piece_work_service import khoan_snapshot
-
-    rate = SimpleNamespace(id=7, ten="In offset", unit="to", unit_price=120)
-    dm = SimpleNamespace(cong_thuc_khoan="sl_vao * so_luot_chay")
-
-    assert "cong_thuc" not in khoan_snapshot(rate)
-    assert khoan_snapshot(rate, dm)["cong_thuc"] == "sl_vao * so_luot_chay"
-
-
 def test_hai_vat_tu_cung_kg_trong_mot_dau_viec_an_theo_hai_cach(db, orders, lsx_svc, admin,
                                                                 customer):
     """Mực ăn theo SỐ TỜ, dung môi rửa máy ăn theo SỐ MÀU — đúng ca đã bàn với chủ dự án."""

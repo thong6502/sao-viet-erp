@@ -17,6 +17,22 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 
+class LenhSxChang(BaseModel):
+    """MỘT đốt trên dải công đoạn của dòng bảng — xem `danh_sach.chang()`.
+
+    `trang_thai` chỉ nhận bốn chuỗi `xong` / `chay` / `dung` / `cho` (hằng `CHANG_*` của
+    `danh_sach.py`). KHÔNG khai `Literal` ở đây: schema này là đường RA, ép kiểu chặt chỉ đổi một
+    lỗi dữ liệu im lặng thành một cú 500 giữa bảng — tầng chặn đúng chỗ là chính hàm dựng.
+
+    Một bước tách nhiều lần chạy (mg `0254`) vẫn là MỘT đốt: `hien_tai` chỉ đúng một đốt trong
+    dải, và nó bám đúng `buoc_hien_tai` mà trường `buoc_hien_tai` ở trên đang hiện."""
+
+    ten: str
+    nhom: str | None = None
+    trang_thai: str
+    hien_tai: bool = False
+
+
 class LenhSxItem(BaseModel):
     """MỘT dòng bảng lệnh. Các cột đã chốt: Mã · Sản phẩm/SL · Khách · Máy · Công đoạn + tiến độ ·
     Hạn/Dự kiến · Trạng thái."""
@@ -44,6 +60,10 @@ class LenhSxItem(BaseModel):
     # API. Thứ tự là THỨ TỰ GIAO nên cắt từ cuối là an toàn. Rỗng = bước chưa giao ai (đừng bịa).
     # Người đã bị RÚT (`trang_thai='removed'`) không có mặt ở đây — xem `BoiCanh.nguoi_cua`.
     nguoi: list[str] = []
+    # Cả chuỗi công đoạn của lệnh, theo trục THỜI GIAN dự kiến — để bảng vẽ được lệnh đang ở đâu
+    # trên đường đi chứ không chỉ tên bước đang đứng. Rỗng = lệnh chưa có công việc nào (chưa phát
+    # hành gói, hoặc routing rỗng); UI phải chịu được danh sách rỗng, đừng bịa một đốt.
+    chang: list[LenhSxChang] = []
 
     tien_do_pct: float
     # `True` = phần trăm đang đo bằng THỜI LƯỢNG kế hoạch vì bước chưa khai sản lượng. Bắt buộc
@@ -200,7 +220,6 @@ class RoutingNodeOut(BaseModel):
     nha_cung_cap: str | None = None
     cong_viec_id: int | None = None
     la_buoc_ghep: bool = False
-    la_kcs: bool = False
     la_buoc_hien_tai: bool = False
     trang_thai: str | None = None
     may: str | None = None
@@ -385,26 +404,21 @@ class SuCoOut(BaseModel):
 
 
 class KhoYeuCauOut(BaseModel):
+    """Một dòng yêu cầu NHẬP kho thành phẩm (kho thật). `id` = id dòng; `trang_thai` là trạng thái
+    của yêu cầu kho (`approved` / `partial` / `done` / `cancelled`…); `xac_nhan_luc` = lúc phiếu nhập
+    ghi sổ muộn nhất."""
+
     id: int
-    kcs_batch_id: int | None = None
-    nhom_id: int | None = None
+    request_id: int | None = None
+    ma: str | None = None
+    hang_id: int | None = None
     so_luong_yeu_cau: float = 0.0
     so_luong_xac_nhan: float = 0.0
     con_lai: float = 0.0
     don_vi: str | None = None
-    quy_cach: str | None = None
     trang_thai: str | None = None
     tao_luc: datetime | None = None
     xac_nhan_luc: datetime | None = None
-
-
-class KhoBtpOut(BaseModel):
-    id: int
-    so_luong: float = 0.0
-    don_vi: str | None = None
-    phan_loai: str | None = None
-    kho_xac_nhan: bool = False
-    quy_cach: str | None = None
 
 
 class KhoOut(BaseModel):
@@ -418,7 +432,6 @@ class KhoOut(BaseModel):
 
     so_lenh_trong_nhom: int = 0
     yeu_cau: list[KhoYeuCauOut] = []
-    btp: list[KhoBtpOut] = []
 
 
 class GiaoHangHangOut(BaseModel):
@@ -452,7 +465,7 @@ class GiaoHangHangOut(BaseModel):
 
 
 class GiaoHangOut(BaseModel):
-    """Đủ để KHOÁ nút và ĐIỀN SẴN form. Số dựng ở `san_xuat/kho.ton_kha_dung_thanh_pham` — hàm
+    """Đủ để KHOÁ nút và ĐIỀN SẴN form. Số dựng ở `san_xuat/kho.ton_thanh_pham_cua_nhom` — hàm
     NHẮM tới việc thành nguồn duy nhất dùng chung với form giao hàng (hai bên tự tính thì một bên
     cho bấm, bên kia từ chối), nhưng hôm nay bên giao hàng CHƯA gọi nó.
 

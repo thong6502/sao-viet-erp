@@ -54,7 +54,7 @@
 /* Số lượng: pill nhạt cạnh title — LUÔN hiện (cờ `showCount` đã bỏ 15/08/2026: một màn danh mục
    giấu mất số mục của chính nó thì người ta phải đếm tay hoặc lật hết trang mới biết là bao nhiêu). */
 .rc__count {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: var(--fw-medium);
   color: var(--ash);
@@ -275,7 +275,7 @@
   font-weight: var(--fw-bold);
 }
 .rc__tabn {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 10px;
   color: var(--ash-2);
   font-variant-numeric: tabular-nums;
@@ -531,7 +531,7 @@
 
 .dvqd__expr {
   font-weight: 600;
-  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-family: var(--ff-sans);
   font-size: 12px;
   color: #0d9488;
   background: #f0fdfa;
@@ -1450,6 +1450,11 @@
   box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1);
   box-sizing: border-box;
 }
+/* Lật lên: dưới ô không đủ chỗ trong khung cuộn (dòng cuối sát chân drawer) — RefSearchField tự đo. */
+.rc-ref-search-panel--len {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
 
 .rc-ref-search-item {
   display: flex;
@@ -1481,7 +1486,7 @@
   text-overflow: ellipsis;
 }
 .rc-ref-search-item__code {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash-2);
   background: var(--rule-hair, #f1f5f9);
@@ -1816,7 +1821,7 @@ select.rc-input:focus {
   margin: 0;
 }
 .rc-bands__table input[type="number"] {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   -moz-appearance: textfield;
   font-variant-numeric: tabular-nums;
 }
@@ -1895,6 +1900,17 @@ select.rc-input:focus {
   color: var(--paper-contrast, #f5f1e8);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
+
+/* ── Bảng Việc phát sinh của công việc khoán (ViecPhatSinhField) ──
+   Luật căn cột chung ở trên viết cho bảng BẬC (ba cột số căn phải). Bảng này hai cột CHỮ, căn
+   phải là tiêu đề "Tên việc" lệch hẳn khỏi chữ gõ trong ô. Căn tiêu đề theo đúng chữ trong ô:
+   lề 19px = 8px lề ô + 10px lề trong input + 1px viền. */
+.rc-bands--vps .rc-bands__table { table-layout: fixed; }
+.rc-bands--vps .rc-bands__table th:nth-child(1),
+.rc-bands--vps .rc-bands__table th:nth-child(3) { text-align: left; padding-left: 19px; }
+.rc-bands--vps .rc-bands__table th:nth-child(2) { text-align: right; padding-right: 21px; width: 150px; }
+.rc-bands--vps .rc-bands__table th:nth-child(3) { width: 34%; }
+.rc-bands--vps .rc-bands__table th:nth-child(4) { width: 44px; }
 
 /* ── Bảng Định mức đầu việc của Tổ (DinhMucDauViecField) ── */
 .rc-bands--dinh-muc {
@@ -2169,7 +2185,7 @@ select.rc-input:focus {
   border-radius: var(--r-3, 6px);
 }
 .rc-dm-vt__ma {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -2259,14 +2275,14 @@ select.rc-input:focus {
   padding: 1px 7px;
 }
 .rc-ver__date {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   margin-left: auto;
   font-size: 12px;
   color: var(--ash, #8a8676);
   font-variant-numeric: tabular-nums;
 }
 .rc-ver__price {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   font-size: 20px;
   font-weight: 700;
   color: var(--ink, #14130f);
@@ -2290,7 +2306,7 @@ select.rc-input:focus {
   color: var(--ash, #8a8676);
 }
 .rc-ver__meta b {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   font-weight: 600;
   color: var(--ink, #14130f);
   font-variant-numeric: tabular-nums;
@@ -3012,12 +3028,12 @@ select.rc-input:focus {
 .rc-formula__trans-token--func {
   font-weight: 700;
   color: #1e3a8a;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
 }
 .rc-formula__trans-token--num {
   font-weight: 600;
   color: #5b21b6;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
 }
 .rc-formula__trans-token--op {
   font-weight: 700;
@@ -3050,7 +3066,7 @@ select.rc-input:focus {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 13px;
   line-height: 1.6;
   color: var(--ink, #14130f);
@@ -3296,7 +3312,7 @@ select.rc-input:focus {
   border-radius: 6px;
   border: 1px solid var(--rule, #d8d2c0);
   background: var(--canvas, #fbfaf5);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   width: 100%;
   transition: all 0.15s ease;
 }
@@ -3331,7 +3347,7 @@ select.rc-input:focus {
   color: var(--signal, #8a1f1f);
 }
 .rc-sandbox__result-value {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-size: 16px;
   font-weight: 700;
   color: var(--moss-deep, #244a2e);
@@ -3416,7 +3432,7 @@ select.rc-input:focus {
 .kho-del__ok p { margin: 0; }
 .kho-del__field { display: grid; gap: 6px; font-size: 13px; color: var(--ash, #6b6b6b); }
 .kho-del__input {
-  font: inherit; font-family: var(--ff-num, monospace); letter-spacing: 0.04em;
+  font: inherit; font-family: var(--ff-sans); letter-spacing: 0.04em;
   padding: 9px 12px; border: 1px solid var(--rule, #d8d5cd);
   border-radius: var(--r-3, 6px); background: var(--paper, #fff); color: var(--ink, #1a1a1a);
 }
@@ -3677,6 +3693,10 @@ select.rc-input:focus {
 .rc-tt--khoa     { color: var(--ash, #475569); background: var(--rule-hair, #f1f5f9); }
 .rc-tt--dang_chay { color: var(--ink, #0f172a); }
 .rc-tt--dang_chay .rc-tt__dot { background: var(--moss, #2f5d3a); }
+/* CẢNH BÁO, không phải trạng thái chặn: cùng họ màu với "Hỏng — chờ sửa" để mắt bắt được ngay,
+   nhưng chấm RỖNG và không tô nền — nhìn là biết máy vẫn xếp được, chỉ là có phiếu đang mở. */
+.rc-tt--co_phieu_sua { color: var(--signal-deep, #6b1717); }
+.rc-tt--co_phieu_sua .rc-tt__dot { background: transparent; box-shadow: inset 0 0 0 2px currentColor; }
 .rc-tt--ranh { color: var(--ash-2, var(--ash-2)); }
 .rc-tt--ranh .rc-tt__dot { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
 /* Chưa nạp xong / nạp hỏng: nói "chưa biết", KHÔNG mượn tạm nhãn "Rảnh". */

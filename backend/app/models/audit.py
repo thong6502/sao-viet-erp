@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -19,6 +19,12 @@ def _utcnow() -> datetime:
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    # Tab "Nhật ký" của mọi màn danh mục/phiếu hỏi `target = 'loai:id' ORDER BY created_at DESC`
+    # (`AuditLogRepository.list_by_target`). Không có index này thì mỗi lần mở drawer là quét cả
+    # bảng — mà đây là bảng phình nhanh nhất hệ (mọi lần lưu đều ghi một dòng). Mg `0301`.
+    __table_args__ = (
+        Index("ix_audit_logs_target_created_at", "target", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     actor_user_id: Mapped[int | None] = mapped_column(

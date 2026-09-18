@@ -22,7 +22,13 @@ from sqlalchemy import event
 from app.db import engine
 from app.models.customer import Customer
 from app.models.lsx import Lsx, LsxCongDoan
-from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG, SanXuatCongViec
+from app.models.san_xuat import (
+    CV_DANG_CHAY,
+    CV_HOAN_THANH,
+    CV_PHAT_HANH,
+    CV_TAM_DUNG,
+    SanXuatCongViec,
+)
 from app.models.san_xuat_kcs import SanXuatKcsBatch
 from app.models.san_xuat_thuc_thi import SanXuatPhienChay
 from app.security import create_access_token
@@ -1306,3 +1312,82 @@ def test_bo_loc_bo_qua_may_da_xoa_khoi_danh_muc(client, seed_credentials, sess, 
     ids = {m["id"] for m in r.json()["may"]}
     assert id_da_xoa not in ids, "máy đã xoá khỏi danh mục vẫn lọt vào ô lọc"
     assert con.id in ids, "guard nuốt luôn cả máy CÒN trong danh mục theo máy đã xoá"
+
+
+# --- Dải chặng của dòng bảng ---------------------------------------------------------------------
+# `chang` trả CẢ chuỗi công đoạn để bảng vẽ được lệnh đang ở khúc nào của đường đi, thay vì chỉ có
+# tên bước đang đứng. Ba bài dưới canh đúng ba chỗ dễ vỡ: hợp đồng dữ liệu qua HTTP, phép gộp lần
+# chạy, và cái tên hiện trên đốt.
+def test_chang_tra_ca_chuoi_cong_doan_theo_trang_thai(client, seed_credentials, sess, lenh_that):
+    """Đi qua HTTP chứ không gọi thẳng service, và đó là phần LOAD-BEARING: `LenhSxItem` là
+    `response_model`, mà Pydantic BỎ IM LẶNG mọi khoá service trả nhưng schema không khai — gọi
+    thẳng `danh_sach` thì bài vẫn xanh cả khi `chang` rơi mất đúng trên đường ra.
+    """
+    h = _h(_tok(client, seed_credentials))
+    cvs = _cvs(sess, lenh_that)                       # CTP · In · Đóng gói
+    cvs[0].trang_thai = CV_HOAN_THANH
+    cvs[1].trang_thai = CV_DANG_CHAY
+    sess.commit()
+
+    d = client.get("/api/lenh-san-xuat?page_size=200", headers=h).json()
+    row = next(i for i in d["items"] if i["id"] == lenh_that)
+
+    assert [(c["ten"], c["trang_thai"]) for c in row["chang"]] == [
+        ("CTP", "xong"), ("In", "chay"), ("Đóng gói", "cho"),
+    ]
+    # Đốt `hien_tai` phải trỏ ĐÚNG bước mà cột "Công đoạn" đang hiện — lệch nhau là dải sáng một
+    # đốt còn chữ nói một bước khác, người đọc mất lòng tin vào cả hai.
+    dang = [c for c in row["chang"] if c["hien_tai"]]
+    assert len(dang) == 1 and dang[0]["ten"] == row["buoc_hien_tai"] == "In"
+
+
+def test_chang_gop_moi_lan_chay_cua_mot_buoc_ve_mot_dot(client, seed_credentials, sess, lenh_that):
+    """Bước tách nhiều lần chạy (mg 0254) vẫn là MỘT công đoạn trên dải.
+
+    Không gộp thì lệnh nào có bước tách cũng dài thêm một đốt và người đọc tưởng xưởng phải chạy
+    thêm một công đoạn không có thật. Và một lần chạy đang chạy ⇒ CẢ chặng là "đang chạy", dù lần
+    kia đã xong — chặng chỉ "xong" khi không còn lần nào dở.
+    """
+    h = _h(_tok(client, seed_credentials))
+    cvs = _cvs(sess, lenh_that)
+    goc = cvs[1]                                      # bước "In"
+    assert goc.step_key, "cảnh dựng cần bước có step_key thì mới canh được phép gộp"
+    goc.trang_thai = CV_HOAN_THANH
+    goc.phan_doan_so, goc.phan_doan_tong = 1, 2
+    goc.ten_cong_doan = "In (lần 1/2)"
+    # Lần chạy thứ hai — đúng hình dạng `snapshot._dung_cong_viec` ghi ra: cùng `step_key`, cùng
+    # `lsx_cong_doan_id`, chỉ khác cặp số phân đoạn và cái tên mang hậu tố.
+    lan2 = SanXuatCongViec(
+        goi_id=goc.goi_id, lsx_id=goc.lsx_id, lsx_cong_doan_id=goc.lsx_cong_doan_id,
+        step_key=goc.step_key, phan_doan_so=2, phan_doan_tong=2,
+        ten_cong_doan="In (lần 2/2)", nhom_cong_doan=goc.nhom_cong_doan,
+        trang_thai=CV_DANG_CHAY, du_kien_bat_dau=goc.du_kien_bat_dau,
+    )
+    sess.add(lan2)
+    sess.commit()
+
+    d = client.get("/api/lenh-san-xuat?page_size=200", headers=h).json()
+    row = next(i for i in d["items"] if i["id"] == lenh_that)
+
+    assert [c["ten"] for c in row["chang"]] == ["CTP", "In", "Đóng gói"], (
+        "hai lần chạy của 'In' phải gộp về một đốt, và đốt mang TÊN BƯỚC chứ không mang hậu tố "
+        "'(lần 1/2)' — hậu tố chỉ để tổ phân biệt hai thẻ trên bàn"
+    )
+    assert [c["trang_thai"] for c in row["chang"]] == ["cho", "chay", "cho"]
+
+
+def test_chang_rong_khi_lenh_khong_con_cong_viec_nao(client, seed_credentials, sess, lenh_that):
+    """Lệnh đã phát hành nhưng không còn công việc nào (routing rỗng / gói bị gỡ) ⇒ `chang` RỖNG.
+
+    Hợp đồng này LOAD-BEARING ở phía FE: dải rỗng trông y hệt "mọi công đoạn đều chưa tới", nên
+    `DaiChang` lùi về thanh tiến độ cũ khi mảng rỗng. Trả một đốt bịa ở đây là nói dối điều độ.
+    """
+    h = _h(_tok(client, seed_credentials))
+    for cv in _cvs(sess, lenh_that):
+        sess.delete(cv)
+    sess.commit()
+
+    d = client.get("/api/lenh-san-xuat?page_size=200", headers=h).json()
+    row = next(i for i in d["items"] if i["id"] == lenh_that)
+    assert row["chang"] == []
+    assert row["buoc_hien_tai"] is None, "không còn công việc thì cũng không có bước đang đứng"

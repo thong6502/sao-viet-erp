@@ -34,10 +34,8 @@ export interface EditRow {
   loai_buoc: LsxLoaiBuoc;
   /* `bat_buoc` GỠ khỏi form 07/09/2026: bước đã nằm trong routing thì PHẢI làm — không còn ô
      tick, không còn nhãn "tùy chọn", server cũng thôi nhận field này (xem migration 0275). */
-  /** KCS kiêm nhiệm (mg 0250): bước này có thuộc tổ KCS không. Ô "Tiêu chí KCS bổ sung" đã GỠ
-   *  08/09/2026 (mg 0283) — tiêu chí chỉ còn MỘT nguồn là danh mục gắn theo công đoạn, xem
-   *  `docs/design-kcs-theo-cong-doan.md`. */
-  la_kcs: boolean;
+  /* `la_kcs` GỠ (mg 0306, KCS theo lệnh): KCS không còn là một bước trong routing — người KCS kiểm
+     bất kỳ công đoạn nào của lệnh từ màn KCS. */
   department_id: number | null;
   /** Tên tổ phụ trách server RESOLVE lúc đọc (kể cả khi `department_id` null vì lấy tổ mặc định của
    *  công đoạn). CHỈ ĐỌC — tổ khai ở danh mục Công đoạn, drawer chỉ bày lại, không cho đổi. */
@@ -93,14 +91,8 @@ export interface EditRow {
    *  từ máy — số hiển thị lấy từ `thoi_luong_dien_giai` (server tính), không ô nào ghi ngược. */
   phat_sinh_phut: string;
   thoi_luong_dien_giai: Record<string, unknown>;
-  /** TIỀN CÔNG của đúng bộ số đang sửa — server tính lại mỗi khi loại bước / đầu việc / số lượt
-   *  đổi (`xem-truoc-buoc`). READ-ONLY, không gửi lên. null = đang hỏi lại, hoặc bước chưa lưu nên
-   *  server không có `step_key` để tra; drawer lùi về số của dropdown đầu việc. */
-  khoan_xem_truoc: {
-    khoan_tien: number | null;
-    khoan_dien_giai: string | null;
-    khoan_ly_do: string | null;
-  } | null;
+  /* `khoan_xem_truoc` (tiền công của bộ số đang sửa) GỠ 11/09/2026 — bước lệnh thôi hiện tiền.
+     Phần GIỜ của `xem-truoc-buoc` vẫn dùng, nó vào thẳng `thoi_luong_dien_giai` ở trên. */
   /** Lượng tính sẵn cho mọi vật tư (server tính theo bước) — READ-ONLY, không gửi lên.
    *  `so_luong: null` = chưa tính được, `ly_do` nói vì sao và chỉ chỗ khai công thức. */
   vat_tu_goi_y: {
@@ -135,19 +127,17 @@ export interface EditRow {
   // --- khoán theo đầu việc ---
   /** Đầu việc đang chọn (`piece_rates.id`) — người dùng đổi được. */
   khoan_rate_id: number | null;
-  /** Danh sách chọn được + diễn giải tiền: READ-ONLY từ server (server áp luật khớp + quy đổi). */
+  /** Danh sách chọn được: READ-ONLY từ server (server áp luật khớp tổ + công đoạn). */
   khoan_chon_duoc: KhoanChon[];
-  khoan_dien_giai: string | null;
-  khoan_ly_do: string | null;
   /** Đầu việc lúc TẢI về — đổi lựa chọn thì diễn giải cũ hết đúng, phải chờ lưu để server tính lại. */
   khoan_rate_id_luc_tai: number | null;
 }
 
+/** Đầu việc chọn được ở bước. `don_vi` + `don_gia` GỠ 11/09/2026: kế hoạch chọn VIỆC GÌ, không
+ *  chọn GIÁ — giá do kế toán lương tra tại kỳ tính lương. */
 export interface KhoanChon {
   id: number;
   ten: string;
-  don_vi: string;
-  don_gia: number;
   nang_suat_nguoi_gio?: number;
   /** Dải năng suất của định mức — chỉ để hiện khoảng nhanh–chậm, null = chưa khai. */
   nang_suat_nguoi_gio_min?: number | null;
@@ -201,7 +191,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     ten: cd.ten,
     nhom: cd.nhom,
     loai_buoc: cd.loai_buoc,
-    la_kcs: !!cd.la_kcs,
     department_id: cd.department_id,
     department_ten: cd.department_ten ?? null,
     may_id: cd.may_id,
@@ -237,7 +226,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     don_vi_nang_suat: cd.don_vi_nang_suat ?? "",
     phat_sinh_phut: s(cd.phat_sinh_phut),
     thoi_luong_dien_giai: cd.thoi_luong_dien_giai ?? {},
-    khoan_xem_truoc: null,
     vat_tu_goi_y: cd.vat_tu_goi_y ?? [],
     so_luong_vao_moi: cd.so_luong_vao_moi ?? null,
     so_luong_ra_moi: cd.so_luong_ra_moi ?? null,
@@ -273,8 +261,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     },
     khoan_rate_id: cd.khoan_rate_id ?? null,
     khoan_chon_duoc: cd.khoan_chon_duoc ?? [],
-    khoan_dien_giai: cd.khoan_dien_giai ?? null,
-    khoan_ly_do: cd.khoan_ly_do ?? null,
     khoan_rate_id_luc_tai: cd.khoan_rate_id ?? null,
   };
 }
@@ -333,7 +319,6 @@ export function mayChonDuoc<T extends { id: number; nhom?: string | null; active
 export function emptyRow(): EditRow {
   return {
     key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
-    la_kcs: false,
     department_id: null, department_ten: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
     khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null,
@@ -344,7 +329,6 @@ export function emptyRow(): EditRow {
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
     so_nhan_cong_tieu_chuan: 1,
     thoi_luong_dien_giai: {},
-    khoan_xem_truoc: null,
     vat_tu_goi_y: [], so_luong_vao_moi: null, so_luong_ra_moi: null,
     phu_thuoc_step_keys: [], vat_tus: [],
     nha_cung_cap: "", sl_gui: "", ngay_gui_dk: "", van_chuyen_ngay: "", gia_cong_ngay: "",
@@ -353,7 +337,7 @@ export function emptyRow(): EditRow {
     // Bước mới chưa lưu thì chưa có id để ghi giao–nhận — sổ chỉ mở sau khi lưu routing.
     giao_nhan: null,
     // Bước THÊM TAY chưa biết tổ/công đoạn nên chưa có đầu việc nào để gợi ý; lưu xong server điền.
-    khoan_rate_id: null, khoan_chon_duoc: [], khoan_dien_giai: null, khoan_ly_do: null,
+    khoan_rate_id: null, khoan_chon_duoc: [],
     khoan_rate_id_luc_tai: null,
   };
 }
@@ -448,8 +432,6 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       loai_buoc: r.loai_buoc,
       // KHÔNG gửi `bat_buoc` (07/09/2026): mọi bước trong routing đều bắt buộc, cột để server tự
       // giữ TRUE. Gửi lại chỉ mở đường ghi nhầm `false` trong khi drawer không còn ô sửa.
-      // KHÔNG gửi `la_kcs`: drawer không có ô sửa cờ này (kế thừa nguyên từ danh mục Công đoạn
-      // lúc bung routing), gửi lại giá trị cũ vô nghĩa mà thêm rủi ro ghi nhầm.
       // Để TRỐNG tổ → server tự lấy tổ mặc định của công đoạn (không ép khai lại).
       department_id: r.department_id,
       may_id: r.may_id,

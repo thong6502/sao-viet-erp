@@ -4,10 +4,12 @@ Issues, rotates, and revokes refresh tokens against the store. Framework-agnosti
 router owns the httpOnly cookie; this service only deals in raw token strings and users.
 
 Rotation: each refresh revokes the presented token and mints a new one in the SAME family.
-Reusing an already-revoked token is treated as theft and revokes the whole family.
+Reusing an already-revoked token is treated as theft and revokes the whole family — except
+within `REUSE_GRACE` of its rotation while the family is still alive (see `rotate`).
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -17,6 +19,14 @@ from ..models.user import User
 from ..repositories.refresh_token_repo import RefreshTokenRepository
 from ..repositories.user_repo import UserRepository
 from ..security import generate_refresh_token, hash_refresh_token
+
+
+# Tải lại trang (F5, Vite full-reload) cắt ngang /refresh: máy chủ đã xoay xong nhưng trình duyệt
+# không nhận cookie mới, trang mới gửi lại token vừa bị thu hồi — vài giây sau chứ không phải kẻ
+# trộm. Không có ân hạn là văng đăng nhập oan (đo được: replay 9 giây sau khi xoay).
+REUSE_GRACE = timedelta(seconds=60)
+
+log = logging.getLogger(__name__)
 
 
 class RefreshError(Exception):
@@ -48,6 +58,12 @@ class RefreshTokenService:
         self, user: User, *, family_id: str | None = None, user_agent: str | None = None
     ) -> str:
         """Mint a new refresh token for the user; return the raw (un-hashed) value."""
+        if family_id is None:
+            # Every rotation (access token lives 15 min) leaves a revoked row behind and nothing
+            # ever deleted them — the table only grew. Purge on a fresh LOGIN, not on rotation:
+            # logins are rare enough to afford the sweep, and a row past expiry is dead either
+            # way (replaying it is "unknown token" → 401, same as the reuse check it served).
+            self.tokens.purge_expired()
         raw = generate_refresh_token()
         self.tokens.create(
             user_id=user.id,
@@ -61,15 +77,20 @@ class RefreshTokenService:
     def rotate(self, raw: str, *, user_agent: str | None = None) -> tuple[str, User]:
         """Validate + rotate a refresh token. Returns (new_raw_token, user) or raises.
 
-        On reuse of an already-revoked token, revoke the whole family (theft signal).
+        On reuse of an already-revoked token, revoke the whole family (theft signal). Within
+        `REUSE_GRACE` of that revocation, if the family still had a live token (the successor the
+        browser never received), mint a fresh one in the family instead — the orphan stays revoked,
+        so a family keeps exactly one live token. Logout/lock leave no live token ⇒ still 401.
         """
         row = self.tokens.get_by_hash(hash_refresh_token(raw))
         if row is None:
             raise RefreshError("Unknown refresh token")
         if row.revoked_at is not None:
-            # Replay of a rotated/revoked token -> kill the family.
-            self.tokens.revoke_family(row.family_id)
-            raise RefreshError("Refresh token reuse detected")
+            con_song = self.tokens.revoke_family(row.family_id)
+            if not con_song or _as_utc(row.revoked_at) + REUSE_GRACE < _utcnow():
+                log.warning("refresh token reuse: revoked family %s (user %s)", row.family_id, row.user_id)
+                raise RefreshError("Refresh token reuse detected")
+            log.warning("refresh token reuse within grace: reissued in family %s (user %s)", row.family_id, row.user_id)
         if self._is_expired(row):
             raise RefreshError("Refresh token expired")
 

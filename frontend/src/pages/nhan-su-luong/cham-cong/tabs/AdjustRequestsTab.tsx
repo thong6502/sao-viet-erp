@@ -138,7 +138,7 @@ export function AdjustRequestsTab({
                   <td
                     style={{
                       textAlign: "center",
-                      fontFamily: "var(--ff-num)",
+                      fontFamily: "var(--ff-sans)",
                       fontWeight: "bold",
                     }}
                   >

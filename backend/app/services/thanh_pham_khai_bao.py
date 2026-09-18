@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from dataclasses import dataclass, field
 
 from ..models.vat_lieu_kho import VatTuInAn
 from ..repositories.don_vi_do_repo import DonViDoRepository
@@ -106,6 +107,20 @@ def _ma_ke_tiep(db) -> str:
     return f"{goc}{n:05d}"
 
 
+def tim_theo_ten(db, ten: str | None) -> VatTuInAn | None:
+    """Thành phẩm đã khai có tên chuẩn hoá trùng `ten` — KHÔNG đẻ dòng mới (mặt đọc dùng hàm này)."""
+    khoa = chuan_ten(ten)
+    if not khoa:
+        return None
+    # Nạp cả rổ THÀNH PHẨM rồi so trong Python: `chuan_ten` gộp gạch ngang và khoảng trắng,
+    # SQL `lower()` không làm được. Lọc `la_thanh_pham` để không đụng vào mực/kẽm/hoá chất
+    # bên màn Vật tư — trùng tên với vật tư là chuyện có thể xảy ra.
+    for h in db.query(VatTuInAn).filter(VatTuInAn.la_thanh_pham.is_(True)).all():
+        if chuan_ten(h.ten) == khoa:
+            return h
+    return None
+
+
 def tim_hoac_khai(db, *, customer_id: int | None = None, ten: str, dvt: str | None = None,
                   order_id: int | None = None, order_line_id: int | None = None) -> VatTuInAn:
     """Get-or-create theo TÊN ĐÃ CHUẨN HOÁ. Trả về dòng danh mục.
@@ -121,14 +136,9 @@ def tim_hoac_khai(db, *, customer_id: int | None = None, ten: str, dvt: str | No
     phẩm phải đi CHUNG một giao dịch — chốt xong mà khai hỏng thì đơn đã `ordered` nhưng kho
     không có gì để nhập, và không ai biết cho tới lúc cần giao.
     """
-    khoa = chuan_ten(ten)
-    if khoa:
-        # Nạp cả rổ THÀNH PHẨM rồi so trong Python: `chuan_ten` gộp gạch ngang và khoảng trắng,
-        # SQL `lower()` không làm được. Lọc `la_thanh_pham` để không đụng vào mực/kẽm/hoá chất
-        # bên màn Vật tư — trùng tên với vật tư là chuyện có thể xảy ra.
-        for h in db.query(VatTuInAn).filter(VatTuInAn.la_thanh_pham.is_(True)).all():
-            if chuan_ten(h.ten) == khoa:
-                return h
+    co_san = tim_theo_ten(db, ten)
+    if co_san is not None:
+        return co_san
 
     obj = VatTuInAn(
         ma=_ma_ke_tiep(db),
@@ -150,23 +160,111 @@ def tim_hoac_khai(db, *, customer_id: int | None = None, ten: str, dvt: str | No
     return obj
 
 
-def khai_mot_dong(db, order, order_line) -> VatTuInAn:
-    """Thành phẩm của MỘT dòng đơn."""
+# --- CỤM BÁN (docs/design-nhap-kho-thanh-pham-qua-yeu-cau-nhap-xuat.md §3) --------------------
+# Kho giữ ĐÚNG THỨ KHÁCH MUA. Phiếu tính giá tách một quyển sách thành Ruột + Bìa (mỗi dòng một tờ
+# giấy chạy máy), nhưng khách mua MỘT quyển, và bản in báo giá / xác nhận đơn đã gộp hai dòng đó
+# thành một bằng nhãn `nhom`. Kho theo đúng luật gộp đó: một CỤM = một mã thành phẩm.
+#
+# Luật khoá là bản Python của `frontend/src/utils/gop-nhom.ts::khoaGop` (chốt 26/08/2026): cùng
+# nhãn (bỏ khoảng trắng hai đầu, không phân biệt hoa thường) VÀ cùng số lượng. Sửa một bên thì
+# sửa cả bên kia, không thì kho và tờ xác nhận đơn gọi cùng một món bằng hai cái tên.
+
+
+@dataclass
+class CumBan:
+    """Một cụm bán của đơn. `dong` giữ thứ tự dòng đơn; dòng ĐẦU là dòng mang mã kho."""
+
+    khoa: str
+    ten: str
+    #: TÊN đơn vị như dòng đơn ("cuốn") — `ma_don_vi` đổi sang mã lúc khai danh mục.
+    dvt: str | None
+    so_luong: float
+    dong: list = field(default_factory=list)
+    thanh_tien: int = 0
+
+    @property
+    def dong_dau(self):
+        return self.dong[0]
+
+
+def _khoa_nhan(nhom: str | None) -> str | None:
+    s = (nhom or "").strip()
+    return s.lower() if s else None
+
+
+def cum_ban(order) -> list[CumBan]:
+    """Gom dòng đơn thành cụm bán, giữ thứ tự theo dòng ĐẦU của mỗi cụm.
+
+    SL cụm = SL dòng đầu, KHÔNG cộng dồn (khách mua 500 cuốn chứ không phải 1.000 = ruột + bìa).
+    Đơn vị = `dvt_nhom` của dòng đầu; bỏ trống thì lấy ĐVT dòng đầu. Tên = nhãn nhóm.
+    """
+    ra: list[CumBan] = []
+    theo_khoa: dict[str, CumBan] = {}
+    for ln in sorted(order.lines or [], key=lambda x: x.id or 0):
+        nhan = _khoa_nhan(getattr(ln, "nhom", None))
+        sl = float(ln.qty or 0)
+        khoa = f"{nhan}|{sl:g}" if nhan is not None else f"line:{ln.id}"
+        cum = theo_khoa.get(khoa)
+        if cum is None:
+            if nhan is not None:
+                ten = (ln.nhom or "").strip()
+                dvt = (getattr(ln, "dvt_nhom", None) or "").strip() or ln.don_vi_tinh
+            else:
+                ten = ln.description or ""
+                dvt = ln.don_vi_tinh
+            cum = theo_khoa[khoa] = CumBan(khoa=khoa, ten=ten, dvt=dvt, so_luong=sl)
+            ra.append(cum)
+        cum.dong.append(ln)
+        cum.thanh_tien += int(ln.line_total or 0)
+    return ra
+
+
+def cum_cua_dong(order, order_line_id: int) -> CumBan | None:
+    for cum in cum_ban(order):
+        if any(ln.id == order_line_id for ln in cum.dong):
+            return cum
+    return None
+
+
+def gia_ban_cum(cum: CumBan) -> int | None:
+    """Giá bán một đơn vị cụm = Σ thành tiền chưa VAT ÷ SL cụm, tròn tới đồng.
+
+    None khi chưa có thành tiền hoặc SL không dương — để trống thật chứ không ghi 0 đ: "giá bán
+    0 đ" đọc như hàng tặng.
+    """
+    if cum.so_luong <= 0 or cum.thanh_tien <= 0:
+        return None
+    return int(round(cum.thanh_tien / cum.so_luong))
+
+
+def khai_cum(db, order, cum: CumBan) -> VatTuInAn:
+    """Thành phẩm của MỘT cụm bán — khoá gộp trùng vẫn là tên đã chuẩn hoá (`tim_hoac_khai`)."""
     return tim_hoac_khai(
         db,
         customer_id=order.customer_id,
-        ten=order_line.description or "",
-        dvt=order_line.don_vi_tinh,
+        ten=cum.ten,
+        dvt=cum.dvt,
         order_id=order.id,
-        order_line_id=order_line.id,
+        order_line_id=cum.dong_dau.id,
     )
 
 
+def khai_mot_dong(db, order, order_line) -> VatTuInAn:
+    """Thành phẩm của CỤM chứa dòng đơn này (Ruột và Bìa cùng cụm trả về cùng một mã)."""
+    cum = cum_cua_dong(order, order_line.id)
+    if cum is None:
+        return tim_hoac_khai(
+            db, customer_id=order.customer_id, ten=order_line.description or "",
+            dvt=order_line.don_vi_tinh, order_id=order.id, order_line_id=order_line.id,
+        )
+    return khai_cum(db, order, cum)
+
+
 def khai_cho_don(db, order) -> list[VatTuInAn]:
-    """Khai TOÀN BỘ dòng của một đơn. Gọi từ `OrderService.confirm()`.
+    """Khai mọi CỤM bán của một đơn. Gọi từ `OrderService.confirm()`.
 
     KHÔNG commit — `confirm()` commit chung một lượt (xem `tim_hoac_khai`).
     """
     if order is None or not order.customer_id:
         return []
-    return [khai_mot_dong(db, order, ln) for ln in (order.lines or [])]
+    return [khai_cum(db, order, cum) for cum in cum_ban(order)]

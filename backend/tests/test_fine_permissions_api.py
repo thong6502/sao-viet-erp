@@ -54,21 +54,21 @@ def test_employee_salary_fields_masked_without_view_salary(client):
         db.close()
     eid = client.post("/api/employees", json={"probation_end_date": "2025-12-31",
         "full_name": "NV Mật", "department_id": hcns, "hire_date": "2020-01-01",
-        "social_insurance_no": "SI123", "bank_account": "9999", "payroll_group": "van_phong",
+        "social_insurance_no": "SI123", "bank_account": "9999",
     }, headers=_h(admin)).json()["employee"]["id"]
 
     # admin có view_salary → thấy đủ
     full = client.get(f"/api/employees/{eid}", headers=_h(admin)).json()
-    assert full["bank_account"] == "9999" and full["social_insurance_no"] == "SI123" and full["payroll_group"] == "van_phong"
+    assert full["bank_account"] == "9999" and full["social_insurance_no"] == "SI123"
 
     # role chỉ read, KHÔNG view_salary → ẩn
     masked = client.get(f"/api/employees/{eid}", headers=_h(_user_with_role("nv-no-salary", "nhan_su", can_read=True))).json()
-    assert masked["bank_account"] is None and masked["social_insurance_no"] is None and masked["payroll_group"] is None
+    assert masked["bank_account"] is None and masked["social_insurance_no"] is None
     assert masked["full_name"] == "NV Mật"  # field thường vẫn thấy
 
     # role read + view_salary → thấy lại
     seen = client.get(f"/api/employees/{eid}", headers=_h(_user_with_role("nv-has-salary", "nhan_su", can_read=True, can_view_salary=True))).json()
-    assert seen["bank_account"] == "9999" and seen["payroll_group"] == "van_phong"
+    assert seen["bank_account"] == "9999"
 
 
 def test_quotation_accept_requires_update_permission(client):

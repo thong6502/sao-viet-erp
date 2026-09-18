@@ -12,6 +12,7 @@ KHÔNG MỘT SỐ TIỀN NÀO — cùng ràng buộc của cả gói `services/l
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -173,6 +174,12 @@ class CaViecOut(BaseModel):
     may: str
     lsx: list[LsxThamChieuOut] = []
     du_kien_bat_dau: datetime | None = None
+    # 16/09/2026 — việc ĐÃ chạy xếp vào ca theo phiên chạy thật (docstring `theo_ca`).
+    # `bat_dau_thuc_te`: mốc bắt đầu phiên ĐẦU TIÊN, giờ tường xưởng; `None` = chưa chạy.
+    # `lech_lich`: `"som"` | `"tre"` | `None` — so ngày đang xem với khoảng ngày kế hoạch (đã chạy),
+    # hoặc quá giờ bắt đầu dự kiến mà chưa chạy (`"tre"`).
+    bat_dau_thuc_te: datetime | None = None
+    lech_lich: Literal["som", "tre"] | None = None
     nguoi: list[str] = []
     nhan: NhanBuocOut | None = None
 

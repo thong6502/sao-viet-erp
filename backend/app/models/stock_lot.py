@@ -106,6 +106,10 @@ class StockLot(Base):
     )
     # Hạn sử dụng / date in bao bì — nền cho gợi ý FEFO khi xuất.
     hsd: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # LÔ GỐC: lô ở kho đích sinh ra từ điều chuyển nhớ lô đầu tiên của chuỗi (A → B → C đều trỏ A).
+    # NULL = chính nó là lô gốc. Nguồn hàng (đơn / khách / giá bán) và sửa giá gốc đi theo lô gốc
+    # vì kho là danh mục động — không đoán nguồn theo kho được. Soft ref, mg 0309.
+    lo_goc_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     trang_thai: Mapped[str] = mapped_column(
         String(16), index=True, nullable=False,
         server_default=LOT_AVAILABLE, default=LOT_AVAILABLE,

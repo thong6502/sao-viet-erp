@@ -38,6 +38,9 @@ export const READ_IMPLYING_ACTIONS: ActionKey[] = [
   "can_view_cost",
   "can_set_threshold",
   "can_post",
+  "can_run_order",
+  "can_confirm_output",
+  "can_warehouse",
 ];
 
 /** Đã kéo sơ đồ cây ít nhất 1 lần → không nhắc "kéo để di chuyển" nữa. */

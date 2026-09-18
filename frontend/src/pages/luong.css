@@ -281,6 +281,15 @@
   background: rgba(47, 93, 58, 0.04);
 }
 .lg-minus { color: var(--rust); font-weight: var(--fw-medium); }
+/* Ô Tăng ca của người CHẾ ĐỘ KHOÁN mà có số: số đó là phần thêm làm nguyên ngày CN / lễ (khoán
+   không có tiền tăng ca) — nhãn nhỏ ngay dưới số để khỏi đọc nhầm. */
+.lg-ot-khoan {
+  display: block;
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  color: var(--ash);
+  line-height: 1.2;
+}
 .lg-plus-val { color: var(--moss-deep); }
 .lg-foot td { border-top: 2px solid var(--rule); font-weight: var(--fw-bold); background: var(--paper-contrast); }
 
@@ -959,18 +968,78 @@
   background: var(--rust);
 }
 
-/* Dải chip chọn phòng/tổ (chip dùng primitive .seg). */
-.cl-chips {
+/* Thanh chọn bộ phận cấu hình lương (gọn gàng 1 dòng, dùng Select tìm kiếm, không liệt kê chip) */
+.cl-dept-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-1);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: 10px 16px;
   margin-bottom: var(--sp-4);
+  box-shadow: var(--shadow-1);
+  flex-wrap: wrap;
 }
-.cl-chip__parent {
-  color: var(--ash-2);
+.cl-dept-bar__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cl-dept-bar__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ash);
+  font-weight: var(--fw-medium);
+}
+.cl-dept-bar__current-name {
+  font-size: 14px;
+  color: var(--ink);
+}
+.cl-dept-bar__parent {
+  color: var(--ash);
   font-weight: var(--fw-regular);
 }
-.seg.is-active .cl-chip__parent { color: var(--on-charcoal-muted); }
+.cl-dept-bar__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--rule-hair);
+  color: var(--ash);
+  font-family: var(--ff-num);
+}
+.cl-dept-bar__picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cl-dept-bar__picker-label {
+  font-size: 12.5px;
+  color: var(--ash);
+  white-space: nowrap;
+}
+.cl-dept-bar__select-wrap {
+  min-width: 260px;
+  max-width: 380px;
+}
+@media (max-width: 768px) {
+  .cl-dept-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cl-dept-bar__select-wrap {
+    min-width: 100%;
+    max-width: 100%;
+  }
+}
+
 
 /* Card khối */
 .cl-card {
@@ -1262,6 +1331,58 @@
   line-height: 1.55;
 }
 .cl-warn { color: var(--amber-deep); }
+
+/* Thẻ CHỈ TIÊU NGÀY của tổ khoán (Cấu hình lương → Cơ chế lương theo bộ phận, 16/09/2026).
+   Số đang áp dụng đứng ở góc phải tiêu đề thay cho banner; một hàng nhập thẳng hàng theo đáy ô. */
+.cl-chitieu__now {
+  flex: none;
+  text-align: right;
+}
+.cl-chitieu__now-val {
+  font-family: var(--ff-num);
+  font-size: 20px;
+  font-weight: var(--fw-bold);
+  line-height: 1.15;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.cl-chitieu__now-val small {
+  margin-left: 4px;
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash);
+}
+.cl-chitieu__now-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ash);
+}
+.cl-chitieu__form {
+  display: grid;
+  grid-template-columns: 170px 210px minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: end;
+}
+/* Ô ngày của Chrome cao hơn ô chữ 2px, nút mặc định thấp hơn 4px ⇒ ép cả hàng một chiều cao cho thẳng mép. */
+.cl-chitieu__form .rc-input,
+.cl-chitieu__form > .btn { height: 38px; }
+.cl-chitieu__trung { display: block; margin-top: 6px; }
+.cl-chitieu__table { margin-top: var(--sp-4); }
+.cl-chitieu__table td { vertical-align: middle; }
+/* Ngày + nhãn "đang áp dụng" đứng cùng một dòng, không rớt nhãn xuống dưới. */
+.cl-chitieu__table td:first-child { white-space: nowrap; }
+.cl-chitieu__ngay {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  margin-right: 8px;
+}
+.cl-chitieu__rong { color: var(--ash); }
+@media (max-width: 900px) {
+  .cl-chitieu__form { grid-template-columns: 1fr 1fr; }
+  .cl-chitieu__form > :nth-child(3) { grid-column: span 2; }
+  .cl-chitieu__form > .btn { justify-self: start; }
+}
 .cl-banner-sub {
   display: block;
   margin-top: 3px;
@@ -1822,49 +1943,6 @@
   pointer-events: none;
 }
 
-/* --- Thưởng/phạt tổ trưởng: KHOẢNG SẢN LƯỢNG × tỷ lệ lỗi (chủ 04/09/2026) --- */
-/* Bảng dùng LẠI khung `RowEditor` (`.rc-bands`) của ô "Bậc số lượng" ở màn danh mục — chủ trỏ
-   thẳng vào nó: *"nó cũng tương tự như cái này nè"*. Ở đây chỉ chỉnh bề rộng ô cho 5 cột. */
-.cl-lb__grid .rc-input-wrapper { max-width: 150px; }
-/* Ghi chú là chữ, cần rộng — cởi trần 150px cho riêng cột cuối. */
-.cl-lb__grid td:nth-child(5) .rc-input-wrapper { max-width: none; }
-/* Ô % kèm chip Thưởng/Phạt: dấu âm dễ đọc lướt thành dương nên phải có chữ đi kèm. */
-.cl-lb__rate { display: flex; align-items: center; gap: var(--sp-2); }
-/* Ghim bề rộng ô cho chip khỏi bị đẩy xuống dòng. Nhắm vào WRAPPER chứ không phải `input` — ô số
-   dùng `NumInput` (rc-input-wrapper + suffix), đặt width lên input sẽ đá `.rc-input{width:100%}`. */
-.cl-lb__rate .rc-input-wrapper { width: 112px; flex: none; max-width: none; }
-/* Dòng TRÚNG của ô thử nhanh — tô sáng ngay trên bảng thay vì bắt dò lại bằng mắt. */
-.cl-lb__grid tr.is-trung > td { background: var(--paper-contrast); }
-.cl-lb__grid tr.is-trung > td:first-child { box-shadow: inset 3px 0 0 var(--accent, var(--ink)); }
-/* Câu đọc từ chính bảng bậc — mỗi khoảng sản lượng một dòng, bảng số khó hình dung. */
-.cl-lb__read {
-  margin-top: var(--sp-2);
-  padding: 8px 12px;
-  border-left: 3px solid var(--rule);
-  background: var(--paper-contrast);
-  border-radius: var(--r-2);
-  line-height: 1.7;
-}
-/* Thử nhanh — 4 cột: sản lượng · tỷ lệ lỗi · đơn giá khoán · kết quả. Cả BA ô đầu đều tác động
-   tới tiền (sản lượng vừa là điều kiện vừa là thừa số), khác khối thử cũ. */
-.cl-lb__try {
-  display: grid;
-  grid-template-columns: 170px 150px 190px minmax(0, 1fr);
-  gap: var(--sp-3);
-  align-items: end;
-  margin-top: var(--sp-3);
-  padding: 10px 12px;
-  border: 1px dashed var(--rule);
-  border-radius: var(--r-3);
-}
-@media (max-width: 1100px) {
-  .cl-lb__try { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-.cl-lb__out { font-size: 13px; color: var(--ink); padding-bottom: 8px; }
-.cl-lb__out b {   font-family: var(--ff-num);
-  font-variant-numeric: tabular-nums; }
-.cl-lb__foot { display: flex; justify-content: flex-end; margin-top: var(--sp-3); }
-
 /* Cảnh báo khi trần khấu trừ vượt mức luật hoặc bị tắt — cảnh báo, KHÔNG chặn. */
 .cl-warn-legal {
   grid-column: 1 / -1;
@@ -2343,3 +2421,253 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* ── Mức khoán km ───────────────────────────────────────────────────────── */
+.muc-km-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.muc-km-brackets-clean {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--ink, #0f172a);
+}
+
+.muc-km-bracket-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.muc-km-bracket-dot {
+  margin: 0 5px;
+  color: var(--ash-2, #94a3b8);
+}
+/* === Payroll Table UI/UX Enhancements (Tab Bảng lương tháng) === */
+
+/* Segmented View Mode Toggle */
+.lg-view-seg {
+  margin-left: 4px;
+}
+
+/* === Thanh công thức lương trực quan === */
+.lg-formula-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--r-4);
+  padding: 8px 14px;
+  margin-bottom: var(--sp-3);
+  font-size: 13px;
+  flex-wrap: wrap;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+}
+.lg-formula-title {
+  display: flex;
+  align-items: center;
+}
+.lg-formula-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.lg-formula-equation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+}
+.lg-formula-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 2.5px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.lg-formula-item:hover {
+  transform: translateY(-1px);
+}
+.lg-formula-item--net {
+  background: rgba(16, 185, 129, 0.12);
+  color: #15803d;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.lg-formula-item--base {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+.lg-formula-item--income {
+  background: rgba(13, 148, 136, 0.12);
+  color: #0f766e;
+  border: 1px solid rgba(13, 148, 136, 0.3);
+}
+.lg-formula-item--deduct {
+  background: rgba(239, 68, 68, 0.09);
+  color: #b91c1c;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+}
+.lg-formula-op {
+  font-weight: 700;
+  color: #64748b;
+  font-size: 13.5px;
+}
+.lg-formula-tip {
+  margin-left: auto;
+  font-size: 12px;
+  color: #64748b;
+  font-style: italic;
+}
+@media (max-width: 900px) {
+  .lg-formula-tip {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+/* === Super Header styling (Tầng 1 phân nhóm cột) === */
+.lg-th-super th {
+  border-bottom: 1px solid #cbd5e1 !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 8px 10px !important;
+  text-align: center !important;
+}
+.lg-th-group--info {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  border-right: 1px solid #e2e8f0;
+}
+.lg-th-group--base {
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  border-right: 1px solid #e2e8f0;
+}
+.lg-th-group--income {
+  background: rgba(16, 185, 129, 0.08) !important;
+  color: #166534 !important;
+  border-bottom: 2px solid rgba(16, 185, 129, 0.4) !important;
+  border-right: 1px solid rgba(16, 185, 129, 0.25);
+}
+.lg-th-group--deduct {
+  background: rgba(239, 68, 68, 0.07) !important;
+  color: #991b1b !important;
+  border-bottom: 2px solid rgba(239, 68, 68, 0.4) !important;
+  border-right: 1px solid rgba(239, 68, 68, 0.25);
+}
+.lg-th-group--net {
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: #14532d !important;
+  font-weight: 800 !important;
+  border-left: 2px solid rgba(16, 185, 129, 0.3) !important;
+  border-right: 2px solid rgba(16, 185, 129, 0.3) !important;
+  text-align: right !important;
+  vertical-align: middle !important;
+}
+
+/* Tầng 2: Tiêu đề từng cột */
+.lg-th-sub th {
+  border-bottom: 2px solid var(--rule) !important;
+  font-size: 11px !important;
+}
+.lg-th-sub--income {
+  background: rgba(16, 185, 129, 0.03) !important;
+}
+.lg-th-sub--deduct {
+  background: rgba(239, 68, 68, 0.03) !important;
+}
+.lg-border-group-end {
+  border-right: 1px solid rgba(100, 116, 139, 0.2) !important;
+}
+
+/* Compact view header & table */
+.ns__tablewrap.lg-table .ns__table.ns__table--compact {
+  min-width: 900px;
+}
+.lg-th-income-header {
+  background: rgba(16, 185, 129, 0.06) !important;
+  color: #166534 !important;
+}
+.lg-th-deduct-header {
+  background: rgba(239, 68, 68, 0.06) !important;
+  color: #991b1b !important;
+}
+
+/* Cell typography and subtle colors */
+.lg-zero {
+  color: #94a3b8 !important;
+}
+.lg-subcell {
+  font-size: 11.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.lg-subcell + .lg-subcell {
+  margin-top: 2px;
+}
+
+/* Highlight dòng đang chọn (is-selected) và đồng bộ sticky columns */
+.lg-table .ns__table tbody tr {
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.lg-table .ns__table tbody tr.is-selected td {
+  background: #fef3c7 !important;
+}
+.lg-table .ns__table tbody tr.is-selected td.lg-sticky-code,
+.lg-table .ns__table tbody tr.is-selected td.lg-sticky-name,
+.lg-table .ns__table tbody tr.is-selected td.lg-sticky-act {
+  background: #fef3c7 !important;
+}
+.lg-table .ns__table tbody tr.is-selected:hover td,
+.lg-table .ns__table tbody tr.is-selected:hover td.lg-sticky-code,
+.lg-table .ns__table tbody tr.is-selected:hover td.lg-sticky-name,
+.lg-table .ns__table tbody tr.is-selected:hover td.lg-sticky-act {
+  background: #fde68a !important;
+}
+
+/* Đồng bộ sticky columns trong tfoot */
+.lg-table .ns__table tfoot tr td.lg-sticky-code,
+.lg-table .ns__table tfoot tr td.lg-sticky-name,
+.lg-table .ns__table tfoot tr td.lg-sticky-act {
+  background: var(--paper-contrast) !important;
+  z-index: 3;
+}
+.lg-foot-val {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+}
+.lg-foot-cell {
+  font-size: 12px;
+  color: var(--ash);
+}
+
+/* KPI Card gộp thu nhập */
+.lg-kpi-card--gross .lg-kpi-card-icon {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+

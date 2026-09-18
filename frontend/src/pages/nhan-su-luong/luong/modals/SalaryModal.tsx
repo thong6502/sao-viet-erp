@@ -45,6 +45,9 @@ export function SalaryModal({
   // C2: mức HỢP ĐỒNG của chính NV — gõ riêng 2 ô, không tự tách từ một số tổng.
   const [luongViTri, setLuongViTri] = useState(0);
   const [luongTrachNhiem, setLuongTrachNhiem] = useState(0);
+  // MỨC ĐÓNG BHXH khai riêng từng người (chủ chốt 16/09/2026). `null` = mốc lương cũ chưa khai ⇒
+  // engine tạm đóng theo mức nền và bảng lương réo tên; lưu mốc MỚI thì bắt buộc phải có số.
+  const [mucDongBh, setMucDongBh] = useState<number | null>(null);
   // "Lương trả 1 lần" (đợt 1): mức trả trong MỘT lần — chỉ là số điền sẵn khi lập phiếu
   // "thanh toán lương đợt 1". Khai ở đây, muốn trả thì sang tab Tạm ứng lập phiếu + duyệt.
   const [luongDot1, setLuongDot1] = useState(0);
@@ -114,6 +117,11 @@ export function SalaryModal({
       setPhuCapThamNien(latest.phu_cap_tham_nien ?? 0);
       setLuongDot1(latest.luong_dot_1 ?? 0);
       setCommissionPct((latest.commission_pct ?? 0) * 100);
+      setMucDongBh(
+        latest.insurance_base && latest.insurance_base > 0
+          ? latest.insurance_base
+          : null,
+      );
       setInsuranceElsewhere(!!latest.insurance_elsewhere);
       setUnionMember(!!latest.union_member);
       setApplySelfDeduction(latest.apply_self_deduction ?? true);
@@ -309,6 +317,14 @@ export function SalaryModal({
       );
       return;
     }
+    // Tick "BH đóng ở nơi khác" ⇒ bên kia đóng, mình không trừ gì nên KHÔNG bắt khai mức đóng.
+    if ((mucDongBh ?? 0) <= 0 && !insuranceElsewhere) {
+      setErr(
+        "Mức đóng BHXH là bắt buộc — mỗi người một mức, không được để 0. Nếu người này đóng đúng "
+          + "mức nền thì gõ lại đúng số mức nền.",
+      );
+      return;
+    }
     setBusy(true);
     setErr(null);
     setOk(null);
@@ -316,9 +332,9 @@ export function SalaryModal({
       const eff = todayYmd(); // hiệu lực = hôm nay
       await api.luong.setSalary(token, emp.id, {
         effective_from: eff,
-        amount_mode: "manual",
         luong_vi_tri: luongViTri,
         luong_trach_nhiem: luongTrachNhiem,
+        insurance_base: mucDongBh ?? 0,
         luong_dot_1: luongDot1,
         allowance,
         chuyen_can: chuyenCan,
@@ -390,8 +406,10 @@ export function SalaryModal({
   // (`_compute`): MỨC ĐÓNG BH = MỨC NỀN = cơ bản + trách nhiệm (chủ chốt 12/08/2026). Bản cũ lấy
   // chỉ vị trí nên khối BH cuối modal báo THIẾU tiền cho mọi NV có lương trách nhiệm, trong khi
   // dòng đầu modal (số server) và phiếu lương in số đúng (bản rà 07/09, E2).
-  const salaryBase = luongViTri + luongTrachNhiem; // mức nền: prorate công + gốc đóng BH
-  const bhBase = salaryBase;
+  const salaryBase = luongViTri + luongTrachNhiem; // mức nền: prorate công + gốc đoàn phí
+  // GỐC ĐÓNG BH = ô "Mức đóng BHXH" khai riêng (chủ chốt 16/09/2026); chưa khai ⇒ tạm mức nền, y
+  // như engine. Đoàn phí công đoàn KHÔNG đi theo ô này — vẫn `salaryBase`.
+  const bhBase = (mucDongBh ?? 0) > 0 ? (mucDongBh as number) : salaryBase;
 
   // Tổng khoản THU của danh mục (khoản `tru` là khấu trừ, không cộng vào đây) + số cũ gộp cục.
   const compThu = (comps ?? []).reduce(
@@ -425,7 +443,7 @@ export function SalaryModal({
     {
       key: "luong_vi_tri",
       name: "Lương cơ bản",
-      note: "Gốc tính tăng ca. BHXH/BHYT/BHTN đóng trên mức nền (cơ bản + trách nhiệm)",
+      note: "Lương theo công và tăng ca tính trên mức nền (cơ bản + trách nhiệm). BHXH/BHYT/BHTN đóng theo ô Mức đóng BHXH bên dưới",
       taxable: true,
       value: luongViTri,
       set: setLuongViTri,
@@ -433,10 +451,25 @@ export function SalaryModal({
     {
       key: "luong_trach_nhiem",
       name: "Lương trách nhiệm",
-      note: `Mức nền = cơ bản + trách nhiệm: ${money(salaryBase)}đ — gốc đóng BH và lương theo công; tăng ca chỉ tính trên lương cơ bản`,
+      // Tăng ca tính trên mức nền từ 15/09/2026 (chủ đảo chốt 12/08 "chỉ lương cơ bản").
+      note: `Mức nền = cơ bản + trách nhiệm: ${money(salaryBase)}đ — dùng cho lương theo công, tăng ca và đoàn phí công đoàn`,
       taxable: true,
       value: luongTrachNhiem,
       set: setLuongTrachNhiem,
+    },
+    {
+      key: "insurance_base",
+      // Dấu * bỏ đi khi BH đóng ở nơi khác — lúc đó ô này để trống cũng lưu được.
+      // KHÔNG phải tiền trả cho NV ⇒ `khongTinhTong` để tổng "ô cố định" không cộng nhầm, và
+      // `taxable: null` để không gắn chip Chịu thuế / Miễn thuế (chip đó nói về khoản THU).
+      khongTinhTong: true,
+      name: insuranceElsewhere ? "Mức đóng BHXH" : "Mức đóng BHXH *",
+      note: insuranceElsewhere
+        ? "Người này đã có nơi khác đóng BHXH/BHYT/BHTN — công ty không trừ 3 khoản này, nên ô mức đóng để trống cũng được."
+        : "Số trên hợp đồng bảo hiểm của NGƯỜI NÀY — BHXH 8% + BHYT 1,5% + BHTN 1% tính trên số này (đoàn phí công đoàn vẫn theo mức nền). Bắt buộc khai.",
+      taxable: null,
+      value: mucDongBh ?? 0,
+      set: (v: number) => setMucDongBh(v),
     },
     {
       key: "chuyen_can",
@@ -484,7 +517,10 @@ export function SalaryModal({
   ];
   // Tổng "ô cố định" chỉ cộng các ô CÒN RA TIỀN — hai ô đã ngưng (readOnly) không vào đây, không
   // thì con số nhắc ở cuối màn cao hơn lương thật của người còn số cũ.
-  const sysThu = sysRows.reduce((s, r) => s + (r.readOnly ? 0 : r.value), 0);
+  const sysThu = sysRows.reduce(
+    (s, r) => s + (r.readOnly || r.khongTinhTong ? 0 : r.value),
+    0,
+  );
 
   // --- Khối thuế TNCN --------------------------------------------------------
   // Người phụ thuộc lấy từ HỒ SƠ (ô `dependents_count` đã có sẵn ở đó) — ở đây chỉ nhẩm hộ.
@@ -567,11 +603,13 @@ export function SalaryModal({
                   <span className="lg-comp__src">{r.note}</span>
                 </div>
                 <div>
-                  <span
-                    className={`ns-badge ${r.taxable ? "ns-badge--info" : "ns-badge--ok"}`}
-                  >
-                    {r.taxable ? "Chịu thuế" : "Miễn thuế"}
-                  </span>
+                  {r.taxable === null ? null : (
+                    <span
+                      className={`ns-badge ${r.taxable ? "ns-badge--info" : "ns-badge--ok"}`}
+                    >
+                      {r.taxable ? "Chịu thuế" : "Miễn thuế"}
+                    </span>
+                  )}
                 </div>
                 <div className="lg-comp__money">
                   <input
@@ -1060,8 +1098,11 @@ export function SalaryModal({
                 </>
               ) : (
                 <>
-                  Đóng BH trên mức nền <b>{money(bhBase)}đ</b>, nhân viên
-                  đóng gồm:
+                  Đóng BH trên{" "}
+                  {(mucDongBh ?? 0) > 0
+                    ? "mức đóng BHXH đã khai"
+                    : "mức nền (chưa khai mức đóng BHXH)"}{" "}
+                  <b>{money(bhBase)}đ</b>, nhân viên đóng gồm:
                   <br />· BHXH {pctOf(params.bhxh_rate)}% ={" "}
                   <b>{money(bhxhAmt)}đ</b>
                   {"  ·  "}BHYT {pctOf(params.bhyt_rate)}% ={" "}

@@ -1,15 +1,14 @@
 // Mảnh dùng chung của màn THỰC HIỆN SẢN XUẤT tại tổ (`san_xuat`, "một bàn làm việc").
 //
-// Ở đây CHỈ những thứ độc lập trình bày, để cả `ThucHienSxPage`, `ThsxTimeline`, `ThsxDrawer`
+// Ở đây CHỈ những thứ độc lập trình bày, để cả `ThucHienSxPage`, `ThsxLichNgay`, `ThsxDrawer`
 // cùng dùng mà không vòng import:
 //  1) `THSX_TT_META` + `ThsxTrangThaiPill` — pill trạng thái công việc (LUÔN icon + CHỮ, a11y).
-//  2) Gom cluster theo `loai_buoc` (máy / năng-lực-tổ / thuê-ngoài) → lane → việc.
-//  3) Nhãn dẫn xuất (serial nguồn, icon nguồn) + digest đếm theo trạng thái.
+//  2) Nhãn dẫn xuất (serial nguồn, icon nguồn) + digest đếm theo trạng thái.
 //
-// TRỤC THỜI GIAN **tái dùng** `xl2Shared.tsx` (buildLinearScale / XL2_PX_PER_MIN / LABEL_W / BAR_H) —
-// KHÔNG chép lại. Việc thực hiện chạy theo đồng hồ tường như v2 nên trục tuyến tính là đúng.
+// LƯỚI NGÀY của view Lịch **tái dùng** hình học của Xếp lịch 3 (`xl3Shared.tsx` khungLuoi / x) —
+// KHÔNG chép lại.
 import { Icon, type IconName } from "../components/Icons";
-import type { SxWorkItem } from "../api/client";
+import type { SxLenhNhom, SxWorkItem, SxWorkItemsOut } from "../api/client";
 import { num } from "./keHoachSxShared";
 import { nhanChang } from "./lsxBuoc";
 
@@ -96,83 +95,6 @@ export function sxCoGio(w: SxWorkItem): boolean {
   return !!w.du_kien_bat_dau && !!w.du_kien_ket_thuc;
 }
 
-// ============================ GOM CLUSTER ===================================
-export type ThsxClusterKey = "may" | "to" | "thue_ngoai";
-
-export interface ThsxLane {
-  key: string;                 // "may:<tên>" | "to:<công đoạn>" | "thue_ngoai:_"
-  cluster: ThsxClusterKey;
-  label: string;
-  viec: SxWorkItem[];
-}
-export interface ThsxCluster {
-  key: ThsxClusterKey;
-  label: string;
-  icon: IconName;
-  /** đơn vị đếm lane ("máy" / "công đoạn" / "đối tác") cho nhãn cluster-head. */
-  unit: string;
-  lanes: ThsxLane[];
-}
-
-function pushLane(map: Map<string, SxWorkItem[]>, key: string, w: SxWorkItem): void {
-  const arr = map.get(key) ?? map.set(key, []).get(key)!;
-  arr.push(w);
-}
-
-/** Gom việc → cluster theo `loai_buoc` (§3):
- *  · "may"        → cụm "Máy", mỗi TÊN MÁY một lane.
- *  · "thue_ngoai" → cụm "Thuê ngoài", một lane.
- *  · còn lại ("to"/rỗng) → cụm "Năng lực tổ", lane theo `ten_cong_doan` (thủ công, không neo máy).
- *  Chỉ nhận việc CÓ GIỜ (đã lọc trước ở controller) — việc thiếu giờ nằm ở cột trái. */
-export function buildThsxClusters(items: SxWorkItem[]): ThsxCluster[] {
-  const may = new Map<string, SxWorkItem[]>();
-  const to = new Map<string, SxWorkItem[]>();
-  const ngoai: SxWorkItem[] = [];
-
-  for (const w of items) {
-    if (w.loai_buoc === "thue_ngoai") {
-      ngoai.push(w);
-    } else if (w.loai_buoc === "may") {
-      pushLane(may, (w.may || "").trim() || "— chưa rõ máy —", w);
-    } else {
-      pushLane(to, (w.ten_cong_doan || "").trim() || "— công đoạn —", w);
-    }
-  }
-
-  const viLabel = (a: [string, SxWorkItem[]], b: [string, SxWorkItem[]]) =>
-    a[0].localeCompare(b[0], "vi");
-
-  const out: ThsxCluster[] = [];
-  if (may.size) {
-    out.push({
-      key: "may", label: "Máy", icon: "printer", unit: "máy",
-      lanes: [...may.entries()].sort(viLabel).map(([label, viec]): ThsxLane => ({
-        key: `may:${label}`, cluster: "may", label, viec,
-      })),
-    });
-  }
-  if (to.size) {
-    out.push({
-      key: "to", label: "Năng lực tổ", icon: "users", unit: "công đoạn",
-      lanes: [...to.entries()].sort(viLabel).map(([label, viec]): ThsxLane => ({
-        key: `to:${label}`, cluster: "to", label, viec,
-      })),
-    });
-  }
-  if (ngoai.length) {
-    out.push({
-      key: "thue_ngoai", label: "Thuê ngoài", icon: "truck", unit: "đối tác",
-      lanes: [{ key: "thue_ngoai:_", cluster: "thue_ngoai", label: "Thuê ngoài", viec: ngoai }],
-    });
-  }
-  return out;
-}
-
-/** Đếm SỐ VIỆC trong một tập lane (cluster-head + digest DÙNG CHUNG để không lệch nhau). */
-export function demViecLanes(lanes: ThsxLane[]): number {
-  return lanes.reduce((n, l) => n + l.viec.length, 0);
-}
-
 // ============================ DIGEST ========================================
 export interface ThsxDigest {
   tong: number;
@@ -192,4 +114,24 @@ export function sxDigest(items: SxWorkItem[]): ThsxDigest {
     else d.released += 1;
   }
   return d;
+}
+
+// ============================ HAI HÌNH DỮ LIỆU CỦA BÀN ======================
+/** Tách đáp ứng `/work-items` thành đúng MỘT hình để màn vẽ (11/09/2026).
+ *
+ *  Quyết theo cờ `nhom` mà máy chủ trả về, KHÔNG theo "có mảng lệnh hay không": `WorkItemsOut`
+ *  khai `lenh: list[...] = []` nên khoá đó LUÔN có mặt kể cả ở chế độ phẳng — đọc theo sự hiện
+ *  diện của mảng thì băng KPI cộng trên mảng rỗng và báo 0 việc trong khi Gantt đang vẽ đủ việc.
+ *
+ *  `cong_viec = null` nghĩa là "màn đang ở hình lệnh", khác hẳn `[]` = "hình phẳng, không có việc
+ *  nào" — hai chuyện đó ra hai câu trống khác nhau nên không được gộp. */
+export function chonHinhBan(r: SxWorkItemsOut): {
+  cong_viec: SxWorkItem[] | null;
+  lenh: SxLenhNhom[] | null;
+  tongLenh: number;
+} {
+  if (r.nhom === "phang") {
+    return { cong_viec: r.cong_viec ?? [], lenh: null, tongLenh: 0 };
+  }
+  return { cong_viec: null, lenh: r.lenh ?? [], tongLenh: r.trang?.tong ?? 0 };
 }

@@ -4,16 +4,16 @@ Bảng này đã có từ trước dưới tên "đơn giá khoán" và vẫn l�
 17/08/2026 chỉ chuyển CHỖ KHAI về Cấu hình danh mục. Vì vậy ở đây không dựng bảng mới, chỉ cho nó
 đi vào nền `CatalogRepo` như 8 repo danh mục kia.
 
-⚠️ `PieceWorkRepository` (cùng bảng) chỉ còn giữ phần THƯỞNG/PHẠT tổ trưởng. Mọi đường GHI vào
-`piece_rates` đi qua đây — hai đường ghi thì đường nào không qua `CongViecKhoanService` sẽ không
+Mọi đường GHI vào `piece_rates` đi qua đây — hai đường ghi thì đường nào không qua `CongViecKhoanService` sẽ không
 ghi nhật ký, và tab Nhật ký của màn lặng lẽ thiếu dòng.
 """
 from __future__ import annotations
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from ..models.don_vi_do import DonViDo
-from ..models.piece_work import PieceRate
+from ..models.piece_work import PieceRate, ViecPhatSinh
 from .catalog_base import CatalogRepo
 
 ASSIGNABLE = (
@@ -31,6 +31,35 @@ class CongViecKhoanRepository(CatalogRepo):
     # Gom theo TỔ rồi mới tới mã: bảng này người ta đọc theo tổ ("tổ Bế có những việc gì"), không
     # đọc theo thứ tự mã.
     order_cols = ("group_name", "ma")
+
+    def _base_select(self):
+        """Nạp kèm việc phát sinh — cột "Việc phát sinh" của bảng vẽ tên các việc con cho MỌI dòng
+        trên trang, để lazy là mỗi dòng một truy vấn."""
+        return select(PieceRate).options(selectinload(PieceRate.viec_phat_sinh))
+
+    def _sau_gan(self, obj: PieceRate, data: dict) -> None:
+        """Khớp danh sách VIỆC PHÁT SINH theo id — sửa tại chỗ, không xoá-rồi-chèn lại.
+
+        Khoá `viec_phat_sinh` VẮNG (nhập Excel, `dat_active`, client không biết tới việc phát sinh)
+        ⇒ giữ nguyên. Có mặt ⇒ đó là TRỌN danh sách: dòng mang id của chính công việc này thì sửa
+        đúng hàng đó (id sống qua các lần lưu — sau này sản xuất trỏ vào id), dòng không id hoặc id
+        lạ (của công việc khác) thì chèn mới, hàng cũ không còn trong danh sách thì `delete-orphan`
+        xoá. Không có ràng buộc UNIQUE ở DB nên đổi tên chéo hai dòng trong một lần lưu không vấp
+        thứ tự INSERT/DELETE của flush (bẫy `_replace_dinh_muc` bên Công đoạn).
+        """
+        rows = data.get("viec_phat_sinh")
+        if not isinstance(rows, list):
+            return
+        cu = {v.id: v for v in obj.viec_phat_sinh if v.id is not None}
+        moi: list[ViecPhatSinh] = []
+        for i, r in enumerate(rows):
+            v = cu.pop(r.get("id"), None) or ViecPhatSinh()
+            v.ten = r["ten"]
+            v.don_gia = r["don_gia"]
+            v.don_vi = r["don_vi"]
+            v.thu_tu = i
+            moi.append(v)
+        obj.viec_phat_sinh = moi
 
     def extra_conds(self, *, to: str | None = None, **_) -> list:
         """Lọc theo TỔ — nhận HAI dạng, cố ý:

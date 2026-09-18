@@ -16,7 +16,7 @@ export const DOC_KIND_LABEL: Record<string, string> = {
 };
 export const EVENT_LABEL: Record<string, string> = {
   hired: "Vào làm", confirmed: "Chuyển chính thức", transferred: "Điều chuyển",
-  promoted: "Nâng bậc / đổi chức danh", leave_start: "Bắt đầu nghỉ dài hạn",
+  promoted: "Đổi chức danh", leave_start: "Bắt đầu nghỉ dài hạn",
   leave_end: "Đi làm lại", suspended: "Đình chỉ", unsuspended: "Gỡ đình chỉ", resigned: "Nghỉ việc",
   reinstated: "Tuyển lại",
 };

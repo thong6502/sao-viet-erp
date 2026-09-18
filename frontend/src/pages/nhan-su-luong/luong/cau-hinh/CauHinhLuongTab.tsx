@@ -1,5 +1,6 @@
-// Cấu hình lương — MỘT tab của màn Lương (không phải màn riêng), 3 tab con:
+// Cấu hình lương — MỘT tab của màn Lương (không phải màn riêng), 4 tab con:
 //   • Cơ chế lương theo bộ phận — 8 tham số toàn công ty + 4 thành phần lương của tổ.
+//   • Khoán km giao hàng       — các MỨC khoán km (bảng bậc giá, xe gán mức). Cấu hình chung.
 //   • Danh mục khoản thu nhập  — mỗi khoản một dòng + ô tích "Chịu thuế" (chốt chủ 27/07/2026).
 //   • Bảo hiểm & Thuế          — bảo hiểm 2 phía + thuế TNCN.
 //
@@ -22,6 +23,7 @@ import {
 } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { DiscardChangesDialog } from "../../../../components/DiscardChangesDialog";
+import { MucKhoanKmEditor } from "./components/MucKhoanKmEditor";
 import { CoCheTab } from "./tabs/CoCheTab";
 import { DanhMucTab } from "./tabs/DanhMucTab";
 import { PhuCapTab } from "./tabs/PhuCapTab";
@@ -199,10 +201,12 @@ export function CauHinhLuongTab({
   // lệnh dứt điểm, lưu ngay — không có nháp nào để mất khi đổi tab.
   const tabDirty: Record<SubTab, boolean> = {
     cochE: dirtyA || dirtyComps,
+    // Mức khoán km cũng lưu NGAY từng thao tác (tạo / đổi tên / lưu bậc trong hộp thoại riêng).
+    khoankm: false,
     danhmuc: false,
     phucap: dirtyIns || dirtyTax || dirtyPenalty,
   };
-  const anyDirty = tabDirty.cochE || tabDirty.danhmuc || tabDirty.phucap;
+  const anyDirty = Object.values(tabDirty).some(Boolean);
 
   useEffect(() => {
     onDirtyChange?.(anyDirty);
@@ -455,8 +459,13 @@ export function CauHinhLuongTab({
           readOnly={readOnly}
           busy={saving}
           navigate={navigate}
+          khoanDaLuu={
+            comps.find((c) => c.component_key === "luong_khoan")?.is_enabled ?? false
+          }
         />
       )}
+
+      {sub === "khoankm" && <MucKhoanKmEditor token={token} readOnly={readOnly} />}
 
       {sub === "danhmuc" && <DanhMucTab token={token} readOnly={readOnly} />}
 

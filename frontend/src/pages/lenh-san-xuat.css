@@ -16,8 +16,8 @@
          `line-clamp: 2` + `title`, ≤768px BỎ clamp (thà xuống dòng). */
 
 .hslsx {
-  /* Rộng hơn `.khsx` (1280) vì bảng 8 cột — và đúng bằng `min-width` của bảng + padding, nên ở
-     màn desktop thường bảng KHÔNG phải cuộn ngang lần nào. */
+  /* Rộng hơn `.khsx` (1280) — và rộng hơn hẳn `min-width` của bảng 6 cột (920px), nên ở màn
+     desktop bảng KHÔNG phải cuộn ngang lần nào. */
   max-width: 1360px;
   margin: 0 auto;
   padding: var(--sp-5) var(--sp-6);
@@ -39,7 +39,7 @@
 .hslsx :focus-visible {
   outline: 2px solid var(--rust);
   outline-offset: 2px;
-  border-radius: var(--r-2);
+  border-radius: var(--r-3);
 }
 
 .hslsx .sr-only {
@@ -58,9 +58,25 @@
   flex: 1;
 }
 
-/* ---------- ① HEADER ---------- */
+/* ---------- ①+② ĐẦU TRANG: tiêu đề bên trái, dải số bên phải ----------
+   Trước đây header và bốn thẻ KPI là hai tầng rời nhau, cộng lại ~180px chiều cao trước khi
+   người đọc chạm được dòng dữ liệu đầu tiên. Số không cần khung riêng mới đọc được: gạch dọc
+   mảnh giữa các ô là đủ để tách, và cả dải nằm gọn cạnh tiêu đề.
+
+   KHÔNG dùng `justify-content: space-between` (khuôn lỗi (a)): cụm chữ bên trái là thứ được NỞ
+   (`flex: 1 1 …`), dải số co lại theo. */
 .hslsx__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3) var(--sp-6);
   margin-bottom: var(--sp-4);
+  min-width: 0;
+}
+
+.hslsx__headtext {
+  flex: 1 1 260px;
+  min-width: 0;
 }
 
 .hslsx__headrow {
@@ -73,11 +89,12 @@
 
 .hslsx__title {
   margin: 0;
-  font-size: var(--fs-xl);
+  font-size: var(--fs-2xl);
   font-weight: var(--fw-bold);
-  letter-spacing: -0.01em;
-  /* Thứ được NỞ, không phải thứ duy nhất bị co (khuôn lỗi (a)). */
-  flex: 1 1 auto;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--ink);
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -87,76 +104,77 @@
   padding: 2px var(--sp-2);
   border-radius: var(--r-pill);
   background: var(--rule-hair);
-  border: 1px solid var(--rule-soft);
   color: var(--ash);
-  font-size: var(--fs-xs);
-  font-family: var(--ff-num);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 /* Nhãn "Chỉ xem" — nói ngay đây là bàn TRA, không phải bàn làm. Trung tính, không phải cảnh báo. */
+/* "Chỉ xem" nói một sự thật về quyền, không phải một trạng thái của lệnh — nên nó là chip viền.
+   Viên TÔ ĐẶC trong màn này chỉ dành cho MỘT thứ: trạng thái của lệnh. Hai cái cùng tô đặc đứng
+   cạnh nhau thì mắt không biết cái nào là câu trả lời chính. */
 .hslsx__ro {
   display: inline-flex;
   align-items: center;
-  padding: 2px var(--sp-2);
-  border-radius: var(--r-2);
-  background: var(--steel-soft);
-  color: var(--steel);
+  padding: 1px var(--sp-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  color: var(--ash);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
 
 .hslsx__sub {
   margin: var(--sp-1) 0 0;
   color: var(--ash-2);
-  font-size: var(--fs-sm);
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
 }
 
-/* ---------- ② DẢI KPI ---------- */
+/* Dải số — bốn ô TRẦN ngăn bằng gạch dọc, không phải bốn thẻ có viền. Bốn cái khung giống hệt
+   nhau chỉ nói "đây là bốn thứ cùng loại", điều mà bốn cái nhãn đã nói rồi. */
 .hslsx__kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
   align-items: stretch;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
+  /* NO `flex: 0 1 auto`. Bon so ep vao goc phai ~290px o man 1440 thi chung doc nhu chu thich,
+     khong phai nhu so lieu. Cho ca dai NO ra, moi o chia deu => moi so co ~190px de tho. */
+  flex: 1 1 520px;
+  min-width: 0;
+}
+
+.hslsx__kpirow {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
 }
 
 .hslsx-kpi {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: var(--sp-1);
+  gap: 2px;
+  flex: 1 1 0;
   min-width: 0;
-  padding: var(--sp-2) var(--sp-3);
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
+  padding: 0 var(--sp-5);
+  border-left: 1px solid var(--rule-soft);
 }
 
-/* CHỈ thẻ "Dự kiến trễ" được tô, và chỉ khi > 0. Ba thẻ kia LUÔN trung tính: chúng là số đo,
-   không phải báo động — tô cả bốn thì màu hết mang tin. */
-.hslsx-kpi--canhbao {
-  background: var(--signal-soft);
-  border-color: var(--signal);
-}
-.hslsx-kpi--canhbao .hslsx-kpi__val {
-  color: var(--signal);
+.hslsx-kpi:first-child {
+  padding-left: 0;
+  border-left: 0;
 }
 
-/* Nhãn thẻ cho xuống dòng thoải mái — KHÔNG `nowrap`, KHÔNG ellipsis (khuôn lỗi (d)). */
 .hslsx-kpi__lb {
   color: var(--ash-2);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
   line-height: 1.3;
-  min-width: 0;
-  overflow-wrap: anywhere;
+  /* Chia deu => nhan PHAI xuong dong duoc, khong thi "Cong doan xong hom nay" de len o ben canh. */
+  white-space: normal;
 }
 
 .hslsx-kpi__val {
@@ -166,22 +184,38 @@
   column-gap: var(--sp-1);
   min-width: 0;
   color: var(--ink);
-  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-bold);
-  /* `--fs-xl` (20px) chứ không `--fs-lg` (16px): đơn vị bên cạnh là `--fs-2xs` (11px), 16/11 ≈ 1,5
-     lần — con số không nổi hơn chữ thường bao nhiêu, dải KPI đọc ra phẳng lì. 20/11 ≈ 1,8 lần thì
-     mắt bắt được SỐ trước, ĐƠN VỊ sau, đúng thứ tự người ta cần. */
-  font-size: var(--fs-xl);
-  line-height: 1.25;
+  /* 26px, khong phai 20px. Man nay co DUNG MOT tang chu to (tieu de + bon so nay); moi thu con
+     lai la 11-14px. 20px nam giua nen khong ra to cung khong ra nho. */
+  font-size: var(--fs-2xl);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 
 .hslsx-kpi__val small {
-  font-family: var(--ff-sans);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-regular);
   color: var(--ash-2);
+  letter-spacing: 0;
   overflow-wrap: anywhere;
+}
+
+/* CHỈ "Dự kiến trễ" được tô, và chỉ khi > 0: tô cả bốn thì màu hết mang tin. Chấm tròn đi kèm
+   để tin không nằm MỘT MÌNH trong màu. */
+.hslsx-kpi.is-canhbao .hslsx-kpi__val {
+  color: var(--signal);
+}
+
+.hslsx-kpi.is-canhbao .hslsx-kpi__lb::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--signal);
+  vertical-align: middle;
 }
 
 .hslsx-kpi__phu {
@@ -191,12 +225,12 @@
   overflow-wrap: anywhere;
 }
 
-/* Đang tải ⇒ shimmer, KHÔNG hiện `0`: số 0 lúc đang tải là một khẳng định SAI về nhà máy. */
+/* Đang tải ⇒ shimmer, KHÔNG hiện `0`: số 0 lúc đang tải là khẳng định sai về nhà máy. */
 .hslsx-kpi__shim {
   display: block;
-  height: 20px;
-  width: 62%;
-  border-radius: var(--r-2);
+  height: 28px;
+  width: 58px;
+  border-radius: var(--r-3);
   background: linear-gradient(90deg, var(--rule-hair), var(--rule-soft), var(--rule-hair));
   background-size: 200% 100%;
   animation: hslsx-shim 1.2s ease-in-out infinite;
@@ -212,7 +246,7 @@
 }
 
 .hslsx__kpinote {
-  margin: var(--sp-2) 0 var(--sp-4);
+  margin: 0;
   color: var(--ash-2);
   font-size: var(--fs-2xs);
 }
@@ -221,19 +255,37 @@
   color: var(--signal);
 }
 
-/* ---------- ③ HÀNG LỌC ---------- */
-/* KHÔNG `space-between` (khuôn lỗi (a)): dùng `flex-wrap` + `flex-basis` để ô tìm là thứ được nở. */
-.hslsx__filters {
+/* ---------- ③ BÀN LỌC: lọc + tab trong MỘT khối, hai dòng ----------
+   Ba tầng cũ (hàng lọc · dải "thẻ đang lọc" · dải tab) gộp còn một. Dải thẻ đang lọc bỏ được vì
+   mỗi ô lọc bên dưới đã tự mang cả nhãn lẫn giá trị và đổi sang nền tối khi có giá trị.
+
+   `flex-wrap: wrap`, TUYỆT ĐỐI không `overflow-x: auto`: bản trước để `nowrap` + khung cuộn nên
+   ở màn 1440px nút "Chỉ lệnh trễ" và "Xóa bộ lọc" bị đẩy ra ngoài, phải cuộn ngang mới thấy. */
+.hslsx__deck {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  /* KHONG con la mot cai HOP trang.
+     Truoc: khoi loc la the trang co vien + bo goc, con cai bang ben duoi cung the trang co vien
+     + bo goc => phan DIEU KHIEN nang ngang phan NOI DUNG, va ca man thanh hai hop giong nhau
+     xep chong. O man tra cuu, cai duy nhat dang la mot BE MAT la danh sach; bo loc chi la chu
+     va o dieu khien dat trang nen giay. */
+  padding: 0;
+  margin-bottom: var(--sp-4);
+  min-width: 0;
+}
+
+.hslsx__deckrow {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--sp-3);
-  padding: var(--sp-3);
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  margin-bottom: var(--sp-3);
+  align-items: center;
+  gap: var(--sp-2);
   min-width: 0;
+}
+
+.hslsx__deckrow--tabs {
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
 }
 
 .hslsx__search {
@@ -241,14 +293,21 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  flex: 1 1 320px;
-  min-width: 0;
-  padding: 0 var(--sp-2);
-  height: 34px;
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
+  flex: 1 1 190px;
+  min-width: 170px;
+  padding: 0 10px;
+  height: 36px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
   border-radius: var(--r-3);
   color: var(--ash-2);
+  transition: border-color var(--duration-base) var(--easing-standard),
+    box-shadow var(--duration-base) var(--easing-standard);
+}
+
+.hslsx__search:focus-within {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 14%, transparent);
 }
 
 .hslsx__search input {
@@ -257,145 +316,243 @@
   border: 0;
   background: transparent;
   color: var(--ink);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
 }
-/* Ô khai `type="search"` nên Chromium tự vẽ thêm một nút xoá của RIÊNG nó, đứng ngay cạnh
- * `.hslsx__clearq` do app vẽ ⇒ hai dấu ✕ dính nhau, người dùng không biết bấm cái nào. Tắt nút
- * gốc, giữ nút của app (nó có `aria-label` tiếng Việt và cùng khuôn hover với phần còn lại). Hai
- * module khác đã làm đúng từ trước: `thuc-hien-sx.css:157`, `xep-lich-2.css:229`. */
+
 .hslsx__search input::-webkit-search-cancel-button { display: none; }
-/* KHÔNG `outline: none` — vòng focus của `.hslsx :focus-visible` vẫn ăn. */
+
+.hslsx__kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: var(--r-3);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+  pointer-events: none;
+}
 
 .hslsx__clearq {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
   border-radius: var(--r-pill);
   background: transparent;
   color: var(--ash-2);
   cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard);
 }
+
 .hslsx__clearq:hover {
-  background: var(--rule-hair);
+  background: var(--rule-soft);
   color: var(--ink);
 }
 
-.hslsx__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
+/* Ô lọc = MỘT viên: nhãn nhỏ và ô chọn nằm chung trong một đường viền, không còn nhãn HOA giãn
+   cách đứng rời bên trái. Riêng việc bỏ nhãn rời đã cắt ~40% bề ngang của cả hàng — đủ để bốn ô
+   lọc, ô tìm và nút gạt cùng nằm vừa một dòng ở màn 1440px. */
+.hslsx__field,
+.hslsx__daterange {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 36px;
+  padding: 0 var(--sp-2) 0 10px;
+  /* O dieu khien la TRANG tren nen giay, khong phai giay tren trang: khoi loc da bo hop nen
+     neu o cung mau giay thi khong con gi ve ra hinh cai o. */
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
   min-width: 0;
+  flex: 0 1 auto;
+  transition: background-color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard);
 }
 
 .hslsx__field-lb {
   color: var(--ash-2);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 .hslsx__field select,
 .hslsx__daterow input {
-  height: 34px;
+  height: 32px;
   min-width: 0;
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
-  background: var(--canvas);
+  padding: 0;
+  border: 0;
+  background-color: transparent;
   color: var(--ink);
   font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
 }
 
 .hslsx__field select {
-  max-width: 220px;
-}
-
-.hslsx__daterange {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  min-width: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 15px;
+  max-width: 118px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right center;
 }
 
 .hslsx__daterow {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
   color: var(--ash-2);
+  font-size: var(--fs-2xs);
   min-width: 0;
 }
 
 .hslsx__daterow input {
-  font-family: var(--ff-num);
+  width: 92px;
   font-variant-numeric: tabular-nums;
 }
 
-/* Gõ SAI (vd năm 6 chữ số — `<input type="date">` cho phép, rồi máy chủ trả 422 CÂM) ⇒ viền cảnh
-   báo và KHÔNG gửi tham số. Ô TRỐNG thì không gửi mà cũng không báo — hai ca khác nhau. */
-.hslsx__daterow input.is-sai {
+.hslsx__daterow input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.hslsx__daterow input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* CÓ GIÁ TRỊ ⇒ cả viên đổi sang nền tối. Đúng luật của `tokens.css`: charcoal = LỰA CHỌN LỌC,
+   rust = hành động. Nhờ nền tối này mà dải "thẻ đang lọc" cũ thành thừa: nhìn một cái là thấy
+   ngay ô nào đang giữ bộ lọc, mà không tốn thêm một tầng.
+
+   Lớp `is-active` do React gắn thẳng lên cái viên, không để CSS suy ngược từ lớp của `<select>`
+   con qua `:has()`. Cả hai cách đều chạy; chọn cách này vì trạng thái nằm đúng trên phần tử được
+   tô, nên đọc CSS là biết ngay ai bật nó, và không phải nhớ rằng đổi cấu trúc bên trong viên sẽ
+   làm gãy cái selector. */
+.hslsx__field.is-active,
+.hslsx__daterange.is-active {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+}
+
+.hslsx__field.is-active .hslsx__field-lb,
+.hslsx__daterange.is-active .hslsx__field-lb,
+.hslsx__daterange.is-active .hslsx__daterow {
+  color: var(--on-charcoal-muted);
+}
+
+.hslsx__field.is-active select,
+.hslsx__daterange.is-active input {
+  color: var(--on-charcoal);
+  font-weight: var(--fw-bold);
+}
+
+.hslsx__field.is-active select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%23f8fafc' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+.hslsx__daterange.is-active input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.7;
+}
+
+/* Gõ sai ⇒ viền đỏ, KHÔNG gửi. Phân biệt với ô trống (không báo gì). */
+.hslsx__daterange.is-sai {
   border-color: var(--signal);
   background: var(--signal-soft);
 }
 
+.hslsx__daterow input.is-sai {
+  color: var(--signal-deep);
+  font-weight: var(--fw-bold);
+}
+
 .hslsx__hint {
-  color: var(--ash-2);
-  font-size: var(--fs-2xs);
-  line-height: 1.35;
+  display: none;
 }
 
 .hslsx__toggle {
-  height: 34px;
-  padding: 0 var(--sp-3);
-  border: 1px solid var(--rule-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  /* 32px = đúng chiều cao của một cái tab đứng cạnh nó, không phải 36px của ô nhập ở dòng trên. */
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
   border-radius: var(--r-3);
   background: var(--canvas);
   color: var(--ash);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
   cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  user-select: none;
+  transition: background-color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard),
+    color var(--duration-base) var(--easing-standard);
 }
+
 .hslsx__toggle:hover {
   color: var(--ink);
   border-color: var(--rule);
 }
-/* Charcoal = LỰA CHỌN LỌC (rust dành cho hành động) — màn này không có hành động nào. */
+
+.hslsx__switch-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--rule);
+  background: transparent;
+  transition: background-color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard);
+}
+
 .hslsx__toggle.is-on {
-  background: var(--charcoal);
-  border-color: var(--charcoal);
-  color: var(--on-charcoal);
+  background: var(--signal-soft);
+  border-color: color-mix(in srgb, var(--signal) 35%, transparent);
+  color: var(--signal-deep);
+  font-weight: var(--fw-bold);
+}
+
+.hslsx__toggle.is-on .hslsx__switch-dot {
+  background: var(--signal);
+  border-color: var(--signal);
 }
 
 .hslsx__linkbtn {
-  align-self: center;
-  padding: 0;
+  padding: var(--sp-1) var(--sp-2);
   border: 0;
+  border-radius: var(--r-3);
   background: transparent;
   color: var(--rust);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--easing-standard);
 }
+
 .hslsx__linkbtn:hover {
+  background: var(--rust-soft);
   color: var(--rust-deep);
 }
 
-/* ---------- ④ DẢI TAB ---------- */
+/* ---------- ④ BẢY TAB ----------
+   Không còn khung riêng bọc ngoài: tab đã nằm trong khối lọc, thêm một đường viền nữa chỉ là
+   hộp trong hộp. Tab đang chọn dùng charcoal (lựa chọn lọc), KHÔNG dùng rust (hành động). */
 .hslsx__tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-1);
-  padding: var(--sp-1);
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  margin-bottom: var(--sp-3);
+  gap: 2px;
   min-width: 0;
 }
 
@@ -403,7 +560,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  height: 32px;
+  padding: 0 11px;
   border: 0;
   border-radius: var(--r-3);
   background: transparent;
@@ -412,11 +570,15 @@
   font-weight: var(--fw-medium);
   cursor: pointer;
   white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
 }
+
 .hslsx__tab:hover {
   color: var(--ink);
   background: var(--rule-hair);
 }
+
 .hslsx__tab.is-active {
   background: var(--charcoal);
   color: var(--on-charcoal);
@@ -424,33 +586,53 @@
 }
 
 .hslsx__tabnum {
-  font-family: var(--ff-num);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  background: var(--rule-hair);
   color: var(--ash-2);
 }
+
 .hslsx__tab.is-active .hslsx__tabnum {
-  color: var(--on-charcoal-muted);
+  background: color-mix(in srgb, var(--on-charcoal) 20%, transparent);
+  color: var(--on-charcoal);
+}
+
+/* Tab Cảnh báo là tab duy nhất được mang màu: nó là lý do người điều độ mở màn này. */
+.hslsx__tab--canh_bao .hslsx__tabnum {
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+.hslsx__tab--canh_bao.is-active .hslsx__tabnum {
+  background: var(--signal);
+  color: var(--on-charcoal);
 }
 
 /* ---------- ⑤ BẢNG ---------- */
 .hslsx__tablewrap {
-  /* Cuộn NGANG + DỌC trong CHÍNH khung này — thanh cuộn ngang luôn nằm ngay dưới các hàng đang
-     thấy, không bị đẩy xuống tận đáy trang ngoài tầm nhìn. */
   overflow: auto;
-  max-height: calc(100vh - 340px);
-  /* Vuốt ngang hết bảng thì DỪNG, không kéo cả trang đi theo. */
+  max-height: calc(100vh - 300px);
   overscroll-behavior-x: contain;
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
+  /* Be mat DUY NHAT cua man duoc nhac len khoi nen giay. Mot cai bong, mot ban kinh bo goc, mot
+     cai the — khong phai bo the. Do la cho phan biet "co thiet ke" voi "bo the SaaS". */
+  box-shadow: var(--shadow-4);
   min-width: 0;
 }
 
+/* `min-width` chứ KHÔNG `width: 100%` (khuôn lỗi (b)). 920px thay cho 1180px của bản 8 cột —
+   chênh đúng phần hai lượt gộp cột trả lại. */
 .hslsx__table {
-  /* ⚠️ `min-width`, KHÔNG `width: 100%` (khuôn lỗi (b)): bảng 100% nằm trong khung `overflow-x`
-     bị ép đúng bề ngang khung nên cột không nở, khung cuộn thành vô dụng. */
-  min-width: 1180px;
+  min-width: 920px;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: var(--fs-sm);
@@ -460,78 +642,97 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: var(--sp-2) var(--sp-3);
-  background: var(--paper);
-  border-bottom: 1px solid var(--rule-soft);
+  padding: var(--sp-3);
+  background: var(--canvas);
+  /* Duong dam nhat trong bang la cho dau-bang gap than-bang. */
+  border-bottom: 1px solid var(--rule);
   color: var(--ash-2);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  /* KHONG viet HOA. Tieng Viet co dau: "CONG DOAN . MAY . NGUOI" thi dau nam de len duong cao
+     chu hoa, doc ra ngheo han thuong. Chu hoa gian cach cung la nhan mac-dinh cua moi bang. */
+  letter-spacing: 0;
   text-align: left;
   white-space: nowrap;
 }
 
 .hslsx__table td {
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3);
   border-bottom: 1px solid var(--rule-hair);
   vertical-align: top;
 }
 
-/* CHỈ hàng thật sự mở được mới đổi con trỏ + đổi nền khi rê — `is-mo-duoc` do JSX gắn khi có
-   `onMoHoSo`. Hàng sáng lên dưới con trỏ là một LỜI MỜI; mời rồi bấm không đi đâu thì người ta rê
-   đi rê lại tìm cách bật nó lên. Đúng lý lẽ thiết kế §6.8 dùng để cấm nút xám ở cột 8. */
+.hslsx__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .hslsx__row.is-mo-duoc {
   cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard);
 }
+
+/* Hover hàng KHÔNG dùng xám (luật `tokens.css` §2: rust-soft là "bề mặt được tô"). */
 .hslsx__row.is-mo-duoc:hover {
   background: var(--rust-soft);
 }
 
-/* Tải LẠI (đổi tab / lọc / lật trang) mà bảng đang có dòng: giữ nguyên dòng cũ, chỉ làm mờ nhẹ.
-   Thay bảng bằng skeleton mỗi lần bấm tab là màn nhấp nháy liên tục dưới tay người đang đọc. */
 .hslsx__table tbody.is-mo {
   opacity: 0.55;
 }
 
-/* Bề rộng 8 cột. Cột mũi tên khai px, bảy cột còn lại khai % (chia phần còn lại). */
-.hslsx__c1 { width: 11%; }
-.hslsx__c2 { width: 20%; }
-.hslsx__c3 { width: 13%; }
+/* Bề rộng 6 cột (tổng 95% + 44px cho cột nút). */
+.hslsx__c1 { width: 25%; }
+.hslsx__c2 { width: 15%; }
+.hslsx__c3 { width: 25%; }
 .hslsx__c4 { width: 13%; }
 .hslsx__c5 { width: 17%; }
-.hslsx__c6 { width: 12%; }
-.hslsx__c7 { width: 14%; }
-.hslsx__c8 { width: 48px; }
+.hslsx__c6 { width: 44px; }
 
-/* Cột 1 — Mã là ĐỊNH DANH: KHÔNG BAO GIỜ cắt, không ellipsis. Cắt mã là hỏng cả dòng. */
+.hslsx__idline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  min-width: 0;
+  margin-bottom: 3px;
+}
+
+/* Mã là ĐỊNH DANH và là thứ người xưởng gọi nhau — cho nó màu accent để mắt bắt được ngay khi
+   lướt cột, thay vì cái hộp xám cũ. Cả hàng bấm được nên mã đóng vai nhãn của đường đi đó. */
 .hslsx__ma {
-  display: inline-block;
-  padding: 1px var(--sp-2);
-  border-radius: var(--r-2);
-  background: var(--rule-hair);
-  border: 1px solid var(--rule-soft);
-  color: var(--ink);
-  font-family: var(--ff-num);
+  color: var(--rust-deep);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
-/* Tên SP / khách / công đoạn: xuống dòng, clamp 2 dòng + `title` ở desktop. KHÔNG `ellipsis` một
-   dòng (khuôn lỗi (d)) — và ≤768px bỏ clamp hẳn. */
+/* Ten san pham la CAU TRA LOI cua hang — cho no 14px/medium. Truoc day ca hang, tu ma den
+   ten den ghi chu, deu nam trong khoang 11-13px: khong co gi de mat bam vao khi luot cot. */
 .hslsx__ten {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   color: var(--ink);
-  line-height: 1.35;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
-/* Dòng phụ: SL/đơn vị · sale · người · dự kiến xong. Chữ dùng `--ff-sans` (đừng đổi sang
-   `--ff-num`, đó là font của SỐ), nhưng bật `tabular-nums` để các con số lẫn trong đó canh cột. */
+.hslsx__ten--manh {
+  font-weight: var(--fw-bold);
+}
+
+/* Cot Khach va cot Cong doan la thong tin PHU cua hang, giu 13px de khong tranh voi ten SP. */
+.hslsx__table .hslsx__c2 .hslsx__ten,
+.hslsx__buoc .hslsx__ten {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+}
+
 .hslsx__nho {
   display: block;
   margin-top: 2px;
@@ -542,7 +743,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Cột 5 — bước hiện tại + chip nhóm CĐ, rồi thanh tiến độ. */
 .hslsx__buoc {
   display: flex;
   flex-wrap: wrap;
@@ -551,9 +751,11 @@
   min-width: 0;
 }
 
+/* `flex: 0 1 auto` chứ không `1 1 auto`: tên bước chỉ chiếm đúng chỗ nó cần, chip nhóm đứng
+   SÁT ngay sau nó. Để nó nở thì chip bị đẩy ra tận mép cột, trông như hai thứ không liên quan. */
 .hslsx__buoc .hslsx__ten {
   -webkit-line-clamp: 1;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -562,7 +764,6 @@
   padding: 0 6px;
   border-radius: var(--r-pill);
   background: var(--rule-hair);
-  border: 1px solid var(--rule-soft);
   color: var(--ash-2);
   font-size: var(--fs-2xs);
   white-space: nowrap;
@@ -572,69 +773,175 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  margin-top: var(--sp-1);
+  margin-top: 5px;
   min-width: 0;
 }
 
+/* Thanh NGẮN có chủ ý: đổ accent tràn hết bề ngang cột thì mỗi hàng là một vệt màu, và màu
+   hết mang tin. 96px đủ để đọc tỉ lệ, phần còn lại của cột để trống cho máy · người. */
 .hslsx__bar {
-  flex: 1 1 auto;
-  min-width: 40px;
-  height: 6px;
+  flex: 0 1 96px;
+  min-width: 56px;
+  height: 5px;
   border-radius: var(--r-pill);
   background: var(--rule-soft);
   overflow: hidden;
 }
 
+/* Tiến độ đổ ACCENT, không phải xám: đây là con số người ta mở màn ra để xem. Bản trước dùng
+   gradient tím (#6366f1 → #4f46e5) — màu ngoài hệ, và cũng là hex thô mà đầu file đã cấm. */
 .hslsx__barfill {
   display: block;
   height: 100%;
-  background: var(--steel);
+  background: var(--rust);
+  border-radius: var(--r-pill);
+  transition: width var(--duration-enter) var(--easing-standard);
 }
 
-/* Ước tính ⇒ VÂN SỌC, không chỉ đổi màu: 40% "đo được" và 40% "ước tính" là hai mức tin cậy khác
-   hẳn nhau, và người mù màu vẫn phải phân biệt được. Chữ số kèm dấu ngã (`~42%`) ở JSX. */
+/* Ước tính ⇒ vạch chéo. Cùng màu nên vẫn đọc là tiến độ, nhưng nhìn là biết mức tin cậy khác. */
 .hslsx__barfill.is-uoc {
-  background-image: repeating-linear-gradient(
+  background: repeating-linear-gradient(
     45deg,
-    var(--ash-2) 0,
-    var(--ash-2) 3px,
-    var(--rule) 3px,
-    var(--rule) 6px
+    var(--rust) 0 3px,
+    color-mix(in srgb, var(--rust) 30%, var(--canvas)) 3px 6px
   );
-  background-color: var(--rule);
+}
+
+/* ===== Dải chặng ==============================================================================
+   Cả ĐƯỜNG ĐI của lệnh trong một hàng: mỗi công đoạn một đốt (`DaiChang` bên
+   `LenhSanXuatPage.tsx`, dữ liệu từ `danh_sach.chang()`). Bốn lớp `--xong/--chay/--dung/--cho`
+   là HỢP ĐỒNG với hằng `CHANG_*` của backend — đổi tên ở đây là đốt mất màu bên kia mà không
+   ai báo.
+
+   Luật màu của dải: CHỈ MỘT đốt được to tiếng. Đốt đã xong tô xám chứ không tô cam, vì đổ
+   accent tràn hết bề ngang cột thì mỗi hàng là một vệt màu và màu hết mang tin — đúng lý do
+   `.hslsx__bar` chỉ dài 96px. Cam để dành cho đốt ĐANG CHẠY, là thứ người tra tìm. */
+.hslsx__dai {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  /* Không cho nở: dải rộng bằng cả cột thì nó thành đồ hoạ trang trí, không còn là một chỉ báo
+     đọc lướt. Co được tới 96px để màn hẹp không đẩy ô phần trăm xuống dòng. */
+  flex: 0 1 168px;
+  min-width: 96px;
+}
+
+.hslsx__chang {
+  flex: 1 1 0;
+  min-width: 4px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  /* Nền mặc định = màu máng của thanh tiến độ cũ, nên đốt lạ (backend thêm trạng thái mà CSS
+     chưa biết) rơi về "chưa tới" chứ không thành lỗ trắng giữa dải. */
+  background: var(--rule-soft);
+}
+
+/* Đã xong là LỊCH SỬ: đọc được nhưng không giành mắt. */
+.hslsx__chang--xong {
+  background: var(--ash-2);
+}
+
+/* Đốt ĐANG CHẠY mang accent — màu duy nhất được to tiếng trong dải. */
+.hslsx__chang--chay {
+  background: var(--rust);
+}
+
+.hslsx__chang--dung {
+  background: var(--amber);
+}
+
+.hslsx__chang--cho {
+  background: var(--rule-soft);
+}
+
+/* "Lệnh đang ĐỨNG ở đây" — MÀU và VỊ TRÍ là hai tin khác nhau, phải tách làm hai dấu hiệu.
+   Bước hiện tại của một lệnh vừa phát hành gói còn ở trạng thái `cho`, tô theo màu thì nó
+   giống hệt mấy đốt chưa tới phía sau và dải hết nói được lệnh nằm ở khúc nào. Nên vị trí đi
+   bằng QUẦNG, quầng ăn theo sắc của chính đốt để không đẻ thêm màu thứ hai vào bảng. */
+.hslsx__chang.is-dang {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ash-2) 22%, transparent);
+}
+
+.hslsx__chang--chay.is-dang {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rust) 18%, transparent);
+}
+
+.hslsx__chang--dung.is-dang {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 22%, transparent);
+}
+
+/* Đốt hiện tại mà CHƯA TỚI thì đậm hơn mấy đốt chưa tới khác một bậc: chỉ riêng quầng trên
+   nền `--rule-soft` cao 6px là quá mờ để đọc lướt qua 50 dòng. */
+.hslsx__chang--cho.is-dang {
+  background: var(--rule);
+}
+
+/* Lệnh TRỄ HẠN: nhuộm đỏ đúng chỗ lệnh đang đứng. Trễ là chuyện của CẢ lệnh (`canh_bao` chứa
+   `tre_han`) — máy chủ KHÔNG chấm trễ từng chặng, nên đừng bịa ra đốt nào khác cũng trễ.
+   Badge "Trễ hạn" ở cột trạng thái vẫn là chỗ nói rõ bằng chữ. */
+.hslsx__dai.is-tre .hslsx__chang.is-dang {
+  background: var(--signal);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--signal) 18%, transparent);
 }
 
 .hslsx__pct {
   color: var(--ash);
-  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
   white-space: nowrap;
 }
 
-/* Cột 6 — ngày ngắn, `nowrap` không có gì để cắt. */
-.hslsx__c6 {
+/* Máy · người của bước đang chạy — gộp vào cột công đoạn (xem chú thích ở `<thead>`). */
+.hslsx__mayng {
+  display: block;
+  margin-top: 5px;
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.hslsx__sep {
+  margin: 0 5px;
+  color: var(--rule);
+}
+
+.hslsx__c4 {
   white-space: nowrap;
 }
+
 .hslsx__han {
   display: block;
-  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
+  font-weight: var(--fw-medium);
 }
-.hslsx__c6 .hslsx__nho {
+
+.hslsx__c4 .hslsx__nho {
   white-space: normal;
 }
 
-/* Cột 7 — pill trạng thái + badge cảnh báo. Cả hai LUÔN CÓ CHỮ, không bao giờ chỉ có màu. */
 .hslsx-pill {
-  display: inline-block;
-  padding: 1px var(--sp-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px var(--sp-2);
   border-radius: var(--r-pill);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-bold);
   white-space: nowrap;
 }
+
+.hslsx-pill::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
 .hslsx-pill--steel { background: var(--steel-soft); color: var(--steel); }
 .hslsx-pill--signal { background: var(--signal-soft); color: var(--signal); }
 .hslsx-pill--plum { background: var(--plum-soft); color: var(--plum-deep); }
@@ -646,27 +953,43 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-1);
-  margin-top: var(--sp-1);
+  margin-top: 5px;
 }
 
+/* Badge lý do chỉ VIỀN, không nền: pill trạng thái mới là thứ được nói to. Hai khối nền đặc
+   cạnh nhau làm hàng nào cũng như đang báo động. */
 .hslsx-badge {
   display: inline-block;
-  padding: 0 6px;
-  border-radius: var(--r-2);
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  background: transparent;
   font-size: var(--fs-2xs);
   font-weight: var(--fw-medium);
   white-space: nowrap;
 }
-.hslsx-badge--signal { background: var(--signal-soft); color: var(--signal); }
-.hslsx-badge--amber { background: var(--amber-soft); color: var(--amber-deep); }
-.hslsx-badge--them { background: var(--rule-hair); color: var(--ash-2); }
 
-/* Cột 8 — mũi tên LUÔN hiện (`opacity: 1`), hover chỉ đổi NỀN (khuôn lỗi (c)): cảm ứng không có
-   trạng thái rê, nút chỉ hiện khi hover coi như không tồn tại. */
-.hslsx__c8 {
-  text-align: right;
+.hslsx-badge--signal {
+  color: var(--signal);
+  border-color: color-mix(in srgb, var(--signal) 32%, transparent);
 }
 
+.hslsx-badge--amber {
+  color: var(--amber-deep);
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+}
+
+.hslsx-badge--them {
+  color: var(--ash-2);
+  border-color: var(--rule-soft);
+}
+
+.hslsx__c6 {
+  text-align: right;
+  vertical-align: middle;
+}
+
+/* Mũi tên LUÔN `opacity: 1` (khuôn lỗi (c)): cảm ứng không có trạng thái rê. */
 .hslsx__open {
   display: inline-flex;
   align-items: center;
@@ -674,18 +997,21 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
-  background: var(--canvas);
-  color: var(--ash);
+  border: 0;
+  border-radius: var(--r-3);
+  background: transparent;
+  color: var(--ash-2);
   cursor: pointer;
   opacity: 1;
+  transition: background-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
 }
+
 .hslsx__open:hover {
-  background: var(--rule-hair);
-  color: var(--ink);
+  background: var(--canvas);
+  color: var(--rust-deep);
 }
-/* Icon `chevron` chỉ XUỐNG — xoay để nó chỉ sang phải. */
+
 .hslsx__open svg {
   transform: rotate(-90deg);
 }
@@ -694,7 +1020,6 @@
   padding: var(--sp-8) var(--sp-4);
 }
 
-/* Gợi ý cuộn ngang — CHỈ ở màn hẹp (xem `@media` bên dưới) và chỉ khi bảng thật sự rộng hơn khung. */
 .hslsx__vuot {
   display: none;
   margin: var(--sp-2) 0 0;
@@ -708,8 +1033,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
+  margin-top: var(--sp-3);
   min-width: 0;
 }
+
 .hslsx__foot > :first-child {
   flex: 1 1 auto;
   min-width: 0;
@@ -728,11 +1055,21 @@
   .hslsx {
     padding: var(--sp-4);
   }
-  /* Dải KPI 4 cột → lưới 2×2. */
+  /* Dải số xuống dòng riêng dưới tiêu đề và trải đều, không còn ép cạnh tiêu đề. */
   .hslsx__kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex: 1 1 100%;
   }
-  /* Ô tìm chiếm trọn dòng. */
+  .hslsx__kpirow {
+    width: 100%;
+  }
+  .hslsx-kpi {
+    flex: 1 1 0;
+  }
+  /* Dải số chuyển sang chia đều ⇒ nhãn PHẢI được xuống dòng. Để `nowrap` như ở màn rộng thì
+     "Công đoạn xong hôm nay" tràn khỏi ô của nó và đè lên nhãn "Dự kiến trễ" bên cạnh. */
+  .hslsx-kpi__lb {
+    white-space: normal;
+  }
   .hslsx__search {
     flex: 1 1 100%;
   }
@@ -742,6 +1079,26 @@
 }
 
 @media (max-width: 768px) {
+  /* Ô lọc và nhãn của nó tự xuống dòng thay vì ép một hàng dài. */
+  .hslsx__field,
+  .hslsx__daterange {
+    flex: 1 1 auto;
+  }
+  .hslsx__field select {
+    max-width: none;
+    flex: 1 1 auto;
+  }
+  .hslsx__daterange {
+    flex: 1 1 100%;
+  }
+  .hslsx__daterow {
+    flex: 1 1 auto;
+  }
+  .hslsx__daterow input {
+    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
+  }
   /* Dải tab cuộn ngang TRONG CHÍNH NÓ thay vì wrap thành ba hàng cao ngất. */
   .hslsx__tabs {
     flex-wrap: nowrap;
@@ -754,14 +1111,7 @@
     scroll-snap-align: start;
     flex: 0 0 auto;
   }
-  /* Cụm Hạn SX xuống một dòng riêng. */
-  .hslsx__daterange {
-    flex: 1 1 100%;
-  }
-  .hslsx__field select {
-    max-width: none;
-  }
-  /* Bỏ clamp ở cột 2/3/5 — trên điện thoại thà xuống dòng còn hơn giấu mất tên (khuôn lỗi (d)). */
+  /* Bỏ clamp ở cột tên — trên điện thoại thà xuống dòng còn hơn giấu mất tên (khuôn lỗi (d)). */
   .hslsx__ten,
   .hslsx__buoc .hslsx__ten {
     display: block;
@@ -777,27 +1127,35 @@
    phần đổi nền cho khỏi "dính" sau khi chạm. */
 @media (hover: none) {
   .hslsx__row.is-mo-duoc:hover,
-  .hslsx__tab:hover,
   .hslsx__open:hover,
-  .hslsx__clearq:hover,
-  .hslsx__toggle:hover {
-    background: inherit;
-  }
-  .hslsx__row.is-mo-duoc:hover {
+  .hslsx__clearq:hover {
     background: transparent;
   }
-  .hslsx__toggle.is-on:hover {
+  .hslsx__tab:hover {
+    background: transparent;
+    color: var(--ash);
+  }
+  .hslsx__tab.is-active:hover {
     background: var(--charcoal);
+    color: var(--on-charcoal);
+  }
+  .hslsx__toggle:hover {
+    border-color: var(--rule);
+    color: var(--ash);
+  }
+  .hslsx__toggle.is-on:hover {
+    color: var(--signal-deep);
   }
 }
 
 @media (max-width: 480px) {
-  /* KPI giữ 2×2: ở 375px mỗi thẻ ≈167px — vẫn đọc được; ép 1 cột là phải cuộn mới thấy thẻ thứ 4. */
-  .hslsx-kpi__lb {
-    font-size: var(--fs-2xs);
-  }
   .hslsx__title {
-    font-size: var(--fs-lg);
+    font-size: var(--fs-xl);
+  }
+  /* Dải số về 2×2: ở 375px mỗi ô ≈167px — vẫn đọc được. */
+  .hslsx-kpi {
+    flex: 1 1 42%;
+    padding: 0 var(--sp-3);
   }
   /* Nút Pager to lên cho ngón tay. */
   .hslsx__foot .btn {
@@ -875,7 +1233,7 @@
      đứng NGAY CẠNH trên cùng một thanh, lệch vài pixel là thấy ngay. */
   padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-2);
   border: 1px solid var(--rule);
-  border-radius: var(--r-2);
+  border-radius: var(--r-3);
   background: var(--canvas);
   color: var(--ink);
   font-size: var(--fs-sm);
@@ -913,11 +1271,11 @@
 
 .hslsx-hs__ma {
   margin: 0;
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
-  font-size: var(--fs-xl);
+  font-size: var(--fs-2xl);
   font-weight: var(--fw-bold);
-  letter-spacing: 0.01em;
+  letter-spacing: -0.02em;
   color: var(--ink);
   /* Mã là ĐỊNH DANH: không bao giờ cắt (cùng luật với cột 1 của bảng). */
   white-space: nowrap;
@@ -931,6 +1289,20 @@
   font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Bốn cái nhãn đứng CÙNG MỘT HÀNG với mã lệnh: khác chiều cao và khác hình dạng thì hàng gãy
+   răng cưa. Ở bảng, `.hslsx-badge` vẫn giữ khuôn vuông nhỏ của nó — chỗ đó nó nằm dưới mã trong
+   ô hẹp, không đứng cạnh ai. */
+.hslsx-hs__ident > .hslsx-pill,
+.hslsx-hs__ident > .hslsx-badge,
+.hslsx-hs__ident > .hslsx-hs__ver,
+.hslsx-hs__ident > .hslsx__ro {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-pill);
 }
 
 .hslsx-hs__sub {
@@ -975,64 +1347,41 @@
 }
 
 /* ---------- Dải tổng quan ---------- */
+/* CÙNG khuôn với dải số của màn danh sách (`.hslsx-kpi`): không hộp, không chip icon màu — năm
+   con số đọc theo hàng, ngăn nhau bằng một sợi kẻ. Hộp có viền + đổ bóng + nhấc lên khi rê chuột
+   hứa hẹn "bấm được" mà cả năm ô đều không bấm được; và năm chip pastel là năm màu không mang
+   tin nào, trái luật bảng màu (chỉ rust và signal được nói). */
 .hslsx-hs__sum {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--sp-2);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--sp-4) 0;
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 .hslsx-hs__tile {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  grid-column: span 1;
-  padding: 14px 16px;
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  background: var(--canvas);
+  gap: 2px;
+  flex: 1 1 130px;
   min-width: 0;
-  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.04);
-  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+  padding: 0 var(--sp-4);
+  border-left: 1px solid var(--rule-soft);
 }
-.hslsx-hs__tile:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.08);
-  border-color: var(--rule);
+.hslsx-hs__tile:first-child {
+  padding-left: 0;
+  border-left: 0;
 }
+/* Ô Tiến độ ôm thêm thanh bar nên cần rộng hơn bốn ô còn lại. */
 .hslsx-hs__tile--wide {
-  grid-column: span 2;
+  flex: 1.7 1 210px;
 }
-
-.hslsx-hs__tile-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 2px;
-}
-.hslsx-hs__tile-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--r-2);
-  background: var(--heat-0);
-  color: var(--ash-2);
-  flex: none;
-}
-
-.hslsx-hs__tile--progress .hslsx-hs__tile-icon { background: #ecfdf5; color: #059669; }
-.hslsx-hs__tile--step .hslsx-hs__tile-icon { background: #eff6ff; color: #2563eb; }
-.hslsx-hs__tile--yield .hslsx-hs__tile-icon { background: #eef2ff; color: #4f46e5; }
-.hslsx-hs__tile--hours .hslsx-hs__tile-icon { background: #ecfeff; color: #0891b2; }
-.hslsx-hs__tile--deadline .hslsx-hs__tile-icon { background: #fffbeb; color: #d97706; }
 
 .hslsx-hs__tile-lb {
   color: var(--ash-2);
   font-size: var(--fs-2xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
@@ -1041,21 +1390,25 @@
   align-items: baseline;
   gap: var(--sp-1);
   color: var(--ink);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
-  font-size: var(--fs-lg);
+  font-size: var(--fs-xl);
   font-weight: var(--fw-bold);
-  line-height: 1.2;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
 }
 .hslsx-hs__tile-val small {
   font-size: var(--fs-2xs);
   font-weight: var(--fw-regular);
   color: var(--ash-2);
+  letter-spacing: 0;
 }
+/* Ô chứa CHỮ (bước hiện tại, hạn) không được set cỡ số — chữ dài ở cỡ 20px thì tràn ô. */
 .hslsx-hs__tile-val--chu {
   display: block;
   font-family: var(--ff-sans);
   font-size: var(--fs-md);
+  letter-spacing: 0;
   overflow-wrap: anywhere;
 }
 
@@ -1077,28 +1430,30 @@
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
+  /* Cung MOT cai bong voi the bang o man danh sach: the trang nhac khoi tam giay. Ca hai nua
+     man dung chung mot ngon ngu be mat, khong phai moi noi mot kieu. */
+  box-shadow: var(--shadow-4);
   margin-top: var(--sp-4);
-  box-shadow: 0 2px 10px -4px rgba(15, 23, 42, 0.04);
-  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 /* Tô KHI VÀ CHỈ KHI bên trong có thứ phải xử. Tô hết thì màu hết mang tin. */
 .hslsx-hs__khoi.is-canhbao {
-  border-left: 3.5px solid var(--signal);
+  border-left: 3px solid var(--signal);
 }
 
 .hslsx-hs__khoi-h {
   margin: 0;
-  font-size: var(--fs-md);
+  font-size: var(--fs-lg);
   font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
 }
 /* Khối KHÔNG gập (định danh) — cùng hình dạng thanh tiêu đề, không có nút. */
 .hslsx-hs__khoi-h--tinh {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 12px 16px;
+  padding: var(--sp-3) var(--sp-4);
   color: var(--ink);
-  background: var(--paper);
+  background: var(--canvas);
   border-bottom: 1px solid var(--rule-soft);
   border-top-left-radius: var(--r-5);
   border-top-right-radius: var(--r-5);
@@ -1109,15 +1464,16 @@
   align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  padding: 12px 16px;
+  padding: var(--sp-3) var(--sp-4);
   border: 0;
   border-top-left-radius: var(--r-5);
   border-top-right-radius: var(--r-5);
-  background: var(--paper);
+  background: var(--canvas);
   border-bottom: 1px solid var(--rule-soft);
   color: var(--ink);
-  font-size: var(--fs-md);
+  font-size: var(--fs-lg);
   font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
   text-align: left;
   cursor: pointer;
   min-width: 0;
@@ -1134,6 +1490,14 @@
 }
 .hslsx-hs__khoi-btn > svg:first-child.is-mo {
   transform: none;
+}
+
+/* Icon đầu khối là dấu mốc để quét nhanh 11 khối, không phải trang trí — nên nó lùi xuống thang
+   chữ phụ, không đứng cùng độ đậm với tên khối. */
+.hslsx-hs__khoi-h--tinh > svg:first-child,
+.hslsx-hs__khoi-btn > svg:nth-child(2) {
+  flex: 0 0 auto;
+  color: var(--ash-2);
 }
 
 .hslsx-hs__khoi-ten {
@@ -1167,37 +1531,32 @@
 .hslsx-hs__kvs {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 12px 14px;
+  gap: 0 var(--sp-5);
   margin: 4px 0;
 }
 
+/* Mười sự thật ngắn, mỗi cái một khung viền + nền + nhấc-khi-rê là mười cái hộp cho không việc
+   gì — khối đã có viền riêng rồi. Một sợi kẻ trên đầu đủ tách ô, mà mắt vẫn đọc được theo cả
+   hàng lẫn cột. */
 .hslsx-hs__kv {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
-  padding: 10px 14px;
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-}
-.hslsx-hs__kv:hover {
-  border-color: var(--rule);
-  box-shadow: 0 2px 6px -2px rgba(15, 23, 42, 0.06);
+  padding: 10px 0;
+  border-top: 1px solid var(--rule-hair);
 }
 .hslsx-hs__kv-k {
   color: var(--ash-2);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-2xs);
+  line-height: 1.3;
 }
 .hslsx-hs__kv-v {
   color: var(--ink);
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
@@ -1224,28 +1583,39 @@
   margin: var(--sp-2) 0;
   padding: var(--sp-3);
   border: 1px dashed var(--rule-soft);
-  border-radius: var(--r-2);
+  border-radius: var(--r-3);
   color: var(--ash-2);
   font-size: var(--fs-sm);
   line-height: 1.5;
 }
 
+/* Mục con nằm TRONG một khối đã có viền. Cho nó thêm một cái viền nữa là ba tầng khung cho một
+   câu ("khối → mục → ô rỗng"), mà tầng nào cũng không thêm tin. Một sợi kẻ ngang tách mục là đủ. */
 .hslsx-hs__muc {
   margin-top: var(--sp-4);
-  padding: 14px 16px;
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-4);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--rule-soft);
   min-width: 0;
+}
+.hslsx-hs__khoi-b > .hslsx-hs__muc:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+/* Khung gạch đứt chỉ có nghĩa khi nó là THỨ DUY NHẤT trong khối ("ở đây trống"). Nằm dưới một
+   tiêu đề mục thì câu trả lời đã có chỗ đứng rồi — bỏ khung, giữ chữ. */
+.hslsx-hs__muc > .hslsx-hs__trong {
+  margin: var(--sp-1) 0 0;
+  padding: 0;
+  border: 0;
 }
 .hslsx-hs__muc-h {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  margin: 0 0 10px;
+  margin: 0 0 var(--sp-3);
   color: var(--ink);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-md);
   font-weight: var(--fw-bold);
 }
 .hslsx-hs__muc-h small {
@@ -1257,33 +1627,33 @@
   margin-left: auto;
   padding: 2px 8px;
   border-radius: var(--r-pill);
-  background: #f1f5f9;
-  color: #475569;
-  font-size: 11px;
-  font-weight: 600;
+  background: var(--rule-hair);
+  color: var(--ash);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
 }
 
 .hslsx-hs__vt-ma {
   display: inline-block;
   padding: 1px 6px;
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
-  background: #f8fafc;
+  border-radius: var(--r-pill);
+  background: var(--paper);
   color: var(--ash);
-  font-family: var(--ff-num);
-  font-size: 11px;
-  font-weight: 600;
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
   letter-spacing: 0.02em;
 }
 
 .hslsx-hs__vt-step {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
-  background: #f1f5f9;
-  color: #334155;
-  font-size: 11px;
-  font-weight: 600;
+  border-radius: var(--r-pill);
+  background: var(--rule-hair);
+  color: var(--ash);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
 }
 
 .hslsx-hs__vt-thieu-alert {
@@ -1291,12 +1661,12 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border-radius: 4px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #dc2626;
-  font-weight: 700;
-  font-size: 12px;
+  border-radius: var(--r-pill);
+  background: var(--signal-soft);
+  border: 1px solid var(--signal);
+  color: var(--signal-deep);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-xs);
 }
 
 /* ---------- Bảng trong hồ sơ ---------- */
@@ -1306,7 +1676,7 @@
   overflow-x: auto;
   overscroll-behavior-x: contain;
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
+  border-radius: var(--r-5);
   min-width: 0;
 }
 
@@ -1320,7 +1690,6 @@
 .hslsx-hs__bang--sl { min-width: 820px; }
 .hslsx-hs__bang--kcs { min-width: 900px; }
 .hslsx-hs__bang--kho { min-width: 880px; }
-.hslsx-hs__bang--btp { min-width: 560px; }
 .hslsx-hs__bang--gh { min-width: 720px; }
 
 .hslsx-hs__bang th {
@@ -1345,7 +1714,7 @@
 
 .hslsx-hs__loprow td {
   padding: 8px 14px;
-  background: #f8fafc;
+  background: var(--paper);
   border-top: 1px solid var(--rule-soft);
   border-bottom: 1px solid var(--rule-soft);
 }
@@ -1357,25 +1726,24 @@
 .hslsx-hs__lop-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 10px;
+  padding: 2px 9px;
+  border: 1px solid var(--rule);
   border-radius: var(--r-pill);
-  background: var(--charcoal);
-  color: var(--on-charcoal);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  color: var(--ash);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
 }
 .hslsx-hs__lop-parallel {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 10px;
+  padding: 2px 9px;
+  border: 1px solid var(--rule-soft);
   border-radius: var(--r-pill);
-  background: #e0f2fe;
-  color: #0369a1;
-  font-size: 11px;
-  font-weight: 600;
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
 }
 
 .hslsx-hs__yield-badge {
@@ -1385,9 +1753,9 @@
   padding: 3px 8px;
   background: var(--paper);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
 .hslsx-hs__yield-val {
@@ -1395,7 +1763,7 @@
 }
 .hslsx-hs__yield-arrow {
   color: var(--ash-2);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .hslsx-pulse-dot {
@@ -1403,24 +1771,29 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: var(--rust);
   margin-right: 6px;
-  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--rust) 55%, transparent);
   animation: hslsx-pulse 1.5s infinite;
 }
 @keyframes hslsx-pulse {
   0% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--rust) 55%, transparent);
   }
   70% {
     transform: scale(1);
-    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--rust) 0%, transparent);
   }
   100% {
     transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--rust) 0%, transparent);
   }
+}
+/* Nhịp đập là thứ động DUY NHẤT tự chạy trong hồ sơ. Ai đã tắt hiệu ứng thì chấm đứng yên —
+   nó vẫn là chấm rust nên tin "bước đang chạy" không nằm một mình trong chuyển động. */
+@media (prefers-reduced-motion: reduce) {
+  .hslsx-pulse-dot { animation: none; }
 }
 
 .hslsx-hs__bang tr.is-buoc-hien-tai td {
@@ -1436,7 +1809,7 @@
   display: inline-flex;
   align-items: center;
   font-weight: var(--fw-bold);
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   color: var(--ink);
   overflow-wrap: anywhere;
 }
@@ -1451,7 +1824,7 @@
   display: inline-block;
   padding: 0 5px;
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
+  border-radius: var(--r-pill);
   background: var(--paper);
   color: var(--ash-2);
   font-size: var(--fs-2xs);
@@ -1464,7 +1837,7 @@
 }
 
 .hslsx-hs__may-name {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--ink);
 }
 
@@ -1475,9 +1848,9 @@
 }
 
 .hslsx-hs__toten {
-  font-weight: 600;
+  font-weight: var(--fw-bold);
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .hslsx-hs__nguoilist {
@@ -1491,12 +1864,12 @@
   display: inline-flex;
   align-items: center;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--r-pill);
   background: var(--paper);
   border: 1px solid var(--rule-soft);
   color: var(--ash);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
 
@@ -1504,12 +1877,12 @@
   display: inline-flex;
   align-items: center;
   padding: 1px 6px;
-  border-radius: 4px;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  color: #1d4ed8;
-  font-size: 11px;
-  font-weight: 600;
+  border-radius: var(--r-pill);
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  color: var(--ash);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
   white-space: nowrap;
   cursor: help;
 }
@@ -1518,11 +1891,11 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .hslsx-hs__num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1566,7 +1939,7 @@
 .hslsx-hs__card {
   padding: var(--sp-3);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
+  border-radius: var(--r-5);
   background: var(--paper);
   min-width: 0;
 }
@@ -1590,7 +1963,7 @@
 }
 
 .hslsx-hs__ma-nho {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-sm);
   color: var(--ink);
@@ -1598,7 +1971,7 @@
 
 .hslsx-hs__luc {
   color: var(--ash-2);
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-2xs);
   white-space: nowrap;
@@ -1615,7 +1988,7 @@
   padding: 0;
   list-style: none;
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
+  border-radius: var(--r-5);
 }
 .hslsx-hs__tl-i {
   display: flex;
@@ -1641,6 +2014,25 @@
   font-style: normal;
 }
 
+/* Nhãn LOẠI sự kiện trong dòng thời gian: 18 dòng liền nhau, mỗi loại một màu pastel thì cả cột
+   thành cầu vồng và không màu nào còn nghĩa. Ở ĐÂY (chỉ trong dòng thời gian — cột Trạng thái
+   ngoài bảng vẫn giữ viên tô đặc) nhãn hạ xuống chip viền, RIÊNG sự cố và tạm dừng giữ màu:
+   đó đúng là hai thứ người ta lướt dọc để tìm. */
+.hslsx-hs__tl .hslsx-pill {
+  background: transparent;
+  border: 1px solid var(--rule-soft);
+  color: var(--ash);
+  font-weight: var(--fw-medium);
+}
+.hslsx-hs__tl .hslsx-pill--signal {
+  border-color: color-mix(in srgb, var(--signal) 45%, transparent);
+  color: var(--signal);
+}
+.hslsx-hs__tl .hslsx-pill--amber {
+  border-color: color-mix(in srgb, var(--amber) 55%, transparent);
+  color: var(--amber-deep);
+}
+
 /* ---------- Cảnh báo trong khối + đường ra ---------- */
 .hslsx-hs__canhbao {
   display: flex;
@@ -1649,7 +2041,7 @@
   margin: var(--sp-2) 0 0;
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--amber);
-  border-radius: var(--r-2);
+  border-radius: var(--r-3);
   background: var(--amber-soft);
   color: var(--amber-deep);
   font-size: var(--fs-xs);
@@ -1674,11 +2066,15 @@
 
 /* ---------- MÀN HẸP — ba nấc như phần trên của file ---------- */
 @media (max-width: 1024px) {
-  .hslsx-hs__sum {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Xuống hai hàng. Khuôn lỗi màn hẹp: nhãn phải được xuống dòng, không thì "Giờ máy đã chạy"
+     đè sang ô bên cạnh. */
+  .hslsx-hs__tile {
+    flex: 1 1 40%;
   }
   .hslsx-hs__tile--wide {
-    grid-column: span 2;
+    flex: 1 1 100%;
+    padding-left: 0;
+    border-left: 0;
   }
 }
 
@@ -1709,11 +2105,19 @@
 }
 
 @media (max-width: 480px) {
-  .hslsx-hs__sum {
-    grid-template-columns: minmax(0, 1fr);
+  /* Một cột: kẻ dọc hết việc, đổi sang kẻ ngang. */
+  .hslsx-hs__tile {
+    flex: 1 1 100%;
+    padding: var(--sp-3) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--rule-soft);
   }
-  .hslsx-hs__tile--wide {
-    grid-column: span 1;
+  .hslsx-hs__sum {
+    gap: 0;
+  }
+  .hslsx-hs__tile:first-child {
+    padding-top: 0;
+    border-top: 0;
   }
   .hslsx-hs__ma {
     font-size: var(--fs-lg);

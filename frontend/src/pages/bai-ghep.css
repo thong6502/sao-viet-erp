@@ -10,7 +10,7 @@
 
 /* --- Bảng thành viên: input số con/tờ + số dư --- */
 .bghep .bghep-ups {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   width: 68px; text-align: right; padding: 4px 8px;
   border: 1px solid var(--rule-hair); border-radius: var(--radius-1, 6px);
   font-size: var(--fs-sm); color: var(--ink); font-variant-numeric: tabular-nums;
@@ -50,7 +50,7 @@
 .bghep .bghep-soto { display: flex; gap: var(--sp-6); margin: var(--sp-5) 0 var(--sp-3); flex-wrap: wrap; }
 .bghep .bghep-soto__big { display: grid; gap: 2px; }
 .bghep .bghep-soto__num {
-    font-family: var(--ff-num);
+    font-family: var(--ff-sans);
   font-size: var(--fs-xl); font-weight: var(--fw-bold); color: var(--ink); font-variant-numeric: tabular-nums;
 }
 .bghep .bghep-soto__lbl { font-size: var(--fs-sm); color: var(--ash); }
@@ -169,7 +169,7 @@
 }
 
 .bgsd-pick-qty {
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: 700;
   color: #059669;
@@ -255,7 +255,7 @@
   cursor: pointer;
 }
 .bghep .bgsd-in.is-chon { box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 35%, transparent); }
-.bghep .bgsd-in__ma { font-family: var(--ff-mono); font-size: var(--fs-sm); color: var(--rust-soft, #f0c9b6); }
+.bghep .bgsd-in__ma { font-family: var(--ff-sans); font-size: var(--fs-sm); color: var(--rust-soft, #f0c9b6); }
 .bghep .bgsd-in__ten { font-size: var(--fs-sm); font-weight: var(--fw-bold, 700); letter-spacing: .04em; }
 .bghep .bgsd-in__may, .bgsd-in__to {
   display: inline-flex; align-items: center; gap: 4px;
@@ -340,7 +340,7 @@
 }
 .bgsd-tb-btn:hover { background: #e0f2fe; color: #0284c7; transform: translateY(-1px); }
 .bgsd-tb-btn.is-active { background: #0284c7; color: #ffffff; box-shadow: 0 3px 10px rgba(2, 132, 199, 0.38); }
-.bgsd-tb-zoom { font-size: 12px; font-family: var(--ff-mono, monospace); font-weight: 800; min-width: 46px; text-align: center; color: #0284c7; }
+.bgsd-tb-zoom { font-size: 12px; font-family: var(--ff-sans); font-weight: 800; min-width: 46px; text-align: center; color: #0284c7; }
 .bgsd-tb-divider { width: 1px; height: 16px; background: #cbd5e1; margin: 0 4px; }
 /* Phép xếp cột chưa hội tụ → vị trí thẻ có thể lệch. Cảnh báo về LAYOUT, không phải về số liệu. */
 .bgsd-tb-canhbao {
@@ -572,7 +572,7 @@
 }
 
 .bgsd-card-branch__head { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.bgsd-branch__ups { font-size: 10px; font-weight: 800; color: #0284c7; background: #e0f2fe; border: 1px solid #bae6fd; padding: 1px 6px; border-radius: 6px; font-family: var(--ff-mono, monospace); white-space: nowrap; }
+.bgsd-branch__ups { font-size: 10px; font-weight: 800; color: #0284c7; background: #e0f2fe; border: 1px solid #bae6fd; padding: 1px 6px; border-radius: 6px; font-family: var(--ff-sans); white-space: nowrap; }
 .bgsd-card-branch__cust { display: grid; gap: 1px; max-width: 100%; min-width: 0; }
 .bgsd-card-branch__cust > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Sản phẩm là dòng chính, khách là dòng phụ — cùng cỡ thì mắt không biết bám vào đâu. */
@@ -639,7 +639,7 @@
   padding: 1px 5px;
   border-radius: 4px;
   margin-right: 3px;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
 }
 
 /* --- Thẻ Kết Quả Đầu Ra KPI (Right Result Node) --- */
@@ -659,7 +659,7 @@
   gap: 5px;
   font-size: 12.5px;
   font-weight: 800;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
 }
 .bgsd-pill-status.is-surplus { 
   color: #047857; 
@@ -811,7 +811,7 @@
 .bghep-uh-m-val {
   color: #0f172a;
   font-weight: 800;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   padding: 1px 6px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
@@ -1120,7 +1120,7 @@
   border-radius: 0 !important;
   text-align: center !important;
   font-weight: 700 !important;
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-size: 14px !important;
   color: #0f172a !important;
   padding: 0 2px !important;
@@ -1162,7 +1162,7 @@
   color: #15803d;
   font-size: 12px;
   font-weight: 700;
-  font-family: var(--ff-num, monospace);
+  font-family: var(--ff-sans);
   border: 1px solid #bbf7d0;
 }
 
@@ -1298,7 +1298,7 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 800;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: auto;
@@ -1385,7 +1385,7 @@
   border: 1px solid var(--rule-hair, #e2e8f0);
   border-radius: 999px;
   background: var(--paper, #f8fafc);
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: 700;
   color: var(--ink-soft, #475569);

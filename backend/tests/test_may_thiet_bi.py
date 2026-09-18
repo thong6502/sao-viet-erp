@@ -48,6 +48,32 @@ def test_create_va_sua_may():
     assert m2.ten == "Offset 74 đổi tên" and m2.id == m.id
 
 
+def test_luu_may_TU_CAP_MA_cho_goi_bao_tri_thieu_va_giu_nguyen_ma_cu():
+    """Gói bảo trì không có `id` thì phiếu bảo trì không neo vào đâu được — và ticker đẻ phiếu MỖI
+    VÒNG QUÉT (cửa chống trùng chỉ chạy khi `goi_id` khác rỗng).
+
+    Form Máy tự sinh `hm-…` lúc thêm dòng, nhập Excel cũng cấp cho dòng để trống; chốt ở service là
+    để DỮ LIỆU CŨ và một cú PUT thẳng API cũng không lọt. Gói đã có id phải GIỮ NGUYÊN — id là sợi
+    dây nối tới phiếu đã sinh.
+    """
+    db, svc = _svc()
+    m = svc.create(_off74(fields_theo_loai={"lich_bao_tri": [
+        {"viec": "Tra dầu", "so": 3, "don_vi": "thang",
+         "hang_muc": [{"ten": "Kiểm tra bạc đạn"}, {"id": "hm-cu-9", "ten": "Vệ sinh lô"}]},
+        {"id": "hm-cu-1", "viec": "Thay dao", "so": 6, "don_vi": "thang"},
+    ]}))
+    goi = m.fields_theo_loai["lich_bao_tri"]
+    assert goi[0]["id"].startswith("hm-")        # thiếu id ⇒ được cấp
+    assert goi[1]["id"] == "hm-cu-1"             # đã có id ⇒ giữ nguyên
+    hm = goi[0]["hang_muc"]
+    assert hm[0]["id"] == f"{goi[0]['id']}-1"    # việc con thiếu id cũng được cấp
+    assert hm[1]["id"] == "hm-cu-9"
+
+    # Sửa máy cũng phải đi qua cùng cái chốt (`_chuan_hoa` chạy cho cả create lẫn update).
+    m2 = svc.update(m.id, _off74(fields_theo_loai={"lich_bao_tri": [{"viec": "Mới", "so": 1}]}))
+    assert m2.fields_theo_loai["lich_bao_tri"][0]["id"].startswith("hm-")
+
+
 def test_may_khong_con_o_kip_van_hanh():
     """Ô "Số người vận hành tiêu chuẩn" GỠ 06/09/2026 (mg `0270`): kíp của mọi loại bước nay lấy
     từ định mức đầu việc của công đoạn, máy không khai số người của riêng nó nữa."""

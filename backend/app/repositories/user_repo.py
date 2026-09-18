@@ -119,6 +119,16 @@ class UserRepository:
     def list_all(self) -> list[User]:
         return list(self.db.execute(select(User).order_by(User.id)).scalars())
 
+    def map_by_ids(self, user_ids) -> dict[int, User]:
+        """`{id: User}` trong MỘT truy vấn — cho các danh sách tra tên người (tài khoản của hồ sơ,
+        người thao tác trên nhật ký) thay vì `get_by_id` từng dòng. Đừng tưởng identity map của
+        Session gánh hộ: nó chỉ giữ tham chiếu YẾU, object của vòng trước bị dọn là vòng sau lại
+        SELECT (đo được 39 câu SELECT users cho trang 20 nhân viên)."""
+        ids = sorted({int(i) for i in (user_ids or []) if i is not None})
+        if not ids:
+            return {}
+        return {u.id: u for u in self.db.execute(select(User).where(User.id.in_(ids))).scalars()}
+
     def count(self) -> int:
         from sqlalchemy import func
 
@@ -130,6 +140,9 @@ class UserRepository:
         return self.db.execute(
             select(func.count()).select_from(User).where(User.role_id == role_id)
         ).scalar_one()
+
+    def list_ids_by_role(self, role_id: int) -> list[int]:
+        return list(self.db.execute(select(User.id).where(User.role_id == role_id)).scalars())
 
     def count_by_department(self, department_id: int) -> int:
         from sqlalchemy import func

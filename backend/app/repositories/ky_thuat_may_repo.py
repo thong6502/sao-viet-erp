@@ -37,11 +37,16 @@ from ..models.ky_thuat_may import (
 
 # Field client được phép gán. `ma` / `trang_thai` / mốc hoàn thành do SERVICE quản — cho client tự
 # đặt trạng thái là mở cửa hậu đi vòng qua cửa "phải có ảnh mới đóng phiếu".
+#   Người báo (`nguoi_bao_id`/`nguoi_bao_ten`) cũng KHÔNG nằm ở đây: service chốt lúc tạo phiếu và
+#   truyền bằng tham số riêng của `create_sua_chua`; sau đó không đường nào đổi được.
 ASSIGNABLE_SUA_CHUA = (
-    "may_id", "bo_phan_hong", "mo_ta", "muc_do",
-    "nguoi_bao_id", "nguoi_bao_ten", "thoi_diem",
+    "may_id", "bo_phan_hong", "mo_ta", "muc_do", "thoi_diem",
     "nguyen_nhan_phuong_an", "ghi_chu",
 )
+# SỬA thì KHÔNG đổi được máy (14/09/2026): máy là máy đã báo hỏng — chép từ yêu cầu lúc tiếp nhận,
+# hoặc máy chọn lúc tổ kỹ thuật tự lập phiếu. Đổi máy trên phiếu là lời báo nói máy A mà việc sửa,
+# ảnh, lịch sử lại nằm ở máy B. Báo nhầm máy thì từ chối yêu cầu để người báo gửi lại.
+SUA_DUOC_SUA_CHUA = tuple(f for f in ASSIGNABLE_SUA_CHUA if f != "may_id")
 # Yêu cầu báo hỏng: người báo, thời điểm, trạng thái, mã — SERVICE gán hết. `nguoi_bao_id` lấy từ
 # TÀI KHOẢN ĐANG ĐĂNG NHẬP; cho client gửi lên là mở cửa hậu báo hỏng dưới tên người khác, mà cả
 # giá trị của bảng này nằm ở chỗ biết chính xác hỏi lại ai.
@@ -138,9 +143,11 @@ class KyThuatMayRepository:
             stmt = stmt.where(c)
         return {str(k): int(v) for k, v in self.db.execute(stmt).all()}
 
-    def create_sua_chua(self, data: dict, *, ma: str) -> SuaChuaMay:
+    def create_sua_chua(self, data: dict, *, ma: str, nguoi_bao_id: int | None,
+                        nguoi_bao_ten: str | None) -> SuaChuaMay:
         phieu = SuaChuaMay(ma=ma, may_id=int(data["may_id"]),
-                           bo_phan_hong=(data.get("bo_phan_hong") or "").strip())
+                           bo_phan_hong=(data.get("bo_phan_hong") or "").strip(),
+                           nguoi_bao_id=nguoi_bao_id, nguoi_bao_ten=nguoi_bao_ten)
         self._apply(phieu, data, ASSIGNABLE_SUA_CHUA)
         self.db.add(phieu)
         self.db.commit()
@@ -148,7 +155,7 @@ class KyThuatMayRepository:
         return phieu
 
     def update_sua_chua(self, phieu: SuaChuaMay, data: dict) -> SuaChuaMay:
-        self._apply(phieu, data, ASSIGNABLE_SUA_CHUA)
+        self._apply(phieu, data, SUA_DUOC_SUA_CHUA)
         self.db.commit()
         self.db.refresh(phieu)
         return phieu
@@ -430,6 +437,24 @@ class KyThuatMayRepository:
                 BaoTriMay.goi_id == goi_id,
                 BaoTriMay.trang_thai.in_(TT_BT_DANG_MO),
             ).order_by(BaoTriMay.ngay_ke_hoach.asc(), BaoTriMay.id.asc())
+        ).scalars().first()
+
+    def phieu_cua_ky(self, may_id: int, goi_id: str, ngay: date) -> BaoTriMay | None:
+        """Phiếu ĐÃ CÓ của đúng một kỳ — khoá là (máy, gói, ngày kế hoạch).
+
+        KHÔNG lọc theo trạng thái, cố ý: kỳ đã hoàn thành hay đã hủy đều là "kỳ này xử lý rồi",
+        tạo thêm một phiếu nữa cho cùng ngày chỉ là đẻ bản sao. Hủy nhầm thì **mở lại** phiếu cũ
+        (`doi_trang_thai_bao_tri` nhả `ly_do_huy`), không phải tạo cái mới.
+
+        `order_by(id)` để hàng đã lỡ trùng từ trước luôn trả về CÙNG một phiếu — câu báo lỗi trỏ
+        vào đâu thì lần sau vẫn trỏ vào đó.
+        """
+        return self.db.execute(
+            select(BaoTriMay).where(
+                BaoTriMay.may_id == may_id,
+                BaoTriMay.goi_id == goi_id,
+                BaoTriMay.ngay_ke_hoach == ngay,
+            ).order_by(BaoTriMay.id.asc())
         ).scalars().first()
 
     # ---- Hai bảng tra NẠP SẴN cho màn Lịch & ticker -------------------------------------------

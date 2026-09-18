@@ -1,15 +1,14 @@
-"""Con số CÒN THIẾU — dẫn xuất, chỉ để BÀY (docs/spec-thuc-te-vs-ke-hoach.md §2.3).
+"""Con số CÒN THIẾU — dẫn xuất (docs/spec-thuc-te-vs-ke-hoach.md §2.3).
 
-Cổng đóng nhóm KHÔNG đổi: `dong_nhom._danh_gia` vẫn đo "đã phân loại / đã nhận", cố ý không so
-mục tiêu đơn (chú thích dòng 63 của module đó). Test dưới đây chốt đúng hai điều:
-  · số còn thiếu XUẤT HIỆN ở bước và ở nhóm;
-  · nó KHÔNG làm nhóm mất quyền đóng.
+Ở mức BƯỚC nó chỉ để bày. Ở mức NHÓM, từ 17/09/2026 cổng đóng ĐỦ so chính số này (điều kiện
+`dat_muc_tieu`, soi ở `test_san_xuat_dong_nhom.py`); file này chỉ chốt số XUẤT HIỆN đúng.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
 from app.models.san_xuat import CV_DANG_CHAY
+from app.models.san_xuat_kcs import SanXuatKcsBatch
 from app.models.san_xuat_san_luong import SanXuatBatch
 from app.services.san_xuat import dong_nhom
 
@@ -71,13 +70,10 @@ def test_buoc_khong_khai_muc_tieu_thi_khong_bia_so(db, orders, lsx_svc, admin, c
 def test_nhom_co_so_con_thieu_ma_cong_dong_khong_doi(
     db, orders, lsx_svc, admin, customer,
 ):
-    """Số còn thiếu XUẤT HIỆN ở nhóm, nhưng KHÔNG tự mở hay tự khoá cổng đóng.
+    """Số còn thiếu XUẤT HIỆN ở nhóm, khớp với điều kiện `dat_muc_tieu` của cổng đóng.
 
-    Kịch bản KHÔNG dựng đủ điều kiện đóng (CV còn `CV_DANG_CHAY`, chưa có `SanXuatKcsBatch` nào
-    ghi "đã nhận") — `du_dong_du`/`du_dong_thieu` vì vậy đều False, giống hệt giá trị mà
-    `_danh_gia` (KHÔNG bị đụng bởi Task 5) đã trả từ trước. Assert thẳng cả hai khoá cổng để
-    chứng minh việc thêm `muc_tieu`/`da_dat`/`con_thieu` không làm lệch chúng đi, thay vì chỉ nói
-    suông trong docstring."""
+    Kịch bản KHÔNG dựng đủ điều kiện đóng (CV còn `CV_DANG_CHAY`, KCS mới kiểm 9000/9400 tốt) —
+    `du_dong_du`/`du_dong_thieu` vì vậy đều False."""
     _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-CT4")
     cv.trang_thai = CV_DANG_CHAY
     cv.la_kcs_cuoi = True
@@ -85,21 +81,25 @@ def test_nhom_co_so_con_thieu_ma_cong_dong_khong_doi(
     cv.don_vi_ra = "cuốn"
     db.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=2),
                         tong=9400, tot=9400, hong=0, don_vi="cuốn"))
+    # KCS mới kiểm 9000/9400 tốt: đạt 8800, lỗi 200.
+    db.add(SanXuatKcsBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T0, so_luong_nhan=9000,
+                           so_luong_dat=8800, so_luong_khong_dat=200, don_vi="cuốn"))
     db.commit()
 
     dk = dong_nhom.dieu_kien_dong_nhom(db, nhom_id=cv.nhom_id)
     assert dk["muc_tieu"] == 10000.0
-    assert dk["da_dat"] == 9400.0
-    assert dk["con_thieu"] == 600.0
+    # "Đã đạt" đếm số KCS ĐẠT (đi kho được), không đếm 9400 tốt tổ tự ghi.
+    assert dk["da_dat"] == 8800.0
+    assert dk["con_thieu"] == 1200.0
     # Hàng rào thật của "cổng không đổi" — không phải suy đoán, là giá trị `_danh_gia` tính ra:
-    # CV chưa hoàn thành ⇒ chưa đóng đủ; chưa dựng `SanXuatKcsBatch` nào ⇒ điều kiện (3) "KCS cuối
-    # đã phân loại hết số nhận" cũng chưa đạt (chưa NHẬN gì) ⇒ chưa đủ đóng thiếu.
+    # CV chưa hoàn thành ⇒ chưa đóng đủ; KCS mới kiểm 9000/9400 tốt ⇒ điều kiện (3) "KCS đã kiểm hết
+    # công đoạn cuối" chưa đạt ⇒ chưa đủ đóng thiếu.
     assert dk["du_dong_du"] is False
     assert dk["du_dong_thieu"] is False
-    # 6 điều kiện cũ còn nguyên — số còn thiếu KHÔNG phải điều kiện thứ 7. `dieu_kien` là LIST các
-    # dict {"ma": ...}, so `in` với chuỗi trên chính list đó luôn False (bug im lặng) — phải rút mã
-    # ra thành set rồi mới so.
-    assert "con_thieu" not in {d["ma"] for d in dk["dieu_kien"]}
+    # `dieu_kien` là LIST các dict {"ma": ...}, so `in` với chuỗi trên chính list đó luôn False (bug
+    # im lặng) — phải rút mã ra thành set rồi mới so.
+    muc = next(d for d in dk["dieu_kien"] if d["ma"] == "dat_muc_tieu")
+    assert muc["dat"] is False and muc["chi_tiet"] == "mới đạt 8.800/10.000"
 
 
 def test_work_items_con_thieu_dung_tung_dong_khi_gop_nhieu_viec(
@@ -138,7 +138,8 @@ def test_work_items_con_thieu_dung_tung_dong_khi_gop_nhieu_viec(
     ])
     db.commit()
 
-    res = board.work_items(db, admin, _authz(db), team_id=to.id)
+    # Hình PHẲNG (từng công việc) — mặc định `nhom="lenh"` gom theo lệnh từ 11/09/2026.
+    res = board.work_items(db, admin, _authz(db), team_id=to.id, nhom="phang")
     by_id = {item["id"]: item for item in res["cong_viec"]}
     # cv1: tổng tốt 4000+3000=7000, mục tiêu 10000 ⇒ còn thiếu 3000.
     assert by_id[cv1.id]["con_thieu"] == 3000.0

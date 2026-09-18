@@ -1,20 +1,29 @@
 """Trạng thái LÚC NÀY của từng máy — DẪN XUẤT hoàn toàn, không cột nào lưu.
 
 Vì sao không đẻ cột `may_thiet_bi.trang_thai`: cột đó ĐÃ TỪNG có và bị gỡ 11/08/2026 vì là ô khai
-tay — không ai nhớ vào sửa, nên mọi máy vĩnh viễn "active" kể cả lúc đang nằm. Hai nguồn dưới đây
+tay — không ai nhớ vào sửa, nên mọi máy vĩnh viễn "active" kể cả lúc đang nằm. Ba nguồn dưới đây
 thì luôn đúng vì chính người làm việc sinh ra chúng trong lúc làm:
 
   · **Vùng khoá máy** — `machine_unavailable_periods` phủ giờ này. Lý do quyết nhãn:
     `bao_tri` → Đang bảo trì · `hong_hoc` → Hỏng — chờ sửa · còn lại → Chặn xếp lệnh.
   · **Lệnh đang chạy** — có dòng phủ giờ này trên bàn Xếp lịch.
+  · **Phiếu sửa chữa đang mở** — CẢNH BÁO, không phải vùng khoá (chủ chốt 11/09/2026). Xem dưới.
 
 Thứ tự ưu tiên: máy nằm THẮNG máy chạy. Bàn lịch vẫn giữ lệnh trên lane của máy vừa bị khoá (lệnh
 chưa được dời đi đâu cả) — hiện "Đang chạy" cho một cái máy đang tháo ra sửa là nói dối đúng lúc
 người ta cần tin nhất.
 
-Ghi chú lịch sử: bản đầu còn đọc phiếu sự cố của module Bảo trì để ra trạng thái máy hỏng kèm
-"đứng 3 giờ 20". Module đó đã bị gỡ 12/08/2026 theo yêu cầu chủ xưởng, nên nguồn duy nhất còn lại
-cho trạng thái máy nằm là vùng khoá do điều độ đặt trên Gantt.
+Riêng nguồn thứ ba đứng NGOÀI chuỗi ưu tiên đó, và cố ý:
+
+  · Phiếu sửa chữa là **lời khai của tổ kỹ thuật**, không phải khoảng giờ điều độ đặt ra — nó KHÔNG
+    chặn xếp lệnh, chỉ nói ra một sự thật để điều độ tự cân nhắc.
+  · Nên nó chỉ điền cho máy **không có chuyện gì khác** (lẽ ra hiện "Xếp được"). Máy đang chạy hay
+    đã bị khoá thì đó là sự thật cụ thể hơn một tờ phiếu — giữ nguyên, không đè.
+  · Nhờ vậy hai nhánh trên KHÔNG đổi một dòng nào; thêm cảnh báo không làm lệch được thứ tự sẵn có.
+
+Ghi chú lịch sử: bản đầu đọc phiếu sự cố của module Bảo trì cũ (gỡ 12/08/2026) để ra trạng thái máy
+hỏng kèm "đứng 3 giờ 20". Từ 11/09/2026 module Kỹ thuật máy quay lại nguồn này, nhưng **chỉ ở mức
+cảnh báo** — chủ xưởng chốt "chỉ cảnh báo thôi, không động vào logic xếp lịch".
 """
 from __future__ import annotations
 
@@ -34,6 +43,11 @@ TT_BAO_TRI = "bao_tri"
 TT_KHOA = "khoa"
 TT_DANG_CHAY = "dang_chay"
 TT_RANH = "ranh"
+# CẢNH BÁO, không phải vùng khoá (chủ chốt 11/09/2026 — "chỉ cảnh báo thôi").
+# Máy có phiếu sửa chữa CHƯA đóng thì vẫn xếp lệnh được: phiếu là lời khai của tổ kỹ thuật, không
+# phải khoảng giờ điều độ đặt ra. Nhưng để nguyên chữ "Xếp được" cho một cái máy đang tháo ra sửa
+# là nói dối đúng lúc người ta cần tin nhất — nên nói ra sự thật, và để điều độ tự quyết.
+TT_CO_PHIEU_SUA = "co_phieu_sua"
 
 # Nhãn tiếng Việt — dựng ở ĐÂY, không ở FE: hai màn tự đặt tên là sớm muộn cùng một máy hiện hai
 # chữ khác nhau. Bộ chữ chốt 12/08/2026 (chủ chốt): nói thẳng việc điều độ phải làm, không tả tình
@@ -45,6 +59,9 @@ NHAN = {
     TT_KHOA: "Chặn xếp lệnh",
     TT_DANG_CHAY: "Đang chạy",
     TT_RANH: "Xếp được",
+    # Cố ý KHÔNG phrasing kiểu ra lệnh như bốn nhãn trên: chúng nói việc điều độ PHẢI làm, còn đây
+    # chỉ nêu một sự thật để họ cân nhắc. Máy vẫn xếp được.
+    TT_CO_PHIEU_SUA: "Có phiếu sửa chữa",
 }
 
 
@@ -153,6 +170,47 @@ def lenh_dang_chay(db, may_ids: list[int], bay_gio: datetime) -> dict[int, dict]
     return out
 
 
+def phieu_sua_dang_mo(db, may_ids: list[int]) -> dict[int, dict]:
+    """{may_id: {ma, phieu_id, bo_phan_hong, so}} — phiếu sửa chữa CHƯA đóng của từng máy.
+
+    Import cục bộ, cùng lý do với `lenh_dang_chay`: màn Thiết bị không được chết theo module Kỹ
+    thuật máy. Thiếu bảng ⇒ trả rỗng, cột Trạng thái vẫn hiện được phần còn lại.
+
+    Nặng trước, mới sau — giống thứ tự hàng chờ của tổ sửa chữa: một máy có ba phiếu mở thì cái
+    điều độ cần biết là cái nặng nhất, không phải cái tình cờ có id nhỏ nhất.
+    """
+    if not may_ids:
+        return {}
+    try:
+        from ..models.ky_thuat_may import MUC_DO, TT_SC_DANG_MO, SuaChuaMay
+    except Exception:  # noqa: BLE001
+        return {}
+
+    nang = {m: i for i, m in enumerate(MUC_DO)}
+    rows = list(db.execute(
+        select(SuaChuaMay).where(
+            SuaChuaMay.may_id.in_(may_ids),
+            SuaChuaMay.trang_thai.in_(TT_SC_DANG_MO),
+        )
+    ).scalars())
+
+    out: dict[int, dict] = {}
+    for p in rows:
+        cu = out.get(p.may_id)
+        if cu is None:
+            out[p.may_id] = {"ma": p.ma, "phieu_id": p.id, "bo_phan_hong": p.bo_phan_hong,
+                             "so": 1, "_nang": nang.get(p.muc_do, -1), "_khi": p.thoi_diem}
+            continue
+        cu["so"] += 1
+        mm, khi = nang.get(p.muc_do, -1), p.thoi_diem
+        if (mm, khi) > (cu["_nang"], cu["_khi"]):
+            cu.update(ma=p.ma, phieu_id=p.id, bo_phan_hong=p.bo_phan_hong, _nang=mm, _khi=khi)
+    for v in out.values():
+        v.pop("_nang", None)
+        v.pop("_khi", None)
+    return out
+
+
 def trang_thai_may(db, may_ids: list[int], *, bay_gio: datetime | None = None) -> dict[int, dict]:
     """{may_id: {trang_thai, nhan, chi_tiet, phieu_id, den}} — chỉ máy CÓ CHUYỆN mới có mặt.
 
@@ -198,5 +256,23 @@ def trang_thai_may(db, may_ids: list[int], *, bay_gio: datetime | None = None) -
             "trang_thai": tt, "nhan": NHAN[tt],
             "chi_tiet": (k.note or "").strip()[:80] or f"tới {_gio(den)}",
             "phieu_id": None, "den": den,
+        }
+
+    # 3. CẢNH BÁO phiếu sửa chữa — YẾU NHẤT, và cố ý đặt sau cùng với điều kiện `not in out`.
+    #
+    # Chỉ điền cho máy KHÔNG có chuyện gì khác, tức máy lẽ ra hiện "Xếp được" — đúng cái trường hợp
+    # nói dối: máy đang tháo ra sửa mà bảng ghi xếp được. Máy đang chạy hay đã bị khoá thì đó là sự
+    # thật cụ thể hơn một tờ phiếu, giữ nguyên.
+    #
+    # Viết kiểu "chỉ điền chỗ trống" thay vì chen vào chuỗi ưu tiên ở trên là có chủ ý: hai nhánh
+    # trên KHÔNG đổi một dòng nào, nên không có đường nào cảnh báo này làm lệch thứ tự sẵn có.
+    for may_id, p in phieu_sua_dang_mo(db, may_ids).items():
+        if may_id in out:
+            continue
+        them = f" · +{p['so'] - 1} phiếu" if p["so"] > 1 else ""
+        out[may_id] = {
+            "trang_thai": TT_CO_PHIEU_SUA, "nhan": NHAN[TT_CO_PHIEU_SUA],
+            "chi_tiet": f"{p['ma']} · {(p['bo_phan_hong'] or '').strip()[:40]}{them}",
+            "phieu_id": p["phieu_id"], "den": None,
         }
     return out

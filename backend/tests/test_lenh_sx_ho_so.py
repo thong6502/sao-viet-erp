@@ -24,20 +24,24 @@ from app.models.ky_thuat_may import TT_SC_DANG_SUA, TT_YC_DA_TAO_PHIEU, SuaChuaM
 from app.models.lsx import TT_SAN_SANG, Lsx, LsxCongDoan, LsxCongDoanVatTu
 from app.models.may_thiet_bi import MayThietBi
 from app.models.order import OrderLine
-from app.models.san_xuat import SanXuatCongViec, SanXuatNhomLsx
+from app.models.san_xuat import CV_DANG_CHAY, SanXuatCongViec, SanXuatNhomLsx
 from app.models.san_xuat_thuc_thi import SanXuatPhanCong
 from app.models.bai_ghep_cong_doan import BaiGhepCongDoanVatTu
-from app.models.san_xuat_kho import SanXuatKhoHang, SanXuatKhoLot
+from app.models.san_xuat_san_luong import SanXuatBatch
+from app.models.stock_lot import StockLot
 from app.models.stock_request import REQ_XUAT, StockRequest, StockRequestLine
 from app.models.vat_lieu_kho import VatTuInAn
 from app.repositories.san_xuat_repo import SanXuatRepository
+from app.services.san_xuat import kcs as kcs_svc
 from app.services.san_xuat import kho as kho_svc
 from app.services.san_xuat import san_luong as san_luong_svc
 from app.services.san_xuat import nhom as nhom_svc
 from app.services.san_xuat import release, release_update, thuc_thi
 
 # Helper (plain function, KHÔNG phải fixture) của file anh em — đi đúng khuôn đường ghi thật.
-from tests.test_lenh_sx_trang_thai import _giao_xong, _kcs_batch, _nhap_kho_yc, _su_co
+from tests.test_lenh_sx_trang_thai import _giao_xong, _kcs_batch, _su_co
+from tests.test_san_xuat_kcs import _T0, _T1, _to_kiem
+from tests.test_san_xuat_nhap_kho_tp import _nhan as _kho_nhan
 
 # Fixture + helper dùng chung. `noqa: F401` vì pytest tiêu thụ fixture qua TÊN trong namespace
 # module test, không qua lời gọi — bỏ import là mọi bài dưới đây mất fixture.
@@ -447,7 +451,7 @@ def test_nhan_luc_ghi_lai_lan_doi_may(client, seed_credentials, sess, admin, len
     sess.commit()
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_tre="Chờ giấy về", ly_do_so_nguoi="Tổ thiếu người",
+        ly_do_so_nguoi="Tổ thiếu người",
     )
     thuc_thi.doi_may(sess, user=admin, cong_viec_id=cv.id, may_id_moi=may_moi.id,
                      ly_do="Máy cũ kẹt giấy")
@@ -487,51 +491,37 @@ def test_su_co_keo_theo_phieu_sua(client, seed_credentials, sess, lenh_that):
 
 
 # --- Khoảng hụt 6: giao hàng đủ để KHOÁ nút và ĐIỀN SẴN ----------------------------------------
-def _nhap_kho_that(sess, admin, lsx_id: int, cv, *, so_luong: float,
-                   kho_ma: str = "KHO-HS-TP", hang_id: int | None = None) -> tuple[KhoHang, int]:
-    """KCS chốt một batch ĐẠT → yêu cầu nhập kho → KHO xác nhận nhận, bằng đường ghi thật.
-
-    Hai bước đầu dựng theo đúng khuôn service ghi ra; bước cuối gọi thẳng
-    `kho.kho_xac_nhan_nhap` vì chính nó là chỗ đẻ LOT mang `kho_id` — mà kho đích là một trong
-    những ô form giao hàng phải điền sẵn. `_nhap_kho_yc` để `nhom_id` trống nên phải nối nhóm ở
-    đây: lot thành phẩm neo NHÓM (`lsx_id` của nó luôn NULL, xem `boi_canh.py`).
-
-    ⚠️ FIXTURE GÁN TAY, KHÔNG ĐI ĐƯỜNG GHI THẬT ở khâu gắn nhóm. Đường thật là
-    `kho.tao_yeu_cau_nhap_thanh_pham` → `_tao_yc_tu_batch`: nó lấy nhóm từ `kcs_batch.nhom_id` rồi
-    truyền xuống `_get_or_create_hang`, và `kho_xac_nhan_nhap` chép `lot.nhom_id = yc.nhom_id`.
-    Giá trị gán ở đây bằng đúng giá trị production ghi, nhưng nếu đường thật NGỪNG đặt `nhom_id`
-    thì bài này vẫn xanh — nó KHÔNG canh đường ghi, chỉ canh phép tính đọc phía sau. Ai đụng
-    `_tao_yc_tu_batch` thì đừng trông vào bài này để biết mình có làm vỡ gì không.
-
-    `hang_id` truyền vào ⇒ dùng LẠI mặt hàng đó thay vì để `_nhap_kho_yc` đẻ mặt hàng mới. Đây mới
-    là hình dạng production: `kho._get_or_create_hang` tái dùng ĐÚNG một mặt hàng cho cùng
-    (đơn, nhóm, loại, quy cách, đơn vị), nên hai mẻ KCS của cùng một nhóm nhập vào hai kho khác
-    nhau là HAI lot chung MỘT `hang_id`. Không có tham số này thì không bài nào dựng nổi ca "một
-    mặt hàng nằm hai kho" — ca mà quy ước trừ-dần-theo-`kho_id` sống bằng.
-
-    Trả `(kho, hang_id)` để bài sau chuyền `hang_id` sang lượt nhập kế tiếp.
-    """
-    tv = sess.query(SanXuatNhomLsx).filter_by(lsx_id=lsx_id).one()
-    kb = _kcs_batch(sess, cv.id, nhan=so_luong, dat=so_luong, khong_dat=0, ket_luan="dat")
-    yc = _nhap_kho_yc(sess, lsx_id, kb, yeu_cau=so_luong, xac_nhan=0, trang_thai_yc="cho_kho")
-    if hang_id is not None:
-        thua = sess.get(SanXuatKhoHang, yc.hang_id)
-        yc.hang_id = hang_id
-        sess.flush()
-        sess.delete(thua)          # mặt hàng `_nhap_kho_yc` vừa đẻ ra: production không đẻ nó
-    yc.nhom_id = tv.nhom_id
-    sess.get(SanXuatKhoHang, yc.hang_id).nhom_id = tv.nhom_id
-    # Get-or-create: gọi hàm này HAI lần (hai mặt hàng của cùng nhóm) là ca thật, mà `kho_hang.ma`
-    # là unique — tạo mù lần hai thì vỡ ở constraint chứ không phải ở thứ bài test muốn soi.
-    k = sess.query(KhoHang).filter_by(ma=kho_ma).one_or_none()
-    if k is None:
-        k = KhoHang(ma=kho_ma, ten=f"Kho thành phẩm {kho_ma}")
-        sess.add(k)
+def _bo_ton_mo_thanh_pham(sess) -> None:
+    """Fixture xếp lịch (`_hai_lsx_san_sang`) đổ 1.000.000 vào MỌI mặt hàng vật tư để giữ chỗ chạy
+    được — kể cả thành phẩm vừa khai lúc chốt đơn. Gỡ phần đó của thành phẩm để tồn trên khối Giao
+    hàng chỉ là hàng KCS gửi và kho đã nhận."""
+    tp_ids = [i for (i,) in sess.query(VatTuInAn.id).filter(VatTuInAn.la_thanh_pham.is_(True))]
+    if tp_ids:
+        sess.query(StockLot).filter(
+            StockLot.hang_loai == "vat_tu", StockLot.hang_id.in_(tp_ids),
+            StockLot.ma_lo.like("LOT-XL-%"),
+        ).delete(synchronize_session=False)
     sess.commit()
-    kho_svc.kho_xac_nhan_nhap(sess, user=admin, yc_id=yc.id, so_luong=so_luong, kho_id=k.id)
-    ra = int(yc.hang_id)
+
+
+def _nhap_kho_that(sess, admin, lsx_id: int, *, so_luong: float, kho_ma: str = "KHO-HS-TP") -> KhoHang:
+    """KCS kiểm công đoạn cuối ĐẠT → bấm "Tạo yêu cầu nhập kho" → thủ kho lập phiếu nhập (chọn kho)
+    + ghi sổ — cả ba bằng đúng service production. Gọi lại được nhiều lần (mỗi lần một lượt KCS mới,
+    có thể nhập vào kho khác). Trả kho vừa nhập."""
+    _bo_ton_mo_thanh_pham(sess)
+    cv = _cvs(sess, lsx_id)[-1]
+    cv.la_kcs_cuoi = True
+    cv.trang_thai = CV_DANG_CHAY
+    cv.don_vi_vao = cv.don_vi_ra = "cái"
+    sess.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1, tong=so_luong,
+                          tot=so_luong, hong=0, don_vi="cái"))
+    sess.commit()
+    _d, nguoi_kcs = _to_kiem(sess, ten=f"Tổ KCS {kho_ma}", ma=f"KCS-{kho_ma}")
+    kcs_svc.kiem_cong_doan(sess, user=nguoi_kcs, cong_viec_id=cv.id, so_dat=so_luong)
+    yc = kho_svc.tao_yeu_cau_nhap_kho_cong_doan(sess, user=nguoi_kcs, cong_viec_id=cv.id)
+    _kho_nhan(sess, admin, yc["request_id"], so_luong, kho_ma=kho_ma)
     sess.expire_all()
-    return k, ra
+    return sess.query(KhoHang).filter_by(ma=kho_ma).one()
 
 
 def _nhom_hai_lenh(sess, lsx_id: int, *, nhan: str = "Kỷ yếu") -> int:
@@ -579,61 +569,57 @@ def test_giao_hang_du_de_khoa_nut_va_dien_san(
 ):
     """Ô form giao hàng cần điền sẵn + con số KHOÁ nút, lấy từ MỘT hàm dùng chung ở service kho.
 
-    Trần nằm ở TỪNG dòng `hang[]`: "đã vào kho của chính mặt hàng này − đã giao của đúng dòng đơn
-    của nó", KHÔNG phải tổng đã vào kho. Giao lần hai mà vẫn bày trọn số cũ là mời người ta lập
-    phiếu vượt số hàng có thật.
-
-    Ca này là ca 1–1–1 (một dòng đơn · một mặt hàng) nên trần tính được: `khong_tinh_duoc=False`.
+    Mỗi dòng `hang[]` = một món thành phẩm ở MỘT kho: `so_luong` là tồn thật ở kho đó, `so_toi_da`
+    = min(tồn kho đó, còn phải giao của cụm). Đơn 20.000, đã giao 19.800 ⇒ còn 200 dù kho có 500.
     """
-    k, _hang = _nhap_kho_that(sess, admin, lenh_that, _cvs(sess, lenh_that)[0], so_luong=500)
-    _giao_xong(sess, lenh_that, 200, ma="YCGH-HS-1")
+    k = _nhap_kho_that(sess, admin, lenh_that, so_luong=500)
+    _giao_xong(sess, lenh_that, 19_800, ma="YCGH-HS-1")
 
     g = _ho_so(client, seed_credentials, lenh_that)["giao_hang"]
     assert g["nhom_id"] is not None
     assert g["order_id"] == sess.get(Lsx, lenh_that).order_id
     assert g["so_lenh_trong_nhom"] == 1
     assert g["da_nhap_kho"] == 500.0
-    assert g["da_giao"] == 200.0
-    assert "so_toi_da" not in g, "trần cấp nhóm phải BỎ HẲN, không được để cạnh trần từng dòng"
-    assert len(g["hang"]) == 1
-    dong = g["hang"][0]
-    assert dong["kho_id"] == k.id
-    assert dong["kho_ten"] == "Kho thành phẩm KHO-HS-TP" == k.ten
-    assert dong["ten"] == "Thành phẩm"
+    assert g["da_giao"] == 19_800.0
+    assert "so_toi_da" not in g, "trần nằm ở từng dòng, không có số tổng cấp nhóm"
+    [dong] = g["hang"]
+    assert dong["kho_id"] == k.id and dong["kho_ten"] == k.ten
+    assert dong["ten"] == "Hộp A" and dong["ma"].startswith("TP-")
     assert dong["don_vi"] == "cái"
-    assert dong["so_luong"] == 500.0, "`so_luong` là tồn thật, CHƯA trừ đã giao"
+    assert dong["so_luong"] == 500.0, "`so_luong` là tồn thật ở kho"
     assert dong["khong_tinh_duoc"] is False
-    assert dong["so_toi_da"] == 300.0
+    assert dong["so_toi_da"] == 200.0
     assert g["co_the_giao"] is True
 
 
-def test_giao_hang_khoa_nut_khi_chua_co_ton(client, seed_credentials, lenh_that):
-    """Chưa có gì vào kho ⇒ `hang` rỗng và `co_the_giao=False` — nút phải TẮT.
-
-    Trả "tồn khả dụng = tổng đã nhận" khi chưa nối được số đã giao là mở nút cho một phiếu giao
-    không có hàng; ở đây rỗng là câu trả lời đúng, không phải chỗ để đoán.
-    """
+def test_giao_hang_khoa_nut_khi_chua_co_ton(client, seed_credentials, sess, lenh_that):
+    """Chưa có gì vào kho ⇒ `hang` rỗng và `co_the_giao=False` — nút phải TẮT."""
+    _bo_ton_mo_thanh_pham(sess)
     g = _ho_so(client, seed_credentials, lenh_that)["giao_hang"]
     assert g["hang"] == []
     assert g["da_nhap_kho"] == 0.0
     assert g["co_the_giao"] is False
 
 
-def test_giao_hang_nhom_nhieu_dong_don_khong_bia_tran(
+def test_giao_hang_mot_mon_hai_kho_la_hai_dong(client, seed_credentials, sess, admin, lenh_that):
+    """Kho là ĐỘNG: cùng một món nhập vào hai kho ⇒ hai dòng, mỗi dòng tồn + trần của kho đó."""
+    kho_a = _nhap_kho_that(sess, admin, lenh_that, so_luong=300, kho_ma="KHO-HS-A")
+    kho_b = _nhap_kho_that(sess, admin, lenh_that, so_luong=400, kho_ma="KHO-HS-B")
+
+    g = _ho_so(client, seed_credentials, lenh_that)["giao_hang"]
+    assert [(d["kho_id"], d["so_luong"]) for d in g["hang"]] == [(kho_a.id, 300.0), (kho_b.id, 400.0)]
+    assert len({d["hang_id"] for d in g["hang"]}) == 1, "một món, hai kho"
+    assert [d["so_toi_da"] for d in g["hang"]] == [300.0, 400.0]
+    assert g["da_nhap_kho"] == 700.0
+
+
+def test_giao_hang_nhom_hai_dong_don_cung_nhan_la_mot_mon(
     client, seed_credentials, sess, admin, lenh_that
 ):
-    """Nhóm ôm HAI dòng đơn ⇒ không dựng được ánh xạ mặt hàng ⇄ dòng đơn ⇒ trần để TRỐNG.
-
-    Đây là ca bản đầu tính sai: `Σ lot của nhóm − Σ đã giao của MỌI dòng đơn` = 500 − 400 = 100,
-    trong khi kho còn 300 thật. Giao thêm một lượt nữa là `co_the_giao=False` vĩnh viễn trong khi
-    hàng vẫn nằm đó. Registry thành phẩm neo NHÓM (`_tao_yc_tu_batch` tạo hàng với `lsx_id=None`)
-    nên KHÔNG có cách nào biết lượt giao nào thuộc mặt hàng nào — câu đúng là "chưa biết", không
-    phải một con số.
-
-    Nút vẫn phải MỞ: hàng có thật trong kho, chỉ trần là chưa chắc.
-    """
+    """Ruột + Bìa cùng nhãn "Kỷ yếu" (khác SL ⇒ hai cụm cùng tên) là MỘT món ⇒ MỘT dòng mỗi kho,
+    còn phải giao cộng cả hai cụm, đã giao cộng dòng đầu của cả hai."""
     lsx2 = _nhom_hai_lenh(sess, lenh_that)
-    _nhap_kho_that(sess, admin, lenh_that, _cvs(sess, lenh_that)[0], so_luong=500)
+    _nhap_kho_that(sess, admin, lenh_that, so_luong=500)
     _giao_xong(sess, lenh_that, 200, ma="YCGH-HS-2A")
     _giao_xong(sess, lsx2, 200, ma="YCGH-HS-2B")
 
@@ -642,43 +628,13 @@ def test_giao_hang_nhom_nhieu_dong_don_khong_bia_tran(
     assert len(g["order_line_ids"]) == 2
     assert g["da_nhap_kho"] == 500.0
     assert g["da_giao"] == 400.0
-    assert len(g["hang"]) == 1
-    assert g["hang"][0]["khong_tinh_duoc"] is True
-    assert g["hang"][0]["so_toi_da"] is None, "thà để trống còn hơn bày ra 100"
-    assert g["hang"][0]["so_luong"] == 500.0
-    assert g["co_the_giao"] is True, "kho còn hàng thật thì không được khoá nút"
-
-
-def test_giao_hang_hai_mat_hang_khong_gop_tran(
-    client, seed_credentials, sess, admin, lenh_that
-):
-    """Nhóm có HAI mặt hàng thành phẩm ⇒ mỗi dòng giữ tồn RIÊNG, không có số gộp nào.
-
-    Bản đầu cộng mọi lot của nhóm bất kể `hang_id` rồi trả một trần chung: nhóm 500 + 70 ra trần
-    570, tức cho phép lập phiếu 570 cái của món chỉ có 500. `don_vi_lech` không bắt được ca này —
-    nó chỉ soi ĐƠN VỊ, còn đây là hai MẶT HÀNG cùng đơn vị.
-    """
-    cvs = _cvs(sess, lenh_that)
-    _nhap_kho_that(sess, admin, lenh_that, cvs[0], so_luong=500)
-    _nhap_kho_that(sess, admin, lenh_that, cvs[1], so_luong=70)
-
-    g = _ho_so(client, seed_credentials, lenh_that)["giao_hang"]
-    assert g["don_vi_lech"] is False
-    theo_sl = sorted(d["so_luong"] for d in g["hang"])
-    assert theo_sl == [70.0, 500.0], "hai mặt hàng phải là HAI dòng, không gộp"
-    assert all(d["khong_tinh_duoc"] is True for d in g["hang"]), (
-        "hai mặt hàng chia nhau một dòng đơn thì không tách được số đã giao"
-    )
-    assert 570.0 not in [d["so_luong"] for d in g["hang"]]
+    [dong] = g["hang"]
+    assert dong["ten"] == "Kỷ yếu" and dong["so_luong"] == 500.0 and dong["so_toi_da"] == 500.0
+    assert g["co_the_giao"] is True
 
 
 def test_kho_va_giao_hang_noi_ro_muc_gop(client, seed_credentials, sess, admin, lenh_that):
-    """`so_lenh_trong_nhom` phải là SỐ THẬT lúc chạy, không phải cờ hằng.
-
-    Bản đầu trả `kho.cap_nhom=True` cứng: đúng cả khi nhóm một lệnh (cộng thoải mái) lẫn khi nhóm
-    ba lệnh (cộng là sai gấp ba), tức không mang thông tin nào. Khối `giao_hang` mang y hệt rủi ro
-    gộp mà lại không có cờ nào.
-    """
+    """`so_lenh_trong_nhom` phải là SỐ THẬT lúc chạy, không phải cờ hằng."""
     d = _ho_so(client, seed_credentials, lenh_that)
     assert d["kho"]["so_lenh_trong_nhom"] == 1
     assert "cap_nhom" not in d["kho"]
@@ -687,6 +643,16 @@ def test_kho_va_giao_hang_noi_ro_muc_gop(client, seed_credentials, sess, admin, 
     d2 = _ho_so(client, seed_credentials, lenh_that)
     assert d2["kho"]["so_lenh_trong_nhom"] == 2
     assert d2["giao_hang"]["so_lenh_trong_nhom"] == 2
+
+
+def test_kho_liet_ke_yeu_cau_nhap_va_so_kho_da_nhan(client, seed_credentials, sess, admin, lenh_that):
+    """Khối Kho đọc NGƯỢC yêu cầu nhập thật: mã DNN, số đề nghị, kho đã nhận, còn lại, mốc nhận."""
+    _nhap_kho_that(sess, admin, lenh_that, so_luong=500)
+    [yc] = _ho_so(client, seed_credentials, lenh_that)["kho"]["yeu_cau"]
+    assert yc["ma"].startswith("DNN")
+    assert yc["so_luong_yeu_cau"] == 500.0 and yc["so_luong_xac_nhan"] == 500.0
+    assert yc["con_lai"] == 0.0 and yc["trang_thai"] == "done"
+    assert yc["xac_nhan_luc"] is not None
 
 
 def test_giao_hang_da_giao_luon_la_so_cap_nhom(client, seed_credentials, sess, lenh_that):
@@ -705,10 +671,7 @@ def test_giao_hang_da_giao_luon_la_so_cap_nhom(client, seed_credentials, sess, l
     assert d["tien_do"]["da_giao"] == 120
 
 
-# --- Luật 1–1–1 và quy ước trừ-dần: bốn nhánh KHÔNG bài nào chạm ------------------------------
-# Vòng sửa 1 đẻ ra luật này; vòng sửa 2 mới đi canh từng nhánh của nó. Bốn thứ dưới đây đều đã bị
-# bắn thủng mà cả bộ vẫn xanh: bộ lọc `nhom_id` của `thanh_vien_nhom`, điều kiện thứ ba
-# `thieu_dong_don`, quy ước trừ dần theo `kho_id`, và `so_lenh_trong_nhom` vs số dòng đơn.
+# --- Nhóm hàng xóm và nhóm hai lượt sản xuất ------------------------------------------------------
 def _nhom_rieng_cho_lenh_anh_em(sess, lsx_id: int) -> int:
     """Dựng nhóm THỨ HAI tồn tại song song với nhóm của lệnh đang mở. Trả `nhom_id` mới.
 
@@ -756,146 +719,31 @@ def _nhom_hai_lenh_chung_dong_don(sess, lsx_id: int) -> int:
 def test_giao_hang_khong_lan_sang_nhom_khac(
     client, seed_credentials, sess, admin, lenh_that
 ):
-    """`thanh_vien_nhom` phải lọc theo `nhom_id`. Bỏ bộ lọc = sai CÂM toàn hệ.
-
-    Không nhóm nào trong bộ bài cũ có hàng xóm, nên gỡ mệnh đề `where nhom_id` vẫn 29 bài xanh —
-    trong khi trên DB thật hàm sẽ trả MỌI thành viên của MỌI nhóm: `so_lenh_trong_nhom` phình,
-    `dong_don` gom cả đơn của khách khác, `mot_mot_mot` không bao giờ đúng nữa ⇒ hồ sơ nào cũng
-    "chưa tính được trần". Đây là cầu DUY NHẤT từ hồ sơ sang giao hàng.
-
-    Dựng hai nhóm cùng tồn tại rồi hỏi nhóm thứ nhất: mọi con số phải y như lúc chỉ có một nhóm.
-    """
+    """Dựng hai nhóm cùng đơn rồi hỏi nhóm thứ nhất: thành viên, dòng đơn và món của nhóm HÀNG XÓM
+    không được lọt vào."""
     nhom2 = _nhom_rieng_cho_lenh_anh_em(sess, lenh_that)
-    _nhap_kho_that(sess, admin, lenh_that, _cvs(sess, lenh_that)[0], so_luong=500)
-    _giao_xong(sess, lenh_that, 200, ma="YCGH-HS-V3")
+    _nhap_kho_that(sess, admin, lenh_that, so_luong=500)
 
     g = _ho_so(client, seed_credentials, lenh_that)["giao_hang"]
     assert g["nhom_id"] != nhom2, "tiền đề: hai nhóm phải khác nhau thật"
-    assert g["so_lenh_trong_nhom"] == 1, "thành viên nhóm HÀNG XÓM không được lọt vào"
+    assert g["so_lenh_trong_nhom"] == 1
     assert g["order_line_ids"] == [sess.get(Lsx, lenh_that).order_line_id]
-    assert len(g["hang"]) == 1
-    assert g["hang"][0]["so_toi_da"] == 300.0, "vẫn là ca 1–1–1, trần phải tính được"
-    assert g["hang"][0]["khong_tinh_duoc"] is False
-
-
-def test_giao_hang_thanh_vien_mat_dong_don_thi_khong_boi_tran(
-    client, seed_credentials, sess, admin, lenh_that
-):
-    """Thành viên nhóm mất `order_line_id` ⇒ trần để TRỐNG, và KHÔNG được hoá thành dòng đơn `0`.
-
-    Điều kiện thứ ba của luật 1–1–1 (`thieu_dong_don`) là nhánh không bài nào chạm: cả hai kiểu phá
-    đều từng xanh — ép NULL thành `0` (đúng cái docstring `thanh_vien_nhom` cấm) và bỏ hẳn
-    `not thieu_dong_don` (nhóm mất dòng đơn vẫn ra một con số trần).
-
-    `SanXuatNhomLsx.order_line_id` là `nullable` + `ondelete="SET NULL"`, nên ca này đến từ DỮ LIỆU
-    THẬT: dòng đơn bị xoá thì DB tự để lại thành viên trống. Fixture đặt NULL thẳng vì đó đúng là
-    thứ DB ghi ra ở nhánh ấy.
-
-    Nhóm ở đây có ĐÚNG MỘT dòng đơn còn sống và ĐÚNG MỘT mặt hàng — hai điều kiện kia đều thoả, nên
-    chỉ mình `thieu_dong_don` giữ cho con số 300 không ra đời.
-    """
-    lsx2 = _nhom_hai_lenh(sess, lenh_that)
-    sess.query(SanXuatNhomLsx).filter_by(lsx_id=lsx2).one().order_line_id = None
-    sess.commit()
-    _nhap_kho_that(sess, admin, lenh_that, _cvs(sess, lenh_that)[0], so_luong=500)
-    _giao_xong(sess, lenh_that, 200, ma="YCGH-HS-V1")
-
-    g = _ho_so(client, seed_credentials, lenh_that)["giao_hang"]
-    assert g["so_lenh_trong_nhom"] == 2
-    assert g["order_line_ids"] == [sess.get(Lsx, lenh_that).order_line_id], (
-        "thành viên thiếu dòng đơn phải BIẾN MẤT khỏi danh sách, không hoá thành dòng đơn 0"
-    )
-    assert len(g["hang"]) == 1
-    assert g["hang"][0]["so_toi_da"] is None, "một thành viên mất dòng đơn đủ để trần thành ẩn số"
-    assert g["hang"][0]["khong_tinh_duoc"] is True
-    assert g["hang"][0]["so_luong"] == 500.0, "tồn thật vẫn phải bày ra"
-    assert g["co_the_giao"] is True, "hàng còn trong kho thì không được tắt nút"
-
-
-def test_giao_hang_mot_mat_hang_hai_kho_tru_dan_theo_kho(
-    client, seed_credentials, sess, admin, lenh_that
-):
-    """Một mặt hàng nằm HAI kho: đã giao trừ dần theo `kho_id` tăng dần, ba lời hứa phải giữ.
-
-    Quy ước này do hồ sơ đặt (số đã giao không mang thông tin kho) và docstring hứa ba điều: tổng
-    trần đúng bằng trần thật của mặt hàng · không dòng nào vượt tồn của kho nó · không âm. Cả hai
-    kiểu phá đều từng xanh: đảo thứ tự trừ, và bỏ `min` (cho ra trần ÂM).
-
-    Bộ bài cũ không có đường nào chạm ca này vì `_nhap_kho_yc` đẻ mặt hàng MỚI mỗi lần gọi — phải
-    chuyền `hang_id` để hai lượt nhập dùng chung một mặt hàng, đúng như `_get_or_create_hang` làm.
-
-    Số: kho A 300 + kho B 400 = 700, đã giao 500 ⇒ A cạn (0), B còn 200. Σ = 200 = 700 − 500.
-    """
-    cvs = _cvs(sess, lenh_that)
-    kho_a, hang_id = _nhap_kho_that(
-        sess, admin, lenh_that, cvs[0], so_luong=300, kho_ma="KHO-HS-A")
-    kho_b, hang_b = _nhap_kho_that(
-        sess, admin, lenh_that, cvs[1], so_luong=400, kho_ma="KHO-HS-B", hang_id=hang_id)
-    assert hang_b == hang_id, "tiền đề: HAI kho nhưng MỘT mặt hàng"
-    assert kho_a.id < kho_b.id, "tiền đề: kho A có id nhỏ hơn nên bị trừ trước"
-    _giao_xong(sess, lenh_that, 500, ma="YCGH-HS-2KHO")
-
-    g = _ho_so(client, seed_credentials, lenh_that)["giao_hang"]
-    hang = g["hang"]
-    assert len(hang) == 2, "hai kho là hai dòng phiếu riêng, không gộp"
-    assert [d["kho_id"] for d in hang] == [kho_a.id, kho_b.id]
-    assert [d["so_luong"] for d in hang] == [300.0, 400.0]
-    assert [d["so_toi_da"] for d in hang] == [0.0, 200.0], "trừ theo kho_id TĂNG DẦN"
-    assert sum(d["so_toi_da"] for d in hang) == 200.0 == g["da_nhap_kho"] - g["da_giao"]
-    assert all(d["so_toi_da"] >= 0 for d in hang), "trần âm là số vô nghĩa, `min` giữ chỗ này"
-    assert all(d["so_toi_da"] <= d["so_luong"] for d in hang), "không dòng nào vượt tồn kho của nó"
-    assert g["da_nhap_kho"] == 700.0
-    assert g["da_giao"] == 500.0
-    assert g["co_the_giao"] is True
+    assert [d["ten"] for d in g["hang"]] == ["Hộp A"], "món Hộp B của nhóm kia không được hiện"
 
 
 def test_so_lenh_trong_nhom_khong_phai_so_dong_don(
     client, seed_credentials, sess, admin, lenh_that
 ):
-    """`so_lenh_trong_nhom` đếm LỆNH, không đếm dòng đơn — hai số trùng nhau ở mọi fixture khác.
-
-    Trường này sinh ra để FE quyết "có cộng qua các lệnh hay không", nên lấy nhầm số dòng đơn là
-    trả lời sai đúng câu hỏi nó được đẻ ra để trả lời. Ca tách được hai số: hai lượt sản xuất cho
-    CÙNG một dòng đơn.
-    """
+    """`so_lenh_trong_nhom` đếm LỆNH, không đếm dòng đơn: hai lượt sản xuất cho CÙNG một dòng đơn."""
     _nhom_hai_lenh_chung_dong_don(sess, lenh_that)
-    _nhap_kho_that(sess, admin, lenh_that, _cvs(sess, lenh_that)[0], so_luong=500)
-    _giao_xong(sess, lenh_that, 200, ma="YCGH-HS-1DONG")
+    _nhap_kho_that(sess, admin, lenh_that, so_luong=500)
 
     d = _ho_so(client, seed_credentials, lenh_that)
     g = d["giao_hang"]
     assert g["order_line_ids"] == [sess.get(Lsx, lenh_that).order_line_id], "đúng MỘT dòng đơn"
     assert g["so_lenh_trong_nhom"] == 2, "nhưng HAI lệnh — không được lấy số dòng đơn thay vào"
     assert d["kho"]["so_lenh_trong_nhom"] == 2
-    assert g["hang"][0]["so_toi_da"] == 300.0, "1 dòng đơn + 1 mặt hàng ⇒ trần vẫn tính được"
-
-
-def test_lot_kho_chua_xac_nhan_khong_vao_ton(
-    client, seed_credentials, sess, admin, lenh_that
-):
-    """Lot thành phẩm CHƯA được thủ kho xác nhận thì KHÔNG phải hàng khả dụng.
-
-    Luật đứng riêng một gạch đầu dòng trong docstring `ton_kha_dung_thanh_pham`: yêu cầu nhập kho
-    là lời của KCS, hàng vẫn nằm ở tổ cho tới lúc kho bấm nhận. Gỡ điều kiện `kho_xac_nhan` vẫn 29
-    bài xanh, nên luật đó không có lưới nào.
-
-    ⚠️ HÔM NAY production KHÔNG ghi ra hình dạng này: `kho_xac_nhan_nhap:293` đẻ lot thành phẩm
-    luôn với `kho_xac_nhan=True`, còn lot chờ xác nhận chỉ có ở BTP (`phan_loai_btp:431`) mà BTP đã
-    bị điều kiện `loai_hang` loại từ trước. Tức đây là một CHỐT PHÒNG THỦ, và bài này ghim chốt đó:
-    ngày nào có đường ghi lot thành phẩm chờ kho nhận (nhập kho hai bước, chuyển kho…) thì luật đã
-    sẵn lưới. Fixture đặt cờ thẳng vì không đường ghi nào đặt nó.
-    """
-    _kho, hang_id = _nhap_kho_that(sess, admin, lenh_that, _cvs(sess, lenh_that)[0], so_luong=500)
-    lots = sess.query(SanXuatKhoLot).filter_by(hang_id=hang_id).all()
-    assert len(lots) == 1, "tiền đề: đúng một lot vừa được kho xác nhận"
-    assert lots[0].kho_xac_nhan is True
-    lots[0].kho_xac_nhan = False
-    sess.commit()
-
-    g = _ho_so(client, seed_credentials, lenh_that)["giao_hang"]
-    assert g["hang"] == [], "hàng chưa được kho nhận thì không có gì để điền vào phiếu"
-    assert g["da_nhap_kho"] == 0.0
-    assert g["co_the_giao"] is False
+    assert len(g["hang"]) == 1
 
 
 def test_vat_tu_khong_lan_sang_bai_ghep_khac(
@@ -944,7 +792,7 @@ def test_vat_tu_khong_lan_sang_bai_ghep_khac(
 def _ghi_san_luong(sess, admin, cv, *, tong, tot, hong=0, ma="NV-HS-SL") -> None:
     """Ghi MỘT batch sản lượng bằng ĐÚNG đường production (`san_luong.tao_batch`).
 
-    Bước phải ĐANG CHẠY mới ghi được (`_TRANG_THAI_GHI_DUOC`), nên mở ba cửa của `thuc_thi.bat_dau`
+    Bước phải ĐANG CHẠY mới ghi được (`_TRANG_THAI_GHI_DUOC`), nên mở các cửa của `thuc_thi.bat_dau`
     y như `_chay_that` — nhưng KHÔNG kết thúc bước, vì bài cần bước còn mở để ghi tiếp batch sau.
     """
     to = sess.get(Department, cv.department_id)
@@ -954,7 +802,7 @@ def _ghi_san_luong(sess, admin, cv, *, tong, tot, hong=0, ma="NV-HS-SL") -> None
         _giao_nguoi(sess, admin, cv, ma=ma, ten="Thợ sản lượng")
         thuc_thi.bat_dau(
             sess, user=admin, cong_viec_id=cv.id,
-            ly_do_tre="Chờ giấy về", ly_do_so_nguoi="Tổ thiếu người",
+            ly_do_so_nguoi="Tổ thiếu người",
         )
     san_luong_svc.tao_batch(
         sess, user=admin, cong_viec_id=cv.id,
@@ -1159,32 +1007,38 @@ def test_chi_khoi_tra_dung_khoi_duoc_xin_va_giong_het_ban_day_du(sess, lenh_that
         assert it[k] == du[k], f"khối {k} khác nhau giữa bản đầy đủ và bản `chi_khoi`"
 
 
-def test_chi_khoi_bot_cau_sql_that(sess, lenh_that):
-    """ĐO chứ không đoán: bản 4 khối phải chạm DB ÍT HƠN HẲN bản đầy đủ.
+def test_chi_khoi_bot_cau_sql_that(sess, lenh_that, monkeypatch):
+    """ĐO chứ không đoán: bản 4 khối chạm DB ÍT HƠN bản đầy đủ, và KHÔNG chạm engine vật tư.
 
     Đo thật (probe tạm dùng chính `_dem_sql` + chính fixture này):
-      · `lenh_that`, DB không có bài ghép : **70 câu** đầy đủ  ->  **25 câu** cho 4 khối
-      · `ghep_doi`,  DB có 1 bài ghép     : **101 câu** đầy đủ ->  **25 câu** cho 4 khối
-    Con số 4 khối KHÔNG đổi theo bài ghép — đúng chỗ phải bỏ, vì phần phình chính là
-    `trang_thai.den_va_bang` → `ke_hoach_vat_tu_service.can_doi()`
-    — hàm phình theo số bài ghép trong TOÀN kế hoạch chứ không theo lệnh đang in — cộng
-    `_giao_hang` · `_kcs` · `_su_co` · `_timeline` · `_nhan_luc`.
+      · trước 14/09/2026: `lenh_that` **70 câu** đầy đủ -> **25 câu** cho 4 khối
+      · từ 14/09/2026   : **51 câu** đầy đủ -> **26 câu** — bản đầy đủ gọn đi vì
+        `trang_thai.den_va_bang` thôi dựng lịch + soi danh mục chỉ để vứt
+        (`lsx_tong_quan.den_vat_tu_va_bang`).
+    Bản bài này trước đó assert "ít hơn MỘT NỬA" — tỉ lệ đó đỏ ngay khi bản đầy đủ nhẹ đi, tức đỏ
+    vì một bản tối ưu chứ không vì `chi_khoi` hỏng. Nên nay canh THẲNG thứ phải bỏ.
 
-    Vì sao đây không phải bài "chạy nhanh hơn": cái phải bỏ là sự GIÒN. Engine vật tư hoặc khối
-    giao hàng ném lỗi vì một trạng thái dữ liệu chẳng liên quan gì tới tờ giấy thì nút In chết
-    theo, trong khi tổ trưởng đang đứng chờ.
-
-    Assert theo TỈ LỆ chứ không chốt cứng 70/25: con số tuyệt đối trôi theo mọi thay đổi của
-    `boi_canh`, chốt cứng là bài đỏ vì lý do không liên quan. Nhưng "ít hơn một nửa" thì chỉ đỏ
-    khi `chi_khoi` thật sự thành vô nghĩa.
+    Vì sao đây không phải bài "chạy nhanh hơn": cái phải bỏ là sự GIÒN. Engine vật tư
+    (`trang_thai.den_va_bang` → `ke_hoach_vat_tu_service.can_doi()`, phình theo số bài ghép trong
+    TOÀN kế hoạch) hoặc khối giao hàng ném lỗi vì một trạng thái dữ liệu chẳng liên quan gì tới tờ
+    giấy thì nút In chết theo, trong khi tổ trưởng đang đứng chờ. Bài canh dưới cho engine vật tư
+    NỔ — bản 4 khối vẫn phải dựng xong.
     """
     from app.services.lenh_sx import ho_so as ho_so_svc
+    from app.services.lenh_sx import trang_thai
 
     _, so_du = _dem_sql(lambda: ho_so_svc.ho_so(sess, lenh_that, sale_ids=None))
     _, so_it = _dem_sql(
         lambda: ho_so_svc.ho_so(sess, lenh_that, sale_ids=None, chi_khoi=_KHOI_PHIEU)
     )
-    assert so_it * 2 < so_du, f"đầy đủ {so_du} câu · 4 khối {so_it} câu — `chi_khoi` không bớt gì"
+    assert so_it < so_du, f"đầy đủ {so_du} câu · 4 khối {so_it} câu — `chi_khoi` không bớt gì"
+
+    def _no(*a, **k):
+        raise AssertionError("bản 4 khối không được gọi engine vật tư")
+
+    monkeypatch.setattr(trang_thai, "den_va_bang", _no)
+    it = ho_so_svc.ho_so(sess, lenh_that, sale_ids=None, chi_khoi=_KHOI_PHIEU)
+    assert set(it) == _KHOI_PHIEU
 
 
 def test_chi_khoi_khoa_la_bao_loi_ngay(sess, lenh_that):

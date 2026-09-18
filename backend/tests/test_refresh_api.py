@@ -11,6 +11,7 @@ from app.db import SessionLocal
 from app.repositories.refresh_token_repo import RefreshTokenRepository
 from app.repositories.user_repo import UserRepository
 from app.security import hash_refresh_token
+from app.services.refresh_service import REUSE_GRACE
 
 
 def _set_cookie_headers(resp) -> list[str]:
@@ -50,6 +51,14 @@ def test_reusing_pre_rotation_cookie_is_401(client, seed_credentials):
     login = client.post("/api/auth/login", json=seed_credentials)
     raw1 = _cookie_value(login)
     client.post("/api/auth/refresh")  # rotates raw1 away
+    # Quá khoảng ân hạn (replay ngay sau khi xoay là tải lại trang, được cấp lại — xem test service).
+    db = SessionLocal()
+    try:
+        row = RefreshTokenRepository(db).get_by_hash(hash_refresh_token(raw1))
+        row.revoked_at = datetime.now(timezone.utc) - REUSE_GRACE - timedelta(seconds=1)
+        db.commit()
+    finally:
+        db.close()
 
     reuse = client.post("/api/auth/refresh", cookies={"refresh_token": raw1})
     assert reuse.status_code == 401

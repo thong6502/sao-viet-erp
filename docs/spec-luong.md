@@ -1,5 +1,10 @@
 # Spec — Module Lương (Phase 1: lương thời gian)
 
+> 🔴 **Đã lỗi thời một phần (17/09/2026):** cơ chế lương cũ đã gỡ hẳn — bảng `salary_rate_rules`,
+> `employees.payroll_group`/`pay_grade_key`, `employee_salaries.amount_mode`, cơ chế lương/% thử việc
+> theo phòng (mg `0305`, `0307`). Mức lương nay chỉ là số khai riêng của từng người. Phần "Quy tắc
+> lương", "nhóm/bậc" và nhánh `rule` của engine bên dưới là thiết kế gốc, không còn đúng.
+
 Module `luong`. Mục tiêu: bảng lương **thời gian** hàng tháng cho toàn công ty — tự kéo
 công từ Chấm công, áp mức lương theo quy tắc/khai báo, trừ tạm ứng + BHXH → thực lĩnh,
 chốt kỳ, xuất Excel + file chuyển khoản. Gated cho HCNS/kế toán (module quyền riêng vì nhạy cảm).
@@ -103,6 +108,13 @@ tổ có đúng 1 đơn giá thì máy **điền sẵn**, tổ có nhiều (bế
 trống + nhắc** — chỉ người biết hôm đó bế bằng gì. Chọn xong GHIM snapshot vào
 `lsx_cong_doan.khoan_json`: xưởng lên giá khoán về sau không được xê dịch lệnh đã phát.
 
+> **CẬP NHẬT 11/09/2026 — tầng lệnh THÔI tính tiền.** Đoạn dưới mô tả bản 2026-07/08, giữ lại làm
+> vết cho màn "Khoán theo kỳ" của kế toán lương sau này; **hiện KHÔNG còn luồng nào chạy nó**.
+> Chủ xưởng chốt: *"bên sản xuất chỉ ghi nhận số lượng thôi"* ⇒ ô "Công thợ dự kiến" ở bước, tổng
+> tiền khoán của lệnh và các ô tiền của bài ghép **đã gỡ hẳn**. Phép nhân `sản lượng × đơn giá` còn
+> nguyên ở `quy_doi_service.tien_khoan` (có test, không nơi gọi) — nó chính là thứ màn "Khoán theo
+> kỳ" sẽ đọc. Xem `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
+
 **Tiền khoán = SL VÀO của bước → quy đổi sang đơn vị đơn giá → × đơn giá**, tính LÚC ĐỌC (không lưu
 cột). Quy đổi qua `services/quy_doi_service.py` — xem `docs/spec-don-vi-quy-doi.md`. Số thật: bước cán
 màng của lệnh thẻ nhân viên = `241 tờ × 86 cm × 65 cm = 134,72 m² × 150 đ/m² = 20.208 đ`.
@@ -110,13 +122,17 @@ màng của lệnh thẻ nhân viên = `241 tờ × 86 cm × 65 cm = 134,72 m² 
 Đếm theo SL VÀO vì **thợ chạy bao nhiêu tờ thì ăn bấy nhiêu**, kể cả 230 tờ bù hao canh máy 4 màu;
 hàng lỗi do thợ trừ riêng, không bằng cách hạ số tờ.
 
-### Phạm vi hiện tại — chỉ KẾ HOẠCH
+### Phạm vi hiện tại — KẾ HOẠCH chọn ĐẦU VIỆC, SẢN XUẤT ghi SỐ LƯỢNG
 
-Lát này dừng ở **số dự kiến**: bước hiện dòng ba số, lệnh hiện Σ "Công thợ dự kiến" (là số SÀN — bước
-chưa chọn đầu việc thì không góp vào). **Chưa** nối vào cột `khoan` của bảng lương, vì nguồn SẢN LƯỢNG
-THẬT đã bị gỡ khỏi hệ (`production_outputs` không còn model/router; `PieceWorkService.khoan_map` luôn
-trả rỗng). Dựng lại khâu "tổ trưởng báo sản lượng" là lát riêng, và nó cũng mở luôn
-`piece_leader_bonus_brackets` (thưởng/phạt tổ trưởng theo % hàng lỗi) đang treo.
+Bước lệnh **vẫn chọn và ghim đầu việc** (`khoan_json`: tên · đơn vị · công thức giờ · định mức), chỉ
+**không hiện tiền**. Đơn vị ở lại vì nó là **đích quy đổi của phép đo GIỜ** (`dich_gio_cua_khoan` lùi
+về nó khi đầu việc chưa khai `don_vi_nang_suat`), **không phải** vì tiền.
+
+Nguồn SẢN LƯỢNG THẬT nay **đã có và đã nối**: `deps.get_piece_work_service` truyền
+`ProductionOutputRepository`, repo đọc dòng chia sản lượng ĐÃ CHỐT của tổ trưởng. Cột `khoan` của
+bảng lương vẫn ra 0 vì repo trả `unit_price = 0` cho mọi dòng — **thiếu đơn giá, không thiếu sản
+lượng**. Thưởng/phạt tổ trưởng theo % hàng lỗi (`piece_leader_bonus_brackets`) đã GỠ HẲN
+13/09/2026 (mg `0300`).
 
 Cũng **chưa** làm: chia tiền trong nhóm (ghi chú Excel: *tổ trưởng lấy 5%, còn lại nhóm tự chia*) —
 máy chỉ nên GHI NHẬN con số tổ trưởng báo, không tự chia, vì tỷ lệ do nhóm tự thoả thuận.

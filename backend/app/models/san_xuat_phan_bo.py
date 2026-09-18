@@ -103,10 +103,14 @@ class SanXuatHoTro(Base):
 
 
 class SanXuatPhanBo(Base):
-    """HEADER phân bổ sản lượng của MỘT batch (§12.1). Một batch tối đa một phân bổ (`batch_id`
-    UNIQUE). Đóng băng tại lúc TÍNH: `q_tra_luong` (Q sau quy đổi), `don_gia` (từ khoan_json),
-    `tong_ty_le_ho_tro` (tổng P đã xác nhận), giữ RIÊNG sản lượng bản địa `q_ban_dia`/`don_vi_ban_dia`
-    (§12.2). `ky_nam`/`ky_thang` = kỳ lương của batch (suy từ ngày batch) để lọc theo kỳ nhanh.
+    """HEADER CHIA SẢN LƯỢNG của MỘT batch (§12.1). Một batch tối đa một bản chia (`batch_id`
+    UNIQUE). Đóng băng tại lúc TÍNH: `q_tra_luong` (Q sau quy đổi), `tong_ty_le_ho_tro` (tổng P đã
+    xác nhận), giữ RIÊNG sản lượng bản địa `q_ban_dia`/`don_vi_ban_dia` (§12.2).
+    `ky_nam`/`ky_thang` = kỳ lương của batch (suy từ ngày batch) để lọc theo kỳ nhanh.
+
+    KHÔNG có cột TIỀN nào (bỏ `don_gia` 11/09/2026): sản xuất ghi SỐ LƯỢNG, kế toán lương đổi ra
+    tiền. Tên cột còn chữ "trả lương" vì đây đúng là sản lượng ĐEM ĐI TRẢ LƯƠNG — chỉ là phép nhân
+    đơn giá không còn xảy ra ở tầng này.
 
     Trạng thái §12.3: draft (chưa chốt, công nhân chưa xem) → finalized (chốt, feed lương) →
     reopened (mở lại trước khi kỳ khoá) → finalized lại."""
@@ -124,10 +128,9 @@ class SanXuatPhanBo(Base):
     ky_nam: Mapped[int] = mapped_column(Integer, nullable=False)
     ky_thang: Mapped[int] = mapped_column(Integer, nullable=False)
     trang_thai: Mapped[str] = mapped_column(String(16), nullable=False, default=PB_NHAP)
-    # Sản lượng trả lương (đã quy đổi) + đơn giá snapshot.
+    # Sản lượng đem chia (đã quy đổi) — không kèm đơn giá, xem docstring.
     q_tra_luong: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
     don_vi_tra_luong: Mapped[str | None] = mapped_column(String(24), nullable=True)
-    don_gia: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     # Sản lượng BẢN ĐỊA giữ riêng (§12.2 "luôn giữ riêng bản địa và trả lương").
     q_ban_dia: Mapped[float | None] = mapped_column(Numeric(18, 3), nullable=True)
     don_vi_ban_dia: Mapped[str | None] = mapped_column(String(24), nullable=True)
@@ -148,9 +151,9 @@ class SanXuatPhanBoDong(Base):
     version). Giữ RIÊNG `so_luong_tra_luong` (đã quy đổi, dùng tính lương) và `so_luong_ban_dia`.
 
     `la_ho_tro=true`: phần người hỗ trợ = Q×tỷ lệ, ghi cho `department_id`=tổ GỐC, `ngay`=ngày thỏa
-    thuận (§9.2), KHÔNG chia theo phút×hệ số → `trong_so`/`phut_thuc_te`/`he_so_bac` để trống.
+    thuận (§9.2), KHÔNG chia theo phút → `trong_so`/`phut_thuc_te` để trống.
     `la_ho_tro=false`: phần tổ thực hiện, chia phần còn lại Q×(1−P) theo
-    `trong_so = phut_thuc_te × he_so_bac` (§12.2)."""
+    `trong_so = phut_thuc_te` (§12.2)."""
 
     __tablename__ = "san_xuat_phan_bo_dong"
 
@@ -175,8 +178,6 @@ class SanXuatPhanBoDong(Base):
     so_luong_ban_dia: Mapped[float | None] = mapped_column(Numeric(18, 3), nullable=True)
     trong_so: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     phut_thuc_te: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
-    he_so_bac: Mapped[float | None] = mapped_column(Numeric(6, 3), nullable=True)
-    don_gia: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -208,7 +209,6 @@ class SanXuatPhanBoBuTru(Base):
     ky_bu_thang: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     ngay: Mapped[date] = mapped_column(Date, nullable=False)
     so_luong_tra_luong: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
-    don_gia: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     mo_ta: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

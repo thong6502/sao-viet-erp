@@ -1024,18 +1024,16 @@ def test_o_ngay_mang_du_co_le_nghi_tuan_va_off1x(client):
     assert row["holiday_cong"] == 1.0 and row["restday_cong"] == 1.0 and row["plain_cong"] == 1.0
 
 
-def test_he_so_ngay_doc_tu_cau_hinh_luong_le_cong_1_chu_nhat_thi_khong(client):
-    """⭐ Chỗ dễ sai nhất: LỄ = 1 + hệ số, NGHỈ TUẦN = hệ số (KHÔNG cộng 1).
-
-    Vì tiền cố ý tính hai kiểu (`payroll_service._compute`): ngày lễ đã có sẵn 1 công lương Đ112
-    dù nghỉ ở nhà nên Đ98.1.c cộng TRỌN 300% ⇒ 4×; Chủ nhật nghỉ ở nhà thì không đồng nào, phần 1×
-    chính là tiền đi làm ⇒ chỉ 2×. Cộng 1 cho cả hai là màn hình hứa 3× mà phiếu lương trả 2×."""
+def test_he_so_ngay_doc_tu_cau_hinh_luong_le_va_le_trung_chu_nhat(client):
+    """⭐ Ô lịch phải nói ĐÚNG số tiền `payroll_service._compute` trả: lễ = hệ số lễ (khách chốt
+    15/09/2026 chiều "ngày lễ chỉ 300%", ĐẢO cách cũ 1 + 3 = 4×) · nghỉ tuần = hệ số nghỉ tuần ·
+    lễ rơi đúng ngày nghỉ tuần = CỘNG cả hai (200% + 300% = 500%)."""
     token = _admin_token(client)
     _, wt = _nv_trang(client, token, ten="NV He So")
     duong = f"/api/attendance/me/timesheet?year={NAM_LN}&month={THANG_LN}"
 
     mac_dinh = client.get(duong, headers=_h(wt)).json()["he_so_ngay"]
-    assert mac_dinh == {"le": 4.0, "nghi_tuan": 2.0, "off1x": 1.0}
+    assert mac_dinh == {"le": 3.0, "nghi_tuan": 2.0, "le_nghi_tuan": 5.0, "off1x": 1.0}
 
     # Đổi Cấu hình lương ⇒ số trên ô lịch phải đi theo (nếu ai đó viết cứng "4" thì đỏ ở đây).
     # Hai hệ số khác nhau + khác mặc định ⇒ nhầm công thức nào cũng lộ.
@@ -1044,7 +1042,7 @@ def test_he_so_ngay_doc_tu_cau_hinh_luong_le_cong_1_chu_nhat_thi_khong(client):
                    headers=_h(token))
     assert r.status_code == 200, r.text
     assert client.get(duong, headers=_h(wt)).json()["he_so_ngay"] == {
-        "le": 5.0, "nghi_tuan": 2.5, "off1x": 1.0}
+        "le": 4.0, "nghi_tuan": 2.5, "le_nghi_tuan": 6.5, "off1x": 1.0}
 
 
 def test_giao_dien_that_su_doc_co_loai_ngay_va_he_so():

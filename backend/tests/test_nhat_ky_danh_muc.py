@@ -109,6 +109,25 @@ def test_trong_van_hoan_trong_thi_khong_bao_la_thay_doi():
     assert nk.mo_ta_thay_doi({"nhom_may": []}, {"nhom_may": None}) == []
 
 
+def test_don_vi_in_bang_ten_danh_muc_khong_in_ma():
+    """Cột đơn vị giữ MÃ (`to`, `nhip`, `to_gio`). In thẳng thì nhật ký ra "Đơn giá 40 → 50 đ/to"
+    — người đọc hiểu là chữ "to", không ai tra ra "tờ". Mã lạ thì giữ nguyên mã, không đoán."""
+    bang = {"to": "tờ", "nhip": "nhịp", "kem": "bản kẽm"}
+    assert nk.mo_ta_thay_doi(
+        {"unit": "nhip", "unit_price": 40}, {"unit": "to", "unit_price": 50}, ten_don_vi=bang,
+    ) == ["Đơn vị nhịp → tờ", "Đơn giá 40 → 50 đ/tờ"]
+    assert nk.mo_ta_thay_doi(
+        {"don_vi_gia": "kem", "don_gia": 900}, {"don_vi_gia": "kem", "don_gia": 950}, ten_don_vi=bang,
+    ) == ["Đơn giá 900 → 950 đ/bản kẽm"]
+    # Tốc độ máy lưu `<mã>_gio`: đọc như cột Tốc độ của bảng danh sách ("tờ/h").
+    assert nk.mo_ta_thay_doi(
+        {"don_vi_toc_do": "to_gio"}, {"don_vi_toc_do": "nhip_gio"}, ten_don_vi=bang,
+    ) == ["Đơn vị tốc độ tờ/h → nhịp/h"]
+    assert nk.mo_ta_thay_doi(
+        {"don_vi_vao": None}, {"don_vi_vao": "zz_la"}, ten_don_vi=bang,
+    ) == ["Đơn vị đầu vào — → zz_la"]
+
+
 def test_json_co_noi_dung_that_thi_van_ghi():
     dong = nk.mo_ta_thay_doi(
         {"fields_theo_loai": None},

@@ -27,6 +27,7 @@ from ..models.department import Department
 from ..models.may_thiet_bi import MayThietBi
 from ..models.piece_work import PieceRate
 from ..models.vat_lieu_kho import ChungLoaiGiay, VatTuInAn
+from ..models.xe import MucKhoanKm
 from ..repositories.bu_hao_repo import BuHaoRepository
 from ..repositories.cong_doan_repo import CongDoanRepository
 from ..repositories.cong_viec_khoan_repo import CongViecKhoanRepository
@@ -35,6 +36,7 @@ from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.khuon_be_repo import KhuonBeRepository
 from ..repositories.loai_san_pham_repo import LoaiSanPhamRepository
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository
+from ..repositories.xe_repo import XeRepository
 from ..repositories.vat_lieu_kho_repo import (
     _ChungLoaiGiayRepo, _GiayRepo, _ThanhPhamRepo, _VatTuRepo,
 )
@@ -116,6 +118,9 @@ TRA_BU_HAO = _Tra(BuHao, "ma", "mã bù hao", cot_ten="ten", man="Bù hao")
 TRA_CONG_DOAN = _Tra(CongDoan, "ma", "mã công đoạn", cot_ten="ten", man="Công đoạn")
 TRA_DAU_VIEC = _Tra(PieceRate, "ma", "mã công việc khoán", cot_ten="ten", man="Công việc khoán")
 TRA_MAY = _Tra(MayThietBi, "ma", "mã máy", cot_ten="ten", man="Thiết bị & Máy móc")
+# Mức không có cột mã — khoá nghiệp vụ LÀ TÊN ("Xe 2 tấn"), nên tra hai chiều theo `ten`.
+TRA_MUC_KM = _Tra(MucKhoanKm, "ten", "mức khoán km",
+                  man="Cấu hình lương › Khoán km giao hàng")
 TRA_VAT_TU = _Tra(VatTuInAn, "ma", "mã vật tư", cot_ten="ten", man="Vật tư khác")
 TRA_CHUNG_LOAI = _Tra(ChungLoaiGiay, "ma", "chủng loại giấy", cot_ten="ten",
                       man="Chủng loại giấy")
@@ -801,12 +806,33 @@ MAY_THIET_BI = CatalogExcelSpec(
 
 
 # ======================================================================================
+# Xe giao hàng — biển số + tải trọng + mức khoán km
+# ======================================================================================
+
+XE = CatalogExcelSpec(
+    loai="xe", tieu_de="Xe giao hàng", repo_cls=XeRepository,
+    cot=(
+        # Nhãn phải đúng chữ "Mã": `catalog_excel.py` tra cột khoá theo `NHAN_MA` và từ chối file
+        # thiếu nó. Trên màn thì ô này hiện là "Biển số" — đây chỉ là nhãn trong file Excel.
+        Cot("Mã", "ma", rong=18),
+        Cot("Tên xe", "ten", rong=28),
+        Cot("Tải trọng (tấn)", "tai_trong", kieu="so", rong=16),
+        # Ghi TÊN mức. Có cột này từ 14/09/2026 khi mức thành BẮT BUỘC: không có thì mọi dòng nhập
+        # xe mới đều bị chặn, file Excel thành vô dụng. Gán mức qua file chỉ đổi giá của ĐÚNG xe đó.
+        Cot("Mức khoán km", "muc_khoan_km_id", doc=TRA_MUC_KM.doc, ghi=TRA_MUC_KM.ghi, rong=24),
+        Cot("Ghi chú", "ghi_chu", rong=32),
+        CO_ACTIVE,
+    ),
+)
+
+
+# ======================================================================================
 # Sổ đăng ký — router tra spec theo `ten` của màn
 # ======================================================================================
 
 SPECS: dict[str, CatalogExcelSpec] = {
     s.loai: s for s in (
         KHO_HANG, BU_HAO, KHUON_BE, LOAI_SAN_PHAM, CONG_VIEC_KHOAN,
-        DON_VI_DO, CHUNG_LOAI_GIAY, GIAY, VAT_TU, THANH_PHAM, CONG_DOAN, MAY_THIET_BI,
+        DON_VI_DO, CHUNG_LOAI_GIAY, GIAY, VAT_TU, THANH_PHAM, CONG_DOAN, MAY_THIET_BI, XE,
     )
 }

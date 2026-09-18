@@ -163,6 +163,9 @@ export function MaterialCombobox({
             e.preventDefault();
             if (active < opts.length) pick(opts[active]);
           } else if (e.key === "Escape") {
+            // Danh sách đang xổ thì Esc chỉ gập nó — nuốt phím để hộp thoại/drawer chứa ô này
+            // (chúng nhường phím đã `defaultPrevented`) không đóng theo, mất cả biểu mẫu.
+            if (open) e.preventDefault();
             setOpen(false);
           }
         }}

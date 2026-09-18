@@ -7,6 +7,8 @@ import type { CompDraft, SubTab } from "./types";
 
 export const SUB_TABS: { key: SubTab; label: string }[] = [
   { key: "cochE", label: "Cơ chế lương theo bộ phận" },
+  // Mức khoán km — cấu hình CHUNG, không theo bộ phận (14/09/2026). Đứng ngay sau tab cũ của nó.
+  { key: "khoankm", label: "Khoán km giao hàng" },
   { key: "danhmuc", label: "Danh mục khoản thu nhập" },
   { key: "phucap", label: "Bảo hiểm & Thuế" },
 ];
@@ -37,14 +39,14 @@ export const COMPONENT_ROWS: {
     // Vế "hiện mục khai ĐƠN GIÁ khoán của tổ ngay dưới" đã BỎ (04/09/2026): panel đó ẩn khỏi màn
     // này (`tabs/CoCheTab.tsx` — cờ `HIEN_DON_GIA_KHOAN`), để nguyên là chỉ người khai xuống một
     // chỗ không còn tồn tại. Trỏ thẳng sang cửa duy nhất còn khai được.
-    desc: "Tổ được cộng tiền khoán theo sản lượng (khi có nguồn Lệnh sản xuất). Đơn giá khoán của tổ khai ở Cấu hình danh mục → Công việc khoán. Từ 17/08/2026 khoán KHÔNG tự tắt Tăng ca — hai công tắc độc lập.",
+    desc: "Tổ được cộng tiền khoán theo sản lượng (khi có nguồn Lệnh sản xuất). Đơn giá khoán của tổ khai ở Cấu hình danh mục → Công việc khoán. Người trong tổ khoán KHÔNG có tiền tăng ca (làm thêm giờ đã trả qua tiền khoán), vẫn nhận cơm tăng ca — công tắc Tăng ca vẫn bật/tắt riêng.",
     kind: null,
     unit: "—",
   },
   {
     key: "tang_ca",
     name: "Tăng ca",
-    desc: "Công tắc tiền tăng ca của tổ: TẮT thì phiếu tăng ca vẫn duyệt được nhưng tiền tăng ca, phụ cấp tăng ca đêm và cơm tăng ca của tổ = 0 (lương ngày lễ/nghỉ tuần có đi làm cũng mất phần hệ số; ngày nghỉ 1× vẫn trả đủ lương ngày công). Độc lập với Lương khoán.",
+    desc: "Công tắc tiền tăng ca của tổ: TẮT thì phiếu tăng ca vẫn duyệt được nhưng tiền tăng ca, phụ cấp tăng ca đêm và cơm tăng ca của tổ = 0 (lương ngày lễ/nghỉ tuần có đi làm cũng mất phần hệ số; ngày nghỉ 1× vẫn trả đủ lương ngày công).",
     kind: null,
     unit: "—",
   },
@@ -138,7 +140,7 @@ export const OT_FIELDS: {
   {
     key: "holiday_work_multiplier",
     label: "Làm nguyên công — ngày lễ",
-    hint: "Đi làm trọn công ngày lễ: cộng THÊM TRỌN hệ số này (KHÔNG trừ 100%). Nghỉ lễ ở nhà vẫn có lương 100% (Đ112), đi làm được cộng thêm 300% ⇒ tổng 400%. Khác ngày nghỉ tuần: nghỉ CN ở nhà không có lương nên chỉ tổng 200%.",
+    hint: "Đi làm trọn công ngày lễ: TỔNG bằng hệ số này — máy cộng thêm phần (hệ số − 100%), vì 100% tiền lương ngày lễ đã nằm trong lương theo công. Lễ rơi đúng ngày nghỉ tuần = hệ số này + hệ số ngày nghỉ tuần (mặc định 300% + 200% = 500%).",
     floor: 3,
   },
 ];

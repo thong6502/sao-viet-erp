@@ -16,6 +16,11 @@ class ModuleOut(BaseModel):
     #: cảnh báo đúng mấy ô này, KHÔNG suy ngược từ "cái gì máy chủ không gác thì chết": rất nhiều ô
     #: được thi hành ở giao diện (ẩn/hiện nút) nên máy chủ không thấy mà vẫn có tác dụng thật.
     viec_chet: list[str] = []
+    #: Dòng quyền THEO TỔ (`to_sx_<id>`, mg 0302): phòng ban của dòng + cấp trong cây khối Sản xuất
+    #: (ma trận thụt lề theo cây). Module tĩnh để trống.
+    department_id: int | None = None
+    cap: int = 0
+    la_kcs: bool = False
 
 
 class DepartmentOut(BaseModel):
@@ -54,6 +59,9 @@ class DepartmentSummaryOut(BaseModel):
     # Tổ KIỂM TRA CHẤT LƯỢNG (KCS) — cờ ĐÍCH DANH, không kế thừa cây con (module Thực hiện SX §3.1).
     is_kcs: bool = False
     la_giao_hang: bool = False
+    # TỔ IN (mg 0304) — cờ ĐÍCH DANH, không kế thừa cây con. Thợ in ăn khoán: ngày CN / lễ đi làm
+    # không có công gốc, trả hết ở phần thêm (2 / 3 / 5 công).
+    la_to_in: bool = False
     # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật ------------------
     #: Đơn giá mỗi km, là số TÀI XẾ ĐƯỢC HƯỞNG (không còn tầng % nào nữa).
     don_gia_km: float = Field(default=0, ge=0)
@@ -66,10 +74,6 @@ class DepartmentSummaryOut(BaseModel):
     total_role_count: int = 0
     total_user_count: int = 0
     total_employee_count: int = 0
-    # Bộ nguyên tắc lương của phòng (Pha 1).
-    # DORMANT 07/09/2026 — chỉ còn trả ra cho tương thích, màn không hiện, API không nhận.
-    salary_mechanism: str = "cung"
-    probation_ratio: float = 0.80
     has_piece_work: bool = False
 
 
@@ -95,9 +99,6 @@ class DepartmentMemberOut(BaseModel):
     avatar_url: str | None = None
 
 
-# `_SalaryMechanism` gỡ 07/09/2026 — cơ chế lương theo phòng là ô chết (engine không đọc).
-
-
 class DepartmentCreate(BaseModel):
     # Code is system-generated (spec-05) — never accepted from the client.
     name: str = Field(min_length=1, max_length=255)
@@ -105,9 +106,7 @@ class DepartmentCreate(BaseModel):
     parent_id: int | None = None
     # Optional org tier (spec-06 / PBI-4009).
     level_id: int | None = None
-    # Bộ nguyên tắc lương của phòng (Pha 1).
-    # `salary_mechanism` / `probation_ratio` theo phòng: DORMANT 07/09/2026 (engine dùng tham số
-    # công ty, không đọc cột phòng) — không nhận nữa.
+    # Phòng có lương khoán theo sản lượng.
     has_piece_work: bool = False
     # Khối SẢN XUẤT (spec §13.1) — mặc định không phải sản xuất.
     la_san_xuat: bool = False
@@ -116,6 +115,9 @@ class DepartmentCreate(BaseModel):
     # Tổ KCS — mặc định không phải KCS.
     is_kcs: bool = False
     la_giao_hang: bool = False
+    # TỔ IN (mg 0304) — cờ ĐÍCH DANH, không kế thừa cây con. Thợ in ăn khoán: ngày CN / lễ đi làm
+    # không có công gốc, trả hết ở phần thêm (2 / 3 / 5 công).
+    la_to_in: bool = False
     # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật ------------------
     #: Đơn giá mỗi km, là số TÀI XẾ ĐƯỢC HƯỞNG (không còn tầng % nào nữa).
     don_gia_km: float = Field(default=0, ge=0)
@@ -131,9 +133,7 @@ class DepartmentUpdate(BaseModel):
     level_id: int | None = None
     # Re-parent in the org tree (spec-06 / PBI-4007); null = make it a root unit.
     parent_id: int | None = None
-    # Bộ nguyên tắc lương của phòng (Pha 1).
-    # `salary_mechanism` / `probation_ratio` theo phòng: DORMANT 07/09/2026 (engine dùng tham số
-    # công ty, không đọc cột phòng) — không nhận nữa.
+    # Phòng có lương khoán theo sản lượng.
     has_piece_work: bool = False
     # Khối SẢN XUẤT (spec §13.1). FE gửi cả object nên luôn kèm cờ này.
     la_san_xuat: bool = False
@@ -144,6 +144,9 @@ class DepartmentUpdate(BaseModel):
     # `la_kinh_doanh`: nhiều luồng sửa chỉ đụng tên/trưởng phòng, ghi đè mặc định là âm thầm gỡ cờ.
     is_kcs: bool = False
     la_giao_hang: bool = False
+    # TỔ IN (mg 0304) — cờ ĐÍCH DANH, không kế thừa cây con. Thợ in ăn khoán: ngày CN / lễ đi làm
+    # không có công gốc, trả hết ở phần thêm (2 / 3 / 5 công).
+    la_to_in: bool = False
     # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật ------------------
     #: Đơn giá mỗi km, là số TÀI XẾ ĐƯỢC HƯỞNG (không còn tầng % nào nữa).
     don_gia_km: float = Field(default=0, ge=0)
@@ -318,6 +321,9 @@ class RoleTemplateOut(BaseModel):
     label: str
     mo_ta: str
     permissions: list["PermissionRow"]
+    #: Ô điền vào dòng quyền theo tổ của phòng mà vai thuộc về (`to_sx_<phòng>`); None = mẫu không
+    #: đụng dòng tổ. `module_key` để trống — giao diện tự gắn theo phòng đang mở.
+    quyen_to_cua_vai: dict | None = None
 
 
 class PermissionRow(BaseModel):
@@ -377,6 +383,10 @@ class PermissionRow(BaseModel):
     can_set_threshold: bool = False    # kho — khai ngưỡng tồn / cận tồn / tối đa
     can_post: bool = False             # kho — GHI SỔ phiếu (chốt tồn); tách khỏi lập nháp (SoD)
     can_close_book: bool = False       # kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export
+    # Dòng quyền theo tổ `to_sx_<id>` (mg 0302).
+    can_run_order: bool = False        # Thực hiện lệnh
+    can_confirm_output: bool = False   # Xác nhận sản lượng
+    can_warehouse: bool = False        # Kho
 
 
 class PermissionMatrixIn(BaseModel):

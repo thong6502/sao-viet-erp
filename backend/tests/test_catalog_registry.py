@@ -52,6 +52,8 @@ SCOPELESS_CU = frozenset({
     # Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH, không đọc scope lần nào, quyền chép từ `xep_lich_2`.
     "xep_lich_3",
     "dm_kcs_tieu_chi",
+    # Xe giao hàng (12/09/2026): danh mục biển số dùng chung cả xưởng, không có "xe của tôi".
+    "dm_xe",
 })
 
 #: `nhat_ky_danh_muc.LOAI_MODULE` — 18 khoá: 12 tên chính, 3 tên đời cũ
@@ -77,6 +79,8 @@ LOAI_MODULE_CU = {
     "thanh_pham": "dm_thanh_pham",
     "khuon_be": "khuon_be",
     "kho_hang": "dm_kho_hang",
+    # Xe giao hàng (12/09/2026) — thiếu dòng này thì nhật ký màn Xe trả 404.
+    "xe": "dm_xe",
     "ky_thuat_sua_chua": "ky_thuat_may",
     "ky_thuat_bao_tri": "ky_thuat_may",
     # Yêu cầu báo hỏng (20/08/2026) — khoá ĐẦU TIÊN mang giá trị TUPLE: người báo phải đọc được
@@ -147,7 +151,7 @@ def test_khong_trung_loai_khong_trung_module():
     # 13 từ 10/09/2026: 10 màn gốc + Công việc khoán + Thành phẩm + Tiêu chí KCS. (14 trước đó —
     # màn "Lý do & lỗi SX" GỠ HẲN cùng danh mục `san_xuat_ly_do`, mg 0288.) Con số phải ĐỔI chứ
     # không được bỏ — nó bắt cả trường hợp lỡ tay khai trùng một màn thành hai dòng.
-    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 13
+    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 14
 
 
 def test_dem_theo_loai_phu_dung_cac_man_co_model():
@@ -167,7 +171,7 @@ def test_dang_ky_tra_du_cac_man(client):
     r = client.get("/api/danh-muc/dang-ky", headers=_admin(client))
     assert r.status_code == 200, r.text
     items = r.json()["items"]
-    assert len(items) == 13
+    assert len(items) == 14
 # `test_dang_ky_tra_du_11_man` GỠ 21/08/2026 — trùng việc với `test_dang_ky_tra_du_cac_man`
 # ngay trên (cả hai đếm số màn của endpoint đăng ký). Con số 14 (31/08/2026) rút còn 13
 # (10/09/2026) khi màn "Lý do & lỗi SX" gỡ hẳn.

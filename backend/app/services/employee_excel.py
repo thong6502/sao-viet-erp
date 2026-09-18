@@ -25,7 +25,7 @@ BA THỨ EXCEL KHÔNG LÀM THAY ĐƯỢC — cố ý, đừng "mở cho tiện":
   đổi trạng thái phải bấm trên màn. Lúc TẠO MỚI thì ghi được, vì đó là trạng thái ban đầu.
 * **Tài khoản đăng nhập.** File không tạo tài khoản, không đặt mật khẩu, không gán vai trò —
   và từ 10/09/2026 cũng không xuất kèm tên tài khoản / vai trò nữa. Việc đó ở Tài khoản & Quyền.
-* **Đổi Phòng/Tổ hoặc Bậc của người đã có** đi qua ĐÚNG luồng điều chuyển / nâng bậc
+* **Đổi Phòng/Tổ của người đã có** đi qua ĐÚNG luồng điều chuyển
   (`apply_transition`) chứ không ghi thẳng cột: luồng đó còn đồng bộ phòng xuống tài khoản, gỡ
   chức trưởng phòng cũ, gỡ vai trò thuộc phòng cũ và ghi mốc Quá trình công tác. Ghi thẳng cột là
   để lại một tài khoản mang vai trò của phòng nó không còn thuộc về.
@@ -42,7 +42,7 @@ from .employee_service import EDITABLE_FIELDS, SENSITIVE_FIELDS, EmployeeError
 
 #: Sheet dữ liệu. Không dấu — vài bản Excel cũ đặt tên sheet có dấu là hỏng công thức tham chiếu.
 SHEET_CHINH = "Nhan su"
-#: Sheet chỉ dẫn: liệt kê giá trị hợp lệ của các cột phải gõ đúng tên (phòng/tổ, bậc…).
+#: Sheet chỉ dẫn: liệt kê giá trị hợp lệ của các cột phải gõ đúng tên (phòng/tổ, trạng thái…).
 SHEET_HD = "Huong dan"
 #: Sheet ẨN ghi loại màn + phiên bản định dạng — chặn nhập nhầm workbook của màn khác.
 SHEET_META = "_meta"
@@ -136,7 +136,6 @@ COT: tuple[Cot, ...] = (
     Cot("Họ tên", "full_name", rong=26),
     Cot("Phòng/Tổ", "department_id", kieu="dm", dm="phong", rong=24),
     Cot("Chức danh", "position", rong=22),
-    Cot("Bậc tay nghề", "job_grade_id", kieu="dm", dm="bac", rong=18),
     Cot("Trạng thái", "status", kieu="chon", chon=TRANG_THAI, rong=14),
     Cot("Ngày vào", "hire_date", kieu="ngay", rong=12),
     Cot("Ngày hết thử việc", "probation_end_date", kieu="ngay", rong=16),
@@ -159,7 +158,6 @@ COT: tuple[Cot, ...] = (
         mac_dinh="luy_tien", rong=18),
     Cot("Số tài khoản NH", "bank_account", nhay_cam=True, rong=20),
     Cot("Ngân hàng", "bank_name", nhay_cam=True, rong=20),
-    Cot("Nhóm lương", "payroll_group", nhay_cam=True, rong=16),
     # BỎ 10/09/2026 — sáu cột: Ca mặc định · Ghi chú · Ngày nghỉ việc · Lý do nghỉ việc ·
     # Tài khoản · Vai trò tài khoản. Ca nền gán ở Chấm công → Khai ca → Phân ca tháng (một ô
     # Excel không mang nổi lưới ngày × người); hai cột nghỉ việc do luồng cho nghỉ trên màn
@@ -203,14 +201,13 @@ class NguCanh:
 
 
 def dung_ngu_canh(svc) -> NguCanh:
-    """Đọc danh mục nền mà file nhắc tới bằng TÊN: phòng/tổ · bậc tay nghề."""
+    """Đọc danh mục nền mà file nhắc tới bằng TÊN: phòng/tổ."""
     from ..repositories.rbac_repo import DepartmentRepository
 
     db = svc.employees.db
     nc = NguCanh()
     nhom = {
         "phong": [(d.id, d.name) for d in DepartmentRepository(db).list_all()],
-        "bac": [(g.id, g.name) for g in svc.employees.list_job_grades()],
     }
     for khoa, cap in nhom.items():
         nc.ten[khoa] = {i: t for i, t in cap}
@@ -312,7 +309,7 @@ def _danh_sach_chon(cot: Cot, nc: NguCanh) -> list[str]:
 
 
 def _ke_dropdown(wb, ws, nc: NguCanh, den_dong: int) -> None:
-    """Gắn ô chọn cho mọi cột phải gõ ĐÚNG TÊN (trạng thái · giới tính · thuế · phòng/tổ · bậc).
+    """Gắn ô chọn cho mọi cột phải gõ ĐÚNG TÊN (trạng thái · giới tính · thuế · phòng/tổ).
 
     Danh sách nằm ở sheet ẩn `_dm` rồi trỏ vào bằng vùng ô: gõ thẳng vào công thức thì Excel
     chặn ở 255 ký tự, mà riêng danh sách phòng/tổ đã dài hơn thế.
@@ -421,7 +418,6 @@ def _dung_workbook(nc: NguCanh, *, kem_huong_dan: bool):
         hd.append(["Mã", "Mã đã có thì máy sửa đúng người đó. Mã chưa có thì máy tạo người "
                          "mới và giữ nguyên mã đó. Bỏ TRỐNG thì máy tự cấp mã (NV001, NV002…)."])
         hd.append(["Phòng/Tổ", " · ".join(nc.ten_hop_le("phong"))])
-        hd.append(["Bậc tay nghề", " · ".join(nc.ten_hop_le("bac"))])
         hd.append(["Trạng thái", " · ".join(n for _, n in TRANG_THAI)
                    + "  (người ĐÃ CÓ thì không đổi được bằng file — bấm trên màn)"])
         hd.append(["Giới tính", " · ".join(n for _, n in GIOI_TINH)])
@@ -673,28 +669,17 @@ def _cap_nhat(svc, nc: NguCanh, emp, gia_tri: dict, *, actor, scope: str, co_sua
             "(nghỉ việc / đình chỉ còn khoá tài khoản), file không làm thay được."))
         return None
 
-    # 2. Phòng/Tổ + Bậc — đi qua ĐÚNG luồng điều chuyển / nâng bậc.
+    # 2. Phòng/Tổ — đi qua ĐÚNG luồng điều chuyển.
     phong_moi = gia_tri.get("department_id", emp.department_id) if "department_id" in gia_tri \
         else emp.department_id
-    bac_moi = gia_tri.get("job_grade_id", emp.job_grade_id) if "job_grade_id" in gia_tri \
-        else emp.job_grade_id
-    doi_phong = phong_moi != emp.department_id
-    doi_bac = bac_moi != emp.job_grade_id
-    if (doi_phong or doi_bac) and not co_dieu_chuyen:
-        kq.loi.append(Loi(sheet, hang, "Phòng/Tổ" if doi_phong else "Bậc tay nghề",
-                          "Đổi phòng/tổ hoặc bậc của người đã có cần quyền Điều chuyển."))
-        return None
-    if doi_phong:
+    if phong_moi != emp.department_id:
+        if not co_dieu_chuyen:
+            kq.loi.append(Loi(sheet, hang, "Phòng/Tổ",
+                              "Đổi phòng/tổ của người đã có cần quyền Điều chuyển."))
+            return None
         svc.apply_transition(
             employee_id=emp.id, scope=scope, actor=actor, kind="transfer",
-            effective_date=date.today(), note="Nhập Excel",
-            new_department_id=phong_moi, new_job_grade_id=bac_moi,
-        )
-        doi = True
-    elif doi_bac:
-        svc.apply_transition(
-            employee_id=emp.id, scope=scope, actor=actor, kind="promote",
-            effective_date=date.today(), note="Nhập Excel", new_job_grade_id=bac_moi,
+            effective_date=date.today(), note="Nhập Excel", new_department_id=phong_moi,
         )
         doi = True
 

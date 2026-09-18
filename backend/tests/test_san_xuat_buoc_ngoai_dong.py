@@ -27,6 +27,7 @@ from app.repositories.cong_doan_repo import CongDoanRepository
 from app.services.bien_cong_thuc import quy_cach_bien
 from app.services.cong_doan_service import CongDoanService
 from app.services.san_xuat import board, release, san_luong
+from tests.quyen_to_fixtures import cap_quyen_to
 
 # Fixtures + helper luồng thật (đơn → lệnh → sẵn sàng).
 from tests.test_xep_lich_service import (  # noqa: F401
@@ -48,13 +49,14 @@ _DAN_DO = "Kẽm cũ của đợt 1 còn dùng được, chỉ ghi lại tay 3."
 
 
 def _to_ky_thuat(db, admin) -> Department:
-    """Tổ chế bản, admin làm tổ trưởng — để qua GATE §6 khi gọi thẳng service ghi mẻ."""
+    """Tổ chế bản, vai của admin được bật đủ quyền trên dòng tổ — để qua cổng ghi mẻ."""
     d = Department(
         name="Tổ kỹ thuật (ngoài dòng)", code="TO-KT-NDG", la_san_xuat=True,
-        has_piece_work=True, head_user_id=admin.id,
+        has_piece_work=True,
     )
     db.add(d)
     db.flush()
+    cap_quyen_to(db, admin, d)
     return d
 
 

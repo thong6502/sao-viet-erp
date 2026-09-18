@@ -442,8 +442,21 @@ _COLS = {
         {"key": "gia_don_sp", "label": "đ/TP", "align": "right", "kind": "money"},
         {"key": "cong_thuc", "label": "Công thức thế số", "align": "left", "kind": "formula"},
     ],
+    # CHI PHÍ KHÁC — nhóm thứ tư, CHỈ mọc khi sản phẩm có khai khoản nào (xem `compute_phieu`).
+    # Cùng bộ cột với Giao hàng: cũng là "một khoản tiền + diễn giải", không có số tờ để bày.
+    "chi_phi_khac": [
+        {"key": "ten", "label": "Chi phí khác", "align": "left", "kind": "text"},
+        {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
+        {"key": "gia_don_sp", "label": "đ/TP", "align": "right", "kind": "money"},
+        {"key": "cong_thuc", "label": "Công thức thế số", "align": "left", "kind": "formula"},
+    ],
 }
-_NAMES = {"nvl": "Nguyên vật liệu", "cong_doan": "Công đoạn", "giao_hang": "Giao hàng"}
+_NAMES = {"nvl": "Nguyên vật liệu", "cong_doan": "Công đoạn", "giao_hang": "Giao hàng",
+          "chi_phi_khac": "Chi phí khác"}
+# Thứ tự nhóm trong kết quả — dùng CHUNG cho vòng gom, vòng dựng `groups` và `rows` rỗng ban đầu.
+# Ba chỗ đó từng khai ba tuple giống nhau; thêm nhóm mà quên một chỗ là dòng tiền biến mất trong
+# im lặng (nhóm có rows nhưng không ai gom, hoặc gom rồi không ai dựng).
+_NHOM = ("nvl", "cong_doan", "giao_hang", "chi_phi_khac")
 
 
 def chuan_hoa_cot(result: dict | None) -> dict | None:
@@ -932,8 +945,9 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         dinh_luong=dinh_luong,
     )
 
-    # 2 nhóm: nvl (giấy + vật tư) · cong_doan (chế bản/in/gia công theo thứ tự routing).
-    rows: dict[str, list[dict]] = {"nvl": [], "cong_doan": [], "giao_hang": []}
+    # 2 nhóm chính: nvl (giấy + vật tư) · cong_doan (chế bản/in/gia công theo thứ tự routing);
+    # hai nhóm khoản-một-lần chỉ mọc khi có khai (giao_hang · chi_phi_khac).
+    rows: dict[str, list[dict]] = {k: [] for k in _NHOM}
 
     # --- Giấy (Nguyên vật liệu) ---
     # GỠ 2026-08-09 (Đợt 4 · K): nhánh "khách cấp giấy → 0đ". Cột `nguon_giay` còn trong DB nhưng
@@ -1181,6 +1195,33 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "cong_thuc": _ct(f"{_vi(_r(phi_gh))}đ phí giao hàng, một lần", phi_gh, sl),
         })
 
+    # --- CHI PHÍ KHÁC: các khoản LẺ người lập phiếu tự khai, GỘP vào giá vốn ---------------------
+    #
+    # Mỗi dòng là một cặp (tên tự gõ, số tiền) — làm kẽm ngoài, phí thiết kế, tiền mẫu… Máy KHÔNG
+    # hiểu cái tên: không tra danh mục, không suy ra bước nào, không có công thức. Nó chỉ cộng tiền
+    # và chép lại đúng cái tên ấy để người đọc phiếu biết tiền đi đâu.
+    #
+    # MỘT LẦN cho cả sản lượng (như phí chở, như tiền dao) ⇒ khi chia vào giá vốn, đơn nhỏ gánh
+    # nặng hơn đơn lớn. Cố ý — cùng lý do đã ghi ở hai khoản kia.
+    #
+    # Dòng 0đ KHÔNG đẻ: người dùng bấm "+" xong chưa kịp gõ tiền thì dòng đó chưa phải một khoản
+    # chi, bày ra bảng chỉ tổ dài thêm. Tên trống mà CÓ tiền thì vẫn đẻ, gọi là "Chi phí khác" —
+    # tiền có thật thì không được im lặng nuốt.
+    chi_phi_khac_dong: list[dict] = []
+    for cp in (tp.get("chi_phi_khacs") or []):
+        tien_cp = _f(cp.get("so_tien"))
+        if tien_cp <= 0:
+            continue
+        ten_cp = (str(cp.get("ten") or "")).strip() or "Chi phí khác"
+        chi_phi_khac_dong.append({"ten": ten_cp, "thanh_tien": _r(tien_cp)})
+        rows["chi_phi_khac"].append({
+            "loai": "chi_phi_khac",
+            "ten": _pre(name, ten_cp),
+            "thanh_tien": _r(tien_cp),
+            "gia_don_sp": _r(tien_cp / sl) if sl > 0 else 0.0,
+            "cong_thuc": _ct(f"{_vi(_r(tien_cp))}đ {ten_cp}, một lần", tien_cp, sl),
+        })
+
     total = sum(_f(r.get("thanh_tien")) for grp in rows.values() for r in grp)
     return {
         "name": name,
@@ -1188,6 +1229,8 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         "phi_khuon_dong": khuon_dong,
         "phi_khuon": _r(sum(_f(d["thanh_tien"]) for d in khuon_dong)),
         "phi_giao_hang": _r(phi_gh),
+        "chi_phi_khac_dong": chi_phi_khac_dong,
+        "chi_phi_khac": _r(sum(_f(d["thanh_tien"]) for d in chi_phi_khac_dong)),
         "total": _r(total),
         "meta": {
             "so_luong": sl, "gia_von_don": _r(total / sl) if sl > 0 else 0.0,
@@ -1222,14 +1265,14 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
     so_luong = _i(so_luong)
     flags: dict = {}
 
-    grouped: dict[str, list[dict]] = {"nvl": [], "cong_doan": [], "giao_hang": []}
+    grouped: dict[str, list[dict]] = {k: [] for k in _NHOM}
     components: list[dict] = []
 
     bu_hao_list = bu_hao_rows or []
 
     for i, tp in enumerate(thanh_phans or []):
         one = _compute_one(tp, so_luong, warns, flags, bu_hao_list)
-        for idx in ("nvl", "cong_doan", "giao_hang"):
+        for idx in _NHOM:
             grouped[idx].extend(one["rows"][idx])
         components.append({
             "idx": i, "name": one["name"], "gia_von_tp": one["total"],
@@ -1242,6 +1285,10 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
             # này chỉ để BÀY RA, cộng thêm lần nữa là tính hai lần — mà Báo giá lấy thẳng
             # `gia_von_tp` làm giá vốn khoá nên sai sẽ chạy tới tận hoá đơn.
             "phi_giao_hang": one["phi_giao_hang"],
+            # ⚠️ Chi phí khác CŨNG đã nằm trong `gia_von_tp` (các dòng của nhóm `chi_phi_khac`).
+            # Hai khoá dưới chỉ để BÀY RA "trong giá vốn có những khoản lẻ nào"; cộng thêm lần nữa
+            # là tính hai lần — mà Báo giá lấy thẳng `gia_von_tp` làm giá vốn khoá.
+            "chi_phi_khac": one["chi_phi_khac"], "chi_phi_khac_dong": one["chi_phi_khac_dong"],
             **one["meta"],
         })
 
@@ -1250,11 +1297,12 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
 
     groups = []
     grand_total = 0.0
-    for idx in ("nvl", "cong_doan", "giao_hang"):
+    for idx in _NHOM:
         rws = grouped[idx]
-        # Nhóm Giao hàng chỉ tồn tại khi CÓ phí: phiếu cũ và phiếu không thu tiền chở phải ra đúng
-        # hai nhóm như trước, không thêm một khối rỗng vào bảng chi tiết lẫn bản in.
-        if idx == "giao_hang" and not rws:
+        # Hai nhóm khoản-một-lần chỉ tồn tại khi CÓ khai: phiếu cũ và phiếu không thu tiền chở /
+        # không có khoản lẻ nào phải ra đúng hai nhóm như trước, không thêm khối rỗng nào vào bảng
+        # chi tiết lẫn bản in.
+        if idx in ("giao_hang", "chi_phi_khac") and not rws:
             continue
         subtotal = sum(_f(r.get("thanh_tien")) for r in rws)
         grand_total += subtotal

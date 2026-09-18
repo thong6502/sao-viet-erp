@@ -85,6 +85,50 @@ class ReceivableUnavailable(Exception):
     """
 
 
+#: Module quyền của Khách hàng — dùng cho luật "ai đủ tư cách nhận khách" bên dưới.
+MODULE_KHACH_HANG = "khach_hang"
+
+
+def nguoi_du_tu_cach_nhan_khach(db) -> set[int]:
+    """Id những người ĐỦ TƯ CÁCH nhận khách hàng.
+
+    MỘT luật, hai nơi dùng: ô "NV phụ trách" trên màn (`routers/customers.list_sale_options`) và
+    cột "Sale phụ trách" của file nhập Excel (`services/customer_excel`). Tách ra đây vì chép luật
+    sang chỗ thứ hai là sớm muộn hai cửa lệch nhau — và đã lệch thật: bản đầu của bộ nhập Excel
+    (11/09/2026) liệt kê MỌI người dùng, tức là đi đường Excel thì gán được khách cho Thủ kho,
+    đúng cái màn hình cố ý chặn.
+
+    Luật:
+      · phải `is_active`;
+      · thuộc phòng đã bật cờ **khối Kinh doanh** (`departments.la_kinh_doanh`, kế thừa cây con);
+      · CHƯA khai khối nào ⇒ lùi về quy tắc theo QUYỀN: ai đọc được module `khach_hang`.
+
+    Không đoán theo TÊN phòng: danh mục phòng ban do người dùng khai, "Kinh doanh" có thể đang
+    mang tên "Phòng Bán hàng".
+    """
+    from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
+    from ..repositories.user_repo import UserRepository
+
+    depts = DepartmentRepository(db)
+    roles = RoleRepository(db)
+
+    khoi = depts.kinh_doanh_departments()
+    khoi_ids = {d.id for d in khoi} if khoi else None
+
+    ra: set[int] = set()
+    for u in UserRepository(db).list_all():
+        if not u.is_active:
+            continue
+        if khoi_ids is not None:
+            if u.department_id in khoi_ids:
+                ra.add(u.id)
+            continue
+        perm = roles.get_permission(u.role_id, MODULE_KHACH_HANG) if u.role_id is not None else None
+        if perm is not None and perm.can_read:
+            ra.add(u.id)
+    return ra
+
+
 def _clean(value: str | None) -> str | None:
     if value is None:
         return None
@@ -254,6 +298,7 @@ class CustomerService:
         sale_user_id: int | None,
         actor,
         customer_kind: str | None = None,
+        commit: bool = True,
     ) -> tuple[Customer, list[tuple[str, Customer]]]:
         """Create a customer (THÔNG TIN ĐỊNH DANH). Chính sách tài chính về default an toàn
         (credit_limit=0, chưa khai điều khoản, chưa đặt rào) — đặt sau qua `update_financial`.
@@ -280,6 +325,7 @@ class CustomerService:
             credit_limit=0,  # default an toàn; đặt qua /financial
             sale_user_id=sale_user_id,
             customer_kind=kind,
+            commit=commit,
         )
         self.audit.create(
             actor_user_id=actor.id,
@@ -290,6 +336,9 @@ class CustomerService:
                 + (f" MST={tax_code}" if tax_code else "")
                 + (" (TRÙNG " + ", ".join(f for f, _ in duplicates) + ")" if duplicates else "")
             ),
+            # Audit tự chốt ở giữa là phá tính nguyên tử của cả khối, và để lại một dòng nhật ký
+            # nói về việc chưa hề xảy ra khi khúc sau gãy (xem `AuditLogRepository.create`).
+            commit=commit,
         )
         return customer, duplicates
 
@@ -377,16 +426,26 @@ class CustomerService:
         sale_user_id: int | None,
         customer_kind: str | None = None,
         allow_reassign: bool = True,
+        bo_sale: bool = False,
+        commit: bool = True,
     ) -> tuple[Customer, list[tuple[str, Customer]]]:
         """Update THÔNG TIN ĐỊNH DANH (không đụng chính sách tài chính — sửa qua
         `update_financial`, endpoint riêng). Đổi NV phụ trách cần `allow_reassign` (quyền
-        `reassign`); thiếu → giữ nguyên sale (tránh né quyền qua nút Sửa)."""
+        `reassign`); thiếu → giữ nguyên sale (tránh né quyền qua nút Sửa).
+
+        `sale_user_id=None` là GIỮ người cũ (form Sửa không gửi ô đó). Muốn GỠ hẳn người phụ trách
+        thì phải nói rõ bằng `bo_sale=True` — chỉ nhập Excel dùng (ô Sale bị xoá trắng, chủ chốt
+        17/09/2026), và vẫn tính là đổi Sale nên vẫn cần `allow_reassign`.
+
+        `commit=False`: xem `create_customer` — nhập Excel gom cả file vào MỘT giao dịch."""
         customer = self.get_customer(customer_id=customer_id, scope=scope, actor=actor)
 
         name = self._validate_name(name)
         tax_code = self._validate_tax_code(tax_code)
         kind = self._validate_kind(customer_kind)
-        if sale_user_id is None:
+        if bo_sale:
+            sale_user_id = None
+        elif sale_user_id is None:
             sale_user_id = customer.sale_user_id
         if sale_user_id != customer.sale_user_id and not allow_reassign:
             raise ReassignForbidden(
@@ -409,6 +468,7 @@ class CustomerService:
             contact_name=_clean(contact_name),
             sale_user_id=sale_user_id,
             customer_kind=kind,
+            commit=commit,
         )
 
         changes: list[str] = []
@@ -419,6 +479,7 @@ class CustomerService:
             action="update_customer",
             target=f"customer:{customer.id}",
             detail=f"{customer.code} " + ("; ".join(changes) if changes else "thông tin"),
+            commit=commit,
         )
         return customer, duplicates
 
@@ -434,6 +495,7 @@ class CustomerService:
         discount_max_pct: float | None = None,
         markup_min_pct: float | None = None,
         markup_max_pct: float | None = None,
+        commit: bool = True,
     ) -> Customer:
         """Ghi ĐẦY ĐỦ chính sách tài chính (hạn mức công nợ + số ngày công nợ tối đa + rào
         chiết khấu/markup) — redesign spec-06 v2. Router chỉ gọi khi caller có quyền
@@ -451,7 +513,8 @@ class CustomerService:
             customer.markup_min_pct, customer.markup_max_pct,
         )
         self.customers.update(
-            customer, credit_limit=credit_limit, payment_term_days=credit_days, **bounds
+            customer, commit=commit,
+            credit_limit=credit_limit, payment_term_days=credit_days, **bounds
         )
         new = (
             credit_limit, credit_days,
@@ -464,6 +527,7 @@ class CustomerService:
                 action="update_customer",
                 target=f"customer:{customer.id}",
                 detail=f"{customer.code} chính sách tài chính",
+                commit=commit,
             )
         return customer
 
@@ -1040,62 +1104,10 @@ class CustomerService:
                 head.customer_id, series_id=head.id, occurrence_date=self._day_dt(occ_d),
                 repeat_freq="none", created_by=actor.id, **fields)
 
-    # --- import CSV (#23) -----------------------------------------------------
-
-    # Cột file import (header tiếng Việt, khớp file mẫu /api/customers/import-template.csv).
-    # Redesign spec-06 v2: bỏ Trạng thái + Hạn mức (chính sách tài chính đặt riêng, gated);
-    # thêm Loại. Import chỉ nạp thông tin ĐỊNH DANH.
-    IMPORT_COLUMNS = {
-        "tên khách hàng": "name",
-        "loại": "customer_kind",
-        "mst": "tax_code",
-        "điện thoại": "phone",
-        "email": "email",
-        "địa chỉ": "address",
-        "người liên hệ": "contact_name",
-    }
-
-    def import_rows(
-        self, *, rows: list[dict], actor, dry_run: bool
-    ) -> list[tuple[int, str, str | None, Customer | None]]:
-        """Import danh bạ từ các dòng đã parse (khảo sát #23 — ~2.000 khách từ Excel).
-        Mỗi dòng: validate như create; TRÙNG (MST/tên/email) = cảnh báo mềm nhưng VẪN
-        TẠO (nhất quán §34 — người dùng xem trước bằng dry_run rồi mới ghi). Chỉ nạp thông
-        tin định danh — chính sách tài chính (hạn mức/điều khoản/rào) đặt riêng ở chi tiết.
-        Trả về [(row_no, status, message, customer_or_None)]; dry_run → không ghi gì."""
-        out: list[tuple[int, str, str | None, Customer | None]] = []
-        for i, raw in enumerate(rows, start=1):
-            name = (raw.get("name") or "").strip()
-            kind_label = (raw.get("customer_kind") or "").strip().lower()
-            kind = "ca_nhan" if kind_label in ("cá nhân", "ca nhan", "cá nhan") else KIND_CONG_TY
-            try:
-                self._validate_name(name)
-                tax_code = self._validate_tax_code(raw.get("tax_code"))
-            except CustomerValidationError as e:
-                out.append((i, "error", str(e), None))
-                continue
-
-            dups = self.customers.find_duplicates(
-                tax_code=tax_code, name=name, email=_clean(raw.get("email"))
-            )
-            warn = (
-                "Trùng " + ", ".join({"tax_code": "MST", "name": "tên", "email": "email"}[f] for f, _ in dups)
-                + f" với {dups[0][1].code}"
-                if dups else None
-            )
-            if dry_run:
-                out.append((i, "warning" if warn else "created", warn, None))
-                continue
-            customer, _ = self.create_customer(
-                name=name,
-                customer_kind=kind,
-                tax_code=raw.get("tax_code"),
-                phone=raw.get("phone"),
-                email=raw.get("email"),
-                address=raw.get("address"),
-                contact_name=raw.get("contact_name"),
-                sale_user_id=None,
-                actor=actor,
-            )
-            out.append((i, "warning" if warn else "created", warn, customer))
-        return out
+    # --- nhập danh bạ ---------------------------------------------------------
+    #
+    # `IMPORT_COLUMNS` + `import_rows()` (nhập CSV, #23) ĐÃ GỠ 11/09/2026 cùng hai endpoint
+    # `/import-template.csv` và `POST /import`. Nhập danh bạ nay đi qua `services/customer_excel
+    # .py`: 14 cột (thêm Sale phụ trách + chính sách tài chính theo quyền), CẢ FILE là MỘT giao
+    # dịch, và xem trước chạy y hệt lượt ghi rồi rollback — ba thứ đường CSV cũ không có.
+    # Đừng dựng lại ở đây: hai cửa nhập cho cùng một việc là sớm muộn lệch nhau.

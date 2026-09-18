@@ -3,7 +3,8 @@
 Soi tầng service `services/san_xuat/vat_tu_nhan.py` (nơi chứa LUẬT), không qua HTTP:
   · chỉ xác nhận phiếu XUẤT đã GHI SỔ (posted) — nháp/nhập bị chặn;
   · một phiếu chỉ xác nhận MỘT lần (`voucher_id` UNIQUE);
-  · GATE §6: chỉ tổ trưởng đúng tổ nhận.
+  · cổng: quyền Kho TRỌN tổ nhận (dòng quyền theo tổ, mg 0302) — xác nhận theo tổ không gắn việc
+    riêng của ai nên phạm vi "Của tôi" không đủ, có quyền khác mà thiếu Kho cũng bị chặn.
 
 SQLite test không siết khoá ngoại (conftest không bật PRAGMA) nên phiếu mang `request_id`/`kho_id`
 tượng trưng vẫn dựng được — service chỉ đọc `loai` + `trang_thai`.
@@ -15,6 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models.role import SCOPE_OWN
 from app.models.san_xuat_san_luong import SanXuatVatTuNhan
 from app.models.stock_voucher import (
     StockVoucher,
@@ -23,7 +25,9 @@ from app.models.stock_voucher import (
     VOUCHER_POSTED,
     VOUCHER_XUAT,
 )
+from app.models.user import User
 from app.services.san_xuat import vat_tu_nhan
+from tests.quyen_to_fixtures import cap_quyen_to
 
 from tests.test_san_xuat_thuc_thi import (  # noqa: F401
     _to_khoan,
@@ -73,9 +77,36 @@ def test_khong_xac_nhan_hai_lan(db, orders, lsx_svc, admin, customer):
         vat_tu_nhan.xac_nhan_vat_tu(db, user=admin, voucher_id=v.id, department_id=to.id)
 
 
-def test_gate_chi_to_truong(db, orders, lsx_svc, admin, customer):
+def test_gate_nguoi_khong_co_quyen_to_bi_chan(db, orders, lsx_svc, admin, customer):
     to = _to_khoan(db, admin, ma="TO-VT4")
     v = _voucher(db, admin, ma="PXK-GATE")
     nguoi_la = SimpleNamespace(id=admin.id + 99_999)
     with pytest.raises(PermissionError):
         vat_tu_nhan.xac_nhan_vat_tu(db, user=nguoi_la, voucher_id=v.id, department_id=to.id)
+
+
+def _nguoi(db, ten, to) -> User:
+    u = User(username=ten, name=ten, password_hash="x", department_id=to.id)
+    db.add(u)
+    db.flush()
+    return u
+
+
+def test_gate_kho_phai_tron_to(db, orders, lsx_svc, admin, customer):
+    """Kho ở phạm vi "Của tôi" không xác nhận nhận vật tư được (không có việc riêng để đối chiếu);
+    đủ bốn quyền trừ Kho cũng không; Kho trọn tổ thì được."""
+    to = _to_khoan(db, admin, ma="TO-VT5")
+    v = _voucher(db, admin, ma="PXK-KHO")
+    kho_own = _nguoi(db, "kho_own_vt", to)
+    cap_quyen_to(db, kho_own, to, scope=SCOPE_OWN, viec=("warehouse",))
+    thieu_kho = _nguoi(db, "thieu_kho_vt", to)
+    cap_quyen_to(db, thieu_kho, to, viec=("run_order", "confirm_output"))
+    kho_tron = _nguoi(db, "kho_tron_vt", to)
+    cap_quyen_to(db, kho_tron, to, viec=("warehouse",))
+    db.commit()
+
+    for u in (kho_own, thieu_kho):
+        with pytest.raises(PermissionError, match="quyền Kho"):
+            vat_tu_nhan.xac_nhan_vat_tu(db, user=u, voucher_id=v.id, department_id=to.id)
+    res = vat_tu_nhan.xac_nhan_vat_tu(db, user=kho_tron, voucher_id=v.id, department_id=to.id)
+    assert db.get(SanXuatVatTuNhan, res["nhan_id"]).xac_nhan_by_id == kho_tron.id

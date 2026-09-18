@@ -125,6 +125,14 @@ class CalendarService:
     def _weekday_works(self, d: date) -> bool:
         return bool(getattr(self.get_config(), _WEEKDAY_COL[d.weekday()]))
 
+    def la_ngay_nghi_tuan(self, d: date) -> bool:
+        """Ngày d có rơi vào NGÀY NGHỈ TUẦN theo lịch tuần không (Chủ nhật ở cấu hình mặc định).
+
+        Khác `is_working_day`: hàm kia trả False cho MỌI ngày lễ, nên không phân biệt được "lễ rơi
+        vào ngày thường" với "lễ rơi đúng Chủ nhật" — mà hai ca đó trả tiền khác nhau (300% vs
+        500%, khách chốt 15/09/2026). Chỉ hỏi lịch TUẦN, không hỏi ngày đặc biệt."""
+        return not self._weekday_works(d)
+
     def is_working_day(self, d: date) -> bool:
         """Ngày d có phải NGÀY LÀM VIỆC không (đã tính lễ + làm bù + cấu hình tuần)."""
         sp = self._special_for(d)

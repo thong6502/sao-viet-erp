@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func, asc, desc, func, or_, select
+from sqlalchemy import and_, asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.employee import (
@@ -20,9 +20,9 @@ from ..models.employee import (
     EmployeeShiftAssignment,
     EmployeeShiftChangeLog,
     EmployeeShiftDay,
-    JobGrade,
     STATUS_PROBATION,
 )
+from ..models.attendance import WorkShift
 from ..models.profile_request import ProfileUpdateRequest
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from .org_scope import dept_subtree_ids
@@ -45,6 +45,21 @@ class EmployeeRepository:
 
     def get_by_id(self, employee_id: int) -> Employee | None:
         return self.db.get(Employee, employee_id)
+
+    def ids_by_department(self, department_id: int) -> set[int]:
+        """Id của MỌI NV đang thuộc một tổ — không lọc trạng thái, không lọc biên chế.
+
+        Dùng làm `allowed` cho Bảng công tháng khi người xem chọn một tổ: `allowed` chỉ quyết định
+        NẠP BAO NHIÊU dữ liệu, còn ai lên bảng vẫn do bộ lọc `emp.department_id` ở cuối chốt. Vì
+        vậy tập này phải là SIÊU TẬP — lọc thêm ở đây (vd bỏ NV đã nghỉ) là làm biến mất hàng của
+        người còn lượt bấm sót trong tháng.
+
+        Chỉ lấy cột `id`: gọi hàm này là để KHỎI nạp 500 object Employee."""
+        return set(
+            self.db.execute(
+                select(Employee.id).where(Employee.department_id == department_id)
+            ).scalars()
+        )
 
     def get_by_user_id(self, user_id: int) -> Employee | None:
         """The employee linked to this login account, if any (UNIQUE user_id)."""
@@ -120,6 +135,7 @@ class EmployeeRepository:
         department_id: int | None = None,
         status: str | None = None,
         has_account: bool | None = None,
+        probation_end_range: tuple[date, date] | None = None,
         sort: str = "code",
         page: int = 1,
         size: int = 20,
@@ -127,6 +143,8 @@ class EmployeeRepository:
         """Return (rows, total) for the scoped, filtered, sorted, paginated list.
 
         `q` matches full_name / code / national_id / phone (case-insensitive substring).
+        `probation_end_range` (từ, đến): chỉ người ĐANG thử việc có ngày hết thử việc trong khoảng
+        — lọc "Sắp hết thử việc". Phải lọc Ở ĐÂY: lọc trên trình duyệt chỉ lọc được trang đang xem.
         `total` is the count BEFORE pagination so the UI can render page counts.
         """
         conditions = []
@@ -152,6 +170,8 @@ class EmployeeRepository:
             conditions.append(
                 Employee.user_id.isnot(None) if has_account else Employee.user_id.is_(None)
             )
+        if probation_end_range is not None:
+            conditions.append(self._probation_end_between(*probation_end_range))
 
         base = select(Employee)
         count_stmt = select(func.count()).select_from(Employee)
@@ -175,6 +195,42 @@ class EmployeeRepository:
 
         rows = list(self.db.execute(base).scalars())
         return rows, total
+
+    @staticmethod
+    def _probation_end_between(tu: date, den: date):
+        return and_(
+            Employee.status == STATUS_PROBATION,
+            Employee.probation_end_date.is_not(None),
+            Employee.probation_end_date >= tu,
+            Employee.probation_end_date <= den,
+        )
+
+    def count_by_status(self, *, scope: str, actor,
+                        probation_end_range: tuple[date, date]) -> tuple[dict[str, int], int]:
+        """(`{trạng thái: số hồ sơ}`, số người sắp hết thử việc) trong phạm vi quyền — dải KPI đầu
+        màn Nhân sự. Đếm bằng GROUP BY: bản cũ nạp CẢ bảng hồ sơ (~40 cột) ở MỖI lượt tải danh
+        sách, kể cả mỗi phím gõ ô tìm kiếm, chỉ để đếm."""
+        cond = self._scope_condition(scope=scope, actor=actor)
+        by_status = select(Employee.status, func.count()).group_by(Employee.status)
+        soon = select(func.count()).select_from(Employee).where(
+            self._probation_end_between(*probation_end_range)
+        )
+        if cond is not None:
+            by_status = by_status.where(cond)
+            soon = soon.where(cond)
+        return dict(self.db.execute(by_status).all()), self.db.execute(soon).scalar_one()
+
+    def ids_accessible(self, employee_ids, *, scope: str, actor) -> set[int]:
+        """Trong các id đưa vào, id nào người gọi được xem theo `scope` — MỘT truy vấn, thay cho
+        `get_by_id` + `can_access` từng dòng (mỗi lần `can_access` lại đọc cả cây phòng ban)."""
+        ids = sorted({int(i) for i in (employee_ids or [])})
+        if not ids:
+            return set()
+        stmt = select(Employee.id).where(Employee.id.in_(ids))
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        return set(self.db.execute(stmt).scalars())
 
     def list_scoped_all(self, *, scope: str, actor) -> list[Employee]:
         """Every employee visible under the caller's scope (no pagination) — for the KPI
@@ -300,6 +356,9 @@ class EmployeeRepository:
         if day is not None and day.shift_id is not None:
             return day.shift_id
         return self.base_shift_id_on(employee, on)
+
+    def shift_name(self, shift_id: int) -> str | None:
+        return self.db.execute(select(WorkShift.name).where(WorkShift.id == shift_id)).scalar()
 
     def base_shift_id_on(self, employee: Employee, on: date, *,
                          assignments: list | None = None) -> int | None:
@@ -745,62 +804,3 @@ class EmployeeRepository:
         return list(self.db.execute(
             stmt.order_by(ProfileUpdateRequest.status.asc(), ProfileUpdateRequest.id.desc())
         ).scalars())
-
-    # --- Danh mục bậc tay nghề (chủ 29/07/2026) -----------------------------
-
-    def list_job_grades(self, *, active_only: bool = False) -> list[JobGrade]:
-        """Bậc tay nghề, xếp theo `seq` (Bậc 1 trước — số nhỏ là bậc cao).
-
-        `active_only=True` cho DANH SÁCH CHỌN ở hồ sơ; màn quản lý danh mục thì lấy hết để còn
-        thấy và bật lại bậc đã tắt (gồm cả bậc migration tự sinh từ dữ liệu cũ)."""
-        stmt = select(JobGrade)
-        if active_only:
-            stmt = stmt.where(JobGrade.is_active.is_(True))
-        return list(self.db.execute(stmt.order_by(JobGrade.seq.asc(), JobGrade.id.asc())).scalars())
-
-    def get_job_grade(self, grade_id: int) -> JobGrade | None:
-        return self.db.get(JobGrade, grade_id)
-
-    def get_job_grade_by_code(self, code: str) -> JobGrade | None:
-        return self.db.execute(
-            select(JobGrade).where(JobGrade.code == code)
-        ).scalars().first()
-
-    def find_job_grade_by_name(self, name: str) -> JobGrade | None:
-        """So khớp theo TÊN, bỏ dấu cách thừa + không phân biệt hoa/thường — chặn cảnh khai
-        "Bậc 1" rồi lại khai " bậc 1 " thành hai bậc khác nhau."""
-        key = " ".join((name or "").split()).lower()
-        for g in self.list_job_grades():
-            if " ".join(g.name.split()).lower() == key:
-                return g
-        return None
-
-    def create_job_grade(self, *, code: str, name: str, seq: int = 0,
-                         is_active: bool = True, note: str | None = None,
-                         output_coefficient=None) -> JobGrade:
-        g = JobGrade(code=code, name=name, seq=seq, is_active=is_active, note=note,
-                     output_coefficient=output_coefficient)
-        self.db.add(g)
-        self.db.commit()
-        self.db.refresh(g)
-        return g
-
-    def update_job_grade(self, grade: JobGrade, **fields) -> JobGrade:
-        for k, v in fields.items():
-            setattr(grade, k, v)
-        self.db.commit()
-        self.db.refresh(grade)
-        return grade
-
-    def count_employees_with_grade(self, grade_id: int) -> int:
-        """Số hồ sơ đang trỏ vào bậc này — cơ sở để CHẶN xoá (xoá là hồ sơ trỏ mồ côi)."""
-        return int(self.db.execute(
-            select(func.count(Employee.id)).where(Employee.job_grade_id == grade_id)
-        ).scalar() or 0)
-
-    def delete_job_grade(self, grade: JobGrade) -> None:
-        self.db.delete(grade)
-        self.db.commit()
-
-    def next_job_grade_seq(self) -> int:
-        return int(self.db.execute(select(func.max(JobGrade.seq))).scalar() or 0) + 1

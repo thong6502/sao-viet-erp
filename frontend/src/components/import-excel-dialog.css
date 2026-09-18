@@ -54,6 +54,6 @@
   border-bottom: none;
 }
 .imx__num {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   white-space: nowrap;
 }

@@ -106,10 +106,12 @@ class MayThietBiListOut(BaseModel):
 
 
 class TrangThaiMayRow(BaseModel):
-    trang_thai: str          # may_dung | bao_tri | khoa | dang_chay | ranh
+    trang_thai: str          # may_dung | bao_tri | khoa | dang_chay | co_phieu_sua | ranh
     nhan: str                # nhãn tiếng Việt dựng sẵn ở backend — hai màn khỏi tự đặt tên khác nhau
-    chi_tiet: str | None = None    # "đứng 3 giờ 20 · dao bế" / "LSX26-0142 · xong 14:30"
-    phieu_id: int | None = None    # phiếu sự cố đang mở (mở thẳng drawer bên màn Bảo trì)
+    chi_tiet: str | None = None    # "SC-0001 · trục cán" / "LSX26-0142 · xong 14:30"
+    # Phiếu SỬA CHỮA đang mở, chỉ có khi `trang_thai = co_phieu_sua`. Để sẵn cho màn bấm thẳng sang
+    # phiếu; hiện cột Trạng thái mới chỉ hiện chữ, chưa gắn link.
+    phieu_id: int | None = None
     den: datetime | None = None    # lúc máy chạy lại / lệnh chạy xong
 
 

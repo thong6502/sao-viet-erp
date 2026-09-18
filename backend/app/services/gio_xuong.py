@@ -7,7 +7,9 @@ Trong repo có HAI thang giờ, và đây là chỗ chúng gặp nhau:
     của nhà máy rồi dán nhãn `timezone.utc`. Xem `xep_lich_service._gio_xuong()` để biết vì sao cả
     module xếp lịch chọn quy ước đó (phút ca, `_naive()` cho FE…).
   · **Thực thi** — `san_xuat_phien_chay.bat_dau/ket_thuc` do `san_xuat/thuc_thi._moc()` ghi, là UTC
-    THẬT.
+    THẬT. Cùng thang: `san_xuat_khoang_tham_gia`, `attendance_logs.checked_at`, và CỬA SỔ MẺ
+    (`san_xuat_batch` / `san_xuat_kcs_batch`) — mẻ do tổ GÕ tay nên phải đi qua `moc_tu_client()`
+    lúc nhận và `thuc_te_hien_thi()` lúc trả (mg 0298; trước đó mẻ nằm nhầm ở thang LỊCH).
 
 Trừ thẳng hai bên là sai đúng bằng offset múi giờ máy chủ (VN: 7 tiếng), và luôn sai theo chiều
 KHOAN DUNG — báo ÍT trễ hơn thực tế, rồi bị `max(..., 0)` kẹp thành 0 nên không lộ ra thành lỗi mà
@@ -75,3 +77,24 @@ def thuc_te_hien_thi(dt: datetime | None) -> datetime | None:
     đọc thành phần ISO, không dịch múi — trả UTC thật vào đó là thanh thực-tế lùi 7 tiếng).
     """
     return lich_hien_thi(ve_gio_xuong(dt))
+
+
+def moc_tu_client(dt: datetime | None) -> datetime | None:
+    """Mốc THỰC TẾ do người dùng GÕ ở ô `datetime-local` → UTC THẬT, thang của `thuc_thi._moc()`.
+
+    Ô `datetime-local` của trình duyệt gửi chuỗi KHÔNG kèm offset (`"2026-09-11T21:47"`), nên
+    Pydantic dựng ra datetime naive. Dán thẳng nhãn UTC lên đó (`_aware()`) là ghi sai đúng bằng
+    offset máy chủ: cửa sổ mẻ 21:47 giờ xưởng nằm ở 21:47Z, trong khi khoảng tham gia
+    (`san_xuat_khoang_tham_gia`, do `_moc()` ghi) và chấm công (`attendance_logs`) đều là UTC THẬT
+    ⇒ giao nhau RỖNG. Hệ quả 11/09/2026: cổng §7.3 luôn báo "thiếu chấm công hợp lệ" và chặn Chốt
+    phân bổ dù tổ chấm công đủ; cùng lỗi ấy làm "máy đã chạy mẻ", "ca", "người tham gia mẻ" trống.
+
+    Mốc đã kèm offset (client nào đó gửi ISO đầy đủ) thì TÔN TRỌNG offset ấy, chỉ quy về UTC.
+
+    Đây KHÔNG phải khuôn cho `du_kien_*` — mốc KẾ HOẠCH vẫn ở thang giờ xưởng (xem `ve_gio_xuong`).
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc)
+    return ve_utc_that(dt)

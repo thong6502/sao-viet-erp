@@ -20,10 +20,23 @@ function mockViec(p: Partial<SxWorkItem>): SxWorkItem {
     ngoai_dong: true,
     chay_phut: 13,
     dinh_muc_vat_tu: [{ vat_tu_id: 1, ma: "KM01", ten: "Bản kẽm CTP 1030x790", don_vi: "cai", so_luong: 4 }],
-    la_kcs: false,
+    kcs_so_lan: 0,
+    kcs_dat: 0,
+    kcs_loi: 0,
     quy_cach: { giay: "Couche", dinh_luong: 300, kho_in: "640 x 450", so_mau: 4, so_kem: 4 },
     ...p,
   } as SxWorkItem;
+}
+
+/** Bọc MỘT bước vào một lệnh — bàn tổ từ 11/09/2026 nhận `lenh`, thẻ/bảng việc nằm bên trong. */
+function mockLenh(items: SxWorkItem[]) {
+  return [{
+    nguon_loai: "lsx", nguon_ma: items[0]?.nguon_ma ?? "LSX26-0003",
+    nguon_ten: items[0]?.nguon_ten ?? "", lsx_id: 3, bai_ghep_id: null,
+    som_nhat: null, muon_nhat: null, so_viec: items.length,
+    digest: { released: items.length, running: 0, paused: 0, completed: 0 },
+    cong_viec: items,
+  }];
 }
 
 describe("ThsxDanhSach — Workstation Studio Modern Table View", () => {
@@ -33,9 +46,7 @@ describe("ThsxDanhSach — Workstation Studio Modern Table View", () => {
 
     render(
       <ThsxDanhSach
-        timed={[item]}
-        outWin={[]}
-        untimed={[]}
+        lenh={mockLenh([item])}
         selectedId={null}
         onPick={onPick}
       />
@@ -49,15 +60,13 @@ describe("ThsxDanhSach — Workstation Studio Modern Table View", () => {
   });
 
   it("kích hoạt 1-click Bắt đầu khi bấm nút trực tiếp trong bảng", () => {
-    const item = mockViec({ id: 202, trang_thai: "released" });
+    const item = mockViec({ id: 202, trang_thai: "released", chay_duoc: true });
     const onPick = vi.fn();
     const onBatDau = vi.fn();
 
     render(
       <ThsxDanhSach
-        timed={[item]}
-        outWin={[]}
-        untimed={[]}
+        lenh={mockLenh([item])}
         selectedId={null}
         onPick={onPick}
         onBatDau={onBatDau}
@@ -71,23 +80,23 @@ describe("ThsxDanhSach — Workstation Studio Modern Table View", () => {
     expect(onBatDau).toHaveBeenCalledWith(item);
   });
 
-  it("cho phép mở rộng accordion xem dặn dò kỹ thuật khi bấm nút chevron toggle", () => {
-    const item = mockViec({ id: 203, ghi_chu: "Kiểm tra kỹ bù hao 5%" });
-    const onPick = vi.fn();
-
+  it("không có quyền Thực hiện lệnh thì dòng không hiện nút chạy nhanh", () => {
     render(
       <ThsxDanhSach
-        timed={[item]}
-        outWin={[]}
-        untimed={[]}
+        lenh={mockLenh([
+          mockViec({ id: 203, trang_thai: "released", chay_duoc: false }),
+          mockViec({ id: 204, trang_thai: "running", chay_duoc: false }),
+        ])}
         selectedId={null}
-        onPick={onPick}
+        onPick={vi.fn()}
+        onBatDau={vi.fn()}
+        onTamDung={vi.fn()}
+        onKetThuc={vi.fn()}
       />
     );
 
-    const toggleBtn = screen.getByLabelText("Toggle chi tiết dòng");
-    fireEvent.click(toggleBtn);
-
-    expect(screen.getByText("Kiểm tra kỹ bù hao 5%")).toBeInTheDocument();
+    expect(screen.queryByText("Bắt đầu")).toBeNull();
+    expect(screen.queryByText("Tạm dừng")).toBeNull();
+    expect(screen.queryByText("Kết thúc")).toBeNull();
   });
 });

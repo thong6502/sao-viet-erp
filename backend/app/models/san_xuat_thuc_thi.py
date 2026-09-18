@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint,
+    DateTime, ForeignKey, Integer, String, UniqueConstraint,
     false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -35,9 +35,8 @@ TRANG_THAI_PHAN_CONG = (PC_HOAT_DONG, PC_DA_RUT)
 PHIEN_TAM_DUNG = "tam_dung"    # đóng vì Tạm dừng (bắt buộc lý do)
 PHIEN_KET_THUC = "ket_thuc"    # đóng vì Kết thúc công việc
 # Đóng vì ĐỔI MÁY lúc đang chạy (§7.2 mở rộng 31/08/2026) — TÁCH RIÊNG khỏi `PHIEN_TAM_DUNG`:
-# công việc không hề dừng, chỉ đổi máy giữa chừng. Gộp chung với tạm dừng từng làm `ket_thuc()`
-# hiểu lầm "đã có lý do giải thích phần trễ" chỉ vì có đổi máy (mà lý do đổi máy luôn có sẵn, kể
-# cả khi người dùng bỏ trống) — vô hiệu hoá luật bắt buộc nêu lý do khi kết thúc trễ (review vòng 1).
+# công việc không hề dừng, chỉ đổi máy giữa chừng — hồ sơ và đếm lần dừng không được tính nó là
+# một lần tạm dừng.
 PHIEN_DOI_MAY = "doi_may"
 LOAI_DONG_PHIEN = (PHIEN_TAM_DUNG, PHIEN_KET_THUC, PHIEN_DOI_MAY)
 
@@ -86,9 +85,9 @@ class SanXuatPhienChay(Base):
     """Một PHIÊN chạy = khoảng công việc thực sự chạy (§7.2). Bắt đầu mở phiên (ket_thuc NULL);
     Tạm dừng/Kết thúc đóng phiên (`ket_thuc` + `loai_dong`). Mốc lấy từ máy chủ, không backdate.
 
-    `ly_do_bat_dau_tre` bắt buộc khi bắt đầu SAU dự kiến (§7.2). `ly_do` bắt buộc khi Tạm dừng.
-    `ket_thuc_tre` đánh dấu kết thúc sau dự kiến để service quyết có cần thêm lý do hay không
-    (§7.2 cuối: nếu đã có lý do tạm dừng giải thích được phần chậm thì miễn)."""
+    `ly_do` bắt buộc khi Tạm dừng. `ly_do_bat_dau_tre` (và `ly_do` của phiên Kết thúc) chỉ còn
+    trên phiên CŨ: luật bắt nêu lý do khi bắt đầu/kết thúc trễ đã gỡ 16/09/2026, cột giữ lại cho
+    lịch sử — không ghi mới."""
 
     __tablename__ = "san_xuat_phien_chay"
 
@@ -108,7 +107,7 @@ class SanXuatPhienChay(Base):
     ly_do_bat_dau_tre: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Bắt buộc khi số người thực tế bắt đầu KHÁC số dự kiến chốt lúc phát hành (§7.1). NULL = khớp.
     ly_do_so_nguoi: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    ly_do: Mapped[str | None] = mapped_column(String(255), nullable=True)  # lý do tạm dừng / kết thúc trễ
+    ly_do: Mapped[str | None] = mapped_column(String(255), nullable=True)  # lý do tạm dừng (phiên Kết thúc cũ có thể còn lý do trễ)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -123,12 +122,7 @@ class SanXuatKhoangThamGia(Base):
     rút/chuyển người. `ket_thuc IS NULL` = đang mở.
 
     LUẬT §7.1: một người KHÔNG được có hai khoảng MỞ cùng lúc (không chồng giờ). Service chặn mở
-    khoảng thứ hai khi người đó còn khoảng mở ở bất kỳ công việc nào.
-
-    SNAPSHOT BẬC (§8, Giai đoạn 4): `job_grade_id` + `output_coefficient` được ĐÓNG BĂNG tại lúc mở
-    khoảng (engine đọc `Employee.job_grade_id` + `JobGrade.output_coefficient`). Danh mục bậc đổi về
-    sau KHÔNG viết lại khoảng đang chạy/đã xong. NULL = người chưa gán bậc / bậc chưa khai hệ số →
-    §8: KHÔNG chặn ghi sản xuất nhưng CHẶN chốt phân bổ (engine cần hệ số để chia trọng số §12.2)."""
+    khoảng thứ hai khi người đó còn khoảng mở ở bất kỳ công việc nào."""
 
     __tablename__ = "san_xuat_khoang_tham_gia"
 
@@ -144,11 +138,6 @@ class SanXuatKhoangThamGia(Base):
     )
     bat_dau: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ket_thuc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Ảnh chụp bậc tay nghề + hệ số sản lượng tại lúc mở khoảng (§8) — dùng để chia trọng số §12.2.
-    job_grade_id: Mapped[int | None] = mapped_column(
-        ForeignKey("job_grades.id"), nullable=True
-    )
-    output_coefficient: Mapped[float | None] = mapped_column(Numeric(6, 3), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(

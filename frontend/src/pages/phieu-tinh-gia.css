@@ -58,7 +58,7 @@
   box-shadow: 0 10px 34px rgba(0, 0, 0, .16);
   position: relative;
 }
-.ptg-num {   font-family: var(--ff-num);
+.ptg-num {   font-family: var(--ff-sans);
   text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Nhóm gộp (ruột + bìa của 1 cuốn): dòng nhóm đậm + kẻ trên, thành viên thụt vào.
@@ -105,7 +105,7 @@
 .ptg-meta .ptg-cap { margin-top: 4px; }
 .ptg-meta .ptg-cap:first-child { margin-top: 0; }
 .ptg-meta b {
-  font-family: var(--ff-num);
+  font-family: var(--ff-sans);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -161,7 +161,7 @@
 }
 .ptg-tbl thead th.ptg-num { text-align: right; }
 .ptg-tbl thead th.ptg-center { text-align: center; }
-.ptg-formula {   font-family: var(--ff-num);
+.ptg-formula {   font-family: var(--ff-sans);
   color: var(--ptg-muted); font-size: 8.5px; font-variant-numeric: tabular-nums; line-height: 1.3; }
 .ptg-tbl tr.ptg-sub td { background: var(--ptg-band); font-weight: 800; border-top: 1.5px solid var(--ptg-line-strong); }
 .ptg-tbl tr.ptg-sub .ptg-sl { text-transform: uppercase; letter-spacing: .04em; font-size: 9px; }
@@ -181,7 +181,7 @@
 }
 .ptg-grand .ptg-gt { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
 .ptg-grand .ptg-gs { font-size: 8.5px; color: var(--ptg-muted); margin-top: 2px; }
-.ptg-grand .ptg-ga {   font-family: var(--ff-num);
+.ptg-grand .ptg-ga {   font-family: var(--ff-sans);
   font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ptg-grand .ptg-ga .ptg-u { font-size: 12px; font-weight: 700; margin-left: 4px; }
 

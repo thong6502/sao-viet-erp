@@ -1,4 +1,4 @@
-// Left navigation rail (ERP shell). Dark `--ink` surface, mono uppercase
+// Left navigation rail (ERP shell). Dark `--ink` surface, uppercase
 // section labels, rust active row — per docs/UI_DESIGN.md (Navigation + Color).
 // Sections collapse; items with `children` expand. Active row sets aria-current.
 // Each item is gated by a `module` key: only modules the current role can Read
@@ -26,6 +26,8 @@ export interface NavItem {
   module: string;
   modules?: string[];
   children?: NavChild[];
+  /** Mức thụt lề (item ĐỘNG theo cây, vd bàn tổ dưới xưởng) — 0/undefined = thẳng hàng. */
+  indent?: number;
 }
 
 // Ô `self_service` ĐÃ BỎ 15/08/2026 — phần "của tôi" là quyền đương nhiên, không phải ô cấp.
@@ -55,7 +57,7 @@ export const NAV: NavSection[] = [
     id: "tong-quan",
     label: "Tổng quan",
     items: [
-      { id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" },
+      { id: "dashboard", label: "Trang chủ", icon: "grid", module: "dashboard" },
       { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
       // "Nội quy công ty" ĐÃ DỜI xuống section "Nhân sự & Lương" (chốt của chủ 09/08/2026):
       // nội quy lao động là tài liệu của HCNS, để ở "Tổng quan" thì không ai đoán ra chỗ tìm.
@@ -289,6 +291,10 @@ export const NAV: NavSection[] = [
       // Tiêu chí KCS (module KCS kiêm nhiệm, mg 0250): checklist chuẩn hoá + công đoạn nào áp
       // dụng — dùng để chụp (snapshot) checklist khi phát hành lệnh (Task 3).
       { id: "kcs-tieu-chi", label: "Tiêu chí KCS", icon: "fileCheck", module: "dm_kcs_tieu_chi" },
+      // Xe giao hàng (12/09/2026): biển số · tải trọng · xe này ăn MỨC khoán km nào. Bảng giá
+      // của từng mức khai ở Cấu hình lương — sửa giá là việc kế toán, không phải việc của
+      // người khai biển số. Icon `truck` trùng màn Giao hàng là CỐ Ý: hai mục cùng một nghề.
+      { id: "xe", label: "Xe giao hàng", icon: "truck", module: "dm_xe" },
     ],
   },
   {
@@ -514,6 +520,8 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
         className={`sidebar__link${active ? " is-active" : ""}`}
         // Tooltip = nhãn ĐẦY ĐỦ: hàng menu cắt chữ (…) khi rail hẹp, rê chuột vẫn đọc được tên module.
         title={item.label}
+        // Thụt tối đa 4 nấc: cây sâu hơn mà thụt tiếp thì rail hẹp không còn chỗ cho tên tổ.
+        style={item.indent ? { paddingLeft: `calc(var(--sp-3) + ${Math.min(item.indent, 4) * 14}px)` } : undefined}
         aria-current={activeId === item.id ? "page" : undefined}
         aria-expanded={hasChildren ? isOpen : undefined}
         onClick={() => (hasChildren ? onToggle() : onSelect(item.id))}

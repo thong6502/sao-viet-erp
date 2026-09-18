@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_any_permission
+from ..deps import require_quyen_to
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
@@ -83,7 +83,7 @@ def _dung_cap_rows(_svc, caps: list) -> list[CapRowOut]:
 # khác · Kho · NCC đều chọn từ danh mục này, mà mấy màn đó gác bằng module KHÁC — để nguyên
 # `dm_cong_doan` thì người dùng kho mở drawer sẽ ăn 403, và `RebuildCatalogPage` NUỐT lỗi thành
 # danh sách rỗng (`.catch(() => [])`) nên họ chỉ thấy ô tìm không ra gì, không thấy báo lỗi nào.
-_doc_don_vi = require_any_permission(
+_doc_don_vi = require_quyen_to("read", 
     (MODULE, "read"), ("kho", "read"), ("thu_mua", "read"),
     ("tinh_gia_thanh", "read"), ("san_xuat", "read"),
     # Các màn danh mục có ô ĐVT trong form: Giấy · Vật tư khác · Công đoạn (đơn vị năng suất) ·

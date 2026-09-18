@@ -112,7 +112,7 @@ class PhieuThanhPhan(Base):
     loai_san_pham_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # → loai_san_pham.id (soft) — loại của sản phẩm này
 
     # --- Giấy ---
-    giay_id: Mapped[int | None] = mapped_column(Integer, nullable=True)             # → giay_nguyen.id (soft)
+    giay_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → giay_nguyen.id (soft)
     kho_nguyen: Mapped[str | None] = mapped_column(String(100), nullable=True)      # nhãn hiển thị "rộng×dài" (giay_ten fallback)
     kho_nguyen_dai: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)   # mm — khổ giấy nguyên ① dài (ĐÈ danh mục khi > 0) · số lẻ được
     kho_nguyen_rong: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)  # mm — rộng ①
@@ -134,7 +134,7 @@ class PhieuThanhPhan(Base):
     kho_in_rong: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)    # mm ★
     so_con: Mapped[int] = mapped_column(Integer, nullable=False, default=1)         # con/tờ ④ (auto bình bài; override được)
     con_auto: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)   # True: engine tự bình bài; False: dùng so_con
-    may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)              # → may_thiet_bi.id (soft)
+    may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)   # → may_thiet_bi.id (soft)
     don_gia_cong_in: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)  # mực GỘP trong đơn giá
 
     # --- Mực in: TẬP MÃ MỰC mỗi mặt, không phải con số ---
@@ -198,6 +198,16 @@ class PhieuThanhPhan(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    # CHI PHÍ KHÁC: cặp (tên tự gõ, số tiền) — khoản MỘT LẦN không gắn bước nào, số dòng tuỳ ý.
+    # Khác `vat_tus` ở chỗ KHÔNG trỏ danh mục và KHÔNG có công thức: đây là chỗ hứng những khoản
+    # chưa ai lường trước để lập danh mục (làm kẽm ngoài, phí thiết kế, tiền mẫu).
+    chi_phi_khacs: Mapped[list["PhieuChiPhiKhac"]] = relationship(
+        "PhieuChiPhiKhac",
+        back_populates="thanh_phan",
+        order_by="PhieuChiPhiKhac.thu_tu",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class PhieuThanhPham(Base):
@@ -210,7 +220,7 @@ class PhieuThanhPham(Base):
         Integer, ForeignKey("phieu_thanh_phan.id", ondelete="CASCADE"), index=True, nullable=False
     )
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → cong_doan.id (soft)
+    cong_doan_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → cong_doan.id (soft)
     ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     don_gia: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # 0 = dùng SL đặt
@@ -309,7 +319,7 @@ class PhieuVatTu(Base):
         Integer, ForeignKey("phieu_thanh_phan.id", ondelete="CASCADE"), index=True, nullable=False
     )
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    vat_tu_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → vat_tu_in_an.id (soft)
+    vat_tu_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → vat_tu_in_an.id (soft)
     ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     don_gia: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)  # 0 = lấy danh mục
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # 0 = dùng SL đặt
@@ -321,3 +331,44 @@ class PhieuVatTu(Base):
     )
 
     thanh_phan: Mapped["PhieuThanhPhan"] = relationship("PhieuThanhPhan", back_populates="vat_tus")
+
+
+class PhieuChiPhiKhac(Base):
+    """1 dòng CHI PHÍ KHÁC của 1 sản phẩm — cặp (tên tự gõ, số tiền), khoản MỘT LẦN.
+
+    Ô để hứng những khoản có thật mà hệ thống không có chỗ khai: làm kẽm ngoài, phí thiết kế,
+    tiền mẫu, cước gửi bản… Người lập phiếu gõ TÊN tự do — máy KHÔNG hiểu chữ đó là gì, không tra
+    danh mục, không suy ra công đoạn nào; nó chỉ ghi nhận đúng cái tên ấy để người đọc phiếu sau
+    này biết tiền đi đâu.
+
+    MỘT LẦN cho cả sản lượng, KHÔNG nhân số lượng — cùng bản chất với `phieu_thanh_phan.
+    phi_giao_hang` và `phieu_thanh_pham.phi_khuon`, khác cả hai ở chỗ không gắn bước nào và số
+    dòng thì tuỳ ý.
+
+    ⚠️ CÓ cộng vào `gia_von_tp` (engine đẻ mỗi dòng thành một dòng tiền của nhóm kết quả
+    `chi_phi_khac`) ⇒ sang Báo giá nó chịu markup cùng phần còn lại, và BỊ CHIA theo sản lượng:
+    800.000đ làm kẽm thì đơn 10.000 hộp gánh 80 đ/hộp, đơn 1.000 hộp gánh 800 đ/hộp. Giống tiền
+    dao và tiền chở, đây là chủ ý — đừng "sửa" bằng cách rút nó ra khỏi giá vốn.
+
+    KHÔNG xuống tới màn xưởng: `lsx_service._tinh_dong` chỉ chép các trường VÔ HƯỚNG của phiếu vào
+    `quy_cach_json`, danh sách này là `list` nên bị bộ lọc ở đó bỏ qua — thợ không thấy tiền.
+    """
+
+    __tablename__ = "phieu_chi_phi_khac"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    thanh_phan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("phieu_thanh_phan.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Tên khoản chi — CHỮ TỰ DO người lập phiếu gõ ("làm kẽm", "phí thiết kế"). Không có danh mục
+    # để chọn: cái hay rơi vào đây đúng là thứ chưa ai lường trước để lập danh mục.
+    ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    so_tien: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    thanh_phan: Mapped["PhieuThanhPhan"] = relationship("PhieuThanhPhan", back_populates="chi_phi_khacs")

@@ -12,9 +12,9 @@
 |---|---|---|
 | 1 | Nền tổ chức & phát hành (cờ KCS, navbar node lá, nhóm thành phẩm, snapshot phát hành, gói nguyên tử, phiên bản cập nhật lịch) | 🔨 Đang làm — mg 0220: `departments.is_kcs` + `job_grades.output_coefficient` nối 2 màn danh mục (BE + test). Backbone phát hành XONG (6 bảng `san_xuat_*` create_all, `SanXuatRepository`, `component`/`nhom`/`snapshot`/`release`, nối vào cả 2 cửa phát hành, 7 test `test_san_xuat_release.py` xanh): thành phần liên thông, gói+phiên bản+công việc đóng băng, một-bài-ghép-một-công-việc, suy nhóm thành phẩm, đánh KCS-cuối, cửa soi `van_de_phat_hanh`, idempotent mức gói. **Nguồn navbar node lá (BE) XONG**: `services/san_xuat/board.py` (`teams`+`work_items`, scope all/department/own tái dùng module quyền `san_xuat`, KHÔNG đẻ quyền/migration mới), `schemas/san_xuat.py`, `routers/san_xuat.py` (`GET /api/san-xuat/teams` + `/work-items?team_id=`, gác `require_permission("san_xuat","read")`, ngoài phạm vi→403), đã mount trong `main.py`; 7 test `test_san_xuat_board.py` + 4 api `test_san_xuat_board_api.py` xanh, compileall sạch. Còn: **navbar FE** (bơm node lá vào Sidebar), phiên bản cập-nhật-lịch (§4.3), FE (KCS checkbox đã có, hộp thoại phát hành chưa gắn cửa soi) |
 | 2 | Khung thực hiện tại tổ (timeline, drawer, phân công, phiên chạy, khoảng tham gia, chấm công/OT, actual overlay) | ✅ BE ĐỌC+GHI + FE "một bàn làm việc" XONG (chờ nghiệm thu cuối) — Đọc: `board.teams`/`work_items`/`chi_tiet_cong_viec` (drawer: roster + phiên chạy + khoảng tham gia; nhãn resolve theo lô) + endpoint picker riêng gác `san_xuat` `GET /teams/{id}/nhan-vien` (KHÔNG mượn `/api/employees` vì nó đòi quyền `nhan_su` → tổ trưởng 403). Ghi: 3 bảng mới create_all `san_xuat_phan_cong`/`san_xuat_phien_chay`/`san_xuat_khoang_tham_gia`, repo + service `services/san_xuat/thuc_thi.py` (snapshot cờ khoán từ `departments.has_piece_work`; bước nội bộ chỉ nhận thợ khoán; GATE §6 chỉ `head_user_id` đúng tổ; bắt đầu cần ≥1 khoán; trễ/tạm dừng bắt buộc lý do; không hai khoảng chồng giờ; version chống bấm trùng; máy chủ + naive/aware). Router 6 endpoint ghi gác `san_xuat:assign_work` + SSE sau commit; KHÔNG migration. **FE**: 5 file `ThucHienSxPage`/`ThsxTimeline`/`ThsxDrawer`/`thsxShared`/`thuc-hien-sx.css` (bám pattern XepLich2, timeline tái dùng `xl2Shared`, KHÔNG kéo-thả), nối `api.sanXuat` (9 method) + AppShell (Kho-pattern: teamList/badge/dynamicItems/render/SSE) + `permissions` (`assign_work`); styleseed **94/100 A**, `npx tsc` sạch. 15 test `test_san_xuat_thuc_thi.py` + 7 board + 4 api xanh. **Khoảng trống chờ pha sau:** (b) §7.3 chấm công-OT dẫn xuất; (c) actual overlay (cần trường mốc thực trên `WorkItemOut`); (d) §7.1 "số người thực tế ≠ dự kiến → lý do" (chờ nguồn số người dự kiến) |
-| 3 | Đầu vào, sản lượng & bàn giao (xác nhận vật tư, chọn lot BTP, batch sản lượng, bàn giao, overconsumption) | ✅ BE XONG (chờ FE + nghiệm thu cuối) — 6 bảng mới create_all (`san_xuat_ly_do` — ĐÃ GỠ 10/09/2026, mg 0288 —, `san_xuat_batch`, `san_xuat_batch_lot_vao`, `san_xuat_ban_giao`, `san_xuat_ban_giao_dieu_chinh`, `san_xuat_vat_tu_nhan`) + repo `san_xuat_san_luong_repo.py`. **Sản lượng** `services/san_xuat/san_luong.py`: batch `tong=tot+hong` (hong>0 TỪNG bắt nhóm lỗi chuẩn — bỏ theo mg 0288), chỉ ghi khi cv đã khởi động, GATE §6, `tong_tot` = nền trần bàn giao; lot đầu vào §10.3 (batch công đoạn trước, không trỏ chính mình) + `them_lot`. **Bàn giao** `services/san_xuat/ban_giao.py`: cùng-tổ-cùng-LSX tự `confirmed` (notify None), khác tổ→`proposed`→bên NHẬN xác nhận (gate ĐÍCH, nguồn không tự xác nhận), trần `tong_tot−đã_giao`, sửa chỉ khi `proposed`, điều chỉnh đẻ lịch sử + cờ `khong_nhat_quan` khi giảm dưới lượng đã dùng (§11.3); lý do điều chỉnh TỪNG bắt buộc — bỏ theo mg 0288. **Vật tư** `services/san_xuat/vat_tu_nhan.py`: xác nhận phiếu XUẤT posted NGUYÊN TRẠNG (§10.1), 1 phiếu/1 lần (`voucher_id` UNIQUE), gate tổ trưởng. **Danh mục Lý do & lỗi SX** (catalog thứ 12, quyền `dm_ly_do_san_xuat`) ĐÃ GỠ HẲN 10/09/2026 — xem §15. Router `san_xuat.py` + schema mặt GHI đã khai (LotVaoIn/BatchIn/BanGiao*/VatTu*). **44 test san_xuat (G1–G3) chạy chung xanh** (9 san_luong + 8 ban_giao + 4 vat_tu_nhan mới) + `test_schema_documented` + `test_catalog_registry` xanh; KHÔNG migration cột (chỉ bảng mới). **Còn: FE drawer** (nhập batch + picker lot đầu vào + UI bàn giao + xác nhận vật tư, gắn vào `ThsxDrawer` chỗ placeholder "Pha sau") + FE cấu hình catalog lý do; qua 2-agent + styleseed + dev-browser |
-| 4 | Hỗ trợ & phân bổ (hỗ trợ 2 tổ, hệ số bậc, phân bổ theo batch, chốt/mở lại, nối PieceWork) | ⏳ Chưa bắt đầu |
-| 5 | KCS & kho (batch KCS, lỗi+ảnh, trách nhiệm, đóng thiếu, TP/BTP theo đơn, nhập kho một phần, tự đóng nhóm) | ✅ XONG — nền batch/lỗi/ảnh/trách nhiệm + kho BTP/thành phẩm + tự đóng nhóm đã có TRƯỚC module KCS kiêm nhiệm (`services/san_xuat/kcs.py`, `kho.py`; test `test_san_xuat_kcs.py`/`test_san_xuat_kho.py`/`test_san_xuat_dong_nhom.py`/`test_san_xuat_g5_tich_hop.py`). Module **KCS kiêm nhiệm** (mg `0250`, 2026-08-31) sau đó mở rộng thêm luồng ghi song song trên nền này (routing 2 bước + đột xuất 1 bước, checklist, gửi kho một nút, dashboard/Excel) — chi tiết ở §13 (viết lại 2026-08-31) |
+| 3 | Đầu vào, sản lượng & bàn giao (xác nhận vật tư, lot đầu vào từ mẻ công đoạn trước, batch sản lượng, bàn giao, overconsumption) | ✅ BE XONG (chờ FE + nghiệm thu cuối) — 6 bảng mới create_all (`san_xuat_ly_do` — ĐÃ GỠ 10/09/2026, mg 0288 —, `san_xuat_batch`, `san_xuat_batch_lot_vao`, `san_xuat_ban_giao`, `san_xuat_ban_giao_dieu_chinh`, `san_xuat_vat_tu_nhan`) + repo `san_xuat_san_luong_repo.py`. **Sản lượng** `services/san_xuat/san_luong.py`: batch `tong=tot+hong` (hong>0 TỪNG bắt nhóm lỗi chuẩn — bỏ theo mg 0288), chỉ ghi khi cv đã khởi động, GATE §6, `tong_tot` = nền trần bàn giao; lot đầu vào §10.3 (batch công đoạn trước, không trỏ chính mình) + `them_lot`. **Bàn giao** `services/san_xuat/ban_giao.py`: cùng-tổ-cùng-LSX tự `confirmed` (notify None), khác tổ→`proposed`→bên NHẬN xác nhận (gate ĐÍCH, nguồn không tự xác nhận), trần `tong_tot−đã_giao`, sửa chỉ khi `proposed`, điều chỉnh đẻ lịch sử + cờ `khong_nhat_quan` khi giảm dưới lượng đã dùng (§11.3); lý do điều chỉnh TỪNG bắt buộc — bỏ theo mg 0288. **Vật tư** `services/san_xuat/vat_tu_nhan.py`: xác nhận phiếu XUẤT posted NGUYÊN TRẠNG (§10.1), 1 phiếu/1 lần (`voucher_id` UNIQUE), gate tổ trưởng. **Danh mục Lý do & lỗi SX** (catalog thứ 12, quyền `dm_ly_do_san_xuat`) ĐÃ GỠ HẲN 10/09/2026 — xem §15. Router `san_xuat.py` + schema mặt GHI đã khai (LotVaoIn/BatchIn/BanGiao*/VatTu*). **44 test san_xuat (G1–G3) chạy chung xanh** (9 san_luong + 8 ban_giao + 4 vat_tu_nhan mới) + `test_schema_documented` + `test_catalog_registry` xanh; KHÔNG migration cột (chỉ bảng mới). **Còn: FE drawer** (nhập batch + picker lot đầu vào + UI bàn giao + xác nhận vật tư, gắn vào `ThsxDrawer` chỗ placeholder "Pha sau") + FE cấu hình catalog lý do; qua 2-agent + styleseed + dev-browser |
+| 4 | Hỗ trợ & phân bổ (hỗ trợ 2 tổ, phân bổ theo batch, chốt/mở lại, nối PieceWork) | ⏳ Chưa bắt đầu |
+| 5 | KCS & kho (batch KCS, lỗi+ảnh, trách nhiệm, đóng thiếu, thành phẩm theo đơn, nhập kho một phần, tự đóng nhóm) | ✅ XONG — nền batch/lỗi/ảnh/trách nhiệm + kho thành phẩm (BTP đã gỡ hẳn 17/09/2026, mg `0308`) + tự đóng nhóm đã có TRƯỚC module KCS kiêm nhiệm (`services/san_xuat/kcs.py`, `kho.py`; test `test_san_xuat_kcs.py`/`test_san_xuat_kho.py`/`test_san_xuat_dong_nhom.py`/`test_san_xuat_g5_tich_hop.py`). Module **KCS kiêm nhiệm** (mg `0250`, 2026-08-31) sau đó mở rộng thêm luồng ghi song song trên nền này (routing 2 bước + đột xuất 1 bước, checklist, gửi kho một nút, dashboard/Excel) — chi tiết ở §13 (viết lại 2026-08-31) |
 | 6 | Real-time & hoàn thiện (SSE toàn sự kiện, badge/toast, audit, chống trùng, test tích hợp) | ⏳ Chưa bắt đầu |
 
 Quy tắc verify: giữa dòng dùng `pytest` nhắm file + `npx tsc`; chạy `./init.ps1` một lần ở cuối cùng.
@@ -31,8 +31,8 @@ Xây thêm lớp **thực hiện sản xuất tại tổ** nối trực tiếp s
 2. Lệnh xuất hiện tại tổ sản xuất tương ứng.
 3. Tổ trưởng phân công người thực hiện.
 4. Ghi nhận bắt đầu, tạm dừng, tiếp tục, kết thúc và sản lượng thực tế.
-5. Theo dõi nguyên vật liệu, bán thành phẩm và bàn giao giữa công đoạn.
-6. Phân bổ sản lượng cho từng người theo thời gian thực tế và bậc tay nghề.
+5. Theo dõi nguyên vật liệu và bàn giao hàng dở dang giữa công đoạn.
+6. Phân bổ sản lượng cho từng người theo thời gian thực tế hợp lệ.
 7. KCS kiểm tra trước khi tạo yêu cầu nhập kho.
 8. Dữ liệu sản lượng đã chốt được đưa vào luồng lương khoán hiện có.
 
@@ -251,16 +251,12 @@ Quy tắc:
 
 ---
 
-## 8. Bậc tay nghề
+## 8. Bậc tay nghề — ĐÃ GỠ (17/09/2026, mg `0305`)
 
-Bổ sung một hệ số sản lượng toàn cục vào `JobGrade`, ví dụ `output_coefficient`.
-
-- Không tự đoán hệ số cho các bậc tay nghề hiện có.
-- Hệ số để trống cho tới khi được người có quyền cấu hình.
-- Khi người lao động bắt đầu tham gia, snapshot bậc và hệ số tại thời điểm đó.
-- Thay đổi danh mục sau này không viết lại dữ liệu đang chạy hoặc đã hoàn thành.
-- Thiếu hệ số không chặn việc ghi nhận sản xuất.
-- Thiếu hệ số chặn thao tác chốt phân bổ sản lượng.
+Bậc tay nghề và hệ số chia sản lượng đã bỏ hẳn khỏi hệ thống: bảng `job_grades`, cột
+`employees.job_grade_id`, ảnh chụp `san_xuat_khoang_tham_gia.job_grade_id/output_coefficient` và
+`san_xuat_phan_bo_dong.he_so_bac` đều đã drop. Chia sản lượng cho người trong tổ nay chỉ theo phút
+thực tế hợp lệ (§12.2); không còn điều kiện "thiếu hệ số chặn chốt phân bổ".
 
 ---
 
@@ -325,15 +321,16 @@ KCS tự chọn tổ/công đoạn chịu trách nhiệm lỗi. Không tự đ�
 - Vật tư thừa tạo yêu cầu trả kho.
 - Nhóm sản xuất chưa được đóng hoàn toàn cho tới khi kho xác nhận nhận lại vật tư phải trả.
 
-### 10.3. Bán thành phẩm đầu vào
+### 10.3. Lot đầu vào
 
 Khi tạo batch sản lượng, tổ trưởng chọn chính xác:
 
-- Lot đầu ra của công đoạn trước.
-- Lot BTP liên quan.
-- Số lượng sử dụng từ từng lot.
+- Mẻ đầu ra của công đoạn trước.
+- Số lượng sử dụng từ từng mẻ.
 
-Việc chọn lot tạo được quan hệ truy vết từ nguyên liệu/BTP đầu vào tới batch đầu ra.
+Việc chọn lot tạo được quan hệ truy vết từ mẻ công đoạn trước tới batch đầu ra. Nguồn "lot BTP trong
+kho" đã gỡ hẳn 17/09/2026 (mg `0308`) — chưa từng có màn nào ghi. Hàng dở dang chỉ đi giữa công
+đoạn qua bàn giao (§11.2).
 
 ---
 
@@ -355,6 +352,10 @@ Ràng buộc:
 
 `Tổng số lượng = Tốt + Hỏng`
 
+Mẻ ghi SAU khi làm xong: giờ kết thúc không được ở sau thời điểm hiện tại (nới 5 phút cho đồng hồ
+máy tổ lệch máy chủ — chốt 16/09/2026). Ô giờ trên form gợi ý nối đuôi mẻ gần nhất, chưa có mẻ thì
+lúc bước bắt đầu chạy; KHÔNG lấy giờ kế hoạch.
+
 Nếu có số lượng hỏng:
 
 - Ghi kèm mô tả lỗi bằng chữ, TUỲ CHỌN — không bắt buộc (xem §15: danh mục lỗi đã gỡ 10/09/2026).
@@ -365,12 +366,19 @@ Cho phép nhiều batch một phần trong cùng công đoạn.
 ### 11.2. Bàn giao
 
 - Hai công đoạn liên tiếp trong cùng tổ tự động chuyển số lượng tốt sang đầu vào công đoạn sau.
+- Đích bàn giao là một CHẶNG SAU theo routing lệnh. Bước cuối của lệnh (không có chặng sau) KHÔNG
+  bàn giao — thành phẩm vào kho qua KCS kiểm và đề nghị nhập kho (§14.1). "Giao ra kho" (đích trống)
+  đã gỡ 17/09/2026: nó đẻ một bàn giao không ai xác nhận được, treo `proposed` mãi.
 - Bàn giao khác tổ hoặc khác LSX cần xác nhận hai bên.
 - Người giao đề xuất một số lượng.
 - Hai bên kiểm đếm thực tế.
 - Nếu chưa đúng, bên giao sửa số đề xuất.
 - Bên nhận chỉ xác nhận đúng con số cuối cùng đã thống nhất.
 - Không lưu hai số lượng cạnh tranh.
+- Mỗi dòng bàn giao ở ngăn chi tiết (tab Bàn giao & Vật tư của bên giao, tab Nhận của bên nhận)
+  ghi rõ **Giao: người · lúc** và **Nhận: người · lúc** ("chưa xác nhận" khi còn chờ, "tự nhận
+  (cùng tổ)" khi tự chuyển). Hai bên đọc cùng một dòng. Tên lấy từ tài khoản đã bấm
+  (`de_xuat_by_id` / `xac_nhan_by_id`), không gõ tay (17/09/2026).
 
 Số lượng đã xác nhận đồng thời là:
 
@@ -382,7 +390,8 @@ Số lượng đã xác nhận đồng thời là:
 
 - Không xóa cứng bàn giao.
 - Người nhập sai được tạo điều chỉnh, kèm mô tả bằng chữ nếu muốn (không bắt buộc — §15).
-- Giữ lịch sử trước và sau điều chỉnh.
+- Giữ lịch sử trước và sau điều chỉnh. Dòng bàn giao có nút "Đã điều chỉnh N lần" mở lịch sử cho
+  cả hai bên: lúc · người · trước → sau · mô tả, kèm cờ nếu lần đó giảm dưới số công đoạn sau đã dùng.
 - Nếu điều chỉnh giảm thấp hơn số lượng công đoạn sau đã sử dụng, công đoạn sau bị đánh dấu không nhất quán.
 - Không cho chốt phân bổ hoặc đóng nhóm khi còn không nhất quán.
 - Lỗi phát hiện ở công đoạn sau không tự động trừ sản lượng hoặc tiền lương đã chấp nhận của công đoạn trước.
@@ -450,8 +459,39 @@ nguồn LÀ điểm toả, đã tách theo LSX):
 trong response (rỗng nếu không phải điểm toả). Màn Thực hiện sản xuất (`ThsxExecPanels.tsx`) hiện
 banner `.thsx-x-toa-banner` ngay sau khi ghi mẻ thành công tại một điểm toả, liệt kê từng LSX đích +
 số lượng đã tỏa + nhãn "đã tự bàn giao", có nút đóng. Phía LSX nhận, công việc riêng đầu tiên sau
-điểm toả hiện dòng "NHẬN VỀ" ở trạng thái đã xác nhận ngay (không phải "chờ xác nhận") trong khối
-Bàn giao — khác các dòng bàn giao thường phải tự tay xác nhận.
+điểm toả hiện dòng bàn giao đến ở trạng thái đã xác nhận ngay (không phải "chờ xác nhận") trong tab
+Nhận của ngăn chi tiết (§11.5) — khác các dòng bàn giao thường phải tự tay xác nhận.
+
+### 11.5. Việc chờ tổ xác nhận trên bàn tổ (17/09/2026)
+
+Ba loại việc giữa hai bên mà tổ phải bấm: **bàn giao đến chờ nhận** (§11.2), **hỗ trợ chéo chờ bên
+tổ mình** (§9.1), **lỗi KCS chưa "Đã xem"** (§13.4). Nguồn duy nhất là `GET /api/san-xuat/teams/{id}/cho-xac-nhan`
+— máy chủ lọc theo quyền Xác nhận sản lượng trọn tổ trong vùng bàn; badge tổ ở menu đếm cùng nguồn.
+
+Không còn hộp "Chờ tổ bạn xác nhận" đầu trang. Việc chờ gắn vào CÔNG ĐOẠN của nó:
+
+- **Chấm đỏ** trên dòng công đoạn (bảng), trên dòng lệnh (kể cả khi lệnh đang gấp), trên nhãn dòng
+  lịch và thẻ hàng chờ. Lệnh có việc chờ mở sẵn khi vào bàn. Chấm nghĩa là "còn việc chờ bấm", không
+  phải "chưa đọc": bấm xong là tự tắt, không lưu trạng thái đã đọc. Nạp lại theo SSE và ngay sau mỗi
+  lần ghi trong ngăn chi tiết.
+- **Ngăn chi tiết** có bốn tab: Vận hành & Quy cách · **Nhận** · Bàn giao & Vật tư · KCS. Tab Nhận
+  chứa bàn giao ĐẾN công đoạn (lần chờ nhận đứng đầu, nút Xác nhận ngay dòng đầu); tab Bàn giao &
+  Vật tư chỉ còn giao đi, vật tư, hỗ trợ chéo. Chấm đỏ trên tab Nhận (bàn giao chờ nhận), Bàn giao
+  (hỗ trợ chéo chờ) và KCS (lỗi chưa xem). Bấm một công đoạn đang có việc chờ thì ngăn mở thẳng tab
+  nơi bấm, theo thứ tự Nhận → KCS → Bàn giao.
+- **Ô "N chờ xác nhận"** trên thanh lọc (view Bảng: cạnh ô tìm; view Lịch: hàng điều hướng ngày).
+  Bấm để bảng chỉ còn lệnh có ít nhất một công đoạn đang chờ — lọc Ở MÁY CHỦ bằng
+  `GET /work-items?cho_xac_nhan=true`, trước khi cắt trang, lệnh giữ đủ mọi công đoạn và giữ thứ tự
+  sớm/muộn (repo lọc bằng HAVING, không bằng WHERE). View Lịch lọc mảng phẳng theo cùng tập công
+  việc. Hết việc chờ thì ô tự tắt; không có việc chờ thì ô không hiện.
+- **Việc không có dòng trên bàn** — mỗi mục của `cho-xac-nhan` mang cờ `tren_ban` (công đoạn thuộc tổ
+  nằm trong phạm vi vẽ của bàn đang xem). Điển hình là tổ CHO MƯỢN người: công đoạn thuộc tổ kia nên
+  bàn mình không có dòng để gắn chấm. Các mục `tren_ban=false` hiện thành danh sách nhỏ ngay dưới
+  thanh lọc khi bật ô "chờ xác nhận" (`ThsxChoNgoaiBan`): hỗ trợ chéo xác nhận / từ chối tại chỗ;
+  bàn giao / lỗi KCS có nút Mở ngăn chi tiết.
+
+Hộp thư KHO (yêu cầu nhập/nhận chờ kho xác nhận, §14) là việc của kho, không thuộc mục này — vẫn ở
+đầu trang như cũ.
 
 ---
 
@@ -473,7 +513,7 @@ Với một batch có sản lượng trả lương `Q`:
 4. Phần của tổ thực hiện là `Q × (1 - P)`.
 5. Trọng số của người thuộc tổ thực hiện:
 
-`Trọng số = phút thực tế hợp lệ × hệ số bậc tay nghề đã snapshot`
+`Trọng số = phút thực tế hợp lệ`
 
 6. Chia phần còn lại theo tỷ trọng của từng người.
 7. Dùng phương pháp phần dư lớn nhất để làm tròn nhưng tổng sau làm tròn vẫn đúng bằng `Q`.
@@ -535,13 +575,20 @@ Có BA thứ tên gần giống nhau, mỗi thứ đứng một tầng khác nha
    đóng băng. Đây là cờ dùng để lọc `GET /api/san-xuat/work-items?team_id=&mode=production|kcs`:
    `mode=kcs` chỉ trả việc `la_kcs=true`, `mode=production` chỉ trả `la_kcs=false`.
 3. **`co_viec_kcs`** — tính ĐỘNG lúc đọc, KHÔNG phải cột DB: tổ có đang có ÍT NHẤT MỘT việc
-   `la_kcs=true`, chưa hoàn thành (`trang_thai != hoàn thành`), thuộc gói ĐANG phát hành hay không
-   (`SanXuatRepository.to_co_viec_kcs`, `backend/app/repositories/san_xuat_repo.py:409-426`). Đây MỚI
+   `la_kcs=true` thuộc gói ĐANG phát hành mà CHƯA hoàn thành, HOẶC đã hoàn thành nhưng nhóm của nó
+   chưa đóng (đủ/thiếu) hay không (`SanXuatRepository.to_co_viec_kcs`). Vế sau có từ 16/09/2026:
+   khối Chốt nhóm chỉ nằm ở màn KCS và nhóm chỉ đóng được khi mọi việc đã xong, nên kết thúc bước
+   KCS cuối mà ẩn node ngay thì mất cửa chốt nhóm. Đây MỚI
    là cổng sinh node sidebar `KCS · {tổ}` (`frontend/src/components/AppShell.tsx:1071-1082`) — RỘNG
    HƠN badge `so_viec_kcs_cho` (badge còn đòi thêm điều kiện "đã có bàn giao xác nhận tới việc đó
    nhưng chưa ghi batch KCS nào" — `SanXuatRepository.dem_kcs_cho_kiem_theo_to`); `co_viec_kcs` chỉ
    cần tồn tại việc KCS đang hoạt động, kể cả đã ghi đủ mọi đợt — nên node không biến mất ngay sau
-   khi KCS ghi xong, chỉ ẩn khi tổ không còn việc KCS nào đang chạy.
+   khi KCS ghi xong, chỉ ẩn khi tổ không còn việc KCS nào đang chạy hay nhóm nào chờ chốt.
+   Từ 17/09/2026 cờ này (và badge `so_viec_kcs_cho`) KHÔNG dồn lên nút cấp gom như `so_viec_cho`:
+   việc KCS ở tổ X chỉ bật node `KCS · X`, không sinh thêm `KCS · Sản xuất` ở nút cha. Ngoại lệ duy
+   nhất: X không có trên menu của người xem (chỉ có Xem "Của tôi" nên menu chỉ hiện một nút cấp gom)
+   thì việc gắn vào nút tổ tiên GẦN NHẤT có trên menu — bàn nút đó phủ vùng nên vẫn mở ra thấy việc
+   (`board._nut_nhan_kcs`).
 
 Vì release chặn cấu hình sai (mục 1), trong thực tế một việc `la_kcs=true` chỉ rơi vào tổ
 `is_kcs=true` — nhưng đó là HỆ QUẢ của gate lúc phát hành, không phải vì badge/node tự đọc `is_kcs`
@@ -647,9 +694,18 @@ là trưởng tổ (`_gate_member`).
   khoá dòng batch (`with_for_update`) TRƯỚC khi đọc số để double-click không tạo hai yêu cầu song
   song. Hết số đạt chưa gửi → `409` (`KhongConSoDuGuiKho`), không phải lỗi chung `400`.
 - SSE tới Kho và node KCS sau commit.
-- Endpoint thủ công cũ `POST /api/san-xuat/kho/yeu-cau-nhap` (`kho.tao_yeu_cau_nhap_thanh_pham`,
-  NHẬN số lượng tuỳ ý từ client, không giới hạn `la_kcs_cuoi`) vẫn còn — dùng cho nhập kho từng
-  phần thủ công; nút MỘT-BẤM ở trên là lối đi mới cho KCS cuối, không thay thế endpoint cũ.
+- Endpoint thủ công cũ `POST /api/san-xuat/kho/yeu-cau-nhap` ĐÃ GỠ 16/09/2026: cửa duy nhất mở nó
+  là panel Kho trong drawer bàn tổ, mà drawer đó chỉ sống ở `mode="production"` — nơi máy chủ lọc
+  cứng `la_kcs=false` — nên bước KCS không bao giờ bấm tới. Nút MỘT-BẤM ở trên nay là lối đi duy
+  nhất tạo yêu cầu nhập kho. Service `kho.tao_yeu_cau_nhap_thanh_pham` GIỮ NGUYÊN: nó là ruột của
+  `tao_yeu_cau_kho_mot_nut` và là khuôn dựng dữ liệu của phần lớn test kho.
+- Cùng đợt gỡ luôn `POST /kcs/loi/{loi_id}/anh`, `DELETE /kcs/anh/{anh_id}` và
+  `POST /kho/yeu-cau/{yc_id}/huy-phan-con-lai` — ba endpoint cùng chung số phận (chỉ panel bàn tổ
+  gọi, không test nào chạm qua HTTP). Service `kcs.them_anh_loi` / `kcs.xoa_anh_loi` /
+  `kho.huy_phan_chua_nhan` cũng ĐÃ GỠ cùng ngày (kèm test và các hàm repo chỉ chúng dùng). Hệ quả
+  cần biết: không còn luật "mỗi lỗi giữ ≥1 ảnh khi xoá ảnh" (không còn đường xoá/thêm ảnh sau khi
+  ghi lỗi), và không còn đường nào đặt yêu cầu nhập kho về `huy` — trạng thái này chỉ còn là giá
+  trị đọc cho dữ liệu cũ. Muốn KCS huỷ phần chưa nhận thì phải dựng lại cả service lẫn cửa UI.
 
 ### 13.7. Chọn việc để kiểm đột xuất
 
@@ -694,53 +750,37 @@ Trước module kiêm nhiệm, KCS chỉ có MỘT luồng: theo bước routing
 
 ---
 
-## 14. Nhập kho thành phẩm và BTP
+## 14. Nhập kho thành phẩm
 
-### 14.1. Thành phẩm
+### 14.1. Thành phẩm — đi qua "Yêu cầu nhập xuất" (làm 17/09/2026)
 
-- KCS được tạo nhiều yêu cầu nhập kho một phần từ các batch đạt.
-- Tổng số lượng yêu cầu không được vượt tổng số lượng KCS đã chấp nhận.
-- Mỗi batch KCS là một lot thành phẩm logic.
-- Kho xác nhận từng phần đã nhận.
-- Phần kho đã ghi nhận bị khóa.
-- Phần chưa nhận còn được KCS phân loại lại với đầy đủ audit.
-- Nếu có sai lệch sau khi kho đã ghi sổ, xử lý bằng nghiệp vụ điều chỉnh kho riêng; không sửa ngược batch KCS.
+Chi tiết: `docs/design-nhap-kho-thanh-pham-qua-yeu-cau-nhap-xuat.md`. Sổ riêng của xưởng (hộp thư
+kho ở bàn tổ, ba bảng `san_xuat_kho*`) đã gỡ, mg `0310` drop bảng.
 
-Danh tính thành phẩm là nhóm sản phẩm của đơn hàng, ví dụ:
+- KCS bấm "Tạo yêu cầu nhập kho" trên công đoạn cuối. Server tự tính phần đạt chưa gửi
+  (`min(Σ đạt, Σ tốt tổ ghi) − Σ đã đề nghị còn hiệu lực`) và tạo một yêu cầu NHẬP tự duyệt, nguồn
+  `san_xuat_cong_viec_id`. Gửi nhiều lần được; kho huỷ hoặc chốt nhận thiếu thì phần chưa nhận tự
+  quay về cho KCS gửi lại.
+- Mặt hàng = mã thành phẩm theo **cụm bán** của đơn (nhãn nhóm + SL, cùng luật bản in). Giá gốc
+  vào 0 đ, giá bán lấy từ đơn.
+- Kho nhận qua Hộp yêu cầu → phiếu nhập (chọn kho, nhận một phần) → ghi sổ ra lô. Lô nhớ lệnh /
+  đơn / khách qua **lô gốc**, nên điều chuyển sang kho khác vẫn đọc ra nguồn.
+- Kế toán kho gõ giá gốc ở Báo cáo kho ▸ Giá gốc thành phẩm; sửa lan sang mọi lô con ở mọi kho.
+- Màn KCS và hồ sơ lệnh đọc ngược "đã đề nghị / kho đã nhận" từ yêu cầu kho, tự cập nhật qua SSE.
+- Giao hàng xuất theo lô của đúng đơn; lô đơn khác cùng khách thì cảnh báo, lô khách khác bị loại.
+- Sai lệch sau khi kho đã ghi sổ xử lý bằng nghiệp vụ kho (điều chỉnh / trả hàng), không sửa ngược
+  lần kiểm KCS.
 
-`DH019 + Kỷ yếu 25 năm An Phát`
+### 14.2. BTP — ĐÃ GỠ HẲN (17/09/2026, mg `0308`)
 
-Đây không phải SKU chung tái sử dụng. Thành phẩm chỉ được giao cho đúng nhóm/đơn hàng đó.
-
-### 14.2. BTP
-
-Mở rộng kho bằng một registry hàng sản xuất, gồm hai subtype:
-
-- BTP.
-- Thành phẩm theo đơn hàng.
-
-Lot BTP snapshot:
-
-- Đơn hàng.
-- Nhóm thành phẩm.
-- LSX.
-- Công đoạn nguồn.
-- Quy cách.
-- Số lượng.
-- Đơn vị.
-- Lot nguồn.
-
-BTP của DH019:
-
-- Chỉ được tái sử dụng trong DH019.
-- Không dùng cho đơn hàng khác.
-- Không tự dùng cho lần tái bản sau.
-
-BTP dư trước khi đóng nhóm phải được phân loại thành một trong:
-
-- Phế/hỏng.
-- Mẫu lưu.
-- Nhập kho BTP.
+Registry hai subtype (BTP / thành phẩm), lot BTP snapshot LSX + công đoạn nguồn, phân loại BTP dư
+(phế · mẫu lưu · nhập kho BTP) và nguồn "lot BTP trong kho" cho lot đầu vào đều đã gỡ: lot BTP chỉ
+ghi nhận, không nối vào tồn kho thật, lại chặn đóng nhóm vô ích. Đợt 1 bỏ endpoint phân loại/kho
+xác nhận, hộp thư BTP ở bàn tổ và bảng BTP trong hồ sơ lệnh; đợt 2 (mg `0308`) drop các cột
+`loai_hang` / `lsx_id` / `cong_doan_ref_id` của `san_xuat_kho_hang` + `san_xuat_kho_lot`,
+`nguon_batch_id` / `phan_loai` của `san_xuat_kho_lot`, `nguon_loai` / `nguon_lot_id` của
+`san_xuat_batch_lot_vao`, và bỏ "giao ra kho" ở bước cuối lệnh (§11.2). Registry nay chỉ là thành
+phẩm theo (đơn, nhóm, quy cách).
 
 ---
 
@@ -775,16 +815,20 @@ chúng luôn là chuỗi tự do trên bảng của chính chúng, chưa bao gi�
 
 Không tạo nút "Hoàn tất nhóm" thủ công.
 
-Nhóm tự động chuyển sang hoàn thành đầy đủ hoặc hoàn thành thiếu khi tất cả điều kiện sau đúng:
+Nhóm TỰ ĐỘNG đóng ĐỦ khi tất cả điều kiện sau đúng (`services/san_xuat/dong_nhom.py::_danh_gia`):
 
-- Mọi công đoạn bắt buộc nội bộ hoặc thuê ngoài đã hoàn thành.
-- Không còn đầu vào/đầu ra không nhất quán.
-- KCS cuối đã phân loại toàn bộ số lượng nhận hoặc đã đóng thiếu.
-- Mọi phân bổ sản lượng đã được chốt.
-- Mọi yêu cầu nhận trách nhiệm lỗi KCS đã được phản hồi.
-- Mọi vật tư hoặc BTP cần trả đã được kho xác nhận nhận.
-- Mọi BTP dư đã được phân loại.
-- Không có điều chỉnh làm cho công đoạn sau tiêu thụ vượt đầu vào.
+- Mọi công việc của nhóm đã hoàn thành (`moi_viec_xong`).
+- Không còn bàn giao lệch (`khong_lech_ban_giao`).
+- KCS đã kiểm hết công đoạn cuối: Σ đạt + lỗi ≥ Σ tốt (`kcs_cuoi_kiem_het`).
+- KCS ĐẠT đủ mục tiêu: Σ đạt ≥ Σ `so_luong_ra` của mọi công việc công đoạn cuối, cộng qua mọi
+  phân đoạn (`dat_muc_tieu`). Công đoạn cuối không có `so_luong_ra` ⇒ coi là CHƯA đạt.
+- Mọi phân bổ sản lượng đã được chốt (`phan_bo_da_chot`).
+
+Trước 17/09/2026 cổng đóng đủ KHÔNG so mục tiêu — nhóm đặt 10.000, KCS đạt 90 vẫn tự đóng ĐỦ và
+báo "đơn có thể giao". Nay hụt mục tiêu thì nhóm đứng chờ; trưởng phòng ban "Tổ KCS" chốt đóng
+THIẾU ở màn KCS. Đóng thiếu được khi các điều kiện toàn vẹn đã sạch (mọi điều kiện TRỪ "mọi việc
+xong" và "đạt đủ mục tiêu"). Hai điều kiện cũ "vật tư/BTP cần trả đã được kho nhận" và "BTP dư đã
+phân loại" đã gỡ cùng §14.2; "phản hồi trách nhiệm lỗi KCS" không còn chặn (KCS theo lệnh, mg 0306).
 
 Audit phải lưu:
 
@@ -835,7 +879,7 @@ Các API mới gộp dưới `/api/san-xuat`:
 - `/support-agreements`: tạo và xác nhận hỗ trợ hai tổ.
 - `/allocations`: xem nháp, chốt và mở lại phân bổ.
 - `/kcs`: batch kiểm tra, lỗi và phản hồi trách nhiệm.
-- `/stock`: xác nhận vật tư, trả BTP và yêu cầu nhập kho thành phẩm.
+- `/stock`: xác nhận vật tư và yêu cầu nhập kho thành phẩm (trả BTP đã gỡ 17/09/2026).
 
 Trạng thái chính:
 
@@ -865,7 +909,6 @@ Nhóm bảng cần bổ sung:
 ### Tổ chức và cấu hình
 
 - `departments.is_kcs`.
-- `job_grades.output_coefficient`.
 
 ### Nhóm và phát hành
 
@@ -899,8 +942,8 @@ Nhóm bảng cần bổ sung:
 
 ### Kho sản xuất
 
-- Registry hàng sản xuất.
-- Lot BTP/thành phẩm.
+- Registry thành phẩm.
+- Lot thành phẩm.
 - Xác nhận tổ đã nhận vật tư.
 - Quan hệ batch KCS với yêu cầu nhập kho.
 
@@ -938,7 +981,7 @@ Do dự án không dùng Alembic:
 ### Giai đoạn 3 — Đầu vào, sản lượng và bàn giao
 
 - Xác nhận nhận vật tư.
-- Chọn lot BTP đầu vào.
+- Chọn lot đầu vào (mẻ công đoạn trước).
 - Batch sản lượng.
 - Bàn giao cùng tổ/khác tổ/khác LSX.
 - Điều chỉnh và kiểm tra overconsumption.
@@ -947,7 +990,6 @@ Do dự án không dùng Alembic:
 
 - Xác nhận hỗ trợ hai tổ.
 - Tỷ lệ hỗ trợ tùy biến, không hard-code 7%.
-- Hệ số bậc tay nghề.
 - Phân bổ theo batch.
 - Chốt, mở lại và điều chỉnh kỳ sau.
 - Kết nối `PieceWorkService`.
@@ -958,7 +1000,7 @@ Do dự án không dùng Alembic:
 - Lỗi và ảnh.
 - Phản hồi trách nhiệm.
 - Đóng thiếu.
-- Thành phẩm/BTP theo đơn hàng.
+- Thành phẩm theo đơn hàng.
 - Nhập kho một phần.
 - Tự động đóng nhóm.
 
@@ -1053,7 +1095,6 @@ Sau khi dựng, kiểm tra trình duyệt thật và chạy `styleseed-design-re
 - Lỗi chờ phản hồi không chặn nhập kho phần đạt nhưng chặn đóng nhóm.
 - Nhập kho nhiều phần không vượt lượng đạt.
 - Phần kho đã ghi sổ không sửa ngược.
-- BTP chỉ tái sử dụng trong cùng đơn hàng.
 - Đóng thiếu gửi thông báo cho Kế hoạch sản xuất và Sale.
 - Nhóm tự đóng ngay khi điều kiện cuối cùng được giải quyết.
 
@@ -1074,7 +1115,6 @@ Sau khi dựng, kiểm tra trình duyệt thật và chạy `styleseed-design-re
 - Không có cấp quản lý phân xử lỗi KCS.
 - Không tự quy trách nhiệm chất lượng theo tỷ lệ hỗ trợ.
 - Không hồi tố các lệnh đã phát hành trước ngày kích hoạt.
-- Không dùng BTP cho đơn hàng hoặc lần tái bản khác.
 - Không cho sửa mốc thời gian thực tế.
 - Không tự động khấu trừ lỗi vào sản lượng cá nhân.
 - Không thay thế nghiệp vụ chứng từ kho hiện có.

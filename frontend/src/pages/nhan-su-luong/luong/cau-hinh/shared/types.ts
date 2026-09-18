@@ -1,7 +1,7 @@
 // Kiểu dùng chung của tab Cấu hình lương (tách từ pages/CauHinhLuongTab.tsx).
 import type { ComponentKind } from "../../../../../api/client";
 
-export type SubTab = "cochE" | "danhmuc" | "phucap";
+export type SubTab = "cochE" | "khoankm" | "danhmuc" | "phucap";
 
 export type BracketDraft = {
   key: string;
@@ -22,15 +22,5 @@ export type PendingNav =
   | { kind: "dept"; id: number }
   | { kind: "sub"; sub: SubTab }
   | null;
-
-/** Một ô của lưới thưởng/phạt tổ trưởng: KHOẢNG SẢN LƯỢNG × trần TỶ LỆ LỖI → % thưởng/phạt.
- *  `sl_den` null = khoảng cuối (∞) · `up_to` null = dòng "trở lên" của khoảng đó. */
-export type BracketRow = {
-  sl_tu: number;
-  sl_den: number | null;
-  up_to: number | null;
-  rate: number;
-  note: string;
-};
 
 export type CompDraft = { name: string; kind: ComponentKind; is_taxable: boolean };

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_any_permission
+from ..deps import require_quyen_to
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.cong_viec_khoan_repo import CongViecKhoanRepository
 from ..schemas.cong_viec_khoan import (
@@ -38,7 +38,7 @@ MODULE = "dm_cong_viec_khoan"
 #
 # MỘT dependency cho CẢ list LẪN detail: mở list bằng OR-gate mà khoá detail bằng quyền chặt thì
 # người ta liệt kê được, bấm vào một dòng lại 403 giữa luồng — lỗi câm, không ai đoán ra thiếu gì.
-_DOC = require_any_permission(
+_DOC = require_quyen_to("read", 
     (MODULE, "read"), ("luong", "read"), ("dm_cong_doan", "read"), ("san_xuat", "read"),
 )
 
