@@ -2071,6 +2071,14 @@ class PayrollService:
         from .khoan_km_service import KhoanKmService
         return KhoanKmService(self.components.db).chi_tiet(ln.employee_id, ky.year, ky.month)
 
+    def luot_xe_chua_ve_kho(self, year: int, month: int) -> list[str]:
+        """Mã lượt xe có điểm giao trong kỳ mà chưa ghi số đồng hồ về kho — tiền chặng về kho của
+        chúng chưa vào lương (PRD khoán km §14). Cảnh báo trước khi chốt kỳ đọc hàm này."""
+        if self.components is None:
+            return []
+        from .khoan_km_service import KhoanKmService
+        return KhoanKmService(self.components.db).luot_chua_ve_kho(year, month)
+
     def add_line_component(self, *, actor, line_id: int, component_id: int, amount: float, scope=None,
                            note: str | None = None):
         """Thêm khoản chỉ có ở KỲ NÀY. Chép `name`/`kind`/`is_taxable` từ danh mục tại thời điểm

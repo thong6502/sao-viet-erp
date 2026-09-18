@@ -105,6 +105,8 @@ from .delivery import (
     DeliveryStatusHistory,
     DeliveryTrip,
     DeliveryTripLine,
+    LuotXe,
+    LuotXeDiem,
 )
 from .xe import MucKhoanKm, MucKhoanKmBac, Xe
 from .stock_request import StockRequest, StockRequestLine
@@ -276,6 +278,8 @@ __all__ = [
     "DeliveryStatusHistory",
     "DeliveryTrip",
     "DeliveryTripLine",
+    "LuotXe",
+    "LuotXeDiem",
     "StockRequest",
     "StockRequestLine",
     "StockVoucher",

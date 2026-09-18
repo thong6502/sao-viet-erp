@@ -341,6 +341,92 @@ class DeliveryStatusHistory(Base):
     ly_do: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
+class LuotXe(Base):
+    """LƯỢT XE — một vòng chạy của MỘT xe: xuất phát ở kho → các điểm giao → về kho.
+
+    Chủ chốt 18/09/2026 (`docs/prd-khoan-km-giao-hang.md` §14): tiền khoán km tính theo CHẶNG của
+    lượt, đúng sổ hành trình của công ty — mỗi chặng tra bậc theo km của RIÊNG chặng đó, lượt về kho
+    là một chặng. Gộp cả vòng vào một ô km thì tra bậc theo tổng km, giá rẻ hơn (đối chiếu T08: hụt
+    ~13%). Tài xế KHÔNG gõ km: ghi SỐ ĐỒNG HỒ ở mỗi điểm, máy trừ ra km.
+
+    Người lên đơn giao hàng lập lượt (ô Lượt xe lúc lên đơn: lượt mới, hoặc ghép vào lượt đang mở
+    của cùng xe). Hiện chỉ có điểm GIAO của đơn bán; điểm NCC / gia công để sau (§14.2 #5).
+
+    Kíp xe KHÔNG đặt ở đây: nó nằm trên từng chuyến như trước, chặng tới điểm nào chia cho kíp của
+    chuyến đó. Lượt chỉ giữ thứ thuộc về XE: đồng hồ lúc đi, lúc về, và chặng về kho.
+    """
+
+    __tablename__ = "luot_xe"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # LX-yymmdd-XXXX — cùng khuôn mã `YCGH-`.
+    code: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
+    # Số đồng hồ là của MỘT chiếc xe ⇒ mọi chuyến trong lượt phải cùng xe này (chặn ở service).
+    vehicle_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("xe.id"), index=True, nullable=False
+    )
+    ngay: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    so_dong_ho_xuat_phat: Mapped[int | None] = mapped_column(
+        Integer, CheckConstraint("so_dong_ho_xuat_phat IS NULL OR so_dong_ho_xuat_phat >= 0",
+                                 name="chk_luot_xe_xuat_phat"),
+        nullable=True,
+    )
+    so_dong_ho_ve_kho: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Có mốc này = lượt đã VỀ KHO (đóng). Tiền chặng về kho tính vào kỳ lương chứa mốc này.
+    ve_kho_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # --- Chặng VỀ KHO: CHỤP lúc về kho (cùng luật chụp của chuyến — sửa mức sau không hồi tố) ----
+    km_ve_kho: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    don_gia_ve_kho: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Chặng về kho chia cho KÍP của điểm cuối (theo số đồng hồ) — y như sổ hành trình ghi kíp trên
+    # từng dòng. Chụp chuyến đó lại để tính lương không phải suy lại thứ tự.
+    ve_kho_trip_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("delivery_trips.id", ondelete="SET NULL"), nullable=True
+    )
+
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), index=True, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    diem: Mapped[list["LuotXeDiem"]] = relationship(
+        "LuotXeDiem", back_populates="luot", cascade="all, delete-orphan",
+        order_by="LuotXeDiem.id",
+    )
+
+
+class LuotXeDiem(Base):
+    """MỘT điểm dừng của lượt xe — hiện là một CHUYẾN GIAO của đơn bán.
+
+    Số đồng hồ ghi lúc TỚI điểm (tài xế gõ ở bước nhập kết quả). Chặng tới điểm = số của điểm trừ
+    số của điểm ngay trước nó THEO SỐ ĐỒNG HỒ (không theo thứ tự xếp lúc lên đơn: xe ghé khách nào
+    trước là chuyện ngoài đường, số đồng hồ mới là sự thật). Km + đơn giá của chặng chụp thẳng vào
+    chuyến (`delivery_trips.km` / `.don_gia_km`) nên bảng lương, bảng đối chiếu, chia kíp không đổi.
+    """
+
+    __tablename__ = "luot_xe_diem"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    luot_xe_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("luot_xe.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # MỘT chuyến chỉ nằm trong MỘT lượt — nằm hai lượt là trả tiền chặng hai lần.
+    delivery_trip_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("delivery_trips.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    so_dong_ho: Mapped[int | None] = mapped_column(
+        Integer, CheckConstraint("so_dong_ho IS NULL OR so_dong_ho >= 0",
+                                 name="chk_luot_xe_diem_so_dong_ho"),
+        nullable=True,
+    )
+
+    luot: Mapped["LuotXe"] = relationship("LuotXe", back_populates="diem")
+
+
 class DeliveryTripAttachment(Base):
     """File MINH CHỨNG của một chuyến giao — ảnh hoặc PDF (chủ chốt 22/08/2026).
 

@@ -9,10 +9,14 @@
 // YÊU CẦU do máy chủ tính (hàm của các lần giao), FE chỉ hiển thị: tính lại ở đây là hai nơi
 // hiểu khác nhau.
 //
-// Shell (tách từ pages/GiaoHangPage.tsx): state + `load()` + `goi()` + `moChiTiet()` + bộ tab +
-// chỗ mount ba bảng, drawer và ba hộp thoại.
+// Tab "Đơn giao hàng" là danh sách KHỐI (18/09/2026): mỗi LƯỢT XE một khối đủ các điểm, thao tác
+// cả lượt nằm ngay trên khối (`KhoiLuot`); chuyến ngoài lượt một thẻ gọn.
+//
+// Shell (tách từ pages/GiaoHangPage.tsx): state + `load()` + `moChiTiet()` + bộ tab + chỗ mount ba
+// bảng, drawer chi tiết và ba hộp thoại.
 import { useCallback, useEffect, useState } from "react";
 import type {
+  BangGiaoItem,
   DeliveryDriver,
   DeliveryRequest,
   DeliveryRequestDetail,
@@ -35,7 +39,8 @@ import "../../rebuild-catalog.css";
 import "../../giao-hang.css";
 import "../../kho-request.css";
 
-// Phân trang máy chủ (CLAUDE.md/best-practice, khớp Đơn hàng bán + Tính giá).
+// Phân trang máy chủ (CLAUDE.md/best-practice, khớp Đơn hàng bán + Tính giá). Tab Đơn giao hàng
+// đếm theo KHỐI (một lượt = một khối), không theo đơn.
 const PAGE_SIZE = 20;
 // Tab "Yêu cầu giao" lọc theo TRẠNG THÁI TÍNH (nhiều bảng, không phải cột thô) nên không trang
 // hoá được ở SQL — lấy một CỬA SỔ 200 yêu cầu mới nhất rồi lọc/trang ở FE, giống Đơn hàng bán.
@@ -52,9 +57,10 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
   const canCancel = can("giao_hang", "cancel");
 
   const [tab, setTab] = useState<TabId>("ke-hoach");
-  const [trips, setTrips] = useState<DeliveryTrip[]>([]);
-  const [tripsPage, setTripsPage] = useState(1);
-  const [tripsTotal, setTripsTotal] = useState(0);
+  const [khoi, setKhoi] = useState<BangGiaoItem[]>([]);
+  const [khoiPage, setKhoiPage] = useState(1);
+  const [khoiTotal, setKhoiTotal] = useState(0);
+  const [soDon, setSoDon] = useState(0);
   const [choLenKeHoachRows, setChoLenKeHoachRows] = useState<DeliveryRequest[]>([]);
   const [reqPage, setReqPage] = useState(1);
   const [reqTotal, setReqTotal] = useState(0);
@@ -62,7 +68,12 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
   const [detail, setDetail] = useState<DeliveryRequestDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [planFor, setPlanFor] = useState<DeliveryRequest | null>(null);
+  // Lên đơn: MỘT yêu cầu (nút ở dòng) hoặc NHIỀU yêu cầu chung một lượt xe (tick + "Lên lượt xe").
+  const [planFor, setPlanFor] = useState<
+    { requests: DeliveryRequest[]; theoLuot: boolean } | null
+  >(null);
+  // Lượt vừa lập — khối của nó được làm nổi + cuộn tới (bước kế tiếp: gửi yêu cầu xuất kho).
+  const [luotMoi, setLuotMoi] = useState<number | null>(null);
   const [ketQuaFor, setKetQuaFor] = useState<DeliveryTrip | null>(null);
   const [xuatKhoFor, setXuatKhoFor] = useState<DeliveryTrip | null>(null);
   // Tháng đang xem ở tab Nhân viên. `YYYY-MM` theo giờ ĐỊA PHƯƠNG — `toISOString()` trả UTC nên
@@ -78,10 +89,11 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
     setError(null);
     const viec: Promise<unknown>[] = [
       api.giaoHang
-        .trips(token, { page: tripsPage, size: PAGE_SIZE })
+        .bangGiao(token, { page: khoiPage, size: PAGE_SIZE })
         .then((r) => {
-          setTrips(r.items);
-          setTripsTotal(r.total);
+          setKhoi(r.items);
+          setKhoiTotal(r.total);
+          setSoDon(r.so_don);
         }),
       api.giaoHang
         .requests(token, { page: 1, size: CLIENT_FILTER_WINDOW })
@@ -98,7 +110,7 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Không tải được dữ liệu"))
       .finally(() => setLoading(false));
     // `thang` PHẢI có ở đây — thiếu thì đổi tháng mà bảng đứng im.
-  }, [token, canViewDrivers, thang, tripsPage, reqPage]);
+  }, [token, canViewDrivers, thang, khoiPage, reqPage]);
 
   // `eventTick` tăng mỗi sự kiện SSE ⇒ bảng tự tải lại. Tài xế không phải F5 để biết kho đã
   // soạn xong hàng chưa (CLAUDE.md: gửi/thông báo nội bộ phải tức thì).
@@ -106,16 +118,23 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
     load();
   }, [load, eventTick]);
 
-  const tripsTotalPages = Math.max(1, Math.ceil(tripsTotal / PAGE_SIZE));
+  // Nổi một lúc rồi thôi — để lâu thì khối đó trông như "có gì bất thường".
+  useEffect(() => {
+    if (luotMoi == null) return;
+    const h = window.setTimeout(() => setLuotMoi(null), 6000);
+    return () => window.clearTimeout(h);
+  }, [luotMoi]);
+
+  const khoiTotalPages = Math.max(1, Math.ceil(khoiTotal / PAGE_SIZE));
   const reqTotalPages = Math.max(1, Math.ceil(reqTotal / PAGE_SIZE));
 
-  /** Gọi một hành động rồi tải lại; lỗi hiện lên banner thay vì nuốt im. */
-  const goi = useCallback(
-    (viec: Promise<unknown>) => {
+  /** Gọi một hành động rồi tải lại; lỗi hiện lên banner thay vì nuốt im. Trả Promise để nút tự
+   *  khoá tới khi lệnh xong (bấm hai lần liền là hai lệnh). */
+  const lam = useCallback(
+    (viec: Promise<unknown>, loiMacDinh: string) =>
       viec
         .then(load)
-        .catch((e: unknown) => setError(e instanceof Error ? e.message : "Không thao tác được"));
-    },
+        .catch((e: unknown) => setError(e instanceof Error ? e.message : loiMacDinh)),
     [load],
   );
 
@@ -131,7 +150,7 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
   );
 
   const tabs: { id: TabId; label: string; count: number; hien: boolean }[] = [
-    { id: "ke-hoach", label: "Đơn giao hàng", count: tripsTotal, hien: true },
+    { id: "ke-hoach", label: "Đơn giao hàng", count: soDon, hien: true },
     {
       id: "cho-len-ke-hoach",
       label: "Yêu cầu giao",
@@ -151,11 +170,11 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
       <header className="rc__head">
         <div className="rc__headrow">
           <h1 className="rc__title">Giao hàng</h1>
-          <span className="rc__count">{tripsTotal} đơn giao</span>
+          <span className="rc__count">{soDon} đơn giao</span>
         </div>
         <p className="rc__sub">
-          Yêu cầu từ Bán hàng → lên đơn giao hàng → gửi đề nghị xuất hàng → kho duyệt → tài xế
-          lấy hàng và giao.
+          Yêu cầu từ Bán hàng → lên đơn giao hàng (nhiều đơn chung một lượt xe) → gửi yêu cầu xuất
+          kho → tài xế lấy hàng và giao.
         </p>
       </header>
 
@@ -187,45 +206,34 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
         </div>
       )}
 
-      {tabDang === "ke-hoach" && (
-        <BangKeHoach trips={trips} loading={loading} onMo={moChiTiet}
+      {tabDang === "ke-hoach" && token && (
+        <BangKeHoach items={khoi} loading={loading} token={token}
+          canPlan={canPlan} canWrite={canWrite} luotMoi={luotMoi} onDoi={load} onMo={moChiTiet}
           onKetQua={canWrite ? setKetQuaFor : undefined}
           onGuiDeNghi={canPlan ? setXuatKhoFor : undefined}
-          onDaLay={canWrite && token ? (t) => goi(api.giaoHang.daLayHang(token, t.id)) : undefined}
-          onDaTra={
-            canWrite && token
-              ? (t) =>
-                  api.giaoHang
-                    .daTraHang(token, t.id)
-                    .then(load)
-                    .catch((e: unknown) =>
-                      setError(e instanceof Error ? e.message : "Không ghi được đã trả hàng"))
-              : undefined
-          }
-          onBatDau={
-            canWrite && token
-              ? (t) =>
-                  api.giaoHang
-                    .batDauGiao(token, t.id)
-                    .then(load)
-                    .catch((e: unknown) =>
-                      setError(e instanceof Error ? e.message : "Không bắt đầu giao được"))
-              : undefined
-          }
+          onDaLay={canWrite
+            ? (t) => lam(api.giaoHang.daLayHang(token, t.id), "Không ghi được đã lấy hàng")
+            : undefined}
+          onBatDau={canWrite
+            ? (t) => lam(api.giaoHang.batDauGiao(token, t.id), "Không bắt đầu giao được")
+            : undefined}
+          onDaTra={canWrite
+            ? (t) => lam(api.giaoHang.daTraHang(token, t.id), "Không ghi được đã trả hàng")
+            : undefined}
         />
       )}
-      {tabDang === "ke-hoach" && !loading && trips.length > 0 && (
+      {tabDang === "ke-hoach" && !loading && khoi.length > 0 && (
         <div className="gh-pager">
           <span className="gh-pager__info">
-            Tổng {tripsTotal} đơn giao · Trang {tripsPage}/{tripsTotalPages}
+            Tổng {soDon} đơn giao · Trang {khoiPage}/{khoiTotalPages}
           </span>
           <div className="gh-pager__btns">
-            <button type="button" className="gh-pager__btn" disabled={tripsPage <= 1}
-              onClick={() => setTripsPage((p) => Math.max(1, p - 1))}>
+            <button type="button" className="gh-pager__btn" disabled={khoiPage <= 1}
+              onClick={() => setKhoiPage((p) => Math.max(1, p - 1))}>
               Trước
             </button>
-            <button type="button" className="gh-pager__btn" disabled={tripsPage >= tripsTotalPages}
-              onClick={() => setTripsPage((p) => Math.min(tripsTotalPages, p + 1))}>
+            <button type="button" className="gh-pager__btn" disabled={khoiPage >= khoiTotalPages}
+              onClick={() => setKhoiPage((p) => Math.min(khoiTotalPages, p + 1))}>
               Sau
             </button>
           </div>
@@ -234,7 +242,8 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
 
       {tabDang === "cho-len-ke-hoach" && (
         <BangChoLenKeHoach rows={choLenKeHoachRows} loading={loading} onMo={moChiTiet}
-          onLenKeHoach={setPlanFor} />
+          onLenKeHoach={(r) => setPlanFor({ requests: [r], theoLuot: false })}
+          onLenLuot={(rs) => setPlanFor({ requests: rs, theoLuot: true })} />
       )}
       {tabDang === "cho-len-ke-hoach" && !loading && choLenKeHoachRows.length > 0 && (
         <div className="gh-pager">
@@ -281,11 +290,19 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
 
       {planFor && token && (
         <DialogLenKeHoach
-          request={planFor}
+          requests={planFor.requests}
+          theoLuot={planFor.theoLuot}
           token={token}
           onClose={() => setPlanFor(null)}
-          onXong={() => {
+          onXong={(luotId) => {
             setPlanFor(null);
+            // Lên lượt xong ⇒ về tab Đơn giao hàng, khối lượt đó nổi lên: bước kế tiếp (gửi yêu
+            // cầu xuất kho cả lượt) nằm ngay trên khối.
+            if (luotId != null) {
+              setTab("ke-hoach");
+              setKhoiPage(1);
+              setLuotMoi(luotId);
+            }
             load();
           }}
         />

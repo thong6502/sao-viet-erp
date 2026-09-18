@@ -5882,6 +5882,48 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú kèm theo. |
 | `ly_do` | `String(500)` → `VARCHAR(500)` | — | yes | — | Bắt buộc khi thất bại / trả hàng / huỷ. |
 
+### `luot_xe`
+
+**Purpose:** LƯỢT XE — một vòng chạy của MỘT xe: xuất phát ở kho → các điểm giao → về kho (chốt
+18/09/2026, `docs/prd-khoan-km-giao-hang.md` §14). Tiền khoán km tính theo **CHẶNG** của lượt, đúng sổ
+hành trình của công ty: mỗi chặng tra bậc theo km của RIÊNG chặng đó, lượt về kho là một chặng. Gộp
+cả vòng vào một ô km thì tra bậc theo tổng km ⇒ giá rẻ hơn (đối chiếu T08: hụt ~13%). Tài xế **không
+gõ km**: ghi **số đồng hồ** lúc xuất phát, lúc tới từng khách, lúc về kho — máy trừ ra km. Người lên
+đơn giao hàng lập lượt (ô *Lượt xe* lúc lên đơn: lượt mới hoặc ghép vào lượt đang mở của CÙNG xe).
+Kíp xe KHÔNG ở đây — vẫn trên từng chuyến; chặng tới điểm nào chia cho kíp của chuyến đó. Bảng mới ⇒
+`create_all` dựng, không cần migration.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(30)` → `VARCHAR(30)` | **UQ**, **IX** | no | — | `LX-yymmdd-XXXX`. |
+| `vehicle_id` | `Integer` → `INTEGER` | **FK→xe.id**, **IX** | no | — | Xe của lượt. Số đồng hồ là của MỘT chiếc xe ⇒ mọi chuyến trong lượt phải cùng xe này (service chặn ghép khác xe, chặn đổi xe riêng một chuyến). |
+| `ngay` | `Date` → `DATE` | **IX** | no | — | Ngày chạy theo giờ Việt Nam (từ giờ lấy hàng của chuyến lập lượt). |
+| `so_dong_ho_xuat_phat` | `Integer` → `INTEGER` | — | yes | — | Số đồng hồ lúc xe rời kho — nhập ở *Bắt đầu giao* của chuyến ĐẦU. CHECK `>= 0`. |
+| `so_dong_ho_ve_kho` | `Integer` → `INTEGER` | — | yes | — | Số đồng hồ lúc về kho — nhập khi mọi điểm đã có kết quả. |
+| `ve_kho_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Có số = lượt đã về kho (đóng). Tiền chặng về kho xếp vào kỳ lương chứa mốc này. |
+| `km_ve_kho` | `Integer` → `INTEGER` | — | yes | — | **CHỤP** km chặng về kho = số về kho − số lớn nhất của các điểm. |
+| `don_gia_ve_kho` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | yes | — | **CHỤP** đơn giá bậc của km chặng về kho, theo mức của xe (sửa mức sau không hồi tố). NULL = tài xế điểm cuối ngoài khối Giao hàng ⇒ không ra tiền. |
+| `ve_kho_trip_id` | `Integer` → `INTEGER` | **FK→delivery_trips.id** (SET NULL) | yes | — | Chuyến ở điểm cuối (số đồng hồ lớn nhất) — chặng về kho chia cho KÍP của chuyến này, như sổ hành trình ghi kíp trên từng dòng. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Người lập lượt. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` | Lúc lập. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` | Lần sửa cuối. |
+
+### `luot_xe_diem`
+
+**Purpose:** MỘT điểm dừng của lượt xe — hiện là một **chuyến giao của đơn bán** (điểm NCC / gia công
+để sau, PRD §14.2 #5). Số đồng hồ ghi lúc TỚI điểm (tài xế gõ ở bước nhập kết quả). Chặng tới điểm =
+số của điểm − số của điểm ngay trước nó **theo số đồng hồ** (không theo thứ tự xếp lúc lên đơn). Km +
+đơn giá của chặng CHỤP thẳng vào `delivery_trips.km` / `.don_gia_km` ⇒ bảng lương, bảng đối chiếu,
+chia kíp đọc như cũ. Chuyến huỷ kế hoạch thì rút khỏi lượt; lượt hết điểm thì xoá.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `luot_xe_id` | `Integer` → `INTEGER` | **FK→luot_xe.id** (CASCADE), **IX** | no | — | Lượt chứa điểm này. |
+| `delivery_trip_id` | `Integer` → `INTEGER` | **FK→delivery_trips.id** (CASCADE), **UQ** | no | — | Chuyến giao ở điểm này. UNIQUE: một chuyến chỉ thuộc MỘT lượt — hai lượt là trả tiền chặng hai lần. |
+| `so_dong_ho` | `Integer` → `INTEGER` | — | yes | — | Số đồng hồ lúc TỚI điểm. NULL = chưa nhập kết quả. CHECK `>= 0`. |
+
 ### `delivery_trip_attachments`
 
 **Purpose:** file MINH CHỨNG của một chuyến giao — ảnh hoặc PDF (mg 0230, chốt 22/08/2026). Việc
