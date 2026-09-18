@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -99,6 +100,9 @@ class PlanIn(BaseModel):
     gio_du_kien_giao: datetime
     kho_id: int | None = None
     ghi_chu_phan_cong: str | None = None
+    #: LƯỢT XE (PRD khoán km §14): `"moi"` = lượt mới · id = ghép vào lượt đang mở của CÙNG xe ·
+    #: bỏ trống = không vào lượt (đường cũ: một ô km cho cả chuyến).
+    luot_xe_id: int | Literal["moi"] | None = None
 
 
 class PlanUpdate(BaseModel):
@@ -121,7 +125,11 @@ class SoThucNhanIn(BaseModel):
 class KetQuaIn(BaseModel):
     ket_qua: str
     # `ge=0`, KHÔNG phải `gt=0`: xe chưa lăn bánh mà khách không nghe máy thì 0 km là số THẬT.
-    km: int = Field(ge=0)
+    # Bỏ trống được từ 18/09/2026: chuyến trong LƯỢT XE không gõ km, gửi `so_dong_ho` — máy chủ
+    # vẫn đòi km với chuyến ngoài lượt.
+    km: int | None = Field(default=None, ge=0)
+    #: Số đồng hồ lúc TỚI khách — chỉ cho chuyến trong lượt xe (PRD khoán km §14).
+    so_dong_ho: int | None = Field(default=None, ge=0)
     thoi_gian_ket_thuc: datetime | None = None
     nguoi_nhan_thuc_te: str | None = None
     ly_do_that_bai: str | None = None
@@ -181,6 +189,145 @@ class TripOut(BaseModel):
     #: Kho đã LẬP PHIẾU chưa ⇒ hiện "Kho đã chuẩn bị xong". Suy ra từ `stock_vouchers`, không
     #: phải cột lưu — kho thao tác trên màn của họ, cột lưu ở đây sớm muộn lệch với sổ kho.
     kho_da_lap_phieu: bool = False
+    #: Lượt xe của chuyến (PRD khoán km §14). None = chuyến ngoài lượt (đường cũ, một ô km).
+    luot: "LuotXeTrongChuyenOut | None" = None
+    #: Cảnh báo KHÔNG chặn của thao tác vừa làm (vd "xe chạy ngoài sổ N km").
+    canh_bao: list[str] = []
+
+
+class LuotXeTrongChuyenOut(BaseModel):
+    """Lượt xe nhìn từ MỘT chuyến — đủ để bảng chuyến biết hiện nút nào."""
+
+    id: int
+    code: str
+    vehicle_id: int
+    ngay: date
+    so_diem: int
+    so_dong_ho_xuat_phat: int | None = None
+    so_dong_ho_ve_kho: int | None = None
+    ve_kho_luc: datetime | None = None
+    km_ve_kho: int | None = None
+    #: Số đồng hồ lúc TỚI điểm của chính chuyến này (None = chưa nhập kết quả).
+    so_dong_ho: int | None = None
+    #: Số đồng hồ lớn nhất đã ghi trong lượt (hoặc số xuất phát) — hộp nhập kết quả / về kho nhắc.
+    so_dong_ho_gan_nhat: int | None = None
+    #: Gợi ý số lúc xuất phát = số cuối đã ghi của xe ở lượt khác. Chỉ có khi lượt chưa xuất phát.
+    goi_y_xuat_phat: int | None = None
+    #: Mọi điểm đã có kết quả, lượt chưa về kho ⇒ hiện nút "Về kho" (ở điểm cuối).
+    cho_ve_kho: bool = False
+    #: Chuyến này là điểm có số đồng hồ lớn nhất của lượt — nút "Về kho" đặt ở đây.
+    la_diem_cuoi: bool = False
+
+
+class LuotXeMoOut(BaseModel):
+    """Một lượt CHƯA về kho của một xe — ô Lượt xe lúc lên đơn."""
+
+    id: int
+    code: str
+    ngay: date
+    so_diem: int
+    tai_xe: str | None = None
+    da_xuat_phat: bool = False
+
+
+class LuotXeMoPage(BaseModel):
+    items: list[LuotXeMoOut] = []
+
+
+class BatDauGiaoIn(BaseModel):
+    #: Chỉ chuyến ĐẦU của một lượt xe mới cần — số đồng hồ lúc xe rời kho.
+    so_dong_ho_xuat_phat: int | None = Field(default=None, ge=0)
+
+
+class VeKhoIn(BaseModel):
+    so_dong_ho: int = Field(ge=0)
+    xac_nhan_km_lon: bool = False
+
+
+class VeKhoOut(BaseModel):
+    id: int
+    code: str
+    so_dong_ho_ve_kho: int | None = None
+    km_ve_kho: int | None = None
+    ve_kho_luc: datetime | None = None
+    canh_bao: list[str] = []
+
+
+class LenLuotIn(BaseModel):
+    """Lên đơn NHIỀU yêu cầu vào MỘT lượt xe một lần (chủ chốt 18/09/2026). Mỗi yêu cầu vẫn một
+    chuyến, một phiếu xuất kho; tất cả hoặc không gì."""
+
+    request_ids: list[int] = Field(min_length=1)
+    employee_id: int
+    phu_xe_employee_id: int | None = None
+    #: Lượt là vòng chạy của MỘT chiếc xe ⇒ bắt buộc (service chặn để câu lỗi nói được lý do).
+    vehicle_id: int | None = None
+    gio_lay_hang: datetime
+    gio_du_kien_giao: datetime
+    ghi_chu_phan_cong: str | None = None
+    #: `"moi"` = lượt mới · id = ghép vào lượt đang mở của cùng xe.
+    luot_xe_id: int | Literal["moi"] = "moi"
+
+
+class LenLuotOut(BaseModel):
+    luot_id: int
+    code: str
+    trips: list[TripOut]
+    canh_bao: list[str] = []
+
+
+class LuotXeChiTietOut(BaseModel):
+    """Cả lượt nhìn một chỗ — ngăn Lượt xe trên màn Giao hàng."""
+
+    id: int
+    code: str
+    ngay: date
+    vehicle_id: int
+    xe_bien_so: str | None = None
+    xe_ten: str | None = None
+    so_dong_ho_xuat_phat: int | None = None
+    so_dong_ho_ve_kho: int | None = None
+    ve_kho_luc: datetime | None = None
+    km_ve_kho: int | None = None
+    goi_y_xuat_phat: int | None = None
+    #: Số lớn nhất đã ghi trong lượt (hoặc số xuất phát) — xem trước chặng về kho.
+    so_dong_ho_gan_nhat: int | None = None
+    #: Mọi điểm đã có kết quả, lượt chưa về kho ⇒ bày nút "Về kho".
+    cho_ve_kho: bool = False
+    tong_km: int = 0
+    #: Các điểm theo THỨ TỰ CHẶNG (số đồng hồ tăng dần; chưa có số thì xếp cuối).
+    diem: list[TripOut] = []
+    so_cho_gui_kho: int = 0
+    so_cho_lay_hang: int = 0
+    so_cho_bat_dau: int = 0
+    so_dang_giao: int = 0
+
+
+class BangGiaoItem(BaseModel):
+    """Một KHỐI của tab Đơn giao hàng: đúng MỘT trong hai ô có giá trị."""
+
+    luot: LuotXeChiTietOut | None = None
+    trip: TripOut | None = None
+
+
+class BangGiaoPage(BaseModel):
+    items: list[BangGiaoItem]
+    #: Tổng số KHỐI (lượt + chuyến lẻ) — để phân trang.
+    total: int
+    #: Tổng số ĐƠN giao (chuyến) — số đếm trên tab / đầu trang, như trước.
+    so_don: int
+
+
+class GuiXuatKhoCaLuotIn(BaseModel):
+    ghi_chu: str | None = None
+
+
+class CaLuotOut(BaseModel):
+    """Kết quả một thao tác cả lượt: bao nhiêu chuyến vừa đi tiếp + cảnh báo không chặn."""
+
+    so_chuyen: int
+    phieu: list[str] = []
+    canh_bao: list[str] = []
 
 
 class TripPage(BaseModel):
@@ -387,3 +534,7 @@ class KhoanKmPctIn(BaseModel):
 class KhoanKmPctOut(BaseModel):
     pct_tai_xe: float
     pct_phu_xe: float
+
+
+# `TripOut.luot` trỏ tới lớp khai SAU nó — dựng lại để pydantic nối đúng kiểu.
+TripOut.model_rebuild()

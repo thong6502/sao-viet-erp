@@ -64,45 +64,46 @@ export function DialogYeuCauXuatKho({
           </button>
         </header>
         <div className="rc-drawer__body gh-form">
-          <p className="rc__sub">
-            Đây là <strong>yêu cầu xuất kho bình thường</strong> — kho lập phiếu và ghi sổ như mọi
-            phiếu vật tư khác. Hàng lấy thẳng từ yêu cầu giao, <strong>không sửa được</strong>.
-            {" "}<strong>Xuất từ kho nào do thủ kho chọn</strong> lúc lập phiếu.
-          </p>
+          <div className="gh-card" style={{ background: "#f8fafc", margin: 0 }}>
+            <p className="rc__sub" style={{ margin: 0 }}>
+              Đây là <strong>yêu cầu xuất kho bình thường</strong> — kho lập phiếu và ghi sổ như mọi
+              phiếu vật tư khác. Hàng lấy thẳng từ yêu cầu giao, <strong>không sửa được</strong>.
+              {" "}<strong>Xuất từ kho nào do thủ kho chọn</strong> lúc lập phiếu.
+            </p>
+          </div>
 
-          {/* CHỈ XEM. Bản trước bắt gõ tay mặt hàng + số lượng ở đây — sai: yêu cầu giao đã nói
-              rõ giao cái gì bao nhiêu, gõ lại là mời gõ sai. */}
-          <div className="kho-lines__wrap">
+          {/* CHỈ XEM */}
+          <div className="kho-lines__wrap" style={{ border: "1px solid #e2e8f0", borderRadius: "8px", overflow: "hidden" }}>
             <table className="kho-lines">
               <thead className="kho-lines__head">
                 <tr>
-                  <th style={{ width: 28 }} />
+                  <th style={{ width: 36 }}>STT</th>
                   <th>Mặt hàng</th>
                   <th style={{ width: 90 }}>ĐVT</th>
-                  <th className="kho-num" style={{ width: 100 }}>Số lượng</th>
+                  <th className="kho-num" style={{ width: 110 }}>Số lượng</th>
                 </tr>
               </thead>
               <tbody>
                 {hang === null && (
                   <tr>
-                    <td colSpan={4}>Đang tải…</td>
+                    <td colSpan={4} style={{ textAlign: "center", padding: "20px", color: "#64748b" }}>Đang tải…</td>
                   </tr>
                 )}
                 {hang?.map((d, i) => (
                   <tr key={`${d.hang_loai}-${d.hang_id}`}>
                     <td className="kho-lines__code">{i + 1}</td>
                     <td>
-                      <div className="kho-lines__name kho-name-clamp" title={d.hang_ten ?? ""}>
+                      <div className="kho-lines__name kho-name-clamp" title={d.hang_ten ?? ""} style={{ fontWeight: 500 }}>
                         {d.hang_ten ?? `${d.hang_loai}#${d.hang_id}`}
                       </div>
                     </td>
                     <td className="kho-lines__code">{nhanDonVi(d.dvt)}</td>
-                    <td className="kho-num">{d.sl_de_nghi}</td>
+                    <td className="kho-num" style={{ fontWeight: 600 }}>{d.sl_de_nghi}</td>
                   </tr>
                 ))}
                 {hang?.length === 0 && (
                   <tr>
-                    <td colSpan={4}>Không có hàng nào phải xuất.</td>
+                    <td colSpan={4} style={{ textAlign: "center", padding: "20px", color: "#64748b" }}>Không có hàng nào phải xuất.</td>
                   </tr>
                 )}
               </tbody>
@@ -111,11 +112,11 @@ export function DialogYeuCauXuatKho({
 
           <label>
             Ghi chú cho kho
-            <input className="input" value={ghiChu} onChange={(e) => setGhiChu(e.target.value)} />
+            <input className="input" value={ghiChu} placeholder="Ghi chú thêm cho thủ kho..." onChange={(e) => setGhiChu(e.target.value)} />
           </label>
 
           {loi && (
-            <div className="banner banner--error" role="alert">
+            <div className="banner banner--error" role="alert" style={{ margin: 0 }}>
               {loi}
             </div>
           )}

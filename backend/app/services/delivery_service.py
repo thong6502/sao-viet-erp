@@ -58,6 +58,13 @@ from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 # Hai chuyến cách nhau dưới ngần này thì CẢNH BÁO (không chặn) — PRD §6.
 DEM_SAT_GIO = timedelta(minutes=30)
 
+#: Ô Lượt xe lúc lên đơn = "Lượt mới" (PRD khoán km §14). Số nguyên = ghép vào lượt đang mở.
+LUOT_MOI = "moi"
+#: Ngày của lượt theo giờ VIỆT NAM — chuyến lấy hàng 6h sáng giờ VN là 23h hôm trước theo UTC.
+_VN_TZ = timezone(timedelta(hours=7))
+#: Chuyến còn CHƯA có kết quả — lượt còn điểm ở mấy trạng thái này thì chưa về kho được.
+_CHUA_KET_QUA = (LG_DA_LEN_KE_HOACH, LG_DANG_CHUAN_BI, LG_DA_LAY_HANG, LG_DANG_GIAO)
+
 #: Mốc "người gọi KHÔNG gửi trường này" — phân biệt với `None` nghĩa là "gửi lên để XOÁ".
 #: Cần cho `doi_ke_hoach(phu_xe_employee_id=...)`: dùng `None` làm mặc định thì không có đường nào
 #: gỡ phụ xe đã xếp, vì gỡ và không-đụng-tới trông giống hệt nhau.
@@ -548,21 +555,336 @@ class DeliveryService:
         14/09/2026 xe không mức / mức chưa có bậc bị chặn ở `_doi_xe` trước khi tới đây, nên nấc 2
         không còn nuốt được xe nào.
         """
-        if not self._thuoc_khoi_giao_hang(trip.employee_id):
-            return
-        nv = self.employees.get_by_id(trip.employee_id)
-        pb = self.departments.get_by_id(nv.department_id)
+        pb = self._phong_khoan_km(trip)
         if pb is None:
             return
+        trip.don_gia_km = self._don_gia_chang(trip, int(trip.km or 0), pb=pb)
+        trip.pct_tai_xe = pb.pct_tai_xe
+        trip.pct_phu_xe = pb.pct_phu_xe
+
+    def _phong_khoan_km(self, trip):
+        """Phòng của TÀI XẾ chuyến, nếu chuyến thuộc diện khoán km — None nếu không."""
+        if not self._thuoc_khoi_giao_hang(trip.employee_id):
+            return None
+        nv = self.employees.get_by_id(trip.employee_id)
+        return self.departments.get_by_id(nv.department_id)
+
+    def _don_gia_chang(self, trip, km: int, *, pb=None):
+        """Đơn giá của MỘT quãng `km` chạy bằng xe của `trip` — bậc km theo MỨC của xe (PRD §11).
+
+        Tách khỏi `_chup_don_gia_km` từ khi có lượt xe (§14): chặng VỀ KHO không có chuyến riêng,
+        nó tra bậc theo km của chính nó trên xe + phòng của chuyến ở điểm cuối."""
+        pb = pb if pb is not None else self._phong_khoan_km(trip)
+        if pb is None:
+            return None
         muc_id = None
         if trip.vehicle_id is not None and self.xe is not None:
             x = self.xe.get(trip.vehicle_id)
             muc_id = getattr(x, "muc_khoan_km_id", None) if x is not None else None
-        theo_bac = (self.muc_km.tra_don_gia(muc_id, int(trip.km or 0))
+        theo_bac = (self.muc_km.tra_don_gia(muc_id, int(km or 0))
                     if self.muc_km is not None else None)
-        trip.don_gia_km = theo_bac if theo_bac is not None else pb.don_gia_km
-        trip.pct_tai_xe = pb.pct_tai_xe
-        trip.pct_phu_xe = pb.pct_phu_xe
+        return theo_bac if theo_bac is not None else pb.don_gia_km
+
+    # =====================================================================================
+    # Lượt xe — tiền km theo CHẶNG (PRD khoán km §14, chủ chốt 18/09/2026)
+    # =====================================================================================
+    def _xep_vao_luot(self, trip, *, luot_xe_id, actor):
+        """Ô Lượt xe lúc lên đơn. `None` = không vào lượt (đường cũ: một ô km cho cả chuyến);
+        `"moi"` = lượt mới; số = ghép vào lượt ĐANG MỞ của CÙNG xe.
+
+        Một lượt một xe: số đồng hồ là của một chiếc xe, trộn hai xe là trừ số đồng hồ xe này cho
+        số xe kia."""
+        if luot_xe_id in (None, ""):
+            return None
+        if trip.vehicle_id is None:
+            raise DeliveryError("Chọn xe trước khi xếp vào lượt — lượt là vòng chạy của một chiếc xe.")
+        if str(luot_xe_id) == LUOT_MOI:
+            luot = self.deliveries.create_luot(
+                code=self._sinh_ma("LX", self.deliveries.get_luot_by_code),
+                vehicle_id=trip.vehicle_id,
+                ngay=trip.gio_lay_hang.astimezone(_VN_TZ).date(),
+                created_by=getattr(actor, "id", None),
+            )
+        else:
+            luot = self.deliveries.get_luot(int(luot_xe_id))
+            if luot is None:
+                raise DeliveryNotFound("Không tìm thấy lượt xe")
+            if luot.ve_kho_luc is not None:
+                raise DeliveryError(f"Lượt {luot.code} đã về kho — chọn lượt mới.")
+            if luot.vehicle_id != trip.vehicle_id:
+                raise DeliveryError(
+                    f"Lượt {luot.code} chạy xe khác — một lượt chỉ một xe, vì số đồng hồ là của "
+                    "một chiếc xe.")
+        self.deliveries.them_diem(luot.id, trip.id)
+        return luot
+
+    def luot_mo_cua_xe(self, vehicle_id: int) -> list[dict]:
+        """Lượt chưa về kho của một xe — nuôi ô Lượt xe lúc lên đơn."""
+        ra = []
+        for luot in self.deliveries.luot_mo_cua_xe(int(vehicle_id)):
+            trips = [self.deliveries.get_trip(d.delivery_trip_id) for d in luot.diem]
+            dau = next((t for t in trips if t is not None), None)
+            nv = self.employees.get_by_id(dau.employee_id) if dau is not None else None
+            ra.append({
+                "id": luot.id, "code": luot.code, "ngay": luot.ngay, "so_diem": len(luot.diem),
+                "tai_xe": getattr(nv, "full_name", None),
+                "da_xuat_phat": luot.so_dong_ho_xuat_phat is not None,
+            })
+        return ra
+
+    def _tinh_lai_luot(self, luot) -> None:
+        """Tính lại MỌI chặng của lượt từ số đồng hồ — gọi mỗi lần có số mới.
+
+        Chặng xếp theo SỐ ĐỒNG HỒ tăng dần, không theo thứ tự xếp lúc lên đơn: ghé khách nào trước
+        là chuyện ngoài đường, đồng hồ mới là sự thật. Km + đơn giá của chặng tới điểm nào chụp vào
+        CHÍNH chuyến đó (`trip.km`, `trip.don_gia_km`) ⇒ bảng lương, bảng đối chiếu, chia kíp đọc
+        như cũ. Chặng về kho chụp trên lượt, chia cho kíp của điểm cuối."""
+        xp = luot.so_dong_ho_xuat_phat
+        if xp is None:
+            return
+        diem = sorted((d for d in luot.diem if d.so_dong_ho is not None),
+                      key=lambda d: (int(d.so_dong_ho), d.id))
+        truoc, cuoi = int(xp), None
+        for d in diem:
+            trip = self.deliveries.get_trip(d.delivery_trip_id)
+            trip.km = int(d.so_dong_ho) - truoc
+            self._chup_don_gia_km(trip)
+            truoc, cuoi = int(d.so_dong_ho), trip
+        if luot.so_dong_ho_ve_kho is not None and cuoi is not None:
+            luot.km_ve_kho = int(luot.so_dong_ho_ve_kho) - truoc
+            luot.ve_kho_trip_id = cuoi.id
+            luot.don_gia_ve_kho = self._don_gia_chang(cuoi, luot.km_ve_kho)
+
+    def _chan_ngoai_pham_vi_luot(self, luot, *, scope, actor) -> list:
+        """Trả các chuyến của lượt; 403 nếu người gọi không xem được chuyến NÀO trong lượt."""
+        trips = [t for t in (self.deliveries.get_trip(d.delivery_trip_id) for d in luot.diem)
+                 if t is not None]
+        loi = None
+        for t in trips:
+            try:
+                self.chan_ngoai_pham_vi_trip(t, scope=scope, actor=actor)
+                return trips
+            except DeliveryForbidden as e:
+                loi = e
+        raise loi or DeliveryForbidden("Bạn không có quyền với lượt xe này")
+
+    def _canh_bao_xuat_phat(self, luot, so: int) -> list[str]:
+        """Số lúc xuất phát lệch số cuối đã ghi của xe ⇒ NHẮC, không chặn (sổ cũ gõ nhầm mà chặn
+        là xe không chạy được lượt nào nữa, trong khi chưa có màn sửa số)."""
+        cuoi = self.deliveries.so_dong_ho_cuoi_cua_xe(luot.vehicle_id, bo_qua_luot_id=luot.id)
+        if cuoi is None or so == cuoi:
+            return []
+        if so > cuoi:
+            return [f"Xe chạy ngoài sổ {so - cuoi} km kể từ lượt trước (số cuối đã ghi {cuoi})."]
+        return [f"Số đồng hồ {so} nhỏ hơn số cuối đã ghi của xe ({cuoi}) — kiểm lại."]
+
+    def goi_y_xuat_phat(self, luot) -> int | None:
+        return self.deliveries.so_dong_ho_cuoi_cua_xe(luot.vehicle_id, bo_qua_luot_id=luot.id)
+
+    def luot_cua_trip(self, trip) -> dict | None:
+        """Lượt xe nhìn từ MỘT chuyến — bảng chuyến đọc để biết hiện nút nào (None = ngoài lượt)."""
+        diem = self.deliveries.diem_cua_trip(trip.id)
+        if diem is None:
+            return None
+        luot = self.deliveries.get_luot(diem.luot_xe_id)
+        if luot is None:
+            return None
+        trips = [self.deliveries.get_trip(d.delivery_trip_id) for d in luot.diem]
+        so_da_ghi = [(int(d.so_dong_ho), d.delivery_trip_id) for d in luot.diem
+                     if d.so_dong_ho is not None]
+        cuoi = max(so_da_ghi)[1] if so_da_ghi else None
+        gan_nhat = max([s for s, _ in so_da_ghi]
+                       + ([int(luot.so_dong_ho_xuat_phat)]
+                          if luot.so_dong_ho_xuat_phat is not None else []), default=None)
+        con_chua_xong = any(t is not None and t.trang_thai in _CHUA_KET_QUA for t in trips)
+        return {
+            "id": luot.id, "code": luot.code, "vehicle_id": luot.vehicle_id, "ngay": luot.ngay,
+            "so_diem": len(luot.diem),
+            "so_dong_ho_xuat_phat": luot.so_dong_ho_xuat_phat,
+            "so_dong_ho_ve_kho": luot.so_dong_ho_ve_kho,
+            "ve_kho_luc": luot.ve_kho_luc, "km_ve_kho": luot.km_ve_kho,
+            "so_dong_ho": diem.so_dong_ho,
+            "so_dong_ho_gan_nhat": gan_nhat,
+            "goi_y_xuat_phat": (self.goi_y_xuat_phat(luot)
+                                if luot.so_dong_ho_xuat_phat is None else None),
+            "cho_ve_kho": (luot.ve_kho_luc is None and bool(so_da_ghi) and not con_chua_xong),
+            "la_diem_cuoi": cuoi == trip.id,
+        }
+
+    def ve_kho(self, luot_id, *, so_dong_ho, actor, scope=None, xac_nhan_km_lon=False) -> dict:
+        """Ghi số đồng hồ VỀ KHO ⇒ đóng lượt, tính chặng về kho (PRD khoán km §14)."""
+        luot = self.deliveries.get_luot(int(luot_id))
+        if luot is None:
+            raise DeliveryNotFound("Không tìm thấy lượt xe")
+        trips = self._chan_ngoai_pham_vi_luot(luot, scope=scope, actor=actor)
+        if luot.ve_kho_luc is not None:
+            raise DeliveryError(f"Lượt {luot.code} đã về kho rồi.")
+        if luot.so_dong_ho_xuat_phat is None:
+            raise DeliveryError(f"Lượt {luot.code} chưa có số đồng hồ lúc xuất phát.")
+        con = [t for t in trips if t.trang_thai in _CHUA_KET_QUA]
+        if con:
+            raise DeliveryError(
+                f"Còn {len(con)} điểm chưa nhập kết quả — nhập xong mới về kho được.")
+        so_diem = [int(d.so_dong_ho) for d in luot.diem if d.so_dong_ho is not None]
+        if not so_diem:
+            raise DeliveryError(f"Lượt {luot.code} chưa có điểm giao nào có số đồng hồ.")
+        if so_dong_ho is None:
+            raise DeliveryError("Phải nhập số đồng hồ lúc về kho")
+        so, cuoi = int(so_dong_ho), max(so_diem)
+        if so < cuoi:
+            raise DeliveryError(
+                f"Số đồng hồ về kho ({so}) nhỏ hơn số ở điểm giao cuối ({cuoi}).")
+        if so - cuoi > KM_CANH_BAO and not xac_nhan_km_lon:
+            raise DeliveryError(
+                f"Chặng về kho {so - cuoi} km lớn bất thường (> {KM_CANH_BAO}). Xác nhận lại nếu đúng.")
+        luot.so_dong_ho_ve_kho = so
+        luot.ve_kho_luc = _utcnow()
+        self._tinh_lai_luot(luot)
+        return {"luot": luot, "canh_bao": []}
+
+    # -- Gom theo lượt: MỘT lần bấm cho cả lượt ---------------------------------------------
+    # Chủ chốt 18/09/2026: "gom nhiều phiếu lại chạy 1 lượt" — MỖI yêu cầu vẫn MỘT chuyến, MỘT
+    # phiếu xuất kho, MỘT kết cục; lượt chỉ gom ĐƯỜNG ĐI. Các hàm dưới gọi lại đúng hàm của từng
+    # chuyến nên mọi luật cũ áp y hệt. Tất cả hoặc không gì: một chuyến hỏng là ném lỗi, router
+    # không commit, cả lô không lưu — lưu nửa lô thì người bấm phải tự dò cái nào đã qua.
+    def len_luot(self, *, request_ids, employee_id, vehicle_id, gio_lay_hang, gio_du_kien_giao,
+                 actor, luot_xe_id=LUOT_MOI, phu_xe_employee_id=None, ghi_chu_phan_cong=None,
+                 scope=None) -> dict:
+        """Lên đơn NHIỀU yêu cầu giao vào MỘT lượt xe (lượt mới hoặc lượt đang mở của xe đó)."""
+        ids = list(dict.fromkeys(int(x) for x in (request_ids or [])))
+        if not ids:
+            raise DeliveryError("Chọn ít nhất một yêu cầu giao")
+        if vehicle_id in (None, "", 0):
+            raise DeliveryError("Chọn xe — lượt là vòng chạy của một chiếc xe.")
+        luot = LUOT_MOI if luot_xe_id in (None, "") else luot_xe_id
+        trips, canh_bao = [], []
+        for rid in ids:
+            try:
+                kq = self.len_ke_hoach(
+                    request_id=rid, employee_id=employee_id, gio_lay_hang=gio_lay_hang,
+                    gio_du_kien_giao=gio_du_kien_giao, actor=actor, scope=scope,
+                    phu_xe_employee_id=phu_xe_employee_id, vehicle_id=vehicle_id,
+                    ghi_chu_phan_cong=ghi_chu_phan_cong, luot_xe_id=luot, bao=False,
+                )
+            except DeliveryError as e:
+                # Nói RÕ yêu cầu nào hỏng — cả lô bị bỏ, người bấm cần biết gỡ cái nào ra.
+                req = self.deliveries.get_request(rid)
+                raise type(e)(f"Yêu cầu {getattr(req, 'code', None) or f'#{rid}'}: {e}") from e
+            trips.append(kq["trip"])
+            canh_bao += kq["canh_bao"]
+            # Chuyến đầu mở lượt MỚI ⇒ các chuyến sau ghép vào CHÍNH lượt đó (và nhờ vậy không bị
+            # tính trùng giờ với nhau — `len_ke_hoach` bỏ qua các chuyến cùng lượt).
+            luot = self.deliveries.diem_cua_trip(kq["trip"].id).luot_xe_id
+        luot_obj = self.deliveries.get_luot(int(luot))
+        self.bao_tai_xe(trips[0], f"Bạn được phân lượt {luot_obj.code} — {len(trips)} điểm giao.",
+                        viec="phan_chuyen")
+        return {"luot": luot_obj, "trips": trips, "canh_bao": list(dict.fromkeys(canh_bao))}
+
+    def _lay_luot(self, luot_id):
+        luot = self.deliveries.get_luot(int(luot_id))
+        if luot is None:
+            raise DeliveryNotFound("Không tìm thấy lượt xe")
+        return luot
+
+    def _trips_luot_duoc_lam(self, luot, *, scope, actor) -> list:
+        """Chuyến của lượt mà người gọi được THAO TÁC, theo thứ tự xếp vào lượt. Chuyến ngoài phạm
+        vi thì bỏ qua (không chặn cả lượt); không còn chuyến nào thì 403."""
+        ra = []
+        for d in luot.diem:
+            t = self.deliveries.get_trip(d.delivery_trip_id)
+            if t is None:
+                continue
+            try:
+                self.chan_ngoai_pham_vi_trip(t, scope=scope, actor=actor)
+            except DeliveryForbidden:
+                continue
+            ra.append(t)
+        if not ra:
+            raise DeliveryForbidden("Bạn không có quyền với lượt xe này")
+        return ra
+
+    def gui_xuat_kho_ca_luot(self, luot_id, *, actor, scope=None, ghi_chu=None) -> list:
+        """Gửi yêu cầu xuất kho cho mọi chuyến của lượt còn chờ gửi — MỖI chuyến MỘT phiếu. Ghi chú
+        mỗi phiếu mang mã lượt để kho biết những phiếu nào lên cùng một xe.
+
+        Phiếu tạo với `commit=False` ⇒ NGƯỜI GỌI commit rồi gọi `stock_requests.thong_bao_yeu_cau_moi`
+        cho từng phiếu (router làm việc đó)."""
+        luot = self._lay_luot(luot_id)
+        can = [t for t in self._trips_luot_duoc_lam(luot, scope=scope, actor=actor)
+               if t.trang_thai == LG_DA_LEN_KE_HOACH and self.yeu_cau_kho_cua_trip(t.id) is None]
+        if not can:
+            raise DeliveryError(f"Lượt {luot.code} không còn chuyến nào chờ gửi yêu cầu xuất kho.")
+        phieu = []
+        for t in can:
+            gc = f"Giao khách — lượt {luot.code}, chuyến {t.request_id}/lần {t.lan_thu}"
+            phieu.append(self.gui_yeu_cau_xuat_kho(
+                t.id, actor=actor, kho_id=None, scope=scope, bao=False, commit_kho=False,
+                ghi_chu=f"{gc} · {ghi_chu.strip()}" if (ghi_chu or "").strip() else gc,
+            ))
+        self.bao_tai_xe(can[0], f"Đã gửi {len(phieu)} yêu cầu xuất kho cho lượt {luot.code} — "
+                                "chờ kho soạn hàng.", viec="gui_kho")
+        return phieu
+
+    def da_lay_hang_ca_luot(self, luot_id, *, actor, scope=None) -> list:
+        luot = self._lay_luot(luot_id)
+        can = [t for t in self._trips_luot_duoc_lam(luot, scope=scope, actor=actor)
+               if t.trang_thai == LG_DANG_CHUAN_BI]
+        if not can:
+            raise DeliveryError(f"Lượt {luot.code} không có chuyến nào đang chờ lấy hàng.")
+        for t in can:
+            self.da_lay_hang(t.id, actor=actor, scope=scope)
+        return can
+
+    def bat_dau_giao_ca_luot(self, luot_id, *, actor, scope=None, so_dong_ho_xuat_phat=None) -> dict:
+        """Xe rời kho với mọi chuyến ĐÃ LẤY HÀNG của lượt; số đồng hồ xuất phát ghi MỘT lần.
+
+        Chuyến chưa lấy hàng thì để lại (không chặn) nhưng NHẮC: xe đi rồi mà còn đơn chưa lên xe
+        là chuyện người lên đơn phải biết — hoặc huỷ khỏi lượt, hoặc đơn đó đi lượt sau."""
+        luot = self._lay_luot(luot_id)
+        trips = self._trips_luot_duoc_lam(luot, scope=scope, actor=actor)
+        can = [t for t in trips if t.trang_thai == LG_DA_LAY_HANG]
+        if not can:
+            raise DeliveryError(f"Lượt {luot.code} không có chuyến nào đã lấy hàng để bắt đầu giao.")
+        canh_bao: list[str] = []
+        for t in can:
+            canh_bao += self.bat_dau_giao(t.id, actor=actor, scope=scope,
+                                          so_dong_ho_xuat_phat=so_dong_ho_xuat_phat)["canh_bao"]
+        chua_lay = [t for t in trips if t.trang_thai in (LG_DA_LEN_KE_HOACH, LG_DANG_CHUAN_BI)]
+        if chua_lay:
+            canh_bao.append(f"Còn {len(chua_lay)} chuyến của lượt chưa lấy hàng — chưa bắt đầu giao.")
+        return {"trips": can, "canh_bao": canh_bao}
+
+    def chi_tiet_luot(self, luot_id, *, actor, scope=None) -> dict:
+        """Cả lượt nhìn một chỗ: các điểm theo THỨ TỰ CHẶNG (số đồng hồ tăng dần; điểm chưa có số
+        xếp cuối theo thứ tự xếp vào lượt) + số đếm để giao diện biết bày nút nào."""
+        luot = self._lay_luot(luot_id)
+        trips = {t.id: t for t in self._chan_ngoai_pham_vi_luot(luot, scope=scope, actor=actor)}
+        diem = sorted(luot.diem, key=lambda d: (d.so_dong_ho is None, int(d.so_dong_ho or 0), d.id))
+        ds = [trips[d.delivery_trip_id] for d in diem if d.delivery_trip_id in trips]
+        co_so = {d.delivery_trip_id for d in diem if d.so_dong_ho is not None}
+
+        def dem(tt) -> int:
+            return sum(1 for t in ds if t.trang_thai == tt)
+
+        so_da_ghi = [int(d.so_dong_ho) for d in diem if d.so_dong_ho is not None]
+        return {
+            "luot": luot,
+            "trips": ds,
+            "goi_y_xuat_phat": (self.goi_y_xuat_phat(luot)
+                                if luot.so_dong_ho_xuat_phat is None else None),
+            "so_dong_ho_gan_nhat": max(
+                so_da_ghi + ([int(luot.so_dong_ho_xuat_phat)]
+                             if luot.so_dong_ho_xuat_phat is not None else []), default=None),
+            "cho_ve_kho": (luot.ve_kho_luc is None and bool(so_da_ghi)
+                           and not any(t.trang_thai in _CHUA_KET_QUA for t in ds)),
+            "so_cho_gui_kho": sum(1 for t in ds if t.trang_thai == LG_DA_LEN_KE_HOACH
+                                  and self.yeu_cau_kho_cua_trip(t.id) is None),
+            "so_cho_lay_hang": dem(LG_DANG_CHUAN_BI),
+            "so_cho_bat_dau": dem(LG_DA_LAY_HANG),
+            "so_dang_giao": dem(LG_DANG_GIAO),
+            # Km chặng chỉ có nghĩa khi điểm đã có số đồng hồ; + chặng về kho.
+            "tong_km": sum(int(t.km or 0) for t in ds if t.id in co_so) + int(luot.km_ve_kho or 0),
+        }
 
     def _chuan_hoa_phu_xe(self, employee_id, phu_xe_employee_id):
         """Kiểm phụ xe và trả về id đã chuẩn hoá (None nếu không có).
@@ -581,7 +903,7 @@ class DeliveryService:
         return phu_xe_employee_id
 
     def kiem_lich_kip_xe(self, *, employee_id, phu_xe_employee_id, gio_lay_hang,
-                         gio_du_kien_giao, bo_qua_trip_id=None) -> list[str]:
+                         gio_du_kien_giao, bo_qua_trip_id=None, bo_qua_luot_id=None) -> list[str]:
         """Kiểm trùng lịch cho CẢ KÍP, không riêng tài xế.
 
         ⭐ Phụ xe cũng là một con người: không mở rộng vế này thì một người làm phụ xe hai chuyến
@@ -591,19 +913,20 @@ class DeliveryService:
         canh_bao = list(self.kiem_lich_tai_xe(
             employee_id=employee_id, gio_lay_hang=gio_lay_hang,
             gio_du_kien_giao=gio_du_kien_giao, bo_qua_trip_id=bo_qua_trip_id,
+            bo_qua_luot_id=bo_qua_luot_id,
         ))
         if phu_xe_employee_id:
             canh_bao += [
                 f"Phụ xe: {c}" for c in self.kiem_lich_tai_xe(
                     employee_id=phu_xe_employee_id, gio_lay_hang=gio_lay_hang,
                     gio_du_kien_giao=gio_du_kien_giao, bo_qua_trip_id=bo_qua_trip_id,
-                    nhan="Phụ xe",
+                    nhan="Phụ xe", bo_qua_luot_id=bo_qua_luot_id,
                 )
             ]
         return canh_bao
 
     def kiem_lich_tai_xe(self, *, employee_id, gio_lay_hang, gio_du_kien_giao,
-                         bo_qua_trip_id=None, nhan="Tài xế") -> list[str]:
+                         bo_qua_trip_id=None, nhan="Tài xế", bo_qua_luot_id=None) -> list[str]:
         """CHẶN nếu trùng; trả về danh sách CẢNH BÁO nếu chỉ sát giờ (PRD §6)."""
         if gio_du_kien_giao <= gio_lay_hang:
             raise DeliveryError("Giờ dự kiến giao phải sau giờ lấy hàng")
@@ -614,7 +937,7 @@ class DeliveryService:
         # DÙNG VỪA GỬI. (Đã cắn 20/08/2026.)
         trung = self.deliveries.trung_lich(
             employee_id=employee_id, bat_dau=gio_lay_hang, ket_thuc=gio_du_kien_giao,
-            bo_qua_trip_id=bo_qua_trip_id,
+            bo_qua_trip_id=bo_qua_trip_id, bo_qua_luot_id=bo_qua_luot_id,
         )
         if trung:
             ma = ", ".join(f"#{t.id}" for t in trung)
@@ -626,7 +949,7 @@ class DeliveryService:
             employee_id=employee_id,
             bat_dau=gio_lay_hang - DEM_SAT_GIO,
             ket_thuc=gio_du_kien_giao + DEM_SAT_GIO,
-            bo_qua_trip_id=bo_qua_trip_id,
+            bo_qua_trip_id=bo_qua_trip_id, bo_qua_luot_id=bo_qua_luot_id,
         )
         if ke:
             return [f"Tài xế có chuyến khác cách dưới {int(DEM_SAT_GIO.total_seconds() // 60)} phút"]
@@ -634,7 +957,10 @@ class DeliveryService:
 
     def len_ke_hoach(self, *, request_id, employee_id, gio_lay_hang, gio_du_kien_giao,
                      actor, kho_id=None, ghi_chu_phan_cong=None, scope=None,
-                     phu_xe_employee_id=None, vehicle_id=None) -> dict:
+                     phu_xe_employee_id=None, vehicle_id=None, luot_xe_id=None,
+                     bao: bool = True) -> dict:
+        """`bao=False`: không đẩy tin cho tài xế — `len_luot` gọi hàm này N lần rồi báo MỘT tin cho
+        cả lượt, thay vì N cái toast cùng lúc."""
         req = self.deliveries.get_request(request_id)
         if req is None:
             raise DeliveryNotFound("Không tìm thấy yêu cầu giao hàng")
@@ -659,9 +985,13 @@ class DeliveryService:
 
         self._chan_gio_qua_khu(gio_lay_hang, "Giờ lấy hàng")
         self._chan_gio_qua_khu(gio_du_kien_giao, "Giờ dự kiến giao")
+        # Ghép vào lượt đang mở ⇒ các chuyến CÙNG lượt không tính là trùng giờ (gom đơn một vòng).
+        cung_luot = (int(luot_xe_id) if luot_xe_id not in (None, "")
+                     and str(luot_xe_id) != LUOT_MOI else None)
         canh_bao = self.kiem_lich_kip_xe(
             employee_id=employee_id, phu_xe_employee_id=phu_xe_employee_id,
             gio_lay_hang=gio_lay_hang, gio_du_kien_giao=gio_du_kien_giao,
+            bo_qua_luot_id=cung_luot,
         )
 
         # (đẩy realtime sau khi có `trip` — xem cuối hàm)
@@ -681,8 +1011,11 @@ class DeliveryService:
             trip_id=trip.id, tu_trang_thai=None, den_trang_thai=LG_DA_LEN_KE_HOACH,
             nguoi_thao_tac_id=getattr(actor, "id", None), ghi_chu=ghi_chu_phan_cong,
         )
+        # Lượt xe (PRD khoán km §14): người lên đơn xếp chuyến vào lượt mới hoặc lượt đang mở.
+        self._xep_vao_luot(trip, luot_xe_id=luot_xe_id, actor=actor)
         # KHÔNG tự sinh đề nghị xuất hàng ở đây — quản lý bấm tay ở bước sau (luật 6).
-        self.bao_tai_xe(trip, "Bạn được phân một chuyến giao mới.", viec="phan_chuyen")
+        if bao:
+            self.bao_tai_xe(trip, "Bạn được phân một chuyến giao mới.", viec="phan_chuyen")
         return {"trip": trip, "canh_bao": canh_bao}
 
     def yeu_cau_kho_cua_trip(self, trip_id: int):
@@ -737,6 +1070,9 @@ class DeliveryService:
             if t.trang_thai in LAN_GIAO_CO_HANG_DEN_TAY:
                 xong += 1
             tong_km += int(t.km or 0)
+        # Chặng về kho của lượt xe (PRD khoán km §14) không nằm trong km chuyến nào.
+        tong_km += sum(km for luc, km in self.deliveries.ve_kho_cua_tai_xe(employee_id)
+                       if (luc.year, luc.month) == (ngay.year, ngay.month))
         return {"so_chuyen_xong": xong, "tong_km": tong_km}
 
     def kho_da_lap_phieu(self, trip_id: int) -> bool:
@@ -792,7 +1128,8 @@ class DeliveryService:
         return ra
 
     def gui_yeu_cau_xuat_kho(self, trip_id, *, actor, kho_id, scope=None,
-                             ngay_can=None, ghi_chu=None):
+                             ngay_can=None, ghi_chu=None, bao: bool = True,
+                             commit_kho: bool = True):
         """Gửi YÊU CẦU XUẤT KHO thật cho chuyến — không phải chứng từ riêng của Giao hàng.
 
         Gọi thẳng `StockRequestService.create()`: mọi luật của kho (mặt hàng phải có trong danh
@@ -826,13 +1163,18 @@ class DeliveryService:
             ngay_can=ngay_can or trip.gio_lay_hang.date(),
             ghi_chu=ghi_chu or f"Giao khách — chuyến {trip.request_id}/lần {trip.lan_thu}",
             delivery_trip_id=trip.id,
+            # `commit_kho=False` (gửi CẢ LƯỢT): kho mặc định tự commit từng phiếu — phiếu thứ ba
+            # hỏng là hai phiếu đầu đã nằm sổ. Tắt đi để cả lượt là MỘT giao dịch; người gọi tự đẩy
+            # tin cho kho SAU commit (`thong_bao_yeu_cau_moi`).
+            commit=commit_kho,
         )
         # Kho đã nhận việc ⇒ chuyến sang "Kho đang chuẩn bị". Không có bước duyệt nào ở giữa:
         # `create()` của họ duyệt luôn (bỏ bước duyệt 06/08/2026).
         self._doi_trang_thai(trip, LG_DANG_CHUAN_BI, actor=actor,
                              ghi_chu=f"Yêu cầu xuất kho {req.ma}")
-        self.bao_tai_xe(trip, f"Đã gửi yêu cầu xuất kho {req.ma} — chờ kho soạn hàng.",
-                        viec="gui_kho")
+        if bao:
+            self.bao_tai_xe(trip, f"Đã gửi yêu cầu xuất kho {req.ma} — chờ kho soạn hàng.",
+                            viec="gui_kho")
         return req
 
     def doi_ke_hoach(self, trip_id, *, actor, scope=None, employee_id=None,
@@ -866,6 +1208,14 @@ class DeliveryService:
         # `_KHONG_GUI` y như phụ xe: gỡ xe đã xếp cũng gửi `None` lên.
         moi_xe = (trip.vehicle_id if vehicle_id is _KHONG_GUI
                   else self._chuan_hoa_xe(vehicle_id))
+        diem = self.deliveries.diem_cua_trip(trip.id)
+        if diem is not None and moi_xe != trip.vehicle_id:
+            # Chuyến trong lượt ăn số đồng hồ của XE lượt — đổi xe riêng một chuyến là trừ số
+            # đồng hồ xe này cho số xe kia.
+            luot = self.deliveries.get_luot(diem.luot_xe_id)
+            raise DeliveryError(
+                f"Chuyến thuộc lượt {getattr(luot, 'code', '')} — không đổi xe riêng một chuyến. "
+                "Huỷ kế hoạch rồi lên đơn lại vào lượt của xe kia.")
         self._doi_xe(moi_nv, moi_xe)
         if moi_phu is not None and moi_phu == moi_nv:
             # Đổi TÀI XẾ thành đúng người đang làm phụ xe — hai ô hoá ra một người mà mỗi ô kiểm
@@ -875,6 +1225,7 @@ class DeliveryService:
             employee_id=moi_nv, phu_xe_employee_id=moi_phu,
             gio_lay_hang=moi_lay, gio_du_kien_giao=moi_giao,
             bo_qua_trip_id=trip.id,
+            bo_qua_luot_id=diem.luot_xe_id if diem is not None else None,
         )
 
         doi_gio = moi_lay != trip.gio_lay_hang
@@ -913,6 +1264,15 @@ class DeliveryService:
         if not (ly_do or "").strip():
             raise DeliveryError("Phải nhập lý do huỷ kế hoạch")
         self._doi_trang_thai(trip, LG_DA_HUY, actor=actor, ly_do=ly_do.strip())
+        # Chuyến huỷ thì xe không ghé điểm đó ⇒ rút khỏi lượt; lượt không còn điểm nào thì xoá.
+        diem = self.deliveries.diem_cua_trip(trip.id)
+        if diem is not None:
+            luot = self.deliveries.get_luot(diem.luot_xe_id)
+            self.deliveries.xoa_diem(diem)
+            if luot is not None:
+                self.deliveries.db.refresh(luot)
+                if not luot.diem:
+                    self.deliveries.xoa_luot(luot)
 
     # =====================================================================================
     # Kho — ba nút trong Hộp yêu cầu
@@ -935,15 +1295,30 @@ class DeliveryService:
         self._doi_trang_thai(trip, LG_DA_LAY_HANG, actor=actor)
         return trip
 
-    def bat_dau_giao(self, trip_id, *, actor, scope=None):
+    def bat_dau_giao(self, trip_id, *, actor, scope=None, so_dong_ho_xuat_phat=None):
+        """Chuyến ĐẦU của một lượt xe phải kèm số đồng hồ lúc xuất phát (PRD khoán km §14) — chặng
+        đầu tiên trừ từ số này. Các chuyến sau của cùng lượt không phải nhập lại."""
         trip = self.deliveries.get_trip(trip_id)
         if trip is None:
             raise DeliveryNotFound("Không tìm thấy chuyến giao")
         self.chan_ngoai_pham_vi_trip(trip, scope=scope, actor=actor)
         if trip.trang_thai != LG_DA_LAY_HANG:
             raise DeliveryError("Chưa lấy hàng thì chưa bắt đầu giao được")
+        canh_bao: list[str] = []
+        diem = self.deliveries.diem_cua_trip(trip.id)
+        if diem is not None:
+            luot = self.deliveries.get_luot(diem.luot_xe_id)
+            if luot.so_dong_ho_xuat_phat is None:
+                if so_dong_ho_xuat_phat is None:
+                    raise DeliveryError(
+                        f"Nhập số đồng hồ lúc xuất phát của lượt {luot.code} (xe đi khỏi kho).")
+                so = int(so_dong_ho_xuat_phat)
+                if so < 0:
+                    raise DeliveryError("Số đồng hồ không được âm")
+                canh_bao = self._canh_bao_xuat_phat(luot, so)
+                luot.so_dong_ho_xuat_phat = so
         self._doi_trang_thai(trip, LG_DANG_GIAO, actor=actor)
-        return trip
+        return {"trip": trip, "canh_bao": canh_bao}
 
     def _chuan_hoa_xe(self, vehicle_id):
         """Kiểm xe rồi trả id đã chuẩn hoá (None nếu bỏ trống).
@@ -1026,7 +1401,7 @@ class DeliveryService:
     def ghi_ket_qua(self, trip_id, *, ket_qua, km, actor, scope=None,
                     thoi_gian_ket_thuc=None, nguoi_nhan_thuc_te=None, ly_do_that_bai=None,
                     huong_xu_ly=None, ghi_chu=None, so_thuc_nhan=None,
-                    xac_nhan_km_lon=False, vehicle_id=None) -> dict:
+                    xac_nhan_km_lon=False, vehicle_id=None, so_dong_ho=None) -> dict:
         trip = self.deliveries.get_trip(trip_id)
         if trip is None:
             raise DeliveryNotFound("Không tìm thấy chuyến giao")
@@ -1037,17 +1412,43 @@ class DeliveryService:
         if ket_qua not in (LG_THANH_CONG, LG_GIAO_THIEU, LG_THAT_BAI):
             raise DeliveryError("Kết quả không hợp lệ")
 
-        if km is None:
-            raise DeliveryError("Phải nhập số km thực tế")
-        km = int(km)
-        if km < 0:
-            raise DeliveryError("Số km không được âm")
         canh_bao: list[str] = []
-        if km > KM_CANH_BAO and not xac_nhan_km_lon:
-            # KHÔNG chặn — chỉ bắt xác nhận lại. Lỗi hay gặp là gõ nhầm 180 thành 1800.
-            raise DeliveryError(
-                f"Số km {km} lớn bất thường (> {KM_CANH_BAO}). Xác nhận lại nếu đúng."
-            )
+        # LƯỢT XE (PRD khoán km §14): chuyến trong lượt KHÔNG gõ km — tài xế ghi số đồng hồ lúc TỚI
+        # khách, máy trừ ra km chặng. Chuyến ngoài lượt giữ nguyên đường cũ (một ô km).
+        diem = self.deliveries.diem_cua_trip(trip.id)
+        luot = self.deliveries.get_luot(diem.luot_xe_id) if diem is not None else None
+        if luot is not None:
+            if luot.so_dong_ho_xuat_phat is None:
+                raise DeliveryError(
+                    f"Lượt {luot.code} chưa có số đồng hồ lúc xuất phát — bấm Bắt đầu giao để nhập.")
+            if so_dong_ho is None:
+                raise DeliveryError("Phải nhập số đồng hồ lúc tới khách")
+            so = int(so_dong_ho)
+            if so < int(luot.so_dong_ho_xuat_phat):
+                raise DeliveryError(
+                    f"Số đồng hồ {so} nhỏ hơn số lúc xuất phát ({luot.so_dong_ho_xuat_phat}).")
+            truoc = max([int(d.so_dong_ho) for d in luot.diem
+                         if d.id != diem.id and d.so_dong_ho is not None and int(d.so_dong_ho) <= so]
+                        + [int(luot.so_dong_ho_xuat_phat)])
+            if so - truoc > KM_CANH_BAO and not xac_nhan_km_lon:
+                raise DeliveryError(
+                    f"Chặng {so - truoc} km lớn bất thường (> {KM_CANH_BAO}). Xác nhận lại nếu đúng.")
+            if vehicle_id is not None and int(vehicle_id) != luot.vehicle_id:
+                raise DeliveryError(
+                    f"Chuyến thuộc lượt {luot.code} — xe của lượt, không đổi riêng một chuyến.")
+            vehicle_id = None
+            km = None
+        else:
+            if km is None:
+                raise DeliveryError("Phải nhập số km thực tế")
+            km = int(km)
+            if km < 0:
+                raise DeliveryError("Số km không được âm")
+            if km > KM_CANH_BAO and not xac_nhan_km_lon:
+                # KHÔNG chặn — chỉ bắt xác nhận lại. Lỗi hay gặp là gõ nhầm 180 thành 1800.
+                raise DeliveryError(
+                    f"Số km {km} lớn bất thường (> {KM_CANH_BAO}). Xác nhận lại nếu đúng."
+                )
 
         req = self.deliveries.get_request(trip.request_id)
         if req is None:
@@ -1065,11 +1466,17 @@ class DeliveryService:
             trip.ly_do_that_bai = ly_do_that_bai.strip()
             trip.huong_xu_ly = huong_xu_ly
 
-        trip.km = km
         if vehicle_id is not None:
             trip.vehicle_id = self._chuan_hoa_xe(vehicle_id)
         self._doi_xe(trip.employee_id, trip.vehicle_id)
-        self._chup_don_gia_km(trip)
+        if luot is not None:
+            diem.so_dong_ho = int(so_dong_ho)
+            # Số mới có thể chen GIỮA hai số cũ (ghi muộn một điểm) ⇒ tính lại cả lượt, không riêng
+            # chặng này.
+            self._tinh_lai_luot(luot)
+        else:
+            trip.km = km
+            self._chup_don_gia_km(trip)
         trip.thoi_gian_ket_thuc = thoi_gian_ket_thuc or _utcnow()
         trip.nguoi_nhan_thuc_te = nguoi_nhan_thuc_te
         trip.ghi_chu_ket_qua = ghi_chu
@@ -1364,4 +1771,6 @@ class DeliveryService:
             if t.trang_thai in LAN_GIAO_CO_HANG_DEN_TAY:
                 xong += 1
             tong_km += int(t.km or 0)
+        tong_km += sum(km for luc, km in self.deliveries.ve_kho_cua_tai_xe(employee_id)
+                       if luc.date() == ngay)
         return {"so_chuyen_xong": xong, "tong_km": tong_km}
