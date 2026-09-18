@@ -542,12 +542,10 @@ def _giao_nguoi(sess, admin, cv, *, ma: str, ten: str) -> int:
 def _chay_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     """Cho một bước chạy rồi kết thúc bằng ĐÚNG hai lệnh production, không đặt cột nào bằng tay.
 
-    Hai cửa của `thuc_thi.bat_dau` phải mở đúng thứ tự, không cửa nào đi vòng được:
-      · `has_piece_work` của TỔ — `_la_luong_khoan` soi cờ này lúc `phan_cong` chụp roster, không
-        bật thì `bat_dau` chặn “Người đang giao đều là công nhật…”. Bật TRƯỚC khi giao người,
-        vì cờ được CHỤP vào dòng phân công chứ không tra lại lúc bắt đầu.
-      · `ly_do_so_nguoi` — roster một người thường lệch `so_nhan_cong_tieu_chuan` của snapshot.
-    Truyền lý do vô điều kiện là an toàn: không lệch thì service tự bỏ qua.
+    Cửa của `thuc_thi.bat_dau` không đi vòng được: `has_piece_work` của TỔ — `_la_luong_khoan` soi
+    cờ này lúc `phan_cong` chụp roster, không bật thì `bat_dau` chặn “Người đang giao đều là công
+    nhật…”. Bật TRƯỚC khi giao người, vì cờ được CHỤP vào dòng phân công chứ không tra lại lúc bắt
+    đầu. (Cửa "lý do lệch kíp chuẩn" gỡ 18/09/2026 cùng logic kíp.)
     """
     to = sess.get(Department, cv.department_id)
     to.has_piece_work = True
@@ -555,7 +553,6 @@ def _chay_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     _giao_nguoi(sess, admin, cv, ma=ma, ten=ten)
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_so_nguoi="Tổ thiếu người",
     )
     thuc_thi.ket_thuc(sess, user=admin, cong_viec_id=cv.id)
     sess.expire_all()

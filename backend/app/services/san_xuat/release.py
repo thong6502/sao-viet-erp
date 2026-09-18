@@ -1,9 +1,13 @@
 """Phát hành NGUYÊN TỬ + snapshot (spec §4).
 
-Điểm neo của Giai đoạn 1: mỗi lần phát hành (từ MÀN XẾP LỊCH CŨ hoặc Xếp lịch 2) đóng băng một
-gói phát hành = ảnh chụp routing/tổ/máy/định mức/khoán/vật tư của những LSX + bài ghép ĐANG được
-thả xuống xưởng, cùng cạnh phụ thuộc chéo giữa chúng (bước ghép). Cả hai cửa gọi CHUNG `phat_hanh`
-ở đây — "một lịch, hai cửa" (§4.1), không có đường vòng nào phát hành mà bỏ qua snapshot.
+Điểm neo của Giai đoạn 1: mỗi lần phát hành đóng băng một gói phát hành = ảnh chụp
+routing/tổ/máy/định mức/khoán/vật tư của những LSX + bài ghép ĐANG được thả xuống xưởng, cùng cạnh
+phụ thuộc chéo giữa chúng (bước ghép). Không có đường vòng nào phát hành mà bỏ qua snapshot.
+
+Spec §4.1 viết cho thời "một lịch, hai cửa" (màn xếp lịch cũ + Xếp lịch theo công đoạn). Từ
+18/09/2026 cả hai cửa ấy đã gỡ, chỉ còn MỘT cửa: bàn Xếp lịch cấp lệnh (`routers/xep_lich.py`
+→ `services/xep_lich/service.phat_hanh`) gọi vào đây. Hàm vẫn viết theo kiểu nhiều cửa dùng
+chung được, đừng khoá cứng vào một người gọi.
 
 Phạm vi lát này (backbone): dựng gói/phiên bản/công việc/phụ thuộc + suy nhóm thành phẩm + đánh
 KCS-cuối khi rõ ràng. `phat_hanh` KHÔNG commit (chủ giao dịch là service gọi nó — cùng một
@@ -107,7 +111,7 @@ def phat_hanh(
     # thì v1 trống" KHÔNG đứng vững): dòng SỐNG chính là trạng thái của mọi phiên bản kể từ
     # `cv.phien_ban_so` trở đi, nên bước chưa lần nào bị cập nhật đọc v1 ngay trên dòng sống. Ghi
     # thêm ở đây chỉ đẻ một dòng v1 TRÙNG cho mọi bước về sau bị đè — xem cách đọc ở
-    # `XepLich3Service.so_sanh_phien_ban`.
+    # `XepLichLenhService.so_sanh_phien_ban`.
     return goi
 
 
@@ -126,7 +130,7 @@ def van_de_phat_hanh(
 
     KHÔNG ghi DB (khác `phat_hanh`). Trả danh sách vấn đề rỗng nghĩa là không chặn.
     """
-    from ..xep_lich_2.constraint import MUC_CHAN_PHAT_HANH, issue
+    from ..xep_lich.constraint import MUC_CHAN_PHAT_HANH, issue
     from .snapshot import cong_doan_cuoi_theo_nhom
 
     lsx_ids = set(lsx_ids)

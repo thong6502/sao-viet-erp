@@ -98,7 +98,7 @@ class GiuChoRepository:
         việc của nó. Lọc thêm `da_xep` sẽ đếm nhầm lệnh đang chờ gán máy thành "giữ mà chưa chạy".
         """
         from ..models.xep_lich import XepLichCongDoan
-        from ..services.xep_lich_3.moc import lsx_da_xep
+        from ..services.xep_lich.moc import lsx_da_xep
 
         lsx = set(self.db.execute(
             select(XepLichCongDoan.lsx_id).where(XepLichCongDoan.lsx_id.isnot(None))).scalars())
@@ -120,3 +120,35 @@ class GiuChoRepository:
         bai = set(self.db.execute(
             select(BaiGhep.id).where(BaiGhep.giu_cho_bat.is_(True))).scalars())
         return lsx, bai
+
+    def co_bat_nhieu(
+        self, chu_the: list[tuple[int | None, int | None]]
+    ) -> dict[tuple[int | None, int | None], bool]:
+        """Cờ công tắc giữ chỗ của NHIỀU chủ thể một lượt — 2 câu thay vì N.
+
+        `trang_thai()` đọc cờ này bằng `db.get(Lsx)` cho TỪNG chủ thể. Màn đọc lại hỏi cả trang:
+        hàng ba đèn của Kế hoạch SX (`lsx_tong_quan`) và bảng "Theo lệnh" của Kế hoạch vật tư đều
+        lặp qua hàng chục lệnh ⇒ đúng một câu SELECT mỗi lệnh, đo được 18/09/2026 (12 lệnh: 12 câu
+        chỉ để đọc một cột bool). Hỏi ĐÍCH DANH lô đang cần chứ không dùng `dang_bat()`: hàm kia
+        quét cả bảng lệnh (đúng cho `nhat_them` vì nó cần mọi chủ thể đang bật, phí cho màn đọc).
+
+        TOÀN ÁNH trên `chu_the` — cùng lý do `cua_nhieu_chu_the`: khoá VẮNG chỉ có MỘT nghĩa là
+        "nơi gọi hỏi ngoài lô đã tra", nên `trang_thai()` phân biệt được với "cờ đang tắt".
+        """
+        from ..models.bai_ghep import BaiGhep
+        from ..models.lsx import Lsx
+
+        ra: dict[tuple[int | None, int | None], bool] = {c: False for c in chu_the}
+        lsx_ids = [c[0] for c in chu_the if c[0] is not None]
+        bai_ids = [c[1] for c in chu_the if c[1] is not None]
+        if lsx_ids:
+            for i, bat in self.db.execute(
+                select(Lsx.id, Lsx.giu_cho_bat).where(Lsx.id.in_(lsx_ids))
+            ).all():
+                ra[(i, None)] = bool(bat)
+        if bai_ids:
+            for i, bat in self.db.execute(
+                select(BaiGhep.id, BaiGhep.giu_cho_bat).where(BaiGhep.id.in_(bai_ids))
+            ).all():
+                ra[(None, i)] = bool(bat)
+        return ra

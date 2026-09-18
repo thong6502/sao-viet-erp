@@ -29,7 +29,7 @@ from ...models.san_xuat import (
 )
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
-from ...repositories.san_xuat_phan_bo_repo import SanXuatPhanBoRepository
+from ...repositories.san_xuat_ho_tro_repo import SanXuatHoTroRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from .kcs import _EPS, gate_truong_kcs
@@ -55,7 +55,7 @@ def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list[dict], dict]
         raise ValueError("Không tìm thấy nhóm thành phẩm.")
     cvs = repo.cong_viec_hien_tai_cua_nhom(nhom_id)
     kcs_repo = SanXuatKcsRepository(db)
-    pb_repo = SanXuatPhanBoRepository(db)
+    pb_repo = SanXuatHoTroRepository(db)
 
     # (1) mọi công việc phiên hiện tại đã hoàn thành.
     chua_xong = [cv for cv in cvs if cv.trang_thai != CV_HOAN_THANH]
@@ -80,8 +80,8 @@ def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list[dict], dict]
     da_dat = sum(kiem_map.get(cv.id, (0, 0.0, 0.0))[1] for cv in co_muc_tieu) if co_muc_tieu else None
     dat_muc_tieu = muc_tieu is not None and da_dat + _EPS >= muc_tieu
 
-    # (4) mọi phân bổ lương khoán đã chốt (không còn draft/mở lại).
-    chua_chot = [cv for cv in cvs if pb_repo.con_phan_bo_chua_chot(cv.id)]
+    # (4) ⚠️ ĐIỀU KIỆN "phân bổ lương đã chốt" GỠ 18/09/2026 cùng tầng chia sản lượng (mg
+    #     `0322`): không còn bản chia nào để chốt, giữ lại là cổng vĩnh viễn xanh.
 
     dieu_kien = [
         {
@@ -116,12 +116,6 @@ def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list[dict], dict]
                 "công đoạn cuối chưa có số mục tiêu" if muc_tieu is None else
                 f"mới đạt {_so(da_dat)}/{_so(muc_tieu)}"
             ),
-        },
-        {
-            "ma": "phan_bo_da_chot",
-            "ten": "Phân bổ lương đã chốt",
-            "dat": not chua_chot,
-            "chi_tiet": f"{len(chua_chot)} công đoạn còn phân bổ chưa chốt" if chua_chot else "",
         },
     ]
     return nhom, dieu_kien, {"muc_tieu": muc_tieu, "da_dat": da_dat}

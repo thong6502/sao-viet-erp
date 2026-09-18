@@ -6,42 +6,25 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class CongDoanDauViecVatTuIn(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class CongDoanVatTuIn(BaseModel):
+    """MỘT món vật tư công đoạn tiêu thụ, kèm định mức của riêng nó (spec 18/09/2026 §3.1).
+
+    ⚠️ ĐỔI HÌNH 18/09/2026 (mg `0316`): trước đây vật tư treo dưới từng ĐẦU VIỆC của công đoạn
+    (`cong_doan_dau_viec_vat_tu`). Tầng đầu việc đã gỡ (mg `0320`) nên vật tư về thẳng CÔNG ĐOẠN:
+    một công đoạn khai nhiều món, mỗi món một công thức định mức ra LƯỢNG theo ĐVT của món đó.
+    Hai món cùng ĐVT vẫn ăn theo hai trục khác hẳn (mực theo số tờ, dung môi theo số màu) nên
+    công thức phải nằm ở TỪNG DÒNG, không phải ở món hàng."""
+
     vat_tu_id: int
-    # ĐỊNH MỨC của CHÍNH món này trong CHÍNH đầu việc này — ra LƯỢNG theo ĐVT của vật tư.
     cong_thuc_luong: str | None = None
 
 
-class CongDoanDauViecIn(BaseModel):
-    piece_rate_id: int
-    # `nang_suat_nguoi_gio` = mức TRUNG BÌNH (số chảy vào công thức thời lượng); min/max chỉ để ra
-    # khoảng nhanh–chậm, để trống thì ba mức bằng nhau. `don_vi_nang_suat` là ĐƠN VỊ ĐÍCH mà
-    # `cong_thuc_gio` phải quy về (mã `<đơn vị>_gio`); trống = lùi về đơn vị của đơn giá khoán.
-    nang_suat_nguoi_gio: float = Field(gt=0)
-    nang_suat_nguoi_gio_min: float | None = Field(default=None, gt=0)
-    nang_suat_nguoi_gio_max: float | None = Field(default=None, gt=0)
-    don_vi_nang_suat: str | None = Field(default=None, max_length=32)
-    # Kíp chuẩn của công đoạn — MỘT số duy nhất về nhân lực (mg `0270`).
-    so_nguoi_tieu_chuan: int = Field(ge=1)
-    # CÔNG THỨC TÍNH TIỀN CÔNG của đầu việc này trong công đoạn này (06/09/2026) — ra LƯỢNG theo
-    # đơn vị đơn giá khoán, engine nhân đơn giá sau. Ghim vào bước lệnh lúc chọn đầu việc.
-    cong_thuc_khoan: str | None = None
-    # CÁCH ĐO GIỜ CHẠY của đầu việc này trong công đoạn này (07/09/2026) — ra LƯỢNG theo đơn vị
-    # NĂNG SUẤT khoán, engine chia cho năng suất sau. Tách khỏi `cong_thuc_khoan` ngay trên vì
-    # tiền và giờ không cùng một cách đếm: in trở 2 lượt thì tiền nhân đôi mà giờ thì không.
-    cong_thuc_gio: str | None = None
-    # VẬT TƯ đầu việc tiêu thụ (mg 0191). Trước 06/09/2026 chỉ là `vat_tu_ids: list[int]` (danh
-    # sách thuần, công thức treo ở món hàng); nay mỗi dòng mang công thức định mức của riêng nó vì
-    # hai món cùng ĐVT ăn theo hai trục khác hẳn (mực theo số tờ, dung môi theo số màu).
-    vat_tus: list[CongDoanDauViecVatTuIn] = Field(default_factory=list)
-
-
-class CongDoanDauViecRow(CongDoanDauViecIn):
+class CongDoanVatTuRow(CongDoanVatTuIn):
     model_config = ConfigDict(from_attributes=True)
     id: int
     # Chỉ trả ID, không trả mã/tên/đơn vị: form đã nạp sẵn danh mục Vật tư khác cho dropdown nên tự
-    # tra được — trả kèm ở đây là N+1 query cho mỗi đầu việc của mỗi công đoạn trong danh sách.
+    # tra được — trả kèm ở đây là N+1 query cho mọi công đoạn trong danh sách.
+
 
 
 class CongDoanMayIn(BaseModel):
@@ -66,14 +49,8 @@ class CongDoanIn(BaseModel):
     # không chạm giấy. Cặp hợp lệ do `cong_doan_service` kiểm.
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
-    # Công thức SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`) — vd Ghi kẽm khai `so_kem`. Vế VÀO
-    # KHÔNG khai: nó suy ngược từ RA qua CẦU quy đổi `vào → ra` (module Đơn vị & quy đổi) + bù hao —
-    # chốt cứng cả hai đầu thì hao hết chỗ nhét. Hệ số KHÔNG khai ở đây (bỏ `he_so_ngoai_dong`
-    # 20/08/2026: nguồn thứ hai gây sai), lấy thẳng từ `don_vi_quy_doi`. Bước trên dòng bỏ qua cột này.
-    cong_thuc_san_luong: str | None = Field(default=None, max_length=200)
-    # ĐƠN VỊ của số vừa tính ở trên (mg `0289`) — mã ở danh mục Đơn vị & quy đổi (`kem`). Bước trên
-    # dòng giấy bỏ qua: đơn vị của chúng là tên chặng ở hai ô ngay trên.
-    don_vi_san_luong: str | None = Field(default=None, max_length=24)
+    # GỠ 18/09/2026 (mg `0324`): `cong_thuc_san_luong` + `don_vi_san_luong` — số của bước ngoài dòng
+    # giấy nay do người lập lệnh tự khai ở bước.
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = Field(default=50, ge=0)
@@ -84,7 +61,9 @@ class CongDoanIn(BaseModel):
     # Máy CỤ THỂ chạy được công đoạn, mỗi dòng mang công thức giờ + công thức giá của riêng nó
     # (06/09/2026). `nhom_may_cho_phep` ngay trên nay chỉ còn là BỘ LỌC để chọn máy trong drawer.
     may_lam_duoc: list[CongDoanMayIn] = Field(default_factory=list)
-    department_id: int | None = None
+    # Tổ phụ trách — NHIỀU tổ (18/09/2026, mg `0312`), đúng thứ tự chọn: tổ đầu là mặc định của bước
+    # lệnh. `None` = giữ nguyên danh sách đang lưu, `[]` = gỡ hết.
+    department_ids: list[int] | None = None
     khoan_ghi_theo: str = "khong"
     allowed_defect_pct: float = Field(default=0, ge=0, le=1)
     allowed_defect_abs: float = Field(default=0, ge=0)
@@ -106,7 +85,8 @@ class CongDoanIn(BaseModel):
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
     active: bool = True
-    dau_viec_dinh_muc: list[CongDoanDauViecIn] = Field(default_factory=list)
+    # Vật tư công đoạn tiêu thụ, đúng thứ tự chọn (§3.1) — `[]` = gỡ hết.
+    vat_tus: list[CongDoanVatTuIn] = Field(default_factory=list)
 
 
 class CongDoanRow(BaseModel):
@@ -121,20 +101,12 @@ class CongDoanRow(BaseModel):
     # (`to_nguyen · to · con · tay · cai`), không phải mã đơn vị kho — nhãn của chúng là
     # `models/don_vi_do.TRAM_NHAN`, hằng trong code, không phải thứ tra ở danh mục. Lý do đầy đủ:
     # xem khối chú thích chỗ `cong_doan_service.gan_ten_don_vi` cũ.
-    #: Công thức SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`). Bước trên dòng giấy bỏ qua
-    #: — số của chúng đến từ chuỗi bù hao ngược.
-    cong_thuc_san_luong: str | None = None
-    # "Lần trước công thức" (mục 3+7) — router gán từ `cong_thuc_lich_su`, không có trong DB.
-    cong_thuc_san_luong_truoc: str | None = None
-    cong_thuc_san_luong_sua_luc: datetime | None = None
-    #: ĐƠN VỊ của số sản lượng bước ngoài dòng giấy (mg `0289`) — bàn tổ đọc để nói "4 bản kẽm".
-    don_vi_san_luong: str | None = None
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = 50
     nhom: str
     nhom_may_cho_phep: list[str] | None = None
-    department_id: int | None = None
+    department_ids: list[int] = Field(default_factory=list)
     khoan_ghi_theo: str = "khong"
     allowed_defect_pct: float = 0
     allowed_defect_abs: float = 0
@@ -155,7 +127,7 @@ class CongDoanRow(BaseModel):
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
     active: bool
-    dau_viec_dinh_muc: list[CongDoanDauViecRow] = Field(default_factory=list)
+    vat_tus: list[CongDoanVatTuRow] = Field(default_factory=list)
     may_lam_duoc: list[CongDoanMayRow] = Field(default_factory=list)
     updated_at: datetime | None = None
 

@@ -9,6 +9,8 @@
 // vào tab Gantt (18 props kéo-thả — `khoaMay`/`taiMay`/`onPropose`/`onDropQueue`... — không hợp
 // một màn CHỈ ĐỌC). Giá phải trả: tab Gantt không có 4 mức thu phóng / ruy-băng ca / tô ngày lễ mà
 // `Xl2Gantt` có — chấp nhận được vì đây là bàn TRA tổng thể theo lệnh, không phải bàn xếp lịch.
+// (`xl2Shared.tsx` + `Xl2Gantt.tsx` đã xoá 18/09/2026 cùng bàn theo công đoạn. Quyết định C138 giữ
+// nguyên giá trị: module này vẫn là nguồn DUY NHẤT của trục thời gian hai tab đó.)
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /** Cột nhãn (sticky trái) của hai tab mini-Gantt. Ở màn ≤480px cột 240px chỉ chừa ~71px cho trục

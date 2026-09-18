@@ -2,17 +2,19 @@
 // `showIf` (ẩn/hiện theo kiểu), `ref`/`ref-multi` (chọn theo TÊN thay vì gõ id),
 // `default` (prefill khi tạo), `jsonKey` (lưu lồng vào fields_theo_loai).
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
 import { ClockIcon, tongChuanBi } from "./RebuildCatalogPage";
 import { nhanDonViTocDo } from "./danh-muc/fields/DonViTocDo";
-import { nhanTo } from "./danh-muc/nhanTo";
 import { nhanTramDai, tramOptions } from "./tenDonVi";
-import { NHOM_CONG_DOAN } from "./keHoachSxShared";
+import { NHOM_CONG_DOAN, ngay, ngayGio } from "./keHoachSxShared";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
 import { KhoViTriPanel } from "./KhoViTriPanel";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { ApiError, authed } from "../api/client";
+import { CodeLink } from "../components/CodeLink";
+import { useCan } from "../auth/permissions";
+import { useDieuHuongDanhMuc } from "./danh-muc/dieuHuong";
+import { ApiError, assetUrl, authed } from "../api/client";
 import { crud, trangThaiMay, type Row, type TrangThaiMay } from "../api/rebuildCatalog";
 
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
@@ -355,24 +357,36 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
   // xoá hẳn, còn nơi dùng thì chỉ ngừng dùng. Mục đã ngừng xem lại ở công tắc trên dải lọc.
   softDelete: true,
-  // Từ 07/09/2026 drawer chỉ còn MỘT ô công thức (`cong_thuc_gia`) — ô "Công thức sản lượng ra" đã
-  // ẩn khỏi UI, xem chỗ khai bên dưới. Ô còn lại vẫn tự khai `nhanTab` nên KHÔNG cần nhãn tab gộp
-  // `nhanTabCongThuc`; giữ vậy để lúc mở lại ô kia là hai tab tách ra như cũ, không phải sửa thêm.
+  // Drawer chỉ còn MỘT ô công thức (`cong_thuc_gia`) — ô "Công thức sản lượng ra" GỠ 18/09/2026
+  // (mg `0324`). Ô còn lại tự khai `nhanTab` nên KHÔNG cần nhãn tab gộp `nhanTabCongThuc`.
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
+  // Hai tab khai (18/09/2026): "Thông tin" gom mọi nhóm cũ, "Vật tư" là bảng vật tư + công thức
+  // định mức của từng món (mg `0316`). Nhóm nào không liệt kê thì drawer tự dồn vào tab đầu.
+  tabsKhai: [
+    { id: "info", label: "Thông tin", groups: ["Thông tin"] },
+    { id: "vat-tu", label: "Vật tư", groups: ["Vật tư"] },
+  ],
+  // Bề rộng đo theo chữ dài nhất đang có (18/09/2026, bảng 1150px): Giai đoạn "Gia công sau in"
+  // 97px · Đơn vị "Con → Thành phẩm" 122 · Bù hao "Tra bảng theo mã bù hao" 158 · Ràng buộc
+  // "Cần khuôn ép kim" 112, còn Tên dài nhất chỉ "Cắt thành phẩm" 105. Để mặc định (Tên 24%,
+  // Ghi chú 22%) thì bốn cột kia chỉ còn 92px, đọc ra "Gia côn…" / "Tra bản…". Ghi chú không
+  // khai ⇒ ăn phần còn lại; chữ dài cắt "…", rê chuột xem đủ.
+  widthMa: "10%",
+  widthTen: "12%",
   columns: [
-    { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
+    { key: "nhom", label: "Giai đoạn", width: "11%", render: (r) => lbl(NHOM_CD)(r.nhom) },
     // Nhìn ra ngay bước nào ĐỔI CHẶNG, và bước nào để trống (không nằm trên dòng giấy).
     // Nhãn lấy từ `/api/don-vi/tram` — CÙNG nguồn mà ô chọn trong drawer dùng. Trước 08/09/2026 cột này đọc
     // `don_vi_vao_ten` server gán, mà server tra mã chặng vào danh mục Đơn vị & quy đổi: cùng một
     // bước hiện "con → cái" ở danh sách nhưng "Con (mảnh bế ra) → Thành phẩm" trong drawer.
     // Chưa khai thì hiện "—", đúng nghĩa "bước không chạm giấy", chứ không bịa tên.
-    { key: "don_vi_vao", label: "Đơn vị", render: (r) => tramVaoRa(r.don_vi_vao, r.don_vi_ra) },
-    { key: "kieu_bu_hao", label: "Bù hao", render: (r) =>
+    { key: "don_vi_vao", label: "Đơn vị", width: "12%", render: (r) => tramVaoRa(r.don_vi_vao, r.don_vi_ra) },
+    { key: "kieu_bu_hao", label: "Bù hao", width: "15%", render: (r) =>
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
     // Nhìn ra công đoạn nào chưa khai số cho Lệnh sản xuất (giống cột Tốc độ bên màn Máy).
     // Ba thứ ĐI CÙNG NHAU ở một cột vì chúng cùng trả lời "bước này ăn bao nhiêu thời gian, và có
     // vướng dụng cụ không" — tách ba cột thì bảng dài mà vẫn phải đọc cả ba mới hiểu.
-    { key: "dau_viec_dinh_muc", label: "Ràng buộc",
+    { key: "requires_tooling", label: "Ràng buộc", width: "13%",
       render: (r) => {
         if (!r.requires_tooling) return "";
         const chuDayDu = `Cần ${lbl(TOOLING_TYPE)(r.tooling_type).toLowerCase()}`;
@@ -390,15 +404,20 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   ],
   fields: [
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
-    { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin" },
+    // NHIỀU tổ (18/09/2026, mg `0312`): "Cán màng mờ" do tổ Cán lẫn tổ Thành phẩm làm. Bước lệnh CHỌN
+    // MỘT trong các tổ này; tổ bấm chọn ĐẦU TIÊN là tổ mặc định lúc lên lệnh.
+    { key: "department_ids", label: "Phòng ban / Tổ phụ trách", type: "to-multi", refPrefix: "/api/cong-doan/phong-ban",
+      group: "Thông tin", nhanDau: "mặc định",
+      hint: "Chọn được nhiều tổ — lệnh sản xuất chọn một trong số này cho từng bước. Tổ chọn đầu tiên là tổ mặc định." },
 
     // ── Nguồn nuôi thẳng thời lượng bước ở Lệnh sản xuất ──────────────────────────────────────
-    { key: "requires_tooling", label: "Bước này cần khung, khuôn", type: "checkbox",
+    { key: "requires_tooling", label: "Bước này cần khuôn", type: "checkbox",
       group: "Khuôn & dụng cụ",},
     { key: "tooling_type", label: "Loại khuôn", type: "select", group: "Khuôn & dụng cụ",
       options: mapOpt(TOOLING_TYPE), showIf: (f) => !!f.requires_tooling },
-    { key: "dau_viec_dinh_muc", label: "Đầu việc và định mức của tổ", type: "dau-viec-dinh-muc",
-      refPrefix: "/api/cong-doan/dau-viec", group: "Lệnh sản xuất" },
+    // Bảng "Đầu việc và định mức của tổ" GỠ 18/09/2026 (mg `0320`) — công đoạn là CÔNG NGHỆ, việc
+    // của tổ khai ở danh mục Công việc khoán. Vật tư (nền BOM) chuyển sang tab "Vật tư" bên dưới.
+    { key: "vat_tus", label: "Vật tư công đoạn tiêu thụ", type: "vat-tu-cong-doan", group: "Vật tư" },
     // Chặn gán máy SAI LOẠI ở bài ghép (vd Ghi kẽm CTP không cho máy Bế). Lưu mảng TÊN nhóm máy.
     { key: "nhom_may_cho_phep", label: "Máy làm được công đoạn này", type: "nhom_may-multi",
       refPrefix: "/api/nhom-may", group: "Lệnh sản xuất" },
@@ -425,41 +444,16 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // chọn được `kg` cho một bước in — sai mà không ai chặn. Câu hỏi ở đây hẹp hơn nhiều: bước này
     // đứng ở CHẶNG NÀO của tờ giấy? Chỉ có đúng 5 chặng, và engine bù hao chỉ biết 5 cầu giữa
     // chúng (`CAU_TRAM` bên backend) — thêm chặng thứ 6 là phải sửa code chứ không phải khai danh mục.
-    // Để TRỐNG cả hai = bước NGOÀI dòng giấy (ghi kẽm, đóng thùng…): số lượng của nó tự tính bằng
-    // "Công thức sản lượng ra" phía dưới, không dính chuỗi bù hao của giấy.
+    // Để TRỐNG cả hai = bước NGOÀI dòng giấy (ghi kẽm, đóng thùng…): không dính chuỗi bù hao của
+    // giấy; đơn vị + số của nó do người lập lệnh TỰ KHAI ở drawer bước lệnh.
     { key: "don_vi_vao", label: "Đơn vị đầu vào", type: "select", options: tramOptions,
       group: "Đơn vị", default: "to",
       hint: "Để trống = bước không nằm trên dòng giấy (ghi kẽm, đóng thùng…). Trống thì phải trống CẢ HAI ô." },
     { key: "don_vi_ra", label: "Đơn vị đầu ra", type: "select", options: tramOptions,
       group: "Đơn vị", default: "to",
       hint: "Chảy một chiều: tờ nguyên → tờ in → con / tay sách → thành phẩm. Không đi ngược." },
-    // HỆ SỐ vào→ra KHÔNG còn khai tay ở đây (gỡ `he_so_ngoai_dong` 20/08/2026). Với bước ngoài
-    // dòng giấy nó lấy TỪ cầu quy đổi `vào → ra` ở module Đơn vị & quy đổi (vd "1 bài in = 4 bản
-    // kẽm") — một nguồn chân lý, không đẻ nguồn thứ hai gõ đè. Thiếu cầu thì bước lệnh báo đỏ chứ
-    // không đoán. Trên dòng giấy hệ số vẫn suy từ quy cách LỆNH (con/tờ · mảnh xả · tay).
-    // SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`): cái này nói bước RA bao nhiêu, còn vế VÀO
-    // suy ngược từ RA qua cầu quy đổi + bù hao.
-    //
-    // Trước 17/08/2026 số này lấy từ công thức của ĐƠN VỊ RA (`don_vi_do.cong_thuc`, đã gỡ) — sai
-    // chủ sở hữu: hai công đoạn cùng đo bằng `kem` có thể ra số khác nhau, mà công thức treo ở đơn
-    // vị thì cả hai buộc dùng chung.
-    //
-    // HIỆN LẠI 10/09/2026 sau ba ngày ẩn (07/09/2026). Ẩn nó là cắt CỬA KHAI DUY NHẤT của số
-    // lượng bước ngoài dòng giấy: engine vẫn đọc cột, nhưng người khai danh mục không còn chỗ nào
-    // gõ ⇒ "Ghi kẽm CTP" đi suốt từ lệnh xuống bàn tổ với `0 → 0` và khối Sản lượng nói "mục tiêu
-    // 0 · đủ mục tiêu". Chỉ hiện với bước NGOÀI dòng giấy — bước trên dòng lấy số từ chuỗi bù hao
-    // và backend bỏ qua cột này, bày ra chỉ mời gõ nhầm.
-    { key: "cong_thuc_san_luong", label: "Công thức sản lượng ra", type: "formula",
-      loaiO: "quy_doi", group: "Đơn vị", nhanTab: "Công thức sản lượng ra",
-      showIf: (f) => !f.don_vi_vao && !f.don_vi_ra,
-      hint: "vd: so_kem — bước RA bao nhiêu; vế VÀO suy ngược qua cầu quy đổi + bù hao." },
-    // CẶP ĐÔI với ô trên: cái kia nói RA BAO NHIÊU, ô này nói RA BẰNG GÌ. Không mượn được đơn vị
-    // nào sẵn có — `don_vi_toc_do` của máy là đơn vị ĐO GIỜ, đơn vị của đầu việc khoán là đơn vị
-    // TÍNH TIỀN, hai thứ cố ý tách rời (mg `0289`). Thiếu nó thì con số 4 xuống tới ô Ghi mẻ của
-    // tổ mà không có chữ nào đi kèm.
-    { key: "don_vi_san_luong", label: "Đơn vị sản lượng", ...F_DON_VI, group: "Đơn vị",
-      showIf: (f) => !f.don_vi_vao && !f.don_vi_ra,
-      hint: "Gõ mã / tên đơn vị để tìm… (vd kem — bản kẽm)" },
+    // GỠ 18/09/2026 (mg `0324`): "Công thức sản lượng ra" + "Đơn vị sản lượng" của bước ngoài dòng
+    // giấy (cùng `he_so_ngoai_dong` đã ngưng từ 20/08) — số của bước ấy nay khai tay ở bước lệnh.
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
       showIf: (f) => f.kieu_bu_hao === "tra_bang" },
@@ -470,8 +464,10 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   // CHỈ TÍNH THEO CÔNG THỨC: công đoạn luôn ở chế độ sản lượng + basis 'per_other' (giá phẳng/công
   // thức) để backend không chặn E-CD-BASIS. Dọn run_rate/size_tiers (đơn giá nay nhập per-phiếu).
   transformSubmit: (body) => {
-    body.department_id = body.department_id ?? null;
-    body.dau_viec_dinh_muc = body.dau_viec_dinh_muc ?? [];
+    body.department_ids = Array.isArray(body.department_ids) ? body.department_ids : [];
+    // Vắng khoá = server GIỮ nguyên — nhưng drawer luôn mở với đủ danh sách, nên gửi mảng rỗng là
+    // đúng ý "đã gỡ hết" chứ không phải "không đụng tới".
+    body.vat_tus = body.vat_tus ?? [];
     // Bỏ tick "cần khuôn" thì ô Loại dụng cụ bị `showIf` ẩn ⇒ không nằm trong body ⇒ backend giữ
     // giá trị cũ. Xoá thẳng ở đây, không thì công đoạn hiện "không cần khuôn" mà vẫn đeo nhãn
     // "Khuôn bế" trong dữ liệu.
@@ -493,18 +489,34 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
   prefix: "/api/cong-viec-khoan",
   nhatKyLoai: "cong_viec_khoan",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì xoá
-  // hẳn, còn định mức đầu việc / bước lệnh đang trỏ tới thì chỉ ngừng dùng (tiền của lệnh đã phát
-  // KHÔNG được xê dịch). Mục đã ngừng xem lại ở công tắc trên dải lọc.
+  // hẳn, còn mẻ nào đã ghi bằng việc này thì chỉ ngừng dùng (mẻ giữ ảnh chụp, nhưng mất dòng gốc là
+  // hết đường tra ngược). Mục đã ngừng xem lại ở công tắc trên dải lọc.
   softDelete: true,
   // Mã do MÁY cấp (`KH-####`) ⇒ ẩn ô Mã lúc tạo. Xưởng gọi việc khoán bằng TÊN ("bế tay", "vào keo
   // gáy vuông"), chưa ai từng gọi bằng mã — bắt gõ mã là thêm một ô không ai đọc lại.
   autoCode: true,
-  // `nhanTabCongThuc` GỠ cùng ô "Cách đo lượng khoán" (06/09/2026) — màn này hết ô công thức.
+  // Tab "Công thức khoán" (18/09/2026, mg `0317`) — ô `cong_thuc_khoan` tự khai `nhanTab` nên KHÔNG
+  // cần `nhanTabCongThuc` ở tầng màn.
   // Tab lọc = TỔ. Không khai `values` cứng: tổ do người dùng dựng ở cây tổ chức, mọi giá trị đều
   // đến từ dữ liệu (`dynamic`) — khai cứng là bỏ sót đúng những tổ xưởng mới mở.
   facet: { key: "to", values: [], dynamic: true },
   columns: [
-    { key: "group_name", label: "Tổ", render: (r) => nhanTo(r.group_name) },
+    // Một việc làm ở NHIỀU tổ (17/09/2026) — server trả `tos` (id · mã · tên) đã tra sẵn. Tổ bị xoá
+    // khỏi cây tổ chức thì `ten` rỗng: hiện dấu hiệu, đó là việc người khai phải gỡ.
+    { key: "tos", label: "Tổ", render: (r) => {
+        const tos = Array.isArray(r.tos) ? (r.tos as { id: number; ten?: string | null }[]) : [];
+        if (tos.length === 0) return "—";
+        return tos.map((t, i) => (
+          <span key={t.id}>
+            {i > 0 && ", "}
+            {t.ten ? <span>{t.ten}</span> : (
+              <span className="badge-sem badge-sem--muted" title="Tổ này không còn trong cây tổ chức — mở ra gỡ đi">
+                Tổ #{t.id} đã xoá
+              </span>
+            )}
+          </span>
+        ));
+      } },
     // Đơn vị lưu MÃ, hiện TÊN (server gán `don_vi_ten`) — `m2` không ai đọc thành "m²". Mã lạ (dòng
     // cũ mang đơn vị ngoài danh mục) thì hiện nguyên mã kèm dấu hiệu: nó là việc phải sửa, không
     // phải chuyện im lặng bỏ qua.
@@ -530,13 +542,18 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
   fields: [
     // Tổ lấy từ CÙNG endpoint với ô "Tổ phụ trách" của Công đoạn — nút LÁ trong khối Sản xuất. Một
     // nguồn thì đầu việc khoán và công đoạn không bao giờ trỏ hai danh sách tổ khác nhau (mà lệch
-    // là bước lệnh không tìm thấy đầu việc nào của tổ mình).
-    { key: "department_id", label: "Tổ làm việc này", type: "ref",
+    // là bước lệnh không tìm thấy đầu việc nào của tổ mình). Chọn NHIỀU tổ từ 17/09/2026.
+    { key: "department_ids", label: "Tổ làm việc này", type: "to-multi",
       refPrefix: "/api/cong-doan/phong-ban", required: true, group: "Thông tin"},
     { key: "unit", label: "Đơn vị tính khoán", ...F_DON_VI, required: true, group: "Đơn giá" },
     { key: "unit_price", label: "Đơn giá (đ)", type: "number", required: true, group: "Đơn giá" },
-    // Ô "Cách đo lượng khoán" ĐÃ GỠ (06/09/2026): khai ở dòng đầu việc trong drawer Công đoạn.
     { key: "note", label: "Ghi chú", type: "text", group: "Thông tin" },
+    // CÔNG THỨC KHOÁN (18/09/2026, mg `0317`) — trước ở dòng đầu việc trong drawer Công đoạn, nay
+    // về đúng chủ: việc khoán của tổ. CHỈ KHAI BÁO — bàn tổ không nhân gì ra tiền, số này để kế
+    // toán lương dùng về sau (vd cán màng tính đơn giá theo m², còn mẻ ghi số tờ).
+    { key: "cong_thuc_khoan", label: "Công thức khoán", type: "formula", loaiO: "quy_doi",
+      nhanTab: "Công thức khoán",
+      hint: "Ra LƯỢNG theo đơn vị tính khoán — vd cán màng: sl_ra * kho_tp_dai * kho_tp_rong / 1000000 (m²). Bỏ trống = chưa khai." },
     // Thứ bậc: tổ → công đoạn → công việc khoán → VIỆC PHÁT SINH. Tổ đã có ở trên nên mỗi dòng chỉ
     // ba ô. Đợt đầu chỉ khai báo — sản xuất chưa đọc danh sách này.
     // Không khai `hint`: gợi ý nằm DƯỚI bảng bị menu đơn vị của dòng cuối trùm lên — ví dụ đã chuyển
@@ -681,8 +698,7 @@ export const CFG_GIAY: CatalogConfig = {
     // `sl_vao`/`sl_ra` và KHÔNG có đơn giá — ô này không được phép nhắc tới tiền.
     { key: "cong_thuc_luong", label: "Công thức tính định mức", type: "formula", loaiO: "quy_doi",
       group: "Giá", nhanTab: "Công thức tính định mức",
-      macDinhTheo: (f) => congThucLuongGiay(f.don_vi_gia),
-      hint: "vd: dinh_luong * dai_nguyen * rong_nguyen * to_nguyen — ra số kg giấy phải mua" },
+      macDinhTheo: (f) => congThucLuongGiay(f.don_vi_gia)},
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
     // NVL thay thế (mục 5 "Bảng định mức", mg 0239) — tra cứu/gợi ý khi thiếu giấy, MỘT CHIỀU.
     { key: "thay_the_ids", label: "Giấy thay thế", type: "self-ref-multi",
@@ -747,26 +763,115 @@ export const CFG_THANH_PHAM: CatalogConfig = {
   enableImport: true,
   prefix: "/api/vat-lieu-kho/thanh-pham",
   nhatKyLoai: "thanh_pham",
-  // Khai tay ĐƯỢC (nới 19/08/2026) — Bán hàng khai trước một món khách sắp đặt là chuyện thường.
-  // Nhưng KHÔNG cho Xóa: dòng có thể đang có lô tồn hoặc phiếu đã ghi sổ, xoá là làm mồ côi;
-  // ngừng dùng thì tắt ô Đang dùng. Máy chủ chặn song song, không chỉ giấu nút.
+  // KHÔNG khai tay (chủ 18/09/2026: "bỏ nút thêm thành phẩm đi") — dòng chỉ do chốt đơn sinh ra.
+  // 19/08–18/09/2026 từng nới cho Bán hàng khai trước món khách sắp đặt. Nhập Excel vẫn còn để SỬA
+  // hàng loạt; mã mới trong file bị máy chủ báo lỗi đúng dòng (`_chan_tao_tay`).
+  // KHÔNG cho Xóa: dòng có thể đang có lô tồn hoặc phiếu đã ghi sổ, xoá là làm mồ côi. Cả hai
+  // đều chặn song song ở máy chủ, không chỉ giấu nút.
+  khongTaoTay: true,
   khongXoa: true,
   softDelete: true,
   columns: [
-    // CỘT + Ô "Khách hàng" ĐÃ GỠ HẲN (chủ 21/08/2026: "khách hàng mình lưu làm gì, mình không
+    // Ô CHỌN "Khách hàng" ĐÃ GỠ HẲN (chủ 21/08/2026: "khách hàng mình lưu làm gì, mình không
     // dùng tới — thành phẩm này là một cái tên hàng mới, nêu chưa khai để tái sử dụng, tránh
-    // phình lên"). Thành phẩm KHÔNG thuộc về ai nữa: hai khách đặt cùng tên dùng CHUNG một dòng.
-    // Công tắc chia hai màn chuyển sang cột `la_thanh_pham` (mg 0228) — repo tự đóng dấu, người
-    // dùng không khai, nên bỏ ô này không làm dòng mới rơi sang màn Vật tư.
-    { key: "don_vi_gia", label: "ĐVT", render: (r) => dvCell(r) },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
+    // phình lên"). Thành phẩm KHÔNG thuộc về ai: hai khách đặt cùng tên dùng CHUNG một dòng, công
+    // tắc chia hai màn là cột `la_thanh_pham` (mg 0228) do repo tự đóng dấu.
+    //
+    // HIỆN LẠI dạng CHỈ ĐỌC 17/09/2026 (chủ: "hiển thị hết đi" — màn thiếu so với thứ bảng lưu):
+    // đơn + khách ĐẶT LẦN ĐẦU là vết nguồn gốc máy ghi lúc chốt đơn, không phải chủ, không ai sửa.
+    // Bề rộng khai đủ cho cả bảng (Mã 14 + Tên 24 + Hành động 8 là của trang) — cộng quá 100% thì
+    // `table-layout: fixed` co mọi cột lệch nhau.
+    { key: "don_vi_gia", label: "ĐVT", width: "8%", render: (r) => dvCell(r) },
+    // 11%: nhãn "ĐƠN ĐẦU TIÊN" cần ~121px mới đứng một dòng (đo ở bảng 1150px, lúc sidebar mở).
+    { key: "order_no", label: "Đơn đầu tiên", width: "11%", render: (r) => <MaDon r={r} ngan /> },
+    { key: "customer_ten", label: "Khách đặt lần đầu", width: "16%",
+      render: (r) => (r.customer_ten ? String(r.customer_ten) : "") },
+    { key: "created_at", label: "Ngày khai", width: "9%",
+      render: (r) => ngay(r.created_at as string | null) },
+    { key: "ghi_chu", label: "Ghi chú", width: "10%",
+      render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", ...F_DON_VI, group: "Thông số",
       hint: "Lấy theo đơn vị trên dòng đơn hàng — sửa nếu kho đếm bằng đơn vị khác" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
+  renderChiDoc: (r) => <NguonGocThanhPham r={r} />,
 };
+
+/** "DH002" · "Khai tay" · hoặc đơn đã mất khỏi hệ thống (soft-ref, không FK). `ngan` = chữ cho ô
+ *  bảng hẹp; drawer dùng câu đầy đủ. */
+function donDauTien(r: Row, ngan: boolean): ReactNode {
+  if (r.order_no) return String(r.order_no);
+  if (r.order_id != null) return ngan ? `#${r.order_id}` : `Đơn #${r.order_id} — không còn trong hệ thống`;
+  return ngan
+    ? <span className="badge-sem badge-sem--muted">Khai tay</span>
+    : "Khai tay trên danh mục — không từ đơn nào";
+}
+
+/** Mã đơn BẤM ĐƯỢC → mở luôn drawer đơn ở màn Đơn hàng bán (cùng đường Báo giá / Phiếu thu đang
+ *  dùng). Chữ thường khi: đơn đã mất · không quyền đọc đơn (link dẫn vào màn cấm là mời bấm để ăn
+ *  lỗi) · màn không có đường điều hướng (dựng trong test). */
+function MaDon({ r, ngan }: { r: Row; ngan: boolean }) {
+  const navigate = useDieuHuongDanhMuc();
+  const can = useCan();
+  const chu = donDauTien(r, ngan);
+  if (!r.order_no || r.order_id == null || !navigate || !can("don_hang_ban", "read")) return <>{chu}</>;
+  return (
+    <CodeLink code={String(r.order_no)} title={`Mở đơn ${r.order_no}`}
+      onOpen={() => navigate("don-hang-ban", { openOrderId: Number(r.order_id) })} />
+  );
+}
+
+/** Khối CHỈ ĐỌC cuối tab khai báo của Thành phẩm: thứ bảng lưu mà không ai gõ tay. */
+function NguonGocThanhPham({ r }: { r: Row }) {
+  const khach = r.customer_ten
+    ? [r.customer_ma, r.customer_ten].filter(Boolean).map(String).join(" · ")
+    : r.customer_id != null ? `Khách #${r.customer_id} — không còn trong hệ thống` : "—";
+  const anh = assetUrl(r.anh_url as string | null);
+  const o = (nhan: string, giaTri: string, goiY?: string) => (
+    <label className={`rc-field${goiY ? " rc-field--full" : ""}`}>
+      <span className="rc-field__label">{nhan}</span>
+      <div className="rc-input-wrapper rc-input-wrapper--ro">
+        <input className="rc-input" value={giaTri} readOnly />
+      </div>
+      {goiY && <span className="rc-field__hint">{goiY}</span>}
+    </label>
+  );
+  return (
+    <section className="rc-card-section" style={{ padding: "16px 20px" }}>
+      <div className="rc-card-section__title">Nguồn gốc &amp; trạng thái</div>
+      <div className="rc-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px 16px" }}>
+        {r.order_no ? (
+          // `div` chứ không `label` như `o()`: label chuyển cú bấm vào nút đầu tiên bên trong, bấm
+          // trúng chữ "Đơn hàng đầu tiên" cũng bị đá sang màn đơn.
+          <div className="rc-field">
+            <span className="rc-field__label">Đơn hàng đầu tiên</span>
+            <div className="rc-input-wrapper rc-input-wrapper--ro">
+              <span className="rc-input" style={{ display: "block" }}><MaDon r={r} ngan={false} /></span>
+            </div>
+          </div>
+        ) : o("Đơn hàng đầu tiên", String(donDauTien(r, false)))}
+        {o("Trạng thái", r.active === false ? "Đã ngừng dùng" : "Đang dùng")}
+        {o("Khách đặt lần đầu", khach,
+          "Chỉ để tra nguồn gốc — khách khác đặt cùng tên hàng vẫn dùng chung dòng này.")}
+        {o("Ngày khai", ngayGio(r.created_at as string | null))}
+        {o("Sửa lần cuối", ngayGio(r.updated_at as string | null))}
+        {anh && (
+          <div className="rc-field rc-field--full">
+            <span className="rc-field__label">Ảnh minh hoạ</span>
+            <a href={anh} target="_blank" rel="noreferrer" style={{ alignSelf: "flex-start" }}>
+              <img src={anh} alt={String(r.ten)} style={{
+                maxWidth: 160, maxHeight: 160, objectFit: "cover", borderRadius: 8,
+                border: "1px solid var(--rule-soft, #e8e3d3)",
+              }} />
+            </a>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 // Xóa kho KHÔNG dùng luồng ẩn-mềm mặc định: kho là gốc của lô/phiếu/yêu cầu nên phải CHẶN nếu còn
 // dính, và bắt gõ mã xác nhận (thao tác nặng). Gọi /delete-check để soi rồi mới cho xóa qua DELETE
@@ -896,9 +1001,10 @@ export const TINH_TRANG_KHUON: Lbls = {
 // ấn phẩm; đơn lặp lại thì lôi khuôn cũ ra dùng. Chỉ đủ để TÌM LẠI: số kệ (vị trí lưu) +
 // tình trạng. Ref ấn phẩm/khách hàng đấu sau. Mã KB-#### tự sinh; xóa mềm giữ dấu vết.
 export const CFG_KHUON_BE: CatalogConfig = {
-  // Nhan đề là "Khuôn & khung" từ 04/09/2026 (chứa khuôn bế, khuôn ép nhũ và khung lụa) — nhưng
-  // `prefix`, `nhatKyLoai` và `moduleQuyen` GIỮ NGUYÊN chuỗi `khuon_be`, xem cảnh báo ngay dưới.
-  title: "Khuôn & khung",
+  // Nhan đề "Khuôn" (18/09/2026, trước đó "Khuôn & khung" từ 04/09/2026) — màn vẫn chứa khuôn bế,
+  // khuôn ép kim và khung lụa, chip LOẠI bên dưới tách chúng ra. `prefix`, `nhatKyLoai` và
+  // `moduleQuyen` GIỮ NGUYÊN chuỗi `khuon_be`, xem cảnh báo ngay dưới.
+  title: "Khuôn",
   // ⚠️ `khuon_be` KHÔNG có tiền tố `dm_` như 9 màn kia — đây là chuỗi ĐANG NẰM TRONG bảng
   // `role_permissions` của DB thật (khớp `components/Sidebar.tsx`). Đổi cho "nhất quán" là mọi vai
   // mất sạch quyền màn này.
@@ -908,7 +1014,20 @@ export const CFG_KHUON_BE: CatalogConfig = {
   nhatKyLoai: "khuon_be",
   softDelete: true,
   autoCode: true,          // mã KB-#### sinh ngầm ở backend, ẩn ô nhập mã
-  facet: { key: "tinh_trang", values: mapOpt(TINH_TRANG_KHUON) },
+  // Chip theo LOẠI (chủ đổi 18/09/2026, trước đó chip theo tình trạng). Tình trạng + khách xuống
+  // bảng Lọc nâng cao — ba tiêu chí ghép VÀ, đều lọc ở máy chủ (`routers/khuon_be.py`: `loc` +
+  // `loc_them`). Đổi `key` ở đây là phải đổi cả tên tham số bên đó.
+  facet: { key: "loai", values: mapOpt(LOAI_KHUON) },
+  locNangCao: [
+    // `size: 200` = trần của nền danh mục, cùng lý do với ô Khách hàng trong drawer bên dưới.
+    { key: "khach_hang_id", label: "Khách hàng", type: "ref-search", refPrefix: "/api/customers",
+      refParams: { size: 200 } },
+    { key: "tinh_trang", label: "Tình trạng", type: "select", options: mapOpt(TINH_TRANG_KHUON) },
+    // Khớp CHỨA ở máy chủ (`khuon_be_repo.extra_conds`): số kệ gõ tự do, người tìm chỉ nhớ "B3".
+    { key: "so_ke", label: "Số kệ", type: "text", placeholder: "Vd: B3" },
+  ],
+  // Ô tìm quét cả tên khách + số kệ (`khuon_be_repo._loc_q`) — nói ra, không thì chẳng ai thử.
+  timGoiY: "Tìm mã / tên / khách / số kệ…",
   columns: [
     { key: "khach_hang_ten", label: "Khách hàng",
       render: (r) => (r.khach_hang_ten ? String(r.khach_hang_ten) : "") },
@@ -979,28 +1098,8 @@ export const CFG_DON_VI: CatalogConfig = {
         );
       },
     },
-    {
-      // `canh_bao` server vẫn trả từ lâu nhưng KHÔNG màn nào hiện — cảnh báo "số cố định đè lên
-      // công thức" (thứ để lọt `1 tờ = 1.000 g` vào DB) vì thế mà vô hình. Cho nó một cột.
-      key: "canh_bao",
-      label: "Lưu ý",
-      render: (r) => {
-        const ds = Array.isArray(r.canh_bao) ? (r.canh_bao as string[]) : [];
-        if (ds.length === 0) return <span style={{ color: "var(--ash-2)" }}>—</span>;
-        return (
-          <div className="rc__formula-chips">
-            {ds.map((c, i) => {
-              const shortText = c.length > 28 ? (c.includes(" — ") ? `⚠ ${c.split(" — ")[0]}` : `⚠ ${c.slice(0, 27)}…`) : `⚠ ${c}`;
-              return (
-                <span key={i} className="badge-sem badge-sem--amber rc__warn-pill" title={c}>
-                  {shortText}
-                </span>
-              );
-            })}
-          </div>
-        );
-      },
-    },
+    // Cột "Lưu ý" (`canh_bao`) GỠ 18/09/2026 theo chủ: phần lớn dòng chỉ lặp lại "Chưa khai" mà
+    // cột Quy đổi đã nói. Server vẫn trả `canh_bao`, chỉ màn này thôi hiện.
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [

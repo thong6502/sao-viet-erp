@@ -90,7 +90,6 @@ const VT_MAU: Record<string, { label: string; cls: string }> = {
   xanh: { label: "Đủ trong kho", cls: "hslsx-pill--moss" },
   vang: { label: "Đủ nhờ hàng về", cls: "hslsx-pill--amber" },
   do: { label: "Thiếu", cls: "hslsx-pill--signal" },
-  ve_muon: { label: "Hàng về muộn", cls: "hslsx-pill--signal" },
   khong_ro: { label: "Chưa đánh giá được", cls: "hslsx-pill--plum" },
 };
 
@@ -1478,9 +1477,6 @@ function VatTuMuc({
                   </td>
                   <td className="hslsx-hs__num">
                     {ngay(v.ngay_can)}
-                    {v.ngay_du_hang && (
-                      <span className="hslsx-hs__nho">về {ngay(v.ngay_du_hang)}</span>
-                    )}
                   </td>
                 </tr>
               ))}

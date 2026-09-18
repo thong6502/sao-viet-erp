@@ -42,7 +42,7 @@ export interface BuocKe {
   ten: string;
   to: string | null;
   may: string | null;
-  dau_viec: string | null;
+  // `dau_viec` GỠ 18/09/2026 (mg `0320`) — bước thôi ghim đầu việc khoán.
   /** `false` ⇒ bước đo bằng thước của RIÊNG nó (ghi kẽm đếm bản), không nối vào chuỗi giấy.
    *  Hiện nó như một mắt xích của chuyền là gây hiểu nhầm — panel cho nó nhãn riêng. */
   tren_dong_giay: boolean;
@@ -65,7 +65,6 @@ export interface BangKeVatTu {
   tong: TongKe[];
   /** Bước không khai được món nào — kể cả khuôn. */
   so_buoc_trong: number;
-  so_buoc_chua_dau_viec: number;
   /** Số MÓN khác nhau, nuôi ô tóm tắt trên đầu màn. Đếm theo khối tổng nên món khai ở hai bước
    *  vẫn là một món. */
   so_mon: number;
@@ -133,7 +132,6 @@ export function bangKeVatTu(args: {
       ten: c.ten,
       to: c.department_ten ?? null,
       may: c.may_ten ?? null,
-      dau_viec: c.khoan_ten ?? null,
       tren_dong_giay: c.tren_dong_giay !== false,
       sl_vao: soHoac0(c.so_luong_vao),
       dv_vao: nhanChang(c.don_vi_vao),
@@ -148,7 +146,6 @@ export function bangKeVatTu(args: {
     buocs,
     tong: gomTong(buocs),
     so_buoc_trong: buocs.filter((b) => b.dong.length === 0).length,
-    so_buoc_chua_dau_viec: buocs.filter((b) => !b.dau_viec).length,
     so_mon: gomTong(buocs).length,
   };
 }

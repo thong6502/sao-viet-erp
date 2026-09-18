@@ -1,14 +1,13 @@
-"""Bước NGOÀI dòng giấy đo bằng ĐƠN VỊ CỦA CHÍNH NÓ — từ danh mục xuống tới bàn tổ.
+"""Bước NGOÀI dòng giấy đo bằng ĐƠN VỊ CỦA CHÍNH NÓ — từ lệnh xuống tới bàn tổ.
 
 Ghi kẽm CTP không chạm tờ giấy nào nên nó đứng ngoài chuỗi bù hao: `so_luong_vao/ra` của nó KHÔNG
-do dòng giấy quyết, mà do `cong_doan.cong_thuc_san_luong` (`so_kem` ⇒ 4 bản). Trước 10/09/2026 con
-số ấy đi tới bàn tổ mà không mang theo chữ nào — thẻ việc hiện `0 → 0`, ô Ghi mẻ trống đơn vị, khối
-Sản lượng nói "mục tiêu 0 · đủ mục tiêu" ngay lúc chưa ai chạm máy.
+do dòng giấy quyết, mà do người lập lệnh TỰ KHAI ở bước (đơn vị `kem` + 4 bản). Công thức sản lượng
+ra ở danh mục (`cong_doan.cong_thuc_san_luong` + `don_vi_san_luong`) GỠ 18/09/2026 (mg `0324`).
 
 Bài này soi trọn đường đi của một bước như thế (`docs/superpowers/specs/2026-09-10-ban-to-du-thong-
 tin-design.md` §10):
 
-  ① danh mục khai công thức + `don_vi_san_luong` ⇒ kế hoạch ra 4 và câu diễn giải có ĐUÔI đơn vị;
+  ① kế hoạch: khai tay 4 bản kẽm thì giữ qua chuỗi ngược; không khai thì bước đứng ở 0;
   ② phát hành ⇒ công việc mang `don_vi_vao/ra = "kem"`, cờ `ngoai_dong`, dặn dò, thẻ quy cách,
     dải phút chạy;
   ③ ghi mẻ ở tổ ⇒ đơn vị mặc định là `kem`, mục tiêu 4, còn thiếu rút dần;
@@ -18,15 +17,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from app.models.cong_doan import CongDoan
 from app.models.department import Department
 from app.models.lsx import LB_MAY, LsxCongDoan
 from app.models.san_xuat import CV_DANG_CHAY, SanXuatCongViec
 from app.models.san_xuat_san_luong import SanXuatBatch
 from app.repositories.cong_doan_repo import CongDoanRepository
-from app.services.bien_cong_thuc import quy_cach_bien
 from app.services.cong_doan_service import CongDoanService
-from app.services.san_xuat import board, release, san_luong
+from app.services.san_xuat import board, release
+from tests.san_xuat_me_fixtures import tao_me
 from tests.quyen_to_fixtures import cap_quyen_to
 
 # Fixtures + helper luồng thật (đơn → lệnh → sẵn sàng).
@@ -61,33 +59,31 @@ def _to_ky_thuat(db, admin) -> Department:
 
 
 def _cd_ghi_kem(db):
-    """Công đoạn NGOÀI dòng giấy khai đủ CẶP: ra bao nhiêu (`so_kem`) và ra bằng gì (`kem`).
+    """Công đoạn NGOÀI dòng giấy: bỏ TRỐNG cả hai ô đơn vị chặng.
 
-    Đi qua `CongDoanService` chứ không ORM trần để ăn đúng `_validate` — chính chỗ chặn khai đơn vị
-    sản lượng cho bước đã có đơn vị chặng, và chặn mã đơn vị không có trong danh mục.
+    Đi qua `CongDoanService` chứ không ORM trần để ăn đúng `_validate`.
     """
     return CongDoanService(CongDoanRepository(db)).create(dict(
         ma="CD-KEM-X", ten="Ghi kẽm CTP", nhom="prepress",
         che_do_tinh="theo_san_luong", pricing_basis="per_finished_qty", first_unit_floor=0,
-        cong_thuc_san_luong="so_kem", don_vi_san_luong="kem",
     ))
 
 
-def _lenh_co_ghi_kem(db, orders, lsx_svc, admin, customer, *, to_id):
-    """Một lệnh 4 bản kẽm, có thêm bước Ghi kẽm CTP đứng ĐẦU routing và mang câu dặn dò.
+def _lenh_co_ghi_kem(db, orders, lsx_svc, admin, customer, *, to_id, khai_tay=True):
+    """Một lệnh có thêm bước Ghi kẽm CTP đứng ĐẦU routing và mang câu dặn dò.
 
-    Chạy `_ap_chuoi_nguoc` — đúng hàm mà nút Lưu routing chạy — thay vì gán tay `so_luong_vao/ra`:
-    thứ đang soi CHÍNH LÀ "số của bước ngoài dòng có tự hiện không", gán tay là tự trả lời hộ.
+    `khai_tay` = người lập lệnh khai `kem → kem`, 4 bản ở bước (đúng thứ drawer gửi lên). Chạy
+    `_ap_chuoi_nguoc` — đúng hàm mà nút Lưu routing chạy — để soi số khai tay có sống sót không.
     """
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    # Số kẽm là thứ công thức ăn vào; lệnh dựng từ phiếu 1 mặt 4 màu nên khai thẳng cho khỏi phụ
-    # thuộc engine bình bài (bài này không soi số kẽm được tính ra sao).
     a.quy_cach_json = {**(a.quy_cach_json or {}), "so_kem": 4}
     cd = _cd_ghi_kem(db)
     dau = min(c.thu_tu or 0 for c in a.cong_doans)
+    khai = dict(don_vi_vao="kem", don_vi_ra="kem", so_luong_vao=4, so_luong_ra=4) \
+        if khai_tay else {}
     buoc = LsxCongDoan(
         lsx_id=a.id, thu_tu=dau - 1, ten="Ghi kẽm CTP", nhom="prepress", loai_buoc=LB_MAY,
-        department_id=to_id, cong_doan_id=cd.id, ghi_chu=_DAN_DO,
+        department_id=to_id, cong_doan_id=cd.id, ghi_chu=_DAN_DO, **khai,
     )
     db.add(buoc)
     db.flush()
@@ -101,25 +97,25 @@ def _cv_cua(db, goi, step_key: str) -> SanXuatCongViec:
     return db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=step_key).one()
 
 
-# --- ① Kế hoạch: số tự hiện, câu diễn giải có đuôi đơn vị ------------------------------------
-def test_buoc_ngoai_dong_ra_bon_ban_kem_va_dien_giai_co_don_vi(
+# --- ① Kế hoạch: số khai tay sống qua chuỗi ngược; không khai thì đứng ở 0 ------------------
+def test_buoc_ngoai_dong_khai_tay_giu_so_khong_khai_thi_bang_0(
     db, orders, lsx_svc, admin, customer
 ):
     to = _to_ky_thuat(db, admin)
     a, buoc = _lenh_co_ghi_kem(db, orders, lsx_svc, admin, customer, to_id=to.id)
-
-    # Bước ngoài dòng để TRỐNG cả hai ô đơn vị chặng (menu công đoạn chỉ còn 5 chặng, mg `0273`).
-    assert buoc.don_vi_vao is None and buoc.don_vi_ra is None
-    # Vào = ra = 4: hệ số vào→ra của bước ngoài dòng là 1,0 và công đoạn không bù hao.
+    assert (buoc.don_vi_vao, buoc.don_vi_ra) == ("kem", "kem")
     assert float(buoc.so_luong_ra) == 4 and float(buoc.so_luong_vao) == 4
+    # Hai đầu đều là số người ta gõ ⇒ không hao, không hệ số.
+    assert float(buoc.hao_hut) == 0 and float(buoc.he_so_quy_doi) == 0
 
-    r = lsx_svc.buoc_ngoai_dong(buoc, quy_cach_bien(a))
-    assert r["so_luong_ra"] == 4 and r["so_luong_vao"] == 4
 
-    cau = lsx_svc.san_luong_dien_giai(
-        buoc, db.get(CongDoan, buoc.cong_doan_id), quy_cach_bien(a))
-    # Đuôi đơn vị là thứ mg `0289` sinh ra để cứu: trước đó câu này cụt ở "Số bản kẽm = 4".
-    assert cau.startswith("Số bản kẽm =") and cau.endswith("bản kẽm")
+def test_buoc_ngoai_dong_khong_khai_thi_dung_o_0(db, orders, lsx_svc, admin, customer):
+    """Danh mục không còn công thức sản lượng ra (mg `0324`) ⇒ bước chưa khai đứng ở 0, không đoán."""
+    to = _to_ky_thuat(db, admin)
+    _a, buoc = _lenh_co_ghi_kem(db, orders, lsx_svc, admin, customer, to_id=to.id,
+                                khai_tay=False)
+    assert (buoc.don_vi_vao, buoc.don_vi_ra) == (None, None)
+    assert float(buoc.so_luong_ra or 0) == 0 and float(buoc.so_luong_vao or 0) == 0
 
 
 # --- ② Phát hành: hành lý của thẻ việc -------------------------------------------------------
@@ -139,7 +135,7 @@ def test_snapshot_mang_don_vi_dan_do_quy_cach_va_dai_thoi_luong(
 
     dm = cv.dinh_muc_json
     assert dm["ngoai_dong"] is True
-    assert dm["sl_dien_giai"].endswith("bản kẽm")
+    assert "sl_dien_giai" not in dm            # gỡ 18/09/2026 cùng công thức sản lượng ra
     # Ba số phút cùng thang, có mặt kể cả khi bằng 0 (bước chưa gán máy).
     assert {"chay_phut", "chay_phut_min", "chay_phut_max"} <= set(dm)
 
@@ -148,15 +144,16 @@ def test_snapshot_mang_don_vi_dan_do_quy_cach_va_dai_thoi_luong(
     qc = cv.quy_cach_json
     assert qc["so_kem"] == 4
     # Thẻ rút gọn, KHÔNG bê cả `lsx.quy_cach_json` xuống tổ.
-    assert set(qc) <= {"giay", "dinh_luong", "kho_in", "kho_tp", "so_mat", "so_mau",
-                       "so_kem", "so_con", "so_luong", "ghi_chu_ky_thuat"}
+    assert set(qc) <= {"giay", "dinh_luong", "kho_nguyen", "kho_in", "kho_tp", "cach_in",
+                       "so_mat", "so_mau", "so_kem", "muc_a", "muc_b", "so_con", "so_luong",
+                       "ghi_chu_ky_thuat"}
     assert "×" in qc["kho_in"], "khổ tờ in ghép thành một chuỗi mm để mọi màn đọc giống nhau"
 
     # Payload bàn tổ bày đúng những thứ trên (FE không phải suy lại từ mã đơn vị).
     item = board._item_dict(cv, {}, {}, {}, {})
     assert item["ngoai_dong"] is True and item["ghi_chu"] == _DAN_DO
     assert item["quy_cach"]["so_kem"] == 4
-    assert item["sl_dien_giai"].endswith("bản kẽm")
+    assert "sl_dien_giai" not in item
 
 
 # --- ③ Bàn tổ: ghi mẻ theo đơn vị bản địa ----------------------------------------------------
@@ -168,7 +165,7 @@ def test_ghi_me_lay_don_vi_ban_dia_va_muc_tieu_bon(db, orders, lsx_svc, admin, c
     cv.trang_thai = CV_DANG_CHAY
     db.commit()
 
-    r = san_luong.tao_batch(
+    r = tao_me(
         db, user=admin, cong_viec_id=cv.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=2, tot=2,
     )
@@ -198,7 +195,7 @@ def test_buoc_tren_dong_giay_giu_nguyen_don_vi_va_co_dai_phut(
     assert float(cv.so_luong_vao) == float(in_buoc.so_luong_vao)
 
     dm = cv.dinh_muc_json
-    assert dm["ngoai_dong"] is False and dm["sl_dien_giai"] is None
+    assert dm["ngoai_dong"] is False
     # Bước in có máy nên có giờ thật; dải luôn bọc lấy số giữa (máy chưa khai min/max ⇒ bằng nhau).
     assert dm["chay_phut"] > 0
     assert dm["chay_phut_min"] <= dm["chay_phut"] <= dm["chay_phut_max"]

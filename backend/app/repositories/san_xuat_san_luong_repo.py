@@ -24,6 +24,7 @@ from ..models.san_xuat_san_luong import (
     SanXuatBanGiaoDieuChinh,
     SanXuatBatch,
     SanXuatBatchLotVao,
+    SanXuatBatchPhatSinh,
     SanXuatKetQuaNhanh,
     SanXuatVatTuNhan,
 )
@@ -215,6 +216,26 @@ class SanXuatSanLuongRepository:
         for lot in rows:
             out.setdefault(lot.batch_id, []).append(lot)
         return out
+
+    def phat_sinh_cua_nhieu(self, batch_ids: list[int]) -> dict[int, list[SanXuatBatchPhatSinh]]:
+        """`{batch_id: [việc phát sinh]}` — MỘT truy vấn cho cả tab Sản lượng (mg `0318`).
+
+        Cùng khuôn `lot_vao_cua_nhieu`: drawer bày mọi mẻ của bước nên lazy-load là mỗi mẻ một
+        truy vấn. Việc phát sinh KHÔNG cộng vào sản lượng, đây chỉ là dữ liệu để BÀY."""
+        if not batch_ids:
+            return {}
+        rows = self.db.scalars(
+            select(SanXuatBatchPhatSinh)
+            .where(SanXuatBatchPhatSinh.batch_id.in_(batch_ids))
+            .order_by(SanXuatBatchPhatSinh.id)
+        )
+        out: dict[int, list[SanXuatBatchPhatSinh]] = {}
+        for r in rows:
+            out.setdefault(r.batch_id, []).append(r)
+        return out
+
+    def phat_sinh_cua_batch(self, batch_id: int) -> list[SanXuatBatchPhatSinh]:
+        return self.phat_sinh_cua_nhieu([int(batch_id)]).get(int(batch_id), [])
 
     def da_dung_tu_nguon(self, nguon_cong_viec_id: int, dich_cong_viec_id: int) -> float:
         """Lượng đầu vào mà công đoạn SAU (`dich`) đã tiêu thụ từ đầu ra công đoạn TRƯỚC (`nguon`).

@@ -5,7 +5,7 @@
 //  1) `THSX_TT_META` + `ThsxTrangThaiPill` — pill trạng thái công việc (LUÔN icon + CHỮ, a11y).
 //  2) Nhãn dẫn xuất (serial nguồn, icon nguồn) + digest đếm theo trạng thái.
 //
-// LƯỚI NGÀY của view Lịch **tái dùng** hình học của Xếp lịch 3 (`xl3Shared.tsx` khungLuoi / x) —
+// LƯỚI NGÀY của view Lịch **tái dùng** hình học của bàn Xếp lịch (`xlShared.tsx` khungLuoi / x) —
 // KHÔNG chép lại.
 import { Icon, type IconName } from "../components/Icons";
 import type { SxLenhNhom, SxWorkItem, SxWorkItemsOut } from "../api/client";

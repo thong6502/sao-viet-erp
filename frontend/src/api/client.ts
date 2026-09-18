@@ -358,11 +358,10 @@ export type QuoteEvent =
   | { type: "lsx_dinh_kem_changed"; lsx_id: number }
   // Bài ghép tạo/sửa/xoá → hàng chờ ghép + danh sách bài ghép cập nhật ngay (không cần refresh).
   | { type: "bai_ghep_changed" }
-  // Xếp lịch: đưa vào/gỡ kế hoạch · gán máy-ca-giờ · khóa → bàn Xếp lịch + badge cập nhật ngay.
+  // Xếp lịch (cấp LỆNH): đặt/dời/bỏ mốc · phát hành · thu hồi → bàn Xếp lịch + badge cập nhật
+  // ngay. Trước 18/09/2026 đây là HAI kênh (`xep_lich_changed` của bàn theo công đoạn +
+  // `xep_lich_3_changed` của bàn cấp lệnh); bàn kia xoá rồi nên gộp về một.
   | { type: "xep_lich_changed" }
-  // Xếp lịch 3 (cấp LỆNH): đặt/dời/bỏ mốc · phát hành · thu hồi. Kênh RIÊNG vì màn 3 không đẻ dòng
-  // `xep_lich_cong_doan` nào — không có `xep_lich_changed` nào bắn ra thay nó.
-  | { type: "xep_lich_3_changed" }
   // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
   | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number }
   // Thu mua / Kế toán: tín hiệu NHẸ (danh sách đổi) → refetch badge Thu mua. Backend đã broadcast
@@ -585,6 +584,9 @@ export const LSX_THIEU_LABELS: Record<string, NhanMa> = {
   // Bước cần dụng cụ lưu kho (bế · ép nhũ · khung lụa) mà chưa trỏ con dao nào. Đứng NGANG HÀNG
   // với thiếu nhà gia công — cùng một danh sách, người dùng không phải học luật mới.
   thieu_khuon: "Có công đoạn cần khuôn / khung mà chưa chọn",
+  // Bước Máy/Tổ giao cho một tổ chưa khai công việc khoán nào (18/09/2026, spec §5.4): thợ mở bàn
+  // tổ ra không có việc nào để ghi mẻ ⇒ cả lệnh đứng ở tổ đó. Thuê ngoài miễn.
+  thieu_viec_khoan_to: "Có tổ chưa có công việc khoán nào — khai ở danh mục Công việc khoán",
   // Hệ số quy đổi nay do server suy, không ai khai — chỉ thiếu NGUỒN của nó mới là lỗi thật.
   // Ba cầu, ba nguồn KHÁC NHAU: đổi mức lấy Con/tờ, xả giấy lấy số mảnh xả, còn sách thì lấy
   // số trang / trang mỗi tay (KHÔNG dùng con/tờ) — nên lệnh sách thiếu ở chỗ khác lệnh tờ rời.
@@ -728,10 +730,8 @@ export interface BaiGhepSoDoBuocChung {
   /** Số của CẢ LƯỢT. Đơn vị lấy từ khai báo công đoạn — bước bế nhả `cai` thì `so_luong_ra` đếm con. */
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string | null; don_vi_ra: string | null;
-  /** Bước NGOÀI dòng giấy (ghi kẽm…): câu "Số ra = <công thức chữ> = N kẽm" (số kẽm/bản tính từ
-   *  `cong_thuc_san_luong` ở CẤP BÀI) để thẻ nói "5 kẽm" thay vì "0 tờ". `null` với bước trên giấy.
-   *  `loi_quy_doi` = cầu đơn vị vào↔ra chưa khai ⇒ số vào = 0, cần khai quy đổi mới ra số. */
-  san_luong_dien_giai: string | null; loi_quy_doi: string | null;
+  /* `san_luong_dien_giai` + `loi_quy_doi` GỠ 18/09/2026 (mg `0324`) cùng công thức sản lượng ra
+     của công đoạn — bước ngoài dòng giấy không còn số ở cấp bài. */
   /** `ra` quy về ĐƠN VỊ VÀO + hệ số đã dùng — cùng bộ số `bu_hao_chi_tiet` của tính giá. Thiếu hai
    *  số này thì dòng đổi đơn vị đọc lên vô lý ("20.500 tờ → 2.050 cuốn" mà không nói 10 tờ = 1 cuốn). */
   he_so_quy_doi: number; so_luong_ra_quy: number | null;
@@ -743,6 +743,9 @@ export interface BaiGhepSoDoBuocChung {
   may_khong_hop: string[];
   /** T3: nhóm máy (loai_may) làm được công đoạn này — FE lọc dropdown máy theo đây. [] = không ràng buộc. */
   nhom_may_cho_phep: string[];
+  /** Tổ phụ trách khai ở danh mục Công đoạn — ô TỔ của lượt chung chỉ mời các tổ này (tổ đang
+   *  gán lệch vẫn hiện để không mất dấu). [] = công đoạn chưa khai tổ, không giới hạn. */
+  to_chon_duoc: number[];
   /** Đã khai gì đó cho lượt chung chưa → tách ra là mất. Cờ THẬT của server, đừng dò chuỗi `thieu`. */
   da_lap_ke_hoach: boolean;
   /** ID + TÊN: `<select>` cần id để chọn đúng, nhãn cần tên. Chỉ có tên là form phải lấy tên làm
@@ -752,11 +755,9 @@ export interface BaiGhepSoDoBuocChung {
   nha_cung_cap: string | null;
   tong_phut: number; chiem_may_phut: number;
   chiem_may_phut_min: number; chiem_may_phut_max: number;
-  /** Kíp chuẩn của bước chung (kế thừa định mức đầu việc, sửa đè được) — cùng hợp đồng với bước
-   *  lệnh. Giá trị NGƯỜI đã khai: form mồi lại từ đây, không thì mở drawer là ô trống rồi lưu đè
-   *  mất. Hai mốc tối thiểu/tối đa gỡ ở mg `0270`, ô "số người bố trí" gỡ ở mg `0281`. */
-  so_nhan_cong_tieu_chuan: number;
-  nang_suat: number | null; don_vi_nang_suat: string | null;
+  /** SỐ GIỜ KẾ HOẠCH của lượt chung loại TỔ — ô gõ tay, mặc định 0 (mg `0319`), cùng hợp đồng
+   *  với bước lệnh. Kíp chuẩn + năng suất chép từ đầu việc GỠ 18/09/2026 (mg `0320`, `0321`). */
+  so_gio_ke_hoach: number;
   /** Dẫn xuất từ tốc độ máy; `setup_phut` kế thừa từ máy. Ô gõ được duy nhất là
    *  `phat_sinh_phut` ("Thời gian khác"). `cho_phut`/`di_chuyen_phut` đã bỏ. */
   chay_phut: number | null;
@@ -765,14 +766,8 @@ export interface BaiGhepSoDoBuocChung {
    *  cùng một `thoi_luong_buoc()` sinh ra. Có nó thì drawer nói được VÌ SAO ra số phút đó. */
   thoi_luong_dien_giai: Record<string, unknown>;
   so_luot_chay: number;
-  /** Đầu việc của lượt chung — cùng hợp đồng với bước lệnh: phần GHIM (đầu việc đã chọn) + danh
-   *  sách chọn được của TỔ đang gán. Mọi ô TIỀN đã gỡ 11/09/2026: sản xuất chỉ ghi số lượng, quy
-   *  ra tiền là việc của kế toán lương ở màn "Khoán theo kỳ". */
-  khoan_rate_id: number | null;
-  khoan_ten: string | null;
-  /** Định mức (năng suất · số người) chỉ có khi công đoạn đã nối đầu việc đó — nên phần ấy là
-   *  TUỲ CHỌN, đừng khai đủ `LsxDauViecOption` rồi đọc bừa. */
-  khoan_chon_duoc: (Pick<LsxDauViecOption, "id" | "ten"> & Partial<LsxDauViecOption>)[];
+  /* Đầu việc ghim ở lượt chung (`khoan_rate_id` · `khoan_ten` · `khoan_chon_duoc`) GỠ 18/09/2026
+     (mg `0320`): việc khoán chọn LÚC GHI MẺ ở bàn tổ, không chọn ở kế hoạch. */
   vat_tus: { vat_tu_id: number; ma: string; ten: string; don_vi: string; so_luong: number;
              nguon_so_luong: string }[];
   /** Lượng TÍNH SẴN cho mọi vật tư theo lượt chung — cùng hợp đồng với bước lệnh. Món chưa tính
@@ -843,12 +838,8 @@ export interface BaiGhepSoTo {
 /** Kế hoạch của lượt chạy chung. Số lượng/hao/thời lượng KHÔNG có ở đây — chúng là dẫn xuất. */
 export interface BaiGhepBuocChungBody {
   department_id?: number | null; may_id?: number | null; loai_buoc?: LsxLoaiBuoc;
-  /** Đầu việc khoán ghim theo ID (0/null = bỏ chọn). Ảnh chụp đơn giá do SERVER chụp — client
-   *  không gửi `khoan_json` thô, kẻo đơn giá bịa chảy thẳng vào phiếu lương. */
-  piece_rate_id?: number | null;
-  /** Kíp chuẩn sửa đè được. Gửi kèm thì server GIỮ, không để nhánh ghim đầu việc đè lại. */
-  so_nhan_cong_tieu_chuan?: number | null;
-  nang_suat?: number | null; don_vi_nang_suat?: string | null;
+  /** Số giờ kế hoạch của lượt chung loại TỔ — số thập phân ≥ 0, để 0 là hợp lệ (mg `0319`). */
+  so_gio_ke_hoach?: number | null;
   /** Ô DUY NHẤT còn gõ được (2026-08-04): chuẩn bị + tốc độ kế thừa SỐNG từ máy đang gán. */
   phat_sinh_phut?: number; so_luot_chay?: number;
   ghi_chu?: string | null;
@@ -938,149 +929,40 @@ export interface BaiGhep2Activity {
   detail: string | null;
 }
 
-// --- Gợi ý xếp lịch: máy ứng viên + giờ xong (server chấm, người quyết) --------
-// Dùng chung: bàn v2 `xep_lich_2` gọi qua `api.xepLich2.goiY`. (Màn cũ đã gỡ 19/08/2026.)
-/** Một MÁY ứng viên trong bảng gợi ý — tên máy · khe sớm nhất · GIỜ XONG.
- *
- *  Sắp theo `finish`, KHÔNG theo `khe_trong`: tốc độ khai theo từng máy nên máy rảnh sớm hơn chưa
- *  chắc xong sớm hơn. `chiem_may_phut` tính lại theo chính máy này. */
-export interface XepLichGoiYMay {
-  may_id: number;
-  may_ten: string | null;
-  khe_trong: string | null;
-  finish: string | null;
-  chiem_may_phut: number;
-  /** Dải thời lượng trên CHÍNH máy này (nhanh nhất … chậm nhất). Bằng `chiem_may_phut` ⇒ máy chưa
-   *  khai dải tốc độ, ĐừNG vẽ râu 0 như thể chạy chính xác tuyệt đối. */
-  chiem_may_phut_min: number;
-  chiem_may_phut_max: number;
-  /** Việc liền trước trên máy này cùng giấy · khổ · bộ mực (mục E) — đổi việc gần như khỏi canh
-   *  lại máy. Nay là MỘT TRỤC ĐIỂM (`doi_bai`), không còn là tiêu chí phá hoà. */
-  cung_gom: boolean;
-  /** Điểm tổng 0–100 do `diem_may` chấm. Là số TUYỆT ĐỐI (không phụ thuộc máy nào khác còn trong
-   *  danh sách) nên so được giữa hai lần gọi, và trục nào chưa khai dữ liệu thì bị bỏ khỏi cả tử
-   *  lẫn MẪU — điểm thấp nghĩa là máy dở, không phải danh mục trống. */
-  diem: number;
-  /** Máy này xếp vào là TRỄ hạn SX. Đã bị đẩy xuống dưới mọi máy kịp hạn, nhưng vẫn hiện ra vì
-   *  đôi khi cả xưởng đều trễ và người xếp cần thấy để đi thương lượng hạn. */
-  tre_han: boolean;
-  /** Bảng ba trục đã chấm — CHỈ gồm trục đo được. Trục vắng mặt = chưa đủ dữ liệu để chấm. */
-  truc: XepLichGoiYTruc[];
-  /** Nhãn THẬT của giờ bắt đầu (thứ · cuối tuần · ngày lễ · ca đêm) — thay cho việc gắn đại chữ "lý tưởng". */
-  nhan_ngay: Xl2NhanNgay;
-  /** Lưu ý còn lại nếu chọn máy này (không chặn). */
-  canh_bao: Xl2Issue[];
-  /** MỘT câu vì-sao do chính thuật toán tự-xếp sinh ra (không phải chữ FE bịa). */
-  ly_do: string;
-}
-
-/** MỘT trục chấm điểm máy (`diem_may`): đạt/tối đa + câu giải thích bằng lời thợ. */
-export interface XepLichGoiYTruc {
-  /** `kip_han` · `doi_bai` · `san_tai` (v2 không chấm khổ · số màu · định lượng — spec §6). */
-  ma: string;
-  ten: string;
-  dat: number;
-  toi_da: number;
-  /** `dat / toi_da` — dùng để vẽ thanh, đừng tự chia lại ở FE. */
-  ty_le: number;
-  cau: string;
-}
-
-/** Gợi ý xếp (chỉ đọc): máy trống sớm nhất + kết thúc nếu xếp + hạn lùi còn kịp giao. */
-export interface XepLichGoiY {
-  may_id: number | null;
-  khe_trong: string | null;
-  finish_neu_xep: string | null;
-  han_lui: string | null;
-  /** Top 3 máy làm được công đoạn, sắp KỊP HẠN TRƯỚC rồi tới ĐIỂM. Chạy CẢ KHI dòng chưa gán máy
-   *  — lúc đó bốn field trên đều rỗng vì chúng bám "máy đang gán". */
-  goi_y_may: XepLichGoiYMay[];
-  /** Máy KHÔNG vào được danh sách, mỗi dòng "Tên máy: thiếu đúng cái gì". Phải bày ra: máy vắng
-   *  mặt im lặng là thứ làm người xếp thôi tin cái gợi ý, mà lý do thường chỉ là một ô trống ở
-   *  Danh mục → Máy & thiết bị. */
-  bi_loai: string[];
-  /** Chỉ có khi `goi_y_may` RỖNG: một câu nói vì sao không máy nào nhận được bước. */
-  vi_sao_trong: string | null;
-}
-
-// ============================================================================
-// Xếp lịch công đoạn 2 (module `xep_lich_2`) — cửa vào THỨ HAI, dùng chung bảng
-// `xep_lich_cong_doan` nhưng engine v2 (chạy LIÊN TỤC, nháp cho phép thiếu vật
-// tư). Contract lấy TRỰC TIẾP từ router `/api/xep-lich-2` (response_model=None,
-// service trả dict thô) — KHÁC hình dạng màn cũ, đừng dùng lẫn type.
-// ============================================================================
-
-export type Xl2Nguon = "lsx" | "in_ghep";
-
-/** Ba mức vấn đề v2 (constraint.py): cảnh báo (chỉ nhắc) · chặn ĐẶT LỊCH (không ghi được cách đặt)
- *  · chặn PHÁT HÀNH (xếp được nhưng chưa đủ điều kiện phát). */
-export type Xl2Muc = "canh_bao" | "chan_dat_lich" | "chan_phat_hanh";
-
-/** Một vấn đề dẫn xuất (constraint.issue()). `nguon` = loại đối tượng (may/to/han/tien_nhiem/vat_tu/
- *  ca/buoc); `doi_tuong` = nhãn đối tượng bị ảnh hưởng đã điền sẵn (tên máy/tổ hoặc nhãn tĩnh). */
-export interface Xl2Issue {
-  ma: string;
-  muc: Xl2Muc;
-  mo_ta: string;
-  nguon: string;
-  goi_y: string;
-  doi_tuong?: string;
-}
-
-/** Một dòng trong hàng chờ. `han`/`han_giao` chỉ có ở LSX (bài ghép luôn null); `han` = hạn hoàn
- *  thành SX (rơi về hạn giao), `han_giao` = hạn giao khách để ước lượng gấp. `so_cong_doan_chua_xep`
- *  = số công đoạn routing còn phải xếp (lệnh trong hàng chờ luôn chưa xếp gì). `van_de` rỗng ⇒ rổ
- *  xếp-được. */
-export interface Xl2QRow {
-  nguon: Xl2Nguon;
-  id: number;
-  ma: string;
-  ten_san_pham?: string | null;
-  so_luong_dat?: number | null;
-  don_vi_tinh?: string | null;
-  is_rush: boolean;
-  han: string | null;
-  han_giao: string | null;
-  so_cong_doan_chua_xep: number;
-  ten_khach_hang?: string | null;
-  nhan_khach_hang: string[];
-  van_de: Xl2Issue[];
-}
-
-
-// ============================ Xếp lịch 3 (cấp LỆNH SẢN XUẤT) ============================
-// Màn 3 xếp ở cấp LỆNH: một dòng = một lệnh, người dùng chỉ đặt GIỜ BẮT ĐẦU, hệ trả ngày kết thúc.
-// Không có khái niệm gán máy / gán tổ / xung đột ở đây — đó là màn 2 (`Xl2*` bên trên), cố ý khác.
+// ============================ Xếp lịch (cấp LỆNH SẢN XUẤT) ============================
+// Bàn xếp lịch DUY NHẤT của hệ: một dòng = một lệnh, người dùng chỉ đặt GIỜ BẮT ĐẦU, hệ trả ngày
+// kết thúc. Không gán máy / gán tổ / xung đột — bàn theo công đoạn (`xep_lich_2`, `Xl2*`) làm việc
+// đó, và đã xoá hẳn 18/09/2026 cùng router + màn.
 
 /** Một đoạn máy CHẠY liền mạch — khối đậm bên trong thanh Gantt. Khoảng hở giữa hai đoạn là nghỉ
  *  giữa ca / ngoài ca / ngày nghỉ, không phải máy rảnh. */
-export interface Xl3Doan {
+export interface XlDoan {
   tu: string;
   den: string;
   buoc_index: number;
 }
 
 /** Một quãng lệnh THẬT SỰ chạy (theo phiên chạy của tổ), đã gộp phần các bước chồng giờ nhau. */
-export interface Xl3DoanThucTe {
+export interface XlDoanThucTe {
   tu: string;
   den: string;
 }
 
 /** Phần LỊCH dùng chung giữa dòng Gantt và panel chi tiết. `bat_dau_at` rỗng = lệnh chưa xếp. */
-export interface Xl3Lich {
+export interface XlLich {
   bat_dau_at: string | null;
   ket_thuc: string | null;
   chay_phut: number;
   /** Nghỉ giữa ca + ngoài ca + ngày nghỉ. Trả lời đúng câu người dùng hỏi khi nhìn thanh:
    *  "vì sao nó dài hơn giờ chạy?". Tổng thanh = `chay_phut` + số này. */
   nghi_ngoai_ca_phut: number;
-  doan: Xl3Doan[];
+  doan: XlDoan[];
   ghi_chu: string[];
   updated_at: string | null;
 }
 
 /** Một dòng trên bàn Gantt = MỘT lệnh sản xuất. `da_doi`/`thong_bao` CHỈ có ở phản hồi của PUT. */
-export interface Xl3Dong extends Xl3Lich {
+export interface XlDong extends XlLich {
   lsx_id: number;
   ma: string;
   ten: string;
@@ -1103,13 +985,13 @@ export interface Xl3Dong extends Xl3Lich {
   /** Các quãng lệnh THẬT SỰ chạy bên trong đoạn `thuc_bat_dau_lenh → bat_dau_at`. Cả đoạn đó là
    *  "đã vào việc rồi NẰM CHỜ": tô một tông "đã chạy" cho cả 5 ngày trong khi máy chạy 13 phút là
    *  bàn nói dối. Vẽ nền CHỜ cho cả đoạn rồi chồng các quãng này lên. */
-  doan_thuc_te: Xl3DoanThucTe[];
+  doan_thuc_te: XlDoanThucTe[];
   da_doi?: boolean | null;
   thong_bao?: string | null;
 }
 
-export interface Xl3Lien {
-  dong: Xl3Dong[];
+export interface XlLien {
+  dong: XlDong[];
   tong: number;
   /** Ngày KHÔNG làm việc trong đúng cửa sổ vừa hỏi (YYYY-MM-DD): lễ, ngày làm bù, cấu hình tuần
    *  của xưởng. ĐỪNG tự suy "T7 + CN" — xưởng này khai làm thứ 7, đoán kiểu đó tô sai ngay cột
@@ -1118,7 +1000,7 @@ export interface Xl3Lien {
 }
 
 /** Thẻ hàng chờ — lệnh đủ điều kiện xếp mà CHƯA có mốc. */
-export interface Xl3The {
+export interface XlThe {
   lsx_id: number;
   ma: string;
   ten: string;
@@ -1133,8 +1015,8 @@ export interface Xl3The {
   so_buoc: number;
 }
 
-export interface Xl3HangCho {
-  dong: Xl3The[];
+export interface XlHangCho {
+  dong: XlThe[];
   tong: number;
 }
 
@@ -1142,7 +1024,7 @@ export interface Xl3HangCho {
  *   · `null` — lệnh CHƯA phát hành: không có mốc bước (màn cấp LỆNH, chưa có gì để so).
  *   · có giá trị — lệnh ĐÃ phát hành: `ke_hoach_*` so với `thuc_*`, chênh nằm ở `lech_phut`.
  *  `mau_index` mã hoá THỨ TỰ bước (sắc độ khối), không mã hoá loại. */
-export interface Xl3CongDoan {
+export interface XlCongDoan {
   id: number;
   thu_tu: number;
   ten: string;
@@ -1186,7 +1068,7 @@ export interface Xl3CongDoan {
   lech_phut: number | null;
 }
 
-export interface Xl3ChiTiet extends Xl3Lich {
+export interface XlChiTiet extends XlLich {
   lsx_id: number;
   ma: string;
   ten: string;
@@ -1210,12 +1092,11 @@ export interface Xl3ChiTiet extends Xl3Lich {
   kho_in: string | null;
   so_mau: string | null;
   so_kem: string | null;
-  /** Tổng số NGƯỜI tiêu chuẩn của cả routing. */
-  so_nguoi_tong: number;
-  cong_doans: Xl3CongDoan[];
+  // `so_nguoi_tong` GỠ 18/09/2026 (mg `0321`) cùng kíp chuẩn của bước.
+  cong_doans: XlCongDoan[];
   /** Mốc xong TÍNH LẠI theo việc đã xảy ra — bước xong sớm kéo lùi, xong muộn đẩy ra. `null` ⇔
    *  `co_thuc_te=false` (lệnh chưa phát hành): khi đó panel bày MỘT số như trước.
-   *  `ket_thuc` (từ `Xl3Lich`) vẫn là mốc theo KẾ HOẠCH — hai số cố ý bày cạnh nhau. */
+   *  `ket_thuc` (từ `XlLich`) vẫn là mốc theo KẾ HOẠCH — hai số cố ý bày cạnh nhau. */
   ket_thuc_thuc_te: string | null;
   /** `ket_thuc_thuc_te - ket_thuc`, phút. DƯƠNG = thực tế đang kéo lệnh muộn hơn kế hoạch. */
   lech_ket_thuc_phut: number | null;
@@ -1227,7 +1108,7 @@ export interface Xl3ChiTiet extends Xl3Lich {
 }
 
 /** Một bước trong bảng so sánh hai phiên bản lịch. `a` là phiên bản NHỎ hơn (server tự sắp). */
-export interface Xl3SoSanhDong {
+export interface XlSoSanhDong {
   cong_viec_id: number;
   ten: string;
   phan_doan_so: number;
@@ -1238,403 +1119,16 @@ export interface Xl3SoSanhDong {
   doi_may: boolean;
 }
 
-export interface Xl3SoSanh {
+export interface XlSoSanh {
   lsx_id: number;
   a: number;
   b: number;
-  dong: Xl3SoSanhDong[];
-}
-
-/** Trạng thái gói công việc đã thả xuống xưởng, cho panel màn 3 biết bày nút nào. CÙNG một dict
- *  server (`release_update.thong_tin_goi`) với màn 2 — đặt alias thay vì chép lại hình dạng, lệch
- *  một khoá là hai màn quyết khác nhau trên cùng dữ liệu. */
-export type Xl3GoiPhatHanh = Xl2GoiPhatHanh;
-/** Kết quả một lần Phát hành cập nhật ở màn 3 — cùng dict với màn 2. */
-export type Xl3CapNhatOut = Xl2CapNhatOut;
-
-/** Hàng chờ MỘT TRANG, chia hai rổ: đủ vật tư (`xep_duoc`) · thiếu vật tư (`bi_chan`, vẫn đưa vào
- *  nháp được). Cắt trang + lọc + đếm Ở MÁY CHỦ (§12.7) — `tong`/`so_trang` khớp KẾT QUẢ LỌC (dựng
- *  thanh phân trang đúng danh sách đang thấy); `facets` đếm CẢ hàng chờ theo từng chip (gợi ý điều
- *  hướng, không đổi theo q/loc); `dem_trang` chỉ đếm rổ TRONG trang hiện tại (chia rổ phải soi vật
- *  tư từng dòng). */
-export interface Xl2HangCho {
-  xep_duoc: Xl2QRow[];
-  bi_chan: Xl2QRow[];
-  trang: number;
-  moi_trang: number;
-  tong: number;
-  so_trang: number;
-  dem_trang: { xep_duoc: number; bi_chan: number };
-  facets: { all: number; tre: number; gap: number };
-}
-
-/** Tóm tắt vật tư mức SCALAR cho Panel phải (`boi_canh.vat_tu`): đủ chưa · mấy món thiếu/đang giữ ·
- *  ngày xếp sớm nhất. `bat=false` ⇒ chưa bật giữ chỗ; `loi=true` ⇒ bảng cân đối hỏng (không im lặng
- *  báo 'đủ'). Chi tiết đỏ/vàng nằm trong `van_de` dùng chung. */
-export interface Xl2VatTuTomTat {
-  bat: boolean;
-  du: boolean;
-  khong_ro: boolean;
-  so_mon_thieu: number | null;
-  so_mon_dang_giu: number | null;
-  xep_som_nhat: string | null;
-  loi: boolean;
-}
-
-/** Kíp chuẩn tham khảo của một bước (kế thừa danh mục, sửa được tại bước). null nếu bước routing
- *  đã bị xoá — Panel hiện '—' thay vì đoán bừa. Hai mốc tối thiểu/tối đa gỡ 06/09/2026 (mg `0270`). */
-export interface Xl2DinhBien {
-  tieu_chuan: number | null;
-}
-
-/** Quân số tổ NGÀY bước chạy + phần CÒN RẢNH ở đỉnh chồng giờ. `con_ranh = so_nguoi - dinh` (âm ⇒
- *  quá tải). null khi chưa gán tổ / chưa có giờ. */
-export interface Xl2QuanSo {
-  so_nguoi: number;
-  go_de: boolean;
-  dinh: number;
-  con_ranh: number;
-}
-
-/** Một BƯỚC trong chuỗi DAG của Panel phải (`_buoc_view`): thời lượng ba mức + nguồn tính · máy/tổ/
- *  NCC · số người kế hoạch + định biên · quân số. `nguon_thoi_luong`: thuê ngoài / theo máy / tay. */
-export interface Xl2BoiCanhBuoc {
-  id: number;
-  thu_tu: number;
-  cong_doan_ten: string | null;
-  loai_buoc: string | null;
-  trang_thai: string;
-  is_locked: boolean;
-  start_at: string | null;
-  finish_at: string | null;
-  chiem_may_phut: number;
-  chiem_may_phut_min: number;
-  chiem_may_phut_max: number;
-  theo_may: boolean;
-  nguon_thoi_luong: "thue_ngoai" | "may" | "tay";
-  may_id: number | null;
-  may_ten: string | null;
-  department_id: number | null;
-  to_ten: string | null;
-  nha_cung_cap: string | null;
-  dinh_bien: Xl2DinhBien;
-  quan_so: Xl2QuanSo | null;
-  van_de: Xl2Issue[];
-}
-
-/** Toàn bộ dữ liệu Panel phải cho MỘT lệnh/bài (`boi_canh`, §8): đầu thực thể · hai hạn + đệm ngày ·
- *  vật tư tóm tắt · vấn đề chặn-phát-hành cấp lệnh · chuỗi DAG các bước. Chưa 'Đưa vào kế hoạch' thì
- *  `da_vao_ke_hoach=false` và `buoc` rỗng (Panel chỉ hiện đầu + vật tư + vấn đề). */
-export interface Xl2BoiCanh {
-  nguon: Xl2Nguon;
-  id: number;
-  ma: string;
-  ten_san_pham: string | null;
-  is_rush: boolean;
-  han_sx: string | null;
-  han_giao: string | null;
-  dem_ngay: number | null;
-  da_vao_ke_hoach: boolean;
-  vat_tu: Xl2VatTuTomTat;
-  van_de: Xl2Issue[];
-  buoc: Xl2BoiCanhBuoc[];
-}
-
-/** "Râu" giải thích độ dài MỘT thanh (bản `_boc_tach`): chiếm máy = canh máy + chạy + khác — ba số
- *  LUÔN khép đúng tổng (BE nuốt phần lẻ int() vào bucket lớn nhất). `*_min`/`*_max` là dải bất định do
- *  tốc độ máy (bằng nhau ⇒ không có râu dải). `theo_may` = thời lượng tính theo tốc độ máy. Chỉ có ở
- *  dòng ĐÃ đặt giờ; nháp chưa-giờ thì `boc_tach = null`. */
-export interface Xl2BocTach {
-  chiem_may_phut: number;
-  chiem_may_phut_min: number;
-  chiem_may_phut_max: number;
-  canh_may_phut: number;
-  chay_phut: number;
-  khac_phut: number;
-  theo_may: boolean;
-  canh_bao: string | null;
-}
-
-/** Lớp THỰC TẾ đè lên thanh Gantt — CHỈ ĐỌC. null khi bước chưa phát hành xuống tổ. */
-export interface Xl2ThucTe {
-  cong_viec_id: number;
-  /** "released" | "running" | "paused" | "completed" (CV_* của model). */
-  trang_thai: string;
-  bat_dau_thuc: string | null;
-  ket_thuc_thuc: string | null;
-  tong_tot: number;
-  tong_hong: number;
-  /** Mục tiêu của BƯỚC (`san_xuat_cong_viec.so_luong_ra`), theo `don_vi`. */
-  muc_tieu: number | null;
-  don_vi: string | null;
-  con_thieu: number | null;
-  /** 0–100+; null khi bước không khai mục tiêu. */
-  phan_tram: number | null;
-  tre_bat_dau_phut: number | null;
-  tre_ket_thuc_phut: number | null;
-}
-
-/** Một dòng lịch đã đưa vào kế hoạch (bản `_dong_view`). Giờ NAIVE (không hậu tố múi). Nhãn dẫn xuất
- *  (mã lệnh/bài · tên sản phẩm · tên công đoạn · thứ tự bước) đính kèm sẵn để thanh đọc được. */
-export interface Xl2Dong {
-  id: number;
-  nguon: Xl2Nguon;
-  lsx_id: number | null;
-  bai_ghep_id: number | null;
-  may_id: number | null;
-  department_id: number | null;
-  /** Nhà cung cấp khi bước THUÊ NGOÀI — để gom lane theo từng NCC (null nếu chưa rõ / không thuê). */
-  nha_cung_cap: string | null;
-  /** Loại bước: "may" | "to" | "thue_ngoai" (LB_*) — chọn cụm lane cho thanh. */
-  loai_buoc: string | null;
-  start_at: string | null;
-  finish_at: string | null;
-  /** "cho_xep" | "da_xep" (model TT_*). */
-  trang_thai: string;
-  is_locked: boolean;
-  updated_at: string;
-  /** Mã lệnh SX (chỉ nguồn `lsx`, vd "LSX26-0001"); null với bài ghép. */
-  lsx_ma: string | null;
-  /** Mã bài ghép (chỉ nguồn `in_ghep`, vd "GB26-0001"); null với lệnh. */
-  bai_ghep_ma: string | null;
-  /** Tên sản phẩm/lệnh (LSX) hoặc tên bài ghép — nhãn phụ dưới mã. */
-  ten_san_pham: string | null;
-  /** Tên công đoạn của bước (vd "In 4 màu", "Cán màng"). */
-  cong_doan_ten: string | null;
-  /** Thứ tự bước trong chuỗi routing (snapshot `source_thu_tu`). */
-  buoc_thu_tu: number;
-  /** Dòng TIỀN NHIỆM thật của bước (cạnh `lsx_cong_doan_phu_thuoc`) — mũi tên Gantt bám cái này,
-   *  KHÔNG suy từ `buoc_thu_tu` (số thứ tự phẳng, nối liền kề sẽ bóp DAG thành một hàng dọc).
-   *  Rỗng = bước gốc hoặc dòng bài ghép (nguồn `in_ghep` không có bảng phụ thuộc). */
-  phu_thuoc_dong_ids: number[];
-  /** Phần việc của CHÍNH thanh này khi công đoạn bị tách. null = chưa tách (trọn bước) — KHÁC 0. */
-  so_luong: number | null;
-  /** Lần chạy thứ mấy / mấy lần. Chưa tách = 1/1. */
-  phan_doan_so: number;
-  phan_doan_tong: number;
-  /** SL VÀO của CẢ bước — tổng đem đi chia khi bấm Tách. Dòng chưa tách có `so_luong` null nên đây
-   *  mới là con số dùng được; 0 = bước chưa khai số lượng ⇒ chưa tách được. */
-  so_luong_buoc: number | null;
-  /** Bóc tách thời lượng cho "râu" trên thanh — null nếu dòng chưa đặt giờ (§8, B5). */
-  boc_tach: Xl2BocTach | null;
-  /** Mức NẶNG NHẤT của thanh tại chỗ đang đặt (`chan_dat_lich` | `canh_bao` | null) — dùng chung
-   *  detector với panel/xem-trước để dải chân bàn đếm theo mức. null nếu dòng chưa đặt giờ. */
-  muc?: Xl2Muc | null;
-  /** Tiến độ THẬT của bước (spec-thuc-te-vs-ke-hoach §2.1). null = chưa phát hành. */
-  thuc_te: Xl2ThucTe | null;
-  /** Bước CẦN khuôn/khung (cờ của danh mục công đoạn) — true mà `khuon_ma` rỗng là CHƯA chốt dao. */
-  requires_tooling: boolean;
-  /** Dao đang trỏ: mã · số kệ · tình trạng. KHÔNG chặn xếp lịch, chỉ để BÀY. */
-  khuon_ma: string | null;
-  khuon_so_ke: string | null;
-  khuon_tinh_trang: string | null;
-}
-
-/** Ca nền của xưởng: `[bat_dau_phut, ket_thuc_phut, qua_dem]` — chỉ soi GIỜ BẮT ĐẦU (§7.1). */
-export type Xl2Ca = [number, number, boolean];
-
-/** Ca nền KÈM TÊN — cùng dữ liệu với `Xl2Ca` nhưng có `ten` để Gantt gọi được "Ca 2" thay vì tô
- *  một dải xám vô danh. `id` = null khi xưởng chưa khai ca nào (hệ dùng giờ mặc định). */
-export interface Xl2CaNhan {
-  id: number | null;
-  ten: string;
-  bat_dau_phut: number;
-  ket_thuc_phut: number;
-  qua_dem: boolean;
-}
-
-/** Bữa NGHỈ GIỮA CA lặp lại hằng ngày, tính bằng phút từ nửa đêm. Chỉ gồm những phút mà MỌI ca
- *  đang phủ đều nghỉ — ca khác còn đứng máy thì giờ đó xưởng vẫn chạy. Việc đang chạy KHÔNG bị
- *  tách lần chạy: nó tạm dừng rồi chạy tiếp, nên thanh dài ra đúng bằng bữa nó vắt qua. */
-export interface Xl2Nghi {
-  bat_dau: number;
-  ket_thuc: number;
-}
-
-/** Ngày lễ tô nền (vẫn xếp được). `ngay` = "YYYY-MM-DD". */
-export interface Xl2NgayLe {
-  ngay: string;
-  ten: string;
-  kind: string;
-}
-
-/** Vùng KHOÁ một máy (bảo trì/hỏng/nghỉ) đã CẮT vào cửa sổ — nền để Gantt tô mảng máy không dùng
- *  được, đúng vùng engine né khi đặt lịch. Giờ NAIVE. */
-export interface Xl2KhoaMay {
-  may_id: number;
-  start_at: string;
-  finish_at: string;
-}
-
-/** Tải MỘT máy trong MỘT ngày: tổng phút chiếm (`phut_ban`, trần 24h=1440). Chỉ (máy, ngày) > 0. */
-export interface Xl2TaiMay {
-  may_id: number;
-  ngay: string;          // "YYYY-MM-DD"
-  phut_ban: number;
-}
-
-/** Tải MỘT tổ trong MỘT ngày: ĐỈNH người cùng lúc (`dinh`) so với quân số khả dụng (`so_nguoi`,
- *  `go_de` = có gõ đè tay). `dinh > so_nguoi` (và không gõ đè) ⇒ tổ quá tải ngày đó. */
-export interface Xl2TaiTo {
-  department_id: number;
-  ngay: string;          // "YYYY-MM-DD"
-  dinh: number;
-  so_nguoi: number;
-  go_de: boolean;
-}
-
-/** Một BÀN làm việc [tu, den] — MỘT cú gọi lấy đủ bối cảnh (§9.2): ca nền · ngày lễ · vùng khoá máy ·
- *  lớp phủ tải máy + đỉnh quân số tổ · các dòng trên bàn. */
-export interface Xl2BanLamViec {
-  tu: string;
-  den: string;
-  ca: Xl2Ca[];
-  ca_nhan: Xl2CaNhan[];
-  nghi: Xl2Nghi[];
-  ngay_le: Xl2NgayLe[];
-  khoa_may: Xl2KhoaMay[];
-  tai_may: Xl2TaiMay[];
-  tai_to: Xl2TaiTo[];
-  dong: Xl2Dong[];
-}
-
-/** Một KHE trống gợi ý để xếp một dòng (B8) — bấm là áp `start_at`. `canh_bao` = lưu ý còn lại (không
- *  chặn). */
-export interface Xl2Khe {
-  start_at: string;
-  finish_at: string;
-  chiem_may_phut: number;
-  /** Dải thời lượng (nhanh nhất … chậm nhất) để vẽ râu; bằng nhau ⇒ chưa khai dải. */
-  chiem_may_phut_min: number;
-  chiem_may_phut_max: number;
-  nhan_ngay: Xl2NhanNgay;
-  canh_bao: Xl2Issue[];
-}
-
-/** Nhãn ngày thật của một mốc bắt đầu — để người xếp tự quyết, không giấu.
- *  v2 KHÔNG chặn ngày lễ/chủ nhật (chỉ tô nền) nên một khe "sạch luật" vẫn có thể rơi vào mùng 2/9. */
-export interface Xl2NhanNgay {
-  /** "Thứ hai" … "Chủ nhật". */
-  thu: string;
-  cuoi_tuan: boolean;
-  /** Tên ngày lễ nếu trùng, không thì null. */
-  ngay_le: string | null;
-  /** Mốc bắt đầu rơi vào một ca QUA ĐÊM. */
-  ca_dem: boolean;
-}
-
-/** MỘT bước thuật toán tự-xếp đã đặt được — kèm câu vì-sao chọn máy/giờ đó. */
-export interface Xl2TuXepBuoc {
-  dong_id: number;
-  thu_tu: number;
-  cong_doan_ten: string | null;
-  may_id: number | null;
-  may_ten: string | null;
-  start_at: string;
-  finish_at: string;
-  chiem_may_phut: number;
-  chiem_may_phut_min: number;
-  chiem_may_phut_max: number;
-  /** Số máy đã cân nhắc cho bước này (0 với bước không chọn máy). */
-  so_may_xet: number;
-  ly_do: string;
-  canh_bao: Xl2Issue[];
-}
-
-/** Một bước KHÔNG xếp được — nói thẳng thiếu gì, không im lặng bỏ qua. */
-export interface Xl2TuXepBoQua {
-  dong_id: number;
-  thu_tu: number;
-  cong_doan_ten: string | null;
-  ly_do: string;
-}
-
-/** Kết quả một lượt TỰ XẾP cả lệnh/bài. `luot` = 1 (êm) · 2 (đã phải chạy thêm lượt cứu hạn)
- *  · 0 (không có bước nào cần xếp). */
-export interface Xl2TuXep {
-  nguon: Xl2Nguon;
-  id: number;
-  luot: number;
-  da_xep: Xl2TuXepBuoc[];
-  bo_qua: Xl2TuXepBoQua[];
-  /** Số bước không đụng tới (đã có giờ hoặc đang khoá). */
-  so_giu_nguyen: number;
-  finish_chuoi: string | null;
-  han_sx: string | null;
-  han_giao: string | null;
-  tre_han_sx: boolean;
-  tre_ngay: number | null;
-  tom_tat: string;
-}
-
-/** ≤3 khe trống sớm nhất + ghi chú (rỗng khe ⇒ `ghi_chu` nói thiếu gì: chưa chọn máy / chưa tính được
- *  thời lượng / hết khe trong cửa sổ). */
-export interface Xl2GoiYKhe {
-  khe: Xl2Khe[];
-  ghi_chu: string | null;
-}
-
-/** Kết quả xem-trước (không ghi): giờ kết thúc liên tục + vấn đề của một cách đặt. `chiem_may_phut`
- *  là số CHỐT (nhanh nhất..chậm nhất gói vào một mốc để chạy liên tục); `min`/`max` là khoảng bất
- *  định do tốc độ máy để thanh vẽ RÂU hai đầu. Bằng nhau ⇒ không có râu. */
-export interface Xl2XemTruoc {
-  dong_id: number;
-  start_at: string | null;
-  finish_at: string | null;
-  /** Mốc xong SỚM NHẤT / MUỘN NHẤT theo dải tốc độ máy (`toc_do_max` / `toc_do_min` khai ở danh
-   *  mục máy). Bằng `finish_at` khi máy chưa khai dải — lúc đó panel thôi bày ba mốc. */
-  finish_at_min: string | null;
-  finish_at_max: string | null;
-  chiem_may_phut: number;
-  chiem_may_phut_min: number;
-  chiem_may_phut_max: number;
-  theo_may: boolean;
-  van_de: Xl2Issue[];
-  /** Ảnh hưởng HẠ NGUỒN nếu đặt như xem-trước (item 14) — thuần thông tin, KHÔNG tự dời gì. Bước SAU
-   *  trong cùng lệnh/bài đã có giờ mà bắt đầu TRƯỚC khi bước này xong ⇒ sai thứ tự, người xếp tự cân. */
-  cong_doan_anh_huong: Xl2AnhHuongBuoc[];
-  /** Giờ hoàn thành MUỘN NHẤT của lệnh/bài khi đặt như xem-trước (NAIVE); null nếu chưa có giờ. */
-  han_moi: string | null;
-  /** Hạn hoàn thành SX + hạn giao khách của lệnh (YYYY-MM-DD) để tô "hạn mới" so mốc. */
-  han_sx: string | null;
-  han_giao: string | null;
-  /** `han_moi` vượt hạn SX ⇒ true; `tre_ngay` = số ngày trễ (null nếu không trễ). */
-  tre_han_sx: boolean;
-  tre_ngay: number | null;
-  /** Nhân lực của bước: KÍP CHUẨN (con số duy nhất từ mg `0281`). Đi kèm xem-trước để hộp xác
-   *  nhận tự giải thích con số trong câu cảnh báo quân số, khỏi bắt người xếp mở màn Lệnh SX tra. */
-  dinh_bien: Xl2DinhBien;
-}
-
-/** Một bước SAU bị lấn thứ tự bởi cách đặt xem-trước (item 14) — chỉ để trình bày. */
-export interface Xl2AnhHuongBuoc {
-  dong_id: number;
-  thu_tu: number;
-  cong_doan_ten: string | null;
-  start_at: string | null;
-  finish_at: string | null;
-}
-
-/** Thân PUT lưu một dòng. `expected_updated_at` BẮT BUỘC (khoá lạc quan); còn lại patch một phần. */
-export interface Xl2LuuBody {
-  expected_updated_at: string;
-  may_id?: number | null;
-  department_id?: number | null;
-  nha_cung_cap?: string | null;
-  work_shift_id?: number | null;
-  start_at?: string | null;
-}
-
-/** Kết quả phát hành / thu hồi (trang_thai của LSX hoặc bài ghép sau thao tác). */
-export interface Xl2PhatHanhOut {
-  id: number;
-  ma: string;
-  trang_thai: string;
+  dong: XlSoSanhDong[];
 }
 
 /** Một mốc trong lịch sử phiên bản gói phát hành (§4.3). `so`=1 là phát hành gốc; các số sau là mỗi
  *  lần Phát hành cập nhật (`loai="cap_nhat"`), kèm lý do. */
-export interface Xl2GoiPhienBan {
+export interface XlGoiPhienBan {
   so: number;
   loai: string;
   ly_do: string | null;
@@ -1644,7 +1138,7 @@ export interface Xl2GoiPhienBan {
 
 /** Trạng thái gói phát hành của một LSX/bài ghép (§4.3): còn Phát hành cập nhật / Thu hồi được không +
  *  số việc đã/chưa bắt đầu + lịch sử phiên bản. `co_goi=false` ⇒ chưa phát hành (các field khác vắng). */
-export interface Xl2GoiPhatHanh {
+export interface XlGoiPhatHanh {
   co_goi: boolean;
   goi_id?: number;
   ma?: string;
@@ -1655,12 +1149,12 @@ export interface Xl2GoiPhatHanh {
   so_chua_bat_dau?: number;
   cho_phep_cap_nhat?: boolean;
   cho_phep_thu_hoi?: boolean;
-  phien_bans?: Xl2GoiPhienBan[];
+  phien_bans?: XlGoiPhienBan[];
 }
 
 /** Kết quả một lần Phát hành cập nhật (§4.3): tái chụp bao nhiêu việc, giữ nguyên bao nhiêu, huỷ bao
  *  nhiêu phân công/hỗ trợ để tổ xác nhận lại. */
-export interface Xl2CapNhatOut {
+export interface XlCapNhatOut {
   goi_id: number;
   ma: string;
   version_hien_tai: number;
@@ -1671,25 +1165,6 @@ export interface Xl2CapNhatOut {
   /** Số việc KHÔNG cập nhật được vì bước đã tách thêm / gộp lại sau phát hành: không còn lần chạy
    *  tương ứng để lấy giờ + máy. Chúng giữ nguyên snapshot cũ — muốn khớp lại phải thu hồi gói. */
   so_lech_phan_doan: number;
-}
-
-/** Detail của 409 CHẶN ĐẶT LỊCH (router `_map`: `XepLich2Blocked`). Phân biệt với 409 khoá-lạc-quan
- *  (detail là chuỗi) bằng field `loai`. */
-export interface Xl2ChanDatLich {
-  loai: "chan_dat_lich";
-  van_de: Xl2Issue[];
-}
-
-/** Bóc `van_de` từ `ApiError.detail` khi PUT lưu bị chặn đặt lịch; trả null nếu là 409 kiểu khác
- *  (khoá lạc quan — detail chuỗi) để nơi gọi rẽ nhánh "tải lại". */
-export function xl2ChanDatLich(err: unknown): Xl2Issue[] | null {
-  if (!(err instanceof ApiError) || err.status !== 409) return null;
-  const d = err.detail;
-  if (d && typeof d === "object" && (d as { loai?: unknown }).loai === "chan_dat_lich") {
-    const vd = (d as { van_de?: unknown }).van_de;
-    return Array.isArray(vd) ? (vd as Xl2Issue[]) : [];
-  }
-  return null;
 }
 
 
@@ -1725,42 +1200,59 @@ export interface SxTeamsOut {
   teams: SxTeam[];
 }
 
-/** Luỹ kế sản lượng tháng của CHÍNH người đăng nhập — KHÔNG có ô tiền (spec 2026-09-11 §6).
- *
- *  Gộp theo ĐƠN VỊ chứ không cộng thành một số: tháng nào thợ chạy cả bước đếm tờ lẫn bước đếm
- *  cái thì cộng chung lại ra một con số vô nghĩa. `employee_id` null = tài khoản chưa nối hồ sơ. */
+/** Một người có mặt trong mẻ. `to_ten` CHỈ có khi người đó không thuộc tổ chủ mẻ — nhãn
+ *  "(Tổ bế)" để biết ngay ai là người nhà, ai sang giúp (spec 2026-09-18 §7.3b). */
+export interface SxMeNguoi { employee_id: number; ho_ten: string; to_ten?: string | null }
+
+/** "CÁC MẺ TÔI THAM GIA" trong tháng (spec 2026-09-18 §7.5). Mỗi dòng mang sản lượng của CẢ MẺ
+ *  kèm danh sách người — không "phần của tôi", không số phút, không tiền: tầng chia sản lượng đã
+ *  gỡ (mg 0322). `employee_id` null = tài khoản chưa nối hồ sơ nhân sự. */
+export interface SxMeCuaToi {
+  batch_id: number;
+  bat_dau: string | null;
+  ket_thuc: string | null;
+  lsx_ma: string | null;
+  ten_cong_doan: string;
+  /** Ảnh chụp tên việc khoán lúc ghi; null = mẻ ghi trước 18/09/2026. */
+  viec_khoan_ten: string | null;
+  tot: number;
+  hong: number;
+  don_vi: string | null;
+  nguoi_tham_gia: SxMeNguoi[];
+}
 export interface SxSanLuongCuaToi {
   nam: number;
   thang: number;
   employee_id: number | null;
-  theo_don_vi: { don_vi: string | null; tong: number }[];
+  me: SxMeCuaToi[];
   so_me: number;
 }
 
-/** Tab SẢN LƯỢNG của bàn tổ (spec 2026-09-14 §6). Ngày = ngày BẮT ĐẦU mẻ theo giờ xưởng; mọi số
- *  đi theo ĐƠN VỊ, không bao giờ cộng lẫn. `cua_toi` = tổ này chỉ thấy phần của mình (không có số
- *  tổ, không có tầng người). KHÔNG có ô tiền. */
+/** Tab SẢN LƯỢNG của bàn tổ (spec 2026-09-14 §6, sửa 2026-09-18 §7.3b). Ngày = ngày BẮT ĐẦU mẻ
+ *  theo giờ xưởng; mọi số đi theo ĐƠN VỊ, không cộng lẫn. Mẻ có MỘT chủ: tổ khác có người trong mẻ
+ *  thấy mẻ ấy ở mục khách (`la_khach`) — cùng con số, KHÔNG vào dòng tổng. KHÔNG có ô tiền. */
 export interface SxSlTotHong { don_vi: string | null; tot: number; hong: number }
-export interface SxSlCuaToi { don_vi: string | null; da_chot: number }
-export interface SxSlNguoi {
-  employee_id: number;
-  ho_ten: string;
+export interface SxSlMe {
+  batch_id: number;
+  ngay: string | null;
+  bat_dau: string | null;
+  ket_thuc: string | null;
+  viec_khoan_ten: string | null;
+  tot: number;
+  hong: number;
   don_vi: string | null;
-  la_ho_tro: boolean;
-  da_chot: number;
-  tam_tinh: number;
+  nguoi: SxMeNguoi[];
 }
 export interface SxSlCongDoan {
   cong_viec_id: number;
   ten_cong_doan: string;
   to_id: number | null;
   to_ten: string;
-  cua_toi: boolean;
+  /** Mẻ của TỔ KHÁC mà có người của tổ đang xem — mục "đi làm ở tổ khác", không cộng tổng. */
+  la_khach: boolean;
   so_me: number;
-  chua_chia: number;
   san_luong: SxSlTotHong[];
-  phan_cua_toi: SxSlCuaToi[];
-  nguoi: SxSlNguoi[];
+  me: SxSlMe[];
 }
 export interface SxSlLenh {
   nguon_loai: "lsx" | "bai_ghep";
@@ -1770,8 +1262,8 @@ export interface SxSlLenh {
   so_me: number;
   ngay_dau: string | null;
   ngay_cuoi: string | null;
+  /** Chỉ gồm MẺ CỦA TỔ — mẻ khách không vào đây. */
   san_luong: SxSlTotHong[];
-  phan_cua_toi: SxSlCuaToi[];
   cong_doan: SxSlCongDoan[];
 }
 export interface SxSanLuongTo {
@@ -1786,7 +1278,6 @@ export interface SxSanLuongTo {
   co_pham_vi_rieng: boolean;
   cac_to: { id: number; ten: string; cap: number }[];
   tong: (SxSlTotHong & { so_me: number })[];
-  tong_cua_toi: SxSlCuaToi[];
   lenh: SxSlLenh[];
   cap_nhat_luc: string | null;
 }
@@ -1809,6 +1300,8 @@ export interface SxWorkItem {
   nguon_loai: string;          // "lsx" | "bai_ghep" | ""
   nguon_ma: string;
   nguon_ten: string;
+  /** Khách của lệnh; bài ghép = khách các lệnh thành viên nối " · ". null = lệnh không có đơn/khách. */
+  khach_hang?: string | null;
   nhom_id: number | null;      // id nhóm thành phẩm (khoá cho panel Kho §14 + checklist đóng §16)
   nhom: string;                // nhãn nhóm thành phẩm
   ten_cong_doan: string;
@@ -1824,19 +1317,16 @@ export interface SxWorkItem {
   may_id: number | null;       // máy HIỆN TẠI — dựng ô chọn "Đổi máy" (§7.2 mở rộng)
   du_kien_bat_dau: string | null;
   du_kien_ket_thuc: string | null;
-  du_kien_so_nguoi: number | null;  // số người dự kiến (§7.1) — so với roster để đòi lý do lệch
   so_luong_vao: number | null;
   so_luong_ra: number | null;  // mục tiêu của bước — đã có sẵn, KHÔNG đẻ khoá `muc_tieu_ra` thứ hai
-  /** Đơn vị BẢN ĐỊA của bước — cũng là đơn vị mặc định của ô Ghi mẻ. Bước ngoài dòng giấy nhận
-   *  đơn vị sản lượng của công đoạn (`kem`), không còn rỗng như trước 10/09/2026. */
+  /** Đơn vị BẢN ĐỊA của bước — cũng là đơn vị mặc định của ô Ghi mẻ. Bước ngoài dòng giấy chỉ có
+   *  đơn vị khi người lập lệnh tự khai ở bước; không khai thì trống. */
   don_vi_vao: string | null;
   don_vi_ra: string | null;
   /** Bước NGOÀI dòng giấy (ghi kẽm đếm bản, đóng thùng đếm thùng): vào = ra nên cột "SL vào → ra"
    *  hiện MỘT số. Ảnh chụp lúc phát hành — FE KHÔNG suy lại được từ mã đơn vị. */
   ngoai_dong: boolean;
-  /** "Số bản kẽm = 4 bản kẽm" — vì sao bước ngoài dòng ra đúng số ấy. null với bước trên dòng
-   *  giấy (số suy ngược theo chuỗi bù hao, không có công thức riêng). */
-  sl_dien_giai: string | null;
+  // `sl_dien_giai` GỠ 18/09/2026 (mg `0324`) cùng công thức sản lượng ra của công đoạn.
   /** Phút CHẠY của thẻ (đã chia theo phần sản lượng của phân đoạn). Ba số bằng nhau ⇒ máy chưa
    *  khai dải tốc độ, UI bỏ phần trong ngoặc. null = lệnh phát hành trước 10/09/2026. */
   chay_phut: number | null;
@@ -1875,8 +1365,14 @@ export interface SxWorkItem {
 export interface SxQuyCachThe {
   giay?: string;
   dinh_luong?: number;     // gsm
-  kho_in?: string;
+  kho_nguyen?: string;     // khổ giấy nguyên (tờ mua về), chuỗi mm
+  kho_in?: string;         // KHÔNG có = khổ tờ in 0 × 0 ⇒ in thẳng khổ giấy nguyên
   kho_tp?: string;
+  /** Mã cách in của lệnh (`mot_mat` · `hai_mat` · `tu_tro` · `tro_nhip`) — nhãn qua `nhanCachIn`. */
+  cach_in?: string;
+  /** Mực TỪNG MẶT, đã chuẩn hoá (C/M/Y/K + mã Pantone). Bài ghép = hợp mực các lệnh thành viên. */
+  muc_a?: string[];
+  muc_b?: string[];
   so_mat?: number;
   so_mau?: number;
   so_kem?: number;
@@ -1913,6 +1409,7 @@ export interface SxLenhNhom {
   nguon_loai: string;          // "lsx" | "bai_ghep"
   nguon_ma: string;
   nguon_ten: string;
+  khach_hang?: string | null;
   lsx_id: number | null;
   bai_ghep_id: number | null;
   som_nhat: string | null;     // giờ dự kiến sớm nhất trong các bước CỦA TỔ NÀY; null = chưa xếp
@@ -1936,7 +1433,21 @@ export interface SxWorkItemsOut {
   cong_viec?: SxWorkItem[];    // chỉ có ở nhom="phang" — hình CŨ, Gantt không phải sửa
 }
 
-export interface SxNhanVienChon {
+/** Tình trạng người ở ô chọn giao việc / hỗ trợ chéo (BE `services/san_xuat/tinh_trang_nguoi`).
+ *  `ly_do_nghi` ("Nghỉ dài hạn"/"Đang đình chỉ") và `nghi_phep` trùng ngày ⇒ máy chủ CHẶN;
+ *  `dang_chay` ⇒ cảnh báo (chặn khi việc đích đang chạy); `viec_cho` chỉ để biết. */
+export interface SxTinhTrangNguoi {
+  ly_do_nghi: string | null;
+  /** Đơn nghỉ phép ĐÃ DUYỆT, ngày "YYYY-MM-DD" gồm cả hai đầu. */
+  nghi_phep: { tu: string; den: string }[];
+  dang_chay: { cong_viec_id: number; ma: string | null; ten_cong_doan: string; to_ten: string | null } | null;
+  /** Việc người đó CÓ TÊN trong tổ mà chưa chạy (`released`) / đang tạm dừng (`paused`) — tạm dừng trước. */
+  viec_cho: {
+    cong_viec_id: number; ma: string | null; ten_cong_doan: string; to_ten: string | null;
+    trang_thai: "released" | "paused";
+  }[];
+}
+export interface SxNhanVienChon extends SxTinhTrangNguoi {
   id: number;
   code: string | null;
   full_name: string;
@@ -1945,11 +1456,13 @@ export interface SxNhanVienChon {
 }
 export interface SxNhanVienChonListOut {
   team_id: number;
+  /** Ngày XƯỞNG máy chủ xét nghỉ phép — so `nghi_phep` với ngày này, không lấy giờ trình duyệt. */
+  hom_nay: string;
   nhan_vien: SxNhanVienChon[];
 }
 
 /** Ứng viên mời HỖ TRỢ CHÉO (§9) — thợ tổ khác, kèm nhãn tổ gốc. */
-export interface SxHoTroUngVien {
+export interface SxHoTroUngVien extends SxTinhTrangNguoi {
   id: number;
   code: string | null;
   full_name: string;
@@ -1958,6 +1471,7 @@ export interface SxHoTroUngVien {
 }
 export interface SxHoTroUngVienListOut {
   team_id: number;
+  hom_nay: string;
   nhan_vien: SxHoTroUngVien[];
 }
 
@@ -1989,7 +1503,6 @@ export interface SxChoXacNhanHoTro {
   to_goc_ten: string | null;
   to_thuc_hien_ten: string | null;
   ngay_lam_viec: string;
-  ty_le_phan_tram: number;
   mo_ta: string | null;
   /** Bên đang chờ CHÍNH người xem: tổ cho mượn người (gốc) / tổ đang làm (thực hiện). */
   cho_ben_goc: boolean;
@@ -2093,39 +1606,68 @@ export interface SxBatch {
    *  giữa chừng thì mỗi mẻ một máy. `null` = bước không dùng máy hoặc phiên chưa ghi máy. */
   may_ten: string | null;
   ca_ten: string | null;          // null = mẻ chạy NGOÀI mọi ca đã khai (một câu trả lời thật)
-  dau_viec_ten: string | null;    // đầu việc kế hoạch đã chọn — CHỈ tên, không có giá
   so_nguoi: number;
   su_co: SxMeSuCo[];              // các lần dừng máy rơi vào cửa sổ mẻ
+  /** Người có mặt trong mẻ — CHỈ danh sách, không số phút, không phần chia (spec 2026-09-18 §7.3:
+   *  "ghi nhận thế thôi, đừng có chia bất cứ gì"). */
   nguoi_tham_gia: SxNguoiThamGiaBatch[];
-  /** Bản chia sản lượng NHÁP tính lúc đọc, cho mẻ CHƯA có bản chia nào — nhờ nó tổ trưởng ghi mẻ
-   *  xong là thấy ngay ai được bao nhiêu. `null` = mẻ đã có bản chia, đọc ở `phan_bo`. */
-  chia_du_kien: SxChiaDuKien | null;
   lot_vao: SxLotVao[];
   /** Mẻ đã đi theo một lần bàn giao chưa — form bàn giao chỉ liệt kê mẻ chưa giao. */
   da_ban_giao: boolean;
+  /** CÔNG VIỆC KHOÁN của mẻ — ảnh chụp tên · ĐVT · đơn giá lúc ghi (§7.1). `viec_khoan_id` null =
+   *  mẻ ghi trước 18/09/2026 ⇒ bày "chưa khai việc khoán", không đoán hộ. */
+  viec_khoan_id: number | null;
+  viec_khoan_ten: string | null;
+  viec_khoan_don_vi: string | null;
+  viec_khoan_don_vi_ten: string | null;
+  viec_khoan_don_gia: number | null;
+  /** Việc phát sinh đã ghi — KHÔNG cộng vào sản lượng. */
+  phat_sinh: SxMePhatSinh[];
+  /** Băng "Danh mục đã đổi so với lúc ghi mẻ" (§7.2b) — rỗng = còn khớp. */
+  danh_muc_doi: SxMeDanhMucDoi[];
+}
+export interface SxMePhatSinh {
+  id: number;
+  phat_sinh_id: number;
+  so_luong: number;
+  ten: string | null;
+  don_vi: string | null;
+  don_vi_ten: string | null;
+  don_gia: number | null;
+}
+/** Một ô lệch của băng mẻ. `mat` = dòng đã bị xoá khỏi danh mục — mẻ GIỮ ảnh chụp. */
+export interface SxMeDanhMucDoi {
+  truong: string;
+  nhan: string;
+  cu: string | null;
+  moi: string | null;
+  mat: boolean;
+}
+/** Một công việc khoán của tổ cho form Ghi mẻ: đơn giá · ĐVT · ghi chú + việc phát sinh. KHÔNG có
+ *  thành tiền — bàn tổ không nhân gì. */
+export interface SxViecPhatSinhChon {
+  id: number; ten: string; don_gia: number; don_vi: string; don_vi_ten: string | null;
+}
+export interface SxViecKhoanChon {
+  id: number;
+  ma: string | null;
+  ten: string;
+  don_gia: number;
+  don_vi: string;
+  don_vi_ten: string | null;
+  ghi_chu: string | null;
+  phat_sinh: SxViecPhatSinhChon[];
 }
 export interface SxNguoiThamGiaBatch {
   employee_id: number;
   ho_ten: string;
+  /** Tên tổ GỐC — chỉ có khi người này không thuộc tổ chủ mẻ (sang giúp qua hỗ trợ chéo). */
+  to_ten?: string | null;
 }
 export interface SxMeSuCo {
   bat_dau: string | null;
   ket_thuc: string | null;
   ly_do: string | null;
-}
-export interface SxChiaDong {
-  employee_id: number;
-  ho_ten: string;
-  so_luong: number;
-  phut_thuc_te: number | null;
-  la_ho_tro: boolean;
-}
-export interface SxChiaDuKien {
-  q: number;
-  don_vi: string | null;
-  can_chot: boolean;
-  canh_bao: string[];
-  dong: SxChiaDong[];
 }
 export interface SxSanLuong {
   tong_tot: number;
@@ -2285,7 +1827,6 @@ export interface SxHoTro {
   to_thuc_hien_id: number | null;
   to_thuc_hien_ten: string | null;
   ngay_lam_viec: string;
-  ty_le_phan_tram: number;
   trang_thai: string;          // pending_both | confirmed | cancelled
   mo_ta: string | null;
   da_xac_nhan_goc: boolean;
@@ -2294,54 +1835,6 @@ export interface SxHoTro {
   co_the_xac_nhan: boolean;
   co_the_huy: boolean;
   version: number;
-}
-export interface SxPhanBoDong {
-  employee_id: number;
-  ho_ten: string;
-  department_id: number | null;
-  la_ho_tro: boolean;
-  ngay: string;
-  so_luong_tra_luong: number;
-  so_luong_ban_dia: number | null;
-  trong_so: number | null;
-  phut_thuc_te: number | null;
-}
-export interface SxBuTruDong {
-  id: number;
-  employee_id: number;
-  ho_ten: string;
-  so_luong_tra_luong: number;
-  ky_bu_nam: number;
-  ky_bu_thang: number;
-  mo_ta: string | null;
-}
-/** Một người bị loại khỏi mẻ (§7.3) — có lý do + audit. */
-export interface SxPhanBoLoaiTru {
-  employee_id: number;
-  ho_ten: string;
-  ly_do: string;
-}
-export interface SxPhanBo {
-  phan_bo_id: number;
-  batch_id: number;
-  trang_thai: string;          // draft | finalized | reopened
-  version: number;
-  ngay: string;
-  ky_nam: number;
-  ky_thang: number;
-  q_tra_luong: number;
-  don_vi_tra_luong: string | null;
-  /* `don_gia` + `don_gia_tu_cong_thuc` GỠ 11/09/2026 (mg `0296`): phân bổ chỉ chia SỐ LƯỢNG.
-     Muốn ra tiền thì kế toán lương tra `piece_rates` tại kỳ tính lương ở màn "Khoán theo kỳ". */
-  q_ban_dia: number | null;
-  don_vi_ban_dia: string | null;
-  tong_ty_le_ho_tro: number;
-  dong: SxPhanBoDong[];
-  bu_tru: SxBuTruDong[];
-  can_chot: boolean;               // false ⇒ giữ nháp, chưa chốt được (§7.3/§8/§11.3)
-  canh_bao: string[];              // vì sao chưa chốt được
-  thieu_cham_cong: number[];       // employee_id tham gia nhưng 0 phút chấm công hợp lệ
-  loai_tru: SxPhanBoLoaiTru[];     // người đã xác nhận loại khỏi mẻ
 }
 
 export interface SxWorkItemChiTiet {
@@ -2364,7 +1857,6 @@ export interface SxWorkItemChiTiet {
   vat_tu: SxVatTuNhan[];
   vat_tu_cap: SxVatTuCap;
   ho_tro: SxHoTro[];
-  phan_bo: SxPhanBo[];
 }
 
 // --- Kết quả các mặt GHI G3/G4 (đủ để cập nhật lạc quan; drawer refetch để lấy chi tiết) ---
@@ -2405,59 +1897,11 @@ export interface SxHoTroKetQua {
   trang_thai: string;
   notify_user_ids: number[];
 }
-export interface SxPhanBoTomTat {
-  phan_bo_id: number;
-  batch_id: number;
-  cong_viec_id: number;
-  department_id: number | null;
-  trang_thai: string;
-  version: number;
-  q_tra_luong: number;
-  tong_ty_le_ho_tro: number;
-  so_dong: number;
-  can_chot: boolean;
-  canh_bao: string[];
-  thieu_cham_cong: number[];       // employee_id tham gia nhưng 0 phút chấm công hợp lệ (§7.3)
-  loai_tru: number[];              // employee_id đã bị loại khỏi mẻ (§7.3)
-}
-/** Kết quả loại/gỡ-loại người khỏi lương batch — kèm bảng chia mới nếu đã có nháp. */
-export interface SxLoaiTruKetQua {
-  phan_bo_id: number | null;
-  batch_id: number;
-  cong_viec_id: number | null;
-  department_id: number | null;
-  trang_thai: string | null;
-  version: number | null;
-  q_tra_luong: number | null;
-  tong_ty_le_ho_tro: number | null;
-  so_dong: number | null;
-  can_chot: boolean | null;
-  canh_bao: string[];
-  thieu_cham_cong: number[];
-  loai_tru: number[];
-}
-export interface SxPhanBoTrangThai {
-  phan_bo_id: number;
-  batch_id: number;
-  cong_viec_id: number;
-  department_id: number | null;
-  trang_thai: string;
-  version: number;
-}
-export interface SxBuTruKetQua {
-  bu_tru_id: number;
-  batch_id: number;
-  cong_viec_id: number;
-  department_id: number | null;
-  employee_id: number;
-  so_luong_tra_luong: number;
-  ky_bu: [number, number];
-}
 
 // Body các mặt GHI (§7). `expected_version` = khoá lạc quan; `ly_do` của tạm-dừng BẮT BUỘC.
 export interface SxPhanCongIn { employee_id: number; expected_version?: number | null }
 export interface SxGoPhanCongIn { ly_do?: string | null; expected_version?: number | null }
-export interface SxBatDauIn { ly_do_so_nguoi?: string | null; expected_version?: number | null }
+export interface SxBatDauIn { expected_version?: number | null }
 export interface SxDoiMayIn { may_id: number; ly_do?: string | null; expected_version?: number | null }
 /** Một máy trong ô "Đổi máy": chỉ máy làm được công đoạn của việc, kèm tình trạng LÚC NÀY — cùng
  *  nguồn cột Trạng thái màn Thiết bị (`services/may_trang_thai.py`), nhãn dựng sẵn ở máy chủ. */
@@ -2505,6 +1949,10 @@ export interface SxBatchIn {
   mo_ta_loi?: string | null;
   ghi_chu?: string | null;
   lot_vao?: SxLotVaoIn[];
+  /** Công việc khoán của tổ — chọn ĐÚNG MỘT (§7.2); máy chủ báo câu tiếng Việt nếu thiếu. */
+  piece_rate_id?: number | null;
+  /** Việc phát sinh đã làm trong mẻ — KHÔNG cộng vào sản lượng. */
+  phat_sinh?: { phat_sinh_id: number; so_luong: number }[];
 }
 export interface SxBanGiaoDeXuatIn {
   dich_cong_viec_id: number;           // một trong các chặng sau theo routing
@@ -2516,20 +1964,9 @@ export interface SxBanGiaoSuaIn { batch_ids: number[]; expected_version?: number
 export interface SxBanGiaoXacNhanIn { expected_version?: number | null }
 export interface SxBanGiaoDieuChinhIn { so_luong_sau: number; mo_ta?: string | null; expected_version?: number | null }
 export interface SxVatTuXacNhanIn { voucher_id: number; department_id: number; ghi_chu?: string | null }
-export interface SxHoTroDeXuatIn { employee_id: number; ngay_lam_viec: string; ty_le_phan_tram: number; mo_ta?: string | null }
+export interface SxHoTroDeXuatIn { employee_id: number; ngay_lam_viec: string; mo_ta?: string | null }
 export interface SxHoTroXacNhanIn { expected_version?: number | null }
 export interface SxHoTroHuyIn { ly_do?: string | null; expected_version?: number | null }
-export interface SxPhanBoChotIn { expected_version?: number | null }
-export interface SxPhanBoMoLaiIn { expected_version?: number | null }
-export interface SxLoaiTruIn { employee_id: number; ly_do: string }
-export interface SxGoLoaiTruIn { employee_id: number }
-export interface SxBuTruIn {
-  employee_id: number;
-  so_luong_tra_luong: number;
-  ky_bu_nam: number;
-  ky_bu_thang: number;
-  mo_ta?: string | null;
-}
 
 // ── KCS theo LỆNH (mg 0306, docs/design-kcs-theo-lenh.md) ─────────────────────
 // Mirror `schemas/san_xuat.py` (Kcs*Out). MỘT kiểu kiểm duy nhất: KCS mở lệnh → bấm công đoạn →
@@ -2951,24 +2388,18 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   // Đơn vị VÀO ≠ RA là chuyện thường ở bế/xén — hệ số quy đổi nối hai đầu.
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
-  /** Đơn vị ĐO SẢN LƯỢNG khai ở danh mục Công đoạn — chữ dán cạnh số của bước NGOÀI dòng giấy,
-   *  vì đúng những bước đó bỏ TRỐNG cả hai ô đơn vị chặng. null = công đoạn chưa khai. */
-  don_vi_san_luong: string | null;
   /** Bước có nằm trên DÒNG GIẤY không (server quyết theo cờ trạm của danh mục Đơn vị — FE không
    *  tự suy từ mã được). `false` ⇒ số lượng KHÔNG tự tính và bù hao không cộng vào số giấy. */
   tren_dong_giay: boolean;
-  /** Bước NGOÀI dòng giấy mà hai đơn vị vào≠ra CHƯA có cầu quy đổi ở module Đơn vị & quy đổi ⇒
-   *  câu lỗi (không đoán hệ số, không tính được số vào). null = ổn. Nuôi banner đỏ + detector
-   *  "thiếu dữ liệu" chặn phát hành. */
-  loi_quy_doi: string | null;
-  /** Diễn giải công thức SỐ RA cho bước ngoài dòng ("Số bản kẽm = 5 bản kẽm"). null với bước
-   *  trên dòng giấy (số suy ngược theo chuỗi, không có công thức riêng). */
-  san_luong_dien_giai: string | null;
+  /* `don_vi_san_luong` · `loi_quy_doi` · `san_luong_dien_giai` GỠ 18/09/2026 (mg `0324`) cùng
+     công thức sản lượng ra của công đoạn — bước ngoài dòng giấy nay là số tự khai ở bước. */
   hao_hut: number; hao_hut_pct: number; ty_le_hao_hut: number; so_luot_chay: number;
-  so_nhan_cong_tieu_chuan: number;
+  /** SỐ GIỜ KẾ HOẠCH của bước TỔ — ô gõ tay, mặc định 0 (mg `0319`). Bước máy luôn 0. Kíp chuẩn
+   *  + năng suất chép từ đầu việc GỠ 18/09/2026 (mg `0320`, `0321`). */
+  so_gio_ke_hoach: number;
   // `setup_phut` + `chay_phut` là số DẪN XUẤT (chuẩn bị + tốc độ kế thừa từ máy);
-  // `phat_sinh_phut` = ô "Thời gian khác", thứ DUY NHẤT còn gõ được (2026-08-04).
-  setup_phut: number; nang_suat: number | null; don_vi_nang_suat: string | null;
+  // `phat_sinh_phut` = ô "Thời gian khác".
+  setup_phut: number;
   chay_phut: number | null;
   phat_sinh_phut: number;
   // derived: chiếm máy theo tốc độ TB (Gantt đặt lịch) + dải nhanh/chậm nhất của máy.
@@ -2984,11 +2415,8 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   vat_tus: { id: number; hang_loai?: "giay" | "vat_tu"; vat_tu_id: number; vat_tu_ma: string;
              vat_tu_ten: string; don_vi: string; so_luong: number; tu_dong?: boolean }[];
   ghi_chu: string | null;
-  // --- Đầu việc đã GHIM ở bước. Mọi ô TIỀN gỡ 11/09/2026 (xem `LsxDauViecOption`). ---
-  khoan_rate_id: number | null;
-  khoan_ten: string | null;
-  /** Đầu việc chọn được cho bước (theo tổ + công đoạn) — server đã áp luật "ưu tiên dòng khai riêng". */
-  khoan_chon_duoc: LsxDauViecOption[];
+  /* Đầu việc ghim ở bước (`khoan_rate_id` · `khoan_ten` · `khoan_chon_duoc`) GỠ 18/09/2026 (mg
+     `0320`): việc khoán chọn LÚC GHI MẺ ở bàn tổ, lọc theo tổ của bước. */
   /** Lượng TÍNH SẴN cho mọi vật tư theo bước này — chọn món nào ở drawer là điền số ngay.
    *  Món chưa tính ra được vẫn CÓ trong mảng với `so_luong: null` + `ly_do` chỉ chỗ khai công
    *  thức ⇒ ô để trống cho người khai (không đoán), nhưng người dùng biết vì sao nó trống. */
@@ -3005,8 +2433,6 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   so_luong_ra_moi: number | null;
 }
 export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
-  /** Đầu việc khoán: id để ghim · 0/null = bỏ chọn · KHÔNG gửi field = giữ mặc định của server. */
-  piece_rate_id?: number | null;
   step_key?: string; thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
   /* `bat_buoc` GỠ 07/09/2026 — server không nhận nữa, mọi bước routing đều bắt buộc (mg 0275). */
   loai_buoc?: LsxLoaiBuoc;
@@ -3016,9 +2442,9 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   so_luong_vao?: number; so_luong_ra?: number;
   don_vi_vao?: string; don_vi_ra?: string; he_so_quy_doi?: number;
   hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number;
-  /** Kíp chuẩn — kế thừa từ đầu việc nhưng sửa được tại bước. */
-  so_nhan_cong_tieu_chuan?: number;
-  setup_phut?: number; nang_suat?: number | null; don_vi_nang_suat?: string | null;
+  /** Số giờ kế hoạch của bước TỔ — số thập phân ≥ 0, để 0 là hợp lệ (mg `0319`). */
+  so_gio_ke_hoach?: number;
+  setup_phut?: number;
   phat_sinh_phut?: number;
   phu_thuoc_step_keys?: string[];
   /** Bỏ trống `hang_loai` là server hiểu `"vat_tu"` — giữ đúng nghĩa client cũ. */
@@ -3048,7 +2474,9 @@ export interface LsxTinhNguocOut { rows: LsxTinhNguocRow[]; so_to_ke_hoach: numb
  *  (bước trước giao bao nhiêu thì bước này nhận bấy nhiêu), không thuộc công đoạn. */
 export interface LsxBuocMacDinh {
   cong_doan_id: number; ten: string; nhom: string | null;
+  /** Tổ MẶC ĐỊNH (tổ đầu danh sách) + cả danh sách tổ phụ trách công đoạn để ô tổ chọn trong đó. */
   department_id: number | null;
+  department_ids: number[];
   don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
   /** Cặp đơn vị trên có nằm trên DÒNG GIẤY không — server quyết theo cờ trạm của danh mục Đơn vị.
    *  Phải áp CÙNG LÚC với hai ô đơn vị: cờ là thuộc tính của cặp đơn vị, không phải của dòng. */
@@ -3068,8 +2496,6 @@ export interface LsxBuocMacDinh {
 export interface LsxXemTruocBuoc {
   step_key: string;
   may_id: number | null;
-  /** Kíp đứng máy khai ở danh mục Máy — bước MÁY nghe MÁY, không nghe định mức tổ. */
-  so_nhan_cong_tieu_chuan: number;
   chiem_may_phut: number;
   thoi_luong_dien_giai: Record<string, unknown>;
 }
@@ -3079,10 +2505,8 @@ export interface LsxXemTruocRoutingBuoc {
   step_key: string;
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string | null; don_vi_ra: string | null; he_so_quy_doi: number;
-  don_vi_san_luong: string | null;
   hao_hut: number; hao_hut_pct: number;
   tren_dong_giay: boolean;
-  loi_quy_doi: string | null; san_luong_dien_giai: string | null;
 }
 /** 1 bước trong payload xem-trước routing — chỉ trường chuỗi ngược cần, không mang vật tư/khoán. */
 export interface LsxXemTruocRoutingRow {
@@ -3091,36 +2515,8 @@ export interface LsxXemTruocRoutingRow {
   department_id?: number | null; may_id?: number | null;
 }
 
-/** Một đầu việc chọn được cho bước. `don_vi` + `don_gia` GỠ 11/09/2026: kế hoạch chọn VIỆC GÌ,
- *  không chọn GIÁ — giá do kế toán lương tra tại kỳ tính lương. */
-export interface LsxDauViecOption {
-  id: number; ten: string;
-  /** Ba mức năng suất khai ở định mức đầu việc — TB là số chảy vào công thức, min/max chỉ ra
-   *  khoảng nhanh–chậm (null = chưa khai dải). */
-  nang_suat_nguoi_gio: number;
-  nang_suat_nguoi_gio_min?: number | null; nang_suat_nguoi_gio_max?: number | null;
-  /** Kíp chuẩn — MỘT số duy nhất về nhân lực (mg `0270`), điền sẵn vào bước cho mọi loại bước. */
-  so_nguoi_tieu_chuan: number;
-  /** `is_default` GỠ 12/08/2026 (mg 0190): đầu việc điền sẵn nay chỉ suy từ "công đoạn có đúng
-   *  MỘT đầu việc", không còn cờ khai ở danh mục. */
-  don_vi_nang_suat: string | null;
-  /** VẬT TƯ đầu việc này tiêu thụ, ĐÃ tính số cho đúng bước đang mở (nền BOM, mg 0191). Chỉ có khi
-   *  đọc lệnh — đường đổi tổ (`dau-viec-options`) không có bước nên trả rỗng. */
-  vat_tus?: {
-    vat_tu_id: number; ma: string; ten: string; don_vi: string;
-    so_luong: number; dien_giai?: string | null;
-  }[];
-  /** Vật tư khai ở danh mục nhưng KHÔNG quy đổi được sang đơn vị của nó — máy không đoán, chỉ nói
-   *  thiếu gì để người kế hoạch tự thêm. */
-  canh_bao_vat_tu?: string[];
-  /** Tiền công DỰ KIẾN nếu chọn ĐÚNG đầu việc này, backend tính sẵn cho bước đang mở (cùng bộ máy
-   *  với bước đã lưu). Nhờ đó chọn ở dropdown là "nhảy tiền" ngay, khỏi lưu bước trước. Chỉ có khi
-   *  đọc lệnh; `null` = chưa quy đổi được SL sang đơn vị đơn giá (thiếu cầu/khổ) → hiện `dien_giai_du_kien`. */
-  tien_du_kien?: number | null;
-  sl_du_kien?: number | null;
-  don_vi_sl_du_kien?: string | null;
-  dien_giai_du_kien?: string | null;
-}
+/* `LsxDauViecOption` GỠ 18/09/2026 (mg `0320`) cùng ô "Đầu việc thợ làm" của bước và endpoint
+   `dau-viec-options`. Việc khoán của tổ: `SxViecKhoanChon` (form Ghi mẻ). */
 export interface LsxListItem {
   id: number; ma: string; loai: string; ten: string; trang_thai: LsxTrangThai;
   /** Nhãn nhóm của dòng đơn — cho biết lệnh "Bìa" thuộc "Catalogue A4 - 32 trang". */
@@ -3197,8 +2593,10 @@ export interface LsxDetail {
   /** Mã CHẶN nút "Sẵn sàng lập kế hoạch" (dịch bằng `LSX_THIEU_LABELS`). Rổ cảnh báo mềm
    *  `canh_bao` đã gỡ cả hai đầu 25/08/2026 — không màn nào hiện nó. */
   thieu: string[];
+  /** Tên tổ đứng sau mã `thieu_viec_khoan_to` (chưa có công việc khoán nào) — để gọi đích danh. */
+  to_thieu_viec_khoan?: string[];
   lead_time: LsxLeadTime | null;
-  /* `khoan_tien_tong` (Σ "Công thợ dự kiến" của lệnh) GỠ 11/09/2026 — xem `LsxDauViecOption`. */
+  /* `khoan_tien_tong` (Σ "Công thợ dự kiến" của lệnh) GỠ 11/09/2026. */
   /** Chừa tách chiều do server tính (`chua_theo_chieu`) — đừng cộng lại ở FE. */
   chua_dai: number;
   chua_rong: number;
@@ -3209,18 +2607,9 @@ export interface LsxDetail {
    *  CẢ bản xem trước. Màn lệnh phải khoá bảng routing và nói đường lùi ngay từ đầu — không thì
    *  sửa xong mới ăn 409 lúc bấm Lưu, còn xem-trước 409 im lặng làm số trên bảng đứng im. */
   giu_cho_bat: boolean;
-  /** Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing vừa rồi (rỗng ở mọi cửa đọc khác). Lưu VẪN
-   *  thành công — chỉ là lưu ý để mở đúng bước chọn lại đầu việc. */
-  bo_dau_viec?: LsxBoDauViec[];
   /** Danh mục Công đoạn đã đổi sau lần lệnh này lấy số. `null` = còn khớp, KHÔNG hiện băng. */
   danh_muc_doi?: DanhMucDoiOut | null;
 }
-/** Một bước bị gỡ đầu việc mồ côi khi lưu routing (đầu việc đã ghim không còn thuộc công đoạn ∩
- *  tổ, thường vì danh mục đổi dưới chân lệnh). `vi_tri` = số thứ tự bước (1-based) để mở đúng chỗ. */
-export interface LsxBoDauViec { vi_tri: number; ten: string; dau_viec: string; }
-/** Một Ô của ảnh chụp khoán bị lệch. `cu`/`moi` đã là chuỗi bày được — công thức server đã dịch
- *  sang chữ đọc được, ĐỪNG dịch lại ở FE. `null` = ô đang bỏ trống. */
-export interface DanhMucDoiTruong { truong: string; nhan: string; cu: string | null; moi: string | null }
 /** Một dòng vật tư lệch. Để trống một bên tuỳ rổ: rổ THÊM chưa có số cũ, rổ BỎ không còn số mới. */
 export interface DanhMucDoiVatTu {
   hang_loai?: "giay" | "vat_tu";
@@ -3229,11 +2618,8 @@ export interface DanhMucDoiVatTu {
 }
 export interface DanhMucDoiBuoc {
   buoc_id: number; step_key: string | null; thu_tu: number; ten: string;
-  khoan: DanhMucDoiTruong[];
-  /** Bước chưa chọn đầu việc mà danh mục khớp ĐÚNG MỘT cái — tên cái đó. Cập nhật là điền vào. */
-  khoan_chua_chon: string | null;
-  /** Đầu việc đã ghim nay không còn thuộc (công đoạn ∩ tổ) — phải chọn lại TAY, nút không đoán hộ. */
-  khoan_mo_coi: string | null;
+  /* Ba khoá KHOÁN (`khoan` · `khoan_chua_chon` · `khoan_mo_coi`) GỠ 18/09/2026 (mg `0320`): bước
+     thôi ghim đầu việc. Băng còn VẬT TƯ của công đoạn và MÁY bị gỡ khỏi công đoạn. */
   vat_tu_them: DanhMucDoiVatTu[];
   /** Bước đang có mà danh mục không còn bung. CHỈ BÁO — nút cập nhật không xoá dòng nào. */
   vat_tu_bo: DanhMucDoiVatTu[];
@@ -6129,8 +5515,10 @@ export interface MyPayslip {
  *  không có trong danh mục Đơn vị. */
 export interface PieceRate {
   id: number;
-  group_name: string;
-  department_id: number | null;
+  /** Các TỔ làm việc này (17/09/2026, bảng nối `cong_viec_khoan_to`) — một việc nhiều tổ, chung giá. */
+  department_ids: number[];
+  /** Mã · tên từng tổ do server tra sẵn; tổ đã xoá khỏi cây tổ chức thì `ma`/`ten` = null. */
+  tos: { id: number; ma: string | null; ten: string | null }[];
   ma: string | null;
   ten: string;
   unit: string;
@@ -6142,10 +5530,10 @@ export interface PieceRate {
 
 /** Thân POST/PUT của danh mục Công việc khoán.
  *
- *  KHÔNG có `group_name`: nhãn tổ do server suy từ `department_id` — hai chỗ cùng khai một sự thật
- *  thì sớm muộn lệch nhau. `ma` bỏ trống ⇒ server cấp `KH-####`. */
+ *  `department_ids` VẮNG = giữ nguyên danh sách tổ; gửi mảng rỗng = lỗi (việc không tổ nào là mồ
+ *  côi — thôi dùng thì Ngừng dùng). `ma` bỏ trống ⇒ server cấp `KH-####`. */
 export interface PieceRateInput {
-  department_id?: number | null;
+  department_ids?: number[];
   ma?: string | null;
   ten: string;
   unit: string;
@@ -6217,6 +5605,9 @@ export interface CongDoanLite {
    *  bản đặt tên là `MayCongDoanRow` trong `pages/danh-muc/types.ts`. */
   may_lam_duoc?: { may_id: number; cong_thuc_gio?: string | null;
                    cong_thuc_gia?: string | null }[] | null;
+  /** Các TỔ phụ trách công đoạn (nhiều tổ, 18/09/2026, mg `0312`) — tổ đầu là tổ mặc định. Ô tổ
+   *  của bước lệnh chỉ mời các tổ này. Rỗng = công đoạn chưa khai tổ, không giới hạn. */
+  department_ids?: number[] | null;
 }
 
 // Phiếu sản lượng công đoạn (Pha 5b)
@@ -7273,6 +6664,9 @@ export interface DepartmentPurchaseRequestInput {
   needed_date: string;
   note?: string | null;
   lines: DepartmentPurchaseRequestLineInput[];
+  /** Chỉ lúc TẠO (từ Kế hoạch vật tư): yêu cầu này mua cho lệnh/bài nào. Server lưu lại để "Ngày
+   *  cần" của lệnh đọc ngược từ `needed_date` — sửa phiếu sau đó không đụng tới. */
+  nguon_lenh?: CanDoiKhoaDong[];
 }
 
 export interface PurchaseRequestInput {
@@ -8720,13 +8114,12 @@ export type HangLoai = "giay" | "vat_tu";
 
 /** Màu của một dòng cân đối. `khong_ro` = KHÔNG quy đổi được đơn vị ⇒ máy chưa đánh giá được —
  *  cố ý tách khỏi `xam` ("đã cấp đủ"), vì dán nhãn đủ lên dòng chưa ai tính nổi là nói ngược.
- *  `ve_muon` = ĐÃ MUA rồi, hàng đang về nhưng về SAU ngày cần — tách khỏi `do` (17/08/2026) vì hai
- *  ca xử ngược nhau: đỏ thì đi mua, về muộn thì dời lịch. Gộp một màu là mời người ta mua đúp. */
-export type CanDoiMau = "xam" | "xanh" | "vang" | "do" | "khong_ro" | "ve_muon";
+ *  Không còn `ve_muon` (18/09/2026): hệ không suy ngày cần nên không có mốc nào để chê hàng về muộn. */
+export type CanDoiMau = "xam" | "xanh" | "vang" | "do" | "khong_ro";
 
-/** Trạng thái GIỮ CHỖ 6 mức — khác `CanDoiMau` (3 mức trung tính gộp lại): ở đây tách được "đã
+/** Trạng thái GIỮ CHỖ 5 mức — khác `CanDoiMau` (3 mức trung tính gộp lại): ở đây tách được "đã
  *  giữ" khỏi "có thể giữ nhưng chưa bật" khỏi "đã cấp thật". */
-export type TrangThaiGiu = "khong_ro" | "thieu" | "ve_muon" | "co_the_giu" | "da_giu" | "da_cap";
+export type TrangThaiGiu = "khong_ro" | "thieu" | "co_the_giu" | "da_giu" | "da_cap";
 
 export interface CanDoiDong {
   /** `vat_tu` = so tồn · `cong_cu` = khuôn bế, KHÔNG so tồn (chỉ hỏi sẵn sàng đúng lúc chưa). */
@@ -8742,10 +8135,9 @@ export interface CanDoiDong {
    *  rồi tự quyết. */
   is_rush: boolean;
   ten_viec: string | null;
+  /** "Ngày cần hàng" người lập gõ trên yêu cầu mua đã lập cho lệnh/bài này (sớm nhất) — đọc ngược,
+   *  KHÔNG suy. Chưa lập yêu cầu mua nào (vd tồn đủ) ⇒ `null`, hiện trống. */
   ngay_can: string | null;
-  /** true = bước CHƯA xếp lịch ⇒ ngày cần là mốc SUY (hạn SX − tổng thời gian dẫn). Phải hiện
-   *  khác mốc thật, không thì người dùng tin vào một con số chưa ai chốt. */
-  moc_tam: boolean;
   /** Mọi số theo ĐƠN VỊ GỐC của mặt hàng. null ở dòng công cụ. */
   nhu_cau: number | null;
   /** Hai đơn vị cùng lúc: "2.961 tờ ≈ 116 kg". */
@@ -8766,16 +8158,6 @@ export interface CanDoiDong {
   co_the_giu_dang_ve: number | null;
   trang_thai_giu: TrangThaiGiu | null;
   nguon_dang_ve: { purchase_request_line_id: number; ma_pmh: string | null; so_luong: number }[] | null;
-  /** Ngày về của lô ĐỦ ĐỂ PHỦ chỗ thiếu — chỉ có ở dòng `ve_muon`. Không phải lô gần nhất: dời
-   *  lịch theo lô gần nhất mà nó chỉ có 1 kg thì tới nơi vẫn không đủ hàng. */
-  ngay_du_hang: string | null;
-  /** Mã phiếu mua của CHÍNH lô làm nên `ngay_du_hang` — để câu "đã có hàng đang về" tra được về
-   *  đơn nào. Chỉ có ở dòng `ve_muon`. */
-  phieu_ve: string | null;
-  /** Hạn chót phải đặt = ngày cần − số ngày kiểm nhập. Không còn trừ "số ngày NCC giao" (ô đó đã
-   *  bỏ 10/08/2026 — khai tay là số đoán). */
-  han_dat: string | null;
-  dat_muon: boolean;
   canh_bao: string[];
   ly_do_canh_bao: string | null;
 }
@@ -8809,9 +8191,6 @@ export interface CanDoiNhom {
   so_dong_do: number;
   /** Số dòng KHÔNG đánh giá được. Bộ lọc "chỉ mặt hàng đang thiếu" GIỮ LẠI nhóm có số này > 0. */
   so_dong_khong_ro: number;
-  /** Số dòng ĐÃ MUA nhưng hàng về SAU ngày cần. Bộ lọc "chỉ thứ đang thiếu" cũng GIỮ LẠI — lệnh
-   *  vẫn đứng máy, chỉ khác là việc phải lo là dời lịch chứ không phải chạy đi mua. */
-  so_dong_ve_muon: number;
   khuon_tinh_trang: string | null;
   /** Phiếu đang chạy của mặt hàng, xếp CHẮC → LỎNG (đã duyệt có ngày về đứng đầu). Treo ở NHÓM
    *  chứ không ở dòng: phiếu mua không biết lệnh nào, nó chỉ biết mua món gì. */
@@ -8828,6 +8207,8 @@ export interface CanDoiBoQua {
 export interface CanDoiOut {
   items: CanDoiNhom[];
   bo_qua: CanDoiBoQua[];
+  /** Số lệnh giữ lâu chưa vào kế hoạch — toàn xưởng, không theo `q` (cùng nghĩa `TheoLenhOut`). */
+  so_giu_lau: number;
 }
 
 /** Khoá của một dòng trên bảng — đủ để server tìm lại và TỰ tính phần thiếu.
@@ -8845,13 +8226,13 @@ export interface CanDoiKhoaDong {
 
 /** Bản NHÁP của yêu cầu mua, tính từ các dòng đã tick — server CHƯA ghi gì.
  *
- *  Dùng để mở form "Tạo yêu cầu mua hàng" đã điền sẵn: ngày cần · nội dung · từng dòng vật tư đã
- *  gộp theo mặt hàng. Người dùng xem, sửa, rồi tự bấm Lưu — yêu cầu chỉ sinh ra lúc đó. */
+ *  Dùng để mở form "Tạo yêu cầu mua hàng" đã điền sẵn: nội dung · từng dòng vật tư đã gộp theo
+ *  mặt hàng · lệnh nguồn. Người dùng gõ NGÀY CẦN HÀNG rồi tự bấm Lưu — yêu cầu chỉ sinh ra lúc đó. */
 export interface DeNghiMuaXemTruoc {
   related_document_type: string;
   related_document_code: string;
-  /** `YYYY-MM-DD` — đã kẹp sàn hôm nay ở server (lệnh trễ thì ngày cần đã nằm trong quá khứ). */
-  needed_date: string;
+  /** Luôn `null` (18/09/2026): hệ không suy ngày cần — để trống cho người lập tự gõ. */
+  needed_date: string | null;
   noi_dung: string;
   lines: {
     hang_loai: HangLoai;
@@ -8860,6 +8241,8 @@ export interface DeNghiMuaXemTruoc {
     unit: string;
     quantity: number;
   }[];
+  /** Khoá các dòng đã tick — form gửi nguyên văn vào `nguon_lenh` lúc Lưu. */
+  nguon: CanDoiKhoaDong[];
 }
 
 /** Một MẶT HÀNG mà một lệnh/bài cần — đã gộp mọi công đoạn của lệnh đó. */
@@ -8885,18 +8268,13 @@ export interface TheoLenhHang {
   so_buoc: number;
   /** Màu NẶNG NHẤT trong các bước. Thẻ chỉ hiện được một màu. */
   trang_thai: CanDoiMau;
-  /** Ngày SỚM NHẤT món này cần tới (nhỏ nhất trong các bước ăn nó) — đứng cạnh `ngay_du_hang` để
-   *  nói được "trễ mấy ngày" mà không mượn ngày của cả lệnh. */
+  /** Ngày cần hàng trên yêu cầu mua đã lập cho lệnh này mua món này (sớm nhất). Chưa mua ⇒ `null`. */
   ngay_can: string | null;
-  /** Ngày lô đang về phủ đủ chỗ thiếu — MUỘN NHẤT trong các bước `ve_muon` của món. */
-  ngay_du_hang: string | null;
-  /** Mã phiếu mua của lô đó — để nút mua bị khoá gọi tên được đơn đang trên đường về. */
-  phieu_ve: string | null;
   /** Bao nhiêu lệnh/bài KHÁC đang thiếu chính món này — câu *"nhả ra thì ai đỡ"* của hộp xác nhận.
    *  Server đếm trên TOÀN BỘ bảng, trước mọi bộ lọc. */
   so_lenh_khac_thieu: number;
   /** MỌI phiếu đang chạy của món (kể cả YCMH chưa duyệt, kể cả PMH chưa hẹn ngày), xếp CHẮC →
-   *  LỎNG. `phieu_ve` chỉ là cái lô phủ được chỗ thiếu; danh sách này mới nói hết "ai đang lo". */
+   *  LỎNG — "ai đang lo món này". */
   phieu_mua: PhieuMuaTom[];
   /** Khoá 5 phần của TỪNG dòng đỏ — gửi thẳng vào `deNghiMua`. Cố ý không gộp về một khoá cho
    *  mỗi mặt hàng: một lệnh ăn cùng món ở hai công đoạn là hai dòng, gộp là mua một nửa. */
@@ -8909,8 +8287,8 @@ export interface TheoLenhRow {
   bai_ghep_id: number | null;
   ma: string;
   is_rush: boolean;
+  /** Ngày cần hàng SỚM NHẤT trên các yêu cầu mua đã lập cho lệnh. Lệnh không phải mua ⇒ `null`. */
   ngay_can: string | null;
-  moc_tam: boolean;
   /** Còn giữ chỗ nhưng ĐÃ RƠI khỏi bảng cân đối (lệnh bị kéo về nháp…). Vẫn trừ vào tồn tự do của
    *  mọi người khác, nên phải bày ra để có đường nhả. */
   ngoai_pham_vi: boolean;
@@ -8929,7 +8307,6 @@ export interface TheoLenhRow {
 
   so_mat_hang: number;
   so_thieu: number;
-  so_ve_muon: number;
   so_khong_ro: number;
   hang: TheoLenhHang[];
 }
@@ -9195,7 +8572,6 @@ export interface LenhSxVatTuDong {
   /** Cùng thang màu với bảng cân đối Kế hoạch vật tư (`CanDoiMau`). */
   trang_thai: string | null;
   ngay_can: string | null;
-  ngay_du_hang: string | null;
 }
 
 export interface LenhSxVatTuMuc {
@@ -11889,32 +11265,23 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
-    dauViecOptions(
-      token: string, id: number, congDoanId: number, departmentId: number,
-    ): Promise<LsxDauViecOption[]> {
-      const q = new URLSearchParams({
-        cong_doan_id: String(congDoanId), department_id: String(departmentId),
-      });
-      return authed<LsxDauViecOption[]>(`/api/lsx/${id}/dau-viec-options?${q}`, token);
-    },
-    /** Bộ số đang sửa trên drawer thì bước chạy bao nhiêu phút, tiền công bao nhiêu? CHỈ ĐỌC.
+    /** Bộ số đang sửa trên drawer thì bước chạy bao nhiêu phút? CHỈ ĐỌC.
      *
-     *  Có cửa này vì SL vào phải quy đổi sang ĐƠN VỊ ĐÍCH của bước (máy đo `to_gio`, tổ đo theo
-     *  đơn vị năng suất của đầu việc) mà bảng cầu quy đổi chỉ nằm ở backend. Thiếu nó thì form
-     *  phải bấm "Lưu công đoạn" mới thấy số đổi — đúng chỗ chủ kêu 20/08/2026.
+     *  Có cửa này vì SL vào phải quy đổi sang ĐƠN VỊ ĐÍCH của máy mà bảng cầu quy đổi chỉ nằm ở
+     *  backend. Thiếu nó thì form phải bấm "Lưu công đoạn" mới thấy số đổi (20/08/2026).
      *
-     *  Gửi CẢ BỐN thứ đang sửa, không chỉ máy (07/09/2026): đích quy đổi đổi theo loại bước và
-     *  đầu việc, còn số lượt là chip trong công thức tiền công. */
+     *  Gửi mọi thứ đang sửa: máy · loại bước · số lượt · SỐ GIỜ KẾ HOẠCH (bước tổ, mg `0319`).
+     *  `pieceRateId` GỠ 18/09/2026 cùng ô đầu việc của bước. */
     xemTruocBuoc(
       token: string, id: number, stepKey: string,
       dang: { mayId?: number | null; loaiBuoc?: string | null;
-              pieceRateId?: number | null; soLuotChay?: number | null } = {},
+              soLuotChay?: number | null; soGioKeHoach?: number | null } = {},
     ): Promise<LsxXemTruocBuoc> {
       const q = new URLSearchParams({ step_key: stepKey });
       if (dang.mayId != null) q.set("may_id", String(dang.mayId));
       if (dang.loaiBuoc) q.set("loai_buoc", dang.loaiBuoc);
-      if (dang.pieceRateId != null) q.set("piece_rate_id", String(dang.pieceRateId));
       if (dang.soLuotChay != null) q.set("so_luot_chay", String(dang.soLuotChay));
+      if (dang.soGioKeHoach != null) q.set("so_gio_ke_hoach", String(dang.soGioKeHoach));
       return authed<LsxXemTruocBuoc>(`/api/lsx/${id}/xem-truoc-buoc?${q}`, token);
     },
     update(token: string, id: number, body: LsxUpdateBody): Promise<LsxDetail> {
@@ -12094,10 +11461,11 @@ export const api = {
       token: string,
       dong: CanDoiKhoaDong[],
       ghiChu?: string | null,
+      neededDate?: string | null,
     ): Promise<{ id: number; code: string }> {
       return authed<{ id: number; code: string }>("/api/ke-hoach-vat-tu/de-nghi-mua", token, {
         method: "POST",
-        body: JSON.stringify({ dong, ghi_chu: ghiChu ?? null }),
+        body: JSON.stringify({ dong, ghi_chu: ghiChu ?? null, needed_date: neededDate ?? null }),
       });
     },
     /** Tính trước yêu cầu mua từ các dòng đã tick — KHÔNG ghi gì. Trả đúng bộ dữ liệu để đổ vào
@@ -12304,35 +11672,35 @@ export const api = {
     },
   },
 
-  // --- Xếp lịch 3 (module `xep_lich_3`) — bàn cấp LỆNH SẢN XUẤT --------------
+  // --- Xếp lịch (module `xep_lich`) — bàn cấp LỆNH SẢN XUẤT ------------------
   // Ít đường hơn màn 2 đúng một bậc: KHÔNG có "đưa vào nháp", KHÔNG có `xem-truoc` (xem trước
   // chính là thanh trên lưới), KHÔNG có `kiem-phat-hanh` (màn này không chặn gì hết).
-  xepLich3: {
+  xepLich: {
     /** Thẻ chờ xếp, lọc + cắt trang Ở MÁY CHỦ. `tong` là SAU lọc, không phải số dòng trả về. */
     hangCho(
       token: string,
       params: { tim?: string; trang?: number; moi_trang?: number } = {},
-    ): Promise<Xl3HangCho> {
+    ): Promise<XlHangCho> {
       const suffix = qs({
         tim: params.tim?.trim() || undefined,
         trang: params.trang ?? undefined,
         moi_trang: params.moi_trang ?? undefined,
       });
-      return authed<Xl3HangCho>(`/api/xep-lich-3/hang-cho${suffix}`, token);
+      return authed<XlHangCho>(`/api/xep-lich/hang-cho${suffix}`, token);
     },
     /** Lệnh CHẠM cửa sổ [tu, den] (YYYY-MM-DD). Hai mốc BẮT BUỘC — không có đường trải cả lịch sử. */
-    lich(token: string, params: { tu: string; den: string }): Promise<Xl3Lien> {
-      return authed<Xl3Lien>(`/api/xep-lich-3/lich${qs({ tu: params.tu, den: params.den })}`, token);
+    lich(token: string, params: { tu: string; den: string }): Promise<XlLien> {
+      return authed<XlLien>(`/api/xep-lich/lich${qs({ tu: params.tu, den: params.den })}`, token);
     },
     /** Panel dưới: thông tin thật của một lệnh + bảng công đoạn. Lệnh chưa xếp vẫn mở được. */
-    chiTiet(token: string, lsxId: number): Promise<Xl3ChiTiet> {
-      return authed<Xl3ChiTiet>(`/api/xep-lich-3/lenh/${lsxId}`, token);
+    chiTiet(token: string, lsxId: number): Promise<XlChiTiet> {
+      return authed<XlChiTiet>(`/api/xep-lich/lenh/${lsxId}`, token);
     },
     /** So HAI phiên bản lịch đã phát hành, từng bước một. Dữ liệu chỉ có từ 10/09/2026 — phiên
      *  bản cũ hơn đọc ra dòng sống nên bảng sẽ nói "không đổi"; đó là đúng theo dữ liệu còn lại,
      *  không dựng lại được. */
-    soSanhPhienBan(token: string, lsxId: number, a: number, b: number): Promise<Xl3SoSanh> {
-      return authed<Xl3SoSanh>(`/api/xep-lich-3/lenh/${lsxId}/so-sanh${qs({ a, b })}`, token);
+    soSanhPhienBan(token: string, lsxId: number, a: number, b: number): Promise<XlSoSanh> {
+      return authed<XlSoSanh>(`/api/xep-lich/lenh/${lsxId}/so-sanh${qs({ a, b })}`, token);
     },
     /** Đặt / dời giờ bắt đầu. `expectedUpdatedAt` là chốt chống ghi đè — bỏ trống khi đặt LẦN ĐẦU
      *  (kéo từ hàng chờ), có thì lệch một giây cũng ném ApiError 409 "người khác vừa dời".
@@ -12343,8 +11711,8 @@ export const api = {
       lsxId: number,
       batDauAt: string,
       expectedUpdatedAt?: string | null,
-    ): Promise<Xl3Dong> {
-      return authed<Xl3Dong>(`/api/xep-lich-3/lenh/${lsxId}`, token, {
+    ): Promise<XlDong> {
+      return authed<XlDong>(`/api/xep-lich/lenh/${lsxId}`, token, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bat_dau_at: batDauAt, expected_updated_at: expectedUpdatedAt ?? null }),
@@ -12352,167 +11720,32 @@ export const api = {
     },
     /** Bỏ lịch — thẻ quay lại hàng chờ. Không đụng trạng thái lệnh. */
     xoaMoc(token: string, lsxId: number): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/xep-lich-3/lenh/${lsxId}`, token, { method: "DELETE" });
+      return authed<{ ok: boolean }>(`/api/xep-lich/lenh/${lsxId}`, token, { method: "DELETE" });
     },
     /** Phát hành xuống xưởng — BẤM LÀ ĐI, không hộp thoại xác nhận, không cửa gác. */
     phatHanh(token: string, lsxId: number): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/xep-lich-3/phat-hanh/${lsxId}`, token, { method: "POST" });
+      return authed<{ ok: boolean }>(`/api/xep-lich/phat-hanh/${lsxId}`, token, { method: "POST" });
     },
     /** Thu hồi phát hành. BẮT gõ lý do (≥3 ký tự) — thiếu thì 400, đã có việc chạy thì 409. */
     thuHoi(token: string, lsxId: number, lyDo: string): Promise<{ ok: boolean }> {
       return authed<{ ok: boolean }>(
-        `/api/xep-lich-3/phat-hanh/${lsxId}${qs({ ly_do: lyDo })}`, token, { method: "DELETE" },
+        `/api/xep-lich/phat-hanh/${lsxId}${qs({ ly_do: lyDo })}`, token, { method: "DELETE" },
       );
     },
     /** Gói đã thả xuống xưởng còn thu hồi được không (`cho_phep_thu_hoi`), hay chỉ còn đường cập
      *  nhật (`cho_phep_cap_nhat`). Hỏi TRƯỚC khi bày nút — không thì người dùng gõ lý do xong mới
      *  ăn 409. `co_goi=false` ⇒ lệnh chưa phát hành. */
-    goiPhatHanh(token: string, lsxId: number): Promise<Xl3GoiPhatHanh> {
-      return authed<Xl3GoiPhatHanh>(`/api/xep-lich-3/phat-hanh/${lsxId}/goi`, token);
+    goiPhatHanh(token: string, lsxId: number): Promise<XlGoiPhatHanh> {
+      return authed<XlGoiPhatHanh>(`/api/xep-lich/phat-hanh/${lsxId}/goi`, token);
     },
     /** Đẩy lịch mới xuống xưởng cho phần CHƯA bắt đầu, giữ nguyên việc đã chạy. BẮT gõ lý do
      *  (≥3 ký tự). `so_lech_phan_doan > 0` ⇒ có việc KHÔNG được cập nhật vì lần chạy đã tách/gộp
      *  lại — phải nói ra, đừng nuốt. */
-    phatHanhCapNhat(token: string, lsxId: number, lyDo: string): Promise<Xl3CapNhatOut> {
-      return authed<Xl3CapNhatOut>(`/api/xep-lich-3/phat-hanh-cap-nhat/${lsxId}`, token, {
+    phatHanhCapNhat(token: string, lsxId: number, lyDo: string): Promise<XlCapNhatOut> {
+      return authed<XlCapNhatOut>(`/api/xep-lich/phat-hanh-cap-nhat/${lsxId}`, token, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ly_do: lyDo }),
-      });
-    },
-  },
-
-  // --- Xếp lịch công đoạn 2 (module `xep_lich_2`) — cửa vào thứ hai ----------
-  // Hình dạng response KHÁC màn cũ (dict thô v2). Mọi hàm ĐỌC trả type Xl2*; PUT lưu ném ApiError
-  // 409: detail CHUỖI = khoá lạc quan (tải lại), detail OBJECT `{loai:"chan_dat_lich"}` = chặn đặt
-  // lịch (bóc bằng `xl2ChanDatLich`).
-  xepLich2: {
-    /** Hàng chờ MỘT TRANG, chia hai rổ (đủ vật tư / thiếu vật tư). Cắt trang + lọc + đếm Ở MÁY CHỦ —
-     *  truyền `trang` (1-based) + `moi_trang` (≤200) + `q` (tìm mã) + `loc` (chip all/tre/gap); mặc
-     *  định trang 1, 50 dòng/trang, không lọc. */
-    hangCho(
-      token: string,
-      params: { trang?: number; moi_trang?: number; q?: string; loc?: "all" | "tre" | "gap" } = {},
-    ): Promise<Xl2HangCho> {
-      const suffix = qs({
-        trang: params.trang ?? undefined,
-        moi_trang: params.moi_trang ?? undefined,
-        q: params.q?.trim() || undefined,
-        loc: params.loc && params.loc !== "all" ? params.loc : undefined,
-      });
-      return authed<Xl2HangCho>(`/api/xep-lich-2/hang-cho${suffix}`, token);
-    },
-    /** Bối cảnh MỘT lệnh/bài cho Panel phải (§8): đầu thực thể + hai hạn + vật tư + vấn đề + chuỗi
-     *  bước DAG. Đọc thuần, KHÔNG ghi. Chưa vào kế hoạch ⇒ `buoc` rỗng. */
-    boiCanh(token: string, params: { nguon: Xl2Nguon; id: number }): Promise<Xl2BoiCanh> {
-      return authed<Xl2BoiCanh>(`/api/xep-lich-2/boi-canh/${params.nguon}/${params.id}`, token);
-    },
-    /** Một bàn làm việc [tu, den] (YYYY-MM-DD): ca nền + ngày lễ + dòng đã xếp trong cửa sổ. */
-    banLamViec(token: string, params: { tu: string; den: string }): Promise<Xl2BanLamViec> {
-      const suffix = qs({ tu: params.tu, den: params.den });
-      return authed<Xl2BanLamViec>(`/api/xep-lich-2/ban-lam-viec${suffix}`, token);
-    },
-    /** Đưa LSX vào kế hoạch dưới dạng NHÁP (cho phép thiếu vật tư). */
-    duaVaoLsx(token: string, lsxId: number): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/xep-lich-2/dua-vao/lsx/${lsxId}`, token, { method: "POST" });
-    },
-    duaVaoBaiGhep(token: string, baiGhepId: number): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/xep-lich-2/dua-vao/bai-ghep/${baiGhepId}`, token, { method: "POST" });
-    },
-    /** Bỏ một LSX ra khỏi kế hoạch nháp (đưa về SẴN SÀNG). 409 nếu đã phát hành / đang khoá. */
-    xoaNhapLsx(token: string, lsxId: number): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/xep-lich-2/dua-vao/lsx/${lsxId}`, token, { method: "DELETE" });
-    },
-    xoaNhapBaiGhep(token: string, baiGhepId: number): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/xep-lich-2/dua-vao/bai-ghep/${baiGhepId}`, token, { method: "DELETE" });
-    },
-    /** Xem-trước một cách đặt (GET, query params — KHÔNG mutate, KHÔNG đẩy SSE). Gọi patch RỖNG để
-     *  lấy hiện-trạng cho panel phải. */
-    xemTruoc(
-      token: string,
-      dongId: number,
-      patch: { may_id?: number | null; department_id?: number | null; nha_cung_cap?: string | null; start_at?: string | null } = {},
-    ): Promise<Xl2XemTruoc> {
-      const suffix = qs({
-        may_id: patch.may_id ?? undefined,
-        department_id: patch.department_id ?? undefined,
-        nha_cung_cap: patch.nha_cung_cap ?? undefined,
-        start_at: patch.start_at ?? undefined,
-      });
-      return authed<Xl2XemTruoc>(`/api/xep-lich-2/dong/${dongId}/xem-truoc${suffix}`, token);
-    },
-    /** Gợi ý máy cùng nhóm công đoạn (KHÔNG lọc theo khổ/màu/định lượng — người quyết). */
-    goiY(token: string, dongId: number): Promise<XepLichGoiY> {
-      return authed<XepLichGoiY>(`/api/xep-lich-2/dong/${dongId}/goi-y`, token);
-    },
-    /** ≤3 khe trống sớm nhất để xếp dòng trong [tu, den] (B8) — bấm một phát là áp `start_at`. */
-    goiYKhe(token: string, dongId: number, params: { tu: string; den: string }): Promise<Xl2GoiYKhe> {
-      const suffix = qs({ tu: params.tu, den: params.den });
-      return authed<Xl2GoiYKhe>(`/api/xep-lich-2/dong/${dongId}/goi-y-khe${suffix}`, token);
-    },
-    /** TỰ XẾP cả lệnh/bài một phát (POST, có ghi). `ghiDe` = xếp lại cả bước đã có giờ
-     *  (dòng đang KHOÁ vẫn không bị đụng). Trả về từng bước + lý do + bước bỏ qua để UI phanh phui,
-     *  không phải {ok:true} mù. */
-    tuXep(token: string, params: { nguon: Xl2Nguon; id: number; ghiDe?: boolean }): Promise<Xl2TuXep> {
-      const suffix = qs({ ghi_de: params.ghiDe ? true : undefined });
-      return authed<Xl2TuXep>(`/api/xep-lich-2/tu-xep/${params.nguon}/${params.id}${suffix}`, token, {
-        method: "POST",
-      });
-    },
-    /** Ghi một dòng (khoá lạc quan + chặn đặt lịch). Body BẮT BUỘC `expected_updated_at`. */
-    luu(token: string, dongId: number, body: Xl2LuuBody): Promise<Xl2Dong> {
-      return authed<Xl2Dong>(`/api/xep-lich-2/dong/${dongId}`, token, {
-        method: "PUT", body: JSON.stringify(body),
-      });
-    },
-    /** Tách một công đoạn thành nhiều LẦN CHẠY: gửi ĐÚNG các con số muốn chia (không gửi "số phần").
-     *  Mọi luật — ít nhất 2 phần · mỗi phần dương · tổng khớp SL bước — do BE phán, 400 kèm câu
-     *  tiếng Việt đọc được. Trả CẢ CỤM vì tách đẻ thêm thanh ở khay "chưa đặt giờ". */
-    tach(token: string, dongId: number, cacPhan: number[]): Promise<{ dong: Xl2Dong[] }> {
-      return authed<{ dong: Xl2Dong[] }>(`/api/xep-lich-2/dong/${dongId}/tach`, token, {
-        method: "POST", body: JSON.stringify({ cac_phan: cacPhan }),
-      });
-    },
-    /** Gộp cả cụm lần chạy về MỘT dòng (giữ id gốc). Nhận id của phân đoạn bất kỳ trong cụm. */
-    gop(token: string, dongId: number): Promise<{ dong: Xl2Dong }> {
-      return authed<{ dong: Xl2Dong }>(`/api/xep-lich-2/dong/${dongId}/gop`, token, {
-        method: "POST",
-      });
-    },
-    /** Danh sách vấn đề CHẶN PHÁT HÀNH (rỗng ⇒ phát hành được). */
-    kiemPhatHanh(token: string, params: { nguon: Xl2Nguon; id: number }): Promise<{ van_de: Xl2Issue[] }> {
-      const suffix = qs({ nguon: params.nguon, id: params.id });
-      return authed<{ van_de: Xl2Issue[] }>(`/api/xep-lich-2/kiem-phat-hanh${suffix}`, token);
-    },
-    phatHanhLsx(token: string, lsxId: number): Promise<Xl2PhatHanhOut> {
-      return authed<Xl2PhatHanhOut>(`/api/xep-lich-2/phat-hanh/lsx/${lsxId}`, token, { method: "POST" });
-    },
-    phatHanhBaiGhep(token: string, baiGhepId: number): Promise<Xl2PhatHanhOut> {
-      return authed<Xl2PhatHanhOut>(`/api/xep-lich-2/phat-hanh/bai-ghep/${baiGhepId}`, token, { method: "POST" });
-    },
-    /** Thu hồi (gỡ phát hành) — lý do đi qua QUERY (DELETE có body hay bị nuốt). */
-    goPhatHanhLsx(token: string, lsxId: number, lyDo: string): Promise<Xl2PhatHanhOut> {
-      const suffix = qs({ ly_do: lyDo });
-      return authed<Xl2PhatHanhOut>(`/api/xep-lich-2/phat-hanh/lsx/${lsxId}${suffix}`, token, { method: "DELETE" });
-    },
-    goPhatHanhBaiGhep(token: string, baiGhepId: number, lyDo: string): Promise<Xl2PhatHanhOut> {
-      const suffix = qs({ ly_do: lyDo });
-      return authed<Xl2PhatHanhOut>(`/api/xep-lich-2/phat-hanh/bai-ghep/${baiGhepId}${suffix}`, token, { method: "DELETE" });
-    },
-    /** Trạng thái gói phát hành (§4.3): còn Phát hành cập nhật / Thu hồi được không + lịch sử phiên bản. */
-    goiPhatHanh(token: string, params: { nguon: Xl2Nguon; id: number }): Promise<Xl2GoiPhatHanh> {
-      const suffix = qs({ nguon: params.nguon, id: params.id });
-      return authed<Xl2GoiPhatHanh>(`/api/xep-lich-2/goi-phat-hanh${suffix}`, token);
-    },
-    /** Phát hành cập nhật lịch cho LSX (§4.3): tái chụp việc CHƯA bắt đầu theo lịch hiện tại, LÝ DO bắt buộc. */
-    phatHanhCapNhatLsx(token: string, lsxId: number, lyDo: string): Promise<Xl2CapNhatOut> {
-      return authed<Xl2CapNhatOut>(`/api/xep-lich-2/phat-hanh-cap-nhat/lsx/${lsxId}`, token, {
-        method: "POST", body: JSON.stringify({ ly_do: lyDo }),
-      });
-    },
-    phatHanhCapNhatBaiGhep(token: string, baiGhepId: number, lyDo: string): Promise<Xl2CapNhatOut> {
-      return authed<Xl2CapNhatOut>(`/api/xep-lich-2/phat-hanh-cap-nhat/bai-ghep/${baiGhepId}`, token, {
-        method: "POST", body: JSON.stringify({ ly_do: lyDo }),
       });
     },
   },
@@ -12597,7 +11830,7 @@ export const api = {
         method: "POST", body: JSON.stringify(body),
       });
     },
-    /** Bắt đầu / tiếp tục chạy: mở phiên mới + khoảng tham gia. `ly_do_so_nguoi` khi số người ≠ dự kiến; sớm/trễ không hỏi lý do. */
+    /** Bắt đầu / tiếp tục chạy: mở phiên mới + khoảng tham gia. Không hỏi lý do gì (kíp chuẩn gỡ ở mg `0321`; sớm/trễ không hỏi). */
     batDau(token: string, congViecId: number, body: SxBatDauIn): Promise<SxLenhKetQua> {
       return authed<SxLenhKetQua>(`/api/san-xuat/work-items/${congViecId}/bat-dau`, token, {
         method: "POST", body: JSON.stringify(body),
@@ -12653,6 +11886,18 @@ export const api = {
     taoBatch(token: string, congViecId: number, body: SxBatchIn): Promise<SxSanLuongKetQua> {
       return authed<SxSanLuongKetQua>(`/api/san-xuat/work-items/${congViecId}/outputs`, token, {
         method: "POST", body: JSON.stringify(body),
+      });
+    },
+    /** Việc khoán của TỔ cho form Ghi mẻ (§7.1): đơn giá · ĐVT · ghi chú + việc phát sinh.
+     *  `tim` lọc TƯƠNG ĐỐI ở máy chủ (bỏ dấu, khớp một phần, cả mã lẫn tên). */
+    viecKhoanCuaTo(token: string, teamId: number, tim?: string): Promise<{ items: SxViecKhoanChon[] }> {
+      return authed<{ items: SxViecKhoanChon[] }>(
+        `/api/san-xuat/teams/${teamId}/viec-khoan${qs({ tim: tim?.trim() || undefined })}`, token);
+    },
+    /** Băng "Danh mục đã đổi" của mẻ (§7.2b): bấm thì ảnh chụp lấy số MỚI. Không bấm = giữ số cũ. */
+    capNhatDanhMucMe(token: string, batchId: number): Promise<SxSanLuongKetQua> {
+      return authed<SxSanLuongKetQua>(`/api/san-xuat/outputs/${batchId}/cap-nhat-danh-muc`, token, {
+        method: "POST", body: JSON.stringify({}),
       });
     },
     /** Thêm một lot đầu vào cho mẻ đã ghi (truy vết §10.3). */
@@ -12729,42 +11974,9 @@ export const api = {
         method: "POST", body: JSON.stringify(body),
       });
     },
-    /** Tính (làm mới) bản nháp phân bổ sản lượng của MỘT mẻ → lương khoán. */
-    tinhPhanBo(token: string, batchId: number): Promise<SxPhanBoTomTat> {
-      return authed<SxPhanBoTomTat>(`/api/san-xuat/outputs/${batchId}/phan-bo`, token, {
-        method: "POST", body: JSON.stringify({}),
-      });
-    },
-    /** Chốt phân bổ (khoá vào lương khoán). Chặn nếu chưa đủ điều kiện. */
-    chotPhanBo(token: string, phanBoId: number, body: SxPhanBoChotIn): Promise<SxPhanBoTomTat> {
-      return authed<SxPhanBoTomTat>(`/api/san-xuat/phan-bo/${phanBoId}/chot`, token, {
-        method: "POST", body: JSON.stringify(body),
-      });
-    },
-    /** Mở lại phân bổ đã chốt (kỳ chưa khoá lương). Cần lý do. */
-    moLaiPhanBo(token: string, phanBoId: number, body: SxPhanBoMoLaiIn): Promise<SxPhanBoTrangThai> {
-      return authed<SxPhanBoTrangThai>(`/api/san-xuat/phan-bo/${phanBoId}/mo-lai`, token, {
-        method: "POST", body: JSON.stringify(body),
-      });
-    },
-    /** Bù trừ sang kỳ sau cho mẻ có kỳ gốc đã khoá lương. Cần lý do. */
-    buTru(token: string, batchId: number, body: SxBuTruIn): Promise<SxBuTruKetQua> {
-      return authed<SxBuTruKetQua>(`/api/san-xuat/outputs/${batchId}/bu-tru`, token, {
-        method: "POST", body: JSON.stringify(body),
-      });
-    },
-    /** Loại một người khỏi lương batch kèm lý do (§7.3) — gỡ chặn 'thiếu chấm công', chia lại phần còn. */
-    loaiTru(token: string, batchId: number, body: SxLoaiTruIn): Promise<SxLoaiTruKetQua> {
-      return authed<SxLoaiTruKetQua>(`/api/san-xuat/outputs/${batchId}/loai-tru`, token, {
-        method: "POST", body: JSON.stringify(body),
-      });
-    },
-    /** Gỡ loại trừ (§7.3) — trả người này về vòng chia; nếu vẫn thiếu chấm công thì chặn nổi lại. */
-    goLoaiTru(token: string, batchId: number, body: SxGoLoaiTruIn): Promise<SxLoaiTruKetQua> {
-      return authed<SxLoaiTruKetQua>(`/api/san-xuat/outputs/${batchId}/go-loai-tru`, token, {
-        method: "POST", body: JSON.stringify(body),
-      });
-    },
+    /* SÁU API PHÂN BỔ (`tinhPhanBo` · `chotPhanBo` · `moLaiPhanBo` · `buTru` · `loaiTru` ·
+       `goLoaiTru`) GỠ 18/09/2026 cùng tầng chia sản lượng (mg `0322`). Sản xuất chỉ GHI NHẬN số
+       lượng của mẻ; chia cho từng người là việc của kế toán về sau. */
 
     // --- KCS theo LỆNH (mg 0306) -----------------------------------------------------------
     /** Danh sách lệnh cho màn KCS — tìm + cắt trang ở máy chủ. Mặc định chỉ nhóm còn mở. */

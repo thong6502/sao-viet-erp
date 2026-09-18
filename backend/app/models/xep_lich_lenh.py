@@ -1,17 +1,17 @@
-"""Xếp lịch 3 — mốc BẮT ĐẦU của một LỆNH SẢN XUẤT.
+"""Xếp lịch — mốc BẮT ĐẦU của một LỆNH SẢN XUẤT.
 
 Một dòng = một lệnh. Bảng này lưu ĐÚNG MỘT quyết định của người: `bat_dau_at`. Ngày kết thúc của
-lệnh, mốc từng công đoạn và các đoạn máy chạy trong ca đều TÍNH LÚC ĐỌC ở `services/xep_lich_3` —
+lệnh, mốc từng công đoạn và các đoạn máy chạy trong ca đều TÍNH LÚC ĐỌC ở `services/xep_lich` —
 bám precedent `lsx_service.thoi_luong_buoc` / `bai_ghep_service.tinh_so_to`.
 
 KHÔNG lưu `ket_thuc_at`: nó phụ thuộc ca làm việc, ngày nghỉ, tốc độ máy và số lượng — bốn thứ đổi
 được sau lưng. Lưu ra là có một con số trông-như-thật nhưng đã lệch cấu hình, mà không ai đi kiểm.
 
-KHÁC `xep_lich_cong_doan` (module 2): bảng kia một dòng một CÔNG ĐOẠN và có gán máy/tổ/ca. Bảng
+KHÁC bảng `xep_lich_cong_doan`: bảng kia một dòng một CÔNG ĐOẠN và có gán máy/tổ/ca. Bảng
 này không gán gì — máy đã nằm sẵn trên `lsx_cong_doan.may_id` từ lúc tạo lệnh, nên bàn xếp lịch
 cấp lệnh không cần ai gán lại.
 
-RBAC MODULE = "xep_lich_3". `lsx_id` là FK THẬT + `ondelete=CASCADE` (lớp chặn cuối ở DB) và
+RBAC MODULE = "xep_lich". `lsx_id` là FK THẬT + `ondelete=CASCADE` (lớp chặn cuối ở DB) và
 UNIQUE: màn ở cấp LỆNH nên hai mốc cho một lệnh là mâu thuẫn chứ không phải dữ liệu. Bảng mới →
 `create_all` tự tạo trên DB trắng; DB live nhận qua migration `0291`.
 """

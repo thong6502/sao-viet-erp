@@ -2,8 +2,8 @@
 // dòng đang sửa. MỘT CHIỀU (khai A→B không tự suy B→A). `options` do nơi gọi (CatalogDrawer) đã
 // lọc bỏ chính dòng đang sửa — field này không tự biết "chính mình" là ai.
 //
-// Tái dùng nguyên khối `.rc-dm-vt*`/`.rc-dinh-muc-add*` đã chạy tốt ở `DinhMucDauViecField`
-// (không viết CSS mới) — chỉ khác: đây là field ĐỘC LẬP (luôn hiện), không phải hàng phụ bung từ
+// Tái dùng nguyên khối `.rc-dm-vt*`/`.rc-dinh-muc-add*` (sinh ra cho bảng đầu việc của tổ — bảng đó
+// gỡ 18/09/2026, khối CSS còn dùng ở đây, `MayCuaCongDoan`, `VatTuCongDoan`) (không viết CSS mới) — chỉ khác: đây là field ĐỘC LẬP (luôn hiện), không phải hàng phụ bung từ
 // một pill trong bảng.
 import { TrashIcon } from "../icons";
 import type { Row } from "../types";

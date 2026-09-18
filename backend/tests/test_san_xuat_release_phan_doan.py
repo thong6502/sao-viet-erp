@@ -25,7 +25,7 @@ from app.repositories.san_xuat_repo import SanXuatRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 from app.services.san_xuat import release
 from app.services.san_xuat.release_update import _thoi_gian_nguon
-from app.services.xep_lich_2.phan_doan import tach
+from app.services.xep_lich.phan_doan import tach
 
 # Fixtures + helper của luồng thật (đơn → lệnh → sẵn sàng) — cùng lối với
 # `tests/test_san_xuat_release.py`, đừng dựng bộ thứ hai.
@@ -191,13 +191,12 @@ def _lsx_da_xep_va_tach(db, orders, lsx_svc, xl_svc, admin, customer):
     buoc = _in_step(db, a.id)
     # Số tròn để tách 6.000 + 4.000 khớp đúng tổng; năng suất khai sẵn để dòng xếp được giờ.
     buoc.so_luong_vao, buoc.so_luong_ra = 10_000, 10_000
-    buoc.nang_suat, buoc.don_vi_nang_suat = 5_000, "to_gio"
     buoc.setup_phut, buoc.chay_phut, buoc.so_luot_chay = 0, None, 1
     may_2 = _may_thu_hai(db)
     sau = LsxCongDoan(
         lsx_id=a.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
-        may_id=may_2.id, so_luong_vao=10_000, so_luong_ra=10_000, nang_suat=3_000,
-        don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
+        may_id=may_2.id, so_luong_vao=10_000, so_luong_ra=10_000,
+        don_vi_vao="to", don_vi_ra="to",
     )
     db.add(sau)
     db.commit()
@@ -323,7 +322,6 @@ def test_kcs_cuoi_danh_dau_moi_phan_doan_cua_buoc(db, orders, lsx_svc, xl_svc, a
     a, _buoc, cuoi, _m1, may_2 = _lsx_da_xep_va_tach(db, orders, lsx_svc, xl_svc, admin, customer)
     cuoi = _steps(db, a.id)[-1]
     cuoi.so_luong_vao, cuoi.so_luong_ra = 10_000, 10_000
-    cuoi.nang_suat, cuoi.don_vi_nang_suat = 5_000, "to_gio"
     db.commit()
 
     dong_cuoi = next(

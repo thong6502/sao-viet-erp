@@ -308,3 +308,54 @@ def test_tim_kiem_loc_o_may_chu_truoc_khi_cat_trang(db, admin, to_co_3_lenh_9_bu
     # Lệnh tra được bằng TÊN chứ không chỉ bằng mã.
     ten_lsx = db.get(Lsx, d["lenh"][0]["lsx_id"]).ten
     assert board.work_items(db, admin, _authz(db), team_id=to_id, tim=ten_lsx)["trang"]["tong"] >= 1
+
+
+def test_ten_khach_xuong_ban_to_va_tim_duoc_theo_khach(db, admin, to_co_3_lenh_9_buoc):
+    """Tổ nhìn bàn phải biết hàng của AI: dòng lệnh, thẻ việc lẫn ngăn chi tiết mang tên khách
+    (lệnh → đơn → khách), đi qua được schema trả về, và ô tìm kiếm tra được theo tên khách."""
+    from app.models.customer import Customer
+    from app.models.lsx import Lsx
+    from app.models.order import Order
+    from app.schemas.san_xuat import WorkItemChiTietOut, WorkItemsOut
+    from app.services.san_xuat import board
+
+    to_id = to_co_3_lenh_9_buoc
+    ca_ban = board.work_items(db, admin, _authz(db), team_id=to_id)
+    # Đổi khách của MỘT đơn chỉ chứa đúng một lệnh trên bàn — lệnh ấy phải mang tên khách mới.
+    don_cua = {l["lsx_id"]: db.get(Lsx, l["lsx_id"]).order_id for l in ca_ban["lenh"]}
+    lsx_rieng = next(i for i, o in don_cua.items() if list(don_cua.values()).count(o) == 1)
+    moi = Customer(code="KH-MP", name="Bao bì Minh Phát")
+    db.add(moi)
+    db.flush()
+    db.get(Order, don_cua[lsx_rieng]).customer_id = moi.id
+    db.commit()
+
+    ban = board.work_items(db, admin, _authz(db), team_id=to_id)
+    khach = {l["lsx_id"]: l["khach_hang"] for l in ban["lenh"]}
+    assert khach[lsx_rieng] == "Bao bì Minh Phát"
+    assert {v for k, v in khach.items() if k != lsx_rieng} == {"KH Xếp lịch"}
+    for l in ban["lenh"]:
+        assert {w["khach_hang"] for w in l["cong_viec"]} == {l["khach_hang"]}
+    # Pydantic bỏ IM LẶNG khoá không khai ở schema — soi qua schema, không chỉ soi dict.
+    out = WorkItemsOut.model_validate(ban)
+    assert {l.khach_hang for l in out.lenh} == {"Bao bì Minh Phát", "KH Xếp lịch"}
+
+    cv_id = next(l for l in ban["lenh"] if l["lsx_id"] == lsx_rieng)["cong_viec"][0]["id"]
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv_id)
+    assert WorkItemChiTietOut.model_validate(ct).cong_viec.khach_hang == "Bao bì Minh Phát"
+
+    tim = board.work_items(db, admin, _authz(db), team_id=to_id, tim="minh phát")
+    assert tim["trang"]["tong"] == 1
+    assert [l["lsx_id"] for l in tim["lenh"]] == [lsx_rieng]
+
+
+def test_bai_ghep_mang_ten_khach_cac_lenh_thanh_vien(db, admin, to_co_bai_ghep_2_lenh):
+    """Bài ghép chạy chung nhiều lệnh: khách lấy từ lệnh thành viên, trùng khách thì chỉ ghi một
+    lần; tìm theo tên khách ra được bài ghép."""
+    from app.services.san_xuat import board
+
+    to_id = to_co_bai_ghep_2_lenh
+    ban = board.work_items(db, admin, _authz(db), team_id=to_id)
+    assert [(l["nguon_loai"], l["khach_hang"]) for l in ban["lenh"]] == [("bai_ghep", "KH Xếp lịch")]
+    assert {w["khach_hang"] for w in ban["lenh"][0]["cong_viec"]} == {"KH Xếp lịch"}
+    assert board.work_items(db, admin, _authz(db), team_id=to_id, tim="xếp lịch")["trang"]["tong"] == 1

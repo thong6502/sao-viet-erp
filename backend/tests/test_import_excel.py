@@ -29,6 +29,7 @@ from sqlalchemy import func, select
 from app.db import SessionLocal
 from app.models.audit import AuditLog
 from app.models.role import SCOPE_ALL
+from app.models.vat_lieu_kho import VatTuInAn
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
@@ -162,6 +163,23 @@ def _tao(client, h, loai: str, payload: dict) -> dict:
     return r.json()
 
 
+def _tao_thanh_pham(client, h, **cot) -> dict:
+    """Thành phẩm KHÔNG khai tay qua API được (18/09/2026, `_chan_tao_tay`) — dòng do chốt đơn
+    sinh ra bằng cách ghi thẳng bảng. Nền làm đúng như vậy rồi đọc lại qua API cho cùng hình dạng
+    với `_tao`."""
+    db = SessionLocal()
+    try:
+        tp = VatTuInAn(la_thanh_pham=True, **cot)
+        db.add(tp)
+        db.commit()
+        tp_id = tp.id
+    finally:
+        db.close()
+    r = client.get(f"{PREFIX['thanh_pham']}/{tp_id}", headers=h)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 def _dung_nen(client, h) -> dict[str, dict]:
     """Một dòng cho MỖI màn. Thứ tự quan trọng: màn được trỏ tới phải có trước màn trỏ đi."""
     to_id = _to()[0]
@@ -176,7 +194,7 @@ def _dung_nen(client, h) -> dict[str, dict]:
         "ma": MA["khuon_be"], "ten": "Khuôn thử", "loai": "khuon_be", "so_ke": "K1",
         "tinh_trang": "dang_dung", "ghi_chu": "gc"})
     ra["cong_viec_khoan"] = _tao(client, h, "cong_viec_khoan", {
-        "ma": MA["cong_viec_khoan"], "ten": "Việc khoán thử", "department_id": to_id,
+        "ma": MA["cong_viec_khoan"], "ten": "Việc khoán thử", "department_ids": [to_id],
         "unit": "to", "unit_price": 120, "note": "gc"})
     ra["don_vi_do"] = _tao(client, h, "don_vi_do", {
         "ma": MA["don_vi_do"], "ten": "Đơn vị thử", "ho": "thanh_pham",
@@ -196,24 +214,21 @@ def _dung_nen(client, h) -> dict[str, dict]:
     ra["vat_tu"] = _tao(client, h, "vat_tu", {
         "ma": MA["vat_tu"], "ten": "Mực thử", "don_vi_gia": "kg", "don_gia": 450000,
         "ghi_chu": "gc", "cong_thuc_gia": "to_sau_in * don_gia_vat_tu"})
-    ra["thanh_pham"] = _tao(client, h, "thanh_pham", {
-        "ma": MA["thanh_pham"], "ten": "Thành phẩm thử", "don_vi_gia": "cai", "ghi_chu": "gc"})
+    ra["thanh_pham"] = _tao_thanh_pham(
+        client, h, ma=MA["thanh_pham"], ten="Thành phẩm thử", don_vi_gia="cai", ghi_chu="gc")
     ra["cong_doan"] = _tao(client, h, "cong_doan", {
         "ma": MA["cong_doan"], "ten": "Công đoạn thử", "ten_hien_thi": "CĐ thử",
         "nhom": "finishing", "don_vi_vao": "to", "don_vi_ra": "con",
         "cong_thuc_gia": "to_dau_vao * 100", "kieu_bu_hao": "khong",
         "che_do_tinh": "theo_san_luong", "pricing_basis": "per_other",
-        "department_id": to_id, "khoan_ghi_theo": "khong",
+        "department_ids": [to_id], "khoan_ghi_theo": "khong",
         "nhom_may_cho_phep": ["Bế"], "setup_cost": 50000, "setup_time": 15,
         "rate_tiers": [{"from_qty": 0, "rate": 120, "kieu": "moi_dv", "driver": "so_to"},
                        {"from_qty": 5000, "rate": 90, "kieu": "moi_dv", "driver": "so_to"}],
         "size_tiers": [{"den_cm": 50, "don_gia": 1000}, {"den_cm": 80, "don_gia": 1500}],
         "ghi_chu": "gc",
-        "dau_viec_dinh_muc": [{
-            "piece_rate_id": ra["cong_viec_khoan"]["id"], "nang_suat_nguoi_gio": 500,
-            "nang_suat_nguoi_gio_min": 400, "nang_suat_nguoi_gio_max": 600,
-            "don_vi_nang_suat": "tờ/giờ", "so_nguoi_tieu_chuan": 2,
-            "vat_tus": [{"vat_tu_id": ra["vat_tu"]["id"]}]}]})
+        # Tab VẬT TƯ của công đoạn (mg `0316`) — thay tầng đầu việc định mức đã gỡ (mg `0320`).
+        "vat_tus": [{"vat_tu_id": ra["vat_tu"]["id"]}]})
     ra["loai_san_pham"] = _tao(client, h, "loai_san_pham", {
         "ma": MA["loai_san_pham"], "ten": "Hộp thử", "structural_type": "box",
         "box_sub_type": "folding_carton", "has_cover": False,
@@ -319,8 +334,11 @@ def test_xuat_du_moi_o_cong_thuc_dang_chay(client, seed_credentials):
         "giay": {"Công thức giá": "dinh_luong * don_gia_giay",
                  "Công thức tính định mức": "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"},
         "vat_tu": {"Công thức giá": "to_sau_in * don_gia_vat_tu"},
-        "cong_doan": {"Công thức giá": "to_dau_vao * 100", "Công thức sản lượng": None},
+        "cong_doan": {"Công thức giá": "to_dau_vao * 100"},
     }
+    # "Công thức sản lượng" + "Đơn vị sản lượng" của Công đoạn GỠ 18/09/2026 (mg `0324`).
+    tieu_de, _ = _chinh(client, h, "cong_doan")
+    assert "Công thức sản lượng" not in tieu_de and "Đơn vị sản lượng" not in tieu_de
     # Máy · Công việc khoán · Vật tư khác KHÔNG còn cột đo lượng nào (mg `0274`) — cách đo nay
     # khai ở drawer Công đoạn, file Excel của ba màn này không được mời sửa lại nó. Bắt cả hai
     # tên: tên cũ ("Công thức lượng") lẫn tên mới ("… định mức"), không thì đổi tên xong là test
@@ -388,7 +406,7 @@ def test_xuat_dich_fk_thanh_ma_nghiep_vu_khong_phai_id(client, seed_credentials)
 
 
 def test_xuat_bang_con_ra_sheet_doc_duoc_khong_phai_json(client, seed_credentials):
-    """Bậc bù hao · bậc đơn giá · đầu việc · gói bảo trì: mỗi thứ một sheet, một dòng một bậc."""
+    """Bậc bù hao · bậc đơn giá · vật tư công đoạn · gói bảo trì: mỗi thứ một sheet, một dòng một bậc."""
     h = _login(client, **seed_credentials)
     nen = _dung_nen(client, h)
 
@@ -399,9 +417,8 @@ def test_xuat_bang_con_ra_sheet_doc_duoc_khong_phai_json(client, seed_credential
     wb = _xuat(client, h, PREFIX["cong_doan"])
     assert [d[2:] for d in _bang(wb["Bậc theo khổ"])[1]] == [[50.0, 1000.0], [80.0, 1500.0]]
     assert [d[2] for d in _bang(wb["Nhóm máy cho phép"])[1]] == ["Bế"]
-    assert _bang(wb["Đầu việc định mức"])[1][0][2] == nen["cong_viec_khoan"]["ma"]
-    assert [d[2:] for d in _bang(wb["Vật tư đầu việc"])[1]] == [
-        [nen["cong_viec_khoan"]["ma"], nen["vat_tu"]["ma"], None]]
+    assert [d[2:] for d in _bang(wb["Vật tư công đoạn"])[1]] == [[nen["vat_tu"]["ma"], None]]
+    assert "Đầu việc định mức" not in wb.sheetnames, "sheet của tầng đã gỡ (mg `0320`)"
 
     wb = _xuat(client, h, PREFIX["may_thiet_bi"])
     assert [d[2:] for d in _bang(wb["Khoản chuẩn bị"])[1]] == [["Canh máy", 20.0],
@@ -559,9 +576,8 @@ def test_thieu_sheet_con_thi_giu_nguyen_du_lieu_con(client, seed_credentials):
 
     cd = client.get(f"{prefix}/{nen['cong_doan']['id']}", headers=h).json()
     assert cd["ten"] == "Công đoạn đổi tên"
-    assert len(cd["dau_viec_dinh_muc"]) == 1, "thiếu sheet con KHÔNG được xoá định mức"
-    assert ([v["vat_tu_id"] for v in cd["dau_viec_dinh_muc"][0]["vat_tus"]]
-            == [nen["vat_tu"]["id"]])
+    assert [v["vat_tu_id"] for v in cd["vat_tus"]] == [nen["vat_tu"]["id"]], \
+        "thiếu sheet con KHÔNG được xoá vật tư định mức"
     assert len(cd["size_tiers"]) == 2 and cd["nhom_may_cho_phep"] == ["Bế"]
 
 
@@ -581,6 +597,21 @@ def test_tao_moi_va_cap_nhat_cung_mot_file(client, seed_credentials):
     assert dong["KHO-CU"]["ten"] == "Kho cũ đổi tên"
     assert dong["KHO-MOI"]["vi_tri"] == "C3"
     assert dong["KHO-YEN"]["ten"] == "Kho không đụng tới"
+
+
+def test_thanh_pham_MA_MOI_trong_file_bao_loi_dung_dong(client, seed_credentials):
+    """Hết khai tay thành phẩm (18/09/2026) thì Excel cũng không đẻ được dòng: mã chưa có báo lỗi
+    ĐÚNG dòng đó, mã đã có vẫn sửa được — nhưng cả file không ghi vì một file là một giao dịch."""
+    h = _login(client, **seed_credentials)
+    _tao_thanh_pham(client, h, ma="TP-CU", ten="Thành phẩm cũ")
+
+    noi_dung = _wb_tu(["Mã", "Tên"],
+                      [["TP-CU", "Thành phẩm cũ đổi tên"], ["TP-MOI", "Thành phẩm mới"]],
+                      ten_sheet=SPECS["thanh_pham"].tieu_de[:31], loai="thanh_pham")
+    kq = _nhap(client, h, PREFIX["thanh_pham"], noi_dung).json()
+    assert not kq["hop_le"] and (kq["tao_moi"], kq["cap_nhat"]) == (0, 1), kq
+    assert [x["dong"] for x in kq["loi"]] == [3], kq["loi"]
+    assert "chốt đơn" in kq["loi"][0]["ly_do"]
 
 
 def test_dat_trang_thai_false_de_ngung_dung(client, seed_credentials):
@@ -729,22 +760,70 @@ def test_ten_khop_ma_thi_van_nhap_binh_thuong(client, seed_credentials):
     assert kq["hop_le"] and kq["khong_doi"] >= 1, kq
 
 
-def test_cong_thuc_khong_hop_le_bi_service_chan(client, seed_credentials):
-    """Công thức sản lượng của bước NGOÀI dòng giấy dùng chính số của bước (`sl_ra`) ⇒ quẩn.
+def test_cong_viec_khoan_NHIEU_to_trong_mot_o(client, seed_credentials):
+    """Một việc làm ở nhiều tổ (17/09/2026): ô "Mã tổ" ghi "PB001, PB002", ô "Tên tổ" đối chiếu cả
+    danh sách. Xuất ra nhập lại y nguyên là KHÔNG đổi; sửa ô là đổi đúng danh sách tổ."""
+    h = _login(client, **seed_credentials)
+    nen = _dung_nen(client, h)
+    prefix = PREFIX["cong_viec_khoan"]
+    to1 = _to()
+    tao = client.post("/api/departments", json={"name": "Tổ Excel thứ hai", "la_san_xuat": True},
+                      headers=h)
+    assert tao.status_code == 201, tao.text
+    to2 = (tao.json()["id"], tao.json()["code"], tao.json()["name"])
+    rid = nen["cong_viec_khoan"]["id"]
+    r = client.put(f"{prefix}/{rid}", json={
+        "ten": "Việc khoán thử", "department_ids": [to1[0], to2[0]], "unit": "to",
+        "unit_price": 120, "note": "gc"}, headers=h)
+    assert r.status_code == 200, r.text
 
-    Service chặn, và vì lỗi nghiệp vụ đi cùng đường với lỗi ô nên nó thành một DÒNG LỖI đọc được
-    chứ không phải 500.
+    wb = _xuat(client, h, prefix)
+    ws = wb[SPECS["cong_viec_khoan"].tieu_de[:31]]
+    tieu_de, dong = _bang(ws)
+    d = _dong_theo_ma(tieu_de, dong, MA["cong_viec_khoan"])
+    hai = sorted([to1, to2])
+    assert d[tieu_de.index("Mã tổ")] == ", ".join(t[1] for t in hai)
+    assert d[tieu_de.index("Tên tổ")] == ", ".join(t[2] for t in hai)
+    kq = _nhap(client, h, prefix, _bytes(wb), mode="commit").json()
+    assert kq["hop_le"] and kq["khong_doi"] >= 1 and kq.get("sua", 0) == 0, kq
+
+    so_hang = next(i for i, hang in enumerate(ws.iter_rows(values_only=True), start=1)
+                   if hang[tieu_de.index("Mã")] == MA["cong_viec_khoan"])
+    o_ma = ws.cell(row=so_hang, column=tieu_de.index("Mã tổ") + 1)
+    o_ten = ws.cell(row=so_hang, column=tieu_de.index("Tên tổ") + 1)
+
+    # Gỡ tổ 2 (giữ tổ 1: nền test có công đoạn của tổ 1 khai định mức cho việc này — gỡ tổ 1 là
+    # bị chặn, xem `test_go_to_khoi_viec_bi_chan_khi_cong_doan_cua_to_do_con_dung`).
+    o_ma.value, o_ten.value = to1[1], to1[2]
+    kq = _nhap(client, h, prefix, _bytes(wb), mode="commit").json()
+    assert kq["hop_le"], kq
+    assert client.get(f"{prefix}/{rid}", headers=h).json()["department_ids"] == [to1[0]]
+
+    # Không dấu cách sau dấu phẩy vẫn là cùng một danh sách tên.
+    o_ma.value = f"{to1[1]},{to2[1]}"
+    o_ten.value = f"{to1[2]},{to2[2]}"
+    kq = _nhap(client, h, prefix, _bytes(wb), mode="commit").json()
+    assert kq["hop_le"], kq
+    assert sorted(client.get(f"{prefix}/{rid}", headers=h).json()["department_ids"]) == \
+        sorted([to1[0], to2[0]])
+
+
+def test_cong_thuc_khong_hop_le_bi_service_chan(client, seed_credentials):
+    """Công thức giá viết dở (thừa dấu nhân cuối) ⇒ `CongDoanService._kiem_o` chặn.
+
+    Vì lỗi nghiệp vụ đi cùng đường với lỗi ô nên nó thành một DÒNG LỖI đọc được chứ không phải
+    500. Trước 18/09/2026 bài này dựng trên "Công thức sản lượng" quẩn `sl_ra` (E-CD-VONG-TRON) —
+    ô ấy gỡ cùng mg `0324`.
     """
     h = _login(client, **seed_credentials)
     _dung_nen(client, h)
-    # Bước ngoài dòng giấy = BỎ TRỐNG cả hai ô đơn vị (06/09/2026, xem `cong_doan_service`).
     noi_dung = _wb_tu(
-        ["Mã", "Tên", "Đơn vị vào", "Đơn vị ra", "Công thức sản lượng"],
-        [[MA["cong_doan"], "Công đoạn thử", "", "", "sl_ra * 2"]],
+        ["Mã", "Tên", "Công thức giá"],
+        [[MA["cong_doan"], "Công đoạn thử", "to_dau_vao *"]],
         ten_sheet=SPECS["cong_doan"].tieu_de[:31], loai="cong_doan")
     kq = _nhap(client, h, PREFIX["cong_doan"], noi_dung, mode="commit").json()
     assert kq["hop_le"] is False and kq["da_ghi"] is False
-    assert "E-CD-VONG-TRON" in kq["loi"][0]["ly_do"], kq
+    assert "Công thức tính giá" in kq["loi"][0]["ly_do"], kq
 
 
 def test_loi_o_dong_cuoi_van_rollback_toan_bo_file(client, seed_credentials):
@@ -908,13 +987,14 @@ def test_guard_khong_khai_thua_field_khong_ai_ghi_duoc():
 
 
 def test_excel_cong_doan_co_cot_cach_do_gio_chay():
-    """Sheet "Đầu việc định mức" phải chở CẢ HAI ô công thức.
+    """Sheet con của công đoạn phải chở ĐỦ ô công thức: định mức từng vật tư + giờ/giá theo máy.
 
     Thiếu cột nào là nhập một file xuất ra từ chính hệ cũng xoá sạch ô đó của mọi công đoạn —
     `CongDoanRepository._sau_gan` thay TRỌN bảng con mỗi lần ghi.
     """
     from app.services.catalog_excel_specs import SPECS
 
-    [con] = [s for s in SPECS["cong_doan"].sheets_con if s.field == "dau_viec_dinh_muc"]
-    khoa = [c.field for c in con.cot]
-    assert "cong_thuc_khoan" in khoa and "cong_thuc_gio" in khoa
+    con = {s.field: [c.field for c in s.cot] for s in SPECS["cong_doan"].sheets_con}
+    assert "dau_viec_dinh_muc" not in con, "tầng đầu việc định mức đã gỡ (mg `0320`)"
+    assert con["vat_tus"] == ["vat_tu_id", "cong_thuc_luong"]
+    assert {"cong_thuc_gio", "cong_thuc_gia"} <= set(con["may_lam_duoc"])

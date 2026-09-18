@@ -1,6 +1,6 @@
 """Thực hiện sản xuất — nền NHÓM THÀNH PHẨM & GÓI PHÁT HÀNH (Giai đoạn 1).
 
-Lớp thực thi đứng SAU khâu phát hành của Xếp lịch 2 (xem `docs/spec-thuc-hien-san-xuat.md`).
+Lớp thực thi đứng SAU khâu phát hành của bàn Xếp lịch (xem `docs/spec-thuc-hien-san-xuat.md`).
 KHÔNG thay màn lập lịch, KHÔNG dựng hệ sản xuất tách rời. 6 bảng ở đây khắc hoạ đúng nhóm
 "Nhóm và phát hành" trong §19:
 
@@ -185,7 +185,7 @@ class SanXuatCongViec(Base):
     THỰC TẾ (pha sau) đè lên.
 
     Đóng băng theo §4.2: tổ (`department_id`) + cờ công đoạn cuối (`la_kcs_cuoi`), máy,
-    thời gian/ca dự kiến, định mức + đơn vị + `khoan_json`, dữ liệu vật tư. Neo công đoạn nguồn
+    thời gian/ca dự kiến, định mức + đơn vị, dữ liệu vật tư. Neo công đoạn nguồn
     bằng `step_key` + id LỎNG (không FK — replace_routing tái sinh id; xem docstring module).
 
     `phien_ban_so` cho biết snapshot thuộc phiên bản nào. CẨN THẬN — dòng này KHÔNG được đẻ mới
@@ -221,8 +221,9 @@ class SanXuatCongViec(Base):
     lsx_cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bai_ghep_cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     step_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    # LẦN CHẠY của bước (mg `0254`). Một bước tách N lần chạy ở Xếp lịch 2 ⇒ N công việc CÙNG
-    # `step_key`; cặp số này là thứ DUY NHẤT phân biệt chúng. Bước chưa tách = 1/1.
+    # LẦN CHẠY của bước (mg `0254`). Một bước tách N lần chạy ⇒ N công việc CÙNG `step_key`; cặp
+    # số này là thứ DUY NHẤT phân biệt chúng. Bước chưa tách = 1/1. (Cửa tách/gộp nằm ở bàn xếp
+    # lịch theo công đoạn, gỡ 18/09/2026 — dữ liệu đã tách vẫn mang cặp số, phải đọc đúng.)
     # Không có nó thì "Phát hành cập nhật" phải đoán: nó lấy dòng lịch đầu tiên rồi dập giờ/máy
     # của lần 1 lên cả N công việc — lần 2 trở đi mang giờ của lần 1, tổ ra máy sai ca.
     phan_doan_so: Mapped[int] = mapped_column(
@@ -268,7 +269,10 @@ class SanXuatCongViec(Base):
     don_vi_ra: Mapped[str | None] = mapped_column(String(40), nullable=True)
     he_so_quy_doi: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     dinh_muc_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # ⚠️ `khoan_json` (ảnh chụp đầu việc của bước, đóng băng lúc phát hành) GỠ 18/09/2026
+    #    (mg `0321`): bước lệnh thôi chọn đầu việc nên chẳng còn gì để đóng băng. Thợ chọn việc
+    #    khoán LÚC GHI MẺ và mẻ tự chụp tên/đơn vị/đơn giá (`san_xuat_batch.*_khoan_snapshot`) —
+    #    ảnh chụp ở đó ĐÚNG hơn, vì nó chụp đúng lúc biết việc gì.
     vat_tu_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # DẶN DÒ của người lập kế hoạch — ảnh chụp ô "Ghi chú kỹ thuật cho thợ" của bước
     # (`lsx_cong_doan.ghi_chu` / `bai_ghep_cong_doan.ghi_chu`), mg `0290`. Trước 10/09/2026 câu này

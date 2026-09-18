@@ -46,6 +46,7 @@ export function DepartmentPurchaseRequestsPage({
   seedLines = null,
   seedPurpose = null,
   seedHeader = null,
+  seedNguon = null,
 }: DepartmentPurchaseRequestsPageProps) {
   const { token, user } = useAuth();
   const can = useCan();
@@ -191,8 +192,9 @@ export function DepartmentPurchaseRequestsPage({
   // object MỚI mỗi lần điều hướng nên effect chạy đúng 1 lần / lượt bấm "Tạo yêu cầu mua".
   //
   // KHÔNG tự lưu hộ. Form mở ra đã đủ chữ đủ số, nhưng cái bấm Lưu vẫn là người — số máy tính ra
-  // (nhất là số lượng thiếu và ngày cần) là ĐỀ XUẤT, người lo vật tư còn phải làm tròn theo ram /
-  // kiện, cộng phòng hao, hoặc bỏ bớt một món đã hỏi mượn được ở xưởng khác.
+  // (số lượng thiếu) là ĐỀ XUẤT, người lo vật tư còn phải làm tròn theo ram / kiện, cộng phòng hao,
+  // hoặc bỏ bớt một món đã hỏi mượn được ở xưởng khác. NGÀY CẦN HÀNG thì máy không điền: người lập
+  // gõ, và chính ngày đó quay về làm "Ngày cần" của các lệnh trong `seedNguon`.
   useEffect(() => {
     if (!seedLines || seedLines.length === 0) return;
     setEditing(null);
@@ -203,6 +205,7 @@ export function DepartmentPurchaseRequestsPage({
       needed_date: seedHeader?.needed_date ?? "",
       content: seedPurpose ?? "",
       lines: seedLines,
+      nguon_lenh: seedNguon ?? undefined,
     });
     setFormError(null);
     setMode(true);

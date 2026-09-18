@@ -47,8 +47,6 @@ from ..schemas.san_xuat import (
     BanGiaoXacNhanIn,
     BatchIn,
     BatDauIn,
-    BuTruIn,
-    BuTruKetQuaOut,
     DoiMayIn,
     DongNhomDieuKienOut,
     DongNhomKetQuaOut,
@@ -72,15 +70,8 @@ from ..schemas.san_xuat import (
     LenhKetQuaOut,
     HoTroUngVienListOut,
     ChoXacNhanOut,
-    GoLoaiTruIn,
-    LoaiTruIn,
-    LoaiTruKetQuaOut,
     NhanVienChonListOut,
     NhapKhoYcKetQuaOut,
-    PhanBoChotIn,
-    PhanBoMoLaiIn,
-    PhanBoTomTatOut,
-    PhanBoTrangThaiOut,
     PhanCongIn,
     SanLuongCuaToiOut,
     SanLuongToOut,
@@ -90,6 +81,7 @@ from ..schemas.san_xuat import (
     TamDungIn,
     TeamsOut,
     ThemLotIn,
+    ViecKhoanChonListOut,
     VatTuDeNghiIn,
     VatTuNhanKetQuaOut,
     VatTuXacNhanIn,
@@ -106,13 +98,13 @@ from ..services.san_xuat import (
     kcs,
     kcs_bao_cao,
     kho,
-    phan_bo,
     san_luong,
     su_co,
     tep_lenh,
     thuc_thi,
     vat_tu_de_nghi,
     vat_tu_nhan,
+    viec_khoan,
 )
 from ..services.san_xuat.san_luong_cua_toi import san_luong_cua_toi as san_luong_cua_toi_svc
 from ..services.san_xuat import san_luong_to as san_luong_to_svc
@@ -199,18 +191,6 @@ def _phat_sse_ho_tro(res: dict) -> None:
             "ten_cong_doan": res.get("ten_cong_doan"),
             "to_goc_ten": res.get("to_goc_ten"),
             "to_thuc_hien_ten": res.get("to_thuc_hien_ten"),
-        })
-
-
-def _phat_sse_phan_bo(res: dict) -> None:
-    """Phân bổ đổi (§12) → refresh bàn tổ thực hiện (bảng chia + trạng thái chốt)."""
-    team = res.get("department_id")
-    if team:
-        hub.broadcast({
-            "type": "san_xuat_phan_bo_changed",
-            "team_id": team,
-            "phan_bo_id": res.get("phan_bo_id"),
-            "trang_thai": res.get("trang_thai"),
         })
 
 
@@ -338,6 +318,24 @@ def nhan_vien_cua_to(
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+
+
+@router.get("/teams/{team_id}/viec-khoan", response_model=ViecKhoanChonListOut)
+def viec_khoan_cua_to(
+    team_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_quyen_to("read"))],
+    tim: str | None = None,
+) -> ViecKhoanChonListOut:
+    """Việc khoán của tổ cho form Ghi mẻ (§7.1) — đơn giá · ĐVT · ghi chú + việc phát sinh.
+
+    Gác bằng Xem của dòng tổ như ô "Giao người": mở form là đọc, ghi thật vẫn do
+    `/work-items/{id}/outputs` gác Thực hiện lệnh đúng tổ ở service. `tim` lọc TƯƠNG ĐỐI (bỏ dấu,
+    khớp một phần) trên cả mã và tên, và ô tìm HIỆN CHO MỌI TỔ kể cả tổ một việc (chốt ý 10).
+    """
+    return ViecKhoanChonListOut(
+        items=viec_khoan.danh_sach_cua_to(db, department_id=team_id, tim=tim)
+    )
 
 
 @router.get("/teams/{team_id}/ho-tro-ung-vien", response_model=HoTroUngVienListOut)
@@ -578,7 +576,6 @@ def bat_dau(
     """Bắt đầu / tiếp tục chạy (§7.2): mở phiên mới + khoảng tham gia cho cả tổ."""
     res = _chay(lambda: thuc_thi.bat_dau(
         db, user=user, cong_viec_id=cong_viec_id,
-        ly_do_so_nguoi=body.ly_do_so_nguoi,
         expected_version=body.expected_version,
     ))
     _phat_sse(res)
@@ -705,14 +702,34 @@ def tao_batch(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_quyen_to("run_order"))],
 ) -> dict:
-    """Ghi một batch sản lượng + lot đầu vào (§11.1). Ràng buộc tổng = tốt + hỏng."""
+    """Ghi một mẻ sản lượng + lot đầu vào (§11.1) + việc khoán & việc phát sinh (§7.1).
+
+    Ràng buộc tổng = tốt + hỏng. `piece_rate_id` bắt buộc (§7.2); việc phát sinh KHÔNG cộng vào
+    sản lượng nên không đụng gì tới ba con số trên."""
     res = _chay(lambda: san_luong.tao_batch(
         db, user=user, cong_viec_id=cong_viec_id,
         bat_dau=body.bat_dau, ket_thuc=body.ket_thuc,
         tong=body.tong, tot=body.tot, hong=body.hong, don_vi=body.don_vi,
         mo_ta_loi=body.mo_ta_loi, ghi_chu=body.ghi_chu,
         lot_vao=[lot.model_dump() for lot in body.lot_vao],
+        piece_rate_id=body.piece_rate_id,
+        phat_sinh=[ps.model_dump() for ps in body.phat_sinh],
     ))
+    _phat_sse(res)
+    return res
+
+
+@router.post("/outputs/{batch_id}/cap-nhat-danh-muc", response_model=SanLuongKetQuaOut)
+def cap_nhat_danh_muc_me(
+    batch_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_quyen_to("run_order"))],
+) -> dict:
+    """Bấm "Cập nhật theo danh mục" trên băng của mẻ (§7.2b): ảnh chụp lấy số MỚI.
+
+    Không có cửa ngược lại ("Giữ số cũ" là KHÔNG bấm gì) — hệ chưa bao giờ tự đổi số dưới chân mẻ
+    đã ghi, nên không cần lệnh để giữ."""
+    res = _chay(lambda: viec_khoan.cap_nhat_theo_danh_muc(db, user=user, batch_id=batch_id))
     _phat_sse(res)
     return res
 
@@ -844,7 +861,7 @@ def de_xuat_ho_tro(
     res = _chay(lambda: ho_tro.de_xuat_ho_tro(
         db, user=user, cong_viec_id=cong_viec_id,
         employee_id=body.employee_id, ngay_lam_viec=body.ngay_lam_viec,
-        ty_le_phan_tram=body.ty_le_phan_tram, mo_ta=body.mo_ta,
+        mo_ta=body.mo_ta,
     ))
     _phat_sse_ho_tro(res)
     return res
@@ -857,7 +874,7 @@ def xac_nhan_ho_tro(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
 ) -> dict:
-    """Người có Xác nhận sản lượng ở bên còn lại xác nhận thỏa thuận (§9.1). Đủ hai bên → confirmed + kiểm trần ≤ 100%."""
+    """Người có Xác nhận sản lượng ở bên còn lại xác nhận thỏa thuận (§9.1). Đủ hai bên → confirmed."""
     res = _chay(lambda: ho_tro.xac_nhan_ho_tro(
         db, user=user, ho_tro_id=ho_tro_id, expected_version=body.expected_version,
     ))
@@ -881,101 +898,9 @@ def huy_ho_tro(
     return res
 
 
-# --- Phân bổ sản lượng → lương khoán (§12) ---------------------------------------------------
-@router.post("/outputs/{batch_id}/phan-bo", response_model=PhanBoTomTatOut)
-def tinh_phan_bo(
-    batch_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
-) -> dict:
-    """Tính/refresh bản NHÁP phân bổ của một batch (§12.2). Phơi cảnh báo nếu chưa đủ điều kiện chốt."""
-    res = _chay(lambda: phan_bo.tinh_phan_bo(db, user=user, batch_id=batch_id))
-    _phat_sse_phan_bo(res)
-    return res
-
-
-@router.post("/phan-bo/{phan_bo_id}/chot", response_model=PhanBoTomTatOut)
-def chot_phan_bo(
-    phan_bo_id: int,
-    body: PhanBoChotIn,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
-) -> dict:
-    """CHỐT phân bổ (§12.3): tính lại nghiêm, chặn nếu thiếu hệ số/trọng số hoặc bàn giao không nhất quán."""
-    res = _chay(lambda: phan_bo.chot_phan_bo(
-        db, user=user, phan_bo_id=phan_bo_id, expected_version=body.expected_version,
-    ))
-    _phat_sse_phan_bo(res)
-    _thu_dong_nhom(db, res, user=user, su_kien="phan_bo_chot")
-    return res
-
-
-@router.post("/phan-bo/{phan_bo_id}/mo-lai", response_model=PhanBoTrangThaiOut)
-def mo_lai_phan_bo(
-    phan_bo_id: int,
-    body: PhanBoMoLaiIn,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
-) -> dict:
-    """Mở lại phân bổ đã chốt để sửa (§12.3) — CHỈ khi kỳ lương chưa khoá."""
-    res = _chay(lambda: phan_bo.mo_lai_phan_bo(
-        db, user=user, phan_bo_id=phan_bo_id, expected_version=body.expected_version,
-    ))
-    _phat_sse_phan_bo(res)
-    return res
-
-
-@router.post("/outputs/{batch_id}/bu-tru", response_model=BuTruKetQuaOut)
-def bu_tru(
-    batch_id: int,
-    body: BuTruIn,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
-) -> dict:
-    """Đẻ dòng bù trừ sau khi kỳ lương gốc đã khoá (§12.3): ghi chênh lệch vào kỳ bù đang mở."""
-    res = _chay(lambda: phan_bo.bu_tru(
-        db, user=user, batch_id=batch_id, employee_id=body.employee_id,
-        so_luong_tra_luong=body.so_luong_tra_luong,
-        ky_bu_nam=body.ky_bu_nam, ky_bu_thang=body.ky_bu_thang, mo_ta=body.mo_ta,
-    ))
-    _phat_sse_phan_bo({
-        "department_id": res.get("department_id"),
-        "phan_bo_id": None,
-        "trang_thai": "bu_tru",
-    })
-    return res
-
-
-@router.post("/outputs/{batch_id}/loai-tru", response_model=LoaiTruKetQuaOut)
-def loai_tru_khoi_phan_bo(
-    batch_id: int,
-    body: LoaiTruIn,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
-) -> dict:
-    """Loại một người khỏi lương của batch kèm lý do (§7.3): xử lý người tham gia nhưng thiếu chấm
-    công hợp lệ. Engine bỏ họ khỏi vòng chia + cờ 'thiếu chấm công' tan → cho chốt."""
-    res = _chay(lambda: phan_bo.loai_tru_khoi_phan_bo(
-        db, user=user, batch_id=batch_id, employee_id=body.employee_id, ly_do=body.ly_do,
-    ))
-    _phat_sse_phan_bo(res)
-    return res
-
-
-@router.post("/outputs/{batch_id}/go-loai-tru", response_model=LoaiTruKetQuaOut)
-def go_loai_tru(
-    batch_id: int,
-    body: GoLoaiTruIn,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_quyen_to("confirm_output"))],
-) -> dict:
-    """Gỡ loại trừ (§7.3): trả người này về vòng chia lại (cờ chặn chốt có thể nổi lên lại)."""
-    res = _chay(lambda: phan_bo.go_loai_tru(
-        db, user=user, batch_id=batch_id, employee_id=body.employee_id,
-    ))
-    _phat_sse_phan_bo(res)
-    return res
-
+# ⚠️ SÁU endpoint PHÂN BỔ (`/outputs/{id}/phan-bo` · `/phan-bo/{id}/chot` · `/mo-lai` ·
+#    `/bu-tru` · `/loai-tru` · `/go-loai-tru`) GỠ 18/09/2026 cùng tầng chia sản lượng (mg
+#    `0322`). Sản xuất CHỈ GHI NHẬN số lượng — chia và ra tiền là màn của kế toán lương.
 
 # --- KCS theo LỆNH (mg 0306, docs/design-kcs-theo-lenh.md) -----------------------------------
 # Người KCS = thành viên phòng ban `is_kcs`, kiểm được MỌI tổ — cổng nằm ở service (`kcs.gate_kcs`),

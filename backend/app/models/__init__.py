@@ -65,6 +65,7 @@ from .purchase import (
     PurchaseStatusHistory,
     Supplier,
     SupplierItem,
+    YeuCauMuaNguonLenh,
 )
 from .accounting import (
     CompanyBankAccount,
@@ -91,7 +92,7 @@ from .plate_die_rate import PlateDieRate
 from .norm import Norm
 from .may_thiet_bi import MayThietBi, NhomMay
 from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
-from .cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu, CongDoanMay
+from .cong_doan import CongDoan, CongDoanMay, CongDoanTo, CongDoanVatTu
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang, KhoViTri
@@ -147,16 +148,11 @@ from .san_xuat_san_luong import (
     SanXuatBanGiaoDieuChinh,
     SanXuatBatch,
     SanXuatBatchLotVao,
+    SanXuatBatchPhatSinh,
     SanXuatKetQuaNhanh,
     SanXuatVatTuNhan,
 )
-from .san_xuat_phan_bo import (
-    SanXuatHoTro,
-    SanXuatPhanBo,
-    SanXuatPhanBoBuTru,
-    SanXuatPhanBoDong,
-    SanXuatPhanBoLoaiTru,
-)
+from .san_xuat_phan_bo import SanXuatHoTro
 from .san_xuat_kcs import (
     SanXuatKcsBatch,
     SanXuatKcsLoi,
@@ -218,6 +214,7 @@ __all__ = [
     "PurchaseRequest",
     "PurchaseRequestLine",
     "PurchaseRequestSource",
+    "YeuCauMuaNguonLenh",
     "PurchaseDelivery",
     "PurchaseDeliveryLine",
     "PurchaseAttachment",
@@ -289,9 +286,9 @@ __all__ = [
     "LsxCongDoanVatTu",
     "LsxCongDoanPhuThuoc",
     "LsxDinhKem",
-    "CongDoanDauViec",
-    "CongDoanDauViecVatTu",
     "CongDoanMay",
+    "CongDoanVatTu",
+    "CongDoanTo",
     "BaiGhep",
     "BaiGhepThanhVien",
     "XepLichCongDoan",
@@ -321,12 +318,9 @@ __all__ = [
     "SanXuatBanGiaoBatch",
     "SanXuatBanGiaoDieuChinh",
     "SanXuatVatTuNhan",
+    "SanXuatBatchPhatSinh",
     "SanXuatKetQuaNhanh",
     "SanXuatHoTro",
-    "SanXuatPhanBo",
-    "SanXuatPhanBoDong",
-    "SanXuatPhanBoBuTru",
-    "SanXuatPhanBoLoaiTru",
     "SanXuatKcsBatch",
     "SanXuatKcsLoi",
     "SanXuatKcsLoiAnh",

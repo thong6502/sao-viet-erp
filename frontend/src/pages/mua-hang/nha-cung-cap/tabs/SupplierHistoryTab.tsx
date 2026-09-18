@@ -28,12 +28,7 @@ export function SupplierHistoryTab({
                     >
                       Lịch sử Phiếu Mua Hàng (PMH)
                     </h3>
-                    <p
-                      className="md-page__muted"
-                      style={{ marginBottom: "16px" }}
-                    >
-                      Danh sách các đơn mua hàng đã được giao cho NCC này xử lý.
-                    </p>
+
 
                     {/* Ba ca đang tải / rỗng / lỗi dùng CHUNG khối `EmptyState` như mọi danh sách
                         khác (chuẩn đợt 2 §f) — trước đây chỗ này tự dựng ba kiểu riêng.

@@ -1,9 +1,13 @@
-# SPEC — XẾP LỊCH 3 (cấp LỆNH SẢN XUẤT)
+# SPEC — XẾP LỊCH (cấp LỆNH SẢN XUẤT)
 
-> Module **MỚI**, dựng song song. `xep_lich_2` bị **ẩn đường vào** bằng cờ ở
-> `frontend/src/constants/features.ts` — đúng cách Bài ghép đã ẩn — **không gỡ code, không drop bảng**
-> trong đợt này. Anh em: `spec-xep-lich-2.md` (màn bị thay), `spec-thuc-hien-san-xuat.md` (nơi nhận
-> phát hành), `spec-cong-doan.md`.
+> **18/09/2026 — module này nay tên là `xep_lich`, bỏ số 3.** Bàn theo công đoạn (`xep_lich_2`) đã
+> xoá hẳn cùng router/repo/schema/màn; quyền chép sang ở migration `0314`; đường API là
+> `/api/xep-lich`; gói là `services/xep_lich/`. Tên file spec này giữ nguyên để khỏi đứt các liên
+> kết đang trỏ tới, nội dung bên dưới đọc "Xếp lịch 3" = bàn xếp lịch DUY NHẤT hiện nay.
+>
+> Bối cảnh lúc viết: module **MỚI**, dựng song song, `xep_lich_2` bị ẩn đường vào bằng cờ ở
+> `frontend/src/constants/features.ts`, chưa gỡ code. Anh em: `spec-xep-lich-2.md` (màn đã xoá),
+> `spec-thuc-hien-san-xuat.md` (nơi nhận phát hành), `spec-cong-doan.md`.
 
 ---
 

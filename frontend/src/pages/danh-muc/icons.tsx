@@ -43,6 +43,22 @@ export const TrashIcon = ({ size = 11, ...r }: IconProps) => (
   </SvgIcon>
 );
 
+/** Hai tờ chồng nhau — nút "Nhân bản" trên hàng bảng (13), cùng cỡ với thùng rác bên cạnh. */
+export const CopyIcon = ({ size = 13, ...r }: IconProps) => (
+  <SvgIcon size={size} {...r}>
+    <rect x="9" y="9" width="12" height="12" rx="2" />
+    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+  </SvgIcon>
+);
+
+/** Mũi tên vòng ngược — nút "Bật lại" mục đã ngừng dùng (13). */
+export const UndoIcon = ({ size = 13, ...r }: IconProps) => (
+  <SvgIcon size={size} {...r}>
+    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+    <path d="M3 3v5h5" />
+  </SvgIcon>
+);
+
 /** Đồng hồ — dùng ở cột "Tốc độ & Chuẩn bị" bên `rebuildCatalogConfigs`, nên phải export ra ngoài
  *  phân hệ. GIỮ NGUYÊN tên: config đang import theo tên này. */
 export const ClockIcon = ({ size = 12, ...r }: IconProps) => (
@@ -67,6 +83,13 @@ export const PlusIcon = ({ size = 13, style, ...r }: IconProps) => (
 );
 
 /** Dấu ✕ — nút đóng drawer (14) và đóng popover cú pháp (12). */
+/** Phễu — nút "Lọc nâng cao" của màn danh mục. */
+export const FilterIcon = ({ size = 13, ...r }: IconProps) => (
+  <SvgIcon size={size} sw={2.2} {...r}>
+    <path d="M3 5h18l-7 8.5V19l-4 2v-7.5z" />
+  </SvgIcon>
+);
+
 export const XIcon = ({ size = 14, ...r }: IconProps) => (
   <SvgIcon size={size} {...r}><path d="M18 6 6 18M6 6l12 12" /></SvgIcon>
 );

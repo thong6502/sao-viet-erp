@@ -7,7 +7,8 @@
 //
 //  · Hỗ trợ chéo chờ bên mình: xác nhận / từ chối NGAY tại đây — lối vào duy nhất của tổ cho mượn.
 //  · Bàn giao đến / KCS báo lỗi ngoài bàn (hiếm — phạm vi xác nhận rộng hơn phạm vi bàn): "Mở" ngăn
-//    chi tiết công đoạn, vào thẳng tab Nhận / KCS.
+//    chi tiết công đoạn, vào thẳng tab Nhận / KCS. Lỗi KCS không có nút "Đã xem" riêng: mở tab KCS
+//    là tổ đã xem (18/09/2026, xem `ThsxKetQuaKcs`).
 //
 // Component không tự gọi API — mọi mặt ghi đi qua callback của controller (toast + nạp lại).
 import { useState } from "react";
@@ -19,16 +20,15 @@ import { Field } from "./ThsxExecPanels";
 import { nhanDonVi } from "./lsxBuoc";
 
 export function ThsxChoNgoaiBan({
-  data, busy, onMoBanGiao, onXacNhanHoTro, onHuyHoTro, onMoKcs, onDaXemKcs,
+  data, busy, onMoBanGiao, onXacNhanHoTro, onHuyHoTro, onMoKcs,
 }: {
   data: SxChoXacNhan | null;
   busy: boolean;
   onMoBanGiao: (dichCongViecId: number) => void;
   onXacNhanHoTro: (id: number, version: number) => void;
   onHuyHoTro: (id: number, lyDo: string, version: number) => Promise<boolean>;
-  /** Mở ngăn chi tiết của công đoạn bị báo lỗi, tab KCS (có ảnh). */
+  /** Mở ngăn chi tiết của công đoạn bị báo lỗi, tab KCS (có ảnh) — mở là tổ đã xem. */
   onMoKcs: (congViecId: number) => void;
-  onDaXemKcs: (loiId: number) => void;
 }) {
   const bg = data?.ban_giao ?? [];
   const ht = data?.ho_tro ?? [];
@@ -45,7 +45,7 @@ export function ThsxChoNgoaiBan({
           <span className="thsx-hopthu__n thsx-num">{n}</span>
         </div>
         <ul className="thsx-hopthu__list">
-          {kl.map((l) => <KcsLoiRow key={`kcs${l.loi_id}`} l={l} busy={busy} onMo={onMoKcs} onDaXem={onDaXemKcs} />)}
+          {kl.map((l) => <KcsLoiRow key={`kcs${l.loi_id}`} l={l} busy={busy} onMo={onMoKcs} />)}
           {bg.map((b) => <BanGiaoRow key={`bg${b.id}`} b={b} busy={busy} onMo={onMoBanGiao} />)}
           {ht.map((h) => (
             <HoTroRow key={`ht${h.id}`} h={h} busy={busy} onXacNhan={onXacNhanHoTro} onHuy={onHuyHoTro} />
@@ -57,11 +57,10 @@ export function ThsxChoNgoaiBan({
 }
 
 function KcsLoiRow({
-  l, busy, onMo, onDaXem,
+  l, busy, onMo,
 }: {
   l: SxChoXacNhanKcsLoi; busy: boolean;
   onMo: (congViecId: number) => void;
-  onDaXem: (loiId: number) => void;
 }) {
   return (
     <li className="thsx-hopthu__it">
@@ -78,13 +77,10 @@ function KcsLoiRow({
       </p>
       <div className="thsx-x-act thsx-x-act--row">
         {l.cong_viec_id != null && (
-          <Button variant="ghost" onClick={() => onMo(l.cong_viec_id!)} disabled={busy}>
-            <Icon name="eye" size={13} /> Mở
+          <Button variant="accent" onClick={() => onMo(l.cong_viec_id!)} disabled={busy}>
+            <Icon name="eye" size={13} /> Mở để xem
           </Button>
         )}
-        <Button variant="accent" onClick={() => onDaXem(l.loi_id)} disabled={busy}>
-          <Icon name="check" size={13} /> Đã xem
-        </Button>
       </div>
     </li>
   );
@@ -135,7 +131,7 @@ function HoTroRow({
       <div className="thsx-hopthu__main">
         <Icon name="users" size={14} />
         <span className="thsx-hopthu__ten">Hỗ trợ chéo · {h.ho_ten}</span>
-        <span className="thsx-num">{num(h.ty_le_phan_tram)}% · {ngay(h.ngay_lam_viec)}</span>
+        <span className="thsx-num">{ngay(h.ngay_lam_viec)}</span>
       </div>
       <p className="thsx-hopthu__mo">
         {h.to_goc_ten ?? "?"} → {h.ten_cong_doan} ({h.to_thuc_hien_ten ?? "?"}){h.lsx_ma ? ` · ${h.lsx_ma}` : ""}

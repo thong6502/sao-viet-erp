@@ -144,11 +144,6 @@ export function PhieuBaoTriPage() {
           <h1 className="rc__title">Phiếu bảo trì</h1>
           <span className="rc__count">{tongTatCa} phiếu</span>
         </div>
-        <p className="rc__sub">
-          Bảo trì định kỳ theo lịch đã khai trên từng máy, và bảo trì đột xuất.
-          <strong> Phải tick hết hạng mục và có ảnh chứng thực mới xác nhận hoàn thành</strong>;
-          không làm kỳ này thì hủy phiếu kèm lý do.
-        </p>
 
         {/* Câu hỏi đầu tiên của thợ mỗi sáng là "hôm nay phải làm gì", không phải "có bao nhiêu
             phiếu". Ba con số này đếm TOÀN XƯỞNG, bấm vào là mở bảng đã lọc sẵn. */}

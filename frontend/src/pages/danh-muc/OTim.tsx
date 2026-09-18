@@ -1,16 +1,19 @@
 // Ô TÌM của màn danh mục — MỘT cách dựng cho cả 10 màn.
 //
-// ⚠️ Placeholder phải giữ nguyên chuỗi `"Tìm mã / tên…"`: `RebuildCatalogPage.test.tsx` bắt ô này
-// bằng đúng chuỗi đó (`getByPlaceholderText`). Đổi chữ là đỏ hai test phân trang.
+// ⚠️ Placeholder MẶC ĐỊNH phải giữ nguyên chuỗi `"Tìm mã / tên…"`: `RebuildCatalogPage.test.tsx`
+// bắt ô này bằng đúng chuỗi đó (`getByPlaceholderText`). Đổi chữ là đỏ hai test phân trang. Màn tìm
+// được nhiều hơn (Khuôn) thì truyền `placeholder` riêng qua `config.timGoiY`.
 import { SearchIcon, XIcon } from "./icons";
 
-export function OTim({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function OTim({ value, onChange, placeholder }: {
+  value: string; onChange: (v: string) => void; placeholder?: string;
+}) {
   return (
     <div className="rc__search-wrapper">
       <SearchIcon />
       <input
         className="rc__search"
-        placeholder="Tìm mã / tên…"
+        placeholder={placeholder ?? "Tìm mã / tên…"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />

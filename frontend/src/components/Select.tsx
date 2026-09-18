@@ -21,6 +21,8 @@ export interface SelectOption<T extends SelectValue = SelectValue> {
    *  dòng: dùng khi dòng phụ là thuộc tính của lựa chọn chứ không phải chú thích ngắn. Không
    *  truyền thì DOM giữ nguyên như cũ. */
   sub?: string;
+  /** Lớp CSS thêm cho dòng `sub` — để ô gọi tô màu theo nghĩa (vd tình trạng người). */
+  subClassName?: string;
   /** Chấm số ĐỎ (báo "mới/chưa xem") ở cuối lựa chọn — vd số phản hồi kho chưa xem. Ẩn khi ≤0. */
   badge?: number;
   /** Text CHỈ để tìm, KHÔNG hiện ra. Dùng khi mã món làm rối mắt danh sách nhưng người dùng vẫn
@@ -29,6 +31,8 @@ export interface SelectOption<T extends SelectValue = SelectValue> {
   /** Nhãn NHÓM. Các lựa chọn liền nhau cùng `group` được gộp dưới một tiêu đề (thay `<optgroup>`
    *  của thẻ select gốc). Không truyền thì danh sách phẳng như cũ. */
   group?: string;
+  /** Hiện nhưng KHÔNG chọn được (mờ đi) — vd người nghỉ phép đúng ngày. Lý do nên nằm ở `sub`. */
+  disabled?: boolean;
 }
 
 interface SelectProps<T extends SelectValue> {
@@ -160,7 +164,7 @@ export function Select<T extends SelectValue>({
 
   function choose(i: number) {
     const opt = shown[i];
-    if (!opt) return;
+    if (!opt || opt.disabled) return;
     onChange(opt.value);
     setOpen(false);
   }
@@ -264,9 +268,10 @@ export function Select<T extends SelectValue>({
           id={`${listId}-${i}`}
           role="option"
           aria-selected={opt.value === value}
+          aria-disabled={opt.disabled || undefined}
           className={`sel__opt${i === active ? " is-active" : ""}${
             opt.value === value ? " is-selected" : ""
-          }`}
+          }${opt.disabled ? " is-disabled" : ""}`}
           onMouseEnter={() => setActive(i)}
           onMouseDown={(e) => {
             e.preventDefault();
@@ -276,7 +281,7 @@ export function Select<T extends SelectValue>({
           {opt.sub ? (
             <span className="sel__opt-stack">
               <span className="sel__opt-label">{opt.label}</span>
-              <span className="sel__opt-sub">{opt.sub}</span>
+              <span className={`sel__opt-sub${opt.subClassName ? ` ${opt.subClassName}` : ""}`}>{opt.sub}</span>
             </span>
           ) : (
             <span className="sel__opt-label">{opt.label}</span>

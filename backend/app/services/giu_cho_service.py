@@ -71,7 +71,7 @@ EPS_GIU = 0.004
 
 #: Nặng → nhẹ. Một chủ thể cần một mặt hàng ở NHIỀU bước; thẻ tóm tắt chỉ hiện được MỘT màu, và
 #: màu đó phải là màu tệ nhất. Lấy màu của bước đầu (hoặc bước cuối) là giấu đúng thứ phải lo.
-_NANG = {"khong_ro": 5, "do": 4, "ve_muon": 3, "vang": 2, "xanh": 1, "xam": 0}
+_NANG = {"khong_ro": 5, "do": 4, "vang": 2, "xanh": 1, "xam": 0}
 
 
 class GiuChoError(Exception):
@@ -160,7 +160,9 @@ class GiuChoService:
     def trang_thai(self, *, lsx_id: int | None = None, bai_ghep_id: int | None = None,
                    bang: dict | None = None,
                    dang_theo_chu_the: dict[tuple[int | None, int | None],
-                                           list[VatTuGiuCho]] | None = None) -> dict:
+                                           list[VatTuGiuCho]] | None = None,
+                   bat_theo_chu_the: dict[tuple[int | None, int | None],
+                                          bool] | None = None) -> dict:
         """Kết quả sau khi bấm — ba trạng thái người dùng thấy.
 
         `du` = giữ đủ 100% ⇒ xếp lịch mở khoá. `xep_som_nhat` = ngày sớm nhất được xếp bước tiêu
@@ -190,6 +192,10 @@ class GiuChoService:
 
         Map TOÀN ÁNH trên tập đã hỏi, nên khoá VẮNG nghĩa là nơi gọi hỏi NGOÀI lô đã tra ⇒ tự đi
         lấy, y như khi không truyền gì. Chỗ gọi đơn lẻ (`du_chua`) không cần đổi.
+
+        `bat_theo_chu_the` = cờ công tắc đã tra GỘP (`GiuChoRepository.co_bat_nhieu`). Cùng luật
+        khoá-vắng, chặn N+1 thứ ba: `_co_bat` là `db.get(Lsx)` cho MỘT chủ thể, nên nơi gọi lặp cả
+        trang mà không truyền vào thì tốn một câu mỗi lệnh chỉ để đọc một cột bool.
         """
         chu = (lsx_id, bai_ghep_id)
         if bang is None:
@@ -228,7 +234,8 @@ class GiuChoService:
 
         ngay_ve = [r.ngay_ve for r in dang if r.nguon == NGUON_DANG_VE and r.ngay_ve]
         return {
-            "bat": self._co_bat(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id),
+            "bat": (bat_theo_chu_the[chu] if bat_theo_chu_the is not None and chu in bat_theo_chu_the
+                    else self._co_bat(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)),
             # `bool(can)` GIỮ NGUYÊN (rà lại 08/09/2026): lệnh không ra được nhu cầu nào thì KHÔNG
             # phải "đủ". Từ 08/09/2026 giấy không còn tự suy từ `quy_cach_json` nữa mà là dòng vật
             # tư người lập lệnh khai tay lên bước, nên `can` rỗng nghĩa là chưa ai nói lệnh này ăn
@@ -243,7 +250,7 @@ class GiuChoService:
             "dang_giu": giu_theo_hang,
             # [MỚI 30/08/2026] Tách theo nguồn — màn "Theo lệnh" cần biết phần nào CHẮC (kho) và
             # phần nào còn TREO theo ngày về (dang_ve). `dang_giu` (tổng) giữ nguyên cho chỗ đã
-            # dùng cũ (`xep_lich_2`, `_them_mo_coi`).
+            # dùng cũ (`_them_mo_coi`).
             "da_giu_kho": giu_kho,
             "da_giu_dang_ve": giu_dang_ve,
             # Dòng PMH cụ thể đang góp cho phần hứa — CHƯA có mã PMH (tra gộp ở tầng gọi, xem
@@ -307,7 +314,6 @@ class GiuChoService:
                 "ma": o["ma"],
                 "is_rush": bool(o["is_rush"]),
                 "ngay_can": o["ngay_can"],
-                "moc_tam": bool(o["moc_tam"]),
                 "ngoai_pham_vi": bool(o.get("ngoai_pham_vi")),
                 "bat": tt["bat"],
                 "du": tt["du"],
@@ -318,13 +324,9 @@ class GiuChoService:
                 "so_ngay_giu": so_ngay_giu,
                 # Đã bật, đã giữ lâu, mà chưa hề đưa vào kế hoạch ⇒ chỗ giữ đang nằm không. Cố ý
                 # KHÔNG tự nhả (luật ③): thứ chạy ngầm nhả nhầm đúng hôm gấp thì không ai truy ra.
-                "giu_lau_chua_chay": bool(
-                    tt["bat"] and not da_xep and so_ngay_giu is not None
-                    and so_ngay_giu >= NGUONG_GIU_LAU_NGAY
-                ),
+                "giu_lau_chua_chay": self._la_giu_lau(tt["bat"], da_xep, so_ngay_giu),
                 "so_mat_hang": len(hangs),
                 "so_thieu": sum(1 for h in hangs if h["trang_thai"] == "do"),
-                "so_ve_muon": sum(1 for h in hangs if h["trang_thai"] == "ve_muon"),
                 "so_khong_ro": sum(1 for h in hangs if h["trang_thai"] == "khong_ro"),
                 "hang": sorted(hangs, key=lambda h: (-_NANG.get(h["trang_thai"], 0),
                                                      h["hang_ma"] or "")),
@@ -333,6 +335,37 @@ class GiuChoService:
         return {"items": self._loc_chu_the(rows, q=q, chi_can_lo=chi_can_lo,
                                            chi_giu_lau=chi_giu_lau),
                 "so_giu_lau": sum(1 for r in rows if r["giu_lau_chua_chay"])}
+
+    @staticmethod
+    def _la_giu_lau(bat: bool, da_xep: bool, so_ngay_giu: int | None) -> bool:
+        return bool(bat and not da_xep and so_ngay_giu is not None
+                    and so_ngay_giu >= NGUONG_GIU_LAU_NGAY)
+
+    def dem_giu_lau(self) -> int:
+        """Đúng con số `so_giu_lau` của `theo_chu_the`, nhưng KHÔNG dựng bảng cân đối.
+
+        Cả ba vế của luật (cờ bật · đã vào kế hoạch chưa · giữ từ bao giờ) chỉ đọc bảng giữ chỗ,
+        cờ công tắc và bàn xếp lịch. Chủ thể không có dòng giữ nào thì `giu_tu` rỗng nên không bao
+        giờ tính — vì vậy duyệt theo dòng giữ chỗ là đủ, kể cả chủ thể đã rơi khỏi bảng (mồ côi).
+        Có hàm này để badge "giữ lâu" đi kèm `/can-doi`: trước đây trang gọi riêng `/theo-lenh`
+        chỉ để lấy một con số, tức chạy lại cả bảng cân đối toàn xưởng mỗi lần có sự kiện.
+        """
+        giu_tu: dict[tuple, datetime] = {}
+        for r in self.repo.tat_ca():
+            chu = (r.lsx_id, r.bai_ghep_id)
+            if chu not in giu_tu or r.created_at < giu_tu[chu]:
+                giu_tu[chu] = r.created_at
+        if not giu_tu:
+            return 0
+        bat = self.repo.co_bat_nhieu(list(giu_tu))
+        da_xep_lsx, da_xep_bai = self.repo.chu_the_da_xep_lich()
+        gio = datetime.now(timezone.utc)
+        dem = 0
+        for (lsx_id, bg_id), tu in giu_tu.items():
+            da_xep = (lsx_id in da_xep_lsx) if lsx_id is not None else (bg_id in da_xep_bai)
+            if self._la_giu_lau(bat[(lsx_id, bg_id)], da_xep, (gio - _aware(tu)).days):
+                dem += 1
+        return dem
 
     @staticmethod
     def _chu_the_dang_thieu(gom: dict[tuple, dict]) -> dict[Hang, frozenset]:
@@ -382,13 +415,13 @@ class GiuChoService:
                     # `can = 0` là ĐÚNG, không phải thiếu dữ liệu: lệnh đã rơi khỏi kế hoạch nên
                     # hệ không còn biết nó cần bao nhiêu. Chỉ `dang_giu` là có thật.
                     "can": 0.0, "thieu": 0.0, "dang_giu": 0.0, "so_buoc": 0,
-                    "trang_thai": "xam", "ngay_can": None, "ngay_du_hang": None,
+                    "trang_thai": "xam", "ngay_can": None,
                     # Lệnh đã rơi khỏi kế hoạch thì không hỏi "đang mua gì cho nó" nữa — chỗ giữ
                     # còn lại là việc NHẢ, không phải việc mua.
-                    "phieu_ve": None, "phieu_mua": [], "khoa_do": [],
+                    "phieu_mua": [], "khoa_do": [],
                 })
             gom[chu] = {"ma": self._ma_chu_the(chu), "is_rush": False, "ngay_can": None,
-                        "moc_tam": False, "ngoai_pham_vi": True, "hang": hang}
+                        "ngoai_pham_vi": True, "hang": hang}
 
     def mot_dong(self, *, lsx_id: int | None = None,
                  bai_ghep_id: int | None = None) -> dict | None:
@@ -422,9 +455,10 @@ class GiuChoService:
                 if chu == (None, None):
                     continue
                 o = gom.setdefault(chu, {"ma": d.get("ma") or "", "is_rush": False,
-                                         "ngay_can": None, "moc_tam": False, "hang": {}})
+                                         "ngay_can": None, "hang": {}})
                 o["is_rush"] = o["is_rush"] or bool(d.get("is_rush"))
-                o["moc_tam"] = o["moc_tam"] or bool(d.get("moc_tam"))
+                # Ngày cần của lệnh = ngày cần hàng SỚM NHẤT trên các YCMH đã lập cho nó (bảng cân
+                # đối đọc sẵn từng dòng). Lệnh không phải mua thì mọi dòng đều trống ⇒ trống.
                 ngay = d.get("ngay_can")
                 if ngay and (o["ngay_can"] is None or ngay < o["ngay_can"]):
                     o["ngay_can"] = ngay
@@ -433,8 +467,7 @@ class GiuChoService:
                     "hang_ma": nhom.get("hang_ma"), "hang_ten": nhom.get("hang_ten"),
                     "don_vi_goc": nhom.get("don_vi_goc"),
                     "can": 0.0, "thieu": 0.0, "dang_giu": 0.0, "so_buoc": 0,
-                    "trang_thai": "xam", "ngay_can": None, "ngay_du_hang": None,
-                    "phieu_ve": None,
+                    "trang_thai": "xam", "ngay_can": None,
                     # Vết mua là thuộc tính của MẶT HÀNG — giống hệt nhau ở mọi lệnh cần món đó.
                     # Chép thẳng từ nhóm, không gộp, không cộng dồn.
                     "phieu_mua": list(nhom.get("phieu_mua") or []),
@@ -448,14 +481,6 @@ class GiuChoService:
                 nc = d.get("ngay_can")
                 if nc and (h["ngay_can"] is None or nc < h["ngay_can"]):
                     h["ngay_can"] = nc
-                # Ngày đủ hàng lấy MUỘN NHẤT trong các bước `ve_muon`: hai bước ăn cùng món, bước
-                # sau chờ lô về 01/09 thì món đó chỉ xong ngày 01/09 — lấy ngày sớm là hứa một mốc
-                # mà tới nơi vẫn thiếu. Mã phiếu đi theo đúng ngày được chọn, không lấy rời.
-                dh = d.get("ngay_du_hang")
-                if d.get("trang_thai") == "ve_muon" and dh:
-                    if h["ngay_du_hang"] is None or dh > h["ngay_du_hang"]:
-                        h["ngay_du_hang"] = dh
-                        h["phieu_ve"] = d.get("phieu_ve")
                 if d.get("trang_thai") == "do":
                     h["khoa_do"].append({
                         "hang_loai": hang[0], "hang_id": hang[1],
@@ -472,15 +497,15 @@ class GiuChoService:
         if chi_giu_lau:
             ra = [r for r in ra if r["giu_lau_chua_chay"]]
         if chi_can_lo:
-            ra = [r for r in ra if r["so_thieu"] or r["so_khong_ro"] or r["so_ve_muon"]
+            ra = [r for r in ra if r["so_thieu"] or r["so_khong_ro"]
                   or r["giu_lau_chua_chay"] or r["ngoai_pham_vi"]]
         k = (q or "").strip().lower()
         if k:
             ra = [r for r in ra if k in (r["ma"] or "").lower()
                   or any(k in ((h["hang_ma"] or "") + " " + (h["hang_ten"] or "")).lower()
                          for h in r["hang"])]
-        # Việc phải lo lên đầu, rồi tới ngày cần sớm nhất. Lệnh chưa có ngày cần xuống cuối chứ
-        # KHÔNG lên đầu: chưa có ngày là chưa xếp được, không phải là gấp.
+        # Việc phải lo lên đầu, rồi tới ngày cần sớm nhất (từ YCMH). Lệnh chưa có ngày cần xuống
+        # cuối chứ KHÔNG lên đầu: chưa lập yêu cầu mua nào thì không phải là gấp.
         ra.sort(key=lambda r: (
             0 if (r["so_thieu"] or r["so_khong_ro"] or r["giu_lau_chua_chay"]
                   or r["ngoai_pham_vi"]) else 1,
@@ -608,7 +633,8 @@ class GiuChoService:
 
         Gọi khi HÀNG VỀ NHẬP KHO — đó là toàn bộ lý do "bật = đăng ký" chứ không phải chụp một lần.
 
-        Thứ tự nhặt = thứ tự dòng của `can_doi()`, tức **theo ngày cần**: lệnh cần sớm ăn trước.
+        Thứ tự nhặt = thứ tự dòng của `can_doi()`, tức **theo hạn sản xuất**: lệnh phải xong sớm
+        ăn trước.
         Không sắp lại ở đây — sắp lại là đẻ luật ưu tiên thứ hai, và hai luật sẽ lệch nhau.
         """
         if bang is None:
@@ -624,13 +650,20 @@ class GiuChoService:
         ve = self._lo_dang_ve(bang, hangs)
 
         moi: list[VatTuGiuCho] = []
+        # Cờ công tắc đã có sẵn ở `dang_bat()` ngay trên — đưa thẳng xuống `trang_thai()`, không
+        # thì nó lại `db.get(Lsx)` một câu cho mỗi chủ thể để đọc đúng cột vừa đọc.
+        bat_theo_chu_the = {
+            (l_id, b_id): ((l_id in bat_lsx) if l_id is not None else (b_id in bat_bai))
+            for l_id, b_id in self._thu_tu_chu_the(bang)
+        }
         for chu in self._thu_tu_chu_the(bang):
             if chi_chu_the is not None and chu != chi_chu_the:
                 continue
             lsx_id, bg_id = chu
             if not ((lsx_id in bat_lsx) if lsx_id is not None else (bg_id in bat_bai)):
                 continue
-            tt = self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang)
+            tt = self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang,
+                                 bat_theo_chu_the=bat_theo_chu_the)
             for hang, con in tt["thieu"].items():
                 # 1) Hàng CÓ THẬT trong kho.
                 # `thieu` đếm tới 4 số lẻ nhưng chỗ giữ lưu Numeric(14,2). Làm tròn `lay` về 2 số
@@ -817,7 +850,7 @@ class GiuChoService:
 
     @staticmethod
     def _thu_tu_chu_the(bang: dict) -> list[tuple]:
-        """Chủ thể theo THỨ TỰ XUẤT HIỆN trong bảng cân đối = theo ngày cần. Không sắp lại."""
+        """Chủ thể theo THỨ TỰ XUẤT HIỆN trong bảng cân đối = theo hạn sản xuất. Không sắp lại."""
         ra: list[tuple] = []
         for nhom in bang.get("items", []):
             if nhom.get("loai_nhom") != "vat_tu":
@@ -830,9 +863,9 @@ class GiuChoService:
 
     @staticmethod
     def _mau_giu(mau: str, da_kho: float, da_ve: float, can: float) -> str:
-        """Nhãn 6 mức: Chưa rõ → Thiếu → Về muộn → Có thể giữ → Đã giữ → Đã cấp.
+        """Nhãn 5 mức: Chưa rõ → Thiếu → Có thể giữ → Đã giữ → Đã cấp.
 
-        `khong_ro`/`do`/`ve_muon` là SỰ THẬT về hàng (từ `can_doi()`), giữ chỗ không đổi được gì —
+        `khong_ro`/`do` là SỰ THẬT về hàng (từ `can_doi()`), giữ chỗ không đổi được gì —
         pass-through nguyên vẹn (`do` đổi tên hiển thị thành `thieu` cho khớp bộ từ mới). `xam` =
         kho ĐÃ CẤP (xuất rồi) — giữ chỗ không còn ý nghĩa, luôn `da_cap`. Chỉ `xanh`/`vang` (đủ
         THEO can_doi(), tức hệ THỪA sức lo) mới cần hỏi tiếp CHÍNH chủ thể này đã thật sự giữ được
@@ -840,7 +873,7 @@ class GiuChoService:
         """
         if mau == "do":
             return "thieu"
-        if mau in ("khong_ro", "ve_muon"):
+        if mau == "khong_ro":
             return mau
         if mau == "xam":
             return "da_cap"
@@ -851,7 +884,7 @@ class GiuChoService:
     ) -> dict[tuple, dict]:
         """Với MỖI (chủ thể, mặt hàng) trong `gom`, gắn thêm `da_giu_kho`/`da_giu_dang_ve` (đã
         giữ, tách nguồn), `co_the_giu_kho`/`co_the_giu_dang_ve` (NẾU bật giữ chỗ NGAY BÂY GIỜ thì
-        giữ được thêm bao nhiêu), `trang_thai_giu` (nhãn 6 mức) và `nguon_dang_ve` (mã PMH cụ thể
+        giữ được thêm bao nhiêu), `trang_thai_giu` (nhãn 5 mức) và `nguon_dang_ve` (mã PMH cụ thể
         đang góp cho phần hứa — spec §4) — MUTATE thẳng vào `gom`.
 
         "Có thể giữ" là câu hỏi ĐỘC LẬP theo từng chủ thể: so với tồn tự do / lô đang về CÒN TRỐNG
@@ -884,10 +917,12 @@ class GiuChoService:
         tt_by_chu: dict[tuple, dict] = {}
         line_ids: set[int] = set()
         dang_by_chu = self.repo.cua_nhieu_chu_the(list(gom.keys()))
+        bat_by_chu = self.repo.co_bat_nhieu(list(gom.keys()))
         for chu in gom:
             lsx_id, bg_id = chu
             tt = self.trang_thai(
-                lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang, dang_theo_chu_the=dang_by_chu)
+                lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang, dang_theo_chu_the=dang_by_chu,
+                bat_theo_chu_the=bat_by_chu)
             tt_by_chu[chu] = tt
             for ds in tt["nguon_dang_ve"].values():
                 line_ids.update(n["purchase_request_line_id"] for n in ds)

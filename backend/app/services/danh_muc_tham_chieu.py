@@ -67,7 +67,7 @@ def _gom(*cau: str | None) -> list[str]:
 # ── từng danh mục ────────────────────────────────────────────────────────────────
 def _cong_doan(db: Session, obj) -> ThamChieu:
     from ..models.bai_ghep_cong_doan import BaiGhepCongDoan
-    from ..models.cong_doan import CongDoan, CongDoanDauViec
+    from ..models.cong_doan import CongDoan, CongDoanVatTu
     from ..models.loai_san_pham import LoaiSanPham
     from ..models.lsx import LsxCongDoan
     from ..models.phieu_tinh_gia import PhieuThanhPham
@@ -89,19 +89,11 @@ def _cong_doan(db: Session, obj) -> ThamChieu:
     if (c := _cau(n_tpl, "loại sản phẩm có bước này trong chuỗi mặc định")):
         chan.append(c)
 
-    # CASCADE thật ở DB (`cong_doan.py:163` → nối tầng `:232`): xoá công đoạn là bay sạch định mức
-    # đầu việc VÀ BOM vật tư của chúng. Khai tay hàng giờ, không hoàn tác được.
-    n_dv = _dem(db, CongDoanDauViec, CongDoanDauViec.cong_doan_id == obj.id)
-    n_bom = 0
-    if n_dv:
-        ids = [r.id for r in db.execute(
-            select(CongDoanDauViec).where(CongDoanDauViec.cong_doan_id == obj.id)).scalars()]
-        from ..models.cong_doan import CongDoanDauViecVatTu
-        n_bom = _dem(db, CongDoanDauViecVatTu,
-                     CongDoanDauViecVatTu.cong_doan_dau_viec_id.in_(ids)) if ids else 0
+    # CASCADE thật ở DB (`cong_doan_vat_tu.cong_doan_id`): xoá công đoạn là bay sạch BOM vật tư
+    # kèm công thức định mức của từng món. Khai tay hàng giờ, không hoàn tác được.
+    n_vt = _dem(db, CongDoanVatTu, CongDoanVatTu.cong_doan_id == obj.id)
     _ = CongDoan  # giữ import cho rõ ràng bảng đang nói tới
-    return ThamChieu(chan=chan, keo_theo=_gom(
-        _cau(n_dv, "định mức đầu việc"), _cau(n_bom, "dòng vật tư trong định mức")))
+    return ThamChieu(chan=chan, keo_theo=_gom(_cau(n_vt, "dòng vật tư định mức")))
 
 
 def _don_vi_do(db: Session, obj) -> ThamChieu:
@@ -135,42 +127,31 @@ def _don_vi_do(db: Session, obj) -> ThamChieu:
     return ThamChieu(chan=chan, keo_theo=_gom(_cau(n_cap, "cặp quy đổi")))
 
 
-def _dem_ghim_khoan(db: Session, model, rate_id: int) -> int:
-    """Số bước đang GHIM đơn giá này trong `khoan_json` (`{rate_id, ten, don_vi, don_gia}`).
-
-    Đọc trong Python: `khoan_json` là cột JSON, mà Postgres và SQLite không có cùng một toán tử
-    "lấy khoá" nào chạy được cả hai (`->>` vs `json_extract`). Lọc `IS NOT NULL` NGAY Ở SQL nên chỉ
-    tải về đúng các bước THẬT SỰ có đầu việc khoán, không phải cả bảng bước lệnh.
-    """
-    rows = db.execute(
-        select(model.khoan_json).where(model.khoan_json.is_not(None))
-    ).scalars()
-    return sum(1 for j in rows if isinstance(j, dict) and int(j.get("rate_id") or 0) == rate_id)
+# ⚠️ `_dem_ghim_khoan()` GỠ 18/09/2026 (mg `0321`): `khoan_json` — ảnh chụp đầu việc ghim vào
+#    bước lệnh / bước bài ghép — đã bay cùng cột. Bước lệnh thôi chọn đầu việc; ảnh chụp đơn giá
+#    nay nằm ở MẺ SẢN XUẤT (`san_xuat_batch.don_gia_khoan_snapshot`) và `_cong_viec_khoan` đếm
+#    thẳng `piece_rate_id` của mẻ bằng SQL, không phải mò trong JSON.
 
 
 def _cong_viec_khoan(db: Session, obj) -> ThamChieu:
     """Ai đang dùng một dòng đơn giá khoán.
 
-    Hai kiểu tham chiếu, đếm thiếu kiểu nào là "xoá hẳn" tưởng an toàn:
-      · bằng ID   — `cong_doan_dau_viec.piece_rate_id` (định mức đầu việc của công đoạn, khai tay
-        hàng giờ: năng suất người-giờ, số người, BOM vật tư);
-      · bằng ẢNH CHỤP — bước lệnh SX và bước bài ghép ghim `khoan_json.rate_id`. Số tiền của chúng
-        KHÔNG xê dịch khi danh mục đổi (đó là lý do có ảnh chụp), nhưng vẫn phải CHẶN xoá hẳn: mất
-        dòng gốc là lệnh không còn chọn lại được đúng đầu việc đó, và người đọc lệnh hết đường tra
-        ngược "đơn giá này ở đâu ra".
+    Từ 18/09/2026 chỉ còn MỘT kiểu tham chiếu, và nó là ID THẬT: `san_xuat_batch.piece_rate_id`
+    — mẻ thợ ghi ở bàn tổ. Mẻ có ảnh chụp tên/đơn vị/đơn giá nên số liệu KHÔNG xê dịch khi danh
+    mục đổi, nhưng vẫn phải CHẶN xoá hẳn: mất dòng gốc là hết đường tra ngược "đơn giá này ở đâu
+    ra", và tổ không chọn lại được đúng việc đó cho mẻ sau.
+
+    Hai kiểu tham chiếu cũ đã biến: `cong_doan_dau_viec.piece_rate_id` (bảng gỡ, mg `0320`) và
+    `khoan_json.rate_id` của bước lệnh / bước bài ghép (cột gỡ, mg `0321`).
 
     Không có CASCADE nào trỏ vào bảng này (`piece_rate_id` là soft-ref, không FK cứng) ⇒ `keo_theo`
     luôn rỗng: xoá một dòng đơn giá không làm bay theo bản ghi nào.
     """
-    from ..models.bai_ghep_cong_doan import BaiGhepCongDoan
-    from ..models.cong_doan import CongDoanDauViec
-    from ..models.lsx import LsxCongDoan
+    from ..models.san_xuat_san_luong import SanXuatBatch
 
     return ThamChieu(chan=_gom(
-        _cau(_dem(db, CongDoanDauViec, CongDoanDauViec.piece_rate_id == obj.id),
-             "định mức đầu việc của công đoạn"),
-        _cau(_dem_ghim_khoan(db, LsxCongDoan, obj.id), "bước trong lệnh sản xuất"),
-        _cau(_dem_ghim_khoan(db, BaiGhepCongDoan, obj.id), "bước trong bài ghép"),
+        _cau(_dem(db, SanXuatBatch, SanXuatBatch.piece_rate_id == obj.id),
+             "mẻ sản lượng đã ghi"),
     ))
 
 
@@ -251,12 +232,12 @@ def _mat_hang(db: Session, obj, hang_loai: str) -> ThamChieu:
         )
     else:
         from ..models.bai_ghep_cong_doan import BaiGhepCongDoanVatTu
-        from ..models.cong_doan import CongDoanDauViecVatTu
+        from ..models.cong_doan import CongDoanVatTu
         from ..models.lsx import LsxCongDoanVatTu
         from ..models.phieu_tinh_gia import PhieuVatTu
         chan += _gom(
-            _cau(_dem(db, CongDoanDauViecVatTu,
-                      CongDoanDauViecVatTu.vat_tu_id == obj.id), "định mức đầu việc"),
+            _cau(_dem(db, CongDoanVatTu,
+                      CongDoanVatTu.vat_tu_id == obj.id), "định mức của công đoạn"),
             _cau(_dem(db, LsxCongDoanVatTu, LsxCongDoanVatTu.vat_tu_id == obj.id),
                  "dòng vật tư của bước lệnh"),
             _cau(_dem(db, BaiGhepCongDoanVatTu,

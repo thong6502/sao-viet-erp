@@ -1898,6 +1898,64 @@ td.khsx-num > .khsx-unit {
   width: fit-content;
 }
 
+/* ===== THẺ "GIẤY & TỜ IN": MỘT HÀNG Ô DUY NHẤT — 18/09/2026 =================
+   `auto-fit` chứ KHÔNG `auto-fill` như lưới chung: auto-fill giữ nguyên số cột nó cắt được nên
+   thẻ ít ô là thừa cột trống (6 ô / 5 cột ⇒ hai hàng đều hụt 2 cột, thẻ rỗng hoác); auto-fit bỏ
+   cột rỗng rồi cho mấy ô còn lại giãn ra chia đều — 6 ô hay 8 ô (hàng sách) đều lấp kín bề ngang.
+   Vì thế khối này KHÔNG có ô nào `grid-column: 1/-1` bên trong: một ô trải hết cột là mọi cột đều
+   "có người", auto-fit hết chỗ co. Dòng nhắc 0 × 0 và khối Mực in vì vậy nằm NGOÀI, ở lưới cha.
+   `min 160px` để hàng sách (8 ô) vẫn đủ chỗ đứng chung một hàng trên màn rộng. */
+.khsx-giayrow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+/* SỐ CỘT LUÔN LÀ ƯỚC CỦA 6 (6 · 3 · 2) — đó là lý do phải khai tay thay vì để `auto-fill` tự
+   cắt: auto-fill cắt 5 cột thì 6 ô thành "5 + 1", bỏ lại một ô lẻ loi giữa hàng trống, còn xấu
+   hơn cảnh thừa cột lúc đầu. Ngưỡng tính theo BỀ RỘNG MÀN vì thanh bên rộng cố định: 1420px là
+   chỗ sáu ô còn đủ ~170px mỗi ô để nhãn "ĐỊNH LƯỢNG (GSM)" không phải xuống dòng. */
+@media (min-width: 1420px) {
+  .khsx-giayrow { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .khsx-giayrow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 460px) {
+  .khsx-giayrow { grid-template-columns: 1fr; }
+}
+/* Ô khổ KHÔNG tô khác ô thường: nhãn đã nói nó là khổ rồi, tô thêm nền/viền riêng chỉ làm thẻ
+   trông vá víu. Phần duy nhất khác là cách viết CẶP số. */
+.khsx-kho__val {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  /* Số cùng bề rộng ⇒ ba khổ nằm ba cột vẫn so được với nhau. */
+  font-variant-numeric: tabular-nums;
+}
+/* Dấu nhân là CHỮ nhưng không phải con số — mờ một bậc để hai số nổi lên trước. Dùng `<i>` nên
+   phải trả lại font-style: chỗ này không có ý nghiêng. */
+.khsx-kho__x {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ash-2);
+}
+/* Đè `margin-left: 5px` của `.khsx-kv__val .khsx-unit`: ở đây khoảng cách đã do `gap` lo, cộng
+   thêm margin thì "mm" trôi hẳn ra khỏi cặp số. */
+.khsx-kho .khsx-unit {
+  margin-left: 1px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--ash-2);
+}
+/* Dòng "3 + 1 = 4 kẽm mỗi tay" do `MucInHang` luôn vẽ kèm — cần ở phiếu tính giá (đang gõ mực,
+   muốn thấy số kẽm nhảy theo), thừa ở lệnh: mực không sửa được nữa và số kẽm đã có ô riêng ngay
+   khối "Máy tự tính" bên dưới. Giấu bằng CSS chứ không thêm cờ vào `MucInHang`: thêm prop là
+   phải sửa chữ ký của component đang dùng chung ba màn. */
+.khsx-muc .tg-muc__derive {
+  display: none;
+}
+
 .khsx-qty__card {
   margin-top: var(--sp-4);
   padding: var(--sp-3) var(--sp-4);

@@ -128,21 +128,7 @@ export function BuocChungForm({
   const dvVao = nhanChang(g.don_vi_vao);
   const dvRa = nhanChang(g.don_vi_ra);
 
-  /** Đầu việc đang GHIM có thể không còn trong bảng đầu việc của tổ (đổi tổ, hoặc dòng bị ngừng) —
-   *  vẫn phải bày ra, không thì `<select>` rơi về "— chọn —" và người dùng tưởng chưa ai chọn. */
-  const dsKhoan = (() => {
-    const ds = [...g.khoan_chon_duoc];
-    if (g.khoan_rate_id != null && !ds.some((k) => k.id === g.khoan_rate_id)) {
-      ds.unshift({
-        id: g.khoan_rate_id,
-        ten: g.khoan_ten ?? `(đang ghim) đầu việc #${g.khoan_rate_id}`,
-      });
-    }
-    return ds;
-  })();
-
-  // Đổi tổ thì cả danh sách đầu việc thuộc tổ CŨ, phải Lưu để backend chấm lại.
-  const doiTo = f.department_id !== undefined;
+  // Đầu việc của lượt chung (`dsKhoan`) GỠ 18/09/2026 (mg `0320`) — như bước lệnh.
 
   // Vật tư sửa theo LÔ: giữ nguyên danh sách hiện có rồi thay cả cụm khi lưu (API là replace-all).
   const vtHienTai = (f.vat_tus ?? g.vat_tus.map((v) => (
@@ -151,34 +137,27 @@ export function BuocChungForm({
   const datVatTu = (rows: { vat_tu_id: number; so_luong: number; nguon_so_luong?: string }[]) =>
     setF({ ...f, vat_tus: rows });
 
-  // Bung vật tư của đầu việc khoán vào danh sách — như bước lệnh. Model bước chung không mang cờ
-  // `tu_dong` nên gộp theo `vat_tu_id`: CHỈ thêm mã chưa có, không đè số người đã khai tay.
-  const bungVatTu = (
-    chon: { vat_tus?: { vat_tu_id: number; so_luong: number }[] } | undefined,
-    goc: { vat_tu_id: number; so_luong: number }[],
-  ) => {
-    const moi = (chon?.vat_tus ?? [])
-      .filter((v) => !goc.some((b) => b.vat_tu_id === v.vat_tu_id))
-      .map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: v.so_luong }));
-    return [...goc, ...moi];
-  };
-
-  // Đầu việc khoán ĐÃ GHIM sẵn (công đoạn chỉ có một đầu việc → server tự chọn) mà chưa có vật tư:
-  // bung vật tư của nó ngay khi mở, y như bước lệnh. Người dùng chưa đụng vật tư (f.vat_tus rỗng) và
-  // bước chưa lưu vật tư nào (g.vat_tus rỗng) mới bung — không đè lên thứ họ đang sửa / đã chốt.
-  useEffect(() => {
-    if (!canUpdate || g.khoan_rate_id == null || f.vat_tus !== undefined || g.vat_tus.length > 0) return;
-    const chon = dsKhoan.find((x) => x.id === g.khoan_rate_id);
-    if (!chon?.vat_tus?.length) return;
-    datVatTu(bungVatTu(chon, vtHienTai));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [g.step_key, g.khoan_rate_id, dsKhoan]);
+  // Bung vật tư theo ĐẦU VIỆC GỠ 18/09/2026: vật tư của lượt chung gợi ý theo CÔNG ĐOẠN
+  // (`vat_tu_goi_y`, server tính từ tab Vật tư của danh mục).
 
   const mayId = val("may_id", g.may_id) ?? null;
+  // Ô TỔ của lượt chung: chỉ các tổ phụ trách khai ở danh mục Công đoạn (nhiều tổ, 18/09/2026),
+  // đúng thứ tự khai. Công đoạn chưa khai tổ ⇒ mời mọi tổ, y như server không chặn. Tổ ĐANG gán mà
+  // không còn phụ trách vẫn phải hiện, nếu không select nhảy về "— chọn tổ —" rồi lưu là mất tổ.
+  const toChon = (() => {
+    const ds = toRefs ?? [];
+    const ids = g.to_chon_duoc ?? [];
+    const items = ids.length
+      ? ids.map((id) => ({ id, ten: ds.find((t) => t.id === id)?.ten ?? `Tổ #${id} (đã xoá)` }))
+      : ds.map((t) => ({ id: t.id, ten: t.ten }));
+    const dangGan = val("department_id", g.department_id) ?? null;
+    if (dangGan != null && !items.some((t) => t.id === dangGan)) {
+      const ten = ds.find((t) => t.id === dangGan)?.ten ?? g.to_ten ?? `Tổ #${dangGan}`;
+      items.push({ id: dangGan, ten: `${ten} (không còn phụ trách công đoạn)` });
+    }
+    return items;
+  })();
   const mayDaChon = (mayRefs ?? []).find((m) => m.id === mayId) ?? null;
-  // Nhân lực: MỘT con số — kíp chuẩn. Hai mốc tối thiểu/tối đa gỡ ở mg `0270`, ô "số người bố
-  // trí" gỡ ở mg `0281`; số này vừa chia thời lượng bước tổ vừa là số cân quân số tổ.
-  const bienTc = val("so_nhan_cong_tieu_chuan", g.so_nhan_cong_tieu_chuan) ?? 1;
 
   // Thời lượng tính LẠI TẠI CHỖ bằng đúng công thức của bước lệnh: đổi máy / số lượt / thời gian
   // khác là bảng bóc tách nhảy ngay, không phải lưu rồi mở lại mới thấy. Chưa nạp xong danh mục máy
@@ -189,11 +168,8 @@ export function BuocChungForm({
         loai_buoc: g.loai_buoc,
         // Bước tổ: server ép 1 lượt (ô đã gỡ 08/09/2026) — bản xem trước phải nói cùng con số.
         so_luot_chay: g.loai_buoc === "to" ? "1" : String(val("so_luot_chay", g.so_luot_chay) ?? 1),
-        // Thời lượng chia theo KÍP CHUẨN (xem `thoi_luong_buoc` ở backend).
-        so_nhan_cong_tieu_chuan: Number(
-          val("so_nhan_cong_tieu_chuan", g.so_nhan_cong_tieu_chuan) || 1,
-        ),
-        nang_suat: String(val("nang_suat", g.nang_suat) ?? ""),
+        // Bước TỔ: giờ = SỐ GIỜ KẾ HOẠCH gõ tay (xem `thoi_luong_buoc` ở backend, mg `0319`).
+        so_gio_ke_hoach: String(val("so_gio_ke_hoach", g.so_gio_ke_hoach) ?? 0),
         phat_sinh_phut: String(val("phat_sinh_phut", g.phat_sinh_phut) ?? 0),
         thoi_luong_dien_giai: g.thoi_luong_dien_giai,
         don_vi_vao: g.don_vi_vao ?? "",
@@ -202,8 +178,7 @@ export function BuocChungForm({
       mayDaChon,
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [g, f.so_luot_chay, f.so_nhan_cong_tieu_chuan,
-     f.nang_suat, f.phat_sinh_phut, mayDaChon],
+    [g, f.so_luot_chay, f.so_gio_ke_hoach, f.phat_sinh_phut, mayDaChon],
   );
 
   const setup = Number(tg.setup_phut ?? 0);
@@ -333,32 +308,13 @@ export function BuocChungForm({
               {/* Băng giải thích "bước không nằm trên dòng giấy" ĐÃ BỎ 09/09/2026, cùng lượt với
                   băng song sinh ở `LsxBuocDrawer` — nó chỉ mô tả lại cách máy tính số, không đòi
                   người khai làm gì. `tren_giay` vẫn về từ API và vẫn lái cách tính.
-                  Băng ĐỎ dưới đây GIỮ: nó báo bài KHÔNG phát hành được, phải khai cầu quy đổi. */}
-              {g.loi_quy_doi ? (
-                <div className="khsx-note-banner khsx-note-banner--error">
-                  <span className="khsx-note-icon">⚠</span>
-                  <span>
-                    <strong>Chưa tính được số vào.</strong> {g.loi_quy_doi}{" "}
-                    Khai cầu quy đổi ở module <strong>Đơn vị &amp; quy đổi</strong> rồi mở lại bước —
-                    không có cầu thì bài không phát hành được.
-                  </span>
-                </div>
-              ) : null}
-
+                  Băng ĐỎ "Chưa tính được số vào" (`loi_quy_doi`) và dòng "Số ra = …"
+                  (`san_luong_dien_giai`) GỠ 18/09/2026 (mg `0324`) cùng công thức sản lượng ra. */}
               {g.canh_bao_don_vi.map((c) => (
                 <div className="khsx-note-banner khsx-note-banner--warn" key={c}>
                   <span>{c}</span>
                 </div>
               ))}
-
-              {/* SỐ RA đến từ đâu — công thức sản lượng của công đoạn (chỉ bước ngoài dòng giấy). Với
-                  bước ngoài dòng, RA là gốc (số kẽm/bản) còn VÀO suy ngược từ nó. */}
-              {g.san_luong_dien_giai && (
-                <div className="khsx-flow-formula">
-                  <span className="khsx-flow-formula__label">Số ra =</span>
-                  <span className="khsx-flow-formula__expr">{g.san_luong_dien_giai}</span>
-                </div>
-              )}
 
               <div className="khsx-flow-pipeline">
                 <div className="khsx-flow-node khsx-flow-node--in">
@@ -460,11 +416,14 @@ export function BuocChungForm({
                     onChange={(e) => setF({ ...f, department_id: e.target.value ? Number(e.target.value) : null })}
                   >
                     <option value="">— chọn tổ —</option>
-                    {(toRefs ?? []).map((t) => (
+                    {toChon.map((t) => (
                       <option key={t.id} value={t.id}>{t.ten}</option>
                     ))}
                   </select>
-                  <span className="khsx-field__hint">Đổi tổ thì bảng khoán đổi theo — lưu rồi mở lại mới thấy danh sách mới.</span>
+                  <span className="khsx-field__hint">
+                    {(g.to_chon_duoc?.length ?? 0) > 0 ? "Chỉ các tổ phụ trách khai ở danh mục Công đoạn. " : ""}
+                    Đổi tổ thì bảng khoán đổi theo — lưu rồi mở lại mới thấy danh sách mới.
+                  </span>
                 </label>
 
                 {!ngoai && (
@@ -510,103 +469,8 @@ export function BuocChungForm({
               </div>
             </section>
 
-            {!ngoai && (
-              <section className="khsx-section-card">
-                <div className="khsx-section-card__head">
-                  <h3 className="khsx-section-card__title">
-                    {g.loai_buoc === "may" ? "Nhân sự vận hành máy" : "Nhân sự làm tay"}
-                  </h3>
-                </div>
-                {/* Cùng một hình với khối Nhân lực của bước lệnh: MỘT ô kíp chuẩn. Hai mốc tối
-                    thiểu/tối đa gỡ ở mg `0270`, ô "số người bố trí" gỡ ở mg `0281`. */}
-                <div className="khsx-labor-section">
-                  {/* KÍP CHUẨN — ô nhân lực duy nhất, kế thừa từ định mức đầu việc của công đoạn. */}
-                  <div className="khsx-labor-triplet-card">
-                    <span className="khsx-field__label">KÍP CHUẨN (ĐỊNH MỨC CÔNG ĐOẠN)</span>
-                    <div className="khsx-labor-triplet-grid">
-                      <label className="khsx-labor-pill-input">
-                        <span className="khsx-labor-pill-label">Kíp chuẩn</span>
-                        <input
-                          type="number"
-                          min="1"
-                          className="khsx-labor-num-field"
-                          value={val("so_nhan_cong_tieu_chuan", g.so_nhan_cong_tieu_chuan) ?? ""}
-                          placeholder="—"
-                          disabled={!canUpdate}
-                          onChange={(e) =>
-                            setF({
-                              ...f,
-                              so_nhan_cong_tieu_chuan:
-                                e.target.value === "" ? 1 : Math.max(1, Number(e.target.value) || 1),
-                            })
-                          }
-                        />
-                        <span className="khsx-labor-unit">người</span>
-                      </label>
-                    </div>
-                    <span className="khsx-field__hint">
-                      {g.loai_buoc === "may" ? (
-                        <>Kíp đứng máy chỉ để bàn xếp lịch cân quân số tổ — không đổi thời lượng, vì
-                        thời lượng bước máy chạy theo tốc độ máy.</>
-                      ) : (
-                        <>
-                          Kíp chuẩn <strong>rút ngắn thời gian</strong>: năng suất khoán khai theo
-                          đầu người nên kíp {Math.max(1, Number(bienTc) || 1)} người làm nhanh gấp{" "}
-                          {Math.max(1, Number(bienTc) || 1)}. Bàn xếp lịch cũng{" "}
-                          <strong>cân quân số tổ</strong> theo đúng số này.
-                        </>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {(g.khoan_chon_duoc.length > 0 || g.khoan_rate_id != null) && (
-              <section className="khsx-section-card">
-                <div className="khsx-section-card__head">
-                  <h3 className="khsx-section-card__title">Đầu việc thợ làm</h3>
-                  <span className="khsx-tag-subtle">bảng đầu việc của tổ</span>
-                </div>
-
-                <div className="khsx-khoan-body">
-                  {/* Ghim theo ID; tên + định mức là ảnh chụp do server giữ. */}
-                  <select
-                    className="khsx-select-std"
-                    value={val("piece_rate_id", g.khoan_rate_id) ?? ""}
-                    disabled={!canUpdate}
-                    onChange={(e) => {
-                      const id = e.target.value ? Number(e.target.value) : null;
-                      const chon = id != null ? dsKhoan.find((k) => k.id === id) : undefined;
-                      const bung = bungVatTu(chon, vtHienTai);
-                      setF({
-                        ...f,
-                        piece_rate_id: id,
-                        ...(bung.length > vtHienTai.length ? { vat_tus: bung } : {}),
-                      });
-                    }}
-                  >
-                    <option value="">— chọn đầu việc —</option>
-                    {dsKhoan.map((k) => (
-                      <option key={k.id} value={k.id}>{k.ten}</option>
-                    ))}
-                  </select>
-
-                  <div className="khsx-khoan-status-row">
-                    {doiTo || f.piece_rate_id !== undefined ? (
-                      <span className="khsx-pill-status khsx-pill-status--warn">
-                        Lưu lượt chung để tính lại định mức giờ
-                      </span>
-                    ) : g.khoan_chon_duoc.length > 1 ? (
-                      <span className="khsx-field__hint">
-                        Tổ có {g.khoan_chon_duoc.length} đầu việc — chọn đúng việc thợ làm thì máy mới
-                        lấy được năng suất và kíp chuẩn của việc đó.
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              </section>
-            )}
+            {/* Thẻ "KÍP CHUẨN" + "Đầu việc thợ làm" GỠ 18/09/2026 (mg `0320` + `0321`) — như
+                bước lệnh. Giờ của lượt chung tổ gõ ở tab Thời gian (Số giờ kế hoạch). */}
           </div>
         )}
 
@@ -887,19 +751,24 @@ export function BuocChungForm({
                 )}
 
                 {g.loai_buoc === "to" ? (
+                  // SỐ GIỜ KẾ HOẠCH (mg `0319`) thay ô "Năng suất một người" — y như bước lệnh:
+                  // mặc định 0, nhận số lẻ, để 0 không cảnh báo.
                   <label className="khsx-field">
-                    <span className="khsx-field__label">NĂNG SUẤT MỘT NGƯỜI</span>
+                    <span className="khsx-field__label">SỐ GIỜ KẾ HOẠCH</span>
                     <div className="khsx-input-unit-combine">
                       <input
-                        type="number" min="0" className="khsx-input-combine__num"
-                        placeholder="theo đầu việc"
-                        value={val("nang_suat", g.nang_suat) ?? ""}
+                        type="number" min="0" step="0.25" inputMode="decimal"
+                        className="khsx-input-combine__num"
+                        placeholder="0"
+                        value={val("so_gio_ke_hoach", g.so_gio_ke_hoach) ?? 0}
                         disabled={!canUpdate}
-                        onChange={(e) => setF({ ...f, nang_suat: e.target.value ? Number(e.target.value) : null })}
+                        onChange={(e) => setF({
+                          ...f, so_gio_ke_hoach: Math.max(0, Number(e.target.value) || 0),
+                        })}
                       />
-                      <span className="khsx-input-combine__unit">{dvVao || "đv"}/giờ</span>
+                      <span className="khsx-input-combine__unit">giờ</span>
                     </div>
-                    <span className="khsx-field__hint">Nhân với số người kế hoạch để ra năng suất cả tổ.</span>
+                    <span className="khsx-field__hint">Tổ ước làm cả lượt chung bao lâu. Để 0 nếu chưa ước.</span>
                   </label>
                 ) : (
                   <div className="khsx-field" />
@@ -1101,9 +970,7 @@ export function BuocChungForm({
                           </span>
                         </div>
                         <span className="khsx-time-row__src">
-                          Nguồn: {g.loai_buoc === "may"
-                            ? (mayDaChon?.ten ?? g.may_ten ?? "Chưa gán máy")
-                            : (g.khoan_ten ?? "Đầu việc khoán")}
+                          Nguồn: {mayDaChon?.ten ?? g.may_ten ?? "Chưa gán máy"}
                         </span>
                       </div>
                     </div>

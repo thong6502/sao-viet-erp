@@ -54,14 +54,14 @@ def test_0297_bo_bang_thuong_to_truong():
 
 
 def test_model_khong_con_cot_don_gia():
-    from app.models.san_xuat_phan_bo import (
-        SanXuatPhanBo,
-        SanXuatPhanBoBuTru,
-        SanXuatPhanBoDong,
-    )
+    """18/09/2026 (mg `0322`): cả tầng CHIA SẢN LƯỢNG gỡ hẳn — bốn bảng phân bổ không còn model
+    nào, nên chẳng còn chỗ nào mọc lại cột tiền."""
+    import app.models as m
+    import app.models.san_xuat_phan_bo as pb
 
-    for model in (SanXuatPhanBo, SanXuatPhanBoDong, SanXuatPhanBoBuTru):
-        assert "don_gia" not in model.__table__.columns, model.__tablename__
+    for ten in ("SanXuatPhanBo", "SanXuatPhanBoDong", "SanXuatPhanBoBuTru",
+                "SanXuatPhanBoLoaiTru"):
+        assert not hasattr(pb, ten) and not hasattr(m, ten), ten
 
 
 def test_model_thuong_to_truong_da_go():

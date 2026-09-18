@@ -1,7 +1,8 @@
 """Đơn giá khoán ORM (module `luong`, nhịp 2).
 
 Một bảng duy nhất:
-  - `piece_rates` — đơn giá khoán theo tổ/bộ phận + đơn vị (m²/bài in/tấn/cuốn/lượt/hộp).
+  - `piece_rates` — đơn giá khoán theo công việc + đơn vị (m²/bài in/tấn/cuốn/lượt/hộp); các tổ
+                    làm việc đó ở bảng nối `cong_viec_khoan_to`.
                     Số hóa các bảng "CÔNG KHOÁN" thật; là bảng giá tra khi ghi Phiếu sản lượng.
 
 Lương khoán KHÔNG còn tầng "sổ khoán" (quỹ tổ + chia hệ số). Tiền khoán mỗi NV = Phiếu sản
@@ -34,7 +35,7 @@ def _utcnow() -> datetime:
 
 
 class PieceRate(Base):
-    """Đơn giá khoán: 1 công việc của 1 tổ với đơn vị + đơn giá.
+    """Đơn giá khoán: 1 công việc (của một hay NHIỀU tổ) với đơn vị + đơn giá.
 
     Từ 17/08/2026 đây là DANH MỤC "Công việc khoán" trong Cấu hình danh mục (`loai =
     "cong_viec_khoan"`, quyền `dm_cong_viec_khoan`) — cùng nền với 10 màn kia, nên có mã tự sinh,
@@ -46,11 +47,8 @@ class PieceRate(Base):
     __tablename__ = "piece_rates"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # Tổ khoán (vd 'to_boi', 'to_can_phu', 'to_cat', 'may_in_5mau'). Trục gom + tra.
-    group_name: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
-    # Tổ (departments.id) sở hữu đơn giá — khai đơn giá NGAY trong Cấu hình lương của tổ.
-    # Nullable: đơn giá cũ/chưa gắn tổ vẫn hợp lệ; group_name giữ làm nhãn hiển thị.
-    department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # ⚠️ `group_name` (nhãn tổ) + `department_id` (MỘT tổ) GỠ 17/09/2026, mg `0311`: một công việc
+    # khoán nay làm được ở NHIỀU tổ — danh sách nằm ở bảng nối `cong_viec_khoan_to` (`to_lam`).
     # ⚠️ `ma` · `ten` · `active` — ĐỔI TÊN từ `code` · `name` · `is_active` ngày 17/08/2026 (mg
     # `0210`) để bảng vào được nền danh mục dùng chung (`CatalogRepo` · `CatalogService` ·
     # `make_catalog_router` đều đọc đúng ba tên này). Đây là ĐỔI TÊN CỘT THẬT, không phải bí danh:
@@ -69,10 +67,16 @@ class PieceRate(Base):
     # CÔNG THỨC LƯỢNG của ĐẦU VIỆC NÀY (mg `0213`) — "việc này khoán theo lượng nào", tính ra số
     # đơn vị của `unit` rồi mới nhân `unit_price`.
     #
-    # Ô "Cách đo lượng khoán" (`cong_thuc_luong`) ĐÃ GỠ 06/09/2026, migration `0274`: cách đo nay
-    # khai ở `cong_doan_dau_viec.cong_thuc_khoan` — cùng một đầu việc chạy ở hai công đoạn thì đếm
-    # lượng theo hai cách khác nhau, treo ở bảng đơn giá là bắt hai công đoạn dùng chung một cách.
-    # Việc GHÌM vào bước lệnh (`khoan_snapshot`) giữ nguyên, chỉ đổi nguồn đọc.
+    # CÁCH ĐO LƯỢNG KHOÁN — tab "Công thức khoán" của màn Công việc khoán (18/09/2026, mg `0317`).
+    # Ra LƯỢNG theo `unit`; màn Khoán theo kỳ của kế toán nhân với `unit_price`. TẦNG SẢN XUẤT
+    # TUYỆT ĐỐI KHÔNG CHẠY CÔNG THỨC NÀY — bàn tổ chỉ ghi nhận số lượng, không phép nhân nào.
+    #
+    # Đây là QUAY NGƯỢC mg `0274` (hồi đó dời ô này xuống bảng đầu việc của công đoạn), ghi rõ
+    # để lượt sau không tưởng là quên. Lý do hồi đó — "cùng đầu việc làm ở hai công đoạn thì đếm
+    # khác nhau" — tan khi mỗi công việc khoán đã mang MÃ RIÊNG của xưởng, đã mã hoá sẵn khổ / số
+    # màu / số lớp. Một mã việc = một cách đếm. Đo trên DB dev 18/09/2026: mỗi công việc khoán chỉ
+    # khai ở ĐÚNG MỘT công đoạn, 0 xung đột công thức ⇒ dồn về đây là 1-1, không mất gì.
+    cong_thuc_khoan: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Còn dùng hay đã ngừng. Xoá một đơn giá đang được định mức đầu việc trỏ tới là làm mồ côi dữ
     # liệu, nên luồng xoá chung chỉ tắt cờ này khi còn nơi dùng (xem `danh_muc_tham_chieu`).
@@ -86,6 +90,44 @@ class PieceRate(Base):
         "ViecPhatSinh", back_populates="cong_viec_khoan", order_by="ViecPhatSinh.thu_tu",
         cascade="all, delete-orphan",
     )
+    # CÁC TỔ làm việc này (17/09/2026) — cùng một việc ("Bế nổi") có thể do tổ Bế lẫn tổ Thành phẩm
+    # làm, cùng đơn giá. `delete-orphan`: bỏ một tổ khỏi danh sách là xoá dòng nối.
+    to_lam: Mapped[list["CongViecKhoanTo"]] = relationship(
+        "CongViecKhoanTo", back_populates="cong_viec_khoan",
+        order_by="CongViecKhoanTo.department_id", cascade="all, delete-orphan",
+    )
+
+    @property
+    def department_ids(self) -> list[int]:
+        """Id các tổ làm việc này — thứ mọi chỗ khớp "đầu việc của tổ X" đọc (`X in department_ids`)."""
+        return [t.department_id for t in self.to_lam]
+
+    @department_ids.setter
+    def department_ids(self, ids: list[int]) -> None:
+        """Thay TRỌN danh sách tổ. Giữ nguyên dòng nối của tổ còn trong danh sách (không
+        xoá-rồi-chèn): cùng khoá chính `(piece_rate_id, department_id)`, xoá rồi chèn lại trong một
+        lần flush là vấp thứ tự INSERT/DELETE của unit-of-work."""
+        cu = {t.department_id: t for t in self.to_lam}
+        self.to_lam = [cu.get(int(i)) or CongViecKhoanTo(department_id=int(i))
+                       for i in dict.fromkeys(ids)]
+
+
+class CongViecKhoanTo(Base):
+    """Một TỔ làm được một công việc khoán — bảng nối `piece_rates` ↔ `departments`.
+
+    `department_id` là soft-ref như mọi cột tổ khác (không FK cứng sang `departments`): tổ bị xoá thì
+    dòng nối ở lại, form hiện "(không còn là tổ)" để người khai tự gỡ — xoá ngầm là mất dấu việc
+    đó từng thuộc tổ nào.
+    """
+
+    __tablename__ = "cong_viec_khoan_to"
+
+    piece_rate_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("piece_rates.id", ondelete="CASCADE"), primary_key=True
+    )
+    department_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    cong_viec_khoan: Mapped["PieceRate"] = relationship("PieceRate", back_populates="to_lam")
 
 
 class ViecPhatSinh(Base):

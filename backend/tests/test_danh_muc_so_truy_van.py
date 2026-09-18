@@ -17,7 +17,7 @@ from sqlalchemy import event
 
 from app.db import SessionLocal, engine
 from app.models.audit import AuditLog
-from app.models.cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu, CongDoanMay
+from app.models.cong_doan import CongDoan, CongDoanMay, CongDoanVatTu
 from app.models.customer import Customer
 from app.models.department import Department
 from app.models.khuon_be import KhuonBe
@@ -41,7 +41,6 @@ DANH_SACH = [
     "/api/may-thiet-bi?size=200",
     "/api/may-thiet-bi/trang-thai",
     "/api/cong-doan/phong-ban",
-    "/api/cong-doan/dau-viec",
     "/api/nhom-may",
 ]
 
@@ -62,7 +61,7 @@ def _dem_truy_van(fn):
 
 
 def _dung_danh_muc(n: int) -> dict[str, int]:
-    """`n` dòng cho MỖI danh mục; mỗi công đoạn kèm 2 đầu việc × 2 vật tư + 2 máy.
+    """`n` dòng cho MỖI danh mục; mỗi công đoạn kèm 2 vật tư (tab Vật tư) + 2 máy.
 
     Ghi thẳng qua ORM chứ không qua API: bài này đo TẢI, dựng vài trăm dòng bằng POST chỉ tốn thời
     gian mà không khoá thêm điều gì.
@@ -75,7 +74,7 @@ def _dung_danh_muc(n: int) -> dict[str, int]:
         khs = [Customer(code=f"STKH{d}-{i}", name=f"ST Khach {d}-{i}") for i in range(n)]
         db.add_all([to, cl, *khs])
         db.flush()
-        rates = [PieceRate(group_name=to.name, department_id=to.id, ma=f"STR{d}-{i}",
+        rates = [PieceRate(department_ids=[to.id], ma=f"STR{d}-{i}",
                            ten=f"ST viec {d}-{i}", unit="to", unit_price=100) for i in range(n)]
         vts = [VatTuInAn(ma=f"STVT{d}-{i}", ten=f"ST vt {d}-{i}", don_vi_gia="kg") for i in range(n)]
         mays = [MayThietBi(ma=f"STM{d}-{i}", ten=f"ST may {d}-{i}", loai_may="press_offset_sheet")
@@ -92,18 +91,13 @@ def _dung_danh_muc(n: int) -> dict[str, int]:
         cd_dau = None
         for i in range(n):
             cd = CongDoan(ma=f"STCD{d}-{i}", ten=f"ST cd {d}-{i}", nhom="finishing",
-                          pricing_basis="per_finished_qty", department_id=to.id)
+                          pricing_basis="per_finished_qty", department_ids=[to.id])
             db.add(cd)
             db.flush()
             cd_dau = cd_dau or cd
             for j in range(2):
-                dv = CongDoanDauViec(cong_doan_id=cd.id, piece_rate_id=rates[(i + j) % n].id,
-                                     nang_suat_nguoi_gio=100)
-                db.add(dv)
-                db.flush()
-                db.add_all([CongDoanDauViecVatTu(cong_doan_dau_viec_id=dv.id,
-                                                 vat_tu_id=vts[(i + j + k) % n].id)
-                            for k in range(2)])
+                db.add(CongDoanVatTu(cong_doan_id=cd.id, vat_tu_id=vts[(i + j) % n].id, thu_tu=j,
+                                     cong_thuc_luong="sl_vao / 1000"))
                 db.add(CongDoanMay(cong_doan_id=cd.id, may_id=mays[(i + j) % n].id, thu_tu=j))
         db.commit()
         return {"cong_doan": cd_dau.id, "may_thiet_bi": mays[0].id, "cong_viec_khoan": rates[0].id}
@@ -147,12 +141,14 @@ def test_danh_sach_khong_chay_theo_so_dong(client):
 
 
 def test_drawer_khong_chay_theo_nhat_ky_va_con(client):
-    """Chi tiết · tab Nhật ký · kiểm-xoá · lịch sử công thức: số truy vấn không theo số dòng nhật ký."""
+    """Chi tiết · tab Nhật ký · kiểm-xoá: số truy vấn không theo số dòng nhật ký.
+
+    Lịch sử công thức của Công đoạn GỠ 18/09/2026 (mg `0324`) cùng ô công thức sản lượng ra.
+    """
     h = {"Authorization": f"Bearer {_admin_token(client)}"}
     ids = _dung_danh_muc(12)
     urls = [
         f"/api/cong-doan/{ids['cong_doan']}",
-        f"/api/cong-doan/{ids['cong_doan']}/lich-su-cong-thuc",
         f"/api/cong-viec-khoan/{ids['cong_viec_khoan']}",
         f"/api/may-thiet-bi/{ids['may_thiet_bi']}",
         f"/api/nhat-ky-danh-muc/cong_doan/{ids['cong_doan']}",

@@ -122,17 +122,12 @@ export function LsxVatTuPanel({ ke }: { ke: BangKeVatTu }) {
           </span>
         </div>
 
-        {(ke.so_buoc_chua_dau_viec > 0 || ke.buocs.some((b) => b.thieu_khuon)) && (
+        {ke.buocs.some((b) => b.thieu_khuon) && (
           <>
             <div className="khsx-vtke__strip-sep" aria-hidden="true" />
             <div className="khsx-vtke__strip-item">
               <span className="khsx-vtke__strip-lbl">Cảnh báo</span>
               <div className="khsx-vtke__strip-alerts">
-                {ke.so_buoc_chua_dau_viec > 0 && (
-                  <span className="khsx-vtke__strip-badge khsx-vtke__strip-badge--warn">
-                    <Icon name="alert" size={12} /> {ke.so_buoc_chua_dau_viec} bước chưa chọn đầu việc
-                  </span>
-                )}
                 {ke.buocs.some((b) => b.thieu_khuon) && (
                   <span className="khsx-vtke__strip-badge khsx-vtke__strip-badge--danger">
                     <Icon name="alert" size={12} /> Thiếu khuôn bế
@@ -162,11 +157,6 @@ export function LsxVatTuPanel({ ke }: { ke: BangKeVatTu }) {
                     {b.to && <span className="khsx-vtke__org-tag">{b.to}</span>}
                     {b.may && <span className="khsx-vtke__mach-tag">{b.may}</span>}
                   </div>
-                  {b.dau_viec ? (
-                    <span className="khsx-vtke__job-tag">{b.dau_viec}</span>
-                  ) : (
-                    <span className="khsx-vtke__job-tag is-empty">chưa chọn đầu việc</span>
-                  )}
                 </div>
 
                 <div className="khsx-vtke__flow-bar">

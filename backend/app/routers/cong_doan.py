@@ -1,9 +1,9 @@
-"""Công đoạn router — CRUD danh mục + hai cửa tham chiếu (`/phong-ban`, `/dau-viec`).
+"""Công đoạn router — CRUD danh mục + một cửa tham chiếu (`/phong-ban`).
 
 Thân CRUD sinh từ `routers/catalog_base.make_catalog_router`. Dependency INLINE (không đụng
 deps.py). MODULE quyền = "dm_cong_doan".
 
-⚠️ Hai route TĨNH bên dưới phải khai TRƯỚC lời gọi factory ở cuối file — factory dựng
+⚠️ Route TĨNH bên dưới phải khai TRƯỚC lời gọi factory ở cuối file — factory dựng
 `/{item_id}`, mà FastAPI khớp route theo THỨ TỰ khai: để sau thì `"phong-ban"` rơi vào
 `{item_id}` và ăn 422 vì không ép được sang int.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -60,18 +60,8 @@ def list_phong_ban_options(
     return RefOptionListOut(items=[RefOption(**r) for r in svc.phong_ban_options()])
 
 
-@router.get("/dau-viec")
-def list_dau_viec_options(
-    svc: Service,
-    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("luong", "read")))],
-    department_id: int | None = Query(default=None),
-):
-    """Đầu việc khoán của một tổ — BẢNG CON (`piece_rates`), không phải danh mục Công đoạn.
-
-    Giữ THỦ CÔNG: nó đọc bảng khác, gác bằng quyền khác (`luong`), và trả phong bì dựng tay.
-    """
-    items = svc.dau_viec_options(department_id)
-    return {"items": items, "total": len(items), "page": 1, "size": max(len(items), 1)}
+# ⚠️ Route `/dau-viec` GỠ 18/09/2026 (mg `0320`) cùng bảng "Đầu việc và định mức của tổ": drawer
+#    Công đoạn thôi khai đầu việc nên không còn dropdown nào cần đổ.
 
 make_catalog_router(
     router, ten="cong_doan", ServiceDep=Service, module=MODULE, doc=_DOC,
@@ -80,6 +70,7 @@ make_catalog_router(
     facets=lambda svc, kw: svc.dem_theo_nhom(**kw),
     ma_goi_y=True,      # repo khai `ma_prefix = "CD-"`
     enable_clone=True,
-    cong_thuc_truong="cong_thuc_san_luong",
+    # `cong_thuc_truong="cong_thuc_san_luong"` GỠ 18/09/2026 (mg `0324`) cùng cột ấy — công đoạn
+    # không còn ô công thức nào có lịch sử "lần trước".
     excel_spec=CONG_DOAN,
 )

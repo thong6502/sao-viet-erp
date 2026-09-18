@@ -78,6 +78,12 @@ export function ThsxLenhGroups({
               <Icon name={sxNguonIcon(l.nguon_loai)} size={15} className="thsx-lenh__ic" />
               <span className="thsx-lenh__ma thsx-num">{l.nguon_ma || "— không rõ lệnh —"}</span>
               <span className="thsx-lenh__ten">{l.nguon_ten}</span>
+              {l.khach_hang && (
+                <span className="thsx-lenh__khach" title={`Khách hàng: ${l.khach_hang}`}>
+                  <Icon name="building" size={12} />
+                  <span>{l.khach_hang}</span>
+                </span>
+              )}
               <ChamCho c={choLenh} />
               <span className="thsx-lenh__spacer" />
               <span className="thsx-lenh__gio thsx-num">

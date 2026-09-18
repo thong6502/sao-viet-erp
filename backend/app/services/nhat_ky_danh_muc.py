@@ -25,7 +25,9 @@ from sqlalchemy import inspect as sa_inspect
 
 from ..models.may_thiet_bi import ma_don_vi_goc
 from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.cong_doan_repo import CongDoanRepository
 from ..repositories.cong_thuc_lich_su_repo import CongThucLichSuRepository
+from ..repositories.cong_viec_khoan_repo import CongViecKhoanRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
 
 # --- Hành động: một tên cho mỗi loại thao tác, frontend dịch sang nhãn + icon --------------
@@ -34,8 +36,8 @@ ACTION_SUA = "dm_sua"
 ACTION_XOA = "dm_xoa"
 
 # Trường công thức — đổi thì ghi thêm 1 dòng có cấu trúc vào `cong_thuc_lich_su` (xem docstring
-# đầu file). Chỉ 2 trường này vì chỉ 2 tên cột công thức tồn tại trên cả 5 danh mục.
-CONG_THUC_TRUONG = frozenset({"cong_thuc_luong", "cong_thuc_san_luong"})
+# đầu file). `cong_thuc_san_luong` (Công đoạn) GỠ 18/09/2026 cùng cột ấy (mg `0324`).
+CONG_THUC_TRUONG = frozenset({"cong_thuc_luong"})
 
 # Cột kỹ thuật — đổi cũng không ai quan tâm, ghi vào chỉ làm nhiễu nhật ký.
 # `version` là bộ đếm khoá lạc quan (chống hai người sửa đè nhau), tự tăng MỖI lần lưu: để nó lọt
@@ -146,9 +148,14 @@ NHAN: dict[str, str] = {
     "so_to_bu_hao": "Số lượng cộng cố định",
     "don_vi_vao": "Đơn vị đầu vào",
     "don_vi_ra": "Đơn vị đầu ra",
+    # `he_so_ngoai_dong` · `cong_thuc_san_luong` · `don_vi_san_luong` GỠ 18/09/2026 (mg `0324`) —
+    # nhãn giữ cho dòng nhật ký cũ.
     "he_so_ngoai_dong": "Hệ số vào → ra",
     "nhom_may_cho_phep": "Máy làm được công đoạn này",
+    # `department_id` (một tổ) GỠ 18/09/2026 — nhãn giữ cho dòng nhật ký cũ. Nay tổ là DANH SÁCH,
+    # gom thành chữ ở `_con_cua_cong_doan` (`to_phu_trach`).
     "department_id": "Tổ phụ trách",
+    "to_phu_trach": "Tổ phụ trách",
     "khoan_ghi_theo": "Khoán ghi theo",
     "allowed_defect_pct": "Hỏng cho phép",
     "allowed_defect_abs": "Hỏng cho phép (số tuyệt đối)",
@@ -170,13 +177,14 @@ NHAN: dict[str, str] = {
     # Ô của Giấy (mở lại 07/09/2026) và dòng vật tư của đầu việc dùng CHUNG nhãn này — cả hai đều
     # trả lời "một lệnh ăn bao nhiêu", nên gọi cùng một tên: "định mức".
     "cong_thuc_luong": "Công thức tính định mức",
+    # Hai nhãn dưới: cột GỠ 18/09/2026 (mg `0324`), giữ cho dòng nhật ký cũ.
     "cong_thuc_san_luong": "Công thức sản lượng ra",
     "don_vi_san_luong": "Đơn vị sản lượng",
     # Bốn ô công thức chuyển về màn Công đoạn (06/09/2026) — thiếu nhãn là in tên cột thô ra.
     "cong_thuc_gio": "Công thức giờ chạy",
     "cong_thuc_khoan": "Công thức tính tiền công",
     "may_lam_duoc": "Máy chạy được công đoạn này",
-    "dau_viec_dinh_muc": "Đầu việc và định mức của tổ",
+    "vat_tus": "Vật tư và định mức",
     # Thành phẩm (mg 0203–0204, 0228) — mấy cột này nằm trên `vat_tu_in_an` nên nhật ký của MÀN
     # Vật tư khác cũng có thể chạm tới. Thiếu nhãn là in tên cột thô ra cho người dùng đọc.
     "customer_id": "Khách hàng",
@@ -225,9 +233,10 @@ NHAN: dict[str, str] = {
     "le_hong_mm": "Lề hông",
     "duoi_thang_mau_mm": "Đuôi + thanh màu",
     # Công việc khoán (`piece_rates`, 17/08/2026) — tên cột đời cũ còn tiếng Anh, nhật ký in NHÃN.
-    # `group_name` là NHÃN TỔ lưu trên dòng, khác `department_id` là con trỏ sang cây tổ chức: sửa
-    # tổ thì cả hai cùng đổi, nên phải đọc ra hai câu khác nhau mới hiểu chuyện gì xảy ra.
+    # `group_name` (nhãn tổ) GỠ 17/09/2026 cùng `department_id` của bảng này — nhãn giữ lại cho
+    # dòng nhật ký cũ. Nay tổ là DANH SÁCH, gom thành chữ ở `_con_cua_cong_viec_khoan` (`to_lam`).
     "group_name": "Tổ (nhãn trên dòng)",
+    "to_lam": "Tổ làm việc này",
     "unit": "Đơn vị",
     "unit_price": "Đơn giá",
     "cong_doan": "Công đoạn (cột cũ)",
@@ -461,8 +470,11 @@ def anh_chup(obj: Any) -> dict[str, Any]:
     return ra
 
 
-def _con_cua_cong_viec_khoan(obj: Any) -> dict[str, dict[str, str]]:
+def _con_cua_cong_viec_khoan(obj: Any) -> dict[str, Any]:
     """Việc phát sinh của công việc khoán → dict `{tên việc: "100 đ/bản kẽm"}` để nhật ký so từng việc.
+
+    Kèm `to_lam` — DANH SÁCH tổ in thành một chuỗi tên ("Tổ Bế, Tổ Thành phẩm"): thêm/gỡ một tổ đọc
+    ra một dòng "trước → sau". Tổ đã xoá khỏi cây tổ chức in "(tổ #id đã xoá)" chứ không bỏ trắng.
 
     Cùng lý do với `_con_cua_cong_doan`: `columns` không thấy bảng con, không gom thì đổi đơn giá
     thay kẽm không để lại vết nào. Khoá theo TÊN (thứ người đọc nhật ký nhận ra), nên đổi tên một
@@ -475,11 +487,16 @@ def _con_cua_cong_viec_khoan(obj: Any) -> dict[str, dict[str, str]]:
     if getattr(obj, "__tablename__", "") != "piece_rates":
         return {}
     viecs = getattr(obj, "viec_phat_sinh", None) or []
-    s = sa_inspect(obj).session if viecs else None
-    bang = DonViDoRepository(s).ten_theo_ma() if s is not None else {}
-    return {"viec_phat_sinh": {
-        v.ten: f"{_so(v.don_gia)} đ/{nhan_don_vi(bang, v.don_vi)}" for v in viecs
-    }}
+    ids = list(getattr(obj, "department_ids", None) or [])
+    s = sa_inspect(obj).session if (viecs or ids) else None
+    bang = DonViDoRepository(s).ten_theo_ma() if s is not None and viecs else {}
+    to = CongViecKhoanRepository(s).to_theo_id(ids) if s is not None and ids else {}
+    return {
+        "to_lam": ", ".join(to[i][1] if i in to else f"(tổ #{i} đã xoá)" for i in ids) or None,
+        "viec_phat_sinh": {
+            v.ten: f"{_so(v.don_gia)} đ/{nhan_don_vi(bang, v.don_vi)}" for v in viecs
+        },
+    }
 
 
 def _con_cua_cong_doan(obj: Any) -> dict[str, dict[str, Any]]:
@@ -489,24 +506,47 @@ def _con_cua_cong_doan(obj: Any) -> dict[str, dict[str, Any]]:
     máy — thứ đổi thẳng vào tiền báo giá — không để lại vết nào trong Nhật ký danh mục.
     `mo_ta_thay_doi` đã biết so từng khoá con của dict, nên mỗi máy / đầu việc ra đúng một dòng.
 
-    Luôn trả CẢ HAI khoá kể cả khi rỗng: thiếu khoá ở ảnh "sau" thì vòng lặp của
+    Luôn trả MỌI khoá kể cả khi rỗng: thiếu khoá ở ảnh "sau" thì vòng lặp của
     `mo_ta_thay_doi` không ghé qua, và lần xoá sạch máy sẽ im lặng.
     """
     if getattr(obj, "__tablename__", "") != "cong_doan":
         return {}
+    s = sa_inspect(obj).session
+    # Tổ phụ trách là DANH SÁCH (mg `0312`) — in thành một chuỗi tên như `to_lam` của công việc khoán.
+    ids = list(getattr(obj, "department_ids", None) or [])
+    to = CongViecKhoanRepository(s).to_theo_id(ids) if s is not None and ids else {}
+    to_phu_trach = ", ".join(to[i][1] if i in to else f"(tổ #{i} đã xoá)" for i in ids) or None
+    # Khoá con in TÊN máy / vật tư ("Heidelberg SM102 (MAY-01)"), không in id — "Máy #55" người đọc
+    # nhật ký không tra ra được. Kèm mã vì tên có thể trùng: hai máy cùng tên chung một khoá là
+    # thay đổi của máy này đè mất máy kia. Tra theo lô, một câu cho cả danh sách.
+    # Nối nhãn bằng " › ", KHÔNG bằng " · ": `ghi_sua` nối các thay đổi bằng " · " và `NhatKyTab`
+    # cắt đúng chuỗi đó — khoá chứa " · " là một thay đổi bị vẽ thành hai dòng cụt.
+    mays = list(getattr(obj, "may_lam_duoc", None) or [])
+    vts = list(getattr(obj, "vat_tus", None) or [])
+    repo = CongDoanRepository(s) if s is not None else None
+    ten_may = repo.mays({r.may_id for r in mays}) if repo and mays else {}
+    ten_vt = repo.vat_tus({v.vat_tu_id for v in vts}) if repo and vts else {}
     may: dict[str, Any] = {}
-    for r in (getattr(obj, "may_lam_duoc", None) or []):
+    for r in mays:
         for truong in ("cong_thuc_gio", "cong_thuc_gia"):
-            may[f"Máy #{r.may_id} · {NHAN[truong]}"] = getattr(r, truong, None)
-    dv: dict[str, Any] = {}
-    for r in (getattr(obj, "dau_viec_dinh_muc", None) or []):
-        dau = f"Đầu việc #{r.piece_rate_id}"
-        for truong in ("cong_thuc_khoan", "cong_thuc_gio"):
-            dv[f"{dau} · {NHAN[truong]}"] = getattr(r, truong, None)
-        for v in (getattr(r, "vat_tus", None) or []):
-            dv[f"{dau} › vật tư #{v.vat_tu_id} · {NHAN['cong_thuc_luong']}"] = (
-                getattr(v, "cong_thuc_luong", None))
-    return {"may_lam_duoc": may, "dau_viec_dinh_muc": dv}
+            may[f"{_ten_con(ten_may.get(r.may_id), 'máy', r.may_id)} › {NHAN[truong]}"] = getattr(
+                r, truong, None)
+    # Vật tư của công đoạn (mg `0316`) — MỘT tầng, mỗi món một dòng.
+    vt: dict[str, Any] = {}
+    for v in vts:
+        vt[f"{_ten_con(ten_vt.get(v.vat_tu_id), 'vật tư', v.vat_tu_id)} › "
+           f"{NHAN['cong_thuc_luong']}"] = getattr(v, "cong_thuc_luong", None)
+    return {"to_phu_trach": to_phu_trach, "may_lam_duoc": may, "vat_tus": vt}
+
+
+def _ten_con(ban_ghi: Any, loai: str, id_: int) -> str:
+    """Tên một dòng bảng con trong khoá nhật ký: "Tên (mã)"; bản ghi đã xoá thì "(máy #55 đã xoá)"
+    như tổ phụ trách — không bỏ trắng. Tên tự gõ có " · " thì đổi đi (xem `_gom_dong`)."""
+    if ban_ghi is None:
+        return f"({loai} #{id_} đã xoá)"
+    ten = (getattr(ban_ghi, "ten", None) or "").strip()
+    ma = (getattr(ban_ghi, "ma", None) or "").strip()
+    return f"{ten} ({ma})" if ten and ma else (ten or ma or f"{loai.capitalize()} #{id_}")
 
 
 def _rong(v: Any) -> bool:
@@ -624,7 +664,18 @@ def ghi_sua(audit, *, actor_id: int | None, loai: str, obj: Any,
         return
     _ghi_lich_su_cong_thuc(audit, actor_id=actor_id, loai=loai, obj_id=obj.id, truoc=truoc, sau=sau)
     _ghi(audit, actor_id=actor_id, action=ACTION_SUA, loai=loai, obj_id=obj.id,
-         detail=" · ".join(dong))
+         detail=_gom_dong(dong))
+
+
+#: Dấu nối các thay đổi của MỘT lần lưu — `NhatKyTab` cắt đúng chuỗi này để vẽ từng dòng.
+PHAN_CACH = " · "
+
+
+def _gom_dong(dong: list[str]) -> str:
+    """Nối các thay đổi bằng `PHAN_CACH`. Chuỗi đó mà lọt VÀO TRONG một dòng (tên máy, tên tổ,
+    ghi chú người dùng tự gõ "In 4 màu · khổ lớn") thì màn cắt một thay đổi thành hai dòng cụt —
+    nên đổi nó đi trước khi nối."""
+    return PHAN_CACH.join(d.replace(PHAN_CACH, " – ") for d in dong)
 
 
 def ghi_xoa(audit, *, actor_id: int | None, loai: str, obj: Any) -> None:

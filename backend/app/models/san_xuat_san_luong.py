@@ -31,7 +31,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Integer, Numeric, String,
+    Boolean, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint,
     false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -69,6 +69,24 @@ class SanXuatBatch(Base):
     tot: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
     hong: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, server_default="0", default=0)
     don_vi: Mapped[str] = mapped_column(String(24), nullable=False)
+    # CÔNG VIỆC KHOÁN thợ vừa làm (18/09/2026, mg `0318`) — soft-ref `piece_rates`. Chọn ở BÀN TỔ
+    # lúc ghi mẻ, trong danh sách việc khoán của chính tổ mình: *"ghi mẻ đó nhưng cho công việc chứ
+    # không phải công đoạn nữa"*. Thay hẳn ô "Đầu việc thợ làm" cũ ở bước lệnh (`khoan_json`, gỡ).
+    #
+    # NULLABLE ở DB nhưng BẮT BUỘC ở service cho mẻ MỚI: mẻ ghi trước bản này không có gì để
+    # backfill, ép NOT NULL là migration chết ngay trên DB dev đang có mẻ. Mẻ cũ hiển thị
+    # "— chưa khai việc khoán", không đoán. Cổng "Sẵn sàng lập kế hoạch" đã chặn bước giao cho tổ
+    # chưa khai việc khoán nào, nên mẻ mới luôn có việc để chọn.
+    piece_rate_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # ẢNH CHỤP việc khoán lúc ghi mẻ. Chụp CẢ ĐƠN GIÁ (chốt 18/09/2026, đảo đề xuất ban đầu): mai
+    # danh mục lên giá thì mẻ vẫn đọc lại được đúng bối cảnh của nó, và mẻ hiện băng "Danh mục đã
+    # đổi" kèm nút đồng ý — hệ KHÔNG tự đổi số dưới chân mẻ đã ghi.
+    #
+    # Ảnh chụp này KHÔNG sinh tiền: bàn tổ không có ô thành tiền, không phép nhân nào.
+    # *"SẢN XUẤT CHỈ GHI NHẬN SỐ LƯỢNG."* Tiền tính ở màn Khoán theo kỳ của kế toán.
+    ten_khoan_snapshot: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    don_vi_khoan_snapshot: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    don_gia_khoan_snapshot: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     mo_ta_loi: Mapped[str | None] = mapped_column(String(500), nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -77,6 +95,37 @@ class SanXuatBatch(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+
+
+class SanXuatBatchPhatSinh(Base):
+    """VIỆC PHÁT SINH thợ đã làm trong một mẻ, kèm số lượng (18/09/2026, mg `0318`).
+
+    Ví dụ của chủ xưởng: mẻ sản lượng 3.000 và "thay kẽm 2" — hai con số nằm CẠNH nhau, không cộng
+    vào nhau. Việc phát sinh **không bao giờ cộng vào sản lượng**: không tiến độ, không KCS, không
+    bàn giao, không nhập kho. *"Chỗ việc phát sinh như lên khuôn không cộng vào sản lượng."*
+
+    Không có công thức: tiền của nó là số lượng × đơn giá, và phép nhân đó xảy ra ở màn kế toán, ở
+    đây *"chỉ cần ghi nhận thay 2 bản kẽm thôi"*.
+    """
+
+    __tablename__ = "san_xuat_batch_phat_sinh"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "phat_sinh_id", name="uq_batch_phat_sinh"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(
+        ForeignKey("san_xuat_batch.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Soft-ref `cong_viec_khoan_phat_sinh` — service chặn việc phát sinh không thuộc
+    # `piece_rate_id` của chính mẻ.
+    phat_sinh_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    so_luong: Mapped[float] = mapped_column(Numeric(14, 3), nullable=False)
+    # Ảnh chụp — cùng lý do với ba ô snapshot của mẻ.
+    ten_snapshot: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    don_vi_snapshot: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    don_gia_snapshot: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class SanXuatBatchLotVao(Base):

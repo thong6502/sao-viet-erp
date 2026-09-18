@@ -10,8 +10,6 @@ một migration đang chạy trên bảng có dữ liệu sống. Nhãn tiếng 
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -40,23 +38,35 @@ class ViecPhatSinhRow(BaseModel):
     don_vi: str
 
 
+class ToLamRow(BaseModel):
+    """Một tổ làm công việc khoán — id kèm mã/tên đọc được, server tra lúc dựng dòng."""
+
+    id: int
+    ma: str | None = None
+    #: Tên tổ ĐANG dùng. Tổ đã bị xoá khỏi cây tổ chức thì `None` — màn hiện dấu hiệu để người
+    #: khai tự gỡ, không im lặng bỏ tổ đó khỏi danh sách.
+    ten: str | None = None
+
+
 class CongViecKhoanIn(BaseModel):
     """Thân POST/PUT. `ma` bỏ trống ⇒ server cấp `KH-####` (màn không có ô Mã lúc tạo).
 
-    `group_name` KHÔNG có ở đây: nó là nhãn tổ, service tự lấy theo `department_id` — để client
-    gửi thì hai chỗ cùng khai một sự thật rồi lệch nhau (dòng nào cũng có tổ, nhưng nhãn của nó
-    lại là tên tổ từ tháng trước).
+    `department_ids` — CÁC tổ làm việc này (17/09/2026; trước là MỘT `department_id`). VẮNG = giữ
+    nguyên danh sách đang có (nhập Excel thiếu cột, client chỉ sửa đơn giá); có mặt = TRỌN danh
+    sách. Tạo mới phải có ít nhất một tổ — luật nằm ở service để câu lỗi là tiếng Việt.
     """
 
     ma: str | None = Field(default=None, max_length=20)
     ten: str = Field(min_length=1, max_length=255)
-    department_id: int | None = None
+    department_ids: list[int] | None = None
     # Đơn vị lưu MÃ danh mục (`to`, `kg`, `m2`) — cùng lối với `giay.don_vi_gia`. KHÔNG enum cứng:
     # xưởng thêm đơn vị ở màn Đơn vị & quy đổi, không sửa code. Chữ ngoài danh mục vẫn lưu được
     # (dòng cũ, seed, import đang mang đơn vị ngoài danh mục — chặn ở đây là khoá luôn đường sửa).
     unit: str = Field(default="khác", max_length=24)
     unit_price: float = Field(ge=0)
-    #: Cách đo lượng ĐÃ GỠ khỏi bảng đơn giá (mg `0274`) — nay khai ở dòng đầu việc của công đoạn.
+    #: CÁCH ĐO LƯỢNG KHOÁN — tab "Công thức khoán" (18/09/2026, mg `0317`). Ra LƯỢNG theo `unit`;
+    #: kế toán nhân `unit_price` sau. Bàn tổ KHÔNG chạy công thức này — sản xuất chỉ ghi số lượng.
+    cong_thuc_khoan: str | None = None
     note: str | None = Field(default=None, max_length=255)
     active: bool = True
     #: VIỆC PHÁT SINH (14/09/2026). VẮNG = giữ nguyên danh sách đang có (nhập Excel không mang
@@ -70,11 +80,13 @@ class CongViecKhoanRow(BaseModel):
     id: int
     ma: str | None = None
     ten: str
-    #: Nhãn tổ đã lưu trên dòng (tên tổ lúc khai, hoặc mã tổ đời cũ `to_boi`). Trục gom của bảng.
-    group_name: str
-    department_id: int | None = None
+    #: Id các tổ làm việc này — form nạp ngược vào ô chọn tổ.
+    department_ids: list[int] = []
+    #: Cùng thứ tự với `department_ids`, kèm tên — cột "Tổ" của bảng và panel lương đọc từ đây.
+    tos: list[ToLamRow] = []
     unit: str
     unit_price: float
+    cong_thuc_khoan: str | None = None
     note: str | None = None
     active: bool
     #: TÊN đọc được của đơn vị, server gán từ danh mục (`to` → "tờ"). Không có mã trong danh mục
@@ -91,3 +103,6 @@ class CongViecKhoanListOut(BaseModel):
     size: int
     #: Số dòng theo TỪNG tổ — nuôi số trên tab lọc (màn chỉ cầm 20 dòng, không tự đếm được).
     facets: dict[str, int] = {}
+    #: Tổng dòng khớp ô tìm, KHÔNG theo tab — số của tab "Tất cả". Cần riêng vì một việc làm ở hai
+    #: tổ được đếm ở CẢ HAI tab: cộng `facets` lại là đếm trùng.
+    tong_theo_tim: int | None = None

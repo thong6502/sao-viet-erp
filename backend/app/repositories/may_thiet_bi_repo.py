@@ -64,8 +64,8 @@ class MayThietBiRepository(CatalogRepo):
     def don_vi_ten(self) -> dict[str, str]:
         """`{mã đơn vị: tên}` cho CẢ danh mục Đơn vị — một truy vấn cho cả trang, không N+1.
 
-        Cùng cách `cong_doan_repo.don_vi_ten()` làm. Bảng máy chỉ lưu MÃ đơn vị tốc độ (`to_gio`,
-        `m_phut`) mà mã không đọc được thành lời; tên phải tra ở danh mục Đơn vị.
+        Bảng máy chỉ lưu MÃ đơn vị tốc độ (`to_gio`, `m_phut`) mà mã không đọc được thành lời; tên
+        phải tra ở danh mục Đơn vị.
         """
         return {
             (ma or "").strip().lower(): ten

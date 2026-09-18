@@ -156,8 +156,8 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
     # DẬP NỔI (`tooling_type = "khuon_ep"`) — khuôn ép mới là thứ tính tiền theo diện tích khắc,
     # còn khung lụa trả một cục qua `phi_khuon`. Tên biến đổi theo (`*_khung_lua` → `*_khuon`).
     #
-    # MỞ CHO CẢ Ô QUY ĐỔI 29/08/2026 (yêu cầu người dùng): ô Quy đổi (Công thức sản lượng ra ·
-    # Cách đo lượng khoán/tốc độ máy · Công thức tính lượng của Giấy/Vật tư) chạy ở TẦNG LỆNH, nơi
+    # MỞ CHO CẢ Ô QUY ĐỔI 29/08/2026 (yêu cầu người dùng): ô Quy đổi (Cách đo lượng khoán/tốc độ
+    # máy · Công thức tính lượng của Giấy/Vật tư) chạy ở TẦNG LỆNH, nơi
     # không có khái niệm "khuôn của bước" (dữ liệu chỉ khai per-phiếu-tính-giá) — nên MỌI nơi
     # bơm `ngu_canh_lenh` phải bơm thêm `KHUON_MAC_DINH` (mặc định 0.0) ngay sau, giống hệt cách
     # `sl_vao`/`sl_ra` được bơm thêm ở từng nơi gọi. Gõ chip này vào công thức quy đổi thì luôn ra 0
@@ -184,9 +184,9 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
     # Vì sao phải là CHIP chứ không để người khai gõ thẳng số 40: ngày xưởng lên giá 40 → 45, con
     # số gõ tay nằm im, tiền công của đầu việc lệch mà không dòng nhật ký nào giải thích.
     #
-    # Giá trị: đơn giá của ĐẦU VIỆC đang khai — chỉ có số ở ô công thức của DANH MỤC (màn Công
-    # đoạn → định mức đầu việc), nơi người khai có sẵn dòng giá trong tay. Ở tầng LỆNH và tầng SẢN
-    # XUẤT biến này bằng 0: từ 11/09/2026 ảnh chụp `khoan_json` của bước không ghim `don_gia` nữa,
+    # Giá trị: đơn giá của CÔNG VIỆC KHOÁN đang khai — chỉ có số ở ô công thức của DANH MỤC (màn
+    # Công việc khoán → tab "Công thức khoán", mg `0317`), nơi người khai có sẵn dòng giá trong
+    # tay. Ở tầng LỆNH và tầng SẢN XUẤT biến này bằng 0: bước lệnh thôi ghim đầu việc (mg `0320`)
     # và hai tầng đó không còn nhân đơn giá nào (spec "Sản xuất chỉ ghi số lượng"). Công thức RA
     # TIỀN vì thế chỉ chạy ở màn của kế toán lương. Ngữ cảnh không đứng ở đầu việc nào (công thức
     # của máy, của đơn vị quy đổi, của Giấy/Vật tư) cũng là 0 — chip bị ẩn ở những ô đó
@@ -259,7 +259,7 @@ def cong_thuc_ra_tien(ct: str | None) -> bool:
 
     ⚠️ HIỆN KHÔNG CÓ LUỒNG NÀO GỌI (11/09/2026). Nơi thi hành duy nhất là
     `lsx_service._khoan_theo_cong_thuc`, đã xoá cùng tiền khoán ở tầng lệnh/sản xuất. Giữ lại vì ô
-    công thức vẫn khai ở DANH MỤC đầu việc (`cong_doan_dau_viec.cong_thuc_khoan`) và chip
+    công thức vẫn khai ở DANH MỤC Công việc khoán (`piece_rates.cong_thuc_khoan`, mg `0317`) và chip
     `don_gia_khoan` vẫn chọn được ở đó — màn "Khoán theo kỳ" của kế toán lương sẽ là nơi đọc. Xem
     `docs/superpowers/specs/2026-09-11-san-xuat-chi-ghi-so-luong-design.md`.
 

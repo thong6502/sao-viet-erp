@@ -60,7 +60,7 @@ def _mau(db):
         "giay": GiayNguyen(ma="ZZG", ten="ZZ Giấy", chung_loai_giay_id=cl.id, gsm=100),
         "vat_tu": VatTuInAn(ma="ZZVT", ten="ZZ Vật tư"),
         # Công việc khoán (17/08/2026): cùng bảng `piece_rates` mà Lương khoán tra.
-        "cong_viec_khoan": PieceRate(group_name="ZZ Tổ mẫu", department_id=to.id,
+        "cong_viec_khoan": PieceRate(department_ids=[to.id],
                                      ma="ZZKH", ten="ZZ Việc khoán", unit="zzkg", unit_price=100),
         # Hạng mục kiểm KCS — không ai trỏ ngược về nó (mg `0285` gỡ bảng nối) ⇒ xoá hẳn được.
         "san_xuat_kcs_tieu_chi": SanXuatKcsTieuChi(ma="ZZTC", ten="ZZ Tiêu chí", cong_doan_id=cd.id),
@@ -120,22 +120,22 @@ def test_chung_loai_giay_bi_giay_con_giu_lai(db):
 
 
 def test_cascade_bao_bang_SO_chu_khong_chan(db):
-    """Xoá công đoạn là bay định mức đầu việc theo (CASCADE thật ở DB). Không chặn, nhưng phải
-    nói bằng số trước khi bấm — đó là dữ liệu khai tay, không hoàn tác được."""
-    from app.models.cong_doan import CongDoanDauViec
+    """Xoá công đoạn là bay tab VẬT TƯ của nó theo (CASCADE thật ở DB, mg `0316`). Không chặn,
+    nhưng phải nói bằng số trước khi bấm — công thức định mức là dữ liệu khai tay, không hoàn tác."""
+    from app.models.cong_doan import CongDoanVatTu
 
     rows = _mau(db)
-    to = Department(name="ZZ Tổ", code="ZZTO", la_san_xuat=True)
-    db.add(to)
-    db.commit()
-    rate = PieceRate(group_name="ZZ Tổ", department_id=to.id, ten="ZZ đầu việc",
-                     unit="cái", unit_price=1)
-    db.add(rate)
-    db.commit()
-    db.add(CongDoanDauViec(cong_doan_id=rows["cong_doan"].id, piece_rate_id=rate.id,
-                           nang_suat_nguoi_gio=100, so_nguoi_tieu_chuan=1))
+    muc = VatTuInAn(ma="ZZMUC", ten="ZZ Mực", don_vi_gia="kg", don_gia=1)
+    keo = VatTuInAn(ma="ZZKEO", ten="ZZ Keo", don_vi_gia="kg", don_gia=1)
+    db.add_all([muc, keo])
+    db.flush()
+    db.add_all([
+        CongDoanVatTu(cong_doan_id=rows["cong_doan"].id, vat_tu_id=muc.id, thu_tu=0,
+                      cong_thuc_luong="sl_vao / 1000"),
+        CongDoanVatTu(cong_doan_id=rows["cong_doan"].id, vat_tu_id=keo.id, thu_tu=1),
+    ])
     db.commit()
 
     tc = tham_chieu(db, "cong_doan", rows["cong_doan"])
-    assert tc.xoa_han_duoc, "định mức là con CASCADE, không phải nơi-đang-dùng ⇒ không chặn"
-    assert tc.keo_theo == ["1 định mức đầu việc"], tc.keo_theo
+    assert tc.xoa_han_duoc, "dòng vật tư là con CASCADE, không phải nơi-đang-dùng ⇒ không chặn"
+    assert tc.keo_theo == ["2 dòng vật tư định mức"], tc.keo_theo

@@ -43,15 +43,10 @@ class BuocChungUpdateIn(BaseModel):
     department_id: int | None = None
     may_id: int | None = None
     loai_buoc: str | None = None
-    # Kíp chuẩn sửa đè được (mặc định kế thừa định mức công đoạn). Gửi kèm thì server GIỮ,
-    # không để nhánh ghim đầu việc đè lại.
-    so_nhan_cong_tieu_chuan: int | None = None
-    # Đầu việc khoán ghim theo ID, KHÔNG nhận `khoan_json` thô: ảnh chụp đơn giá là thứ server
-    # chụp từ bảng giá của tổ. Cho client gửi thẳng là mở cửa cho đơn giá bịa vào phiếu lương.
-    # 0 / null = bỏ chọn. Luật kiểm dùng chung với bước lệnh (`_dau_viec_cua_cong_doan`).
-    piece_rate_id: int | None = None
-    nang_suat: float | None = None
-    don_vi_nang_suat: str | None = None
+    # SỐ GIỜ KẾ HOẠCH của lượt chung khi nó là bước TỔ (mg `0319`) — ô gõ tay, nhận số lẻ (4,5
+    # giờ), 0 hợp lệ. Thay chỗ `so_nhan_cong_tieu_chuan` · `piece_rate_id` · `nang_suat` ·
+    # `don_vi_nang_suat` gỡ 18/09/2026 cùng tầng đầu việc và logic kíp (mg `0320`, `0321`).
+    so_gio_ke_hoach: float | None = None
     # Hai ô gõ được: chuẩn bị + tốc độ vẫn kế thừa SỐNG từ máy (2026-08-04).
     phat_sinh_phut: float | None = None
     # Chờ kỹ thuật của lượt chạy chung (mục B) — lúc gộp lấy MỨC LỚN NHẤT của các bước gộp làm mặc
@@ -341,11 +336,7 @@ class SoDoBuocChung(BaseModel):
     so_luong_ra: float = 0
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
-    # Bước NGOÀI dòng giấy (ghi kẽm…): câu "Số ra = <công thức chữ> = N kẽm" tính từ
-    # `cong_thuc_san_luong` ở CẤP BÀI — để thẻ nói được "5 kẽm" thay vì "0 tờ". `None` với bước
-    # trên giấy (số vào/ra tờ đã tự nói). `loi_quy_doi` = cầu đơn vị vào↔ra chưa khai ⇒ vào = 0.
-    san_luong_dien_giai: str | None = None
-    loi_quy_doi: str | None = None
+    # `san_luong_dien_giai` + `loi_quy_doi` GỠ 18/09/2026 (mg `0324`) cùng công thức sản lượng ra.
     hao_hut: float = 0          # đếm ĐÚNG MỘT LẦN cho cả lượt, ở ĐƠN VỊ VÀO
     hao_hut_pct: float = 0
     # `ra` quy về đơn vị VÀO + hệ số đã dùng — cùng bộ số `bu_hao_chi_tiet` của tính giá. Không có
@@ -363,17 +354,17 @@ class SoDoBuocChung(BaseModel):
     # để FE lọc dropdown máy theo công đoạn (bước Bế chỉ thấy máy Bế).
     may_khong_hop: list[str] = Field(default_factory=list)
     nhom_may_cho_phep: list[str] = Field(default_factory=list)
+    # Tổ phụ trách công đoạn (mg `0312`) — ô chọn tổ chỉ bày các tổ này. [] = công đoạn chưa khai tổ.
+    to_chon_duoc: list[int] = Field(default_factory=list)
     nha_cung_cap: str | None = None
     tong_phut: float = 0
     chiem_may_phut: float = 0
     # Dải nhanh/chậm nhất (tốc độ tối đa / tối thiểu của máy). Máy chưa khai dải ⇒ = TB.
     chiem_may_phut_min: float = 0
     chiem_may_phut_max: float = 0
-    # Kíp chuẩn của bước chung — cùng hợp đồng với bước lệnh ở màn KHSX. Giá trị NGƯỜI đã khai,
-    # form phải mồi lại được, không thì mở drawer là ô trống và lưu đè mất.
-    so_nhan_cong_tieu_chuan: int = 1
-    nang_suat: float | None = None
-    don_vi_nang_suat: str | None = None
+    # SỐ GIỜ KẾ HOẠCH của bước chung — cùng hợp đồng với bước lệnh ở màn KHSX. Giá trị NGƯỜI đã
+    # khai, form phải mồi lại được, không thì mở drawer là ô trống và lưu đè mất.
+    so_gio_ke_hoach: float = 0
     chay_phut: float | None = None      # dẫn xuất: SL vào × 60 ÷ tốc độ máy × số lượt
     setup_phut: float = 0               # kế thừa từ máy (read-only)
     phat_sinh_phut: float = 0
@@ -383,13 +374,8 @@ class SoDoBuocChung(BaseModel):
     thoi_luong_dien_giai: dict = Field(default_factory=dict)
     #: Chờ kỹ thuật — vào tổng thời gian dẫn, KHÔNG vào chiếm máy (mục B).
     so_luot_chay: int = 1
-    # Đầu việc: phần GHIM (ảnh chụp lúc chọn) + danh sách chọn được của TỔ đang gán — cùng hợp đồng
-    # với bước lệnh ở màn KHSX. Không ô tiền nào từ 11/09/2026 (bỏ `khoan_don_vi`/`khoan_don_gia` +
-    # bốn ô dẫn xuất `khoan_sl`/`khoan_don_vi_sl`/`khoan_tien`/`khoan_dien_giai` +
-    # `khoan_thieu`/`khoan_ly_do`): sản xuất ghi SỐ LƯỢNG, kế toán lương quy ra tiền.
-    khoan_rate_id: int | None = None
-    khoan_ten: str | None = None
-    khoan_chon_duoc: list[dict] = Field(default_factory=list)
+    # ⚠️ `khoan_rate_id` · `khoan_ten` · `khoan_chon_duoc` GỠ 18/09/2026 (mg `0320`) cùng bước lệnh:
+    #    lượt chung thôi chọn đầu việc — việc khoán chọn LÚC GHI MẺ ở bàn tổ.
     vat_tus: list[dict] = Field(default_factory=list)
     # Lượng TÍNH SẴN cho mọi vật tư theo lượt chung này — cùng hợp đồng `{vat_tu_id, so_luong,
     # dien_giai, ly_do}` với bước lệnh. Món chưa tính ra được vẫn có mặt với `so_luong=None` kèm

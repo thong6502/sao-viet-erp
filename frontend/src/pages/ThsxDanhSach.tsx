@@ -183,6 +183,12 @@ function DsRowBlock({
                 {w.nguon_ten}
               </div>
             )}
+            {w.khach_hang && (
+              <div className="thsx-ds__khach" title={`Khách hàng: ${w.khach_hang}`}>
+                <Icon name="building" size={11} />
+                <span>{w.khach_hang}</span>
+              </div>
+            )}
           </div>
         </div>
       </td>
@@ -230,7 +236,7 @@ function DsRowBlock({
       {/* Sản lượng & Tiến độ */}
       <td>
         <div className="thsx-ds__sl-cell">
-          <div className="thsx-ds__sl-main thsx-num" title={w.sl_dien_giai || undefined}>
+          <div className="thsx-ds__sl-main thsx-num">
             {slText(w)}
           </div>
           {mucTieu > 0 ? (
@@ -258,41 +264,44 @@ function DsRowBlock({
       {/* Trạng thái & Thao tác nhanh */}
       <td>
         <div className="thsx-ds__act-cell" onClick={(e) => e.stopPropagation()}>
-          <ThsxTrangThaiPill tt={w.trang_thai} size="xs" />
-          {(w.trang_thai === "released" || w.trang_thai === "paused") && w.chay_duoc && onBatDau && (
-            <button
-              type="button"
-              className="thsx-ds__actbtn thsx-ds__actbtn--play"
-              title="Bắt đầu thực hiện công việc"
-              onClick={onBatDau}
-            >
-              <Icon name="play" size={11} /> Bắt đầu
-            </button>
-          )}
-          {w.trang_thai === "running" && w.chay_duoc && (
-            <div className="thsx-ds__act-grp">
-              {onTamDung && (
-                <button
-                  type="button"
-                  className="thsx-ds__actbtn thsx-ds__actbtn--pause"
-                  title="Tạm dừng công việc"
-                  onClick={onTamDung}
-                >
-                  <Icon name="pause" size={11} /> Tạm dừng
-                </button>
-              )}
-              {onKetThuc && (
-                <button
-                  type="button"
-                  className="thsx-ds__actbtn thsx-ds__actbtn--check"
-                  title="Hoàn thành & Kết thúc"
-                  onClick={onKetThuc}
-                >
-                  <Icon name="check" size={11} /> Kết thúc
-                </button>
-              )}
-            </div>
-          )}
+          {/* Pill trên, nút dưới: xếp ngang cả ba thì cột này rộng ~320px và đẩy bảng tràn khung. */}
+          <div className="thsx-ds__act-main">
+            <ThsxTrangThaiPill tt={w.trang_thai} size="xs" />
+            {(w.trang_thai === "released" || w.trang_thai === "paused") && w.chay_duoc && onBatDau && (
+              <button
+                type="button"
+                className="thsx-ds__actbtn thsx-ds__actbtn--play"
+                title="Bắt đầu thực hiện công việc"
+                onClick={onBatDau}
+              >
+                <Icon name="play" size={11} /> Bắt đầu
+              </button>
+            )}
+            {w.trang_thai === "running" && w.chay_duoc && (onTamDung || onKetThuc) && (
+              <div className="thsx-ds__act-grp">
+                {onTamDung && (
+                  <button
+                    type="button"
+                    className="thsx-ds__actbtn thsx-ds__actbtn--pause"
+                    title="Tạm dừng công việc"
+                    onClick={onTamDung}
+                  >
+                    <Icon name="pause" size={11} /> Tạm dừng
+                  </button>
+                )}
+                {onKetThuc && (
+                  <button
+                    type="button"
+                    className="thsx-ds__actbtn thsx-ds__actbtn--check"
+                    title="Hoàn thành & Kết thúc"
+                    onClick={onKetThuc}
+                  >
+                    <Icon name="check" size={11} /> Kết thúc
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="thsx-ds__actbtn thsx-ds__actbtn--view"

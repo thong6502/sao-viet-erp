@@ -8922,8 +8922,9 @@ def _migrate_piece_rates_ten_cot_danh_muc(db: Session) -> None:
         db.commit()
 
     # --- nhãn tổ: đồng bộ theo `departments.name` ---
+    # Hai cột này GỠ ở mg `0311` (một việc nhiều tổ) — DB trắng dựng theo model mới không có chúng.
     bang = set(inspect(db.get_bind()).get_table_names())
-    if "departments" in bang:
+    if "departments" in bang and {"group_name", "department_id"} <= cols:
         db.execute(text(
             "UPDATE piece_rates SET group_name = ("
             "  SELECT SUBSTR(d.name, 1, 40) FROM departments d WHERE d.id = piece_rates.department_id"
@@ -14486,3 +14487,684 @@ def _migrate_payroll_line_tien_gio_tang_ca(db: Session) -> None:
 
 
 MIGRATIONS.append(("0305_payroll_line_tien_gio_tang_ca", _migrate_payroll_line_tien_gio_tang_ca))
+
+
+def _migrate_cong_viec_khoan_nhieu_to(db: Session) -> None:
+    """Một công việc khoán làm được ở NHIỀU tổ (17/09/2026): bảng nối `cong_viec_khoan_to`, gỡ
+    `piece_rates.department_id` (một tổ) + `piece_rates.group_name` (nhãn tổ trên dòng).
+
+    VÌ SAO: cùng một việc ("Bế nổi") do tổ Bế lẫn tổ Thành phẩm làm, cùng một đơn giá — khai hai dòng
+    là hai đơn giá phải sửa song song, lệch nhau lúc nào không hay.
+
+    Chép dữ liệu TRƯỚC khi gỡ cột, mỗi việc sang dòng nối:
+      · Dòng có `department_id` ⇒ đúng tổ đó (kể cả tổ đã xoá khỏi cây tổ chức — màn đánh dấu để
+        người khai tự gỡ, xoá ngầm là mất dấu việc từng thuộc tổ nào).
+      · Dòng chưa gắn tổ mà `group_name` trùng TÊN một tổ đang có ⇒ tổ đó. Còn lại để trống; màn
+        gom chúng vào tab "chưa khai tổ".
+
+    Index bỏ TRƯỚC cột (SQLite từ chối `DROP COLUMN` trên cột có index). Best-effort từng câu như mg
+    `0308`. Đọc HẾT cột + index trước mọi DML (inspector SQLite bộ nhớ ROLLBACK lúc trả kết nối).
+    Mất hai cột trên — không khôi phục được, nhưng nội dung đã nằm ở bảng nối. Idempotent: `NOT
+    EXISTS` chặn chép trùng, cột đã gỡ thì bỏ qua.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "piece_rates" not in tables:
+        return
+    cols = _existing_columns(insp, "piece_rates")
+    idx = {i["name"] for i in insp.get_indexes("piece_rates")}
+
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS cong_viec_khoan_to ("
+        "piece_rate_id INTEGER NOT NULL REFERENCES piece_rates(id) ON DELETE CASCADE, "
+        "department_id INTEGER NOT NULL, PRIMARY KEY (piece_rate_id, department_id))"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_cong_viec_khoan_to_department_id "
+        "ON cong_viec_khoan_to (department_id)"
+    ))
+    if "department_id" in cols:
+        db.execute(text(
+            "INSERT INTO cong_viec_khoan_to (piece_rate_id, department_id) "
+            "SELECT p.id, p.department_id FROM piece_rates p WHERE p.department_id IS NOT NULL "
+            "AND NOT EXISTS (SELECT 1 FROM cong_viec_khoan_to t "
+            "  WHERE t.piece_rate_id = p.id AND t.department_id = p.department_id)"
+        ))
+    if "group_name" in cols and "departments" in tables:
+        chua_to = "p.department_id IS NULL AND " if "department_id" in cols else ""
+        db.execute(text(
+            "INSERT INTO cong_viec_khoan_to (piece_rate_id, department_id) "
+            "SELECT p.id, MIN(d.id) FROM piece_rates p JOIN departments d "
+            "  ON TRIM(d.name) = TRIM(p.group_name) "
+            f"WHERE {chua_to}NOT EXISTS (SELECT 1 FROM cong_viec_khoan_to t "
+            "  WHERE t.piece_rate_id = p.id) "
+            "GROUP BY p.id"
+        ))
+    db.commit()
+
+    for ten in ("group_name", "department_id"):
+        if ten not in cols:
+            continue
+        ten_idx = f"ix_piece_rates_{ten}"
+        if ten_idx in idx:
+            try:
+                db.execute(text(f"DROP INDEX {ten_idx}"))
+                db.commit()
+            except Exception:
+                db.rollback()
+        try:
+            db.execute(text(f"ALTER TABLE piece_rates DROP COLUMN {ten}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0311_cong_viec_khoan_nhieu_to", _migrate_cong_viec_khoan_nhieu_to))
+
+
+def _migrate_cong_doan_nhieu_to(db: Session) -> None:
+    """Một công đoạn do NHIỀU tổ phụ trách (18/09/2026): bảng nối `cong_doan_to`, gỡ
+    `cong_doan.department_id` (một tổ).
+
+    VÌ SAO: "Cán màng mờ" do tổ Cán lẫn tổ Thành phẩm làm — một cột một tổ buộc khai hai công đoạn
+    trùng nhau chỉ để khác tổ. Bước lệnh vẫn giữ MỘT tổ (`lsx_cong_doan.department_id`), người kế
+    hoạch chọn trong danh sách này; tổ đầu (`thu_tu` nhỏ nhất) là mặc định.
+
+    Chép `department_id` sang dòng nối (`thu_tu = 0`) TRƯỚC khi gỡ cột, kể cả tổ đã xoá khỏi cây tổ
+    chức — màn đánh dấu để người khai tự gỡ. Index bỏ TRƯỚC cột (SQLite từ chối `DROP COLUMN` trên
+    cột có index), best-effort từng câu như mg `0311`. Đọc cột + index trước mọi DML. Mất cột — không
+    khôi phục được, nhưng nội dung đã nằm ở bảng nối. Idempotent: `NOT EXISTS` chặn chép trùng.
+    """
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "cong_doan")
+    idx = {i["name"] for i in insp.get_indexes("cong_doan")}
+
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS cong_doan_to ("
+        "cong_doan_id INTEGER NOT NULL REFERENCES cong_doan(id) ON DELETE CASCADE, "
+        "department_id INTEGER NOT NULL, thu_tu INTEGER NOT NULL DEFAULT 0, "
+        "PRIMARY KEY (cong_doan_id, department_id))"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_cong_doan_to_department_id ON cong_doan_to (department_id)"
+    ))
+    if "department_id" in cols:
+        db.execute(text(
+            "INSERT INTO cong_doan_to (cong_doan_id, department_id, thu_tu) "
+            "SELECT c.id, c.department_id, 0 FROM cong_doan c WHERE c.department_id IS NOT NULL "
+            "AND NOT EXISTS (SELECT 1 FROM cong_doan_to t "
+            "  WHERE t.cong_doan_id = c.id AND t.department_id = c.department_id)"
+        ))
+    db.commit()
+
+    if "department_id" not in cols:
+        return
+    if "ix_cong_doan_department_id" in idx:
+        try:
+            db.execute(text("DROP INDEX ix_cong_doan_department_id"))
+            db.commit()
+        except Exception:
+            db.rollback()
+    try:
+        db.execute(text("ALTER TABLE cong_doan DROP COLUMN department_id"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+MIGRATIONS.append(("0312_cong_doan_nhieu_to", _migrate_cong_doan_nhieu_to))
+
+
+def _migrate_the_quy_cach_muc_in(db: Session) -> None:
+    """Thẻ quy cách của công việc ĐÃ phát hành nhận thêm `kho_nguyen` · `cach_in` · `muc_a`/`muc_b`
+    (18/09/2026).
+
+    Thẻ ở bàn tổ chỉ mang số đếm ("Số mặt 2 · Số màu 4") — thợ in không biết mặt nào chạy mực nào,
+    khổ giấy nguyên và cách in cũng không có. Phát hành mới đã chụp đủ (`snapshot.the_quy_cach`);
+    migration này bù cho thẻ chụp trước đó.
+
+    Khác lời dặn "KHÔNG backfill" của mg `0290`: bốn khoá này là CHỮ chép nguyên từ quy cách lệnh,
+    không phải số dẫn xuất phải kế hoạch tính lại. Chỉ THÊM khoá còn thiếu, không đụng khoá cũ; thẻ
+    NULL (phát hành trước mg `0290`) để nguyên — dựng thẻ chỉ có bốn khoá là thẻ thiếu giấy/khổ.
+    Bài ghép: khổ nguyên + cách in lấy thành viên đầu có khai, mực = HỢP các thành viên (cùng luật
+    `quy_cach_bien_bai` + `_qc_bai`). Đọc cột đích danh bằng SQL thô. Idempotent: khoá đã có thì bỏ.
+    """
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+    if "san_xuat_cong_viec" not in bang or "lsx" not in bang:
+        return
+    from .services.san_xuat.snapshot import the_quy_cach
+
+    def _json(v):
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                return None
+        return v if isinstance(v, dict) else None
+
+    rows = db.execute(text(
+        "SELECT id, lsx_id, bai_ghep_id, quy_cach_json FROM san_xuat_cong_viec "
+        "WHERE quy_cach_json IS NOT NULL"
+    )).all()
+    if not rows:
+        return
+    qc_lsx = {r[0]: _json(r[1]) or {} for r in db.execute(text(
+        "SELECT id, quy_cach_json FROM lsx WHERE quy_cach_json IS NOT NULL")).all()}
+    thanh_vien: dict[int, list[int]] = {}
+    if "bai_ghep_thanh_vien" in bang:
+        for bg_id, lsx_id in db.execute(text(
+            "SELECT bai_ghep_id, lsx_id FROM bai_ghep_thanh_vien ORDER BY id")).all():
+            thanh_vien.setdefault(bg_id, []).append(lsx_id)
+
+    def _qc_bai(bg_id: int) -> dict:
+        tv = [qc_lsx.get(i) or {} for i in thanh_vien.get(bg_id, [])]
+
+        def _dau(k: str):
+            return next((q[k] for q in tv if q.get(k)), None)
+
+        def _hop(k: str) -> list[str]:
+            return sorted({str(m).strip().upper() for q in tv for m in (q.get(k) or [])
+                           if str(m or "").strip()})
+
+        return {"kho_nguyen_dai": _dau("kho_nguyen_dai") or _dau("kho_dai"),
+                "kho_nguyen_rong": _dau("kho_nguyen_rong") or _dau("kho_rong"),
+                "quy_cach_in": _dau("quy_cach_in"), "muc_a": _hop("muc_a"), "muc_b": _hop("muc_b")}
+
+    pg = db.get_bind().dialect.name == "postgresql"
+    sql = ("UPDATE san_xuat_cong_viec SET quy_cach_json = CAST(:v AS JSON) WHERE id = :i" if pg
+           else "UPDATE san_xuat_cong_viec SET quy_cach_json = :v WHERE id = :i")
+    khoa_moi = ("kho_nguyen", "cach_in", "muc_a", "muc_b")
+    for cv_id, lsx_id, bg_id, the in rows:
+        the = _json(the)
+        if the is None or all(k in the for k in khoa_moi):
+            continue
+        qc = _qc_bai(bg_id) if bg_id else (qc_lsx.get(lsx_id) or {})
+        moi = the_quy_cach(qc) or {}
+        them = {k: moi[k] for k in khoa_moi if k not in the and k in moi}
+        if them:
+            db.execute(text(sql), {"v": json.dumps({**the, **them}, ensure_ascii=False), "i": cv_id})
+    db.commit()
+
+
+MIGRATIONS.append(("0313_the_quy_cach_muc_in", _migrate_the_quy_cach_muc_in))
+
+
+def _migrate_gop_xep_lich(db: Session) -> None:
+    """Gộp `xep_lich_2` + `xep_lich_3` về MỘT khoá `xep_lich` — chủ dự án chốt 18/09/2026.
+
+    Hệ chỉ còn MỘT bàn xếp lịch: bàn cấp LỆNH SẢN XUẤT (trước tên `xep_lich_3`, `/api/xep-lich-3`).
+    Bàn theo công đoạn (`xep_lich_2`) xoá hẳn cùng router/repo/schema/màn — nó đã tắt ở FE bằng cờ
+    `XEP_LICH_2_ENABLED=false` từ trước, giờ gỡ nốt code. Đánh số 2/3 đi theo luôn: khoá quay về
+    đúng `xep_lich` (khoá này TRỐNG từ mg `0219`, đừng nhầm với màn cũ đã gỡ 19/08/2026).
+
+    ⚠️ BƯỚC CHÉP LÀ BẮT BUỘC (cùng lý do mg `0216`/`0218`/`0292`): thiếu nó thì lần deploy kế tiếp
+    mọi vai đang xếp lịch mở màn ra là 403. Nguồn chép là `xep_lich_3` — khoá của bàn CÒN SỐNG;
+    `xep_lich_2` chỉ bị xoá, không chép, vì mọi vai có nó đều đã được mg `0292` cấp `xep_lich_3`.
+
+    `scope` ghi thẳng 'all': `xep_lich` nằm trong `SCOPELESS_MODULES`, không router nào đọc scope
+    của nó. Bit `can_approve_exception` chép y nguyên dù bàn cấp lệnh không hỏi tới — cấp thừa một
+    bit vô hại, còn làm hụt hàng quyền thì sau này bật lại phải đi cấp tay.
+
+    Chốt chặn: mỗi vai từng có `xep_lich_3` PHẢI có `xep_lich` trước khi xoá. Lệch một dòng là DỪNG
+    và KHÔNG xoá gì. Idempotent.
+    """
+    # Đọc cột THẬT trước mọi lệnh ghi — bảng `role_permissions` còn được migration sau thêm bit.
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+
+    db.execute(
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "xep_lich", "l": "Xếp lịch"},
+    )
+    chep = [c for c in cols if c not in ("id", "module_key")]
+    chon = ["'all'" if c == "scope" else f"rp.{c}" for c in chep]
+    db.execute(
+        text(
+            f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+            f"SELECT :moi, {', '.join(chon)} FROM role_permissions rp "
+            "WHERE rp.module_key = :cu AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+        ),
+        {"cu": "xep_lich_3", "moi": "xep_lich"},
+    )
+
+    thieu = db.execute(text(
+        "SELECT rp.role_id FROM role_permissions rp WHERE rp.module_key = :cu AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+    ), {"cu": "xep_lich_3", "moi": "xep_lich"}).scalars().all()
+    if thieu:
+        db.rollback()
+        raise RuntimeError(
+            "mg 0314: chép quyền xep_lich_3 → xep_lich chưa đủ, thiếu role_id "
+            f"{sorted(thieu)}. Không xoá quyền cũ."
+        )
+
+    for cu in ("xep_lich_2", "xep_lich_3"):
+        db.execute(text("DELETE FROM role_permissions WHERE module_key = :k"), {"k": cu})
+        db.execute(text("DELETE FROM modules WHERE key = :k"), {"k": cu})
+    # Nhãn: DB có thể đang giữ "Xếp lịch 3" nếu khoá `xep_lich` ra đời từ nhánh khác. Đồng bộ ở đây
+    # để đúng ngay cả khi seeder chưa chạy (deploy chạy `app.migrate` trong container tạm trước).
+    db.execute(text("UPDATE modules SET label = :l WHERE key = :k"),
+               {"k": "xep_lich", "l": "Xếp lịch"})
+    db.commit()
+
+
+MIGRATIONS.append(("0314_gop_xep_lich", _migrate_gop_xep_lich))
+
+
+def _migrate_index_bang_lenh(db: Session) -> None:
+    """mg 0315 — thêm khoá phụ `id DESC` cho hai index sắp xếp của bảng lệnh.
+
+    Bối cảnh: mg 0217 đã lo phần lớn bảng này rồi — `ix_lsx_created_at (created_at DESC)`,
+    `ix_lsx_trang_thai_created_at (trang_thai, created_at DESC)` và hai index trigram cho ô
+    tìm kiếm. Migration này KHÔNG làm lại việc đó.
+
+    Chỗ 0217 còn hụt: màn sắp xếp bằng `ORDER BY created_at DESC, id DESC` (hai cột), còn index
+    chỉ có `created_at DESC`. Postgres đọc được index nhưng vẫn phải chèn một bước Incremental
+    Sort để phá hoà trong từng nhóm cùng `created_at` — và lệnh sinh theo lô thì hoà rất nhiều.
+    Đo trên Postgres thật 300.000 dòng: lật tới trang 200 (`OFFSET 9950`) 9,5 ms → 2,4 ms; cắt
+    trang đầu 3,1 ms → 1,6 ms.
+
+    Vì hai index mới bao trùm hai index cũ (cùng cột dẫn đầu, chỉ dài thêm một cột), migration
+    XOÁ hai cái cũ: giữ cả bốn chỉ tổ mỗi lần ghi một lệnh phải cập nhật thêm hai cây index mà
+    không truy vấn nào cần. Muốn khôi phục thì chạy lại DDL của 0217.
+
+    Best-effort có chủ ý: đây là index THUẦN hiệu năng, mất nó thì chậm chứ không sai. Mỗi câu
+    bọc riêng và nuốt lỗi — deploy chạy `app.migrate` ở container tạm TRƯỚC khi đổi app, để
+    migration đỏ vì một cái index là kẹt nguyên lượt deploy.
+    """
+    for ddl in (
+        "CREATE INDEX IF NOT EXISTS ix_lsx_sap_xep ON lsx (created_at DESC, id DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_lsx_trang_thai_sx "
+        "ON lsx (trang_thai, created_at DESC, id DESC)",
+        # Bị hai cái trên bao trùm — xoá SAU khi cái thay thế đã tạo xong.
+        "DROP INDEX IF EXISTS ix_lsx_created_at",
+        "DROP INDEX IF EXISTS ix_lsx_trang_thai_created_at",
+    ):
+        try:
+            db.execute(text(ddl))
+            db.commit()
+        except Exception:                                               # noqa: BLE001
+            db.rollback()
+
+
+MIGRATIONS.append(("0315_index_bang_lenh", _migrate_index_bang_lenh))
+
+def _migrate_cong_doan_vat_tu(db: Session) -> None:
+    """mg 0316 — chuyển VẬT TƯ ĐỊNH MỨC từ đầu việc của tổ lên chính CÔNG ĐOẠN.
+
+    Bảng đích `cong_doan_vat_tu` là bảng MỚI nên `create_all` đã dựng trước khi runner này chạy —
+    ở đây chỉ CHÉP dữ liệu. Phải chạy TRƯỚC mg `0320` (nơi xoá hai bảng nguồn), đó là ràng buộc
+    thứ tự duy nhất của cả đợt.
+
+    Raw SQL đích danh cột, KHÔNG dùng ORM: `SELECT *` qua ORM kéo cả những cột do migration SAU
+    thêm vào, nên deploy trên một DB đang ở giữa đường là vỡ.
+
+    Gộp dòng: cũ là (đầu việc × vật tư), mới là (công đoạn × vật tư) có UNIQUE — một công đoạn có
+    ba đầu việc cùng khai "Mực Cyan" thì ba dòng phải về MỘT. Lấy `MAX(cong_thuc_luong)`: hàm gộp
+    này bỏ qua NULL nên dòng CÓ công thức luôn thắng dòng để trống, và với nhiều công thức khác
+    nhau thì nó chọn theo thứ tự chữ — có chọn kiểu gì cũng là đoán, nên chọn cách LẶP LẠI ĐƯỢC
+    (chạy hai lần ra cùng kết quả) rồi để người khai sửa ở màn, hơn là chọn ngẫu nhiên theo id.
+    Đo trên DB dev 18/09/2026: 0 cặp trùng ⇒ thực tế là chép 1-1, luật gộp chỉ để không vỡ.
+
+    `WHERE NOT EXISTS` cho idempotent: chạy lại (hoặc chạy sau khi người khai đã tự thêm tay ở màn
+    mới) thì không đụng dòng đã có.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"cong_doan_vat_tu", "cong_doan_dau_viec", "cong_doan_dau_viec_vat_tu"} <= tables:
+        return
+    db.execute(text(
+        "INSERT INTO cong_doan_vat_tu (cong_doan_id, vat_tu_id, thu_tu, cong_thuc_luong) "
+        "SELECT dv.cong_doan_id, v.vat_tu_id, MIN(v.thu_tu), MAX(v.cong_thuc_luong) "
+        "FROM cong_doan_dau_viec_vat_tu v "
+        "JOIN cong_doan_dau_viec dv ON dv.id = v.cong_doan_dau_viec_id "
+        "WHERE NOT EXISTS ("
+        "  SELECT 1 FROM cong_doan_vat_tu t "
+        "  WHERE t.cong_doan_id = dv.cong_doan_id AND t.vat_tu_id = v.vat_tu_id) "
+        "GROUP BY dv.cong_doan_id, v.vat_tu_id"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0316_cong_doan_vat_tu", _migrate_cong_doan_vat_tu))
+
+
+def _migrate_piece_rates_cong_thuc_khoan(db: Session) -> None:
+    """mg 0317 — `piece_rates.cong_thuc_khoan`: cách đo lượng khoán về lại DANH MỤC Công việc khoán.
+
+    Quay ngược mg `0274` (hồi đó dời ô này xuống `cong_doan_dau_viec.cong_thuc_khoan`). Lý do hồi
+    đó — "cùng đầu việc làm ở hai công đoạn thì đếm khác nhau" — tan khi mỗi công việc khoán mang
+    MÃ RIÊNG của xưởng đã mã hoá sẵn khổ / số màu / số lớp. Đo trên DB dev 18/09/2026: mỗi công
+    việc khoán chỉ khai ở ĐÚNG MỘT công đoạn, 0 xung đột ⇒ chép về là 1-1.
+
+    Phải chạy TRƯỚC mg `0320` (xoá bảng nguồn). `MAX(...)` + `IS NOT NULL` cùng lý do với 0316:
+    dòng có công thức thắng dòng trống, và kết quả lặp lại được. Chỉ điền chỗ ĐANG TRỐNG — người
+    khai có thể đã tự gõ ở tab mới trước khi migration chạy trên DB của họ.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "piece_rates" not in tables:
+        return
+    if "cong_thuc_khoan" not in _existing_columns(insp, "piece_rates"):
+        db.execute(text("ALTER TABLE piece_rates ADD COLUMN cong_thuc_khoan TEXT"))
+        db.commit()
+    if "cong_doan_dau_viec" not in tables:
+        return
+    db.execute(text(
+        "UPDATE piece_rates SET cong_thuc_khoan = ("
+        "  SELECT MAX(dv.cong_thuc_khoan) FROM cong_doan_dau_viec dv "
+        "  WHERE dv.piece_rate_id = piece_rates.id AND dv.cong_thuc_khoan IS NOT NULL) "
+        "WHERE cong_thuc_khoan IS NULL"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0317_piece_rates_cong_thuc_khoan", _migrate_piece_rates_cong_thuc_khoan))
+
+
+def _migrate_batch_viec_khoan(db: Session) -> None:
+    """mg 0318 — mẻ sản lượng ghi theo CÔNG VIỆC KHOÁN, kèm ảnh chụp tên · đơn vị · đơn giá.
+
+    Chủ xưởng 18/09/2026: *"ghi mẻ đó nhưng cho công việc chứ không phải công đoạn nữa"*. Bảng con
+    `san_xuat_batch_phat_sinh` là bảng MỚI nên `create_all` tự dựng — ở đây chỉ bốn cột của
+    `san_xuat_batch`.
+
+    `piece_rate_id` để NULLABLE: mẻ ghi trước bản này không có việc khoán nào để backfill (không
+    suy được từ công đoạn — một công đoạn có nhiều việc), ép NOT NULL là migration chết ngay trên
+    DB dev đang có mẻ. Mẻ MỚI thì service từ chối nếu thiếu (`viec_khoan.chuan_hoa_khi_ghi`), và
+    cổng "Sẵn sàng lập kế hoạch" đã chặn bước giao cho tổ chưa khai việc khoán nào.
+
+    Index tạo TAY: `create_all` không thêm index cho bảng đã tồn tại, mà tab Sản lượng của tổ lọc
+    theo cột này.
+    """
+    insp = inspect(db.get_bind())
+    if "san_xuat_batch" not in set(insp.get_table_names()):
+        return
+    co = _existing_columns(insp, "san_xuat_batch")
+    for ten, ddl in (
+        ("piece_rate_id", "INTEGER"),
+        ("ten_khoan_snapshot", "VARCHAR(150)"),
+        ("don_vi_khoan_snapshot", "VARCHAR(24)"),
+        ("don_gia_khoan_snapshot", "NUMERIC(14,2)"),
+    ):
+        if ten not in co:
+            db.execute(text(f"ALTER TABLE san_xuat_batch ADD COLUMN {ten} {ddl}"))
+    db.commit()
+    try:
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_san_xuat_batch_piece_rate_id "
+            "ON san_xuat_batch (piece_rate_id)"
+        ))
+        db.commit()
+    except Exception:                                                   # noqa: BLE001
+        db.rollback()
+
+
+MIGRATIONS.append(("0318_batch_viec_khoan", _migrate_batch_viec_khoan))
+
+
+def _migrate_so_gio_ke_hoach(db: Session) -> None:
+    """mg 0319 — `so_gio_ke_hoach` cho bước TỔ của lệnh và của bài ghép.
+
+    Chủ xưởng 18/09/2026: *"chọn loại bước là tổ thì phải nhập thời gian ước lượng của tổ và để
+    mặc định là 0"* · *"không cần cảnh báo, bản chất nó là số giờ kế hoạch, nếu thiếu thì cứ để
+    0"*. GIỜ, nhận số lẻ (4,5 giờ) nên `NUMERIC(8,2)` chứ không phải INTEGER.
+
+    KHÔNG backfill từ `so_nhan_cong_tieu_chuan` × năng suất cũ: con số cũ là "mấy người", số mới
+    là "mấy giờ" — quy đổi chỉ ra một con số bịa mà người lập kế hoạch lại tin là mình đã khai.
+    Để 0, đúng như chủ xưởng dặn, và màn không cảnh báo gì.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    for bang in ("lsx_cong_doan", "bai_ghep_cong_doan"):
+        if bang not in tables or "so_gio_ke_hoach" in _existing_columns(insp, bang):
+            continue
+        db.execute(text(
+            f"ALTER TABLE {bang} ADD COLUMN so_gio_ke_hoach NUMERIC(8,2) NOT NULL DEFAULT 0"
+        ))
+        db.commit()
+
+
+MIGRATIONS.append(("0319_so_gio_ke_hoach", _migrate_so_gio_ke_hoach))
+
+
+def _migrate_go_dau_viec_dinh_muc(db: Session) -> None:
+    """mg 0320 — xoá hẳn hai bảng ĐẦU VIỆC ĐỊNH MỨC của công đoạn.
+
+    · `cong_doan_dau_viec_vat_tu` — vật tư treo dưới đầu việc. Đã chuyển lên `cong_doan_vat_tu`
+      ở mg `0316`.
+    · `cong_doan_dau_viec` — đầu việc + năng suất + kíp + công thức khoán của tổ tại công đoạn.
+      Công thức khoán đã về `piece_rates.cong_thuc_khoan` ở mg `0317`.
+
+    PHẢI chạy SAU 0316 và 0317 — đó là ràng buộc thứ tự duy nhất của đợt này. Con xoá trước cha vì
+    Postgres giữ FK `cong_doan_dau_viec_id`.
+
+    Chủ xưởng 18/09/2026 (chỉ vào đúng bảng này trên màn Công đoạn): *"là tôi kêu bỏ cái này
+    này"*. Công đoạn là CÔNG NGHỆ, công việc khoán là VIỆC CỦA TỔ — bảng giao điểm giữa hai thứ đó
+    là nơi mọi luật khớp ngầm ("tổ này ở công đoạn này thì đầu việc nào") sinh ra, mà mở form lên
+    không ai đoán nổi. Thợ chọn việc LÚC GHI MẺ, nơi họ biết mình vừa làm gì.
+
+    MẤT dữ liệu không khôi phục được: năng suất người/giờ (min/max), kíp chuẩn, đơn vị năng suất,
+    cách đo giờ của từng cặp (công đoạn × đầu việc). Năng suất máy thì còn nguyên ở
+    `cong_doan_may.cong_thuc_gio`; bước TỔ nay gõ `so_gio_ke_hoach`.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    for bang in ("cong_doan_dau_viec_vat_tu", "cong_doan_dau_viec"):
+        if bang not in tables:
+            continue
+        try:
+            db.execute(text(f"DROP TABLE {bang}"))
+            db.commit()
+        except Exception:                                               # noqa: BLE001
+            db.rollback()
+
+
+MIGRATIONS.append(("0320_go_dau_viec_dinh_muc", _migrate_go_dau_viec_dinh_muc))
+
+
+def _migrate_go_kip_va_dau_viec_o_buoc(db: Session) -> None:
+    """mg 0321 — gỡ KÍP NGƯỜI và ô ĐẦU VIỆC khỏi bước lệnh / bước bài ghép / ảnh chụp sản xuất.
+
+    Chủ xưởng 18/09/2026: *"bỏ luôn logic kíp người, mà mấy cái chặn hoặc cảnh báo hoặc phép tính
+    liên quan đến kíp người"*. Luật *"phải có ít nhất 1 thợ mới bắt đầu được việc"* thì GIỮ — đó
+    là luật về người có mặt, không phải về kíp định mức.
+
+    · `lsx_cong_doan` / `bai_ghep_cong_doan`: `so_nhan_cong_tieu_chuan` (kíp chuẩn) ·
+      `khoan_json` (ảnh chụp đầu việc của bước) · `nang_suat` + `don_vi_nang_suat` (hai cột SAO
+      CHÉP từ định mức, không ai đồng bộ lại bản sao). Thời lượng bước TỔ nay là
+      `so_gio_ke_hoach` (mg `0319`); bước MÁY đọc SỐNG `cong_doan_may.cong_thuc_gio`.
+    · `san_xuat_cong_viec.khoan_json`: ảnh chụp đầu việc lúc phát hành. Ảnh chụp nay ở MẺ
+      (`san_xuat_batch.*_khoan_snapshot`, mg `0318`) — chụp đúng lúc biết việc gì.
+    · `san_xuat_phien_chay.ly_do_so_nguoi`: câu giải thích "vì sao phiên này khác kíp chuẩn".
+      Không còn kíp chuẩn thì không còn gì để lệch.
+
+    Best-effort từng câu như mg `0305`: SQLite < 3.35 từ chối `DROP COLUMN` → cột mồ côi vô hại vì
+    model không map nữa. MẤT kíp chuẩn + ảnh chụp đầu việc của các bước đã lập — không khôi phục.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    for bang, ten in (
+        ("lsx_cong_doan", "so_nhan_cong_tieu_chuan"),
+        ("lsx_cong_doan", "khoan_json"),
+        ("lsx_cong_doan", "nang_suat"),
+        ("lsx_cong_doan", "don_vi_nang_suat"),
+        ("bai_ghep_cong_doan", "so_nhan_cong_tieu_chuan"),
+        ("bai_ghep_cong_doan", "khoan_json"),
+        ("bai_ghep_cong_doan", "nang_suat"),
+        ("bai_ghep_cong_doan", "don_vi_nang_suat"),
+        ("san_xuat_cong_viec", "khoan_json"),
+        ("san_xuat_phien_chay", "ly_do_so_nguoi"),
+    ):
+        if bang not in tables or ten not in _existing_columns(insp, bang):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN {ten}"))
+            db.commit()
+        except Exception:                                               # noqa: BLE001
+            db.rollback()
+
+
+MIGRATIONS.append(("0321_go_kip_va_dau_viec_o_buoc", _migrate_go_kip_va_dau_viec_o_buoc))
+
+
+def _migrate_go_tang_chia_san_luong(db: Session) -> None:
+    """mg 0322 — xoá TRỌN tầng CHIA SẢN LƯỢNG cho từng người.
+
+    Chủ xưởng 18/09/2026: *"ví dụ mẻ đó 3 người ghi sản lượng 3000 và thay kẽm số lượng 2, thì ghi
+    nhận thế thôi đừng có chia bất cứ gì"* và *"tôi sẽ có cách chia khi sang kế toán sau"*. Bốn
+    bảng:
+
+    · `san_xuat_phan_bo` — phiếu chia của một công việc + trạng thái chốt.
+    · `san_xuat_phan_bo_dong` — dòng chia theo người (phút tham gia → phần sản lượng).
+    · `san_xuat_phan_bo_bu_tru` — bù trừ tay lên một dòng chia.
+    · `san_xuat_phan_bo_loai_tru` — người bị loại khỏi lượt chia.
+
+    `san_xuat_ho_tro` (vết "người tổ nào sang giúp tổ nào") GIỮ — đó là vết tổ chức, không phải
+    phép chia — nhưng cột `ty_le_phan_tram` của nó DROP: tỷ lệ chỉ sinh ra để chia. Cột ấy
+    `NOT NULL` nên để lại là mọi phiếu hỗ trợ mới (model không còn ghi cột) vỡ INSERT trên Postgres.
+    Mẻ vẫn hiện ở tab Sản lượng của mọi tổ có người trong mẻ, CÙNG MỘT CON SỐ, chia hai mục "mẻ của
+    tổ" và "người của tổ đi làm ở tổ khác".
+
+    Bảng xoá theo thứ tự CON → CHA (FK trỏ về `san_xuat_phan_bo`). MẤT mọi lượt chia đã chốt —
+    không khôi phục được; cách chia mới sẽ nằm ở màn kế toán, đọc thẳng từ mẻ.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    for bang in (
+        "san_xuat_phan_bo_loai_tru",
+        "san_xuat_phan_bo_bu_tru",
+        "san_xuat_phan_bo_dong",
+        "san_xuat_phan_bo",
+    ):
+        if bang not in tables:
+            continue
+        try:
+            db.execute(text(f"DROP TABLE {bang}"))
+            db.commit()
+        except Exception:                                               # noqa: BLE001
+            db.rollback()
+    if ("san_xuat_ho_tro" in tables
+            and "ty_le_phan_tram" in _existing_columns(insp, "san_xuat_ho_tro")):
+        try:
+            db.execute(text("ALTER TABLE san_xuat_ho_tro DROP COLUMN ty_le_phan_tram"))
+            db.commit()
+        except Exception:                                               # noqa: BLE001
+            # SQLite cũ không DROP COLUMN được — DB test dựng bằng `create_all` nên không có cột.
+            db.rollback()
+
+
+MIGRATIONS.append(("0322_go_tang_chia_san_luong", _migrate_go_tang_chia_san_luong))
+
+
+def _migrate_xep_lich_index_hang_xom(db: Session) -> None:
+    """mg 0323 — `xep_lich_cong_doan`: index (`may_id`, `finish_at`) và (`department_id`, `finish_at`).
+
+    Phục vụ `XepLichRepository.dong_quanh`: hàng đèn Kế hoạch SX nay chỉ nạp phần bàn quanh trang
+    lệnh, trong đó có "việc cùng máy / cùng tổ CHẠM khoảng giờ `[lo, hi]`" = `finish_at >= lo AND
+    start_at <= hi`. Với index cũ (`may_id`, `start_at`) vế `start_at <= hi` quét NGƯỢC về tận dòng
+    đầu tiên của máy — tức cả lịch sử, đúng thứ đang muốn tránh. Dẫn bằng `finish_at` thì chỉ quét
+    từ `lo` trở về sau: phần còn lại của kế hoạch, không phình theo năm tháng.
+
+    Chỉ tạo index, không đụng dữ liệu; `IF NOT EXISTS` lo phần chạy lại.
+    """
+    insp = inspect(db.get_bind())
+    if "xep_lich_cong_doan" not in set(insp.get_table_names()):
+        return
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_xep_lich_may_xong "
+        "ON xep_lich_cong_doan (may_id, finish_at)"))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_xep_lich_to_xong "
+        "ON xep_lich_cong_doan (department_id, finish_at)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0323_xep_lich_index_hang_xom", _migrate_xep_lich_index_hang_xom))
+
+
+def _migrate_go_cong_thuc_san_luong(db: Session) -> None:
+    """mg 0324 — gỡ "Công thức sản lượng ra" của CÔNG ĐOẠN (18/09/2026, yêu cầu chủ xưởng).
+
+    Ba cột của bảng `cong_doan` DROP:
+
+    · `cong_thuc_san_luong` (mg `0214`) — sản lượng RA của bước NGOÀI dòng giấy (Ghi kẽm CTP khai
+      `so_kem` ⇒ 4 bản), rồi engine suy ngược vế vào qua cầu quy đổi + bù hao.
+    · `don_vi_san_luong` (mg `0289`) — đơn vị của con số ấy (`kem`).
+    · `he_so_ngoai_dong` (mg `0196`) — hệ số vào→ra khai tay, đã ngưng dùng từ 20/08/2026.
+
+    Kèm theo: xoá các dòng `cong_thuc_lich_su` của trường `cong_thuc_san_luong` (bảng `cong_doan`)
+    — không còn màn nào đọc "lần trước công thức" của cột đã gỡ.
+
+    Từ nay bước ngoài dòng giấy chỉ có số khi người lập lệnh TỰ KHAI đơn vị + số ở bước
+    (`lsx_service.tu_khai_don_vi`); không khai thì bước đứng ở 0. Số đã lưu trên các lệnh cũ KHÔNG
+    đổi (cột `lsx_cong_doan.so_luong_*` không đụng tới).
+
+    MẤT công thức + đơn vị đã khai ở danh mục và lịch sử sửa công thức ấy — không khôi phục được,
+    muốn có lại thì khai tay ở từng lệnh.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "cong_thuc_lich_su" in tables:
+        db.execute(text(
+            "DELETE FROM cong_thuc_lich_su "
+            "WHERE bang = 'cong_doan' AND truong = 'cong_thuc_san_luong'"))
+        db.commit()
+    if "cong_doan" not in tables:
+        return
+    co = _existing_columns(insp, "cong_doan")
+    for cot in ("cong_thuc_san_luong", "don_vi_san_luong", "he_so_ngoai_dong"):
+        if cot not in co:
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE cong_doan DROP COLUMN {cot}"))
+            db.commit()
+        except Exception:                                               # noqa: BLE001
+            # SQLite cũ không DROP COLUMN được — DB test dựng bằng `create_all` nên không có cột.
+            db.rollback()
+
+
+MIGRATIONS.append(("0324_go_cong_thuc_san_luong", _migrate_go_cong_thuc_san_luong))
+
+
+def _migrate_yeu_cau_mua_nguon_lenh(db: Session) -> None:
+    """mg 0325 — bảng `yeu_cau_mua_nguon_lenh`: YCMH mua mặt hàng nào cho lệnh/bài ghép nào.
+
+    "Ngày cần" trên Kế hoạch vật tư thôi suy từ lịch/hạn sản xuất (18/09/2026, yêu cầu chủ): nó là
+    đúng NGÀY CẦN HÀNG người lập gõ trên yêu cầu mua hàng, đọc ngược qua bảng này. Lệnh không phải
+    mua thì không có dòng nào ⇒ ngày để trống.
+
+    Chỉ TẠO bảng, không backfill: YCMH cũ chỉ mang mã lệnh dạng chữ (`related_document_code`), ghép
+    ngược bằng chữ là đoán. Idempotent (`IF NOT EXISTS`).
+    """
+    bind = db.get_bind()
+    pk = "INTEGER PRIMARY KEY AUTOINCREMENT" if bind.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS yeu_cau_mua_nguon_lenh ("
+        f"id {pk}, "
+        "department_request_id INTEGER NOT NULL "
+        "  REFERENCES department_purchase_requests(id) ON DELETE CASCADE, "
+        "hang_loai VARCHAR(8) NOT NULL, "
+        "hang_id INTEGER NOT NULL, "
+        "lsx_id INTEGER REFERENCES lsx(id) ON DELETE CASCADE, "
+        "bai_ghep_id INTEGER REFERENCES bai_ghep(id) ON DELETE CASCADE, "
+        "buoc_id INTEGER, "
+        "CONSTRAINT ck_ycmh_nguon_lenh_mot_chu_the "
+        "  CHECK ((lsx_id IS NULL) <> (bai_ghep_id IS NULL)))"
+    ))
+    for cot in ("department_request_id", "lsx_id", "bai_ghep_id"):
+        db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS ix_yeu_cau_mua_nguon_lenh_{cot} "
+            f"ON yeu_cau_mua_nguon_lenh ({cot})"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0325_yeu_cau_mua_nguon_lenh", _migrate_yeu_cau_mua_nguon_lenh))

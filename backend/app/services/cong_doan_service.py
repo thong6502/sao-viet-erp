@@ -13,13 +13,7 @@ from .bien_cong_thuc import LOAI_CONG_DOAN, LOAI_QUY_DOI
 from .catalog_base import (
     CatalogDuplicate, CatalogError, CatalogNotFound, CatalogService, CatalogValidationError,
 )
-from .quy_doi_service import bien_trong
 from .thanh_phan_engine import kiem_cong_thuc
-
-# Hai chip là số của CHÍNH BƯỚC, không phải của lệnh — dùng chúng trong công thức của đơn vị RA là
-# vòng tròn (xem `_validate`). Khai ở `bien_cong_thuc._BANG` với loại `quy_doi`.
-_BIEN_CUA_BUOC = ("sl_vao", "sl_ra")
-
 
 class CongDoanError(CatalogError):
     pass
@@ -47,6 +41,40 @@ class CongDoanService(CatalogService):
 
     def __init__(self, repo: CongDoanRepository, audit=None) -> None:
         super().__init__(repo, audit)
+
+    def _chuan_hoa(self, data: dict) -> dict:
+        """Khử trùng danh sách tổ phụ trách, GIỮ thứ tự chọn (tổ đầu là mặc định của bước lệnh).
+
+        `department_ids = None` là VẮNG (giữ nguyên danh sách đang có — ô trống ở file Excel) — bỏ
+        khoá hẳn để repo không tưởng đó là "xoá hết tổ". Danh sách RỖNG thì đúng là gỡ hết tổ.
+        """
+        data = dict(data)
+        if "department_ids" in data:
+            ids = data.get("department_ids")
+            if ids is None:
+                data.pop("department_ids")
+            else:
+                data["department_ids"] = list(dict.fromkeys(int(i) for i in ids if i))
+        return data
+
+    def _anh_chup_nhan_ban(self, goc) -> dict:
+        """Bản sao mang theo danh sách tổ — ảnh chụp nhật ký chỉ có chúng dưới dạng chữ."""
+        data = super()._anh_chup_nhan_ban(goc)
+        data["department_ids"] = list(goc.department_ids)
+        return data
+
+    def _kiem_to(self, data: dict, obj: CongDoan | None) -> list[int]:
+        """Danh sách tổ SẼ LƯU (vắng = giữ của bản ghi). Tổ MỚI thêm phải có thật trong cây tổ chức;
+        tổ đang lưu mà nay đã bị xoá thì để yên — form nạp lại đúng danh sách cũ, chặn là khoá luôn
+        đường sửa công đoạn đó."""
+        cu = list(obj.department_ids) if obj is not None else []
+        if "department_ids" not in data:
+            return cu
+        ids = data["department_ids"]
+        moi = {i for i in ids if i not in cu}
+        if moi and moi - {d.id for d in self.repo.phong_ban_tat_ca()}:
+            raise CongDoanValidationError("Không tìm thấy tổ phụ trách đã chọn.")
+        return ids
 
     def _validate(self, data: dict, obj: CongDoan | None = None) -> None:
         if not (data.get("ma") or "").strip():
@@ -92,52 +120,13 @@ class CongDoanService(CatalogService):
                              loai=LOAI_QUY_DOI)
                 self._kiem_o(r.get("cong_thuc_gia"), nhan=f"Công thức giá{o}",
                              loai=LOAI_CONG_DOAN)
-        dinh_muc = data.get("dau_viec_dinh_muc") or []
-        if dinh_muc:
-            if data.get("department_id") is None:
-                raise CongDoanValidationError("Muốn khai định mức đầu việc phải chọn tổ phụ trách.")
-            ids = [int(r.get("piece_rate_id") or 0) for r in dinh_muc]
-            if len(ids) != len(set(ids)):
-                raise CongDoanValidationError("Một đầu việc không được chọn trùng.")
-            rates = self.repo.piece_rates(set(ids))
-            for r in dinh_muc:
-                rid = int(r.get("piece_rate_id") or 0)
-                rate = rates.get(rid)
-                if rate is None or not rate.active:
-                    raise CongDoanValidationError("Đầu việc không tồn tại hoặc đã ngừng dùng.")
-                if rate.department_id != data.get("department_id"):
-                    raise CongDoanValidationError("Đầu việc phải thuộc đúng tổ phụ trách.")
-                ns = float(r.get("nang_suat_nguoi_gio") or 0)
-                tc = int(r.get("so_nguoi_tieu_chuan") or 0)
-                if ns <= 0:
-                    raise CongDoanValidationError("Năng suất một người phải lớn hơn 0.")
-                # Hai mốc tối thiểu/tối đa đã gỡ (migration `0270`): chỉ còn MỘT kíp chuẩn.
-                if tc < 1:
-                    raise CongDoanValidationError("Số người tiêu chuẩn phải từ 1 trở lên.")
-                # Dải năng suất: khai mức nào thì mức đó phải đứng đúng phía của trung bình, không
-                # thì "nhanh nhất" ra dài hơn "chậm nhất" và râu Gantt vẽ ngược.
-                ns_min = r.get("nang_suat_nguoi_gio_min")
-                ns_max = r.get("nang_suat_nguoi_gio_max")
-                if ns_min is not None and float(ns_min) > ns:
-                    raise CongDoanValidationError(
-                        "Năng suất tối thiểu không được lớn hơn năng suất trung bình.")
-                if ns_max is not None and float(ns_max) < ns:
-                    raise CongDoanValidationError(
-                        "Năng suất tối đa không được nhỏ hơn năng suất trung bình.")
-                # Chuẩn hoá TẠI ĐÂY để mọi đường vào (form, Excel, API) cùng một dạng: khoảng
-                # trắng thừa làm `if cong_thuc:` ở engine tưởng có khai rồi `safe_eval("  ")` nổ.
-                # Cùng luật đang áp cho hai ô công thức của bảng máy phía trên.
-                for k in ("cong_thuc_khoan", "cong_thuc_gio", "don_vi_nang_suat"):
-                    r[k] = ((r.get(k) or "").strip()) or None
-                # Gọi tên ĐẦU VIỆC trong câu lỗi — bảng nhiều dòng, không nói tên thì người khai
-                # phải mở từng panel để dò xem mình gõ hỏng ở đâu.
-                self._kiem_o(r.get("cong_thuc_khoan"),
-                             nhan=f"Công thức tính tiền công (đầu việc {rate.ten})",
-                             loai=LOAI_QUY_DOI)
-                self._kiem_o(r.get("cong_thuc_gio"),
-                             nhan=f"Cách đo giờ chạy (đầu việc {rate.ten})",
-                             loai=LOAI_QUY_DOI)
-            self._kiem_vat_tu_dau_viec(dinh_muc, self._vat_tu_dang_co(obj))
+        self._kiem_to(data, obj)
+        # ⚠️ Khối validate "định mức đầu việc" (năng suất người-giờ · kíp chuẩn · công thức tiền
+        #    công · cách đo giờ) GỠ 18/09/2026 (mg `0320`): công đoạn thôi khai đầu việc. Việc khoán
+        #    nay chọn LÚC GHI MẺ ở bàn tổ, còn thời lượng bước tổ do người lập lệnh gõ tay
+        #    (`so_gio_ke_hoach`). Vật tư ở lại nhưng treo thẳng vào CÔNG ĐOẠN (§3.1).
+        self._kiem_vat_tu(data.get("vat_tus") or [], self._vat_tu_dang_co(obj))
+
         che_do = data.get("che_do_tinh", "theo_san_luong")
         if che_do not in CHE_DO_TINH:
             raise CongDoanValidationError("Chế độ tính không hợp lệ.")
@@ -155,52 +144,25 @@ class CongDoanService(CatalogService):
             raise CongDoanValidationError("Kiểu bù hao không hợp lệ. [E-CD-BUHAO]")
         # Đơn vị vào/ra là MENU ĐÓNG 5 CHẶNG dòng giấy (06/09/2026) — không còn trỏ vào danh mục
         # Đơn vị & quy đổi. Hai ca hợp lệ, không có ca thứ ba:
-        #   - cùng để TRỐNG        → bước NGOÀI dòng giấy (ghi kẽm, đóng thùng): số lượng của nó
-        #                            tự tính bằng `cong_thuc_san_luong`, không dính chuỗi bù hao
+        #   - cùng để TRỐNG        → bước NGOÀI dòng giấy (ghi kẽm, đóng thùng): đứng ngoài chuỗi bù
+        #                            hao; đơn vị + số do người lập lệnh tự khai ở bước
+        #                            (`lsx_service.tu_khai_don_vi`)
         #   - hai đầu đều là CHẶNG → bước trên dòng giấy, phải đúng chiều (`tram_chay_xuoi`)
         #
         # Trước đây bước ngoài dòng khai đơn vị THẬT của nó (`bai → kem`) và "có nằm trên dòng
         # giấy không" hỏi cờ `don_vi_do.tram_dong_giay`. Cờ ấy đã gỡ: nó chỉ cho ĐỔI TÊN một chặng
         # chứ không thêm được chặng thứ 6, đổi lại bắt người khai danh mục đơn vị (kho, mua hàng)
         # phải hiểu dòng giấy. Nay bỏ trống chính là câu "ngoài dòng giấy" — nói thẳng, một ô.
+        #
+        # GỠ 18/09/2026 (mg `0324`): "Công thức sản lượng ra" + "Đơn vị sản lượng" của bước ngoài
+        # dòng giấy, kèm luật chặn vòng tròn `sl_vao`/`sl_ra` trong công thức ấy.
         dv_vao = (data.get("don_vi_vao") or "").strip() or None
         dv_ra = (data.get("don_vi_ra") or "").strip() or None
         data["don_vi_vao"], data["don_vi_ra"] = dv_vao, dv_ra
-        # ĐƠN VỊ SẢN LƯỢNG (mg `0289`) — chỉ có nghĩa với bước NGOÀI dòng giấy, nơi hai ô chặng
-        # để trống. Bước trên dòng giấy đã có đơn vị là tên chặng: khai thêm ở đây là hai nguồn
-        # trả lời một câu, nên ép về None thay vì bắt lỗi (cùng cách xử lý với `spoilage_pct` của
-        # nhóm In ngay dưới) — người khai đổi một bước ngoài dòng thành bước trên dòng thì ô cũ tự
-        # dọn, không phải quay lại xoá tay.
-        if "don_vi_san_luong" in data:
-            dv_sl = (data.get("don_vi_san_luong") or "").strip() or None
-            if dv_sl and dv_vao is not None:
-                dv_sl = None
-            # Mã phải CÓ THẬT trong danh mục Đơn vị & quy đổi: đây là soft-ref, không FK gác hộ,
-            # mà mã gõ bậy thì bàn tổ hiện "4 kem_" — sai lộ ra tận màn của thợ.
-            if dv_sl and dv_sl.strip().lower() not in self.repo.don_vi_ten():
-                raise CongDoanValidationError(
-                    f"Đơn vị sản lượng {dv_sl} không có trong danh mục Đơn vị & quy đổi. "
-                    f"[E-CD-DVSL]")
-            data["don_vi_san_luong"] = dv_sl
         if (dv_vao is None) != (dv_ra is None):
             raise CongDoanValidationError(
                 "Đơn vị đầu vào và đầu ra phải cùng khai, hoặc cùng để trống. [E-CD-DONVI]")
-        if dv_vao is None:
-            # VÒNG TRÒN (14/08/2026, chuyển nguồn 17/08/2026): bước NGOÀI dòng giấy lấy `ra` từ
-            # `cong_thuc_san_luong` của CHÍNH công đoạn (mg `0214`, trước là công thức của đơn vị
-            # RA), rồi suy `vào` ngược từ `ra`. Công thức đó mà dùng `sl_vao`/`sl_ra` thì không có
-            # chỗ bắt đầu — ra cần vào, vào cần ra. Chặn ngay lúc khai, đừng để lòi ra ô trống ở
-            # lệnh.
-            #
-            # Chỉ chặn với bước NGOÀI dòng — trên dòng giấy thì `ra` lấy từ chuỗi bù hao, cột này
-            # bị bỏ qua hoàn toàn nên chặn là chặn oan.
-            ct_sl = (data.get("cong_thuc_san_luong") or "").strip()
-            if ct_sl and (lap := [b for b in bien_trong(ct_sl) if b in _BIEN_CUA_BUOC]):
-                raise CongDoanValidationError(
-                    f"Công thức sản lượng dùng {' · '.join(lap)} — là số của CHÍNH bước, nên "
-                    f"không tự tính được: SL ra phải xong trước thì mới suy được SL vào. Bỏ "
-                    f"chip đó khỏi công thức. [E-CD-VONG-TRON]")
-        else:
+        if dv_vao is not None:
             if la := [m for m in dict.fromkeys((dv_vao, dv_ra)) if m not in TRAM_DONG_GIAY]:
                 raise CongDoanValidationError(
                     f"Đơn vị {' · '.join(la)} không nằm trên dòng giấy. Ô đơn vị của công đoạn "
@@ -214,12 +176,9 @@ class CongDoanService(CatalogService):
         # W-CD-PRINT-SPOIL: bước in không nên có spoilage (bù hao lấy từ máy) — ép 0.
         if data.get("nhom") == "print" and data.get("spoilage_pct"):
             data["spoilage_pct"] = 0
-        # Công thức phải CHẠY ĐƯỢC mới cho lưu (07/09/2026) — công đoạn có tới SÁU ô công thức và
-        # trước đây không ô nào bị soi ở server. Kiểm cuối cùng để câu lỗi cú pháp không chen
-        # trước những câu lỗi nghiệp vụ cụ thể hơn (vòng tròn `sl_vao`/`sl_ra`, chiều dòng giấy) —
-        # người khai cần nghe cái bệnh nặng trước.
-        self._kiem_o(data.get("cong_thuc_san_luong"), nhan="Công thức sản lượng ra",
-                     loai=LOAI_QUY_DOI)
+        # Công thức phải CHẠY ĐƯỢC mới cho lưu (07/09/2026) — trước đây không ô công thức nào của
+        # công đoạn bị soi ở server. Kiểm cuối cùng để câu lỗi cú pháp không chen trước những câu
+        # lỗi nghiệp vụ cụ thể hơn (chiều dòng giấy) — người khai cần nghe cái bệnh nặng trước.
         self._kiem_o(data.get("cong_thuc_gia"), nhan="Công thức tính giá", loai=LOAI_CONG_DOAN)
 
     @staticmethod
@@ -233,17 +192,17 @@ class CongDoanService(CatalogService):
 
     @staticmethod
     def _vat_tu_dang_co(obj: CongDoan | None) -> set[int]:
-        """Vật tư ĐÃ khai trên công đoạn này — để `_kiem_vat_tu_dau_viec` biết cái nào là giữ lại
-        chứ không phải gán mới. Rỗng khi tạo mới."""
+        """Vật tư ĐÃ khai trên công đoạn này — để `_kiem_vat_tu` biết cái nào là giữ lại chứ
+        không phải gán mới. Rỗng khi tạo mới."""
         return {
             int(v.vat_tu_id)
-            for dv in (getattr(obj, "dau_viec_dinh_muc", None) or [])
-            for v in (getattr(dv, "vat_tus", None) or [])
+            for v in (getattr(obj, "vat_tus", None) or [])
             if v.vat_tu_id
         }
 
-    def _kiem_vat_tu_dau_viec(self, dinh_muc: list[dict], dang_co: set[int] | None = None) -> None:
-        """Vật tư gắn vào đầu việc (nền BOM, mg 0191) — id phải có thật và còn dùng.
+    def _kiem_vat_tu(self, rows: list[dict], dang_co: set[int] | None = None) -> None:
+        """Vật tư gắn vào CÔNG ĐOẠN (nền BOM, mg 0191 → chuyển tầng mg `0316`) — id phải có thật
+        và còn dùng.
 
         Vật tư đã ngừng dùng mà lọt vào đây thì tới lúc bung ở bước lệnh nó sẽ rơi im lặng (query
         bung lọc `active`), và người khai không hiểu vì sao dòng mình khai không hiện ra.
@@ -254,13 +213,12 @@ class CongDoanService(CatalogService):
         không chặn khi giữ nguyên: nếu không thì đổi mỗi cái tên công đoạn cũng bị chặn chỉ vì một
         vật tư trong đó đã ngừng từ lâu, và người dùng không có đường nào sửa nữa.
         """
-        can = {int(v["vat_tu_id"]) for r in dinh_muc for v in (r.get("vat_tus") or [])}
-        if not can:
+        ids = [int(r["vat_tu_id"]) for r in rows if r.get("vat_tu_id")]
+        if not ids:
             return
-        for r in dinh_muc:
-            ids = [int(v["vat_tu_id"]) for v in (r.get("vat_tus") or [])]
-            if len(ids) != len(set(ids)):
-                raise CongDoanValidationError("Một vật tư không được chọn trùng trong cùng đầu việc.")
+        if len(ids) != len(set(ids)):
+            raise CongDoanValidationError("Một vật tư không được chọn trùng trong công đoạn.")
+        can = set(ids)
         co = self.repo.vat_tus(can)
         giu = dang_co or set()
         for vid in sorted(can):
@@ -275,13 +233,15 @@ class CongDoanService(CatalogService):
                 raise CongDoanValidationError(
                     f"Vật tư “{vt.ten}” chưa chọn đơn vị tính — chưa quy đổi ra số lượng được. "
                     f"Khai đơn vị ở màn Vật tư khác trước.")
-        # Ô công thức của TỪNG DÒNG vật tư (mg 0274) — soi ở đây vì chỉ chỗ này có tên vật tư
-        # để gọi trong câu lỗi; một đầu việc gắn nhiều vật tư, không nói tên là bắt người khai dò.
-        for r in dinh_muc:
-            for v in (r.get("vat_tus") or []):
-                ten_vt = getattr(co.get(int(v["vat_tu_id"])), "ten", "")
-                self._kiem_o(v.get("cong_thuc_luong"),
-                             nhan=f"Công thức định mức của vật tư “{ten_vt}”", loai=LOAI_QUY_DOI)
+        # Ô công thức của TỪNG DÒNG vật tư (mg 0274) — soi ở đây vì chỉ chỗ này có tên vật tư để
+        # gọi trong câu lỗi; một công đoạn gắn nhiều món, không nói tên là bắt người khai dò.
+        # Chuẩn hoá luôn: khoảng trắng thừa làm `if cong_thuc:` ở engine tưởng có khai rồi
+        # `safe_eval("  ")` nổ.
+        for r in rows:
+            r["cong_thuc_luong"] = ((r.get("cong_thuc_luong") or "").strip()) or None
+            ten_vt = getattr(co.get(int(r["vat_tu_id"])), "ten", "")
+            self._kiem_o(r.get("cong_thuc_luong"),
+                         nhan=f"Công thức định mức của vật tư “{ten_vt}”", loai=LOAI_QUY_DOI)
 
     # GỠ 08/09/2026: `gan_ten_don_vi` — tra `don_vi_vao`/`don_vi_ra` vào danh mục Đơn vị & quy đổi
     # rồi gán `don_vi_vao_ten`/`don_vi_ra_ten`. Nó ra đời (12/08/2026) khi hai ô ấy CÒN trỏ danh
@@ -295,8 +255,7 @@ class CongDoanService(CatalogService):
     # dù dòng giấy chẳng liên quan gì.
     #
     # Nay CHẶNG chỉ có một bộ nhãn (`models/don_vi_do.TRAM_NHAN`, frontend soi `TRAM_DONG_GIAY`),
-    # server thôi gửi tên. `repo.don_vi_ten()` GIỮ — `dau_viec_options` còn cần, vì đơn vị của đầu
-    # việc khoán thì đúng là lấy từ danh mục.
+    # server thôi gửi tên.
 
     def dem_theo_nhom(self, **kw) -> dict[str, int]:
         """Số công đoạn theo giai đoạn — cho tab lọc của màn Công đoạn (xem repo)."""
@@ -327,13 +286,6 @@ class CongDoanService(CatalogService):
             )
         return items
 
-    def dau_viec_options(self, department_id: int | None = None) -> list[dict]:
-        # `don_vi` lưu MÃ (`to`, `kg`); mã trần thì người khai không đọc ra "tờ"/"kg". Gán kèm
-        # `don_vi_ten` như mọi màn khác (Công việc khoán · Máy · Vật tư) để bảng định mức hiện
-        # TÊN, chỉ lùi về mã khi mã lạ (ngoài danh mục Đơn vị). Một truy vấn cho cả danh sách.
-        ten = self.repo.don_vi_ten()
-        return [{"id": r.id, "ma": r.ma or f"DV-{r.id}", "ten": r.ten,
-                 "department_id": r.department_id, "don_vi": r.unit,
-                 "don_vi_ten": ten.get((r.unit or "").strip().lower()),
-                 "don_gia": float(r.unit_price)}
-                for r in self.repo.piece_rates_active(department_id)]
+    # ⚠️ `dau_viec_options()` GỠ 18/09/2026 (mg `0320`): bảng "Đầu việc và định mức của tổ" đã
+    #    biến khỏi drawer Công đoạn nên không còn dropdown nào cần đổ. Việc khoán của tổ nay đọc ở
+    #    bàn tổ lúc ghi mẻ (`san_xuat/san_luong.viec_khoan_cua_to`).

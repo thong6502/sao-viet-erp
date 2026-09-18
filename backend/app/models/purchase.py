@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -556,6 +557,14 @@ class DepartmentPurchaseRequest(Base):
         back_populates="department_request",
         order_by="PurchaseRequestSource.id",
     )
+    # Lệnh/bài mà yêu cầu này mua hàng cho (mg 0325). Sửa yêu cầu KHÔNG đụng tới — form sửa chỉ
+    # thay các dòng hàng, còn "mua cho lệnh nào" là sự thật lúc lập.
+    nguon_lenh: Mapped[list["YeuCauMuaNguonLenh"]] = relationship(
+        "YeuCauMuaNguonLenh",
+        back_populates="request",
+        cascade="all, delete-orphan",
+        order_by="YeuCauMuaNguonLenh.id",
+    )
 
 
 class DepartmentPurchaseRequestLine(Base):
@@ -589,6 +598,48 @@ class DepartmentPurchaseRequestLine(Base):
 
     request: Mapped[DepartmentPurchaseRequest] = relationship(
         "DepartmentPurchaseRequest", back_populates="lines"
+    )
+
+
+class YeuCauMuaNguonLenh(Base):
+    """YCMH này mua MẶT HÀNG nào cho LỆNH/BÀI GHÉP nào (mg 0325, 18/09/2026).
+
+    Sinh ra lúc bấm "Đề nghị mua" ở Kế hoạch vật tư: mỗi dòng thiếu được tick là một liên kết. Nhờ
+    nó, "Ngày cần" của lệnh trên Kế hoạch vật tư là đúng NGÀY CẦN HÀNG người lập gõ trên yêu cầu —
+    hệ không tự suy ngày nào nữa. Lệnh không phải mua (tồn đủ) thì không có liên kết, ngày để trống.
+
+    Treo ở cấp YÊU CẦU chứ không ở dòng hàng: sửa yêu cầu là thay lại các dòng (delete-orphan), treo
+    ở dòng thì mất liên kết mỗi lần sửa. Liên kết chỉ còn hiệu lực khi yêu cầu chưa huỷ VÀ còn dòng
+    sống cùng mặt hàng — bỏ món khỏi yêu cầu là tự hết hiệu lực, không cần xoá.
+    """
+
+    __tablename__ = "yeu_cau_mua_nguon_lenh"
+    __table_args__ = (
+        CheckConstraint(
+            "(lsx_id IS NULL) <> (bai_ghep_id IS NULL)", name="ck_ycmh_nguon_lenh_mot_chu_the"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    department_request_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("department_purchase_requests.id", ondelete="CASCADE"),
+        index=True, nullable=False,
+    )
+    hang_loai: Mapped[str] = mapped_column(String(8), nullable=False)
+    hang_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Đúng MỘT trong hai: dòng giấy của bài ghép thuộc về BÀI, không thuộc lệnh thành viên nào.
+    lsx_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("lsx.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    bai_ghep_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("bai_ghep.id", ondelete="CASCADE"), index=True, nullable=True
+    )
+    # Bước đã tick lúc lập (id bước lệnh hoặc bước chung của bài) — chỉ để truy vết, không dùng để
+    # khớp: ngày cần là của LỆNH, bước có thể bị sửa/xoá sau đó.
+    buoc_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    request: Mapped[DepartmentPurchaseRequest] = relationship(
+        "DepartmentPurchaseRequest", back_populates="nguon_lenh"
     )
 
 

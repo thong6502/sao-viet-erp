@@ -9,6 +9,7 @@ from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
+from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
 from ..models.lsx import LB_MAY, TT_SAN_SANG as LSX_SAN_SANG, Lsx, LsxCongDoan
 
 NHOM_PRINT = "print"
@@ -45,6 +46,30 @@ class BaiGhepRepository:
             ).scalars()
         )
 
+    def chua_lsx(self, lsx_ids: list[int] | set[int]) -> list[BaiGhep]:
+        """Bài ghép có ÍT NHẤT MỘT thành viên nằm trong `lsx_ids` — bản HẸP của `list()`.
+
+        `list()` kéo MỌI bài ghép của xưởng về rồi lọc bằng Python; đúng cho màn Kế hoạch vật tư
+        (nó vẽ cả bảng) nhưng phí cho đường chỉ hỏi vài lệnh của MỘT TRANG: số bài chỉ có tăng
+        theo đà sản xuất, còn trang thì vẫn 50 dòng. Lọc đẩy xuống SQL bằng `EXISTS`.
+        """
+        ids = [int(i) for i in (lsx_ids or []) if i]
+        if not ids:
+            return []
+        return list(
+            self.db.execute(
+                select(BaiGhep)
+                .where(exists(
+                    select(BaiGhepThanhVien.id).where(
+                        BaiGhepThanhVien.bai_ghep_id == BaiGhep.id,
+                        BaiGhepThanhVien.lsx_id.in_(ids),
+                    )
+                ))
+                .options(selectinload(BaiGhep.thanh_viens))
+                .order_by(BaiGhep.created_at.desc())
+            ).scalars()
+        )
+
     def hang_cho_ghep(self) -> list[Lsx]:
         """LSX sẵn sàng + có công đoạn in + chưa thuộc bài ghép nào (mới nhất trước)."""
         return list(
@@ -72,6 +97,53 @@ class BaiGhepRepository:
             select(Lsx).where(Lsx.id.in_(lsx_ids)).options(selectinload(Lsx.cong_doans))
         ).scalars()
         return {r.id: r for r in rows}
+
+    # --- nạp LÔ cho đường đọc nhiều bài một lượt (bảng cân đối vật tư) -------------
+    # Engine bài ghép hỏi ba thứ này TỪNG BÀI, từng thành viên — đọc một bài thì không sao, nhưng
+    # bảng cân đối chạy engine cho mọi bài trong xưởng nên mỗi bài đội thêm cả chục câu.
+
+    def buoc_chung_theo_bai(self, bai_ids: list[int]) -> dict[int, list[BaiGhepCongDoan]]:
+        """bai_ghep_id → các bước chung, CÙNG thứ tự với `BaiGhepService._buoc_chungs`."""
+        ids = sorted({int(i) for i in bai_ids if i})
+        ket: dict[int, list[BaiGhepCongDoan]] = {i: [] for i in ids}
+        if not ids:
+            return ket
+        for c in self.db.execute(
+            select(BaiGhepCongDoan)
+            .where(BaiGhepCongDoan.bai_ghep_id.in_(ids))
+            .order_by(BaiGhepCongDoan.thu_tu, BaiGhepCongDoan.id)
+        ).scalars():
+            ket[c.bai_ghep_id].append(c)
+        return ket
+
+    def gop_theo_bai(self, bai_ids: list[int]) -> dict[int, dict[int, set[str]]]:
+        """bai_ghep_id → (lsx_id → step_key của lệnh đang bị bước chung đè)."""
+        ids = sorted({int(i) for i in bai_ids if i})
+        ket: dict[int, dict[int, set[str]]] = {i: {} for i in ids}
+        if not ids:
+            return ket
+        for bai_id, m in self.db.execute(
+            select(BaiGhepCongDoan.bai_ghep_id, BaiGhepCongDoanMap)
+            .select_from(BaiGhepCongDoanMap)
+            .join(BaiGhepCongDoan, BaiGhepCongDoan.id == BaiGhepCongDoanMap.bai_ghep_cong_doan_id)
+            .where(BaiGhepCongDoan.bai_ghep_id.in_(ids))
+        ).all():
+            ket[bai_id].setdefault(m.lsx_id, set()).add(m.lsx_step_key)
+        return ket
+
+    def ghep_theo_lsx(self, lsx_ids: list[int]) -> dict[int, tuple[BaiGhep, BaiGhepThanhVien]]:
+        """lsx_id → (bài, dòng thành viên) — bản lô của `LsxService._ghep_cua`."""
+        ids = sorted({int(i) for i in lsx_ids if i})
+        if not ids:
+            return {}
+        return {
+            tv.lsx_id: (bg, tv)
+            for bg, tv in self.db.execute(
+                select(BaiGhep, BaiGhepThanhVien)
+                .join(BaiGhepThanhVien, BaiGhepThanhVien.bai_ghep_id == BaiGhep.id)
+                .where(BaiGhepThanhVien.lsx_id.in_(ids))
+            ).all()
+        }
 
     def lsx_da_ghep(self, lsx_ids: list[int]) -> set[int]:
         """Tập LSX (trong `lsx_ids`) ĐÃ thuộc một bài ghép — nguồn guard '1 LSX ≤ 1 bài'."""

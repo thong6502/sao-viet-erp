@@ -128,8 +128,8 @@ def test_don_vi_chua_khai_cap_noi_thang(svc):
 #
 # Cách đo treo ở đơn vị là câu trả lời DÙNG CHUNG cho mọi ai đếm bằng đơn vị đó, trong khi câu hỏi
 # thật luôn thuộc về một cái CỤ THỂ: keo và mực cùng đo `kg` mà ăn khác nhau. Nay mỗi nơi có ô
-# riêng — `cong_thuc_luong` ở Giấy · Vật tư · Máy · Công việc khoán, `cong_thuc_san_luong` ở Công
-# đoạn (luật vòng-tròn `sl_vao`/`sl_ra` theo về đó, xem `test_cong_doan.py`).
+# riêng — `cong_thuc_luong` ở Giấy · Vật tư · Máy · Công việc khoán (`cong_thuc_san_luong` ở Công
+# đoạn cùng luật vòng-tròn `sl_vao`/`sl_ra` của nó GỠ 18/09/2026, mg `0324`).
 
 
 def test_cap_khong_nhan_cong_thuc_nua(svc):

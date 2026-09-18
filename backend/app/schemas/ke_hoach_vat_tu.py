@@ -26,10 +26,9 @@ class CanDoiDong(BaseModel):
     is_rush: bool = False
     #: Tên bước tiêu thụ, để biết "cần cho khâu nào".
     ten_viec: str | None = None
+    #: NGÀY CẦN HÀNG người lập gõ trên yêu cầu mua hàng đã lập cho lệnh/bài này (sớm nhất nếu có
+    #: nhiều) — đọc ngược qua `yeu_cau_mua_nguon_lenh`, KHÔNG suy (18/09/2026). Chưa mua gì thì `None`.
     ngay_can: date | None = None
-    #: `true` = bước CHƯA xếp lịch, ngày cần là mốc SUY (hạn SX − tổng thời gian dẫn). UI phải hiện
-    #: khác mốc thật, không thì người dùng tin vào một con số chưa ai chốt.
-    moc_tam: bool = False
 
     #: Mọi số dưới đây theo ĐƠN VỊ GỐC của mặt hàng (kho đếm theo đơn vị đó). `None` ở dòng công cụ.
     nhu_cau: float | None = None
@@ -43,14 +42,10 @@ class CanDoiDong(BaseModel):
     #: Phần thiếu RIÊNG của dòng này (không phải thiếu luỹ kế) — tick nhiều dòng rồi cộng vẫn đúng.
     thieu: float | None = None
 
-    #: xam | xanh | vang | do | **khong_ro** | **ve_muon**.
+    #: xam | xanh | vang | do | **khong_ro**.
     #:
     #: `khong_ro` cố ý tách khỏi `xam`: xám nghĩa là "đã cấp đủ, hết việc phải lo", dán nhãn đó lên
     #: một dòng chưa ai tính nổi là nói ngược sự thật.
-    #:
-    #: `ve_muon` cố ý tách khỏi `do` (17/08/2026): ĐÃ MUA rồi, hàng đang về nhưng về SAU ngày cần.
-    #: Hai ca có cách xử NGƯỢC NHAU — đỏ thì đi mua, về muộn thì phải DỜI LỊCH bước tiêu thụ. Gộp
-    #: một màu thì người dùng tick đi mua lần nữa, tức MUA ĐÚP đúng lô đang trên đường về.
     trang_thai: str = "xam"
     #: [MỚI 30/08/2026] Giữ chỗ gộp theo (chủ thể, mặt hàng) của DÒNG này — KHÔNG phải phần riêng
     #: của dòng khi cùng chủ thể ăn cùng món ở nhiều bước (xem `GiuChoService.gan_giu_cho_vao_bang`).
@@ -60,17 +55,6 @@ class CanDoiDong(BaseModel):
     co_the_giu_dang_ve: float | None = None
     trang_thai_giu: str | None = None
     nguon_dang_ve: list[dict] | None = None
-    #: Ngày về của lô ĐỦ ĐỂ PHỦ chỗ thiếu — chỉ có ở dòng `ve_muon`.
-    #:
-    #: ⚠️ KHÔNG phải lô gần nhất. Lô gần nhất có thể chỉ mang 1 kg trong khi lệnh thiếu 400 kg —
-    #: dời lịch tới ngày đó thì tới nơi vẫn không đủ hàng. Đây là ngày SỚM NHẤT mà cộng dồn các lô
-    #: đang về đã phủ được chỗ thiếu.
-    ngay_du_hang: date | None = None
-    #: Mã phiếu mua của chính lô làm nên `ngay_du_hang` — chỉ có ở dòng `ve_muon`. Không có mã thì
-    #: câu "đã có hàng đang về" không tra được về đâu, mà việc phải làm nằm trong đúng phiếu đó.
-    phieu_ve: str | None = None
-    han_dat: date | None = None
-    dat_muon: bool = False
     canh_bao: list[str] = Field(default_factory=list)
     ly_do_canh_bao: str | None = None
 
@@ -112,9 +96,6 @@ class CanDoiNhom(BaseModel):
     #: Số dòng KHÔNG đánh giá được. Bộ lọc "chỉ mặt hàng đang thiếu" GIỮ LẠI nhóm có số này > 0 —
     #: thứ máy không tính nổi thì phải lo nhiều hơn, không phải ít hơn.
     so_dong_khong_ro: int = 0
-    #: Số dòng ĐÃ MUA nhưng hàng về SAU ngày cần. Bộ lọc "chỉ thứ đang thiếu" cũng GIỮ LẠI — lệnh
-    #: vẫn đứng máy, chỉ khác là việc phải lo là dời lịch chứ không phải chạy đi mua.
-    so_dong_ve_muon: int = 0
     #: Chỉ nhóm công cụ mới có — tình trạng khuôn.
     khuon_tinh_trang: str | None = None
     #: Phiếu đang chạy của mặt hàng, xếp CHẮC → LỎNG (đã duyệt có ngày về đứng đầu). Treo ở nhóm
@@ -137,6 +118,9 @@ class CanDoiBoQua(BaseModel):
 class CanDoiOut(BaseModel):
     items: list[CanDoiNhom] = Field(default_factory=list)
     bo_qua: list[CanDoiBoQua] = Field(default_factory=list)
+    #: Cùng nghĩa `TheoLenhOut.so_giu_lau`, đếm trên TOÀN XƯỞNG (không theo `q`). Đi kèm ở đây để
+    #: badge trên nút "Theo lệnh" khỏi phải gọi `/theo-lenh` — lời gọi đó dựng lại cả bảng cân đối.
+    so_giu_lau: int = 0
 
 
 class DeNghiMuaDong(BaseModel):
@@ -181,16 +165,10 @@ class TheoLenhHang(BaseModel):
     so_buoc: int = 0
     #: Màu NẶNG NHẤT trong các bước. Thẻ chỉ hiện được một màu, và phải là màu tệ nhất.
     trang_thai: str = "xam"
-    #: Ngày SỚM NHẤT món này cần tới — nhỏ nhất trong các bước ăn nó. Đứng cạnh `ngay_du_hang` để
-    #: thẻ nói được "trễ mấy ngày" mà không phải mượn ngày của cả lệnh (lệnh lấy min của MỌI món).
+    #: Ngày cần hàng trên YCMH đã lập cho lệnh này mua món này (sớm nhất). Chưa mua ⇒ `None`.
     ngay_can: date | None = None
-    #: Ngày lô đang về phủ đủ chỗ thiếu — MUỘN NHẤT trong các bước `ve_muon` của món: phải chờ tới
-    #: khi bước cuối có hàng, không phải bước đầu.
-    ngay_du_hang: date | None = None
-    #: Mã phiếu mua của lô đó — để nút mua bị khoá gọi tên được đơn hàng đang trên đường về.
-    phieu_ve: str | None = None
     #: MỌI phiếu đang chạy của món (kể cả YCMH chưa duyệt, kể cả PMH chưa hẹn ngày), xếp CHẮC →
-    #: LỎNG. `phieu_ve` chỉ là cái lô phủ được chỗ thiếu; danh sách này mới nói hết "ai đang lo".
+    #: LỎNG — "ai đang lo món này".
     phieu_mua: list[PhieuMuaTom] = Field(default_factory=list)
     #: Bao nhiêu lệnh/bài KHÁC đang thiếu chính món này — câu *"nhả ra thì ai đỡ"* của hộp xác nhận.
     #:
@@ -210,9 +188,8 @@ class TheoLenhRow(BaseModel):
     bai_ghep_id: int | None = None
     ma: str
     is_rush: bool = False
-    #: Sớm nhất trong các mặt hàng — mốc lệnh bắt đầu cần vật tư.
+    #: Ngày cần hàng SỚM NHẤT trên các YCMH đã lập cho lệnh này. Lệnh không phải mua (tồn đủ) ⇒ `None`.
     ngay_can: date | None = None
-    moc_tam: bool = False
     #: Còn giữ chỗ nhưng ĐÃ RƠI khỏi bảng cân đối (lệnh bị kéo về nháp…). Chỗ giữ vẫn trừ vào tồn
     #: tự do của mọi người khác, nên phải bày ra để có đường nhả — không thì nó vô hình.
     ngoai_pham_vi: bool = False
@@ -231,7 +208,6 @@ class TheoLenhRow(BaseModel):
 
     so_mat_hang: int = 0
     so_thieu: int = 0
-    so_ve_muon: int = 0
     so_khong_ro: int = 0
     hang: list[TheoLenhHang] = Field(default_factory=list)
 
@@ -253,6 +229,8 @@ class GiuChoIn(BaseModel):
 class DeNghiMuaIn(BaseModel):
     dong: list[DeNghiMuaDong] = Field(min_length=1)
     ghi_chu: str | None = Field(default=None, max_length=2000)
+    #: Chỉ cửa tạo thẳng (`POST /de-nghi-mua`) đọc — ngày cần hàng do người gõ, hệ không suy.
+    needed_date: date | None = None
 
 
 class DeNghiMuaDongOut(BaseModel):
@@ -270,7 +248,7 @@ class DeNghiMuaXemTruocOut(BaseModel):
 
     Vì sao có cửa này (20/08/2026, theo yêu cầu chủ): bấm "Đề nghị mua ngay" mà hệ tự đẻ luôn một
     yêu cầu rồi bảo "sang màn Mua hàng xem lại" là bắt người ta ký trước rồi mới được đọc. Cửa
-    xem-trước trả về ĐÚNG những gì đường tạo thật sẽ dùng (số lượng gộp · ngày cần · nội dung), FE
+    xem-trước trả về ĐÚNG những gì đường tạo thật sẽ dùng (số lượng gộp · nội dung · lệnh nguồn), FE
     đổ thẳng vào form "Tạo yêu cầu mua hàng" cho người dùng nhìn, sửa, rồi mới bấm Lưu.
 
     Dùng CHUNG `gom_de_nghi` với `POST /de-nghi-mua`, nên số ở form không thể lệch số hệ sẽ ghi —
@@ -280,10 +258,14 @@ class DeNghiMuaXemTruocOut(BaseModel):
     #: Luôn `lsx` — giữ nguyên vết "yêu cầu này sinh từ lệnh sản xuất nào".
     related_document_type: str = "lsx"
     related_document_code: str
-    needed_date: date
-    #: Ô "Nội dung / mục đích" của form, đã nối sẵn phần ghi chú ngày cần của từng lệnh.
+    #: Luôn `None` (18/09/2026): hệ KHÔNG suy ngày cần nữa — người lập tự gõ "Ngày cần hàng" trên
+    #: form, và chính ngày đó quay về làm "Ngày cần" của lệnh trên Kế hoạch vật tư.
+    needed_date: date | None = None
+    #: Ô "Nội dung / mục đích" của form.
     noi_dung: str
     lines: list[DeNghiMuaDongOut]
+    #: Khoá các dòng đã tick — form gửi lại nguyên văn lúc Lưu để yêu cầu nhớ mình mua cho lệnh nào.
+    nguon: list[DeNghiMuaDong] = Field(default_factory=list)
 
 
 class DeNghiMuaOut(BaseModel):

@@ -7,7 +7,9 @@ Soi tầng service `services/san_xuat/san_luong.py` (nơi chứa LUẬT), không
   · lot đầu vào từ batch công đoạn trước (§10.3) — không trỏ về chính công việc đang ghi;
   · `them_lot` bổ sung truy vết cho batch đã tạo.
 
-Tái dùng dàn cảnh (đơn → SX → phát hành vào một tổ khoán) từ test bàn tổ / thực thi.
+Tái dùng dàn cảnh (đơn → SX → phát hành vào một tổ khoán) từ test bàn tổ / thực thi. Mẻ ghi qua
+`tao_me` (kèm sẵn một việc khoán của tổ, §7.1); luật việc khoán soi riêng ở
+`test_san_xuat_viec_khoan.py`.
 """
 from __future__ import annotations
 
@@ -16,9 +18,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.models.san_xuat import CV_DANG_CHAY, SanXuatCongViec
+from app.models.san_xuat import CV_DANG_CHAY
 from app.models.san_xuat_san_luong import SanXuatBatch, SanXuatBatchLotVao
 from app.services.san_xuat import san_luong
+from tests.san_xuat_me_fixtures import canh_me, cham_cong, khoang, tao_me
 
 # Fixtures + helper luồng thật (kéo cả cây fixture xếp lịch).
 from tests.test_san_xuat_thuc_thi import (  # noqa: F401
@@ -63,7 +66,7 @@ def _hai_cv_chay(db, orders, lsx_svc, admin, customer):
 def test_tao_batch_tot_hong_va_mo_ta_loi(db, orders, lsx_svc, admin, customer):
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
 
-    res = san_luong.tao_batch(
+    res = tao_me(
         db, user=admin, cong_viec_id=cv.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1),
         tong=100, tot=90, hong=10, mo_ta_loi="Kẹt tay kê",
@@ -80,7 +83,7 @@ def test_tao_batch_tot_hong_va_mo_ta_loi(db, orders, lsx_svc, admin, customer):
 def test_tong_khac_tot_cong_hong_bi_chan(db, orders, lsx_svc, admin, customer):
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
     with pytest.raises(ValueError):
-        san_luong.tao_batch(
+        tao_me(
             db, user=admin, cong_viec_id=cv.id,
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1),
             tong=100, tot=80, hong=10,   # 80 + 10 ≠ 100
@@ -90,7 +93,7 @@ def test_tong_khac_tot_cong_hong_bi_chan(db, orders, lsx_svc, admin, customer):
 def test_hong_khong_con_doi_nhom_loi(db, orders, lsx_svc, admin, customer):
     """Danh mục lý do/lỗi ĐÃ GỠ (mg 0288): ghi hỏng KHÔNG còn phải nêu lý do gì."""
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
-    r = san_luong.tao_batch(
+    r = tao_me(
         db, user=admin, cong_viec_id=cv.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1),
         tong=100, tot=90, hong=10,
@@ -103,7 +106,7 @@ def test_chua_bat_dau_khong_ghi_duoc(db, orders, lsx_svc, admin, customer):
     cv.don_vi_ra = "tờ"
     db.commit()                                          # cv vẫn 'released'
     with pytest.raises(ValueError):
-        san_luong.tao_batch(
+        tao_me(
             db, user=admin, cong_viec_id=cv.id,
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=10, tot=10,
         )
@@ -119,13 +122,13 @@ def test_ket_thuc_o_tuong_lai_bi_chan_lech_dong_ho_vai_phut_van_nhan(
     monkeypatch.setattr(san_luong, "_moc", lambda: bay_gio)
 
     with pytest.raises(ValueError, match="sau thời điểm hiện tại"):
-        san_luong.tao_batch(
+        tao_me(
             db, user=admin, cong_viec_id=cv.id,
             bat_dau=bay_gio, ket_thuc=bay_gio + timedelta(hours=1), tong=10, tot=10,
         )
     assert db.query(SanXuatBatch).filter_by(cong_viec_id=cv.id).count() == 0
 
-    r = san_luong.tao_batch(
+    r = tao_me(
         db, user=admin, cong_viec_id=cv.id,
         bat_dau=bay_gio - timedelta(hours=1), ket_thuc=bay_gio + timedelta(minutes=2),
         tong=10, tot=10,
@@ -137,7 +140,7 @@ def test_gate_nguoi_khong_co_quyen_to_bi_chan(db, orders, lsx_svc, admin, custom
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
     nguoi_la = SimpleNamespace(id=admin.id + 99_999)
     with pytest.raises(PermissionError):
-        san_luong.tao_batch(
+        tao_me(
             db, user=nguoi_la, cong_viec_id=cv.id,
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=10, tot=10,
         )
@@ -156,7 +159,7 @@ def test_gate_ghi_me_doi_thuc_hien_lenh(db, orders, lsx_svc, admin, customer):
     cap_quyen_to(db, u, to, viec=("confirm_output", "warehouse"))
     db.commit()
     with pytest.raises(PermissionError, match="Thực hiện lệnh"):
-        san_luong.tao_batch(
+        tao_me(
             db, user=u, cong_viec_id=cv.id,
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=10, tot=10,
         )
@@ -165,11 +168,11 @@ def test_gate_ghi_me_doi_thuc_hien_lenh(db, orders, lsx_svc, admin, customer):
 # --- Lot đầu vào (§10.3) --------------------------------------------------------------------
 def test_lot_tu_batch_cong_doan_truoc(db, orders, lsx_svc, admin, customer):
     to, cv1, cv2 = _hai_cv_chay(db, orders, lsx_svc, admin, customer)
-    r1 = san_luong.tao_batch(
+    r1 = tao_me(
         db, user=admin, cong_viec_id=cv1.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=50, tot=50,
     )
-    r2 = san_luong.tao_batch(
+    r2 = tao_me(
         db, user=admin, cong_viec_id=cv2.id,
         bat_dau=_T0 + timedelta(hours=2), ket_thuc=_T0 + timedelta(hours=3),
         tong=48, tot=48,
@@ -184,12 +187,12 @@ def test_lot_tu_batch_cong_doan_truoc(db, orders, lsx_svc, admin, customer):
 
 def test_lot_khong_tro_ve_chinh_minh(db, orders, lsx_svc, admin, customer):
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
-    r1 = san_luong.tao_batch(
+    r1 = tao_me(
         db, user=admin, cong_viec_id=cv.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=50, tot=50,
     )
     with pytest.raises(ValueError):                       # lot trỏ batch của CHÍNH cv
-        san_luong.tao_batch(
+        tao_me(
             db, user=admin, cong_viec_id=cv.id,
             bat_dau=_T0 + timedelta(hours=2), ket_thuc=_T0 + timedelta(hours=3),
             tong=10, tot=10,
@@ -199,11 +202,11 @@ def test_lot_khong_tro_ve_chinh_minh(db, orders, lsx_svc, admin, customer):
 
 def test_them_lot_bo_sung(db, orders, lsx_svc, admin, customer):
     to, cv1, cv2 = _hai_cv_chay(db, orders, lsx_svc, admin, customer)
-    r1 = san_luong.tao_batch(
+    r1 = tao_me(
         db, user=admin, cong_viec_id=cv1.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=50, tot=50,
     )
-    r2 = san_luong.tao_batch(
+    r2 = tao_me(
         db, user=admin, cong_viec_id=cv2.id,
         bat_dau=_T0 + timedelta(hours=2), ket_thuc=_T0 + timedelta(hours=3),
         tong=50, tot=50,
@@ -247,7 +250,7 @@ def test_toa_san_luong_hai_nhanh_dung_ty_le(db, orders, lsx_svc, admin, customer
     ))
     db.commit()
 
-    res = san_luong.tao_batch(
+    res = tao_me(
         db, user=admin, cong_viec_id=cv_nguon.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=120, tot=120,
     )
@@ -273,14 +276,14 @@ def test_chan_lsx_khac_dung_lot_diem_toa(db, orders, lsx_svc, admin, customer):
         ty_le_ghep=1.0, don_vi_nguon="tờ", don_vi_dich="con",
     ))
     db.commit()
-    res = san_luong.tao_batch(
+    res = tao_me(
         db, user=admin, cong_viec_id=cv_nguon.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=100, tot=100,
     )
     batch_nguon_id = res["batch_id"]
 
     # (1) LSX B có phần (100 con) → dùng trong hạn mức là được.
-    ok = san_luong.tao_batch(
+    ok = tao_me(
         db, user=admin, cong_viec_id=cv_a.id,
         bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=60, tot=60,
         lot_vao=[{"nguon_batch_id": batch_nguon_id, "so_luong": 60}],
@@ -289,7 +292,7 @@ def test_chan_lsx_khac_dung_lot_diem_toa(db, orders, lsx_svc, admin, customer):
 
     # (2) Vượt phần đã toả cho lsx_a (100) — 60 đã dùng + 60 nữa = 120 > 100 → chặn.
     with pytest.raises(ValueError, match="Vượt phần đã toả"):
-        san_luong.tao_batch(
+        tao_me(
             db, user=admin, cong_viec_id=cv_a.id,
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=60, tot=60,
             lot_vao=[{"nguon_batch_id": batch_nguon_id, "so_luong": 60}],
@@ -297,7 +300,7 @@ def test_chan_lsx_khac_dung_lot_diem_toa(db, orders, lsx_svc, admin, customer):
 
     # (3) LSX C không có cạnh toả nào từ batch_nguon_id → không có phần, bị chặn dù số nhỏ.
     with pytest.raises(ValueError, match="không có phần"):
-        san_luong.tao_batch(
+        tao_me(
             db, user=admin, cong_viec_id=cv_c.id,
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=1, tot=1,
             lot_vao=[{"nguon_batch_id": batch_nguon_id, "so_luong": 1}],
@@ -314,16 +317,7 @@ def test_schema_san_luong_ket_qua_giu_ket_qua_lsx():
     assert obj.ket_qua_lsx[0].so_luong == 12.5
 
 
-# --- Chia sản lượng NHÁP hiện ngay khi ghi mẻ (spec 2026-09-11 §5.1) ------------------------
-# Fixtures/helper mượn từ bài phân bổ: ở đó mới có cảnh "tổ + việc đang chạy + mẻ + chấm công".
-from tests.test_san_xuat_phan_bo import (  # noqa: E402
-    _canh_phan_bo,
-    _cham_cong,
-    _khoang,
-)
-from tests.test_san_xuat_thuc_thi import _emp  # noqa: E402,F401
-
-
+# --- Ghi mẻ KHÔNG tự chia cho ai (spec 2026-09-18 §7.3) ---------------------------------------
 def _authz_sl(db):
     from app.repositories.rbac_repo import RoleRepository
     from app.services.rbac_service import AuthorizationService
@@ -331,52 +325,26 @@ def _authz_sl(db):
     return AuthorizationService(RoleRepository(db))
 
 
-def test_ghi_me_xong_la_thay_ngay_ai_duoc_may_to(db, orders, lsx_svc, admin, customer):
-    """Ghi mẻ xong PHẢI thấy ngay phần của từng người — không phải bấm "Chia sản lượng" mới hiện.
-
-    Đây là yêu cầu thẳng của chủ xưởng 11/09/2026 (*"hình như thiếu sản lượng"*): tổ trưởng ghi mẻ
-    là biết luôn ai được bao nhiêu, số nháp cũng được, miễn có.
-    """
+def test_ghi_me_chi_ghi_nhan_so_va_nguoi_khong_chia(db, orders, lsx_svc, admin, customer):
+    """Chủ xưởng 18/09/2026: *"mẻ đó 3 người, ghi sản lượng 3000 … thì ghi nhận thế thôi, đừng có
+    chia bất cứ gì"*. Drawer bày số của CẢ mẻ + danh sách người, không có bản chia nháp/chốt nào."""
     from app.services.san_xuat import board
+    from tests.test_san_xuat_thuc_thi import _emp
 
-    to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-CHIA-NHAP")
-    e1 = _emp(db, to, "NV-CN-1", ten="Thợ Một")
-    e2 = _emp(db, to, "NV-CN-2", ten="Thợ Hai")
-    _cham_cong(db, e1)
-    _cham_cong(db, e2)
+    to, cv, batch = canh_me(db, orders, lsx_svc, admin, customer, ma="TO-KHONG-CHIA")
+    e1 = _emp(db, to, "NV-KC-1", ten="Thợ Một")
+    e2 = _emp(db, to, "NV-KC-2", ten="Thợ Hai")
+    cham_cong(db, e1)
+    cham_cong(db, e2)
     db.commit()
-    _khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc)
-    _khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc)
+    khoang(db, cv, e1, batch.bat_dau, batch.ket_thuc)
+    khoang(db, cv, e2, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
     d = board.chi_tiet_cong_viec(db, admin, _authz_sl(db), cong_viec_id=cv.id)
+    assert "phan_bo" not in d
     me = d["san_luong"]["batches"][0]
-    chia = me["chia_du_kien"]
-    assert chia is not None
-    assert chia["q"] == 100.0
-    assert len(chia["dong"]) == 2
-    assert abs(sum(x["so_luong"] for x in chia["dong"]) - 100.0) < 1e-6, "Σ phải đúng bằng sản lượng tốt"
-    for x in chia["dong"]:
-        assert x["ho_ten"]
-        assert x["phut_thuc_te"] > 0
-        assert "don_gia" not in x and "tien" not in x
-
-
-def test_me_da_chot_thi_doc_o_ban_chot_khong_tra_nhap(db, orders, lsx_svc, admin, customer):
-    """Mẻ đã có bản chia CHỐT thì `chia_du_kien` phải là None — số thật đọc ở `phan_bo`, đừng bày
-    thêm một bản nháp thứ hai cạnh nó cho người ta phân vân số nào mới đúng."""
-    from app.services.san_xuat import board, phan_bo
-
-    to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-CHIA-CHOT")
-    e = _emp(db, to, "NV-CC-1", ten="Thợ Chốt")
-    _cham_cong(db, e)
-    db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
-    db.commit()
-    kq = phan_bo.tinh_phan_bo(db, user=admin, batch_id=batch.id)
-    phan_bo.chot_phan_bo(db, user=admin, phan_bo_id=kq["phan_bo_id"])
-    db.commit()
-
-    d = board.chi_tiet_cong_viec(db, admin, _authz_sl(db), cong_viec_id=cv.id)
-    assert d["san_luong"]["batches"][0]["chia_du_kien"] is None
-    assert d["phan_bo"][0]["trang_thai"] == "finalized"
+    assert me["tot"] == 100.0
+    assert {n["ho_ten"] for n in me["nguoi_tham_gia"]} == {"Thợ Một", "Thợ Hai"}
+    assert "chia_du_kien" not in me
+    assert "so_luong" not in str(me["nguoi_tham_gia"]) and "phut" not in str(me["nguoi_tham_gia"])

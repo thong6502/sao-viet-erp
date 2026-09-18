@@ -82,5 +82,7 @@ export function cleanRequest(
       quantity: Number(line.quantity),
       note: trimOptional(line.note),
     })),
+    // Lệnh nguồn chỉ có khi form mở từ Kế hoạch vật tư — form gõ tay / form sửa không mang theo.
+    ...(input.nguon_lenh?.length ? { nguon_lenh: input.nguon_lenh } : {}),
   };
 }

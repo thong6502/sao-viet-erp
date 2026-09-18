@@ -3,7 +3,6 @@
 // dưới đây.
 export { BandsField } from "./Bands";
 export { ChuanBiKhoanField, tongChuanBi } from "./ChuanBiKhoan";
-export { DinhMucDauViecField } from "./DinhMucDauViec";
 export { DonViTocDoField } from "./DonViTocDo";
 export { FormulaField } from "./FormulaField";
 export { LichBaoTriField } from "./LichBaoTri";
@@ -12,4 +11,6 @@ export { NhomMayField, NhomMayMultiField } from "./NhomMay";
 export { RefMultiField, RefSearchField } from "./RefFields";
 export { RowEditor } from "./RowEditor";
 export { SelfRefMultiField } from "./SelfRefMulti";
+export { ToMultiField } from "./ToMulti";
+export { VatTuCongDoanField } from "./VatTuCongDoan";
 export { ViecPhatSinhField } from "./ViecPhatSinh";

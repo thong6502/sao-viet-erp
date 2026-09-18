@@ -4,6 +4,8 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..models.customer import Customer
+from ..models.order import Order
 from ..models.vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .catalog_base import CatalogRepo
 
@@ -130,6 +132,26 @@ class VatLieuKhoRepository:
 
     def find_by_ma(self, kind: str, ma: str):
         return self._r(kind).find_by_ma(ma)
+
+    def nguon_goc_thanh_pham(
+        self, customer_ids, order_ids,
+    ) -> tuple[dict[int, tuple[str, str]], dict[int, str]]:
+        """`{customer_id: (mã, tên)}` + `{order_id: số đơn}` — mỗi bảng MỘT truy vấn cho cả trang.
+
+        Soft-ref (không FK): khách/đơn đã mất thì đơn giản là vắng khỏi dict, nơi gọi để `None`.
+        """
+        kh_ids = sorted({int(i) for i in customer_ids if i})
+        don_ids = sorted({int(i) for i in order_ids if i})
+        khach = {
+            r.id: (r.code, r.name)
+            for r in self.db.execute(
+                select(Customer.id, Customer.code, Customer.name).where(Customer.id.in_(kh_ids))
+            )
+        } if kh_ids else {}
+        don = dict(
+            self.db.execute(select(Order.id, Order.order_no).where(Order.id.in_(don_ids))).all()
+        ) if don_ids else {}
+        return khach, don
 
     def list(self, kind: str, *, q: str | None = None, active: bool | None = None,
              page: int = 1, size: int = 50):

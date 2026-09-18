@@ -1397,6 +1397,7 @@ class PurchaseService:
         needed_date: date | None = None,
         note: str | None = None,
         lines=None,
+        nguon_lenh=None,
         actor=None,
     ) -> dict:
         if not self.can_create_department_request(actor):
@@ -1407,6 +1408,7 @@ class PurchaseService:
         source_type, noi_dung, needed_date = self._clean_department_request_header(
             source_type=source_type, purpose=noi_dung, needed_date=needed_date
         )
+        cleaned_lines = self._clean_department_lines(lines)
         row = self.department_requests.create(
             code=self._new_department_request_code(),
             source_type=source_type,
@@ -1417,7 +1419,8 @@ class PurchaseService:
             purpose=noi_dung[:500],
             content=noi_dung,
             needed_date=needed_date,
-            lines=self._clean_department_lines(lines),
+            lines=cleaned_lines,
+            nguon_lenh=self._clean_nguon_lenh(nguon_lenh, cleaned_lines),
         )
         self.audit.create(
             actor_user_id=actor.id,
@@ -1426,6 +1429,31 @@ class PurchaseService:
             detail=row.code,
         )
         return self._to_department_request_out(row)
+
+    @staticmethod
+    def _clean_nguon_lenh(raw, lines) -> list[dict]:
+        """Liên kết "mua cho lệnh nào" (mg 0325) — chỉ giữ cái có mặt hàng trùng MỘT dòng của yêu
+        cầu, đúng một chủ thể (lệnh HOẶC bài), không trùng lặp.
+
+        Bỏ lặng lẽ chứ không báo lỗi: người lập được xoá dòng hàng khỏi form trước khi lưu, lúc đó
+        liên kết của món đó chỉ đơn giản là không còn đúng nữa."""
+        hangs = {(ln.hang_loai, int(ln.hang_id)) for ln in lines
+                 if ln.hang_loai and ln.hang_id}
+        ra: list[dict] = []
+        da_co: set[tuple] = set()
+        for n in raw or []:
+            get = n.get if isinstance(n, dict) else (lambda k, d=None, _n=n: getattr(_n, k, d))
+            hang_loai, hang_id = get("hang_loai"), get("hang_id")
+            lsx_id, bai_ghep_id = get("lsx_id"), get("bai_ghep_id")
+            if not hang_loai or not hang_id or (lsx_id is None) == (bai_ghep_id is None):
+                continue
+            khoa = (hang_loai, int(hang_id), lsx_id, bai_ghep_id)
+            if (hang_loai, int(hang_id)) not in hangs or khoa in da_co:
+                continue
+            da_co.add(khoa)
+            ra.append({"hang_loai": hang_loai, "hang_id": int(hang_id), "lsx_id": lsx_id,
+                       "bai_ghep_id": bai_ghep_id, "buoc_id": get("buoc_id")})
+        return ra
 
     def can_create_department_request(self, actor) -> bool:
         """Được LẬP yêu cầu mua hàng hay không — HỎI ĐÚNG MỘT THỨ: ô quyền của màn đó.
@@ -1456,6 +1484,7 @@ class PurchaseService:
         needed_date: date | None = None,
         note: str | None = None,
         lines=None,
+        nguon_lenh=None,  # noqa: ARG002 — chỉ đọc lúc tạo, xem `DepartmentPurchaseRequestIn`
         actor=None,
     ) -> dict:
         row = self._department_request(request_id)

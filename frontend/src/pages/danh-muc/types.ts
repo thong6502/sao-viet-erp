@@ -15,7 +15,7 @@ export interface FieldDef {
   // mã như `don_vi_gia` (quy đổi làm việc trên mã `kg`/`to`, không trên id).
   // `self-ref-multi` = như `ref-multi` nhưng nguồn chọn là CHÍNH danh mục đang mở (NVL thay thế) —
   // CatalogDrawer tự loại dòng đang sửa khỏi danh sách, người khai không tự chọn được chính mình.
-  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "self-ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do" | "may-cua-cong-doan" | "viec-phat-sinh";
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "self-ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "vat-tu-cong-doan" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do" | "may-cua-cong-doan" | "viec-phat-sinh" | "to-multi";
   /** Ô `select`: danh sách chọn. Nhận cả HÀM (như `hint`/`an`) cho menu mà nhãn đến MUỘN hơn
    *  lúc khai config — 5 chặng dòng giấy nạp từ `/api/don-vi/tram`, mảng dựng sẵn ở tầm module sẽ
    *  đóng băng lúc bảng còn rỗng. Hàm được gọi MỖI lần vẽ, nên vẽ lại là menu tự đầy. */
@@ -37,6 +37,9 @@ export interface FieldDef {
    *  Nhận cả HÀM theo form đang gõ (như `hint`): có chip chỉ đúng với MỘT SỐ dòng trong cùng màn —
    *  ba chip khuôn ép kim chỉ có nguồn số khi bước khai `Loại khuôn = Khuôn ép kim`. */
   an?: string[] | ((form: Record<string, unknown>) => string[]);
+  /** Ô `to-multi`: nhãn gắn sau chip tổ ĐẦU danh sách đang chọn (vd "mặc định") — công đoạn nhiều
+   *  tổ lấy tổ chọn đầu làm tổ mặc định của bước lệnh, không đánh dấu thì không ai biết. */
+  nhanDau?: string;
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   /** Query thêm khi nạp danh mục nguồn, vd `{ active: true }` — không lọc thì picker mời cả dòng
    *  đã ngừng dùng, người ta chọn xong bấm Lưu mới ăn lỗi từ server. */
@@ -66,6 +69,10 @@ export interface FieldDef {
 export interface ColumnDef {
   key: string;
   label: string;
+  /** Bề rộng cột (`"9%"`). Vắng thì `CatalogListPage` tra bảng bề rộng theo `key` như cũ — TRỪ khi
+   *  màn đã khai `width` cho cột khác: khi đó cột vắng là cột ăn phần còn lại. Khai khi màn có
+   *  nhiều cột hơn thường: `table-layout: fixed` cộng quá 100% là mọi cột bị co không đều. */
+  width?: string;
   /** `extra` = dữ liệu PHỤ của chính dòng này, do `config.loadExtra` nạp song song (vd trạng thái
    *  máy lúc này). `undefined` khi chưa nạp xong hoặc dòng không có gì để nói. */
   render?: (r: Row, extra?: unknown) => ReactNode;
@@ -84,6 +91,23 @@ export interface FacetDef {
   /** Nối thêm tab cho giá trị CÓ THẬT trong dữ liệu mà `values`/`source` chưa liệt kê. Cần cho
    *  cột lưu CHỮ tự do: dòng cũ mang tên nhóm đã gỡ khỏi danh mục vẫn phải có lối lọc tới. */
   dynamic?: boolean;
+}
+
+/** Một tiêu chí của bảng "Lọc nâng cao" — ghép VÀ với chip lọc (`facet`) và ô tìm. `key` là tên
+ *  QUERY PARAM gửi máy chủ, nên backend phải khai đúng tên đó ở `loc_them` của router danh mục —
+ *  lệch một chữ là FastAPI bỏ qua tham số lạ IM LẶNG, bảng không lọc mà cũng không báo lỗi. */
+export interface LocNangCaoDef {
+  key: string;
+  label: string;
+  /** `select` = danh sách khai cứng (`options`). `ref-search` = ô gõ-để-tìm trên một danh mục
+   *  nguồn (`refPrefix`), cho danh mục dài như Khách hàng mà một `<select>` trần không lội nổi.
+   *  `text` = ô gõ tự do, máy chủ khớp CHỨA (vd Số kệ: gõ "B3" ra "Kệ B3 — xưởng sau in"). */
+  type: "select" | "ref-search" | "text";
+  /** Chữ mờ của ô `text`. */
+  placeholder?: string;
+  options?: Option[];
+  refPrefix?: string;
+  refParams?: Record<string, unknown>;
 }
 
 /** Bản ghi danh mục. Khai lại ở đây (thay vì import từ `api/rebuildCatalog`) để `types.ts` giữ
@@ -105,8 +129,19 @@ export interface CatalogConfig {
    *  Có khoá này thì drawer mọc thêm tab "Nhật ký" khi đang SỬA một bản ghi đã lưu. */
   nhatKyLoai?: string;
   columns: ColumnDef[];
+  /** Bề rộng hai cột trang tự vẽ (`"10%"`). Vắng ⇒ Mã 14% · Tên 24%, hợp với danh mục tên dài
+   *  (Giấy, Thành phẩm). Chỉ hạ khi tên/mã ngắn mà màn lại nhiều cột: Công đoạn tên chỉ "Bế",
+   *  "Dán" mà giữ 24% thì bốn cột Giai đoạn · Đơn vị · Bù hao · Ràng buộc bị ép còn "Gia côn…". */
+  widthMa?: string;
+  widthTen?: string;
   fields: FieldDef[];
   facet?: FacetDef;             // tab lọc phía trên (tùy chọn)
+  /** Bảng "Lọc nâng cao": thêm tiêu chí lọc ngoài hàng chip, bật/tắt bằng nút cạnh ô tìm. Vắng =
+   *  màn không có nút đó. Mọi tiêu chí lọc Ở MÁY CHỦ như chip — bảng chỉ cầm 20 dòng. */
+  locNangCao?: LocNangCaoDef[];
+  /** Chữ mờ trong ô tìm khi màn tìm được NHIỀU hơn mã/tên (vd Khuôn tìm cả tên khách, số kệ).
+   *  Vắng ⇒ "Tìm mã / tên…". Nói đúng ô tìm quét những gì, không thì chẳng ai thử gõ tên khách. */
+  timGoiY?: string;
   /** Dữ liệu PHỤ nạp SONG SONG danh sách, khoá theo id bản ghi — cột nào cần thì đọc ở tham số
    *  thứ hai của `render`. Dùng cho số DẪN XUẤT không thuộc bản ghi (vd trạng thái máy suy từ sự
    *  cố + vùng khoá + lệnh đang chạy). Cố ý KHÔNG nhét vào schema CRUD dùng chung: schema đó
@@ -126,6 +161,10 @@ export interface CatalogConfig {
   // Block phụ cuối drawer (preview BHR của Máy · bảng quy đổi của Đơn vị). `existing` = null khi
   // đang TẠO — block nào cần id thì tự nhắc "lưu trước đã".
   renderExtra?: (form: Record<string, unknown>, existing: Row | null) => ReactNode;
+  /** Khối CHỈ ĐỌC cuối tab khai báo, chỉ khi đang SỬA — thứ bảng có lưu nhưng không ai gõ tay
+   *  (vd Thành phẩm: đơn/khách đặt lần đầu, ngày khai). Không đi vào `form` nên không lọt vào body
+   *  gửi lên và không làm bật hộp "bỏ thay đổi?". */
+  renderChiDoc?: (existing: Row) => ReactNode;
   softDelete?: boolean;         // "Xóa" = ẩn mềm (active=false), giữ dữ liệu; list chỉ hiện active
   /** Danh mục do HỆ SINH, không ai gõ tay ⇒ giấu nút "Thêm". Máy chủ chặn song song
    *  (`VatLieuKhoService._chan_go_tay`) — giấu nút mà không chặn thì một lời gọi API thẳng vẫn
@@ -216,9 +255,6 @@ export interface LichBaoTriRow {
   hang_muc?: HangMucConRow[];   // việc con trong gói — không có cũng chạy (gói khai từ trước)
 }
 
-// `nang_suat_nguoi_gio` = mức TRUNG BÌNH (số chảy vào công thức thời lượng bước Tổ); min/max chỉ
-// để ra khoảng nhanh–chậm, để trống thì ba mức bằng nhau. `don_vi_nang_suat` là NHÃN khai báo —
-// không quy đổi, dùng chung bảng mã với ô "Đơn vị tốc độ" của máy.
 /** Một MÁY chạy được công đoạn, mang cách đo giờ và cách tính giá của riêng cặp (công đoạn, máy).
  *  Vì sao không treo ở máy: cùng một máy chạy hai công đoạn thì đo khác nhau (06/09/2026). */
 export interface MayCongDoanRow {
@@ -228,22 +264,7 @@ export interface MayCongDoanRow {
   cong_thuc_gia?: string | null;
 }
 
-export interface DinhMucRow {
-  piece_rate_id: number; nang_suat_nguoi_gio: number;
-  nang_suat_nguoi_gio_min?: number | null; nang_suat_nguoi_gio_max?: number | null;
-  don_vi_nang_suat?: string | null;
-  // Kíp chuẩn — MỘT số duy nhất về nhân lực (mg `0270`, 06/09/2026). Hai mốc tối thiểu/tối đa đã
-  // gỡ: số này điền sẵn vào bước lệnh cho MỌI loại bước (máy · tổ · thuê ngoài).
-  so_nguoi_tieu_chuan: number;
-  /** Công thức tính TIỀN CÔNG của đầu việc này trong CÔNG ĐOẠN này (06/09/2026). Ra LƯỢNG theo
-   *  đơn vị đơn giá khoán, server nhân đơn giá sau. Ghim vào bước lệnh lúc chọn đầu việc. */
-  cong_thuc_khoan?: string | null;
-  /** CÁCH ĐO GIỜ CHẠY của đầu việc này trong CÔNG ĐOẠN này (07/09/2026). Ra LƯỢNG theo đơn vị
-   *  NĂNG SUẤT (`don_vi_nang_suat`), server chia cho năng suất sau. Tách khỏi `cong_thuc_khoan`
-   *  vì tiền và giờ không cùng cách đếm: in trở 2 lượt thì tiền nhân đôi mà giờ thì không. */
-  cong_thuc_gio?: string | null;
-  /** VẬT TƯ đầu việc này tiêu thụ, mỗi dòng mang ĐỊNH MỨC của riêng nó (06/09/2026). Trước đây
-   *  chỉ là danh sách id và công thức treo ở món hàng — nhưng mực ăn theo SỐ TỜ còn dung môi rửa
-   *  máy ăn theo SỐ MÀU, cùng ĐVT kg mà hai cách hoàn toàn khác. */
-  vat_tus?: { vat_tu_id: number; cong_thuc_luong?: string | null }[];
-}
+/** Một dòng tab VẬT TƯ của công đoạn (mg `0316`): món nào + CÔNG THỨC ĐỊNH MỨC của riêng món đó.
+ *  Mực ăn theo SỐ TỜ còn dung môi rửa máy ăn theo SỐ MÀU — cùng ĐVT kg mà hai cách khác hẳn, nên
+ *  công thức treo ở dòng chứ không ở món hàng. Thay `DinhMucRow` (đầu việc định mức, gỡ mg `0320`). */
+export interface VatTuCongDoanRow { vat_tu_id: number; cong_thuc_luong?: string | null }

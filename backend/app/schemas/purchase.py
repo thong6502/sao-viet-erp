@@ -208,6 +208,21 @@ class DepartmentPurchaseRequestLineIn(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
 
 
+class YeuCauMuaNguonLenhIn(BaseModel):
+    """Mặt hàng này mua cho lệnh/bài nào — Kế hoạch vật tư gửi kèm khi mở form "Đề nghị mua".
+
+    Đúng khoá dòng của bảng cân đối (`_khoa_dong`). Server chỉ giữ liên kết có mặt hàng trùng một
+    dòng của yêu cầu."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hang_loai: str = Field(pattern="^(giay|vat_tu)$")
+    hang_id: int = Field(gt=0)
+    lsx_id: int | None = Field(default=None, gt=0)
+    bai_ghep_id: int | None = Field(default=None, gt=0)
+    buoc_id: int | None = Field(default=None, gt=0)
+
+
 class DepartmentPurchaseRequestIn(BaseModel):
     source_type: str | None = Field(default=None, max_length=32)
     # Ô GỘP "Nội dung / mục đích" (07/08/2026). Client cũ còn gửi `purpose` + `note`, server nối
@@ -219,6 +234,9 @@ class DepartmentPurchaseRequestIn(BaseModel):
     needed_date: date
     note: str | None = Field(default=None, max_length=2000)
     lines: list[DepartmentPurchaseRequestLineIn] = Field(min_length=1)
+    # Chỉ đọc lúc TẠO (mg 0325). Form sửa không gửi, và có gửi thì cũng bỏ qua: "mua cho lệnh nào"
+    # là sự thật lúc lập, sửa số lượng không đổi nó.
+    nguon_lenh: list[YeuCauMuaNguonLenhIn] = Field(default_factory=list, max_length=500)
 
 
 class PurchaseRequestIn(BaseModel):

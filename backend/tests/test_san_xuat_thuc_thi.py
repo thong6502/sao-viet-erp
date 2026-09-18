@@ -350,10 +350,7 @@ def test_bat_dau_can_it_nhat_mot_khoan(db, orders, lsx_svc, admin, customer):
 
     khoan = _emp(db, to, "NV-K-1")                          # thêm thợ khoán → mở được
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=khoan.id)
-    # Roster 2 người > định mức seed (1) → §7.1 đòi lý do lệch số người; test này soi luật khoán.
-    res = thuc_thi.bat_dau(
-        db, user=admin, cong_viec_id=cv.id, ly_do_so_nguoi="Ghép thêm công nhật hỗ trợ",
-    )
+    res = thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
 
     assert res["trang_thai"] == CV_DANG_CHAY
     phien = db.query(SanXuatPhienChay).filter_by(cong_viec_id=cv.id).all()
@@ -387,37 +384,19 @@ def test_tiep_tuc_sau_tam_dung_khong_hoi_ly_do_tre(db, orders, lsx_svc, admin, c
     assert res["trang_thai"] == CV_DANG_CHAY
 
 
-def _dat_dinh_muc_so_nguoi(db, cv, n: int) -> None:
-    """Gán số người dự kiến (chốt lúc phát hành) vào dinh_muc_json — gán lại cả dict để SA bắt dirty."""
-    cv.dinh_muc_json = {**(cv.dinh_muc_json or {}), "so_nhan_cong_tieu_chuan": n}
-    db.commit()
-
-
-def test_bat_dau_lech_so_nguoi_bat_buoc_ly_do(db, orders, lsx_svc, admin, customer):
+def test_so_nguoi_khac_dinh_muc_cu_khong_hoi_ly_do(db, orders, lsx_svc, admin, customer):
+    """Logic KÍP gỡ 18/09/2026 (chủ xưởng: *"bỏ luôn logic kíp người mà mấy cái chặn hoặc cảnh báo
+    hoặc phép tính liên quan đến kíp"*). `dinh_muc_json` cũ còn số kíp thì cũng không ai đọc nữa —
+    bắt đầu với số người bất kỳ, không hỏi lý do. Luật "≥ 1 thợ khoán" vẫn giữ (test ở trên)."""
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
-    _dat_dinh_muc_so_nguoi(db, cv, 2)                     # dự kiến 2 người
+    cv.dinh_muc_json = {**(cv.dinh_muc_json or {}), "so_nhan_cong_tieu_chuan": 3}
+    db.commit()
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=_emp(db, to, "NV-LSN-1").id)
 
-    with pytest.raises(ValueError):                       # thực tế 1 ≠ dự kiến 2, thiếu lý do → chặn
-        thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
-    res = thuc_thi.bat_dau(
-        db, user=admin, cong_viec_id=cv.id, ly_do_so_nguoi="Một thợ nghỉ đột xuất",
-    )
+    res = thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
     assert res["trang_thai"] == CV_DANG_CHAY
     phien = db.query(SanXuatPhienChay).filter_by(cong_viec_id=cv.id).first()
-    assert phien.ly_do_so_nguoi == "Một thợ nghỉ đột xuất"
-
-
-def test_bat_dau_khop_so_nguoi_khong_can_ly_do(db, orders, lsx_svc, admin, customer):
-    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer)
-    _dat_dinh_muc_so_nguoi(db, cv, 1)                     # dự kiến 1 người
-    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=_emp(db, to, "NV-LSN-2").id)
-
-    # Khớp số người: khỏi lý do; lý do thừa (nếu có) KHÔNG được ghi lại.
-    res = thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id, ly_do_so_nguoi="thừa")
-    assert res["trang_thai"] == CV_DANG_CHAY
-    phien = db.query(SanXuatPhienChay).filter_by(cong_viec_id=cv.id).first()
-    assert phien.ly_do_so_nguoi is None
+    assert not hasattr(phien, "ly_do_so_nguoi")
 
 
 def test_mot_nguoi_khong_hai_khoang_chong_gio(db, orders, lsx_svc, admin, customer):
@@ -429,13 +408,39 @@ def test_mot_nguoi_khong_hai_khoang_chong_gio(db, orders, lsx_svc, admin, custom
         cv.loai_buoc = BUOC_MAY
         cv.du_kien_bat_dau = None
     db.commit()
-    e = _emp(db, to, "NV-DUP")
+    e = _emp(db, to, "NV-DUP", ten="Thợ Đang Chạy")
 
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv1.id, employee_id=e.id)
     thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv1.id)             # e có khoảng mở ở cv1
     thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv2.id, employee_id=e.id)  # cv2 chưa chạy → ok
-    with pytest.raises(ValueError):
-        thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv2.id)         # chồng giờ → chặn
+    # Chồng giờ → chặn, và câu báo phải nói AI đang giữ VIỆC NÀO (trước đây chỉ "Nhân viên #id").
+    with pytest.raises(ValueError) as loi:
+        thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv2.id)
+    assert "Thợ Đang Chạy" in str(loi.value) and cv1.ten_cong_doan in str(loi.value)
+    assert "#" not in str(loi.value)
+
+
+def test_giao_vao_viec_dang_chay_bao_viec_nguoi_do_dang_giu(db, orders, lsx_svc, admin, customer):
+    to = _to_khoan(db, admin, ma="TO-GIU")
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+    cv1, cv2 = _cvs(db, to)[0], _cvs(db, to)[1]
+    for cv in (cv1, cv2):
+        cv.loai_buoc = BUOC_MAY
+        cv.du_kien_bat_dau = None
+    db.commit()
+    a = _emp(db, to, "NV-GIU-A", ten="Thợ A")
+    b = _emp(db, to, "NV-GIU-B", ten="Thợ B")
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv1.id, employee_id=a.id)
+    thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv1.id)
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv2.id, employee_id=b.id)
+    thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv2.id)
+
+    with pytest.raises(ValueError) as loi:                  # A đang chạy cv1, cv2 cũng đang chạy
+        thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv2.id, employee_id=a.id)
+    assert "Thợ A" in str(loi.value) and cv1.ten_cong_doan in str(loi.value)
+    db.rollback()
+    # Chặn TRƯỚC khi ghi: không sót dòng phân công nào của A ở cv2.
+    assert db.query(SanXuatPhanCong).filter_by(cong_viec_id=cv2.id, employee_id=a.id).count() == 0
 
 
 def test_tam_dung_dong_phien_va_khoang(db, orders, lsx_svc, admin, customer):
@@ -684,3 +689,123 @@ def test_nhan_khuon_cap_nhat_anh_chup_viec_khac_cung_dao(db, orders, lsx_svc, ad
 
     assert khac.khuon_json["tinh_trang"] == "dang_dung"
     assert khac.khuon_nhan_luc is None        # nhận ở việc này không phải là nhận ở việc kia
+
+
+# --- Tình trạng người: nghỉ / đình chỉ / nghỉ phép / đang chạy việc khác ---------------------
+def _don_nghi(db, emp, tu, den=None, *, status="approved"):
+    from app.models.leave import LeaveRequest
+
+    r = LeaveRequest(employee_id=emp.id, start_date=tu, end_date=den or tu, days=1, status=status)
+    db.add(r)
+    db.commit()
+    return r
+
+
+def _hom_nay():
+    from app.services.gio_xuong import gio_xuong
+
+    return gio_xuong().date()
+
+
+def test_phan_cong_chan_nguoi_nghi_dai_han_va_dinh_chi(db, orders, lsx_svc, admin, customer):
+    from app.models.employee import STATUS_ON_LEAVE, STATUS_SUSPENDED
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-NGHI")
+    nghi = _emp(db, to, "NV-NGHI-1", ten="Thợ Thai Sản")
+    nghi.status = STATUS_ON_LEAVE
+    dc = _emp(db, to, "NV-NGHI-2", ten="Thợ Đình Chỉ")
+    dc.status = STATUS_SUSPENDED
+    db.commit()
+
+    with pytest.raises(ValueError, match="Thợ Thai Sản đang nghỉ dài hạn"):
+        thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=nghi.id)
+    db.rollback()
+    with pytest.raises(ValueError, match="Thợ Đình Chỉ đang bị đình chỉ"):
+        thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=dc.id)
+    db.rollback()
+    assert db.query(SanXuatPhanCong).filter_by(cong_viec_id=cv.id).count() == 0
+
+
+def test_phan_cong_chan_nguoi_nghi_phep_hom_nay(db, orders, lsx_svc, admin, customer):
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-PHEP")
+    hn = _hom_nay()
+    duyet = _emp(db, to, "NV-PHEP-1", ten="Thợ Nghỉ Phép")
+    _don_nghi(db, duyet, hn - timedelta(days=1), hn + timedelta(days=1))
+    cho = _emp(db, to, "NV-PHEP-2", ten="Thợ Đơn Chờ")
+    _don_nghi(db, cho, hn, status="pending")                 # đơn CHỜ duyệt không chặn
+    mai = _emp(db, to, "NV-PHEP-3", ten="Thợ Nghỉ Mai")
+    _don_nghi(db, mai, hn + timedelta(days=1))               # nghỉ ngày MAI không chặn hôm nay
+
+    with pytest.raises(ValueError, match="Thợ Nghỉ Phép nghỉ phép hôm nay"):
+        thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=duyet.id)
+    db.rollback()
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=cho.id)
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=mai.id)
+
+
+def test_bat_dau_chan_khi_nguoi_trong_to_nghi_phep_hom_nay(db, orders, lsx_svc, admin, customer):
+    """Giao từ hôm trước, hôm nay người đó có đơn nghỉ đã duyệt: bấm Bắt đầu là mở khoảng tham gia
+    (tính phút, chia lương) cho người vắng mặt ⇒ chặn, bảo rút người đó ra."""
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-PHEP-BD")
+    lam = _emp(db, to, "NV-PBD-1", ten="Thợ Đi Làm")
+    vang = _emp(db, to, "NV-PBD-2", ten="Thợ Vắng")
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=lam.id)
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=vang.id)
+    _don_nghi(db, vang, _hom_nay())
+
+    with pytest.raises(ValueError, match="Thợ Vắng nghỉ phép hôm nay"):
+        thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+    db.rollback()
+    assert db.query(SanXuatPhienChay).filter_by(cong_viec_id=cv.id).count() == 0
+
+
+def test_nhan_vien_chon_kem_tinh_trang(db, orders, lsx_svc, admin, customer):
+    """Ô "Giao người" thấy trước: ai đang chạy việc nào, ai được giao chờ mấy việc, ai nghỉ."""
+    from app.models.employee import STATUS_ON_LEAVE
+
+    to = _to_khoan(db, admin, ma="TO-TT-TT")
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+    cv1, cv2 = _cvs(db, to)[0], _cvs(db, to)[1]
+    for cv in (cv1, cv2):
+        cv.loai_buoc = BUOC_MAY
+        cv.du_kien_bat_dau = None
+    db.commit()
+    chay = _emp(db, to, "NV-TT-A", ten="A Đang Chạy")
+    cho = _emp(db, to, "NV-TT-B", ten="B Chờ Việc")
+    ranh = _emp(db, to, "NV-TT-C", ten="C Rảnh")
+    nghi = _emp(db, to, "NV-TT-D", ten="D Nghỉ Dài")
+    nghi.status = STATUS_ON_LEAVE
+    phep = _emp(db, to, "NV-TT-E", ten="E Nghỉ Phép")
+    db.commit()
+    hn = _hom_nay()
+    _don_nghi(db, phep, hn, hn + timedelta(days=2))
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv1.id, employee_id=chay.id)
+    thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv1.id)
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv2.id, employee_id=cho.id)
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv2.id, employee_id=chay.id)
+
+    res = board.nhan_vien_chon(db, admin, _authz(db), team_id=to.id)
+    assert res["hom_nay"] == hn
+    theo = {r["id"]: r for r in res["nhan_vien"]}
+
+    dc = theo[chay.id]["dang_chay"]
+    assert dc["cong_viec_id"] == cv1.id and dc["ten_cong_doan"] == cv1.ten_cong_doan
+    assert dc["to_ten"] == to.name
+    # Việc chờ trả TÊN việc + trạng thái (không chỉ con số) để ô chọn nói rõ người đó có tên ở đâu.
+    vc = theo[chay.id]["viec_cho"]
+    assert [v["cong_viec_id"] for v in vc] == [cv2.id]      # cv2 chưa chạy
+    assert vc[0]["trang_thai"] == "released" and vc[0]["ten_cong_doan"] == cv2.ten_cong_doan
+    assert vc[0]["to_ten"] == to.name
+    assert theo[cho.id]["dang_chay"] is None and [v["cong_viec_id"] for v in theo[cho.id]["viec_cho"]] == [cv2.id]
+    assert theo[ranh.id]["dang_chay"] is None and theo[ranh.id]["viec_cho"] == []
+    assert theo[ranh.id]["ly_do_nghi"] is None and theo[ranh.id]["nghi_phep"] == []
+    assert theo[nghi.id]["ly_do_nghi"] == "Nghỉ dài hạn"
+    assert theo[phep.id]["nghi_phep"] == [{"tu": hn, "den": hn + timedelta(days=2)}]
+
+    # Việc đang TẠM DỪNG xếp trước việc chưa chạy — người đó đang dở việc ấy.
+    thuc_thi.tam_dung(db, user=admin, cong_viec_id=cv1.id, ly_do="Hết giấy")
+    theo = {r["id"]: r for r in board.nhan_vien_chon(db, admin, _authz(db), team_id=to.id)["nhan_vien"]}
+    assert theo[chay.id]["dang_chay"] is None
+    assert [(v["cong_viec_id"], v["trang_thai"]) for v in theo[chay.id]["viec_cho"]] == [
+        (cv1.id, "paused"), (cv2.id, "released"),
+    ]

@@ -44,7 +44,7 @@ def _don_vi(client, h, ma: str, ten: str) -> str:
 
 def _body(client, h, **over) -> dict:
     body = {
-        "ten": "ZZ In 4 màu", "department_id": _to_id(client, h), "unit": "to", "unit_price": 30,
+        "ten": "ZZ In 4 màu", "department_ids": [_to_id(client, h)], "unit": "to", "unit_price": 30,
         "viec_phat_sinh": [
             {"ten": "ZZ Thay kẽm", "don_gia": 100, "don_vi": _don_vi(client, h, "zzban", "ZZ Bản")},
             {"ten": "ZZ Rửa lô mực", "don_gia": 50, "don_vi": _don_vi(client, h, "zzlan", "ZZ Lần")},

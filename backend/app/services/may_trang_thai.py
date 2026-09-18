@@ -92,17 +92,17 @@ def _gio(dt: datetime | None) -> str:
     return f"{dt:%H:%M}" if dt else "?"
 
 
-def _dong_gia_xep_lich_3(db, may_ids: list[int], bay_gio: datetime) -> list:
-    """Dòng GIẢ (không lưu) dựng từ mốc dẫn xuất của Xếp lịch 3, cho vừa vòng lặp bên dưới.
+def _dong_gia_xep_lich(db, may_ids: list[int], bay_gio: datetime) -> list:
+    """Dòng GIẢ (không lưu) dựng từ mốc dẫn xuất của bàn Xếp lịch, cho vừa vòng lặp bên dưới.
 
-    Màn 3 không đẻ dòng `xep_lich_cong_doan`, nên nếu chỉ đọc bảng lịch cũ thì mọi máy đang chạy
+    Bàn cấp lệnh không đẻ dòng `xep_lich_cong_doan`, nên nếu chỉ đọc bảng lịch cũ thì mọi máy đang chạy
     lệnh xếp ở màn mới đều hiện "rảnh" — sai theo hướng nguy hiểm nhất: người ta đẩy thêm việc vào
     máy đang bận. Chỉ dựng đúng ba thuộc tính vòng lặp dùng tới (`may_id`/`finish_at`/`lsx_id`).
     """
     from types import SimpleNamespace
 
     from ..models.lsx import LsxCongDoan
-    from .xep_lich_3.moc import lsx_da_xep, moc_theo_buoc
+    from .xep_lich.moc import lsx_da_xep, moc_theo_buoc
 
     da_xep = lsx_da_xep(db)
     if not da_xep:
@@ -144,7 +144,7 @@ def lenh_dang_chay(db, may_ids: list[int], bay_gio: datetime) -> dict[int, dict]
             XepLichCongDoan.finish_at > bay_gio,
         )
     ).scalars())
-    rows.extend(_dong_gia_xep_lich_3(db, may_ids, bay_gio))
+    rows.extend(_dong_gia_xep_lich(db, may_ids, bay_gio))
     if not rows:
         return {}
     lsx_ma = dict(db.execute(

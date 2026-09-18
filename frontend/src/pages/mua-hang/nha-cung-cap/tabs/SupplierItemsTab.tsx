@@ -67,10 +67,6 @@ export function SupplierItemsTab({
                         <h3 style={{ fontSize: "16px", fontWeight: "bold" }}>
                           Danh mục &amp; Báo giá Vật tư
                         </h3>
-                        <p className="md-page__muted">
-                          Khai báo đơn giá hiện tại để gợi ý tự động khi lập
-                          Phiếu Mua Hàng.
-                        </p>
                       </div>
                       <div className="supplier__items-actions">
                         {/* Tải mẫu đứng TRƯỚC Nhập: thứ tự nút là thứ tự việc phải làm. */}

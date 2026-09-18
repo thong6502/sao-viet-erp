@@ -34,11 +34,11 @@ from app.models.vat_lieu_kho import VatTuInAn
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.services.san_xuat import kcs as kcs_svc
 from app.services.san_xuat import kho as kho_svc
-from app.services.san_xuat import san_luong as san_luong_svc
 from app.services.san_xuat import nhom as nhom_svc
 from app.services.san_xuat import release, release_update, thuc_thi
 
 # Helper (plain function, KHÔNG phải fixture) của file anh em — đi đúng khuôn đường ghi thật.
+from tests.san_xuat_me_fixtures import tao_me
 from tests.test_lenh_sx_trang_thai import _giao_xong, _kcs_batch, _su_co
 from tests.test_san_xuat_kcs import _T0, _T1, _to_kiem
 from tests.test_san_xuat_nhap_kho_tp import _nhan as _kho_nhan
@@ -451,7 +451,6 @@ def test_nhan_luc_ghi_lai_lan_doi_may(client, seed_credentials, sess, admin, len
     sess.commit()
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_so_nguoi="Tổ thiếu người",
     )
     thuc_thi.doi_may(sess, user=admin, cong_viec_id=cv.id, may_id_moi=may_moi.id,
                      ly_do="Máy cũ kẹt giấy")
@@ -802,9 +801,8 @@ def _ghi_san_luong(sess, admin, cv, *, tong, tot, hong=0, ma="NV-HS-SL") -> None
         _giao_nguoi(sess, admin, cv, ma=ma, ten="Thợ sản lượng")
         thuc_thi.bat_dau(
             sess, user=admin, cong_viec_id=cv.id,
-            ly_do_so_nguoi="Tổ thiếu người",
         )
-    san_luong_svc.tao_batch(
+    tao_me(
         sess, user=admin, cong_viec_id=cv.id,
         bat_dau=datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc),
         ket_thuc=datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc),

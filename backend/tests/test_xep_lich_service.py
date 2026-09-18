@@ -57,6 +57,11 @@ def _to_san_xuat(db) -> Department:
         to = Department(name="Tổ In XL", code="TO-IN-XL", la_san_xuat=True)
         db.add(to)
         db.flush()
+    # Cổng "Sẵn sàng lập kế hoạch" đòi tổ có ÍT NHẤT một công việc khoán (18/09/2026,
+    # `thieu_viec_khoan_to`) — bàn tổ ghi mẻ theo việc khoán.
+    from tests.san_xuat_me_fixtures import viec_khoan_cua_to
+
+    viec_khoan_cua_to(db, to.id)
     return to
 
 
@@ -137,7 +142,8 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
         cd_in = CongDoan(ma="CD-IN-X", ten="In offset", nhom="print",
                          cong_thuc_gia="so_luong * don_gia")
         db.add(cd_in)
-    cd_in.department_id = cd_in.department_id or to_id
+    if not cd_in.department_ids:
+        cd_in.department_ids = [to_id]
     cd_in.setup_time = 45
     # Đơn vị KHAI ở danh mục (bước in chạy TỜ IN) — thiếu thì bước rơi khỏi dòng giấy và xếp lịch
     # mất luôn đường tính thời lượng theo máy (`to_gio`).
@@ -368,7 +374,7 @@ def test_gan_tinh_gio_ket_thuc_va_da_xep(db, orders, lsx_svc, xl_svc, admin, cus
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)  # loại nhiễu nghỉ lễ
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao = 45, 5000, 5000
+    step.setup_phut, step.so_luong_vao = 45, 5000
     step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1
     db.commit()
 
@@ -388,7 +394,7 @@ def test_xung_dot_may_khi_chong_gio(db, orders, lsx_svc, xl_svc, admin, customer
     a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     for lsx in (a, b):
         s = _in_step(db, lsx.id)
-        s.setup_phut, s.nang_suat, s.so_luong_vao, s.chay_phut = 0, 5000, 5000, None
+        s.setup_phut, s.so_luong_vao, s.chay_phut = 0, 5000, None
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=a.id, actor=admin)
     xl_svc.dua_vao_lsx(lsx_id=b.id, actor=admin)
@@ -463,8 +469,8 @@ def test_moi_buoc_chung_mot_dong_lich_khong_bi_boc_hoi(
         db.add(LsxCongDoan(
             lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
             cong_doan_id=_in_step(db, lsx.id).cong_doan_id,
-            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000, nang_suat=3000,
-            don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
+            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000,
+            don_vi_vao="to", don_vi_ra="to",
         ))
     db.commit()
     _nha_cho(db, [l.id for l in created])
@@ -513,8 +519,8 @@ def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_
     for lsx in created:
         db.add(LsxCongDoan(
             lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
-            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000, nang_suat=3000,
-            don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
+            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000,
+            don_vi_vao="to", don_vi_ra="to",
         ))
     db.commit()
     _nha_cho(db, [l.id for l in created])
@@ -566,9 +572,9 @@ def test_som_nhat_theo_gio_thuc_cua_buoc_truoc(db, orders, lsx_svc, xl_svc, admi
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None  # In = 60 phút
+    step.setup_phut, step.so_luong_vao, step.chay_phut = 0, 5000, None  # In = 60 phút
     xa = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
-                     may_id=step.may_id, so_luong_vao=5000, nang_suat=6000, don_vi_nang_suat="to_gio",
+                     may_id=step.may_id, so_luong_vao=5000,
                      don_vi_vao="to", don_vi_ra="to")
     db.add(xa)
     db.flush()
@@ -602,10 +608,10 @@ def test_dag_buoc_ghep_lay_moc_muon_nhat_cua_nhieu_tien_nhiem(
     db.commit()
     a = _in_step(db, lsx.id)
     b = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Nhánh B", loai_buoc=LB_MAY,
-                    may_id=a.may_id, so_luong_vao=100, nang_suat=100,
+                    may_id=a.may_id, so_luong_vao=100,
                     don_vi_vao="to", don_vi_ra="to")
     c = LsxCongDoan(lsx_id=lsx.id, thu_tu=2, ten="Ghép", loai_buoc=LB_MAY,
-                    may_id=a.may_id, so_luong_vao=100, nang_suat=100,
+                    may_id=a.may_id, so_luong_vao=100,
                     don_vi_vao="to", don_vi_ra="to")
     db.add_all([b, c]); db.flush()
     db.add_all([
@@ -642,7 +648,7 @@ def test_gan_lai_mot_phan_tren_dong_da_co_gio(db, orders, lsx_svc, xl_svc, admin
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao = 0, 5000, 5000
+    step.setup_phut, step.so_luong_vao = 0, 5000
     step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1  # theo máy: 30+60 = 90 phút
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
@@ -708,7 +714,7 @@ def test_gan_ghi_audit(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None
+    step.setup_phut, step.so_luong_vao, step.chay_phut = 0, 5000, None
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
@@ -737,7 +743,7 @@ def test_gan_ne_vung_khoa(db, orders, lsx_svc, xl_svc, admin, customer, monkeypa
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao = 0, 5000, 15000  # theo máy: 30+180+15 = 225'
+    step.setup_phut, step.so_luong_vao = 0, 15000  # theo máy: 30+180+15 = 225'
     step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
@@ -785,7 +791,7 @@ def test_thoi_luong_theo_may_khop_don_vi(db, orders, lsx_svc, xl_svc, admin, cus
     BỎ QUA snapshot nang_suat/setup/vệ-sinh vô lý của bước."""
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao = 999, 1, 5000   # snapshot cố tình vô lý
+    step.setup_phut, step.so_luong_vao = 999, 5000   # snapshot cố tình vô lý
     step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 999, 1
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
@@ -918,7 +924,7 @@ def test_xem_truoc_khong_commit(db, orders, lsx_svc, xl_svc, admin, customer, mo
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None
+    step.setup_phut, step.so_luong_vao, step.chay_phut = 0, 5000, None
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong_id = XepLichRepository(db).by_lsx(lsx.id)[0].id
@@ -936,9 +942,9 @@ def test_xem_truoc_day_buoc_sau(db, orders, lsx_svc, xl_svc, admin, customer, mo
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None
+    step.setup_phut, step.so_luong_vao, step.chay_phut = 0, 5000, None
     xa = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
-                     may_id=step.may_id, so_luong_vao=5000, nang_suat=6000, don_vi_nang_suat="to_gio",
+                     may_id=step.may_id, so_luong_vao=5000,
                      don_vi_vao="to", don_vi_ra="to")
     db.add(xa)
     db.flush()
@@ -960,7 +966,7 @@ def test_xem_truoc_bao_xung_dot(db, orders, lsx_svc, xl_svc, admin, customer, mo
     a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     for lsx in (a, b):
         s = _in_step(db, lsx.id)
-        s.setup_phut, s.nang_suat, s.so_luong_vao, s.chay_phut = 0, 5000, 5000, None
+        s.setup_phut, s.so_luong_vao, s.chay_phut = 0, 5000, None
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=a.id, actor=admin)
     xl_svc.dua_vao_lsx(lsx_id=b.id, actor=admin)
@@ -982,8 +988,8 @@ def test_lenh_in_hai_luot_chi_loai_dung_luot_duoc_ghep(
     for lsx in created:
         db.add(LsxCongDoan(
             lsx_id=lsx.id, thu_tu=1, ten="In mặt sau", nhom="print", loai_buoc=LB_MAY,
-            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000, nang_suat=3000,
-            don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
+            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000,
+            don_vi_vao="to", don_vi_ra="to",
         ))
     db.commit()
     _nha_cho(db, [l.id for l in created])
@@ -1005,7 +1011,7 @@ def _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer):
     """Một lệnh có bước In 90 phút đã vào kế hoạch — nền chung cho 4 test cảnh báo."""
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None
+    step.setup_phut, step.so_luong_vao, step.chay_phut = 0, 5000, None
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     return XepLichRepository(db).by_lsx(lsx.id)[0], step
@@ -1042,21 +1048,21 @@ def test_xem_truoc_bao_ngoai_gio_lam(db, orders, lsx_svc, xl_svc, admin, custome
     assert "27/07" in next(c["chu"] for c in res["canh_bao"] if c["loai"] == "ngoai_gio")
 
 
-def test_xem_truoc_bao_to_thieu_nguoi(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
-    """Bước cần 3 người mà tổ gõ đè còn 1 → báo. Số người lấy từ QUÂN SỐ THẬT của tổ hôm đó."""
+def test_xem_truoc_khong_con_bao_thieu_kip(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
+    """Kíp chuẩn gỡ 18/09/2026 (mg `0321`) — chủ xưởng: *"bỏ luôn logic kíp người mà mấy cái chặn
+    hoặc cảnh báo"*. Một việc thả vào tổ chỉ còn 1 người trực thì KHÔNG báo "cần 3 người" nữa: không
+    còn con số kíp nào để so."""
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     dong, step = _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer)
     to = _to_san_xuat(db)
-    step.so_nhan_cong_tieu_chuan = 3
+    assert not hasattr(step, "so_nhan_cong_tieu_chuan")
     dong.department_id = to.id
     db.commit()
     xl_svc.dat_quan_so(department_id=to.id, ngay=date(2026, 7, 27), so_nguoi=1,
                        ly_do="cả tổ nghỉ, còn 1 người trực", actor=admin)
     res = xl_svc.xem_truoc(dong_id=dong.id, may_id=step.may_id,
                            start_at=datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
-    assert "thieu_nguoi" in _loai(res)
-    chu = next(c["chu"] for c in res["canh_bao"] if c["loai"] == "thieu_nguoi")
-    assert "cần 3 người" in chu and "có mặt 1" in chu
+    assert "thieu_nguoi" not in _loai(res)
 
 
 def test_xem_truoc_tha_sach_thi_khong_canh_bao_gi(db, orders, lsx_svc, xl_svc, admin, customer,
@@ -1137,7 +1143,7 @@ def test_ca_lich_may_bo_ca_van_phong(db, xl_svc):
     nào — đó là MAY, không phải thiết kế. Test này chốt cái thiết kế: hàm chỉ trả ca có tick.
     """
     from app.models.attendance import WorkShift
-    from app.services.xep_lich_2 import constraint as C
+    from app.services.xep_lich import constraint as C
 
     _khai_ca_xuong(db)
     ten = [c.name for c in xl_svc._ca_lich_may()]

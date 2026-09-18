@@ -16,6 +16,8 @@
 // lõi TRỐNG (chỉ tô phẳng theo trạng thái) — khi có vế thực tế, chỉ cần thêm MỘT `<span>` con tô
 // dải `--moss` từ mép trái vùng lõi rộng theo `%` tiến độ (đúng khuôn "lớp thực tế đè lên, không vẽ
 // lại" đã chạy ở `Xl2Gantt`/`ThucHienSxPage`) — không phải sửa cấu trúc DOM/CSS của khối.
+// (`Xl2Gantt.tsx` đã xoá 18/09/2026 cùng bàn Xếp lịch theo công đoạn; con số 4px và khuôn "lớp
+// thực tế đè lên" vẫn là quy ước đang dùng, chỉ là không còn file để mở đối chiếu.)
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 

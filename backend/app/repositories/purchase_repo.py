@@ -33,6 +33,7 @@ from ..models.purchase import (
     PurchaseStatusHistory,
     Supplier,
     SupplierItem,
+    YeuCauMuaNguonLenh,
 )
 
 
@@ -829,6 +830,7 @@ class DepartmentPurchaseRequestRepository:
         needed_date: date = None,
         note: str | None = None,
         lines: Sequence[DepartmentPurchaseRequestLineInput] = (),
+        nguon_lenh: Sequence[dict] = (),
     ) -> DepartmentPurchaseRequest:
         row = DepartmentPurchaseRequest(
             code=code,
@@ -857,6 +859,7 @@ class DepartmentPurchaseRequestRepository:
             )
             for line in lines
         ]
+        row.nguon_lenh = [YeuCauMuaNguonLenh(**n) for n in self._nguon_con_song(nguon_lenh)]
         self.db.add(row)
         try:
             self.db.commit()
@@ -865,6 +868,70 @@ class DepartmentPurchaseRequestRepository:
             raise
         self.db.refresh(row)
         return self.get_by_id(row.id) or row
+
+    def _nguon_con_song(self, nguon_lenh: Sequence[dict]) -> list[dict]:
+        """Bỏ liên kết trỏ vào lệnh/bài KHÔNG còn tồn tại (bảng cân đối mở từ lâu, lệnh vừa xoá) —
+        để khoá ngoại trên Postgres không làm hỏng cả lần lập yêu cầu."""
+        if not nguon_lenh:
+            return []
+        from ..models.bai_ghep import BaiGhep
+        from ..models.lsx import Lsx
+
+        lsx_ids = {n["lsx_id"] for n in nguon_lenh if n.get("lsx_id")}
+        bai_ids = {n["bai_ghep_id"] for n in nguon_lenh if n.get("bai_ghep_id")}
+        co_lsx = set(self.db.execute(
+            select(Lsx.id).where(Lsx.id.in_(sorted(lsx_ids)))).scalars()) if lsx_ids else set()
+        co_bai = set(self.db.execute(
+            select(BaiGhep.id).where(BaiGhep.id.in_(sorted(bai_ids)))).scalars()) if bai_ids else set()
+        return [n for n in nguon_lenh
+                if (n.get("lsx_id") in co_lsx) or (n.get("bai_ghep_id") in co_bai)]
+
+    def ngay_can_theo_chu_the(
+        self, lsx_ids: set[int] | None = None, bai_ids: set[int] | None = None
+    ) -> dict[tuple, date]:
+        """`{(hang_loai, hang_id, lsx_id, bai_ghep_id): needed_date SỚM NHẤT}` của các YCMH còn
+        hiệu lực đã lập cho lệnh/bài đó (mg 0325) — nguồn DUY NHẤT của "Ngày cần" trên Kế hoạch vật
+        tư. Hiệu lực = yêu cầu chưa huỷ VÀ còn dòng sống cùng mặt hàng.
+
+        Cả hai tập đều None = không lọc (phạm vi toàn xưởng)."""
+        dong_song = (
+            select(DepartmentPurchaseRequestLine.id)
+            .where(
+                DepartmentPurchaseRequestLine.department_request_id
+                == YeuCauMuaNguonLenh.department_request_id,
+                DepartmentPurchaseRequestLine.hang_loai == YeuCauMuaNguonLenh.hang_loai,
+                DepartmentPurchaseRequestLine.hang_id == YeuCauMuaNguonLenh.hang_id,
+                DepartmentPurchaseRequestLine.cancelled_at.is_(None),
+            )
+            .exists()
+        )
+        stmt = (
+            select(
+                YeuCauMuaNguonLenh.hang_loai,
+                YeuCauMuaNguonLenh.hang_id,
+                YeuCauMuaNguonLenh.lsx_id,
+                YeuCauMuaNguonLenh.bai_ghep_id,
+                func.min(DepartmentPurchaseRequest.needed_date),
+            )
+            .join(DepartmentPurchaseRequest,
+                  DepartmentPurchaseRequest.id == YeuCauMuaNguonLenh.department_request_id)
+            .where(DepartmentPurchaseRequest.status != DPR_CANCELLED, dong_song)
+            .group_by(YeuCauMuaNguonLenh.hang_loai, YeuCauMuaNguonLenh.hang_id,
+                      YeuCauMuaNguonLenh.lsx_id, YeuCauMuaNguonLenh.bai_ghep_id)
+        )
+        if lsx_ids is not None or bai_ids is not None:
+            dk = []
+            if lsx_ids:
+                dk.append(YeuCauMuaNguonLenh.lsx_id.in_(sorted(lsx_ids)))
+            if bai_ids:
+                dk.append(YeuCauMuaNguonLenh.bai_ghep_id.in_(sorted(bai_ids)))
+            if not dk:
+                return {}
+            stmt = stmt.where(or_(*dk))
+        return {
+            (hl, int(hid), lsx_id, bai_id): ngay
+            for hl, hid, lsx_id, bai_id, ngay in self.db.execute(stmt)
+        }
 
     def save(self, request: DepartmentPurchaseRequest) -> DepartmentPurchaseRequest:
         try:

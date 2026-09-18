@@ -17,7 +17,7 @@ function buoc(p: Partial<LsxCongDoan> = {}): LsxCongDoan {
   seq += 1;
   return {
     id: seq, thu_tu: seq * 10, ten: `Bước ${seq}`,
-    department_ten: null, may_ten: null, khoan_ten: null,
+    department_ten: null, may_ten: null,
     tren_dong_giay: true, requires_tooling: false, khuon_be_id: null,
     so_luong_vao: 0, so_luong_ra: 0, don_vi_vao: "to", don_vi_ra: "to",
     vat_tus: [], ...p,
@@ -42,18 +42,18 @@ function chuoiSach() {
   return [
     buoc({ ten: "Ghi kẽm CTP", tren_dong_giay: false, department_ten: "Tổ Chế bản",
            so_luong_vao: 1801, don_vi_vao: "m2", so_luong_ra: 7200, don_vi_ra: "bai" }),
-    buoc({ ten: "In offset", khoan_ten: "In 2 màu", department_ten: "Tổ In offset",
+    buoc({ ten: "In offset", department_ten: "Tổ In offset",
            may_ten: "Máy 2 màu Mitsubishi 72×102",
            so_luong_vao: 5200, so_luong_ra: 5000,
            vat_tus: [giay(3, "Ford 70 65×86", 436.02),
                      vt(6, "Màng cán bóng", 5200.07, "m2"), vt(2, "Mực pha Pantone", 1_000_000)] }),
-    buoc({ ten: "Gấp tay sách", khoan_ten: "Gấp tay sách máy",
+    buoc({ ten: "Gấp tay sách",
            so_luong_vao: 5000, so_luong_ra: 5000, don_vi_ra: "tay" }),
-    buoc({ ten: "Bắt tay + vào keo", khoan_ten: "Bắt tay + vào keo gáy vuông",
+    buoc({ ten: "Bắt tay + vào keo",
            so_luong_vao: 5000, don_vi_vao: "tay", so_luong_ra: 1000, don_vi_ra: "cai" }),
-    buoc({ ten: "Xén 3 mặt thành phẩm", khoan_ten: "Xén 3 mặt", don_vi_vao: "cai", don_vi_ra: "cai",
+    buoc({ ten: "Xén 3 mặt thành phẩm", don_vi_vao: "cai", don_vi_ra: "cai",
            so_luong_vao: 1000, so_luong_ra: 1000, vat_tus: [vt(6, "Màng cán bóng", 5200.07, "m2")] }),
-    buoc({ ten: "Đóng gói + nhập kho", khoan_ten: "Đếm, bó, đóng gói", don_vi_vao: "cai",
+    buoc({ ten: "Đóng gói + nhập kho", don_vi_vao: "cai",
            don_vi_ra: "cai", so_luong_vao: 1000, so_luong_ra: 1000 }),
   ];
 }
@@ -116,10 +116,9 @@ describe("bangKeVatTu", () => {
     expect(r.tong.filter((x) => x.ten === "Keo")).toHaveLength(2);
   });
 
-  it("đếm bước trống, bước chưa đầu việc và số món cho ô tóm tắt", () => {
+  it("đếm bước trống và số món cho ô tóm tắt", () => {
     const r = ke(chuoiSach());
     expect(r.so_buoc_trong).toBe(4);          // #10 #30 #40 #60
-    expect(r.so_buoc_chua_dau_viec).toBe(1);  // #10 ghi kẽm
     expect(r.so_mon).toBe(3);                 // giấy + màng + mực
   });
 

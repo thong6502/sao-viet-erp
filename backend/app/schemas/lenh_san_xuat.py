@@ -275,8 +275,8 @@ class VatTuDongOut(BaseModel):
     con_phai_co: float | None = None
     thieu: float | None = None
     trang_thai: str | None = None
+    #: Ngày cần hàng trên YCMH đã lập cho lệnh này (không suy). Chưa mua ⇒ `None`.
     ngay_can: date | None = None
-    ngay_du_hang: date | None = None
 
 
 class VatTuMucOut(BaseModel):

@@ -15,11 +15,12 @@ from sqlalchemy.orm import Session
 
 from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
+from ..models.customer import Customer
 from ..models.department import Department
 from ..models.employee import Employee
 from ..models.lsx import Lsx, LsxCongDoan, LsxCongDoanPhuThuoc
 from ..models.may_thiet_bi import MayThietBi
-from ..models.order import OrderLine
+from ..models.order import Order, OrderLine
 from ..models.san_xuat import (
     CV_HOAN_THANH,
     GOI_DANG_PHAT_HANH,
@@ -488,7 +489,8 @@ class SanXuatRepository:
 
         `tim` cũng lọc Ở ĐÂY chứ không lọc bằng JS sau khi kéo trang về — lọc sau khi cắt trang
         thì ô tìm kiếm chỉ soi được đúng 20 lệnh đang hiện. Từ khoá soi mã/tên LỆNH, mã/tên BÀI
-        GHÉP và tên CÔNG ĐOẠN; khớp một bước là cả lệnh hiện ra (bàn tổ đi tìm LỆNH, không đi tìm
+        GHÉP, tên KHÁCH (của lệnh, hoặc của lệnh thành viên bài ghép) và tên CÔNG ĐOẠN; khớp một
+        bước là cả lệnh hiện ra (bàn tổ đi tìm LỆNH, không đi tìm
         bước rời).
 
         `chi_cong_viec_ids` (ô "chờ xác nhận"): chỉ giữ lệnh chứa ít nhất một bước trong tập. Lọc
@@ -517,14 +519,30 @@ class SanXuatRepository:
         if kw:
             from sqlalchemy import or_
 
+            from sqlalchemy.orm import aliased
+
             mau = f"%{kw}%"
             nhom = (
                 nhom.outerjoin(Lsx, SanXuatCongViec.lsx_id == Lsx.id)
+                .outerjoin(Order, Lsx.order_id == Order.id)
+                .outerjoin(Customer, Order.customer_id == Customer.id)
                 .outerjoin(BaiGhep, SanXuatCongViec.bai_ghep_id == BaiGhep.id)
             )
+            # Khách của BÀI GHÉP là khách các lệnh thành viên — EXISTS chứ không JOIN, join thì mỗi
+            # bước nhân lên theo số thành viên.
+            lsx_tv, don_tv, khach_tv = aliased(Lsx), aliased(Order), aliased(Customer)
+            khach_bai_ghep = (
+                sa_select(BaiGhepThanhVien.id)
+                .join(lsx_tv, BaiGhepThanhVien.lsx_id == lsx_tv.id)
+                .join(don_tv, lsx_tv.order_id == don_tv.id)
+                .join(khach_tv, don_tv.customer_id == khach_tv.id)
+                .where(BaiGhepThanhVien.bai_ghep_id == SanXuatCongViec.bai_ghep_id,
+                       khach_tv.name.ilike(mau))
+                .exists()
+            )
             dieu_kien.append(or_(
-                Lsx.ma.ilike(mau), Lsx.ten.ilike(mau),
-                BaiGhep.ma.ilike(mau), BaiGhep.ten.ilike(mau),
+                Lsx.ma.ilike(mau), Lsx.ten.ilike(mau), Customer.name.ilike(mau),
+                BaiGhep.ma.ilike(mau), BaiGhep.ten.ilike(mau), khach_bai_ghep,
                 SanXuatCongViec.ten_cong_doan.ilike(mau),
             ))
         nhom = nhom.where(*dieu_kien).group_by(loai, nid)
@@ -682,6 +700,35 @@ class SanXuatRepository:
             select(BaiGhep.id, BaiGhep.ma, BaiGhep.ten).where(BaiGhep.id.in_(bg_ids))
         ).all()
         return {bid: (ma, ten) for bid, ma, ten in rows}
+
+    def khach_nhan(self, lsx_ids: set[int], bg_ids: set[int]) -> dict[tuple[str, int], str]:
+        """{("lsx", id) | ("bai_ghep", id): tên khách} — lệnh → đơn hàng → khách. Bài ghép chạy
+        chung nhiều lệnh nên gộp tên khách của mọi thành viên (khác nhau, theo thứ tự thêm vào bài).
+        Lệnh không có đơn/khách thì vắng khỏi map."""
+        ra: dict[tuple[str, int], str] = {}
+        if lsx_ids:
+            rows = self.db.execute(
+                select(Lsx.id, Customer.name)
+                .join(Order, Lsx.order_id == Order.id)
+                .join(Customer, Order.customer_id == Customer.id)
+                .where(Lsx.id.in_(lsx_ids))
+            ).all()
+            ra.update({("lsx", lid): ten for lid, ten in rows if ten})
+        if bg_ids:
+            rows = self.db.execute(
+                select(BaiGhepThanhVien.bai_ghep_id, Customer.name)
+                .join(Lsx, BaiGhepThanhVien.lsx_id == Lsx.id)
+                .join(Order, Lsx.order_id == Order.id)
+                .join(Customer, Order.customer_id == Customer.id)
+                .where(BaiGhepThanhVien.bai_ghep_id.in_(bg_ids))
+                .order_by(BaiGhepThanhVien.id)
+            ).all()
+            gom: dict[int, list[str]] = {}
+            for bid, ten in rows:
+                if ten and ten not in gom.setdefault(bid, []):
+                    gom[bid].append(ten)
+            ra.update({("bai_ghep", bid): " · ".join(ds) for bid, ds in gom.items() if ds})
+        return ra
 
     def may_nhan(self, may_ids: set[int]) -> dict[int, str]:
         """{may_id: tên máy} cho bàn tổ.

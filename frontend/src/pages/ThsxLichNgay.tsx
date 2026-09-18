@@ -1,4 +1,4 @@
-// LỊCH NGÀY của bàn THỰC HIỆN SẢN XUẤT — lưới CỘT NGÀY cùng khuôn với Xếp lịch 3 (15/09/2026),
+// LỊCH NGÀY của bàn THỰC HIỆN SẢN XUẤT — lưới CỘT NGÀY cùng khuôn với bàn Xếp lịch (15/09/2026),
 // thay cho Gantt trục giờ cũ (`ThsxTimeline`, zoom Giờ/Ca/Ngày/Tuần — đã gỡ).
 //
 // Mỗi VIỆC một dòng: ô nhãn dính bên trái (mã · trạng thái / công đoạn / nguồn · máy / số lượng),
@@ -15,7 +15,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SxThucTeKhoang, SxWorkItem } from "../api/client";
 import { Icon } from "../components/Icons";
 import { ChipKcs, ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
-import { khungLuoi, nhanNgay, ngayGio, soNgayGiua, themNgay } from "./xl3Shared";
+import { khungLuoi, nhanNgay, ngayGio, soNgayGiua, themNgay } from "./xlShared";
 import { slText, sxSerial, ttMeta } from "./thsxShared";
 import { ChamCho, type SxChoCuaViec } from "./thsxChoXacNhan";
 
@@ -163,7 +163,7 @@ export function ThsxLichNgay({ tu, soNgay, viec, selectedId, onChon, dangTim = f
 
   // Bề ngang KHUNG (không phải cửa sổ trình duyệt): bàn tổ còn cột Hàng chờ bên trái nên lưới hẹp
   // hơn cửa sổ. Cột ngày CO/GIÃN cho vừa đúng số ngày đã chọn — giãn khi khung thừa chỗ (khỏi mảng
-  // trắng bên phải), co khi khung thiếu: ở 1280px mở Hàng chờ, cỡ gốc 168px của Xếp lịch 3 cho nút
+  // trắng bên phải), co khi khung thiếu: ở 1280px mở Hàng chờ, cỡ gốc 168px của bàn Xếp lịch cho nút
   // "7 Ngày" thấy đúng 2,7 ngày (đo 15/09/2026). Co không dưới nấc nhỏ nhất của màn hẹp (96/64/36).
   const [khungW, setKhungW] = useState(0);
   useLayoutEffect(() => {
@@ -314,7 +314,7 @@ export function ThsxLichNgay({ tu, soNgay, viec, selectedId, onChon, dangTim = f
           const ma = w.nguon_ma || sxSerial(w.nguon_ma);
           const cd = w.ten_cong_doan || "";
           const o = oCuaViec.get(w.id) ?? null;
-          const phu = [w.nguon_ten, w.may].filter(Boolean).join(" · ");
+          const phu = [w.nguon_ten, w.khach_hang, w.may].filter(Boolean).join(" · ");
           const sl = w.so_luong_ra != null || w.so_luong_vao != null ? slText(w) : "";
           const acts = dayThucTe(w.thuc_te, tu, soNgay, bayGio);
           const thucTeTitle = (w.thuc_te ?? [])
@@ -340,7 +340,7 @@ export function ThsxLichNgay({ tu, soNgay, viec, selectedId, onChon, dangTim = f
                 type="button"
                 className={`thsx-ln__thanh thsx-ln__thanh--${w.trang_thai} thsx-ln__thanh--${ratHep ? "hep" : co}${sel ? " thsx-ln__thanh--chon" : ""}${o.tranTrai ? " thsx-ln__thanh--tran-trai" : ""}${o.tranPhai ? " thsx-ln__thanh--tran-phai" : ""}`}
                 style={{ left: trai, width: rong }}
-                title={`${ma}${cd ? ` · ${cd}` : ""}${w.nguon_ten ? ` · ${w.nguon_ten}` : ""} · ${meta.label} · ${d2Du}\nKế hoạch: ${ngayGio(w.du_kien_bat_dau)} → ${ngayGio(w.du_kien_ket_thuc)}${thucTeTitle ? `\nThực tế: ${thucTeTitle}` : ""}`}
+                title={`${ma}${cd ? ` · ${cd}` : ""}${w.nguon_ten ? ` · ${w.nguon_ten}` : ""}${w.khach_hang ? ` · KH: ${w.khach_hang}` : ""} · ${meta.label} · ${d2Du}\nKế hoạch: ${ngayGio(w.du_kien_bat_dau)} → ${ngayGio(w.du_kien_ket_thuc)}${thucTeTitle ? `\nThực tế: ${thucTeTitle}` : ""}`}
                 aria-label={`${ma}${cd ? `, ${cd}` : ""}, ${meta.label}, ${d2Du}`}
                 aria-pressed={sel}
                 onClick={(e) => { e.stopPropagation(); onChon(w); }}

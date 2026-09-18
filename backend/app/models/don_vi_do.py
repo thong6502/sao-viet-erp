@@ -213,8 +213,7 @@ class DonViDo(Base):
     # Vì sao gỡ: cách đo treo ở ĐƠN VỊ là câu trả lời dùng chung cho mọi ai đếm bằng đơn vị đó, mà
     # câu hỏi thật luôn thuộc về một cái CỤ THỂ — keo và mực cùng đo bằng `kg` nhưng ăn khác nhau,
     # hai máy cùng đo `to_gio` nhưng đếm lượt khác nhau. Nay mỗi nơi có ô của mình:
-    # `giay_nguyen`/`vat_tu_in_an`/`may_thiet_bi`/`piece_rates.cong_thuc_luong` và
-    # `cong_doan.cong_thuc_san_luong`.
+    # `giay_nguyen`/`vat_tu_in_an`/`may_thiet_bi`/`piece_rates.cong_thuc_luong`.
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

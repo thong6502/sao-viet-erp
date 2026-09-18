@@ -1,11 +1,12 @@
 /* ============================================================================
    THỰC HIỆN SẢN XUẤT TẠI TỔ — "một bàn làm việc"
    Mọi rule bọc trong `.thsx` để không rò sang màn khác. Token lấy nguyên từ
-   styles/tokens.css (KHÔNG thêm biến :root, KHÔNG hex thô). KHÔNG import xep-lich-2.css.
+   styles/tokens.css (KHÔNG thêm biến :root, KHÔNG hex thô). Không import CSS của bàn xếp lịch.
 
    Bố cục: cột trái DANH SÁCH VIỆC · cột giữa TIMELINE (chỉ đây cuộn ngang) · cột phải
    DRAWER trượt · dải chân chú giải. Thân trang KHÔNG BAO GIỜ cuộn ngang.
-   Trục thời gian tái dùng buildLinearScale/XL2_PX_PER_MIN của xl2Shared (LABEL_W/BAR_H).
+   Trục thời gian tái dùng thang của `pages/gantt-time.ts` (`PX_PER_MIN`, `ngayToWall`) — trước
+   18/09/2026 thang này nằm ở `xl2Shared.tsx` của bàn xếp lịch theo công đoạn, đã dọn về đó.
    ============================================================================ */
 
 .thsx {
@@ -360,7 +361,7 @@
 }
 .thsx-list__pad { padding: var(--sp-4); }
 
-/* HÀNG CHỜ (view Lịch) — việc chưa lên được lưới ngày. Khuôn đầu cột theo `.xl3-cho__dau`. */
+/* HÀNG CHỜ (view Lịch) — việc chưa lên được lưới ngày. Khuôn đầu cột theo `.xl-cho__dau`. */
 .thsx-cho__dau {
   padding: var(--sp-3);
   border-bottom: 1px solid var(--rule-soft);
@@ -527,7 +528,7 @@
 .thsx-lrow__gio svg { color: var(--ash-2); }
 
 /* ================= CỘT GIỮA — LỊCH NGÀY (15/09/2026) =======================
-   Lưới CỘT NGÀY cùng khuôn với Xếp lịch 3 (`xep-lich-3.css` `.xl3-gantt`), thay Gantt trục giờ
+   Lưới CỘT NGÀY cùng khuôn với bàn Xếp lịch (`xep-lich.css` `.xl-gantt`), thay Gantt trục giờ
    cũ. Viết lại dưới tiền tố `thsx-ln` chứ không import CSS module khác (xem đầu file).
    Hình học (bề rộng cột nhãn / ngày / dòng) do `ThsxLichNgay.tsx` tính bằng `khungLuoi` rồi đặt
    inline — ở đây KHÔNG khai lại số px của lưới. */
@@ -1011,10 +1012,12 @@
 }
 
 /* Modern Table Shell */
+/* Lăn ngang chứ KHÔNG `hidden`: bảng rộng hơn khung thì `hidden` giấu mất cột "Trạng thái & Thao
+   tác" ở mép phải (17/09/2026: LSX nhiều máy tên dài cắt mất 240px, không bấm được nút). */
 .thsx-ds__tbl-wrap {
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-3);
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   background: var(--canvas);
 }
@@ -1085,12 +1088,26 @@
   white-space: nowrap;
 }
 
+/* Tên khách XUỐNG DÒNG chứ không cắt "…": "Công ty TNHH …" dài mà phần phân biệt nằm ở cuối. */
+.thsx-ds__khach {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  line-height: 1.35;
+  color: #334155;
+  max-width: 170px;
+}
+.thsx-ds__khach svg { color: var(--rust); flex: none; margin-top: 2px; }
+
 /* Công đoạn & Specs Cell */
 .thsx-ds__cd-cell { display: flex; flex-direction: column; gap: 2px; }
 .thsx-ds__cd-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 3px 6px;
   white-space: nowrap;
 }
 .thsx-ds__cd-name {
@@ -1107,21 +1124,22 @@
   max-width: 280px;
 }
 
-/* Machine Badge */
+/* Machine Badge — tên máy dài ("Dán máy bán tự động 2 mảnh EB") xuống dòng thay vì kéo cột rộng. */
 .thsx-ds__may-chip {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 5px;
+  max-width: 180px;
   padding: 2px 8px;
-  border-radius: var(--r-pill);
+  border-radius: 10px;
   background: var(--paper);
   border: 1px solid var(--rule-soft);
   font-size: 11px;
   font-weight: var(--fw-medium);
+  line-height: 1.35;
   color: var(--ink);
-  white-space: nowrap;
 }
-.thsx-ds__may-chip svg { color: var(--rust); }
+.thsx-ds__may-chip svg { color: var(--rust); flex: none; margin-top: 2px; }
 
 /* Time Cell */
 .thsx-ds__time-cell { display: flex; flex-direction: column; gap: 1px; }
@@ -1171,26 +1189,33 @@
 /* Material Inline Cell */
 .thsx-ds__vt-inline {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 2px 6px;
   font-size: 11px;
-  white-space: nowrap;
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  max-width: 200px;
 }
-.thsx-ds__vt-text { display: inline-flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; }
+.thsx-ds__vt-val { white-space: nowrap; }
+.thsx-ds__vt-more { white-space: nowrap; }
 .thsx-ds__vt-text b { color: var(--ink); font-weight: var(--fw-medium); }
 .thsx-ds__vt-val { color: var(--rust-deep); font-weight: var(--fw-bold); }
 .thsx-ds__vt-more { font-size: 10px; color: var(--ash-2); background: var(--paper); padding: 1px 5px; border-radius: var(--r-1); border: 1px solid var(--rule-soft); }
 .thsx-ds__vt-none { color: var(--ash-2); font-size: var(--fs-xs); }
 
-/* Actions & Status Cell — Single Horizontal Row */
+/* Actions & Status Cell — pill trên, nút dưới; mũi tên mở chi tiết đứng riêng bên phải. */
 .thsx-ds__act-cell {
   display: flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+}
+.thsx-ds__act-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  flex: 1 1 auto;
 }
 .thsx-ds__act-grp { display: flex; align-items: center; gap: 4px; }
 .thsx-ds__actbtn {
@@ -1706,8 +1731,9 @@
 .thsx-giao__empty { padding: var(--sp-3); text-align: center; color: var(--ash); font-size: var(--fs-xs); }
 .thsx-giao__opt {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
   width: 100%;
   text-align: left;
   border: 0;
@@ -1718,7 +1744,16 @@
 }
 .thsx-giao__opt:hover:not(:disabled) { background: var(--rust-soft); }
 .thsx-giao__opt:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
-.thsx-giao__opt:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Người không giao được: mờ TÊN thôi, lý do (đỏ) vẫn đọc rõ — mờ cả dòng thì không ai đọc được vì sao. */
+.thsx-giao__opt:disabled { cursor: not-allowed; }
+.thsx-giao__opt:disabled .thsx-giao__dong { opacity: 0.45; }
+.thsx-giao__dong { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.thsx-giao__tt { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: var(--fs-2xs); line-height: 1.35; }
+.thsx-giao__tt--chan { color: var(--rust-deep); }
+.thsx-giao__tt--canh { color: var(--amber-deep); }
+.thsx-giao__tt--ranh { color: var(--moss-deep); }
+.thsx-giao__tt--cho { color: var(--ash); }
+.thsx-giao__tt--ghi { color: var(--ash); }
 .thsx-giao__nm { font-size: var(--fs-sm); color: var(--ink); }
 .thsx-giao__code {
   font-family: var(--ff-num);
@@ -1895,6 +1930,13 @@
 .thsx-x-hint { margin: 0; font-size: var(--fs-2xs); color: var(--ash); }
 .thsx-x-hint b { color: var(--ink); }
 .thsx-x-hint--err, .thsx-x-hint--err b { color: var(--rust-deep); }
+.thsx-x-hint--canh, .thsx-x-hint--canh b { color: var(--amber-deep); }
+/* Ô "Thợ hỗ trợ": dòng tình trạng dài (việc đang chạy + tổ) — cho xuống dòng, đừng cắt cụt. */
+.thsx-x-sel-tt .sel__opt-sub { white-space: normal; }
+.thsx-x-sel-tt .thsx-x-sub--chan { color: var(--rust-deep); }
+.thsx-x-sel-tt .thsx-x-sub--canh { color: var(--amber-deep); }
+.thsx-x-sel-tt .thsx-x-sub--ranh { color: var(--moss-deep); }
+.thsx-x-sel-tt .thsx-x-sub--cho { color: var(--ash); }
 
 /* Bàn giao (14/09/2026): chặng sau lấy theo routing nên hiện CỐ ĐỊNH như một ô chỉ-đọc, không phải
    select. Danh sách chọn (`.thsx-x-chon`) chỉ dùng khi thật sự có lựa chọn: nhiều lần chạy/nhánh
@@ -2594,6 +2636,18 @@
   white-space: nowrap;
   min-width: 0;
 }
+/* Khách hàng: đậm hơn tên lệnh — tổ đọc để biết hàng của ai. Tên dài co lại sau tên lệnh. */
+.thsx-lenh__khach {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 1 auto;
+  color: #334155;
+  font-weight: var(--fw-medium);
+}
+.thsx-lenh__khach svg { color: var(--rust); flex: none; }
+.thsx-lenh__khach span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thsx-lenh__spacer { flex: 1 1 auto; min-width: var(--sp-2); }
 .thsx-lenh__gio { color: #64748b; flex: none; font-size: var(--fs-xs); }
 .thsx-lenh__n { color: #475569; flex: none; font-weight: var(--fw-bold); }
@@ -3039,6 +3093,50 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Khối "Mực in" dưới bảng quy cách — khung + chip là của màn lệnh (`.khsx-kv` · `MucInHang`),
+   ở đây chỉ chừa khoảng cách với bảng phía trên (18/09/2026). */
+.thsx-muc {
+  margin-top: 10px;
+}
+
+/* Ở ngăn kéo bàn tổ khối mực chỉ để ĐỌC: mọi chip đều `disabled`, bấm không đổi được gì. Nên nó
+   KHÔNG cần sàn chạm 44px mà `responsive.css` §9 + §62(i) áp cho mọi <button> trong
+   `.shell__content`. Đo ở khung 671px: sàn đó thổi chip lên 44×44, hàng cao 60px, cả khối 203px
+   — trong khi một dòng quy cách bên trên chỉ 19px, nhìn như khối mực chiếm hết thẻ. Ghim lại cỡ
+   đọc ở MỌI bề ngang (không đụng màn Kế hoạch — ở đó chip bấm được nên giữ nguyên sàn chạm). */
+.thsx-muc .tg-muc__row {
+  gap: 8px;
+  padding: 5px 10px;
+}
+.thsx-muc .tg-muc__side {
+  width: 46px;
+}
+.thsx-muc .tg-muc__chips {
+  gap: 4px;
+}
+/* Ba lớp chứ không hai: §62(i) khai `.shell__content .tg-muc__proc { min-width: 44px }` cũng
+   nặng 0-2-0 và nằm ở file nạp SAU, hoà thì nó thắng — đo ra chip 44×24 bầu dục nằm. */
+.thsx-panel .thsx-muc .tg-muc__proc {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+}
+.thsx-muc .tg-muc__pha {
+  padding: 2px 5px 2px 7px;
+}
+/* Nút "+ Pantone" mờ tịt, bấm không ra popover — ở màn chỉ-đọc nó chỉ tổ chiếm chỗ. Mực pha đã
+   khai vẫn hiện nguyên (chip `.tg-muc__pha` nằm ngoài nút này). */
+.thsx-muc .tg-pantone-wrapper {
+  display: none;
+}
+/* Dòng "3 + 1 = 4 kẽm mỗi tay" do `MucInHang` luôn vẽ kèm: ở màn Kế hoạch nó cần, vì người khai
+   mực đang gõ dở và muốn thấy số kẽm nhảy theo. Xuống bàn tổ thì số kẽm đã chốt và đang nằm ngay
+   trên cùng thẻ ("Số kẽm: 4 bản") — để lại thành nói hai lần. */
+.thsx-muc .tg-muc__derive {
+  display: none;
 }
 
 /* ================= PRODUCTION HUB CARD & FLAT METRIC STRIP ================= */
@@ -3937,3 +4035,103 @@
   .thsx-sl__f input, .thsx-sl__f select { flex: 1 1 auto; min-width: 0; }
   .thsx-sl__nguoi { margin-left: 0; }
 }
+
+/* ---------------- Ghi mẻ theo CÔNG VIỆC KHOÁN (spec 2026-09-18 §7.1) --------
+ * Chọn đúng MỘT việc của tổ (đơn giá · ĐVT · ghi chú), việc phát sinh lồng ngay dưới việc đang chọn.
+ * Màn xưởng: bấm cả dòng được, số lớn. Không có ô tiền nào. */
+.thsx-vk { display: flex; flex-direction: column; gap: var(--sp-2); }
+.thsx-vk__h { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+.thsx-vk__da { font-size: var(--fs-2xs); color: var(--ash); margin-left: auto; }
+.thsx-vk__da b { color: var(--ink); }
+.thsx-vk__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.thsx-vk__opt {
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  padding: 10px 12px; border: 1px solid var(--rule); border-radius: var(--r-2);
+  background: var(--paper); cursor: pointer; min-height: 44px; box-sizing: border-box;
+}
+.thsx-vk__opt:hover { border-color: var(--ash-2); }
+.thsx-vk__opt.is-on { border-color: var(--rust); background: color-mix(in srgb, var(--rust) 6%, var(--paper)); }
+.thsx-vk__opt input { flex: none; margin-top: 3px; width: 16px; height: 16px; accent-color: var(--rust); }
+.thsx-vk__main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.thsx-vk__ten { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--ink); overflow-wrap: anywhere; }
+.thsx-vk__ma { margin-left: 6px; font-size: var(--fs-2xs); font-weight: normal; color: var(--ash-2); }
+.thsx-vk__gc { font-size: var(--fs-2xs); color: var(--ash); font-style: italic; overflow-wrap: anywhere; }
+.thsx-vk__psn { font-size: var(--fs-2xs); color: var(--amber-deep); }
+.thsx-vk__gia { flex: none; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--ink); white-space: nowrap; }
+.thsx-vk__psbox {
+  margin: 6px 0 2px 26px; padding-left: var(--sp-2);
+  border-left: 2px solid var(--rust-soft); display: flex; flex-direction: column; gap: 6px;
+}
+.thsx-vk__psh { font-size: var(--fs-2xs); color: var(--ash); font-weight: var(--fw-medium); }
+.thsx-vk__opt--ps { padding: 8px 10px; min-height: 40px; }
+.thsx-vk__ps.is-on .thsx-vk__opt--ps { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 7%, var(--paper)); }
+.thsx-vk__sl { display: flex; align-items: center; gap: 6px; margin: 4px 0 0 26px; flex-wrap: wrap; }
+.thsx-vk__sl input { width: 120px; flex: none; }
+.thsx-vk__dv { font-size: var(--fs-xs); color: var(--ash); }
+@media (max-width: 520px) {
+  .thsx-vk__opt { flex-wrap: wrap; }
+  .thsx-vk__gia { flex-basis: 100%; padding-left: 24px; }
+  .thsx-vk__psbox { margin-left: 8px; }
+}
+
+/* Dòng mẻ: tên việc khoán ngay trên dòng gấp; cờ "danh mục đổi" khi ảnh chụp lệch danh mục. */
+.thsx-x-item__viec {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-xs); color: var(--ink); font-weight: var(--fw-medium);
+}
+.thsx-x-item__viec.is-trong { color: var(--ash-2); font-weight: normal; font-style: italic; }
+.thsx-x-item__doi {
+  flex: none; display: inline-flex; align-items: center; gap: 3px;
+  font-size: var(--fs-2xs); color: var(--amber-deep);
+  padding: 1px 6px; border-radius: var(--r-pill); background: var(--amber-soft);
+}
+.thsx-vk-ps-dong { display: block; }
+.thsx-vk-ps-dong__gia { color: var(--ash); }
+/* Băng "Danh mục đã đổi so với lúc ghi mẻ" (§7.2b) — y khuôn băng dưới chân lệnh. */
+.thsx-vk-doi {
+  border: 1px solid var(--amber); border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--amber) 8%, var(--paper));
+  padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-2);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.thsx-vk-doi__h { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--amber-deep); }
+.thsx-vk-doi__tbl { border-collapse: collapse; font-size: var(--fs-xs); width: 100%; }
+.thsx-vk-doi__tbl th { text-align: left; font-weight: var(--fw-medium); color: var(--ash); padding: 2px 8px 2px 0; }
+.thsx-vk-doi__tbl td { padding: 2px 8px 2px 0; border-top: 1px solid var(--rule-hair); }
+.thsx-vk-doi__cu { color: var(--ash); text-decoration: line-through; }
+.thsx-vk-doi__moi { color: var(--ink); font-weight: var(--fw-medium); }
+.thsx-vk-doi--gon { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0;
+  font-size: var(--fs-xs); color: var(--amber-deep); }
+.thsx-vk-doi__mo { border: 0; background: none; padding: 0; font: inherit; color: var(--ink);
+  text-decoration: underline; cursor: pointer; min-height: 32px; }
+
+/* Tab Sản lượng — hai mục (spec 2026-09-18 §7.3b). */
+.thsx-sl__muc {
+  margin: var(--sp-3) 0 var(--sp-2); font-size: var(--fs-xs); font-weight: var(--fw-bold);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--moss-deep);
+}
+.thsx-sl__muc--khach { color: var(--amber-deep); margin-top: var(--sp-5, 20px); }
+.thsx-sl__muc-phu { text-transform: none; letter-spacing: 0; font-weight: normal; color: var(--ash); }
+.thsx-sl__muc-trong { margin: 0 0 var(--sp-2); font-size: var(--fs-xs); }
+.thsx-sl__ds-nguoi { overflow-wrap: anywhere; }
+.thsx-sl__to { color: var(--amber-deep); }
+
+/* Băng "Các mẻ tôi tham gia" (thợ, §7.5) — dải đầu + danh sách mẻ mở ra. */
+.thsx-slt { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
+.thsx-slt__dau { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
+.thsx-slt__mo {
+  display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; cursor: pointer;
+  font-size: var(--fs-sm); color: var(--ink); padding: 4px 6px; border-radius: var(--r-2); min-height: 32px;
+}
+.thsx-slt__mo:hover { background: color-mix(in srgb, var(--moss) 12%, var(--paper)); }
+.thsx-slt__ds { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; }
+.thsx-slt__ds .thsx-slt__me {
+  font-size: var(--fs-xs); color: var(--ink);
+  padding: 6px 10px; border-radius: var(--r-2); background: var(--paper); border: 1px solid var(--rule-soft);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.thsx-slt__d1 { display: flex; gap: var(--sp-2); flex-wrap: wrap; color: var(--ash); }
+.thsx-slt__d1 b { color: var(--ink); }
+.thsx-slt__d2 { display: flex; gap: 4px; flex-wrap: wrap; }
+.thsx-slt__d3 { color: var(--ash); overflow-wrap: anywhere; }
+.thsx-slt__to { color: var(--amber-deep); }

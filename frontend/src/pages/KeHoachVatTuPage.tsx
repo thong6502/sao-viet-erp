@@ -31,8 +31,12 @@ export function KeHoachVatTuPage({
   navigate,
   eventTick,
   focusLsxMa,
+  onSoViec,
 }: {
   navigate?: (id: string, params?: Record<string, unknown>) => void;
+  /** Số việc phải lo (thiếu · chưa rõ) vừa tính — AppShell cập nhật badge thanh bên từ
+   *  đây, khỏi tự gọi `/can-doi` lần nữa trong lúc màn này đang mở. */
+  onSoViec?: (n: number) => void;
   /** Tăng mỗi lần có event SSE → bảng tự tính lại, không bắt người dùng F5. */
   eventTick?: number;
   /** Đèn "Vật tư" ở Kế hoạch SX bấm sang đây: mở thẳng cách nhìn THEO LỆNH + tìm sẵn mã lệnh đó.
@@ -51,6 +55,13 @@ export function KeHoachVatTuPage({
   const [gom, setGom] = useState<Gom>(focusLsxMa ? "lenh" : "hang");
   const [soDo, setSoDo] = useState(0);
   const [soGiuLau, setSoGiuLau] = useState(0);
+  const baoSoDo = useCallback(
+    (n: number) => {
+      setSoDo(n);
+      onSoViec?.(n);
+    },
+    [onSoViec],
+  );
 
   // Bấm chấm lần thứ hai (mã khác) trong cùng phiên phải kéo được về đây, nên theo dõi cả sau lần
   // khởi tạo — chỉ đặt giá trị đầu là lần sau đứng nguyên chỗ cũ.
@@ -59,7 +70,9 @@ export function KeHoachVatTuPage({
   }, [focusLsxMa]);
 
   // "Đề nghị mua ngay" KHÔNG tự đẻ phiếu nữa (20/08/2026, theo yêu cầu chủ): nó mở form "Tạo yêu
-  // cầu mua hàng" ở màn Yêu cầu mua hàng, ĐÃ điền sẵn ngày cần · nội dung · từng dòng vật tư.
+  // cầu mua hàng" ở màn Yêu cầu mua hàng, ĐÃ điền sẵn nội dung · từng dòng vật tư · lệnh nguồn.
+  // Ngày cần hàng để TRỐNG cho người lập gõ (18/09/2026) — lưu xong nó quay về làm "Ngày cần" của
+  // đúng các lệnh đã tick.
   //
   // Đi bằng đường seed có sẵn (`purchaseSeed*`, thứ màn Kho đang dùng) chứ không dựng form mua thứ
   // hai ngay trên bảng cân đối: hai form cùng một việc thì đúng một tháng nữa chúng lệch nhau, mà
@@ -81,6 +94,7 @@ export function KeHoachVatTuPage({
           related_document_type: nhap.related_document_type,
           related_document_code: nhap.related_document_code,
         },
+        purchaseSeedNguon: nhap.nguon,
       });
     },
     [navigate],
@@ -119,19 +133,9 @@ export function KeHoachVatTuPage({
 
   // Chip "giữ lâu chưa chạy" phải hiện NGAY trên nút, kể cả khi đang đứng ở cách nhìn theo mặt
   // hàng — nếu chỉ đếm lúc mở cách nhìn theo lệnh thì muốn thấy cảnh báo phải đoán trước là có
-  // cảnh báo, tức là nó vô dụng. Gọi bản LỌC SẴN (`chi_giu_lau`) nên payload chỉ vài dòng; khi
-  // người dùng sang tab kia thì chính view đó báo lại con số và ghi đè.
-  useEffect(() => {
-    if (!token) return;
-    let alive = true;
-    api.keHoachVatTu
-      .theoLenh(token, { chi_giu_lau: true })
-      .then((r) => alive && setSoGiuLau(r.so_giu_lau))
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [token, eventTick]);
+  // cảnh báo, tức là nó vô dụng. Con số đi KÈM lời gọi của view đang mở (`/can-doi` hoặc
+  // `/theo-lenh` đều trả `so_giu_lau`), nên trang không tự gọi riêng: lời gọi riêng trước đây
+  // dựng lại cả bảng cân đối toàn xưởng mỗi lần mở màn và mỗi sự kiện, chỉ để lấy một con số.
 
   return (
     <main className="khsx khvt-page">
@@ -181,7 +185,8 @@ export function KeHoachVatTuPage({
         <VatTuKeHoachView
           eventTick={eventTick}
           canDeNghiMua={canDeNghiMua !== false}
-          onSoDo={setSoDo}
+          onSoDo={baoSoDo}
+          onSoGiuLau={setSoGiuLau}
           onOpenLsx={navigate ? (id) => navigate("ke-hoach-sx", { openLsxId: id }) : undefined}
           onMoFormMua={navigate ? moFormMua : undefined}
         />

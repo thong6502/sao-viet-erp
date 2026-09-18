@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models.cong_doan import CongDoan, CongDoanDauViec
+from .models.cong_doan import CongDoan
 from .models.customer import Customer
 from .models.khuon_be import KhuonBe
 from .models.loai_san_pham import LoaiSanPham
@@ -206,7 +206,7 @@ def _ensure_don_gia_khoan(db: Session) -> None:
     các tổ đã tồn tại — không có tổ thì bỏ qua dòng đó, KHÔNG tạo tổ mới ở đây."""
     from .models.department import Department
     from .seed import TO_SX_SEED
-    from .models.piece_work import PieceRate
+    from .models.piece_work import CongViecKhoanTo, PieceRate
 
     to_ten = {d.id: d.name for d in db.execute(select(Department)).scalars()}
     to_ids = {ten: i for i, ten in to_ten.items()}
@@ -217,7 +217,7 @@ def _ensure_don_gia_khoan(db: Session) -> None:
             for _t in _ten_cu:
                 to_ids.setdefault(_t, to_ids[_ten_moi])
     # Tổ của đầu việc SUY TỪ CÔNG ĐOẠN nó áp dụng, không hardcode theo tên tổ: tổ của công đoạn là
-    # nguồn sự thật duy nhất (`cong_doan.department_id`), và nó có thể lệch tên tôi đoán ở đây —
+    # nguồn sự thật duy nhất (tổ phụ trách của công đoạn), và nó có thể lệch tên tôi đoán ở đây —
     # ĐÃ LỆCH THẬT: "Đóng gói + nhập kho" bị heuristic seed xếp vào Tổ KCS vì có chữ "nhập kho",
     # nên đơn giá khai cho "Tổ Đóng gói" sẽ không bao giờ khớp bước đó.
     cd_rows = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
@@ -227,64 +227,30 @@ def _ensure_don_gia_khoan(db: Session) -> None:
         if ma in co_san:
             continue
         dept_id = next(
-            (cd_rows[c].department_id for c in cds if c in cd_rows and cd_rows[c].department_id),
+            (cd_rows[c].to_mac_dinh_id for c in cds if c in cd_rows and cd_rows[c].to_mac_dinh_id),
             to_ids.get(ten_to),
         )
         if dept_id is None:
             continue   # chưa có tổ nào nhận → khai đơn giá cũng không ai dùng
-        # NHÃN TỔ lấy từ tổ vừa tra ra, KHÔNG lấy `ten_to` của bảng trên: bảng khai tên tổ đời đầu
-        # ("Tổ Đóng gói"…), tổ ở xưởng tên khác, mà tab lọc của màn Công việc khoán dựng đúng từ
-        # `group_name` ⇒ ghi tên cũ vào là màn mọc lại tab của tổ đã xoá.
         rows.append(PieceRate(
-            group_name=(to_ten.get(dept_id) or ten_to)[:40], department_id=dept_id, ma=ma, ten=ten,
-            unit=don_vi, unit_price=don_gia,
-            note=ghi_chu, active=True,
+            ma=ma, ten=ten, unit=don_vi, unit_price=don_gia, note=ghi_chu, active=True,
+            to_lam=[CongViecKhoanTo(department_id=dept_id)],
         ))
     if rows:
         db.add_all(rows)
         db.commit()
 
 
-def _ensure_dinh_muc_to(db: Session) -> None:
-    """Gắn đầu việc vào công đoạn theo ĐÚNG bản đồ khai ở `_DON_GIA_KHOAN`.
+# ⚠️ `_ensure_dinh_muc_to()` GỠ 18/09/2026 (mg `0320`): nó gắn đầu việc + năng suất vào
+#    công đoạn, mà bảng `cong_doan_dau_viec` đã bay. Công đoạn nay chỉ khai VẬT TƯ (tab Vật
+#    tư, mg `0316`) và seed KHÔNG mồi vật tư hộ — định mức vật tư là số của xưởng, mồi bừa
+#    vào là bung sai lượng giấy/mực xuống lệnh. Bản đồ tổ × công việc khoán vẫn seed đủ ở
+#    `_ensure_don_gia_khoan` (`piece_rates.department_ids`) — đó là thứ bàn tổ cần để thợ
+#    chọn việc lúc ghi mẻ.
 
 
-    Sai này không chỉ xấu mắt: từ khi đầu việc mang theo VẬT TƯ (BOM, mg 0191), gắn nhầm đầu việc là
-    bung nhầm vật tư xuống lệnh. Bản đồ phải là nguồn sự thật duy nhất.
-
-    Vẫn idempotent: công đoạn đã có định mức thì không đụng — người dùng khai tay không bị đè.
-    """
-    from .models.piece_work import PieceRate
-
-    rate_theo_ma = {
-        r.ma: r for r in db.execute(
-            select(PieceRate).where(PieceRate.active.is_(True))
-        ).scalars() if r.ma
-    }
-    cd_rows = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
-    # Lật bản đồ: công đoạn → các đầu việc THẬT SỰ làm ở đó.
-    theo_cd: dict[str, list[str]] = {}
-    for _to, ma_rate, _ten, cds, *_ in _DON_GIA_KHOAN:
-        for cd_ma in cds:
-            theo_cd.setdefault(cd_ma, []).append(ma_rate)
-    for cd_ma, ma_rates in theo_cd.items():
-        cd = cd_rows.get(cd_ma)
-        if cd is None or cd.dau_viec_dinh_muc:
-            continue
-        for ma_rate in ma_rates:
-            rate = rate_theo_ma.get(ma_rate)
-            # Đầu việc phải thuộc ĐÚNG tổ của công đoạn — service kiểm luật này, seed cũng phải
-            # theo, không thì dữ liệu mồi vào rồi sửa ở form là bị chặn không lưu lại được.
-            if rate is None or rate.department_id != cd.department_id:
-                continue
-            cd.dau_viec_dinh_muc.append(CongDoanDauViec(
-                piece_rate_id=rate.id, nang_suat_nguoi_gio=float(cd.nang_suat or 500),
-                so_nguoi_tieu_chuan=1,
-            ))
-    db.commit()
-
-
-def _ensure_loai_the(db: Session) -> int | None:
+def _ensure_loai_the(
+db: Session) -> int | None:
     """Loại sản phẩm 'Thẻ nhân viên' (idempotent theo mã) — thẻ không phải name card."""
     lsp = db.execute(select(LoaiSanPham).where(LoaiSanPham.ma == "LSP-0008")).scalars().first()
     if lsp is None:
@@ -738,11 +704,11 @@ def seed_luong_ban_sx(db: Session) -> None:
     """
     # DANH MỤC chạy TRƯỚC guard luồng: mấy thứ này idempotent theo mã và DB đã seed luồng từ trước
     # vẫn cần nhận công đoạn / bảng khoán / đơn vị mới. Để sau guard là DB cũ mãi không có bảng
-    # khoán, mà bảng khoán rỗng thì bước lệnh không có đầu việc nào để điền.
+    # khoán, mà tổ KHÔNG có việc khoán nào thì nút "Sẵn sàng lập kế hoạch" của lệnh bị chặn
+    # (`thieu_viec_khoan_to`) và thợ cũng không chọn được việc lúc ghi mẻ.
     cd = _ensure_cong_doan(db)
     _ensure_may_nang_luc(db)
-    _ensure_don_gia_khoan(db)   # bảng khoán của tổ → bước lệnh tự điền được đầu việc lúc bung
-    _ensure_dinh_muc_to(db)
+    _ensure_don_gia_khoan(db)   # bảng khoán của tổ → bàn tổ có việc cho thợ chọn lúc ghi mẻ
 
     can_luong_du = not _co_phieu(db, TEN_PHIEU)
     can_luong_cho = not _co_phieu(db, TEN_PHIEU_BO_SUNG)

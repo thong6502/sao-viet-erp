@@ -161,17 +161,14 @@ def test_cau_tram_khop_he_so_cau_cua_lenh():
 def test_buoc_ghi_kem_de_trong_don_vi_van_dung_ngoai_chuoi_va_giu_so_kem():
     """Ca thật của xưởng: ghi kẽm BỎ TRỐNG đơn vị (06/09/2026), không khai `bai → kem` nữa.
 
-    Hai thứ phải đúng cùng lúc:
-      - bước đứng NGOÀI chuỗi bù hao, "Tính ngược" không ghi đè số kẽm bằng số TỜ;
-      - SL của nó vẫn tính được từ `cong_thuc_san_luong` (`so_kem`). Chốt cũ trong
-        `buoc_ngoai_dong` (`if not don_vi_ra: return None`) chặn đúng ca này, nên nếu ai đặt lại
-        thì kẽm về rỗng trong im lặng — test này là cái phanh.
+    Bước đứng NGOÀI chuỗi bù hao: "Tính ngược" không trả dòng nào cho nó, nên không ghi đè số kẽm
+    bằng số TỜ. Số kẽm là số người lập lệnh tự khai ở bước — công thức sản lượng ra ở danh mục
+    (`cong_thuc_san_luong`) GỠ 18/09/2026 (mg `0324`).
     """
     db = _db()
     _seed_don_vi(db)
     db.add_all([
-        CongDoan(id=1, ma="CTP", ten="Ghi kẽm", nhom="prepress",
-                 cong_thuc_san_luong="so_kem"),
+        CongDoan(id=1, ma="CTP", ten="Ghi kẽm", nhom="prepress"),
         CongDoan(id=2, ma="IN", ten="In offset", nhom="print",
                  don_vi_vao="to", don_vi_ra="to"),
         CongDoan(id=3, ma="BE", ten="Bế", nhom="finishing",
@@ -195,9 +192,8 @@ def test_buoc_ghi_kem_de_trong_don_vi_van_dung_ngoai_chuoi_va_giu_so_kem():
     assert rows["Bế"]["so_luong_ra"] == 1000
     assert rows["Bế"]["so_luong_vao"] == 250
     assert rows["In offset"]["so_luong_vao"] == 250
-    # Ghi kẽm CÓ trong kết quả nhưng đi đường riêng: 4 bản kẽm, không phải 250 tờ.
-    assert rows["Ghi kẽm"]["so_luong_ra"] == 4
-    assert rows["Ghi kẽm"]["so_luong_vao"] == 4
+    # Ghi kẽm KHÔNG có trong kết quả: số 4 bản đang lưu ở bước giữ nguyên, không thành 250 tờ.
+    assert "Ghi kẽm" not in rows
 
 
 def test_engine_tinh_gia_cung_loai_buoc_ngoai_dong_giay():

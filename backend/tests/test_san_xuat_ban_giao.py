@@ -33,7 +33,8 @@ from app.models.user import User
 from app.repositories.rbac_repo import RoleRepository
 from app.repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from app.services.rbac_service import AuthorizationService
-from app.services.san_xuat import ban_giao, board, san_luong
+from app.services.san_xuat import ban_giao, board
+from tests.san_xuat_me_fixtures import tao_me
 from tests.quyen_to_fixtures import cap_quyen_to
 
 from tests.test_san_xuat_thuc_thi import (  # noqa: F401
@@ -82,7 +83,7 @@ def _to_dich(db, ma="TO-BG-DICH") -> tuple[Department, User]:
 
 
 def _batch(db, admin, cv, *, tot=100, lot_vao=None, t0=_T0):
-    return san_luong.tao_batch(
+    return tao_me(
         db, user=admin, cong_viec_id=cv.id,
         bat_dau=t0, ket_thuc=t0 + timedelta(hours=1),
         tong=tot, tot=tot, lot_vao=lot_vao,

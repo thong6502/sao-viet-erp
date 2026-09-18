@@ -236,3 +236,23 @@ class LeaveRepository:
                 )
             ).scalars()
         )
+
+    def approved_for_employees(
+        self, employee_ids: set[int], *, tu: date, den: date | None = None
+    ) -> list[LeaveRequest]:
+        """Đơn ĐÃ DUYỆT của một nhóm NV còn phủ từ ngày `tu` (tới `den` nếu có) — Thực hiện sản
+        xuất đọc để hiện "nghỉ phép" ở ô chọn người và chặn giao việc/hỗ trợ đúng ngày nghỉ."""
+        if not employee_ids:
+            return []
+        stmt = select(LeaveRequest).where(
+            LeaveRequest.employee_id.in_(employee_ids),
+            LeaveRequest.status == STATUS_APPROVED,
+            LeaveRequest.end_date >= tu,
+        )
+        if den is not None:
+            stmt = stmt.where(LeaveRequest.start_date <= den)
+        return list(
+            self.db.execute(
+                stmt.order_by(LeaveRequest.employee_id, LeaveRequest.start_date)
+            ).scalars()
+        )

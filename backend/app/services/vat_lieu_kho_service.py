@@ -175,6 +175,7 @@ class VatLieuKhoService:
         return self.repo.list(kind, **kw)
 
     def create(self, kind: str, data: dict, actor_id: int | None = None):
+        self._chan_tao_tay(kind)
         self._validate(kind, data)
         if self.repo.find_by_ma(kind, data["ma"]) is not None:
             raise VatLieuKhoDuplicate("Mã đã tồn tại.")
@@ -209,15 +210,26 @@ class VatLieuKhoService:
         return obj
 
     @staticmethod
+    def _chan_tao_tay(kind: str) -> None:
+        """Thành phẩm KHÔNG KHAI TAY được — chủ dự án 18/09/2026: "bỏ nút thêm thành phẩm đi".
+
+        Dòng ở đây chỉ do chốt đơn / giao hàng sinh ra (`thanh_pham_khai_bao`, ghi thẳng repo nên
+        không đi qua cửa này). Chặn ở MÁY CHỦ chứ không chỉ giấu nút: nhập Excel một mã chưa có
+        cũng gọi `create` — dòng đó báo lỗi, các dòng sửa mã đã có vẫn chạy.
+
+        Lịch sử: bản đầu chặn, 19/08/2026 nới cho Bán hàng khai trước món khách sắp đặt, nay chặn lại.
+        """
+        if kind == "thanh_pham":
+            raise VatLieuKhoValidationError(
+                "Không khai tay thành phẩm được — thành phẩm tự sinh khi chốt đơn hàng; "
+                "ở đây chỉ sửa được dòng đã có."
+            )
+
+    @staticmethod
     def _chan_go_tay(kind: str, viec: str) -> None:
         """Thành phẩm KHÔNG XOÁ được — dòng này có thể đang có lô tồn, xoá là làm mồ côi (PRD L7).
 
-        Ngừng dùng thì tắt `active`, đảo lại được. Xoá thì không.
-
-        ⚠️ TẠO thì CHO (nới 19/08/2026). Bản đầu chặn cả tạo, viện luật siết 08/08/2026 của kho —
-        đọc sai: luật đó bỏ ô tên TỰ DO TRÊN PHIẾU XUẤT (`stock_request_lines.ten_tu_do`), nó
-        không cấm khai danh mục. Mọi danh mục khác đều khai tay được; chặn ở đây là không cho
-        Bán hàng khai trước một món khách sắp đặt.
+        Ngừng dùng thì tắt `active`, đảo lại được. Xoá thì không. Tạo tay: xem `_chan_tao_tay`.
         """
         if kind == "thanh_pham":
             raise VatLieuKhoValidationError(
@@ -266,6 +278,21 @@ class VatLieuKhoService:
             ma = (getattr(it, "don_vi_gia", None) or "").strip().lower()
             if ma:
                 it.don_vi_ten = ten.get(ma)
+
+    def gan_nguon_goc_thanh_pham(self, items) -> None:
+        """Điền số đơn + mã/tên khách ĐẶT LẦN ĐẦU cho cả trang thành phẩm (cùng khuôn
+        `gan_ten_don_vi`: mỗi bảng một truy vấn, không N+1).
+
+        Bảng chỉ lưu id — màn hiện "DH002 · KH001 Minh Long" thì người khai mới đọc ra được món
+        này từ đơn nào về. Đây là VẾT NGUỒN GỐC, không phải chủ (mg 0228).
+        """
+        khach, don = self.repo.nguon_goc_thanh_pham(
+            (getattr(it, "customer_id", None) for it in items),
+            (getattr(it, "order_id", None) for it in items),
+        )
+        for it in items:
+            it.customer_ma, it.customer_ten = khach.get(it.customer_id or 0, (None, None))
+            it.order_no = don.get(it.order_id or 0)
 
     # --- MẶT HÀNG GỐC: cửa dùng chung cho Kho + NCC ---------------------------
     @staticmethod
@@ -530,3 +557,6 @@ class MotDanhMucVatLieu:
 
     def gan_ten_don_vi(self, items) -> None:
         self.goc.gan_ten_don_vi(items)
+
+    def gan_nguon_goc_thanh_pham(self, items) -> None:
+        self.goc.gan_nguon_goc_thanh_pham(items)

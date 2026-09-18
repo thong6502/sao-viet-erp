@@ -6,6 +6,8 @@
 // không hợp một tab CHỈ ĐỌC), rút trục thời gian của `TdsxTheoMay.tsx` ra `./tdsxTimeline` rồi dùng
 // lại NGUYÊN ở đây — xem module đó cho lý do đầy đủ. Giá phải trả: không có 4 mức thu phóng/ruy
 // băng ca/tô ngày lễ mà `Xl2Gantt` có; chấp nhận được vì đây không phải bàn xếp lịch.
+// (`Xl2Gantt.tsx` đã xoá 18/09/2026 cùng bàn Xếp lịch theo công đoạn — giữ lý do ở đây vì nó vẫn
+// giải thích vì sao tab này tự vẽ trục, đừng đi tìm file.)
 //
 // PHÂN TRANG Ở MÁY CHỦ (`total` đã là số SAU lọc) — cấm `rows.slice`/`rows.filter`, đổi trang phải
 // gọi lại API. `du_kien_bat_dau`/`du_kien_ket_thuc` CÙNG `null` ⇒ "Chưa đủ dữ liệu", TUYỆT ĐỐI

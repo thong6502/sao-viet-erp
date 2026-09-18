@@ -39,10 +39,6 @@ function KhoiSao({ ncc }: { ncc: SupplierRow }) {
           </>
         )}
       </p>
-      <p className="supplier__sao-box-note">
-        Máy tự tính, không ai chấm tay: so ngày giao đủ với <em>Ngày cần hàng</em> trên phiếu mua.
-        Đúng hẹn hoặc sớm = 5 sao; trễ 1–3 ngày = 4; 4–7 = 3; 8–14 = 2; trên 14 ngày = 1.
-      </p>
     </div>
   );
 }

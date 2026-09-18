@@ -14,7 +14,7 @@ function chiTiet(runOrder: boolean, daNhan = false, muc?: "all" | "own"): SxWork
   return {
     cong_viec: {
       id: 1, department_id: 7, nguon_ma: "LSX26-0001", nguon_ten: "Hộp bánh", ten_cong_doan: "Bế",
-      loai_buoc: "may", nha_cung_cap: null, may_id: null, may: null, du_kien_so_nguoi: null,
+      loai_buoc: "may", nha_cung_cap: null, may_id: null, may: null,
       quy_cach: null, ghi_chu: null, trang_thai: "released",
       khuon: { ma: "KB-0004", ten: "Hộp bánh mang đi 4 ngăn", so_ke: "Kệ B2", tinh_trang: "dang_dat_lam" },
       khuon_da_nhan: daNhan, khuon_da_tra: false,
@@ -79,7 +79,9 @@ describe("ThsxDrawer · khuôn chưa nhận", () => {
   });
 });
 
-describe("ThsxDrawer · số thợ khác kíp chuẩn", () => {
+// Kíp chuẩn GỠ 18/09/2026 (mg `0321`): hệ thôi biết một việc NÊN mấy người, nên không còn câu
+// "số thợ khác kíp chuẩn" nào — chỉ giữ luật về NGƯỜI (≥ 1 thợ, có thợ không phải công nhật).
+describe("ThsxDrawer · thợ được giao", () => {
   function moKip(soDangGiao: number, trangThai = "released", laKhoan = true) {
     const base = chiTiet(true, true);
     const phanCong = Array.from({ length: soDangGiao }, (_, i) => ({
@@ -87,7 +89,7 @@ describe("ThsxDrawer · số thợ khác kíp chuẩn", () => {
     }));
     const ct = {
       ...base,
-      cong_viec: { ...base.cong_viec, du_kien_so_nguoi: 2, khuon: null, trang_thai: trangThai },
+      cong_viec: { ...base.cong_viec, khuon: null, trang_thai: trangThai },
       trang_thai: trangThai,
       phan_cong: phanCong,
     } as unknown as SxWorkItemChiTiet;
@@ -109,11 +111,13 @@ describe("ThsxDrawer · số thợ khác kíp chuẩn", () => {
     expect(txt).not.toContain("khoán");
   });
 
-  it("giao 1 trên kíp 2: nói rõ số thợ và Bắt đầu sẽ chọn lý do, thẻ thợ không gắn chữ khoán", () => {
+  it("giao 1 thợ: không còn câu kíp chuẩn nào, thẻ thợ không gắn chữ khoán", () => {
     const txt = moKip(1);
-    expect(txt).toContain("Số thợ khác kíp chuẩn (1/2) — Bắt đầu sẽ chọn lý do.");
+    expect(txt).not.toContain("kíp chuẩn");
+    expect(txt).not.toContain("chọn lý do");
     expect(txt).not.toContain("khoán");
     expect(txt).not.toContain("Cần giao ít nhất 1 thợ");
+    expect(txt).toContain("Đã giao: 1 thợ");
   });
 
   it("người đang giao toàn công nhật: gắn thẻ công nhật và nói vì sao chưa bắt đầu được", () => {
@@ -123,16 +127,10 @@ describe("ThsxDrawer · số thợ khác kíp chuẩn", () => {
     expect(txt).not.toContain("khoán");
   });
 
-  it("tạm dừng với 3 thợ: câu gọi đúng nút Tiếp tục", () => {
-    expect(moKip(3, "paused")).toContain("Số thợ khác kíp chuẩn (3/2) — Tiếp tục sẽ chọn lý do.");
-  });
-
-  it("đủ kíp: không báo", () => {
-    expect(moKip(2)).not.toContain("kíp chuẩn");
-  });
-
-  it("đang chạy lệch kíp: không hứa bước chọn lý do", () => {
-    expect(moKip(1, "running")).not.toContain("kíp chuẩn");
+  it("tạm dừng với 3 thợ: không hỏi lý do số người", () => {
+    const txt = moKip(3, "paused");
+    expect(txt).not.toContain("kíp chuẩn");
+    expect(txt).not.toContain("chọn lý do");
   });
 });
 
@@ -292,5 +290,50 @@ describe("ThsxDrawer · chân ngăn theo trạng thái", () => {
     moTrangThai("running");
     expect(screen.getByRole("button", { name: "Tạm dừng" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Kết thúc" })).toBeTruthy();
+  });
+});
+
+describe("ThsxDrawer · thẻ Quy cách chạy máy", () => {
+  function moQuyCach(quy_cach: Record<string, unknown>) {
+    const ct = chiTiet(true, true);
+    (ct.cong_viec as unknown as { quy_cach: unknown }).quy_cach = quy_cach;
+    render(
+      <ThsxDrawer chiTiet={ct} loading={false} candidates={[]} hoTroUngVien={[]}
+        mayOptions={[]} exec={{} as ThsxExec} busy={false} onGiao={vi.fn()} onRut={vi.fn()}
+        onBatDau={vi.fn()} onNhanKhuon={vi.fn()} onTraKhuon={vi.fn()} onTamDung={vi.fn()}
+        onKetThuc={vi.fn()} onClose={vi.fn()} />,
+    );
+    return screen.getByText("Quy cách chạy máy").closest(".thsx-card") as HTMLElement;
+  }
+
+  it("khổ tờ in 0 × 0 (server bỏ khoá): ghi In thẳng khổ giấy nguyên, có khổ nguyên + cách in, mực từng mặt", () => {
+    const the = moQuyCach({
+      giay: "Giấy C300", kho_nguyen: "860 × 650", kho_tp: "86 × 54", cach_in: "hai_mat",
+      so_mat: 2, so_mau: 4, so_kem: 4, muc_a: ["C", "M", "Y"], muc_b: ["K"],
+    });
+    const chu = the.textContent ?? "";
+    expect(chu).toContain("Khổ giấy nguyên:860 × 650 mm");
+    expect(chu).toContain("Khổ tờ in:In thẳng khổ giấy nguyên");
+    expect(chu).toContain("Cách in:2 mặt (AB)");
+    // "2 mặt (AB)" đã nói số mặt — không lặp dòng Số mặt.
+    expect(chu).not.toContain("Số mặt:");
+
+    const muc = within(the).getByText("Mực in").closest(".khsx-kv") as HTMLElement;
+    const bat = (ten: string) => within(muc).getByRole("button", { name: ten }).getAttribute("aria-pressed");
+    expect(bat("Mực C Mặt A")).toBe("true");
+    expect(bat("Mực K Mặt A")).toBe("false");
+    expect(bat("Mực K Mặt B")).toBe("true");
+    expect(bat("Mực C Mặt B")).toBe("false");
+    // Chỉ để xem: chip không bấm đổi được.
+    expect((within(muc).getByRole("button", { name: "Mực C Mặt A" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(muc.textContent).toContain("3 + 1 = 4 kẽm mỗi tay");
+  });
+
+  it("có khổ tờ in thì ghi khổ; thẻ cũ không có cách in/mực thì vẫn hiện Số mặt, không có khối mực", () => {
+    const the = moQuyCach({ giay: "Giấy C300", kho_in: "790 × 545", so_mat: 1, so_mau: 4 });
+    const chu = the.textContent ?? "";
+    expect(chu).toContain("Khổ tờ in:790 × 545 mm");
+    expect(chu).toContain("Số mặt:1");
+    expect(within(the).queryByText("Mực in")).toBeNull();
   });
 });

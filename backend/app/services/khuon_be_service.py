@@ -53,5 +53,9 @@ class KhuonBeService(CatalogService):
         # người khai gõ một lần rồi không ai cập nhật, mà không phép tính nào đọc tới.
 
     def dem_theo_tinh_trang(self, **kw) -> dict[str, int]:
-        """Số khuôn theo tình trạng — cho tab lọc của màn Khuôn bế (xem repo)."""
+        """Số khuôn theo tình trạng (xem repo)."""
         return self.repo.dem_theo_tinh_trang(**kw)
+
+    def dem_theo_loai(self, **kw) -> dict[str, int]:
+        """Số khuôn theo loại — số trên chip lọc của màn Khuôn (xem repo)."""
+        return self.repo.dem_theo_loai(**kw)
