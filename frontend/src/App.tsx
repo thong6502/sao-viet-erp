@@ -39,7 +39,7 @@ export function App() {
             </h2>
             <p className="splash-sub">
               {retrying
-                ? "Chưa kết nối được máy chủ — đang tự thử lại, không cần đăng nhập lại."
+                ? "Chưa kết nối được máy chủ — đang tự thử lại"
                 : "Sao Việt Nhật ERP — Hệ thống quản trị sản xuất in"}
             </p>
           </div>

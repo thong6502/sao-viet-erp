@@ -2,11 +2,12 @@
 // thuộc phòng ban có cờ "Tổ KCS"; họ kiểm được mọi tổ.
 //
 // Hai tầng trên cùng một trang:
-//   1. Danh sách lệnh (tìm + cắt trang ở MÁY CHỦ) + dashboard báo cáo + bảng "Kết quả đã ghi".
+//   1. Dải KPI + lưới hai cột: trái là danh sách lệnh (tìm + cắt trang ở MÁY CHỦ) và xu hướng lỗi,
+//      phải là phân bổ lỗi theo công đoạn / tổ. Bộ lọc báo cáo nằm trên dải tiêu đề trang.
 //   2. Bấm một lệnh → chuỗi công đoạn (`KcsChuoiCongDoan`) → bấm "Kiểm" ở công đoạn.
 //
-// Báo cáo KCS — MỘT lượt gọi `bao-cao` nuôi CẢ dashboard (KPI + 3 biểu đồ) lẫn bảng "Kết quả đã
-// ghi" (khoá `lich_su`); lọc chạy ở máy chủ, bảng không lọc lại ở FE.
+// Báo cáo KCS — MỘT lượt gọi `bao-cao` nuôi dashboard (KPI + 3 biểu đồ); lọc chạy ở máy chủ.
+// Bảng "Kết quả đã ghi" (khoá `lich_su`) ĐÃ ẨN khỏi màn 18/09/2026 theo yêu cầu.
 import { useEffect, useState } from "react";
 import {
   ApiError, api,
@@ -16,12 +17,12 @@ import { useAuth } from "../../auth/useAuth";
 import { useCan, useKcs } from "../../auth/permissions";
 import type { NavigateFn } from "../../components/AppShell";
 import { Pager } from "../../components/Pager";
+import { Icon } from "../../components/Icons";
 import { useDebounced } from "../../utils/useDebounced";
-import { num, ngayGio } from "../keHoachSxShared";
-import { nhanDonVi } from "../lsxBuoc";
+import { num } from "../keHoachSxShared";
 import { KcsChuoiCongDoan } from "./KcsChuoiCongDoan";
-import { KcsDashboard, KCS_DASH_FILTERS_RONG, type KcsDashFilters } from "./KcsDashboard";
-import { KCS_NHOM_TRANG_THAI, KCS_TRANG_THAI_GUI_KHO_LABEL } from "./kcsNhan";
+import { KcsBaoCaoLoc, KcsDashboard, KCS_DASH_FILTERS_RONG, type KcsDashFilters } from "./KcsDashboard";
+import { KCS_NHOM_TRANG_THAI } from "./kcsNhan";
 import "../rebuild-catalog.css";
 import "./kcs.css";
 
@@ -133,16 +134,119 @@ export function KcsTheoLenhPage({
     }
   }
 
-  const lichSu = baoCao?.lich_su ?? [];
+  const bangLenh = (
+    <section className="kcs-the kcs-lenh" aria-label="Lệnh sản xuất">
+      <div className="kcs-lenh__dau">
+        <h2 className="kcs-lenh__tieu">Lệnh sản xuất <span className="rc__count">{lenh?.tong ?? 0}</span></h2>
+        <div className="kcs-lenh__tim">
+          <Icon name="search" size={15} className="kcs-lenh__tim-ic" />
+          <input type="search" placeholder="Tìm mã lệnh, sản phẩm, khách hàng…" value={tim}
+            aria-label="Tìm lệnh" onChange={(e) => setTim(e.target.value)} />
+        </div>
+        <div className="kcs-lenh__chip" role="group" aria-label="Phạm vi nhóm">
+          <button type="button" className={`seg${daDong ? "" : " is-active"}`} aria-pressed={!daDong}
+            onClick={() => setDaDong(false)}>Chưa đóng</button>
+          <button type="button" className={`seg${daDong ? " is-active" : ""}`} aria-pressed={daDong}
+            onClick={() => setDaDong(true)}>Tất cả</button>
+        </div>
+      </div>
+
+      {lenhLoi ? (
+        <div className="kcs-lenh__trong">
+          <p className="rc__empty-text">Không tải được danh sách lệnh.</p>
+          <p className="rc__empty-sub">{lenhLoi}</p>
+          <button type="button" className="btn btn--ghost" onClick={() => setLenhTick((k) => k + 1)}>Tải lại</button>
+        </div>
+      ) : lenh == null ? (
+        <p className="kcs-lenh__trong rc__empty-text">Đang tải…</p>
+      ) : lenh.items.length === 0 ? (
+        <div className="kcs-lenh__trong">
+          <p className="rc__empty-text">
+            {timCham ? "Không có lệnh nào khớp." : daDong ? "Chưa có lệnh nào qua KCS." : "Chưa có lệnh nào đang sản xuất."}
+          </p>
+          {!daDong && !timCham && (
+            <button type="button" className="btn btn--ghost" onClick={() => setDaDong(true)}>Xem cả nhóm đã đóng</button>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="rc__tablewrap">
+            <table className="rc__table kcs-table--lenh">
+              <colgroup>
+                <col className="kcs-col--lenh" />
+                <col className="kcs-col--khach" />
+                <col className="kcs-col--nhom" />
+                <col className="kcs-col--kiem" />
+                <col className="kcs-col--loi" />
+                <col className="kcs-col--kho" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Lệnh</th>
+                  <th>Khách hàng</th>
+                  <th>Nhóm</th>
+                  <th className="num">Đã kiểm</th>
+                  <th className="num">Lỗi</th>
+                  <th className="num">Chờ gửi kho</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lenh.items.map((l) => {
+                  const nt = l.nhom_trang_thai ? KCS_NHOM_TRANG_THAI[l.nhom_trang_thai] : null;
+                  const kiemDu = l.so_da_kiem === l.so_cong_doan && l.so_cong_doan > 0;
+                  return (
+                    <tr key={l.lsx_id} className="kcs-row--clickable" tabIndex={0}
+                      onClick={() => setLsxId(l.lsx_id)}
+                      onKeyDown={(e) => { if (e.key === "Enter") setLsxId(l.lsx_id); }}>
+                      <td>
+                        <strong className="kcs-code">{l.ma}</strong>
+                        <div className="rc__sub">{l.ten}</div>
+                      </td>
+                      <td>{l.khach ?? "—"}</td>
+                      <td>
+                        {l.nhom_ma ?? "—"}
+                        {nt && <div className="rc__sub"><span className={`badge-sem ${nt.cls}`}>{nt.nhan}</span></div>}
+                      </td>
+                      <td className="num">
+                        <span className={`kcs-dot-pill ${kiemDu ? "kcs-dot-pill--moss" : "kcs-dot-pill--amber"}`}>
+                          <span className="kcs-dot-pill__dot" />
+                          {l.so_da_kiem}/{l.so_cong_doan} công đoạn
+                        </span>
+                      </td>
+                      <td className="num">
+                        {l.so_loi > 0 ? (
+                          <span className="kcs-dot-pill kcs-dot-pill--signal">
+                            <span className="kcs-dot-pill__dot" />
+                            {num(l.so_loi)}
+                          </span>
+                        ) : "—"}
+                      </td>
+                      <td className="num">{l.cuoi && l.cuoi.con_gui_kho > 0 ? num(l.cuoi.con_gui_kho) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Pager total={lenh.tong} page={lenh.trang} size={lenh.co_trang} onPage={setTrang}
+            loading={lenhLoading} unit="lệnh" />
+        </>
+      )}
+    </section>
+  );
 
   return (
     <main className="rc kcs-page">
-      <header className="rc__head">
+      <header className="rc__head kcs-page__head">
         <div className="rc__headrow">
           <h1 className="rc__title">KCS</h1>
           <div className="rc__spacer" />
+          {lsxId == null && (
+            <KcsBaoCaoLoc filters={filters} onFiltersChange={setFilters} congDoanOpts={congDoanOpts} />
+          )}
           {kcs && lsxId == null && (
             <button type="button" className="btn btn--accent" onClick={xuatExcel} disabled={exporting}>
+              <Icon name="download" size={15} />
               {exporting ? "Đang xuất…" : "Xuất Excel"}
             </button>
           )}
@@ -157,115 +261,7 @@ export function KcsTheoLenhPage({
           {exportError && (
             <div className="banner banner--error" role="alert"><span>{exportError}</span></div>
           )}
-
-          <section className="kcs-section">
-            <h2>Lệnh sản xuất <span className="rc__count">{lenh?.tong ?? 0}</span></h2>
-            <div className="kcs-lenh__loc">
-              <input type="search" placeholder="Tìm mã lệnh, sản phẩm, khách hàng" value={tim}
-                aria-label="Tìm lệnh" onChange={(e) => setTim(e.target.value)} />
-              <label className="kcs-lenh__dong">
-                <input type="checkbox" checked={daDong} onChange={(e) => setDaDong(e.target.checked)} />
-                Gồm nhóm đã đóng
-              </label>
-            </div>
-            {lenhLoi ? (
-              <div className="rc__empty-state">
-                <p className="rc__empty-text">Không tải được danh sách lệnh.</p>
-                <p className="rc__empty-sub">{lenhLoi}</p>
-                <button type="button" className="btn btn--ghost" onClick={() => setLenhTick((k) => k + 1)}>Tải lại</button>
-              </div>
-            ) : lenh == null ? (
-              <p className="rc__empty-text">Đang tải…</p>
-            ) : lenh.items.length === 0 ? (
-              <div className="rc__empty-state">
-                <p className="rc__empty-text">
-                  {timCham ? "Không có lệnh nào khớp." : "Chưa có lệnh nào đang sản xuất."}
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="rc__tablewrap">
-                  <table className="rc__table kcs-table--lenh">
-                    <thead>
-                      <tr>
-                        <th>Lệnh</th>
-                        <th>Khách hàng</th>
-                        <th>Nhóm</th>
-                        <th className="num">Đã kiểm</th>
-                        <th className="num">Lỗi</th>
-                        <th className="num">Chờ gửi kho</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lenh.items.map((l) => {
-                        const nt = l.nhom_trang_thai ? KCS_NHOM_TRANG_THAI[l.nhom_trang_thai] : null;
-                        return (
-                          <tr key={l.lsx_id} className="kcs-row--clickable" tabIndex={0}
-                            onClick={() => setLsxId(l.lsx_id)}
-                            onKeyDown={(e) => { if (e.key === "Enter") setLsxId(l.lsx_id); }}>
-                            <td>{l.ma}<div className="rc__sub">{l.ten}</div></td>
-                            <td>{l.khach ?? "—"}</td>
-                            <td>
-                              {l.nhom_ma ?? "—"}
-                              {nt && <div className="rc__sub"><span className={`badge-sem ${nt.cls}`}>{nt.nhan}</span></div>}
-                            </td>
-                            <td className="num">{l.so_da_kiem}/{l.so_cong_doan} công đoạn</td>
-                            <td className="num">{l.so_loi > 0 ? num(l.so_loi) : "—"}</td>
-                            <td className="num">{l.cuoi && l.cuoi.con_gui_kho > 0 ? num(l.cuoi.con_gui_kho) : "—"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <Pager total={lenh.tong} page={lenh.trang} size={lenh.co_trang} onPage={setTrang}
-                  loading={lenhLoading} unit="lệnh" />
-              </>
-            )}
-          </section>
-
-          <KcsDashboard
-            filters={filters} onFiltersChange={setFilters} congDoanOpts={congDoanOpts}
-            data={baoCao} loading={baoCaoLoading} error={baoCaoError}
-          />
-
-          <section className="kcs-section">
-            <h2>Kết quả đã ghi <span className="rc__count">{lichSu.length}</span></h2>
-            {baoCaoLoading && baoCao == null ? (
-              <p className="rc__empty-text">Đang tải…</p>
-            ) : lichSu.length === 0 ? (
-              <div className="rc__empty-state">
-                <p className="rc__empty-text">Chưa có lần kiểm nào{filters.tu || filters.den || filters.tuKhoa || filters.congDoanId != null ? " khớp bộ lọc" : ""}.</p>
-              </div>
-            ) : (
-              <div className="rc__tablewrap">
-                <table className="rc__table kcs-table--ketqua">
-                  <thead>
-                    <tr>
-                      <th>Thời điểm</th>
-                      <th>Lệnh · Công đoạn</th>
-                      <th className="num">Đạt</th>
-                      <th className="num">Lỗi</th>
-                      <th>Gửi kho</th>
-                      <th>Người kiểm</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lichSu.map((r) => (
-                      <tr key={r.kcs_batch_id}>
-                        <td>{ngayGio(r.thoi_diem ?? null)}</td>
-                        <td>{r.nguon_ma} · {r.ten_cong_doan}<div className="rc__sub">{r.nguon_ten}</div></td>
-                        <td className="num">{num(r.so_luong_dat)} {nhanDonVi(r.don_vi)}</td>
-                        <td className="num">{num(r.so_luong_khong_dat)}</td>
-                        <td>{KCS_TRANG_THAI_GUI_KHO_LABEL[r.trang_thai_gui_kho] ?? r.trang_thai_gui_kho}</td>
-                        <td>{r.nguoi_ghi ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          <KcsDashboard data={baoCao} loading={baoCaoLoading} error={baoCaoError} bangLenh={bangLenh} />
         </>
       )}
     </main>

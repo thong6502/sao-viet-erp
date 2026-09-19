@@ -1,9 +1,12 @@
 // KCS theo LỆNH (mg 0306, docs/design-kcs-theo-lenh.md) — ngăn kéo "Kiểm công đoạn".
 //
-// MỘT thao tác duy nhất: KCS đã mở lệnh, bấm một công đoạn trong chuỗi → tick checklist, ghi Số đạt
-// / Số lỗi. Có lỗi thì bắt mô tả + ít nhất một ảnh. Tổ chịu lỗi = tổ của công đoạn, người kiểm = tài
-// khoản đang đăng nhập — cả hai do máy chủ chốt, form KHÔNG có ô chọn. Ghi xong không trừ số, không
-// đổi trạng thái công việc; kiểm lại bao nhiêu lần cũng được.
+// MỘT thao tác duy nhất: KCS đã mở lệnh, bấm một công đoạn trong chuỗi → tick checklist, ghi Số lỗi.
+// Có lỗi thì bắt mô tả + ít nhất một ảnh. Tổ chịu lỗi = tổ của công đoạn, người kiểm = tài khoản đang
+// đăng nhập — cả hai do máy chủ chốt, form KHÔNG có ô chọn. Ghi xong không trừ số, không đổi trạng
+// thái công việc; kiểm lại bao nhiêu lần cũng được.
+//
+// Chỉ gõ SỐ LỖI (18/09/2026): mỗi lần kiểm bao trọn phần tổ đã làm mà chưa kiểm, số đạt = phần đó −
+// số lỗi — máy chủ tự tính, form chỉ bày ra cho KCS thấy trước.
 //
 // Ảnh lỗi là DANH SÁCH cộng dồn: KCS đứng ở chồng hàng chụp từng tấm một (nút "Chụp ảnh" mở thẳng
 // camera điện thoại) hoặc chọn nhiều tấm có sẵn; mỗi lần thêm là nối vào, không đè. Ảnh nằm chờ trong
@@ -45,7 +48,6 @@ export function KcsKiemForm({
   const { token } = useAuth();
   const [dat, setDat] = useState<Record<number, boolean | undefined>>({});
   const [ghiChuTc, setGhiChuTc] = useState<Record<number, string>>({});
-  const [soDat, setSoDat] = useState("");
   const [soLoi, setSoLoi] = useState("");
   const [moTaLoi, setMoTaLoi] = useState("");
   const [anh, setAnh] = useState<AnhCho[]>([]);
@@ -92,20 +94,17 @@ export function KcsKiemForm({
     });
   }
 
-  const nSoDat = Number(soDat) || 0;
   const nSoLoi = Number(soLoi) || 0;
   const dv = nhanDonVi(cd.don_vi);
-  // Công đoạn cuối: phần đạt đi kho nên không được vượt số tốt tổ đã ghi (máy chủ chặn cùng luật).
-  const conDatDuoc = cd.la_kcs_cuoi ? Math.max(0, cd.tot - cd.tong_dat) : null;
+  // Phần tổ đã làm mà chưa kiểm — lần kiểm này bao trọn phần đó (máy chủ tính lại cùng công thức).
+  const chuaKiem = Math.max(0, cd.tot - cd.tong_dat - cd.tong_loi);
+  const datLanNay = Math.max(0, chuaKiem - nSoLoi);
   const thieuBatBuoc = cd.checklist.filter((tc) => tc.bat_buoc && dat[tc.thu_tu] === undefined);
 
   function kiemTra(): string | null {
-    if (soDat.trim() !== "" && (!Number.isFinite(Number(soDat)) || Number(soDat) < 0)) return "Số đạt không hợp lệ.";
     if (soLoi.trim() !== "" && (!Number.isFinite(Number(soLoi)) || Number(soLoi) < 0)) return "Số lỗi không hợp lệ.";
-    if (nSoDat + nSoLoi <= 0) return "Nhập số đạt hoặc số lỗi.";
-    if (conDatDuoc != null && nSoDat > conDatDuoc) {
-      return `Công đoạn cuối: số đạt vượt số tốt tổ đã ghi (còn kiểm đạt được ${num(conDatDuoc)} ${dv}).`;
-    }
+    if (chuaKiem <= 0) return "Tổ chưa ghi thêm sản lượng nào từ lần kiểm trước — chưa có gì để kiểm.";
+    if (nSoLoi > chuaKiem) return `Số lỗi vượt phần tổ đã làm mà chưa kiểm (${num(chuaKiem)} ${dv}).`;
     if (thieuBatBuoc.length > 0) return "Còn tiêu chí bắt buộc chưa ghi kết quả.";
     if (nSoLoi > 0 && !moTaLoi.trim()) return "Có lỗi thì phải mô tả lỗi.";
     if (nSoLoi > 0 && anh.length === 0) return "Có lỗi thì phải kèm ít nhất một ảnh.";
@@ -127,7 +126,6 @@ export function KcsKiemForm({
       }));
     try {
       const r = await api.sanXuat.kiemCongDoan(token, cd.cong_viec_id, {
-        so_dat: nSoDat,
         so_loi: nSoLoi,
         checklist,
         ghi_chu: ghiChu.trim() || null,
@@ -151,7 +149,8 @@ export function KcsKiemForm({
       foot={(
         <>
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={saving}>Huỷ</button>
-          <button type="button" className="btn btn--accent" onClick={luu} disabled={saving || dangNen > 0}>
+          <button type="button" className="btn btn--accent" onClick={luu}
+            disabled={saving || dangNen > 0 || chuaKiem <= 0}>
             {saving ? "Đang lưu…" : dangNen > 0 ? "Đang xử lý ảnh…" : "Lưu kết quả kiểm"}
           </button>
         </>
@@ -164,7 +163,7 @@ export function KcsKiemForm({
             Tổ làm: <strong>{cd.to_ten || "—"}</strong> · {KCS_CD_TRANG_THAI[cd.trang_thai] ?? cd.trang_thai}
           </div>
           <div className="kcs-drawer__ctx-row">
-            Tổ đã ghi: tốt <strong>{num(cd.tot)}</strong> · hỏng <strong>{num(cd.hong)}</strong> {dv}
+            Tổ đã làm: <strong>{num(cd.tot)}</strong> {dv}
           </div>
           {cd.so_lan_kiem > 0 && (
             <div className="kcs-drawer__ctx-row">
@@ -172,9 +171,7 @@ export function KcsKiemForm({
             </div>
           )}
           {cd.la_kcs_cuoi && (
-            <div className="kcs-drawer__ctx-row">
-              Công đoạn cuối của nhóm — số đạt được đề nghị nhập kho (còn kiểm đạt được <strong>{num(conDatDuoc ?? 0)}</strong> {dv}).
-            </div>
+            <div className="kcs-drawer__ctx-row">Công đoạn cuối của nhóm — số đạt được đề nghị nhập kho.</div>
           )}
         </div>
 
@@ -205,17 +202,24 @@ export function KcsKiemForm({
         )}
 
         <div className="kcs-drawer__block">
-          <h3>Số lượng ({dv || "đơn vị công đoạn"})</h3>
-          <div className="kcs-drawer__soluong">
-            <label>Số đạt
-              <input type="number" min={0} inputMode="decimal" value={soDat}
-                onChange={(e) => setSoDat(e.target.value)} aria-label="Số đạt" />
-            </label>
-            <label>Số lỗi
-              <input type="number" min={0} inputMode="decimal" value={soLoi}
-                onChange={(e) => setSoLoi(e.target.value)} aria-label="Số lỗi" />
-            </label>
-          </div>
+          <h3>Số lỗi ({dv || "đơn vị công đoạn"})</h3>
+          {chuaKiem > 0 ? (
+            <>
+              <div className="kcs-drawer__soluong">
+                <label>Số lỗi
+                  <input type="number" min={0} inputMode="decimal" value={soLoi} placeholder="0"
+                    onChange={(e) => setSoLoi(e.target.value)} aria-label="Số lỗi" />
+                </label>
+              </div>
+              <p className="kcs-drawer__anh-hint">
+                Lần này kiểm <b>{num(chuaKiem)}</b> {dv} tổ đã làm mà chưa kiểm → đạt <b>{num(datLanNay)}</b> {dv}.
+              </p>
+            </>
+          ) : (
+            <p className="kcs-drawer__anh-hint">
+              Tổ chưa ghi thêm sản lượng nào từ lần kiểm trước — chưa có gì để kiểm.
+            </p>
+          )}
         </div>
 
         {nSoLoi > 0 && (

@@ -1,6 +1,7 @@
 """Thực hiện sản xuất — KCS theo LỆNH (`docs/design-kcs-theo-lenh.md`, mg `0306`).
 
-KCS mở một lệnh → bấm một công đoạn → ghi Số đạt / Số lỗi. MỘT hành động duy nhất
+KCS mở một lệnh → bấm một công đoạn → ghi Số lỗi (18/09/2026: form chỉ còn ô này — số đạt do máy
+chủ suy từ phần tổ đã làm mà chưa kiểm, xem `_phan_chua_kiem`). MỘT hành động duy nhất
 (`kiem_cong_doan`), làm được trên công đoạn đang chạy / tạm dừng / đã xong, lặp bao nhiêu lần cũng
 được. Tuân §18: kiểm quyền tại service → transaction → audit → (SSE do router phát sau commit).
 
@@ -124,13 +125,22 @@ def _chan_vuot_tot(db: Session, repo: SanXuatKcsRepository, cv, dat_moi: float,
         )
 
 
+def _phan_chua_kiem(db: Session, repo: SanXuatKcsRepository, cv) -> float:
+    """Phần tổ đã làm mà KCS chưa kiểm = Σ số lượng các mẻ − Σ (đạt + lỗi) các lần kiểm trước."""
+    tot = SanXuatSanLuongRepository(db).tong_tot(cv.id)
+    da_kiem = sum(
+        float(k.so_luong_dat or 0) + float(k.so_luong_khong_dat or 0) for k in repo.cac_kcs_batch(cv.id)
+    )
+    return max(0.0, tot - da_kiem)
+
+
 # --- Ghi ------------------------------------------------------------------------------------
 def kiem_cong_doan(
     db: Session,
     *,
     user,
     cong_viec_id: int,
-    so_dat,
+    so_dat=None,
     so_loi=0,
     checklist_ket_qua: list[dict] | None = None,
     ghi_chu: str | None = None,
@@ -138,7 +148,11 @@ def kiem_cong_doan(
     anh: list[dict] | None = None,
 ) -> dict:
     """Ghi MỘT lần kiểm công đoạn. Người kiểm do server chốt từ tài khoản; tổ chịu lỗi = tổ của
-    công đoạn. Trả `notify_user_ids` = người Xác nhận sản lượng trọn tổ đó (router đẩy SSE)."""
+    công đoạn. Trả `notify_user_ids` = người Xác nhận sản lượng trọn tổ đó (router đẩy SSE).
+
+    `so_dat` bỏ trống (form KCS chỉ gõ số lỗi): lần kiểm bao TRỌN phần tổ đã làm mà chưa kiểm, đạt =
+    phần đó − số lỗi. Số lỗi không được vượt phần đó — lỗi là hàng tổ đã ghi, tổ chưa ghi mẻ thì chưa
+    có gì để kiểm. Gửi `so_dat` tường minh thì giữ luật cũ (chỉ chặn đạt vượt tốt ở bước cuối)."""
     gate_kcs(db, user)
     repo = SanXuatKcsRepository(db)
     cv = repo.cong_viec(cong_viec_id)
@@ -147,8 +161,18 @@ def kiem_cong_doan(
     if cv.trang_thai not in _TRANG_THAI_KIEM_DUOC:
         raise ValueError("Công đoạn chưa bắt đầu nên chưa kiểm được.")
 
-    dat = _so_khong_am(so_dat, "Số đạt")
     loi_sl = _so_khong_am(so_loi if so_loi not in (None, "") else 0, "Số lỗi")
+    if so_dat in (None, ""):
+        chua_kiem = _phan_chua_kiem(db, repo, cv)
+        if chua_kiem <= _EPS:
+            raise ValueError("Tổ chưa ghi thêm sản lượng nào từ lần kiểm trước — chưa có gì để kiểm.")
+        if loi_sl > chua_kiem + _EPS:
+            raise ValueError(
+                f"Số lỗi ({loi_sl:g}) vượt phần tổ đã làm mà chưa kiểm ({chua_kiem:g})."
+            )
+        dat = max(0.0, chua_kiem - loi_sl)
+    else:
+        dat = _so_khong_am(so_dat, "Số đạt")
     if dat + loi_sl <= _EPS:
         raise ValueError("Nhập số đạt hoặc số lỗi.")
     checklist_ket_qua = _validate_checklist_bat_buoc(cv, checklist_ket_qua)

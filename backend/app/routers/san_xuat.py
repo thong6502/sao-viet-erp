@@ -955,7 +955,8 @@ def kiem_cong_doan(
     cong_viec_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
-    so_dat: float = Form(default=0),
+    # Bỏ trống = form KCS chỉ gõ số lỗi, máy chủ suy số đạt (`kcs.kiem_cong_doan`).
+    so_dat: float | None = Form(default=None),
     so_loi: float = Form(default=0),
     checklist_json: str | None = Form(default=None),
     ghi_chu: str | None = Form(default=None),
@@ -1093,6 +1094,7 @@ KHO_MODULE = "kho"
 def tao_yeu_cau_nhap_kho_cong_doan(
     cong_viec_id: int,
     db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
     user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """"Tạo yêu cầu nhập kho" trên công đoạn cuối nhóm — lập MỘT yêu cầu NHẬP của kho thật cho
@@ -1107,6 +1109,10 @@ def tao_yeu_cau_nhap_kho_cong_doan(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     _phat_sse_kcs(res)
+    # Giá bán là TIỀN — chỉ người có `kho:view_cost` mới nhận (chủ 18/09/2026); người KCS bấm gửi
+    # thì không, dù màn KCS không hiện số này.
+    if not authz.can(user, KHO_MODULE, "view_cost"):
+        res = {**res, "dong": [{**d, "don_gia_ban": None} for d in res.get("dong", [])]}
     return res
 
 

@@ -1,6 +1,6 @@
 // KCS theo LỆNH (mg 0306) — màn thứ hai: CHUỖI CÔNG ĐOẠN của một lệnh, theo thứ tự routing.
 //
-// Mỗi công đoạn: tổ làm, trạng thái chạy, tốt/hỏng tổ đã ghi, tình trạng kiểm (chưa kiểm · đạt · có
+// Mỗi công đoạn: tổ làm, trạng thái chạy, số lượng tổ đã ghi, tình trạng kiểm (chưa kiểm · đạt · có
 // lỗi, số lần). Bấm "Kiểm" → ngăn `KcsKiemForm`. Công đoạn cuối của nhóm (`la_kcs_cuoi`) có thêm dải
 // nhập kho: phần đạt luỹ kế (trần = số tốt) chưa gửi kho → nút "Tạo yêu cầu nhập kho". Yêu cầu tạo ra
 // là yêu cầu NHẬP thật ở màn Yêu cầu nhập xuất (mã DNN…) — dải liệt kê từng mã, bấm mã mở màn Kho.
@@ -13,6 +13,7 @@ import { useAuth } from "../../auth/useAuth";
 import { useKcs } from "../../auth/permissions";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Icon } from "../../components/Icons";
+import { Drawer } from "../danh-muc/components/Drawer";
 import { ngayGio, num } from "../keHoachSxShared";
 import { nhanDonVi } from "../lsxBuoc";
 import { KcsChotNhom } from "./KcsChotNhom";
@@ -37,8 +38,9 @@ export function KcsChuoiCongDoan({
   const { kcs, truongKcs } = useKcs();
   const [data, setData] = useState<SxKcsChuoiCongDoan | null>(null);
   const [loi, setLoi] = useState<string | null>(null);
-  const [mo, setMo] = useState<Set<number>>(new Set());
   const [kiem, setKiem] = useState<SxKcsCongDoan | null>(null);
+  const [lanKiemCd, setLanKiemCd] = useState<SxKcsCongDoan | null>(null);
+  const [khoCd, setKhoCd] = useState<SxKcsCongDoan | null>(null);
   const [nhapKho, setNhapKho] = useState<SxKcsCongDoan | null>(null);
   const [nhapKhoBusy, setNhapKhoBusy] = useState(false);
   const [nhapKhoLoi, setNhapKhoLoi] = useState<string | null>(null);
@@ -52,13 +54,18 @@ export function KcsChuoiCongDoan({
   }, [token, lsxId]);
   useEffect(() => { tai(); }, [tai, eventTick]);
 
-  function batTat(id: number) {
-    setMo((cu) => {
-      const s = new Set(cu);
-      if (s.has(id)) s.delete(id); else s.add(id);
-      return s;
-    });
-  }
+  useEffect(() => {
+    if (data) {
+      if (lanKiemCd) {
+        const found = data.cong_doan.find((c) => c.cong_viec_id === lanKiemCd.cong_viec_id);
+        if (found) setLanKiemCd(found);
+      }
+      if (khoCd) {
+        const found = data.cong_doan.find((c) => c.cong_viec_id === khoCd.cong_viec_id);
+        if (found) setKhoCd(found);
+      }
+    }
+  }, [data]);
 
   async function taoNhapKho() {
     if (!token || !nhapKho || nhapKhoBusy) return;
@@ -81,22 +88,93 @@ export function KcsChuoiCongDoan({
   const congDoan = data?.cong_doan ?? [];
   const nhomTt = lsx?.nhom_trang_thai ? KCS_NHOM_TRANG_THAI[lsx.nhom_trang_thai] : null;
 
+  // Tính toán chỉ số tổng quan cho Hero Card
+  const tongCd = congDoan.length;
+  const daKiemCd = congDoan.filter((cd) => cd.so_lan_kiem > 0).length;
+  const pctKiem = tongCd > 0 ? Math.round((daKiemCd / tongCd) * 100) : 0;
+  const tongDat = congDoan.reduce((acc, cd) => acc + cd.tong_dat, 0);
+  const tongLoi = congDoan.reduce((acc, cd) => acc + cd.tong_loi, 0);
+
   return (
     <>
+      {/* Nút quay lại danh sách lệnh */}
       <div className="kcs-lenh-dau">
         <button type="button" className="btn btn--ghost btn--sm" onClick={onBack}>
           <Icon name="chevron" size={13} style={{ transform: "rotate(90deg)" }} /> Danh sách lệnh
         </button>
-        {lsx && (
-          <>
-            <span className="kcs-lenh-dau__ma">{lsx.ma}</span>
-            <span className="kcs-lenh-dau__phu">
-              {[lsx.ten, lsx.khach].filter(Boolean).join(" · ")}
-            </span>
-            {nhomTt && <span className={`badge-sem ${nhomTt.cls}`}>{nhomTt.nhan}</span>}
-          </>
-        )}
       </div>
+
+      {/* Hero Header Card - Tổng quan Lệnh sản xuất & KCS (Siêu gọn gàng) */}
+      {lsx && (
+        <div className="kcs-hero">
+          <div className="kcs-hero__top">
+            <div className="kcs-hero__ma-row">
+              <span className="kcs-hero__ma">{lsx.ma}</span>
+              {nhomTt && <span className={`badge-sem ${nhomTt.cls}`}>{nhomTt.nhan}</span>}
+              <span className="kcs-hero__ten">{lsx.ten}</span>
+            </div>
+            <div className="kcs-hero__meta">
+              {lsx.khach && <span>Khách hàng: <b>{lsx.khach}</b></span>}
+              {lsx.nhom_ma && <span>Nhóm: <b>{lsx.nhom_ma}</b></span>}
+            </div>
+          </div>
+
+          <div className="kcs-hero__inline-stats">
+            <span className="kcs-hero__inline-item">
+              Chuỗi công đoạn: <b>{tongCd} bước ({daKiemCd} đã kiểm)</b>
+            </span>
+            <span style={{ color: "#cbd5e1" }}>·</span>
+            <span className="kcs-hero__inline-item">
+              Tiến độ KCS: <b>{pctKiem}%</b>
+            </span>
+            <span style={{ color: "#cbd5e1" }}>·</span>
+            <span className="kcs-hero__inline-item" style={{ color: "#047857" }}>
+              Tổng KCS Đạt: <b>{num(tongDat)} sản phẩm</b>
+            </span>
+            <span style={{ color: "#cbd5e1" }}>·</span>
+            <span className="kcs-hero__inline-item" style={{ color: tongLoi > 0 ? "#b91c1c" : "#64748b" }}>
+              Tổng KCS Lỗi: <b>{num(tongLoi)} sản phẩm</b>
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Pipeline Visual Stepper (Gọn gàng & ẩn scrollbar) */}
+      {congDoan.length > 0 && (
+        <div className="kcs-pipeline">
+          <div className="kcs-pipeline__track">
+            {congDoan.map((cd, i) => {
+              const tt = tinhTrangKiem(cd.so_lan_kiem, cd.tong_loi);
+              const isLast = i === congDoan.length - 1;
+              return (
+                <div key={cd.cong_viec_id} className="kcs-pipeline__node">
+                  <div
+                    className={`kcs-pipeline__step-box${tt.loai === "chua" ? "" : ` kcs-pipeline__step-box--${tt.loai}`}`}
+                    onClick={() => {
+                      if (cd.so_lan_kiem > 0) {
+                        setLanKiemCd(cd);
+                      } else {
+                        const el = document.getElementById(`cd-card-${cd.cong_viec_id}`);
+                        el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                      }
+                    }}
+                    title={cd.so_lan_kiem > 0 ? `Mở popup lần kiểm công đoạn ${cd.ten}` : `Chuyển tới công đoạn ${cd.ten}`}
+                  >
+                    <span className="kcs-pipeline__num">{i + 1}</span>
+                    <span className="kcs-pipeline__name">{cd.ten}</span>
+                    <span className={`badge-sem ${tt.cls}`}>{tt.nhan}</span>
+                  </div>
+                  {!isLast && (
+                    <div className="kcs-pipeline__arrow">
+                      <Icon name="chevron" size={13} style={{ transform: "rotate(-90deg)" }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {thongBao && (
         <div className="banner banner--success" role="status">
@@ -120,95 +198,122 @@ export function KcsChuoiCongDoan({
             <p className="rc__empty-text">Lệnh này chưa có công đoạn nào.</p>
           </div>
         ) : (
-          <ol className="kcs-chuoi">
-            {congDoan.map((cd, i) => {
-              const tt = tinhTrangKiem(cd.so_lan_kiem, cd.tong_loi);
-              const dv = nhanDonVi(cd.don_vi);
-              const dangMo = mo.has(cd.cong_viec_id);
-              const choKiem = kiemDuoc(cd.trang_thai);
-              return (
-                <li key={cd.cong_viec_id}
-                  className={`kcs-chuoi__it${tt.loai === "chua" ? "" : ` kcs-chuoi__it--${tt.loai}`}`}>
-                  <div className="kcs-chuoi__hd">
-                    <span className="kcs-chuoi__stt">{i + 1}</span>
-                    <span className="kcs-chuoi__ten">
-                      {cd.ten}{cd.phan_doan_tong > 1 ? ` (${cd.phan_doan_so}/${cd.phan_doan_tong})` : ""}
-                    </span>
-                    {cd.la_kcs_cuoi && <span className="kcs-chuoi__cuoi-tag">Công đoạn cuối</span>}
-                    <span className={`badge-sem ${tt.cls}`}>{tt.nhan}</span>
-                  </div>
-                  <div className="kcs-chuoi__meta">
-                    <span>Tổ: <b>{cd.to_ten || "—"}</b></span>
-                    <span>{KCS_CD_TRANG_THAI[cd.trang_thai] ?? cd.trang_thai}</span>
-                    <span>Tốt <b>{num(cd.tot)}</b> · Hỏng <b>{num(cd.hong)}</b> {dv}</span>
-                    {cd.so_lan_kiem > 0 && (
-                      <span>KCS: đạt <b>{num(cd.tong_dat)}</b> · lỗi <b>{num(cd.tong_loi)}</b></span>
-                    )}
-                  </div>
-                  {cd.la_kcs_cuoi && (
-                    <div className="kcs-chuoi__kho">
-                      <Icon name="warehouse" size={14} />
-                      <span>
-                        Đã đề nghị nhập kho <b>{num(cd.da_yeu_cau_kho)}</b> · còn chờ gửi kho <b>{num(cd.con_gui_kho)}</b> {dv}
-                      </span>
-                      {kcs && cd.con_gui_kho > 0 && (
-                        <button type="button" className="btn btn--accent btn--sm"
-                          onClick={() => { setNhapKhoLoi(null); setNhapKho(cd); }}>
-                          Tạo yêu cầu nhập kho ({num(cd.con_gui_kho)})
-                        </button>
-                      )}
-                      {cd.yeu_cau_kho.length > 0 && (
-                        <ul className="kcs-chuoi__kho-ds">
-                          {cd.yeu_cau_kho.map((y) => {
-                            const ytt = KCS_YC_KHO_TRANG_THAI[y.trang_thai]
-                              ?? { nhan: y.trang_thai, cls: "badge-sem--muted" };
-                            return (
-                              <li key={y.request_id}>
-                                {onMoYeuCauKho ? (
-                                  <button type="button" className="kcs-chuoi__kho-ma"
-                                    title="Mở yêu cầu này ở màn Kho"
-                                    onClick={() => onMoYeuCauKho(y.request_id)}>
-                                    {y.ma}
-                                  </button>
-                                ) : (
-                                  <span className="kcs-chuoi__kho-ma">{y.ma}</span>
-                                )}
-                                <span>
-                                  Đề nghị <b>{num(y.sl_de_nghi)}</b> · kho đã nhận <b>{num(y.sl_da_nhan)}</b> {nhanDonVi(y.don_vi)}
-                                </span>
-                                <span className={`badge-sem ${ytt.cls}`}>{ytt.nhan}</span>
-                                {y.tao_luc && <span className="kcs-chuoi__kho-luc">{ngayGio(y.tao_luc)}</span>}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                  <div className="kcs-chuoi__nut">
-                    {kcs && (
-                      <button type="button" className="btn btn--accent btn--sm" disabled={!choKiem}
-                        title={choKiem ? undefined : "Công đoạn chưa bắt đầu — chưa kiểm được."}
-                        onClick={() => setKiem(cd)}>
-                        <Icon name="shield" size={12} /> Kiểm
-                      </button>
-                    )}
-                    {cd.so_lan_kiem > 0 && (
-                      <button type="button" className="btn btn--ghost btn--sm" aria-expanded={dangMo}
-                        onClick={() => batTat(cd.cong_viec_id)}>
-                        {dangMo ? "Ẩn lần kiểm" : `Xem ${cd.so_lan_kiem} lần kiểm`}
-                      </button>
-                    )}
-                  </div>
-                  {dangMo && (
-                    <div className="kcs-chuoi__than">
-                      <KcsLanKiemList lanKiem={cd.lan_kiem} checklist={cd.checklist} />
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
+          <div className="rc__tablewrap kcs-tablewrap">
+            <table className="rc__table kcs-matrix-table">
+              <thead>
+                <tr>
+                  <th style={{ width: "36px", textAlign: "center" }}>#</th>
+                  <th>Công đoạn</th>
+                  <th>Tổ đảm nhận</th>
+                  <th>Sản xuất (tổ ghi)</th>
+                  <th>KCS kiểm định</th>
+                  <th>Tình trạng KCS</th>
+                  <th style={{ textAlign: "right" }}>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {congDoan.map((cd, i) => {
+                  const tt = tinhTrangKiem(cd.so_lan_kiem, cd.tong_loi);
+                  const dv = nhanDonVi(cd.don_vi);
+                  const choKiem = kiemDuoc(cd.trang_thai);
+
+                  const tongKcs = cd.tong_dat + cd.tong_loi;
+                  const rateDat = tongKcs > 0 ? Math.round((cd.tong_dat / tongKcs) * 100) : null;
+
+                  return (
+                    <tr key={cd.cong_viec_id} id={`cd-card-${cd.cong_viec_id}`} className="kcs-matrix-row">
+                      <td style={{ textAlign: "center", fontWeight: 700, color: "var(--ink)" }}>{i + 1}</td>
+                      <td>
+                        <div className="kcs-matrix__name-cell">
+                          <span className="kcs-matrix__ten">
+                            {cd.ten}{cd.phan_doan_tong > 1 ? ` (${cd.phan_doan_so}/${cd.phan_doan_tong})` : ""}
+                          </span>
+                          {cd.la_kcs_cuoi && <span className="kcs-chuoi__cuoi-tag">Cuối</span>}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="kcs-matrix__to-cell">
+                          <b style={{ color: "var(--ink)" }}>{cd.to_ten || "—"}</b>
+                          <span className="kcs-matrix__sub-tt">{KCS_CD_TRANG_THAI[cd.trang_thai] ?? cd.trang_thai}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="kcs-matrix__stat">
+                          Đã làm <b style={{ color: "#047857" }}>{num(cd.tot)}</b> {dv}
+                        </span>
+                      </td>
+                      <td>
+                        {cd.so_lan_kiem > 0 ? (
+                          <span className="kcs-matrix__stat">
+                            Đạt <b style={{ color: "#047857" }}>{num(cd.tong_dat)}</b> · Lỗi <b style={{ color: cd.tong_loi > 0 ? "#b91c1c" : "#64748b" }}>{num(cd.tong_loi)}</b> {dv}
+                            {rateDat !== null && (
+                              <span className="kcs-rate-pill" style={{ marginLeft: "6px" }}>
+                                {rateDat}%
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span style={{ color: "#94a3b8", fontStyle: "italic", fontSize: "12px" }}>Chưa kiểm</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`badge-sem ${tt.cls}`}>{tt.nhan}</span>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <div className="kcs-matrix__actions">
+                          {cd.la_kcs_cuoi && cd.yeu_cau_kho.length > 0 && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost btn--sm"
+                              style={{ padding: "3px 8px", fontSize: "12px", color: "#047857", border: "1px solid #a7f3d0", background: "#f0fdf4" }}
+                              onClick={() => setKhoCd(cd)}
+                              title="Xem lịch sử yêu cầu kho"
+                            >
+                              <Icon name="warehouse" size={12} /> Kho ({cd.yeu_cau_kho.length})
+                            </button>
+                          )}
+                          {cd.la_kcs_cuoi && cd.con_gui_kho > 0 && kcs && (
+                            <button
+                              type="button"
+                              className="btn btn--accent btn--sm"
+                              style={{ background: "#059669", color: "#fff", border: "none", padding: "3px 8px", fontSize: "12px" }}
+                              onClick={() => { setNhapKhoLoi(null); setNhapKho(cd); }}
+                              title={`Tạo yêu cầu kho ${num(cd.con_gui_kho)} ${dv}`}
+                            >
+                              <Icon name="plus" size={12} /> YC Kho ({num(cd.con_gui_kho)})
+                            </button>
+                          )}
+                          {kcs && (
+                            <button
+                              type="button"
+                              className="btn btn--accent btn--sm"
+                              style={choKiem ? { background: "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)", color: "#fff", border: "none", padding: "3px 10px", fontSize: "12px" } : { padding: "3px 10px", fontSize: "12px" }}
+                              disabled={!choKiem}
+                              title={choKiem ? undefined : "Công đoạn chưa bắt đầu — chưa kiểm được."}
+                              onClick={() => setKiem(cd)}
+                            >
+                              <Icon name="shield" size={12} /> Kiểm
+                            </button>
+                          )}
+                          {cd.so_lan_kiem > 0 && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost btn--sm"
+                              style={{ padding: "3px 8px", fontSize: "12px" }}
+                              onClick={() => setLanKiemCd(cd)}
+                              title={`Xem ${cd.so_lan_kiem} lần kiểm đã ghi trong popup`}
+                            >
+                              Lần kiểm ({cd.so_lan_kiem})
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
@@ -216,6 +321,58 @@ export function KcsChuoiCongDoan({
         <KcsChotNhom nhomId={lsx.nhom_id} nhan={lsx.nhom_ma ?? `Nhóm #${lsx.nhom_id}`}
           canDong={truongKcs} eventTick={eventTick}
           onDone={() => { tai(); onChanged(); }} />
+      )}
+
+      {/* Popup Drawer xem danh sách các lần kiểm */}
+      {lanKiemCd && (
+        <Drawer
+          title={`Lịch sử ${lanKiemCd.so_lan_kiem} lần kiểm: ${lanKiemCd.ten}`}
+          kicker={lsx ? `Lệnh ${lsx.ma} · ${lsx.ten}` : "KCS Công đoạn"}
+          onClose={() => setLanKiemCd(null)}
+        >
+          <div className="rc-drawer__body" style={{ padding: "16px 20px" }}>
+            <KcsLanKiemList lanKiem={lanKiemCd.lan_kiem} checklist={lanKiemCd.checklist} />
+          </div>
+        </Drawer>
+      )}
+
+      {/* Popup Drawer xem lịch sử yêu cầu kho */}
+      {khoCd && (
+        <Drawer
+          title={`Lịch sử yêu cầu nhập kho (${khoCd.yeu_cau_kho.length}): ${khoCd.ten}`}
+          kicker={lsx ? `Lệnh ${lsx.ma} · ${lsx.ten}` : "Công đoạn thành phẩm"}
+          onClose={() => setKhoCd(null)}
+        >
+          <div className="rc-drawer__body" style={{ padding: "16px 20px" }}>
+            <ul className="kcs-chuoi__kho-ds">
+              {khoCd.yeu_cau_kho.map((y) => {
+                const ytt = KCS_YC_KHO_TRANG_THAI[y.trang_thai]
+                  ?? { nhan: y.trang_thai, cls: "badge-sem--muted" };
+                return (
+                  <li key={y.request_id} style={{ padding: "10px 14px", border: "1px solid #d1fae5", borderRadius: "8px", background: "#fff", marginBottom: "8px", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                    <div>
+                      {onMoYeuCauKho ? (
+                        <button type="button" className="kcs-chuoi__kho-ma"
+                          style={{ fontSize: "14px", marginRight: "8px" }}
+                          title="Mở yêu cầu này ở màn Kho"
+                          onClick={() => { setKhoCd(null); onMoYeuCauKho(y.request_id); }}>
+                          {y.ma}
+                        </button>
+                      ) : (
+                        <span className="kcs-chuoi__kho-ma" style={{ fontSize: "14px", marginRight: "8px" }}>{y.ma}</span>
+                      )}
+                      <span className={`badge-sem ${ytt.cls}`}>{ytt.nhan}</span>
+                    </div>
+                    <div style={{ fontSize: "13px", color: "var(--ink)" }}>
+                      Đề nghị <b>{num(y.sl_de_nghi)}</b> · kho đã nhận <b style={{ color: "#047857" }}>{num(y.sl_da_nhan)}</b> {nhanDonVi(y.don_vi)}
+                    </div>
+                    {y.tao_luc && <div className="kcs-chuoi__kho-luc" style={{ width: "100%", fontSize: "12px" }}>Tạo lúc: {ngayGio(y.tao_luc)}</div>}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </Drawer>
       )}
 
       {kiem && lsx && (
@@ -226,7 +383,6 @@ export function KcsChuoiCongDoan({
               `Đã ghi lần kiểm ${r.ten_cong_doan}: đạt ${num(r.so_dat)} · lỗi ${num(r.so_loi)}`
               + (r.so_loi > 0 ? " — đã báo tổ làm công đoạn." : "."),
             );
-            setMo((cu) => new Set(cu).add(r.cong_viec_id));
             tai();
             onChanged();
           }} />

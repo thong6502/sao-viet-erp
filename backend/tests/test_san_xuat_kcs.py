@@ -320,6 +320,39 @@ def test_cong_doan_giua_khong_bi_tran_tot(db, orders, lsx_svc, admin, customer):
     kcs.kiem_cong_doan(db, user=nguoi, cong_viec_id=cv.id, so_dat=500)
 
 
+# --- Form KCS chỉ gõ SỐ LỖI (18/09/2026): đạt = phần tổ đã làm chưa kiểm − lỗi ----------------
+def test_chi_go_so_loi_dat_la_phan_chua_kiem_tru_loi(db, orders, lsx_svc, admin, customer):
+    _to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer)
+    _d, nguoi = _to_kiem(db)
+    _ghi_tot(db, cv, 100)
+    r1 = kcs.kiem_cong_doan(db, user=nguoi, cong_viec_id=cv.id, so_loi=3,
+                            loi_mo_ta="Lem mực", anh=_anh())
+    kb = db.get(SanXuatKcsBatch, r1["kcs_batch_id"])
+    assert r1["so_dat"] == 97 and float(kb.so_luong_nhan) == 100 and kb.ket_luan == KCS_DAT_MOT_PHAN
+    # Tổ ghi thêm 50 ⇒ lần kiểm sau chỉ bao 50 mới, không lỗi thì đạt trọn.
+    _ghi_tot(db, cv, 50)
+    r2 = kcs.kiem_cong_doan(db, user=nguoi, cong_viec_id=cv.id)
+    assert r2["so_dat"] == 50 and r2["so_loi"] == 0
+    assert SanXuatKcsRepository(db).tong_kiem_nhieu([cv.id])[cv.id] == (2, 147.0, 3.0)
+
+
+def test_chi_go_so_loi_chan_khi_chua_co_gi_de_kiem_hoac_loi_vuot(db, orders, lsx_svc, admin, customer):
+    _to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer)
+    _d, nguoi = _to_kiem(db)
+    with pytest.raises(ValueError, match="chưa có gì để kiểm"):
+        kcs.kiem_cong_doan(db, user=nguoi, cong_viec_id=cv.id, so_loi=0)
+    _ghi_tot(db, cv, 20)
+    with pytest.raises(ValueError, match=r"Số lỗi \(21\) vượt phần tổ đã làm mà chưa kiểm \(20\)"):
+        kcs.kiem_cong_doan(db, user=nguoi, cong_viec_id=cv.id, so_loi=21,
+                           loi_mo_ta="Lem", anh=_anh())
+    # Lỗi trọn phần chưa kiểm ⇒ đạt 0, kết luận không đạt; sau đó hết phần để kiểm.
+    r = kcs.kiem_cong_doan(db, user=nguoi, cong_viec_id=cv.id, so_loi=20, loi_mo_ta="Lem", anh=_anh())
+    assert r["so_dat"] == 0 and r["ket_luan"] == KCS_KHONG_DAT
+    with pytest.raises(ValueError, match="chưa có gì để kiểm"):
+        kcs.kiem_cong_doan(db, user=nguoi, cong_viec_id=cv.id)
+    assert db.query(SanXuatKcsBatch).count() == 1
+
+
 # --- Tổ bấm "Đã xem" ------------------------------------------------------------------------
 def test_da_xem_loi_gate_va_bam_lai_khong_doi(db, orders, lsx_svc, admin, customer):
     to, cv, res = _batch(db, orders, lsx_svc, admin, customer)

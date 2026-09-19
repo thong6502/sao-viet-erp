@@ -207,7 +207,7 @@ function SanLuongSection({
 
       <div className="thsx-batch-metric-strip">
         <div className="thsx-batch-metric-tile">
-          <span className="thsx-metric-lbl">Tổng tốt</span>
+          <span className="thsx-metric-lbl">Đã làm</span>
           <span className="thsx-metric-val thsx-metric-val--done">{num(sl.tong_tot)}</span>
         </div>
         {!buocCuoi && <>
@@ -288,7 +288,10 @@ function giaKhoan(v: { don_gia: number; don_vi: string; don_vi_ten: string | nul
 /** Form GHI MẺ theo CÔNG VIỆC KHOÁN (spec 2026-09-18 §7.1): chọn ĐÚNG MỘT việc của tổ (thấy đơn giá
  *  · ĐVT · ghi chú), gõ số của mẻ, rồi tick một hoặc nhiều VIỆC PHÁT SINH của chính việc đó kèm số
  *  lượng. Việc phát sinh KHÔNG cộng vào sản lượng; không có thành tiền ở đâu cả. Ô tìm hiện cho MỌI
- *  tổ, tìm tương đối (bỏ dấu, khớp một phần) ở máy chủ. */
+ *  tổ, tìm tương đối (bỏ dấu, khớp một phần) ở máy chủ.
+ *
+ *  Số của mẻ là MỘT ô "Số lượng làm được" (18/09/2026): tổ không tự chia tổng/tốt/hỏng — hàng lỗi do
+ *  KCS phát hiện và ghi. Máy chủ vẫn giữ luật `tong = tot + hong` nên gửi tong = tot = số đó, hong = 0. */
 function BatchForm({
   cv, busy, batDauMacDinh, onXong, exec,
 }: {
@@ -298,9 +301,7 @@ function BatchForm({
   const { token } = useAuth();
   const [batDau, setBatDau] = useState(batDauMacDinh);
   const [ketThuc, setKetThuc] = useState(nowDtLocal);
-  const [tong, setTong] = useState("");
-  const [tot, setTot] = useState("");
-  const [moTaLoi, setMoTaLoi] = useState("");
+  const [soLuong, setSoLuong] = useState("");
   const [ghiChu, setGhiChu] = useState("");
   const [tim, setTim] = useState("");
   const timTre = useDebounced(tim, 250);
@@ -310,9 +311,7 @@ function BatchForm({
   const [viecChon, setViecChon] = useState<SxViecKhoanChon | null>(null);
   // Việc phát sinh đã tick → số đang gõ. Có khoá = đã tick.
   const [psSl, setPsSl] = useState<Record<number, string>>({});
-  const nTong = toNum(tong);
-  const nTot = toNum(tot);
-  const hong = Math.max(0, nTong - nTot);
+  const nSoLuong = toNum(soLuong);
   const donVi = cv.don_vi_ra ?? cv.don_vi_vao ?? null;
   // Bước thuê ngoài miễn việc khoán — thợ của tổ không ăn khoán trên việc làm ở xưởng người ta.
   const thueNgoai = cv.loai_buoc === "thue_ngoai";
@@ -351,14 +350,14 @@ function BatchForm({
   // Mẻ ghi SAU khi làm xong — máy chủ cũng từ chối giờ kết thúc ở tương lai.
   const ketThucTuongLai = gioNhapHopLe(ketThuc) && ketThuc > nowDtLocal();
   const hopLe = gioNhapHopLe(batDau) && gioNhapHopLe(ketThuc) && ketThuc > batDau && !ketThucTuongLai
-    && nTong > 0 && nTot >= 0 && nTot <= nTong
+    && nSoLuong > 0
     && (thueNgoai || viecChon != null) && psHopLe;
 
   async function luu() {
     const body: SxBatchIn = {
-      bat_dau: batDau, ket_thuc: ketThuc, tong: nTong, tot: nTot, hong,
+      bat_dau: batDau, ket_thuc: ketThuc, tong: nSoLuong, tot: nSoLuong, hong: 0,
       don_vi: donVi,
-      mo_ta_loi: hong > 0 && moTaLoi.trim() ? moTaLoi.trim() : null,
+      mo_ta_loi: null,
       ghi_chu: ghiChu.trim() || null,
       piece_rate_id: viecChon?.id ?? null,
       phat_sinh: psTick.map(([id, s]) => ({ phat_sinh_id: Number(id), so_luong: toNum(s) })),
@@ -468,37 +467,11 @@ function BatchForm({
         <span className="thsx-x-err thsx-glass-err">Giờ kết thúc đang ở sau lúc này — chỉ ghi mẻ đã làm xong.</span>
       )}
 
-      <div className="thsx-glass-metric-grid thsx-x-grid2">
-        <Field label={`Tổng${donVi ? ` (${nhanDonVi(donVi)})` : ""}`}>
-          <input type="number" min={0} className="thsx-x-in thsx-glass-in thsx-glass-in--num"
-            placeholder="0" value={tong}
-            onChange={(e) => {
-              const val = e.target.value;
-              setTong(val);
-              if (!tot) setTot(val);
-            }}
-            inputMode="numeric" />
-        </Field>
-        <Field label="Tốt">
-          <input type="number" min={0} className="thsx-x-in thsx-glass-in thsx-glass-in--num thsx-glass-in--tot"
-            placeholder="0" value={tot} onChange={(e) => setTot(e.target.value)} inputMode="numeric" />
-        </Field>
-      </div>
-
-      <div className={`thsx-glass-hong-tile thsx-x-hong${hong > 0 ? " is-bad" : ""}`}>
-        <div className="thsx-glass-hong-left">
-          <Icon name={hong > 0 ? "alert" : "check"} size={13} />
-          <span>Hỏng: <b className="thsx-num">{num(hong)}</b>{donVi ? ` ${nhanDonVi(donVi)}` : ""}</span>
-        </div>
-        {nTot > nTong && <span className="thsx-x-err thsx-glass-err">Tốt không được vượt Tổng</span>}
-      </div>
-
-      {hong > 0 && (
-        <Field label="Mô tả nguyên nhân lỗi">
-          <input type="text" className="thsx-x-in thsx-glass-in" value={moTaLoi} onChange={(e) => setMoTaLoi(e.target.value)}
-            placeholder="Ví dụ: Bẩn nước ca đầu, nhè màu mực..." />
-        </Field>
-      )}
+      <Field label={`Số lượng làm được${donVi ? ` (${nhanDonVi(donVi)})` : ""}`}>
+        <input type="number" min={0} className="thsx-x-in thsx-glass-in thsx-glass-in--num"
+          placeholder="0" value={soLuong} onChange={(e) => setSoLuong(e.target.value)}
+          inputMode="numeric" />
+      </Field>
 
       <Field label="Ghi chú">
         <input type="text" className="thsx-x-in thsx-glass-in" value={ghiChu} onChange={(e) => setGhiChu(e.target.value)}
@@ -547,7 +520,7 @@ function khungDungMay(s: SxBatch["su_co"][number], meBatDau: string): string {
   return s.ket_thuc ? `${moc(s.bat_dau)}–${moc(s.ket_thuc)}` : `từ ${moc(s.bat_dau)}, chưa chạy lại`;
 }
 
-/** MỘT MẺ trong danh sách sản lượng. Gấp lại chỉ hiện giờ + việc khoán + số tốt; mở ra là ĐỌC
+/** MỘT MẺ trong danh sách sản lượng. Gấp lại chỉ hiện giờ + việc khoán + số lượng; mở ra là ĐỌC
  *  TRỌN mẻ: việc khoán (ảnh chụp đơn giá · ĐVT), việc phát sinh, máy, ca, người tham gia, các lần
  *  dừng máy. KHÔNG chia sản lượng cho ai (gỡ 18/09/2026). Danh mục đổi sau lúc ghi ⇒ băng so sánh
  *  cũ → mới + nút lấy số mới; không bấm = giữ số cũ. */
@@ -576,8 +549,9 @@ export function BatchRow({
           </span>
         )}
         <span className="thsx-x-item__spacer" />
-        <span className="thsx-batch-pill thsx-batch-pill--tot">{num(b.tot)} tốt</span>
-        {b.hong > 0 && <span className="thsx-batch-pill thsx-batch-pill--hong">−{num(b.hong)} hỏng</span>}
+        <span className="thsx-batch-pill thsx-batch-pill--tot">
+          {num(b.tot)}{b.don_vi ? ` ${nhanDonVi(b.don_vi)}` : ""}
+        </span>
       </button>
       {mo && (
         <div className="thsx-x-item__body">
@@ -646,9 +620,9 @@ export function BatchRow({
               </div>
             )}
             <div className="thsx-batch-spec-cell">
-              <span className="thsx-batch-spec-label">Tổng / tốt / hỏng</span>
+              <span className="thsx-batch-spec-label">Số lượng làm được</span>
               <span className="thsx-batch-spec-val thsx-num">
-                <b>{num(b.tong)}</b> / <b className="thsx-text-emerald">{num(b.tot)}</b> / <b className={b.hong > 0 ? "thsx-text-rose" : ""}>{num(b.hong)}</b>{b.don_vi ? ` ${nhanDonVi(b.don_vi)}` : ""}
+                <b>{num(b.tot)}</b>{b.don_vi ? ` ${nhanDonVi(b.don_vi)}` : ""}
               </span>
             </div>
             {b.may_ten && (
@@ -675,12 +649,6 @@ export function BatchRow({
               <div className="thsx-batch-spec-cell thsx-batch-spec-cell--full thsx-batch-spec-cell--bad">
                 <span className="thsx-batch-spec-label">Dừng máy</span>
                 <span className="thsx-batch-spec-val">{b.su_co.map((s) => `${khungDungMay(s, b.bat_dau)}: ${s.ly_do ?? ""}`).join(" • ")}</span>
-              </div>
-            )}
-            {b.mo_ta_loi && (
-              <div className="thsx-batch-spec-cell thsx-batch-spec-cell--full thsx-batch-spec-cell--bad">
-                <span className="thsx-batch-spec-label">Lỗi</span>
-                <span className="thsx-batch-spec-val"><b>{b.mo_ta_loi}</b></span>
               </div>
             )}
             {b.lot_vao.length > 0 && (
@@ -824,7 +792,7 @@ function MeChon({
           <label key={b.id} className={`thsx-x-chon__o${chon.has(b.id) ? " is-on" : ""}`}>
             <input type="checkbox" checked={chon.has(b.id)} onChange={() => bat(b.id)} />
             <span className="thsx-x-chon__ten thsx-num">{formatBatchTime(b.bat_dau, b.ket_thuc)}</span>
-            <span className="thsx-x-chon__phu thsx-num"><b>{num(b.tot)}</b> tốt</span>
+            <span className="thsx-x-chon__phu thsx-num"><b>{num(b.tot)}</b>{dv}</span>
           </label>
         ))}
       </div>

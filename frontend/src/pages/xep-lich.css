@@ -2745,32 +2745,6 @@
   cursor: help;
 }
 
-/* Băng "ngày dự kiến còn thiếu dữ kiện" — đặt ngay dưới ô ngày để người đọc thấy CÙNG LÚC với
-   con số mà nó đang cảnh báo. */
-.xl-modal__thieu {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 8px 10px;
-  font-size: 11px;
-  line-height: 1.45;
-  color: #9a3412;
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
-  border-radius: var(--r-md, 8px);
-}
-.xl-modal__thieu svg {
-  flex: none;
-  margin-top: 1px;
-}
-.xl-modal__thieu ul {
-  margin: 3px 0 0;
-  padding-left: 15px;
-}
-.xl-modal__thieu li + li {
-  margin-top: 2px;
-}
-
 /* Custom Prompt Dialog Modal */
 .xl-prompt-overlay {
   position: fixed;

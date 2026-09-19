@@ -5,7 +5,7 @@
 //   · MẺ CỦA TỔ — cộng vào dòng tổng;
 //   · NGƯỜI CỦA TỔ ĐI LÀM Ở TỔ KHÁC — cùng con số của mẻ, KHÔNG cộng tổng (đếm hai lượt là sai
 //     sản lượng xưởng).
-// Mỗi mục mở ba tầng: LỆNH → CÔNG ĐOẠN → MẺ (việc khoán · tốt · hỏng · người tham gia). Không chia ai
+// Mỗi mục mở ba tầng: LỆNH → CÔNG ĐOẠN → MẺ (việc khoán · số lượng · người tham gia). Không chia ai
 // được bao nhiêu, không số phút, không tiền — "ghi nhận thế thôi, đừng có chia bất cứ gì".
 //
 // Mọi thứ lọc · cắt trang · cộng tổng Ở MÁY CHỦ. Ngày là ngày BẮT ĐẦU mẻ theo giờ xưởng. Số luôn đi
@@ -318,7 +318,7 @@ export function ThsxSanLuongTab({ teamId, eventTick }: { teamId: number; eventTi
             <span className="thsx-sl__trong">Tổ không có mẻ nào trong khoảng này.</span>
           ) : data.tong.map((t) => (
             <span key={t.don_vi ?? "—"} className="thsx-sl__chip">
-              Mẻ của tổ · tốt <b className="thsx-num">{num(t.tot)}</b>{dv(t.don_vi)}
+              Mẻ của tổ · làm được <b className="thsx-num">{num(t.tot)}</b>{dv(t.don_vi)}
               {t.hong > 0 && <> · hỏng <b className="thsx-num">{num(t.hong)}</b></>}
               <span className="thsx-sl__phu"> · {t.so_me} mẻ</span>
             </span>

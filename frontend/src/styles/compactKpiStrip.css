@@ -1,0 +1,104 @@
+/* Compact KPI Strip — gộp n ô trong 1 dải mảnh cao ~38-42px.
+   Theo đúng UI_DESIGN.md §4: gộp thành dải mảnh, không tạo thẻ cao ≥80px. */
+.rdx-compact-kpi {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft);
+  border-radius: 9999px;
+  padding: 4px 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  gap: 0;
+  max-width: 100%;
+}
+
+.rdx-compact-kpi__cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px;
+  position: relative;
+}
+
+.rdx-compact-kpi__cell + .rdx-compact-kpi__cell::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 18px;
+  background: var(--rule-soft);
+}
+
+.rdx-compact-kpi__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--heat-0);
+  color: var(--ash);
+  flex-shrink: 0;
+}
+
+.rdx-compact-kpi__icon.ic-amber {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.rdx-compact-kpi__icon.ic-moss {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.rdx-compact-kpi__icon.ic-signal {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.rdx-compact-kpi__icon.ic-rust {
+  background: #ffedd5;
+  color: #c5400a;
+}
+
+.rdx-compact-kpi__val {
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1;
+}
+
+.rdx-compact-kpi__cell.is-alert .rdx-compact-kpi__val {
+  color: var(--rust);
+}
+
+.rdx-compact-kpi__label {
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ash);
+  white-space: nowrap;
+}
+
+.rdx-compact-kpi__hint {
+  font-size: 11px;
+  color: var(--ash-2);
+  margin-left: 2px;
+}
+
+@media (max-width: 640px) {
+  .rdx-compact-kpi {
+    border-radius: var(--r-3);
+    width: 100%;
+    justify-content: space-between;
+  }
+  .rdx-compact-kpi__cell {
+    padding: 6px 8px;
+  }
+}

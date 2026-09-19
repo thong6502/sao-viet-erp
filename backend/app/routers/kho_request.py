@@ -17,10 +17,11 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import CurrentUser, get_authorization_service, require_permission
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
-from ..models.stock_request import REQ_APPROVED
+from ..models.stock_request import REQ_APPROVED, REQ_NHAP
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.document_sequence_repo import DocumentSequenceRepository
+from ..repositories.kho_gia_goc_repo import KhoGiaGocRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.org_scope import dept_subtree_ids
 from ..repositories.rbac_repo import DepartmentRepository
@@ -94,23 +95,45 @@ def _lenh_map(db: Session, reqs) -> dict[tuple[str, int], str]:
     return ra
 
 
-def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
+def _tu_kcs(req) -> bool:
+    """Yêu cầu NHẬP thành phẩm do KCS gửi — cùng dấu hiệu `nguon_lo()` dùng để gọi là lô "từ KCS"."""
+    return req.loai == REQ_NHAP and getattr(req, "san_xuat_cong_viec_id", None) is not None
+
+
+def _gia_kcs(db: Session, reqs) -> tuple[dict, dict]:
+    """Giá gốc (đọc từ lô) + số đơn của mọi dòng KCS trong tập — 2 query cho cả trang."""
+    dong = [ln for r in reqs if _tu_kcs(r) for ln in r.lines]
+    if not dong:
+        return {}, {}
+    repo = KhoGiaGocRepository(db)
+    return (repo.gia_goc_theo_dong_yc([ln.id for ln in dong]),
+            repo.ma_don_theo_lsx([ln.lsx_id for ln in dong]))
+
+
+def _serialize(req, *, db: Session, can_view_stock: bool, can_view_cost: bool,
+               levels: dict | None,
                on_hand: dict | None,
                open_voucher_id: int | None = None,
                hang_map: dict | None = None,
                hang_svc: VatLieuKhoService | None = None,
                lenh_map: dict | None = None,
-               boi_canh: dict | None = None) -> StockRequestOut:
+               boi_canh: dict | None = None,
+               gia_kcs: tuple[dict, dict] | None = None) -> StockRequestOut:
     """Dựng payload + ÁP quyền hiển thị.
 
     `muc_ton` (đèn 5 màu) trả cho mọi vai vì không kèm con số; `ton_kha_dung` chỉ set khi
-    có `can_view_stock`. Ẩn ở đây chứ không chỉ ẩn trên UI — ẩn cột ở FE thì số vẫn nằm
+    có `can_view_stock`. Mọi con số TIỀN chỉ set khi có `can_view_cost` — kể cả với người tạo
+    yêu cầu (chủ 18/09/2026). Ẩn ở đây chứ không chỉ ẩn trên UI — ẩn cột ở FE thì số vẫn nằm
     trong response.
 
     `hang_map` ((loai,id) → bản ghi danh mục) dựng SẴN theo cả trang để tránh N+1 khi list;
     gọi lẻ 1 đề nghị thì để None, hàm tự nạp. `boi_canh` (request_id → tổ/công đoạn/giờ cần từ
-    đề nghị cấp vật tư công đoạn — task-8-ruling-man-kho) theo ĐÚNG khuôn đó.
+    đề nghị cấp vật tư công đoạn — task-8-ruling-man-kho) và `gia_kcs` theo ĐÚNG khuôn đó.
     """
+    tu_kcs = _tu_kcs(req)
+    gia_goc_map, don_map = {}, {}
+    if can_view_cost and tu_kcs:
+        gia_goc_map, don_map = gia_kcs if gia_kcs is not None else _gia_kcs(db, [req])
     hang_svc = hang_svc or _hang_service(db)
     users = UserRepository(db)
     cap = [(ln.hang_loai, ln.hang_id) for ln in req.lines]
@@ -156,7 +179,13 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
             sl_con_lai=StockRequestService.con_lai(ln),
             sl_chot_thuc_xuat=(float(ln.sl_chot_thuc_xuat)
                                if ln.sl_chot_thuc_xuat is not None else None),
-            don_gia=ln.don_gia,
+            don_gia=ln.don_gia if can_view_cost else None,
+            tu_kcs=tu_kcs,
+            gia_goc=(gia_goc_map.get(ln.id) or (None, None))[0],
+            tien_goc=(gia_goc_map.get(ln.id) or (None, None))[1],
+            don_gia_ban=(int(ln.don_gia_ban)
+                         if can_view_cost and ln.don_gia_ban is not None else None),
+            don_ban_ma=don_map.get(ln.lsx_id) if ln.lsx_id else None,
             ly_do_thieu=ln.ly_do_thieu,
             ghi_chu=ln.ghi_chu,
             muc_ton=(levels or {}).get(key),
@@ -259,6 +288,7 @@ def list_requests(
         **_scoped_filters(db, user, authz),
     )
     can_view_stock = authz.can(user, MODULE, "view_stock")
+    can_view_cost = authz.can(user, MODULE, "view_cost")
     draft_map = StockVoucherRepository(db).draft_ids_by_request([r.id for r in rows])
     # Nạp SẴN mọi mã hàng của cả trang trong 1 query (tránh N+1 trong _serialize).
     hang_svc = _hang_service(db)
@@ -269,14 +299,16 @@ def list_requests(
     # Tổ/công đoạn/giờ cần (đề nghị cấp vật tư công đoạn) của CẢ TRANG trong 1 query — tránh N+1
     # trên đường mở màn chính của thủ kho (task-8-ruling-man-kho, Ruling 32/34).
     boi_canh = SanXuatVatTuRepository(db).boi_canh_san_xuat([r.id for r in rows])
+    gia_kcs = _gia_kcs(db, rows) if can_view_cost else ({}, {})
     items = []
     for r in rows:
         # List KHÔNG hiện tồn khả dụng/đèn (chỉ drawer chi tiết hiện) → khỏi tính, tránh N+1 query.
         levels, on_hand = None, None
         items.append(_serialize(r, db=db, can_view_stock=can_view_stock,
+                                can_view_cost=can_view_cost,
                                 levels=levels, on_hand=on_hand, lenh_map=lenh_map,
                                 open_voucher_id=draft_map.get(r.id), hang_map=hang_map,
-                                hang_svc=hang_svc, boi_canh=boi_canh))
+                                hang_svc=hang_svc, boi_canh=boi_canh, gia_kcs=gia_kcs))
     return StockRequestPage(items=items, total=total)
 
 
@@ -358,6 +390,7 @@ def get_request(
     levels, on_hand = _levels(svc, req)
     draft_map = StockVoucherRepository(db).draft_ids_by_request([req.id])
     return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE, "view_stock"),
+                      can_view_cost=authz.can(user, MODULE, "view_cost"),
                       levels=levels, on_hand=on_hand,
                       open_voucher_id=draft_map.get(req.id))
 
@@ -392,6 +425,7 @@ def create_request(
         raise _err(e) from None
     levels, on_hand = _levels(svc, req)
     return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE, "view_stock"),
+                      can_view_cost=authz.can(user, MODULE, "view_cost"),
                       levels=levels, on_hand=on_hand)
 
 
@@ -408,11 +442,18 @@ def update_request(
                             detail="Chỉ người tạo mới sửa được yêu cầu")
     data = payload.model_dump(exclude_unset=True, exclude={"lines"})
     lines = [ln.model_dump() for ln in payload.lines] if payload.lines is not None else None
+    if lines is not None and not authz.can(user, MODULE, "view_cost"):
+        # Không thấy giá thì form gửi lên không có giá — ghi thẳng là xoá mất giá đang có.
+        cu = {(ln.hang_loai, ln.hang_id, ln.lsx_id, ln.bai_ghep_id): ln.don_gia for ln in req.lines}
+        for ln in lines:
+            ln["don_gia"] = cu.get((ln["hang_loai"], ln["hang_id"], ln.get("lsx_id"),
+                                    ln.get("bai_ghep_id")))
     try:
         req = svc.update(req, lines=lines, **data)
     except StockRequestError as e:
         raise _err(e) from None
     return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE, "view_stock"),
+                      can_view_cost=authz.can(user, MODULE, "view_cost"),
                       levels=None, on_hand=None)
 
 
@@ -428,6 +469,7 @@ def _act(svc: StockRequestService, request_id: int, user: User, authz: Authoriza
     # Yêu cầu nhập thành phẩm từ KCS: màn KCS / hồ sơ lệnh đọc ngược yêu cầu này ⇒ đẩy ngay.
     phat_su_kien_kho(req, bao_nguoi_tao=bao_nguoi_tao)
     return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE, "view_stock"),
+                      can_view_cost=authz.can(user, MODULE, "view_cost"),
                       levels=None, on_hand=None)
 
 

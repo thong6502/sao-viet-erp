@@ -2104,7 +2104,8 @@ export interface SxKcsChuoiCongDoan {
   cong_doan: SxKcsCongDoan[];
 }
 export interface SxKcsKiemIn {
-  so_dat: number;
+  /** Bỏ trống = máy chủ tự suy: đạt = phần tổ đã làm mà chưa kiểm − số lỗi (form KCS chỉ gõ lỗi). */
+  so_dat?: number | null;
   so_loi: number;
   checklist?: SxKcsChecklistKetQuaIn[] | null;
   ghi_chu?: string | null;
@@ -7764,8 +7765,20 @@ export interface StockRequestLine {
    *  nào — khác hẳn 0 (đã chốt là không xuất gì). Có giá trị → hiện "thực xuất N / yêu cầu M"
    *  thay vì "còn thiếu". */
   sl_chot_thuc_xuat: number | null;
-  /** Đơn giá NHẬP người đề nghị khai — phiếu kế thừa (kho chỉ đọc). Null với đề nghị XUẤT. */
+  /** Đơn giá NHẬP người đề nghị khai — phiếu kế thừa (kho chỉ đọc). Null với đề nghị XUẤT.
+   *  Mọi trường TIỀN của dòng (`don_gia`, `gia_goc`, `don_gia_ban`) chỉ có khi `kho:view_cost` —
+   *  người tạo yêu cầu cũng không ngoại lệ; thiếu quyền → null. */
   don_gia: number | null;
+  /** Dòng thành phẩm KCS gửi nhập: `don_gia` luôn 0, giá gốc thật đọc ở lô sau khi kế toán kho gõ.
+   *  `gia_goc` null = "Chưa có giá gốc" (chưa nhập lô nào, hoặc còn lô 0 đ). */
+  tu_kcs: boolean;
+  gia_goc: number | null;
+  /** Tiền gốc đã nhập = Σ giá × SL từng đợt đã ghi sổ (không phải `gia_goc` × SL — giá bình quân
+   *  đã làm tròn nhân ngược lệch tổng các phiếu). Null cùng lúc với `gia_goc`. */
+  tien_goc: number | null;
+  /** Giá bán theo đơn hàng (chỉ để đọc, không vào sổ) + số đơn đi kèm. */
+  don_gia_ban: number | null;
+  don_ban_ma: string | null;
   /** Kho phản hồi: lý do kho cấp/nhập thiếu so với còn phải cấp (nếu có). */
   ly_do_thieu: string | null;
   ghi_chu: string | null;
@@ -9056,6 +9069,15 @@ export interface StockVoucherLine {
   ghi_chu: string | null;
   don_gia: number | null;
   thanh_tien: number | null;
+  /** Thành phẩm KCS mà lô CHƯA CÓ giá gốc ⇒ 0 ở hai số trên là "chưa biết" — ghi "Chưa có giá gốc".
+   *  Luôn false khi thiếu quyền xem giá. */
+  chua_gia_goc?: boolean;
+  /** Nguồn hàng (lệnh / đơn / khách, đọc ở lô gốc) — dòng xuất gộp lô nhiều đơn thì nối ", ". */
+  lsx_ma?: string | null;
+  order_ma?: string | null;
+  khach_hang?: string | null;
+  /** Giá bán của đơn (đ/đvt dòng), chỉ tham khảo. null khi thiếu quyền xem giá. */
+  don_gia_ban?: number | null;
   /** Hạn sử dụng của lô dòng này (ISO yyyy-mm-dd) — BE trả để hiện trên phiếu (điều chuyển). */
   hsd?: string | null;
   /** Vị trí cất lô (kệ/ô) — phiếu điều chuyển hiện/khai per-lô. null = chưa khai. */
@@ -11997,7 +12019,7 @@ export const api = {
      *  kiểm = tài khoản đăng nhập (server chốt, không gửi lên). */
     kiemCongDoan(token: string, congViecId: number, body: SxKcsKiemIn): Promise<SxKcsKiemKetQua> {
       const fd = new FormData();
-      fd.append("so_dat", String(body.so_dat));
+      if (body.so_dat != null) fd.append("so_dat", String(body.so_dat));
       fd.append("so_loi", String(body.so_loi));
       if (body.checklist?.length) fd.append("checklist_json", JSON.stringify(body.checklist));
       if (body.ghi_chu) fd.append("ghi_chu", body.ghi_chu);

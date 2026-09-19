@@ -52,6 +52,46 @@ class KhoGiaGocRepository:
             select(StockRequestLine.dvt).where(StockRequestLine.id == request_line_id)
         ).scalar_one_or_none()
 
+    def gia_goc_theo_dong_yc(self, request_line_ids) -> dict[int, tuple[int | None, int | None]]:
+        """`{dòng yêu cầu: (giá gốc theo đơn vị dòng, tiền gốc)}` đọc ở dòng phiếu NHẬP đã ghi sổ (đã
+        đẻ lô) — chỗ kế toán kho gõ giá gốc (`sua_gia_goc`). Dòng yêu cầu thì giữ 0 mãi, đọc nó là không
+        bao giờ thấy giá. Nhập nhiều đợt thì giá là bình quân theo số lượng (làm tròn đồng), còn tiền là
+        Σ giá × SL từng đợt — nhân ngược giá bình quân đã làm tròn sẽ lệch tổng các phiếu. Còn MỘT lô
+        giá 0 là cả dòng (None, None) — hiện con số lúc kế toán mới gõ được một nửa là đánh lừa người
+        đọc. Chưa ghi sổ lô nào: không có khoá."""
+        ids = {int(i) for i in request_line_ids if i}
+        if not ids:
+            return {}
+        gom: dict[int, list[tuple[int, float]]] = {}
+        for rl_id, gia, sl in self.db.execute(
+            select(StockVoucherLine.request_line_id, StockVoucherLine.don_gia, StockVoucherLine.so_luong)
+            .join(StockVoucher, StockVoucher.id == StockVoucherLine.voucher_id)
+            .where(StockVoucherLine.request_line_id.in_(ids), StockVoucherLine.lot_id.is_not(None),
+                   StockVoucher.loai == VOUCHER_NHAP)
+        ).all():
+            gom.setdefault(int(rl_id), []).append((int(gia or 0), float(sl or 0)))
+        ra: dict[int, tuple[int | None, int | None]] = {}
+        for rl_id, ds in gom.items():
+            tong_sl = sum(sl for _, sl in ds)
+            if any(gia <= 0 for gia, _ in ds) or tong_sl <= 0:
+                ra[rl_id] = (None, None)
+            else:
+                tien = sum(gia * sl for gia, sl in ds)
+                ra[rl_id] = (round(tien / tong_sl), round(tien))
+        return ra
+
+    def ma_don_theo_lsx(self, lsx_ids) -> dict[int, str]:
+        """`{lệnh: số đơn hàng}` — kèm giá bán cho người đọc biết giá đó của đơn nào."""
+        ids = {int(i) for i in lsx_ids if i}
+        if not ids:
+            return {}
+        return {
+            int(i): ma for i, ma in self.db.execute(
+                select(Lsx.id, Order.order_no).join(Order, Order.id == Lsx.order_id)
+                .where(Lsx.id.in_(ids))
+            ).all()
+        }
+
     def ds_lo_goc_tu_kcs(self, *, q: str | None, chi_chua_gia: bool, offset: int, limit: int):
         """Lô GỐC thành phẩm nhập từ KCS (mọi kho), mới nhất trước. Trả `(rows, total)`; mỗi row là
         `(lot, dòng phiếu nhập, dòng yêu cầu, tên kho, hàng, mã lệnh, số đơn, khách)`."""

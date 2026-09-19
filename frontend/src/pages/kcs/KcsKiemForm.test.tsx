@@ -8,8 +8,8 @@ vi.mock("../../auth/useAuth", () => ({ useAuth: () => ({ token: "token-test" }) 
 const lenh = { id: 4, ma: "LSX26-0004", ten: "Hộp bánh", khach: null, nhom_id: null, nhom_ma: null, nhom_trang_thai: null } as SxKcsLenhDau;
 const cd = {
   cong_viec_id: 11, ten: "Bế", phan_doan_so: 1, phan_doan_tong: 1, to_id: 3, to_ten: "Tổ bế",
-  trang_thai: "running", tot: 0, hong: 0, don_vi: "con", la_kcs_cuoi: false, checklist: [],
-  so_lan_kiem: 0, tong_dat: 0, tong_loi: 0, da_yeu_cau_kho: 0, con_gui_kho: 0, yeu_cau_kho: [], lan_kiem: [],
+  trang_thai: "running", tot: 120, hong: 0, don_vi: "con", la_kcs_cuoi: false, checklist: [],
+  so_lan_kiem: 2, tong_dat: 50, tong_loi: 3, da_yeu_cau_kho: 0, con_gui_kho: 0, yeu_cau_kho: [], lan_kiem: [],
 } as SxKcsCongDoan;
 
 const anh = (ten: string) => new File(["x"], ten, { type: "image/png" });
@@ -55,10 +55,40 @@ describe("KcsKiemForm · danh sách ảnh lỗi", () => {
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "chup-1.png" })).toBeNull();
 
-    fireEvent.change(screen.getByLabelText("Số đạt"), { target: { value: "40" } });
     fireEvent.click(screen.getByRole("button", { name: "Lưu kết quả kiểm" }));
     await waitFor(() => expect(kiem).toHaveBeenCalledTimes(1));
     const gui = kiem.mock.calls[0][2].files ?? [];
     expect(gui.map((f) => f.name)).toEqual(["chup-1.png", "co-san-2.png"]);
+  });
+});
+
+describe("KcsKiemForm · chỉ gõ số lỗi", () => {
+  // jsdom không có scrollIntoView — form cuộn tới thông báo chặn.
+  beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("không có ô Số đạt; đạt = phần tổ làm chưa kiểm − lỗi, gửi lên chỉ số lỗi", async () => {
+    const kiem = vi.spyOn(api.sanXuat, "kiemCongDoan").mockResolvedValue({} as SxKcsKiemKetQua);
+    render(<KcsKiemForm lenh={lenh} cd={cd} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.queryByLabelText("Số đạt")).toBeNull();
+    expect(screen.getByText(/Tổ đã làm:/).textContent).toBe("Tổ đã làm: 120 con");
+    // 120 tổ làm − (50 đạt + 3 lỗi) đã kiểm = 67 chưa kiểm.
+    expect(screen.getByText(/Lần này kiểm/).textContent).toBe("Lần này kiểm 67 con tổ đã làm mà chưa kiểm → đạt 67 con.");
+    fireEvent.change(screen.getByLabelText("Số lỗi"), { target: { value: "70" } });
+    fireEvent.change(screen.getByLabelText("Mô tả lỗi"), { target: { value: "Xước" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu kết quả kiểm" }));
+    expect(screen.getByRole("alert").textContent).toBe("Số lỗi vượt phần tổ đã làm mà chưa kiểm (67 con).");
+    fireEvent.change(screen.getByLabelText("Số lỗi"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu kết quả kiểm" }));
+    await waitFor(() => expect(kiem).toHaveBeenCalledTimes(1));
+    expect(kiem.mock.calls[0][2]).not.toHaveProperty("so_dat");
+    expect(kiem.mock.calls[0][2].so_loi).toBe(0);
+  });
+
+  it("tổ chưa ghi thêm gì từ lần kiểm trước ⇒ nói rõ, không cho lưu", () => {
+    render(<KcsKiemForm lenh={lenh} cd={{ ...cd, tot: 53 }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByText(/chưa có gì để kiểm/)).toBeTruthy();
+    expect(screen.queryByLabelText("Số lỗi")).toBeNull();
+    expect((screen.getByRole("button", { name: "Lưu kết quả kiểm" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

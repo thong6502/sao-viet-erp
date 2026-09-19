@@ -367,6 +367,9 @@ input.kho-num,
 }
 .kho-hint--amber { color: var(--amber-deep); }
 .kho-hint--rust { color: var(--rust-deep); }
+/* Dòng phụ trong ô số (`.kho-num` cấm xuống dòng) — vd "Giá bán 2.708 đ/cái · DH003" dưới ô Đơn giá:
+   để nguyên nowrap là cột phình ra đẩy cả bảng tràn ngang trong drawer. */
+.kho-num .kho-hint--xuong-dong { white-space: normal; }
 
 /* --- Dải meta mono một dòng dưới head drawer (thay Timeline 2 mốc) -------- */
 .kho-meta {

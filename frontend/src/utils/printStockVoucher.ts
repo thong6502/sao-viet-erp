@@ -28,6 +28,10 @@ export interface StockVoucherPrintLine {
   /** null = người in không có quyền xem giá vốn → bỏ cột. */
   donGia: number | null;
   thanhTien: number | null;
+  /** Thành phẩm KCS chưa có giá gốc — ô Đơn giá ghi "Chưa có giá gốc", Thành tiền để trống. */
+  chuaGiaGoc?: boolean;
+  /** "DH003 · LSX26-0006 · khách" — hàng của ai, in nhỏ dưới tên. Không in giá bán: không vào sổ kho. */
+  nguon?: string | null;
 }
 
 export interface StockVoucherPrintData {
@@ -107,24 +111,27 @@ export function printStockVoucher(data: StockVoucherPrintData): boolean {
   // Thiếu quyền xem giá vốn → GIỮ NGUYÊN 2 cột Đơn giá/Thành tiền (đúng mẫu 02-VT: A·B·C·D·1·2·3·4)
   // nhưng ĐỂ TRỐNG giá — không xoá cột để bố cục phiếu không đổi.
   const showMoney = data.lines.some((l) => l.donGia !== null && l.donGia !== undefined);
-  const words = showMoney && data.tongTien !== null ? amountInWords(data.tongTien) : "";
+  // Còn dòng chưa có giá gốc ⇒ tổng chưa trọn: để TRỐNG ô Cộng + dòng chữ (như phiếu giấy chưa điền
+  // giá) thay vì in "0" / "Không đồng" — kế toán gõ giá gốc xong in lại là đủ.
+  const thieuGia = showMoney && data.lines.some((l) => l.chuaGiaGoc);
+  const words = showMoney && !thieuGia && data.tongTien !== null ? amountInWords(data.tongTien) : "";
 
   const body = data.lines
     .map(
       (l, i) => `<tr>
         <td class="c">${i + 1}</td>
         <td class="c">${escapeHtml(l.materialCode ?? "")}</td>
-        <td>${escapeHtml(l.materialName ?? "")}</td>
+        <td>${escapeHtml(l.materialName ?? "")}${l.nguon ? `<div class="nguon">${escapeHtml(l.nguon)}</div>` : ""}</td>
         <td class="c">${escapeHtml(l.dvt ?? "")}</td>
         <td class="r">${qty(l.soLuongChungTu)}</td>
         <td class="r">${qty(l.soLuong)}</td>
-        <td class="r">${showMoney ? money(l.donGia ?? 0) : ""}</td>
-        <td class="r">${showMoney ? money(l.thanhTien ?? 0) : ""}</td>
+        <td class="r">${!showMoney ? "" : l.chuaGiaGoc ? '<i class="chua-gia">Chưa có giá gốc</i>' : money(l.donGia ?? 0)}</td>
+        <td class="r">${showMoney && !l.chuaGiaGoc ? money(l.thanhTien ?? 0) : ""}</td>
       </tr>`,
     )
     .join("");
 
-  const totalRow = `<tr class="tot"><td colspan="7" class="r"><b>Cộng</b></td><td class="r"><b>${showMoney ? money(data.tongTien ?? 0) : ""}</b></td></tr>`;
+  const totalRow = `<tr class="tot"><td colspan="7" class="r"><b>Cộng</b></td><td class="r"><b>${showMoney && !thieuGia ? money(data.tongTien ?? 0) : ""}</b></td></tr>`;
 
   const signers = form.signers
     .map(
@@ -163,6 +170,8 @@ th{text-align:center;font-weight:700}
 td.c{text-align:center}
 td.r{text-align:right}
 tr.tot td{font-weight:700}
+.chua-gia{font-size:11px}
+.nguon{font-size:11px;font-style:italic;margin-top:2px}
 .words{margin-top:6px;font-style:italic}
 .sign-date{text-align:right;font-style:italic;margin:14px 0 8px}
 .signs{display:flex;justify-content:space-between;gap:8px;text-align:center}
@@ -230,7 +239,7 @@ ${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
     ${totalRow}
   </tbody>
 </table>
-${showMoney ? `<div class="words">Tổng số tiền (viết bằng chữ): ${escapeHtml(words)}</div>` : ""}
+${showMoney ? `<div class="words">Tổng số tiền (viết bằng chữ): ${thieuGia ? `${DOTS} <span class="chua-gia">(còn hàng chưa có giá gốc)</span>` : escapeHtml(words)}</div>` : ""}
 <div class="words">Số chứng từ gốc kèm theo: ................................</div>
 <div class="sign-date">Ngày......tháng.......năm...............</div>
 <div class="signs">${signers}</div>

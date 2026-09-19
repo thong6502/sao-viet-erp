@@ -23,6 +23,7 @@ import {
   type StockThreshold,
   type StockVoucher,
   type StockVoucherAttachment,
+  type StockVoucherLine,
   type StockVoucherLineInput,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
@@ -53,6 +54,8 @@ import {
   DEFAULT_PAGE_SIZE,
   fmtGioCan,
   fmtQty,
+  GiaBanDong,
+  GiaGocKcs,
   isOverdue,
   readStoredKho,
   todayISO,
@@ -1182,6 +1185,8 @@ export function InboxRequestDrawer({
   useEffect(reload, [reload]);
 
   const canFulfill = canCreate && req != null && FULFILLABLE.includes(req.trang_thai);
+  // Giá bán (tham khảo) — CỘT RIÊNG, chỉ dựng khi có dòng thành phẩm mang giá bán.
+  const hienGiaBan = canViewCost && !!req?.lines.some((l) => l.don_gia_ban != null);
 
   const reqLines = req?.lines ?? [];
   const totalSKU = reqLines.length;
@@ -1387,6 +1392,7 @@ export function InboxRequestDrawer({
                         {canViewStock && <th className="kho-num" style={{ width: 140 }}>Tồn khả dụng</th>}
                         {canViewCost && <th className="kho-num" style={{ width: 100 }}>Đơn giá</th>}
                         {canViewCost && <th className="kho-num" style={{ width: 120 }}>Thành tiền</th>}
+                        {hienGiaBan && <th className="kho-num" style={{ width: 120 }}>Giá bán</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -1469,18 +1475,34 @@ export function InboxRequestDrawer({
                                 )}
                               </td>
                             )}
+                            {/* Thành phẩm KCS: `don_gia` dòng yêu cầu luôn 0 — giá gốc thật đọc ở lô
+                                (`gia_goc`, kế toán kho gõ sau), chưa có thì nói thẳng thay vì "0 đ". */}
                             {canViewCost && (
                               <td className="kho-num">
-                                {l.don_gia != null
-                                  ? `${l.don_gia.toLocaleString("vi-VN")} đ`
-                                  : <span className="rc__muted">—</span>}
+                                {l.tu_kcs ? (
+                                  <GiaGocKcs gia={l.gia_goc} />
+                                ) : l.don_gia != null ? (
+                                  `${l.don_gia.toLocaleString("vi-VN")} đ`
+                                ) : (
+                                  <span className="rc__muted">—</span>
+                                )}
                               </td>
                             )}
                             {canViewCost && (
                               <td className="kho-num">
-                                {l.don_gia != null
-                                  ? money(Math.round(l.don_gia * l.sl_de_nghi))
-                                  : <span className="rc__muted">—</span>}
+                                {/* KCS: tiền gốc đã nhập (Σ từng phiếu), không nhân ngược giá bình quân. */}
+                                {l.tu_kcs
+                                  ? l.tien_goc != null
+                                    ? money(l.tien_goc)
+                                    : <span className="rc__muted">—</span>
+                                  : l.don_gia != null
+                                    ? money(Math.round(l.don_gia * l.sl_de_nghi))
+                                    : <span className="rc__muted">—</span>}
+                              </td>
+                            )}
+                            {hienGiaBan && (
+                              <td className="kho-num">
+                                <GiaBanDong gia={l.don_gia_ban} dvt={l.dvt} donMa={l.don_ban_ma} />
                               </td>
                             )}
                           </tr>
@@ -1913,6 +1935,11 @@ function VoucherCreateDrawer({
     }
     return Math.round(sum);
   }, [blocks, isNhap, canViewCost]);
+  // Còn dòng thành phẩm KCS chưa có giá gốc ⇒ tổng "0 đ" là sai nghĩa, báo thẳng thay vì in số.
+  const thieuGiaGoc =
+    isNhap && blocks.some((b) => b.line.tu_kcs && b.line.sl_con_lai > 0 && !(Number(b.donGia) > 0));
+  // Cột Giá bán riêng — server chỉ trả giá bán cho người có `view_cost` nên không cần gate thêm.
+  const hienGiaBan = isNhap && blocks.some((b) => b.line.don_gia_ban != null);
 
   // Kiểm tra hợp lệ dùng CHUNG cho nút "Tạo & Ghi sổ" (báo NGAY khi bấm, không để lọt vào popup
   // rồi mới báo) và cho submit (chốt chặn). Trả câu lỗi ĐẦU TIÊN, null nếu hợp lệ.
@@ -2055,7 +2082,9 @@ function VoucherCreateDrawer({
                     <div className="kho-vdivider" />
                     <div className="kho-top-kpi-pill">
                       <span className="kho-top-kpi-pill__label">Tổng giá vốn ({payload.length} dòng)</span>
-                      <span className="kho-top-kpi-pill__val">{money(giaVon)}</span>
+                      <span className="kho-top-kpi-pill__val">
+                        {thieuGiaGoc && giaVon === 0 ? "Chưa có giá gốc" : money(giaVon)}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -2165,6 +2194,7 @@ function VoucherCreateDrawer({
                         <th className="kho-num" style={{ width: 110 }}>{isNhap ? "SL Nhập" : "Cấp"}</th>
                         <th className="kho-num" style={{ width: 120 }}>{isNhap ? "Đơn giá" : "Đơn giá BQ"}</th>
                         <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>
+                        {hienGiaBan && <th className="kho-num" style={{ width: 120 }}>Giá bán</th>}
                         {isNhap && <th style={{ width: 140 }}>Vị trí</th>}
                         {isNhap && <th style={{ width: 140 }}>HSD</th>}
                       </tr>
@@ -2179,6 +2209,7 @@ function VoucherCreateDrawer({
                           block={b}
                           isNhap={isNhap}
                           canViewCost={canViewCost}
+                          hienGiaBan={hienGiaBan}
                           viTriListId={isNhap && viTriOptions.length > 0 ? "kho-vitri-suggest" : undefined}
                           onCap={(v) => patch(b.line.id, (cur) => ({ ...cur, touched: true, cap: v }))}
                           onLyDo={(v) => patch(b.line.id, (cur) => ({ ...cur, lyDo: v }))}
@@ -2308,6 +2339,7 @@ function AllocRow({
   block,
   isNhap,
   canViewCost,
+  hienGiaBan,
   viTriListId,
   idx,
   onCap,
@@ -2323,6 +2355,8 @@ function AllocRow({
   block: AllocBlock;
   isNhap: boolean;
   canViewCost: boolean;
+  /** Bảng có cột Giá bán (tham khảo) — cột riêng, KHÔNG gộp vào ô đơn giá (giá gốc). */
+  hienGiaBan: boolean;
   /** id của <datalist> gợi ý vị trí (kệ/ô) đã khai của kho; undefined = không gợi ý (vẫn gõ tự do). */
   viTriListId?: string;
   idx: number;
@@ -2392,6 +2426,8 @@ function AllocRow({
   const lotCost = block.lots.reduce((s, x) => s + x.so_luong * (x.don_gia_nhap ?? 0), 0);
   const thanhTien = isNhap ? block.cap * nhapGia : lotCost;
   const donGiaBq = isNhap ? nhapGia : chosen > 0 ? lotCost / chosen : 0;
+  // Thành phẩm KCS: dòng yêu cầu giữ 0 đ, giá gốc kế toán gõ SAU khi ghi sổ — nói thẳng, đừng in "0 đ".
+  const kcsChuaGia = isNhap && l.tu_kcs && !(nhapGia > 0);
 
   const rowCls = settled ? "kho-alloc--done" : block.thieu > 0 ? "kho-alloc--short" : "";
 
@@ -2533,7 +2569,9 @@ function AllocRow({
           {/* Đơn giá: NHẬP = giá người yêu cầu khai (số nguyên). XUẤT = đơn giá BÌNH QUÂN gia quyền các
               lô — hiện tới 2 SỐ LẺ để SL × đơn giá sát Thành tiền nhất (làm tròn đồng sẽ lệch to khi
               SL lớn). Thành tiền vẫn là tổng giá vốn THỰC từng lô, không suy từ đơn giá này. */}
-          {isNhap ? (
+          {kcsChuaGia ? (
+            <GiaGocKcs gia={null} />
+          ) : isNhap ? (
             block.donGia ? `${Number(block.donGia).toLocaleString("vi-VN")} đ` : "—"
           ) : canViewCost && chosen > 0 ? (
             <>
@@ -2547,7 +2585,7 @@ function AllocRow({
         <td className="kho-num">
           {/* Thành tiền: NHẬP = SL nhập × đơn giá; XUẤT = tổng giá vốn các lô (chỉ khi có quyền giá).
               "≈" nhỏ phía trước khi số bị làm tròn (giá trị thật lẻ hơn); số tròn thì để nguyên. */}
-          {settled ? (
+          {settled || kcsChuaGia ? (
             "—"
           ) : isNhap ? (
             block.donGia && block.cap ? (
@@ -2567,6 +2605,11 @@ function AllocRow({
             "—"
           )}
         </td>
+        {hienGiaBan && (
+          <td className="kho-num">
+            <GiaBanDong gia={l.don_gia_ban} dvt={l.dvt} donMa={l.don_ban_ma} />
+          </td>
+        )}
         {/* Vị trí cất lô (kệ/ô) — chỉ NHẬP; tuỳ chọn, ghi sổ chép sang lô. */}
         {isNhap && (
           <td>
@@ -2605,7 +2648,7 @@ function AllocRow({
       {hasDetail && (
         <tr className="kho-alloc__detailrow">
           <td aria-hidden />
-          <td colSpan={isNhap ? 10 : 8}>
+          <td colSpan={(isNhap ? 10 : 8) + (hienGiaBan ? 1 : 0)}>
             {quyDoiHint}
             {lyDoBox}
             {!isNhap && (
@@ -2705,7 +2748,7 @@ function AllocRow({
       )}
       {anhZoom && shownAnh && (
         <tr>
-          <td colSpan={isNhap ? 10 : 9} style={{ padding: 0, border: 0 }}>
+          <td colSpan={(isNhap ? 10 : 9) + (hienGiaBan ? 1 : 0)} style={{ padding: 0, border: 0 }}>
             <div
               className="kho-anh__lightbox"
               role="dialog"
@@ -2722,6 +2765,11 @@ function AllocRow({
 }
 
 // ── DRAWER: xem phiếu (chỉ đọc) ──────────────────────────────────────────────
+
+/** "DH003 · LSX26-0006 · Công ty …" — hàng của đơn/lệnh/khách nào (đọc ở lô gốc); null nếu không có. */
+function nguonDong(l: StockVoucherLine): string | null {
+  return [l.order_ma, l.lsx_ma, l.khach_hang].filter(Boolean).join(" · ") || null;
+}
 
 export function VoucherDrawer({
   token,
@@ -2842,7 +2890,7 @@ export function VoucherDrawer({
       diaDiem: null,
       lyDo: v.ghi_chu,
       // In ẩn GIÁ nghiêm theo quyền `view_cost`: KHÔNG có quyền → bỏ Đơn giá/Thành tiền/Tổng (template
-      // tự ẩn 2 cột khi donGia null). Gate ở đây, KHÔNG dựa API — vì API còn nới cho người TẠO yêu cầu.
+      // tự ẩn 2 cột khi donGia null). API cũng đã xoá số khi thiếu quyền; gate thêm ở đây cho chắc.
       tongTien: canViewCost ? v.gia_von : null,
       cancelled: v.trang_thai === "cancelled",
       lines: v.lines.map((l) => ({
@@ -2854,15 +2902,20 @@ export function VoucherDrawer({
         soLuong: l.so_luong,
         donGia: canViewCost ? l.don_gia : null,
         thanhTien: canViewCost ? l.thanh_tien : null,
+        chuaGiaGoc: canViewCost && !!l.chua_gia_goc,
+        nguon: nguonDong(l),
       })),
     };
     setPopupBlocked(!printStockVoucher(data));
   }
 
-  // Cột giá chỉ hiện khi backend THẬT SỰ trả giá: nơi gọi truyền `canViewCost` true (màn đề nghị,
-  // ngăn Thực hiện SX) để người tạo yêu cầu thấy giá, nhưng người xem khác thì backend trả `null`
-  // ⇒ không dựng hai cột Đơn giá/Thành tiền trống. Có quyền thì `gia_von` luôn là số (kho_voucher.py).
+  // Cột giá chỉ hiện khi backend THẬT SỰ trả giá (chỉ người có `view_cost`, kho_voucher.py) ⇒ không
+  // dựng hai cột Đơn giá/Thành tiền trống. Có quyền thì `gia_von` luôn là số.
   const hienGia = canViewCost && v?.gia_von != null;
+  // Giá bán (tham khảo) là cột RIÊNG, chỉ dựng khi có dòng mang giá bán — phiếu mua hàng không có.
+  const hienGiaBan = hienGia && !!v?.lines.some((l) => l.don_gia_ban != null);
+  // Còn dòng thành phẩm KCS chưa có giá gốc ⇒ tổng giá vốn chưa trọn, đừng in như một con số chốt.
+  const thieuGiaGoc = !!v?.lines.some((l) => l.chua_gia_goc);
 
   async function act(fn: () => Promise<StockVoucher>, fallback: string) {
     setBusy(true);
@@ -2994,7 +3047,12 @@ export function VoucherDrawer({
                         <div className="kho-vdivider" />
                         <div className="kho-top-kpi-pill">
                           <span className="kho-top-kpi-pill__label">Tổng giá vốn ({v.lines.length} dòng)</span>
-                          <span className="kho-top-kpi-pill__val">{money(v.gia_von)}</span>
+                          <span className="kho-top-kpi-pill__val">
+                            {thieuGiaGoc && v.gia_von === 0 ? "Chưa có giá gốc" : money(v.gia_von)}
+                          </span>
+                          {thieuGiaGoc && v.gia_von > 0 && (
+                            <span className="kho-hint">chưa gồm hàng chưa có giá gốc</span>
+                          )}
                         </div>
                       </div>
                     )}
@@ -3048,6 +3106,7 @@ export function VoucherDrawer({
                           <th className="kho-num" style={{ width: 110 }}>Số lượng</th>
                           {hienGia && <th className="kho-num" style={{ width: 120 }}>Đơn giá</th>}
                           {hienGia && <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>}
+                          {hienGiaBan && <th className="kho-num" style={{ width: 120 }}>Giá bán</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -3056,6 +3115,7 @@ export function VoucherDrawer({
                             <td style={{ minWidth: 300 }}>
                               <div className="kho-lines__name" style={{ fontWeight: "var(--fw-bold)", color: "var(--ink)" }}>{l.hang_ten ?? "—"}</div>
                               <div className="kho-lines__code" style={{ fontFamily: "var(--ff-sans)", fontSize: 12, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
+                              {nguonDong(l) && <div className="kho-hint kho-hint--xuong-dong">{nguonDong(l)}</div>}
                             </td>
                             <td className="kho-lines__code" style={{ textAlign: "center" }}>{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
                             <td className="kho-num">
@@ -3073,12 +3133,24 @@ export function VoucherDrawer({
                             </td>
                             {hienGia && (
                               <td className="kho-num">
-                                {l.don_gia != null ? money(l.don_gia) : ""}
+                                {l.chua_gia_goc ? (
+                                  <GiaGocKcs gia={null} />
+                                ) : l.don_gia != null ? (
+                                  money(l.don_gia)
+                                ) : (
+                                  ""
+                                )}
                               </td>
                             )}
                             {hienGia && (
                               <td className="kho-num" style={{ fontWeight: "var(--fw-bold)" }}>
-                                {l.thanh_tien != null ? money(l.thanh_tien) : ""}
+                                {l.chua_gia_goc ? "—" : l.thanh_tien != null ? money(l.thanh_tien) : ""}
+                              </td>
+                            )}
+                            {/* Đơn đã hiện ở dòng nguồn dưới tên hàng — ô giá bán chỉ còn con số. */}
+                            {hienGiaBan && (
+                              <td className="kho-num">
+                                <GiaBanDong gia={l.don_gia_ban ?? null} dvt={l.dvt ?? ""} />
                               </td>
                             )}
                           </tr>

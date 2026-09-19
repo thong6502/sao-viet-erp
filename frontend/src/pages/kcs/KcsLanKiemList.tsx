@@ -48,7 +48,7 @@ export function KcsLanKiemList({
                   </div>
                 </div>
                 <span className="kcs-lk__ai">
-                  <Icon name="user" size={12} className="kcs-lk__ai-ic" />
+                  <Icon name="users" size={12} className="kcs-lk__ai-ic" />
                   <span>{lk.nguoi_kiem ?? "—"} · {ngayGio(lk.luc)}</span>
                 </span>
               </div>
@@ -69,7 +69,7 @@ export function KcsLanKiemList({
               )}
               {lk.ghi_chu && (
                 <div className="kcs-lk__note-box">
-                  <Icon name="info" size={13} className="kcs-lk__note-ic" />
+                  <Icon name="help" size={13} className="kcs-lk__note-ic" />
                   <p className="kcs-lk__phu">Ghi chú: {lk.ghi_chu}</p>
                 </div>
               )}

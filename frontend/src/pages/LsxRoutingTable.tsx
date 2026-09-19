@@ -934,26 +934,38 @@ export function LsxRoutingTable({
 
       {rows.length > 0 && (
         <div className={`khsx-lead ${treHan ? "khsx-lead--tre" : ""}`}>
-          <div className="khsx-lead__main">
-            <span className="khsx-lead__label">Tổng thời gian dẫn</span>
+          <div className="khsx-lead__sec khsx-lead__sec--main">
+            <span className="khsx-lead__label">Tổng thời gian dẫn:</span>
             <strong className="khsx-lead__val khsx-dur">{phut(tong.tong)}</strong>
-            <span className="khsx-lead__note">
-              ≈ {soNgay.toFixed(1)} ngày làm việc · chiếm máy {phut(tong.chiemMay)}
-              {tong.coDai && <> · nhanh–chậm {phut(tong.min)} – {phut(tong.max)}</>}
-            </span>
-          </div>
-          <div className="khsx-lead__side">
-            {leadTime?.ngay_du_kien_xong && !dirty && (
-              <span>Dự kiến xong {ngay(leadTime.ngay_du_kien_xong)}</span>
-            )}
-            {conLai != null && (
-              <span className={treHan ? "khsx-lead__warn" : ""}>
-                {treHan
-                  ? `Vượt hạn giao khách — chỉ còn ${conLai} ngày`
-                  : `Còn ${conLai} ngày tới hạn giao khách`}
+            <span className="khsx-lead__sub">≈ {soNgay.toFixed(1)} ngày làm việc</span>
+            <span className="khsx-lead__chip khsx-lead__chip--highlight">chiếm máy {phut(tong.chiemMay)}</span>
+            {tong.coDai && (
+              <span className="khsx-lead__chip khsx-lead__chip--range" title="Nhanh nhất – chậm nhất theo dải tốc độ máy">
+                {phut(tong.min)} – {phut(tong.max)}
               </span>
             )}
-            {soNgoai > 0 && <span>{soNgoai} bước thuê ngoài</span>}
+          </div>
+
+          <div className="khsx-lead__sec khsx-lead__sec--side">
+            {leadTime?.ngay_du_kien_xong && !dirty && (
+              <span className="khsx-lead__est">
+                Dự kiến xong: <strong>{ngay(leadTime.ngay_du_kien_xong)}</strong>
+              </span>
+            )}
+
+            {conLai != null && (
+              <span className={`khsx-lead__status-badge ${treHan ? "is-tre" : "is-ok"}`}>
+                {treHan
+                  ? `Vượt hạn giao khách — chỉ còn ${conLai} ngày`
+                  : `Còn ${conLai} ngày tới hạn giao`}
+              </span>
+            )}
+
+            {soNgoai > 0 && (
+              <span className="khsx-lead__chip khsx-lead__chip--ngoai">
+                {soNgoai} thuê ngoài
+              </span>
+            )}
           </div>
         </div>
       )}

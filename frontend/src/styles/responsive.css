@@ -3013,34 +3013,8 @@
   }
 }
 
-/* 65.7 ĐỢT 2 (Task 20D) — checklist cổng đóng nhóm: nhãn bị bóp còn 56,8px, rơi ba dòng.
-   Cửa vào MỚI của commit `e66477b`: màn "KCS · Tổ thành phẩm" nay có khối "Chốt nhóm", mở một
-   nhóm ra là `ThsxDongNhomPanel` (`ThsxG5.tsx:679-687`) hiện ngay trên trang KCS — trước đó
-   panel này chỉ mount trong ngăn kéo bàn tổ nên chưa ai soi nó ở 375px.
-   Đo ngày 02/09 (`tt_kcs`, mở nhóm `LSX26-0030 · Sản phẩm 1`), hàng "Phân bổ lương đã chốt":
-     `.thsx-x-check__it` (`thuc-hien-sx.css:1380-1384`) là hàng flex `flex-wrap: nowrap`; con
-     trái `.thsx-x-check__ten` `flex: 1 1 auto` còn con phải `.thsx-x-check__ct` `flex: none`
-     (`:1390`). Đúng KHUÔN 1: ô phải giữ nguyên **207,6px** cho câu "1 công đoạn còn phân bổ
-     chưa chốt", ô trái nuốt trọn phần thiếu — đo được **56,8 × 55,8px**, "Phân bổ lương đã
-     chốt" gãy thành ba dòng hai chữ ("Phân bổ" / "lương đã" / "chốt"). Hàng "Mọi công việc đã
-     hoàn thành" cũng gãy hai dòng.
-   Chữa đúng bài §63 (e): cho hàng xuống dòng và đẩy phần CHI TIẾT xuống trọn một dòng riêng,
-   thụt vào 22px (biểu tượng 14px + khe 8px) để nó nằm thẳng dưới nhãn. Nhãn được `min-width: 0`
-   để không còn bị `min-width: auto` mặc định của flex item chặn co.
-   Hàng ĐẠT (`.is-ok`) không có `.thsx-x-check__ct` nên luật này không đụng tới chúng. */
-@media screen and (max-width: 768px) {
-  .shell__content .thsx-x-check__it {
-    flex-wrap: wrap;
-    row-gap: 2px;
-  }
-  .shell__content .thsx-x-check__ten {
-    min-width: 0;
-  }
-  .shell__content .thsx-x-check__ct {
-    flex: 1 1 100%;
-    padding-left: 22px;
-  }
-}
+/* 65.7 ĐỢT 2 (Task 20D) — checklist cổng đóng nhóm: GỠ 18/09/2026 cùng checklist (`ThsxG5.tsx`
+   đã xoá; khối "Chốt nhóm" ở màn KCS nay là một con số + một câu, xem `pages/kcs/kcs.css`). */
 
 /* ===== §66. THU MUA — MUA HÀNG + NHÀ CUNG CẤP ==============================
    Chụp trên 375px, một mục cho cả module (màn "Mua hàng" gồm 2 tab + ngăn kéo

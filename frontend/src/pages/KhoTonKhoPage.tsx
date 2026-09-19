@@ -99,6 +99,8 @@ interface MaterialGroup {
   hsdOthers: number;
   // Mức tồn 5 màu so với ngưỡng đã khai. null = chưa khai ngưỡng cho mã này ở kho này.
   level: StockLevel | null;
+  // Số lô khả dụng là thành phẩm KCS CHƯA CÓ giá gốc — `value` đang cộng 0 cho các lô này.
+  chuaGiaGoc: number;
 }
 
 type TonTab = "ton" | "nhap" | "xuat" | "dc";
@@ -334,6 +336,7 @@ export function KhoTonKhoPage({
           hsdSoonest: null,
           hsdOthers: 0,
           level: null,
+          chuaGiaGoc: 0,
         };
         m.set(key, g);
       }
@@ -344,6 +347,7 @@ export function KhoTonKhoPage({
       if (lot.trang_thai === "available") {
         g.total += lot.sl_con_lai;
         g.value += lot.sl_con_lai * (lot.don_gia_nhap ?? 0);
+        if (lot.tu_kcs && !lot.don_gia_nhap && lot.sl_con_lai > 0) g.chuaGiaGoc += 1;
       }
       g.lots.push(lot);
     }
@@ -889,7 +893,15 @@ export function KhoTonKhoPage({
                         {v.lines.length} / {fmtQty(sumQty)}
                       </td>
                       {canViewCost && (
-                        <td className="kho-num">{v.gia_von != null ? money(v.gia_von) : ""}</td>
+                        <td className="kho-num">
+                          {v.gia_von === 0 && v.lines.some((l) => l.chua_gia_goc) ? (
+                            <NhanChuaGiaGoc />
+                          ) : v.gia_von != null ? (
+                            money(v.gia_von)
+                          ) : (
+                            ""
+                          )}
+                        </td>
                       )}
                       <td>
                         <VoucherStatusBadge status={v.trang_thai} />
@@ -1322,7 +1334,11 @@ function MaterialRow({
       </td>
 
       {/* Giá trị tồn */}
-      {canViewCost && <td className="kho-num kho-ton__val">{money(Math.round(g.value))}</td>}
+      {canViewCost && (
+        <td className="kho-num kho-ton__val">
+          <GiaTriTon value={g.value} chuaGiaGoc={g.chuaGiaGoc} />
+        </td>
+      )}
     </tr>
   );
 }
@@ -1551,6 +1567,7 @@ function MaterialHistoryDrawer({
         voucher_ma: l.voucher_ma ?? l.ma_lo,
         so_luong: l.sl_ban_dau,
         don_gia: l.don_gia_nhap,
+        chuaGiaGoc: loChuaGiaGoc(l),
         vi_tri: l.vi_tri,
         hsd: l.hsd,
       }));
@@ -1566,6 +1583,7 @@ function MaterialHistoryDrawer({
           voucher_ma: r.voucher_ma,
           so_luong: r.so_luong,
           don_gia: r.don_gia,
+          chuaGiaGoc: loChuaGiaGoc(lot),
           vi_tri: lot?.vi_tri ?? null,
           hsd: lot?.hsd ?? null,
         };
@@ -1874,7 +1892,7 @@ function MaterialHistoryDrawer({
                         )}
                         {canViewCost && (
                           <td className="kho-num">
-                            {money(Math.round(lot.sl_con_lai * (lot.don_gia_nhap ?? 0)))}
+                            {loChuaGiaGoc(lot) ? "—" : money(Math.round(lot.sl_con_lai * (lot.don_gia_nhap ?? 0)))}
                           </td>
                         )}
                       </tr>
@@ -1984,7 +2002,13 @@ function MaterialHistoryDrawer({
                       <HsdCell hsd={lot?.hsd} />
                       {canViewCost && (
                         <td className="kho-num">
-                          {r.don_gia != null ? money(Math.round(r.don_gia * r.so_luong)) : ""}
+                          {loChuaGiaGoc(lot) ? (
+                            <NhanChuaGiaGoc />
+                          ) : r.don_gia != null ? (
+                            money(Math.round(r.don_gia * r.so_luong))
+                          ) : (
+                            ""
+                          )}
                         </td>
                       )}
                     </tr>
@@ -2036,7 +2060,13 @@ function MaterialHistoryDrawer({
                       <HsdCell hsd={r.hsd} />
                       {canViewCost && (
                         <td className="kho-num">
-                          {r.don_gia != null ? money(Math.round(r.don_gia * r.so_luong)) : ""}
+                          {r.chuaGiaGoc ? (
+                            <NhanChuaGiaGoc />
+                          ) : r.don_gia != null ? (
+                            money(Math.round(r.don_gia * r.so_luong))
+                          ) : (
+                            ""
+                          )}
                         </td>
                       )}
                     </tr>
@@ -2305,19 +2335,44 @@ function NguonLoCell({ lot }: { lot: StockLot }) {
   );
 }
 
+/** Lô thành phẩm KCS mà kế toán chưa gõ giá gốc — `don_gia_nhap` 0 là "chưa biết", không phải miễn phí. */
+function loChuaGiaGoc(lot: StockLot | undefined): boolean {
+  return !!lot?.tu_kcs && !lot.don_gia_nhap;
+}
+
+function NhanChuaGiaGoc() {
+  return (
+    <span className="badge-sem badge-sem--amber" title="Kế toán kho gõ ở Báo cáo kho › Giá gốc thành phẩm">
+      Chưa có giá gốc
+    </span>
+  );
+}
+
 /** Ô đơn giá lô. Thành phẩm KCS còn giá gốc 0 ⇒ nhãn "Chưa có giá gốc" (kế toán gõ ở Báo cáo kho ›
  *  Giá gốc thành phẩm) thay vì in số 0 như thể hàng miễn phí. */
 function GiaGocCell({ lot }: { lot: StockLot }) {
-  if (lot.tu_kcs && !lot.don_gia_nhap) {
+  if (loChuaGiaGoc(lot)) {
     return (
       <td className="kho-num">
-        <span className="badge-sem badge-sem--amber" title="Kế toán kho gõ ở Báo cáo kho › Giá gốc thành phẩm">
-          Chưa có giá gốc
-        </span>
+        <NhanChuaGiaGoc />
       </td>
     );
   }
   return <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>;
+}
+
+/** Giá trị tồn của một mặt hàng. Lô KCS chưa có giá gốc đang cộng 0: chưa lô nào có giá thì ghi thẳng
+ *  "Chưa có giá gốc"; có giá một phần thì in số kèm dòng nhắc là số chưa trọn. */
+function GiaTriTon({ value, chuaGiaGoc }: { value: number; chuaGiaGoc: number }) {
+  if (chuaGiaGoc > 0 && value === 0) return <NhanChuaGiaGoc />;
+  return (
+    <>
+      {money(Math.round(value))}
+      {chuaGiaGoc > 0 && (
+        <div className="kho-hint kho-hint--xuong-dong">chưa gồm {chuaGiaGoc} lô chưa có giá gốc</div>
+      )}
+    </>
+  );
 }
 
 // Tab "Tổng quan" của drawer vật tư — CHỈ ĐỌC, gộp từ material.lots + threshold. Thanh gauge
@@ -2335,7 +2390,7 @@ function MaterialOverview({
   onHand: number;
   data: StockMaterialHistory | null;
 }) {
-  const { dvt, lots, level, value, viTris } = material;
+  const { dvt, lots, level, value, viTris, chuaGiaGoc } = material;
   // Ngày nhập gần nhất (max) — lô còn tồn của mã này.
   let newest: string | null = null;
   for (const l of lots) if (newest == null || l.ngay_nhap > newest) newest = l.ngay_nhap;
@@ -2349,6 +2404,9 @@ function MaterialOverview({
   const min = threshold?.nguong_ton ?? null;
   const max = threshold?.nguong_toi_da ?? null;
   const avgCost = onHand > 0 ? value / onHand : 0;
+  // Lô còn tồn có giá bán (thành phẩm của đơn) — giá bán cùng đơn vị với SL lô, như cột Giá bán tab Lô tồn.
+  const loCoGiaBan = lots.filter((l) => l.don_gia_ban != null);
+  const giaTriBan = loCoGiaBan.reduce((s, l) => s + l.sl_con_lai * (l.don_gia_ban ?? 0), 0);
 
   // Thang gauge: domain 0 → (max hoặc mốc trên) + 15% headroom; kẹp % trong [0,100].
   const upper = max ?? min ?? onHand;
@@ -2534,15 +2592,37 @@ function MaterialOverview({
             <div className="rich-data-grid">
               <div className="rich-data-item">
                 <span className="rich-data-item__label">Tổng giá trị tồn kho</span>
-                <span className="rich-data-item__val rich-data-item__val--primary">{money(Math.round(value))}</span>
+                <span className="rich-data-item__val rich-data-item__val--primary">
+                  <GiaTriTon value={value} chuaGiaGoc={chuaGiaGoc} />
+                </span>
               </div>
+              {/* Giá bán của đơn chỉ để tham khảo "tồn này bán ra đáng bao nhiêu" — không cộng vào giá trị
+                  tồn ở trên (design nhập kho thành phẩm §5). Server chỉ trả giá bán khi có `view_cost`. */}
+              {loCoGiaBan.length > 0 && (
+                <div className="rich-data-item">
+                  <span className="rich-data-item__label">Giá trị theo giá bán (tham khảo)</span>
+                  <span className="rich-data-item__val">
+                    {money(Math.round(giaTriBan))}
+                    {loCoGiaBan.length < lots.length && (
+                      <div className="kho-hint kho-hint--xuong-dong">
+                        chỉ tính {loCoGiaBan.length}/{lots.length} lô có giá bán
+                      </div>
+                    )}
+                  </span>
+                </div>
+              )}
+              {/* Còn lô chưa có giá gốc ⇒ bình quân bị kéo về 0 — chưa tính được, để "—". */}
               <div className="rich-data-item">
                 <span className="rich-data-item__label">Giá vốn bình quân</span>
-                <span className="rich-data-item__val">{onHand > 0 ? `${money(Math.round(avgCost))}/${dvt ?? "đvt"}` : "—"}</span>
+                <span className="rich-data-item__val">
+                  {onHand > 0 && chuaGiaGoc === 0 ? `${money(Math.round(avgCost))}/${dvt ?? "đvt"}` : "—"}
+                </span>
               </div>
               <div className="rich-data-item">
                 <span className="rich-data-item__label">Giá trị trung bình 1 lô</span>
-                <span className="rich-data-item__val">{lots.length > 0 ? money(Math.round(value / lots.length)) : "—"}</span>
+                <span className="rich-data-item__val">
+                  {lots.length > 0 && chuaGiaGoc === 0 ? money(Math.round(value / lots.length)) : "—"}
+                </span>
               </div>
               <div className="rich-data-item">
                 <span className="rich-data-item__label">Số lô đã xuất hết</span>

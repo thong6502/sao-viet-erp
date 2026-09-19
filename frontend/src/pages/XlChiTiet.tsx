@@ -217,6 +217,15 @@ export function XlChiTiet({
   const lechThucTe = ct?.co_thuc_te ? nhanLech(ct.lech_ket_thuc_phut) : null;
   // Lệnh đã có việc chạy dưới xưởng ⇒ ô giờ đổi nghĩa thành "bắt đầu phần còn lại".
   const daChayDo = !!ct?.co_thuc_te && !!ct.thuc_bat_dau_lenh;
+  // Mọi bước đã Hoàn thành ⇒ không còn phần nào để xếp: khối đầu thôi bày kế hoạch (ô giờ, 418 giờ
+  // tính, giờ làm/nghỉ) mà bày giờ THẬT — vào việc lúc nào, xong lúc nào. Hết bước để trải thì máy
+  // chủ trả `ket_thuc_thuc_te` = mốc thực cuối cùng, tức giờ xong thật của cả lệnh.
+  const daXongHet = !!ct?.co_thuc_te && ct.so_buoc > 0 && ct.so_buoc_xong >= ct.so_buoc
+    && !!ct.ket_thuc_thuc_te;
+  // Viền đỏ "trễ mục tiêu" của khối đầu: lệnh xong rồi thì so giờ xong THẬT, không so kế hoạch.
+  const treKhoiDau = ct && daXongHet
+    ? treHan({ ket_thuc: ct.ket_thuc_thuc_te, han_hoan_thanh_sx: ct.han_hoan_thanh_sx })
+    : tre;
   const phanTach = (ct as { phan_tach_nghi?: XlPhanTachNghi | null } | null)?.phan_tach_nghi ?? null;
 
   const phienBans = goi?.co_goi ? (goi.phien_bans ?? []) : [];
@@ -283,7 +292,40 @@ export function XlChiTiet({
               {/* CỘT TRÁI: ĐIỀU ĐỘ, DEADLINE & THÔNG SỐ */}
               <div className="xl-modal__col-trai">
                 {/* Khối Kế hoạch chạy */}
-                <div className={`xl-modal__card${tre !== null && tre > 0 ? " xl-modal__card--tre" : ""}`}>
+                <div className={`xl-modal__card${treKhoiDau !== null && treKhoiDau > 0 ? " xl-modal__card--tre" : ""}`}>
+                  {daXongHet ? (
+                    <>
+                      <div className="xl-modal__card-tieu">
+                        <CalendarCheck size={13} /> Đã xong
+                      </div>
+                      <div className="xl-timeline-strip">
+                        <div className="xl-timeline-main">
+                          <div className="xl-timeline-node">
+                            <span className="xl-timeline-label">BẮT ĐẦU</span>
+                            <span className="xl-timeline-val">{gioThu(ct.thuc_bat_dau_lenh)}</span>
+                          </div>
+                          <div className="xl-timeline-arrow-wrap">
+                            <span className="xl-timeline-arrow">➔</span>
+                          </div>
+                          <div className="xl-timeline-node xl-timeline-node--end">
+                            <span className="xl-timeline-label">XONG</span>
+                            <span className="xl-timeline-val">{gioThu(ct.ket_thuc_thuc_te)}</span>
+                          </div>
+                        </div>
+                        <div className="xl-timeline-footer">
+                          <span
+                            className="xl-timeline-badge"
+                            title="Giờ đồng hồ từ lúc bước đầu tiên vào việc tới lúc bước cuối cùng xong"
+                          >
+                            <Clock size={11} />
+                            Tổng thời gian thực: <strong>{quangDongHo(((moc(ct.ket_thuc_thuc_te) ?? 0) - (moc(ct.thuc_bat_dau_lenh) ?? 0)) / 60_000)}</strong>
+                          </span>
+                          <span className="xl-timeline-subnote">({ct.so_buoc_xong}/{ct.so_buoc} bước đã xong)</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                  <>
                   {/* Lệnh đã chạy dở thì ô này KHÔNG còn là "bắt đầu cả lệnh" — lệnh bắt đầu
                       lúc nào là chuyện đã rồi. Nó là mốc bắt đầu PHẦN CÒN LẠI, và nhãn phải nói
                       thẳng ra: người dùng gõ 11/09 rồi đọc lại chính con số đó sẽ tưởng cả lệnh
@@ -486,6 +528,8 @@ export function XlChiTiet({
                       )}
                     </>
                   )}
+                  </>
+                  )}
 
                   {/* Ngày xong THEO LỊCH ĐÃ XẾP — khác hẳn MỤC TIÊU ở thẻ dưới, nên tách riêng và
                       nói thẳng chênh nhau mấy ngày, đừng bắt người điều độ tự trừ hai con số. */}
@@ -517,7 +561,7 @@ export function XlChiTiet({
                   {ct.co_thuc_te && (
                     <div className={`xl-modal__ketqua xl-modal__ketqua--tt xl-modal__ketqua--${lechThucTe?.cls ?? "khit"}`}>
                       <span className="xl-modal__ketqua-k">
-                        <Gauge size={11} /> Dự kiến xong (theo thực tế)
+                        <Gauge size={11} /> {daXongHet ? "Xong thực tế" : "Dự kiến xong (theo thực tế)"}
                       </span>
                       <div className="xl-modal__ketqua-body">
                         <span className="xl-modal__ketqua-v">{gio(ct.ket_thuc_thuc_te)}</span>
@@ -534,21 +578,6 @@ export function XlChiTiet({
                     </div>
                   )}
                 </div>
-
-                {/* Vì sao ngày dự kiến có thể SAI: bước chưa gán máy / chưa quy đổi được đơn vị
-                    chiếm 0 phút, gia công ngoài chưa khai ngày gửi-nhận. Không có băng này thì
-                    lệnh vẫn hiện một ngày trông rất chắc chắn mà bên dưới thiếu cả một bước. */}
-                {daXep && ct.ghi_chu.length > 0 && (
-                  <div className="xl-modal__thieu">
-                    <AlertCircle size={13} />
-                    <div>
-                      <strong>Ngày dự kiến còn thiếu dữ kiện:</strong>
-                      <ul>
-                        {ct.ghi_chu.map((g) => <li key={g}>{g}</li>)}
-                      </ul>
-                    </div>
-                  </div>
-                )}
 
                 {/* Khối Deadline Cards: Hạn SX & Hạn Giao Hàng */}
                 <div className="xl-deadline-grid">
