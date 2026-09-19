@@ -2815,6 +2815,36 @@ tiêu hiệu lực tại ngày D = mốc có `ap_dung_tu` lớn nhất ≤ D. **
 
 ---
 
+### `khoan_to_truong`
+
+**Purpose:** TỔ TRƯỞNG của tổ khoán ăn THƯỞNG hay ăn CHIA theo sản lượng tổ (chủ 19/09/2026). Ví dụ 5%, tổ
+làm ra 100.000 đ: *ăn thưởng* — công ty thưởng thêm tổ trưởng 5.000 đ, thợ vẫn ăn sản lượng của mình;
+*ăn chia* — tổ trưởng lấy 5.000 đ, 95.000 đ còn lại chia đều cả tổ. Khai theo TỔ (tổ trưởng = người đứng
+đầu tổ, `departments.head_user_id`) ở Cấu hình lương → Cơ chế lương theo bộ phận; mỗi dòng một MỐC "áp
+dụng từ ngày" như `khoan_chi_tieu_ngay`. Chế độ hiệu lực ngày D = mốc có `ap_dung_tu` lớn nhất ≤ D.
+**CHƯA nối vào tính lương** — engine không đọc bảng này. Chỉ tổ đang bật Lương khoán / sản lượng mới khai
+được. Khác cơ chế đã gỡ 13/09/2026 (mg `0300`, thưởng/phạt theo bậc sản lượng × lỗi KCS). Bảng do
+`create_all` tạo.
+
+| Column          | Type            | Key                                | Null | Default | Meaning                                                        |
+| --------------- | --------------- | ---------------------------------- | ---- | ------- | -------------------------------------------------------------- |
+| `id`            | `Integer`       | **PK**                             | no   | auto    | PK.                                                            |
+| `department_id` | `Integer`       | **FK→departments.id**, **IX**      | no   | —       | Tổ; xoá phòng thì xoá mốc (CASCADE).                           |
+| `ap_dung_tu`    | `Date`          | **U(department_id, ap_dung_tu)**   | no   | —       | Áp dụng từ ngày. Khai lại CÙNG ngày = sửa mốc đó.              |
+| `che_do`        | `String(10)`    | —                                  | no   | —       | `khong` (không áp dụng) · `thuong` (ăn thưởng) · `chia` (ăn chia). |
+| `ty_le`         | `Numeric(5,2)`  | —                                  | no   | `0`     | % trên sản lượng tổ (5 = 5%). `khong` lưu 0; `chia` phải < 100. |
+| `ghi_chu`       | `String(255)`   | —                                  | yes  | —       | Ghi chú tự do.                                                 |
+| `created_by`    | `Integer`       | **FK→users.id**                    | yes  | —       | Người khai mốc (SET NULL khi xoá tài khoản).                   |
+| `updated_at`    | `DateTime(tz)`  | —                                  | no   | now     | Lần ghi gần nhất.                                              |
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign keys: `department_id FK→departments.id` (CASCADE), `created_by FK→users.id` (SET NULL).
+- Unique: `(department_id, ap_dung_tu)` — `uq_khoan_to_truong_to_ngay`.
+- Index: `ix_khoan_to_truong_department_id`.
+
+---
+
 ### ~~`salary_rate_rules`~~ — ĐÃ DROP 17/09/2026 (mg `0307`)
 
 > Bảng chính sách mức lương theo `(payroll_group, pay_grade_key?, seniority_band?, gender?)` — DORMANT

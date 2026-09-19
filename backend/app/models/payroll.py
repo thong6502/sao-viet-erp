@@ -578,6 +578,49 @@ class KhoanChiTieuNgay(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
+# Chế độ ăn của TỔ TRƯỞNG trên sản lượng tổ (chủ 19/09/2026).
+TO_TRUONG_KHONG = "khong"    # không áp dụng — như trước nay
+TO_TRUONG_THUONG = "thuong"  # công ty thưởng THÊM `ty_le`% sản lượng tổ; thợ vẫn ăn sản lượng của mình
+TO_TRUONG_CHIA = "chia"      # tổ trưởng lấy `ty_le`% sản lượng tổ, phần còn lại chia đều cả tổ
+TO_TRUONG_CHE_DO = (TO_TRUONG_KHONG, TO_TRUONG_THUONG, TO_TRUONG_CHIA)
+
+
+class KhoanToTruong(Base):
+    """Tổ trưởng của tổ khoán ăn THƯỞNG hay ăn CHIA theo sản lượng tổ (chủ 19/09/2026).
+
+    Ví dụ của chủ, tỷ lệ 5%, tổ làm ra 100.000 đ:
+      · ăn thưởng — công ty thưởng thêm tổ trưởng 5.000 đ, thợ vẫn ăn sản lượng của mình;
+      · ăn chia   — tổ trưởng lấy 5.000 đ, 95.000 đ còn lại chia đều cho cả tổ.
+    KHÁC cơ chế đã gỡ 13/09/2026 (mg `0300`): thưởng/phạt theo bậc sản lượng × tỷ lệ lỗi KCS.
+
+    Gắn theo TỔ (tổ trưởng = người đứng đầu tổ, `departments.head_user_id`), mỗi dòng một MỐC "áp
+    dụng từ ngày" như `KhoanChiTieuNgay`: đổi chế độ thì thêm mốc, mốc cũ giữ để các tháng trước vẫn
+    tra đúng chế độ của tháng đó. Chế độ hiệu lực tại ngày D = mốc có `ap_dung_tu` lớn nhất ≤ D.
+
+    ⚠️ CHƯA NỐI VÀO TÍNH LƯƠNG — chủ: *"giờ tôi cần chỗ nhập liệu trước còn đấu vào lương để làm
+    sau"*. Engine KHÔNG đọc bảng này. Bảng do `create_all` tạo (bảng mới, không migration).
+    """
+
+    __tablename__ = "khoan_to_truong"
+    __table_args__ = (
+        UniqueConstraint("department_id", "ap_dung_tu", name="uq_khoan_to_truong_to_ngay"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    department_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("departments.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    ap_dung_tu: Mapped[date] = mapped_column(Date, nullable=False)
+    che_do: Mapped[str] = mapped_column(String(10), nullable=False)
+    # % trên sản lượng tổ (5 = 5%). Chế độ `khong` lưu 0.
+    ty_le: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=0, server_default="0")
+    ghi_chu: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
 # --- Danh mục KHOẢN THU NHẬP (chủ 2026-07-27) --------------------------------
 # Thay cho ô "Phụ cấp KHÁC" gộp một cục: mỗi khoản là một dòng danh mục, HCNS tự thêm/xoá/bật tắt,
 # và mỗi khoản mang cờ `is_taxable` — nguồn DUY NHẤT trả lời "khoản này có tính thuế TNCN không".

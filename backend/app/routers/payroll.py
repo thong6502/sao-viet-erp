@@ -50,6 +50,9 @@ from ..schemas.payroll import (
     ChiTieuNgayIn,
     ChiTieuNgayListOut,
     ChiTieuNgayOut,
+    ToTruongIn,
+    ToTruongListOut,
+    ToTruongOut,
     CongBoIn,
     ComponentDeleteOut,
     BulkAssignIn,
@@ -455,6 +458,51 @@ def xoa_chi_tieu_ngay(dept_id: int, muc_id: int, svc: Service,
                       ) -> ChiTieuNgayListOut:
     try:
         return _chi_tieu_out(svc.xoa_chi_tieu_ngay(dept_id, muc_id, actor=user))
+    except PayrollError as exc:
+        _raise(exc)
+
+
+# --- TỔ TRƯỞNG ăn thưởng / ăn chia theo sản lượng tổ (19/09/2026) ---------------------------
+# Chỗ KHAI BÁO thôi, như Chỉ tiêu ngày ngay trên — chủ: *"giờ tôi cần chỗ nhập liệu trước còn đấu
+# vào lương để làm sau"*. Engine tính lương không đọc. Cùng quyền với Chỉ tiêu ngày.
+
+
+def _to_truong_out(d: dict) -> ToTruongListOut:
+    return ToTruongListOut(
+        department_id=d["department_id"],
+        hien_hanh=(ToTruongOut.model_validate(d["hien_hanh"]) if d["hien_hanh"] is not None
+                   else None),
+        items=[ToTruongOut.model_validate(m) for m in d["items"]],
+    )
+
+
+@router.get("/khoan/to-truong/{dept_id}", response_model=ToTruongListOut)
+def xem_to_truong(dept_id: int, svc: Service, user: ConfigViewer) -> ToTruongListOut:
+    try:
+        return _to_truong_out(svc.to_truong(dept_id))
+    except PayrollError as exc:
+        _raise(exc)
+
+
+@router.put("/khoan/to-truong/{dept_id}", response_model=ToTruongListOut)
+def khai_to_truong(dept_id: int, body: ToTruongIn, svc: Service,
+                   user: Annotated[User, Depends(require_permission(MODULE, "update"))]
+                   ) -> ToTruongListOut:
+    """Thêm mốc chế độ tổ trưởng; cùng ngày áp dụng thì sửa mốc đó."""
+    try:
+        return _to_truong_out(svc.khai_to_truong(
+            dept_id, ap_dung_tu=body.ap_dung_tu, che_do=body.che_do, ty_le=body.ty_le,
+            ghi_chu=body.ghi_chu, actor=user))
+    except PayrollError as exc:
+        _raise(exc)
+
+
+@router.delete("/khoan/to-truong/{dept_id}/{muc_id}", response_model=ToTruongListOut)
+def xoa_to_truong(dept_id: int, muc_id: int, svc: Service,
+                  user: Annotated[User, Depends(require_permission(MODULE, "update"))]
+                  ) -> ToTruongListOut:
+    try:
+        return _to_truong_out(svc.xoa_to_truong(dept_id, muc_id, actor=user))
     except PayrollError as exc:
         _raise(exc)
 
