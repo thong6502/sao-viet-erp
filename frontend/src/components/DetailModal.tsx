@@ -18,6 +18,8 @@ interface DetailModalProps {
   badge?: ReactNode;
   /** Hàng nút thao tác dưới đáy. */
   footer?: ReactNode;
+  /** Bề ngang tối đa (px) — form nhỏ không cần khung 960px của popup xem chứng từ. */
+  width?: number;
   onClose: () => void;
   children: ReactNode;
 }
@@ -28,6 +30,7 @@ export function DetailModal({
   subtitle,
   badge,
   footer,
+  width,
   onClose,
   children,
 }: DetailModalProps) {
@@ -46,6 +49,7 @@ export function DetailModal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        style={width ? { width: `min(${width}px, 95vw)` } : undefined}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="dmodal__head">

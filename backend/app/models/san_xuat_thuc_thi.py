@@ -105,8 +105,8 @@ class SanXuatPhienChay(Base):
     ket_thuc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     loai_dong: Mapped[str | None] = mapped_column(String(16), nullable=True)  # tam_dung | ket_thuc | doi_may
     ly_do_bat_dau_tre: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # Bắt buộc khi số người thực tế bắt đầu KHÁC số dự kiến chốt lúc phát hành (§7.1). NULL = khớp.
-    ly_do_so_nguoi: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # ⚠️ `ly_do_so_nguoi` GỠ 18/09/2026 (mg `0321`) cùng toàn bộ logic KÍP: hệ thôi biết một việc
+    #    *nên* mấy người nên không có gì để "lệch" mà hỏi lý do.
     ly_do: Mapped[str | None] = mapped_column(String(255), nullable=True)  # lý do tạm dừng (phiên Kết thúc cũ có thể còn lý do trễ)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)

@@ -10,6 +10,7 @@ import type {
 import { KhoanRatesEditor } from "../../../../../components/KhoanRatesEditor";
 import { KhoanKmEditor } from "../components/KhoanKmEditor";
 import { ChiTieuNgayEditor } from "../components/ChiTieuNgayEditor";
+import { ToTruongEditor } from "../components/ToTruongEditor";
 import { DeptChips } from "../components/DeptChips";
 import { NumInput, ParamField, Switch } from "../components/fields";
 import { COMPONENT_ROWS, OT_FIELDS } from "../shared/constants";
@@ -52,7 +53,8 @@ export function CoCheTab({
    *  Khác `khoanOn` (bản nháp): gạt bật mà chưa bấm Lưu thì chưa khai chỉ tiêu được. */
   khoanDaLuu?: boolean;
 }) {
-  const deptName = depts.find((d) => d.id === deptId)?.name ?? "";
+  const dept = depts.find((d) => d.id === deptId);
+  const deptName = dept?.name ?? "";
   const empCounts = useMemo(() => {
     const m: Record<number, number> = {};
     for (const d of depts) m[d.id] = d.employee_count ?? 0;
@@ -406,16 +408,29 @@ export function CoCheTab({
       {/* CHỈ TIÊU NGÀY (16/09/2026) — chỗ khai báo, CHƯA nối vào tính lương. Chỉ tổ đang ăn khoán
           sản lượng mới có; gạt bật khoán mà chưa Lưu thì nhắc Lưu trước (backend đọc trạng thái đã lưu). */}
       {khoanOn && deptId != null && (khoanDaLuu ? (
-        <ChiTieuNgayEditor
-          token={token}
-          departmentId={deptId}
-          deptName={deptName}
-          readOnly={readOnly}
-        />
+        <>
+          <ChiTieuNgayEditor
+            token={token}
+            departmentId={deptId}
+            deptName={deptName}
+            readOnly={readOnly}
+          />
+          {/* TỔ TRƯỞNG ăn thưởng / ăn chia (19/09/2026) — cùng luật với Chỉ tiêu ngày: chỗ khai,
+              chưa nối lương; chỉ tổ ăn sản lượng mới có. */}
+          <ToTruongEditor
+            token={token}
+            departmentId={deptId}
+            deptName={deptName}
+            headName={dept?.head_name}
+            headTitle={dept?.head_title}
+            soNguoi={dept?.employee_count ?? 0}
+            readOnly={readOnly}
+          />
+        </>
       ) : (
         <div className="banner banner--info">
           Bấm <b>Lưu thay đổi</b> để bật Lương khoán / sản lượng cho {deptName} trước, rồi khai{" "}
-          <b>chỉ tiêu ngày</b> của tổ ở ngay khối này.
+          <b>chỉ tiêu ngày</b> và <b>chế độ tổ trưởng</b> của tổ ở ngay khối này.
         </div>
       ))}
 

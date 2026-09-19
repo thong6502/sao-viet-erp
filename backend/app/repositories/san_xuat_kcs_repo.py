@@ -222,6 +222,20 @@ class SanXuatKcsRepository:
             out.setdefault(l.kcs_batch_id, []).append(l)
         return out
 
+    def batch_quy_loi_ve(self, cong_viec_id: int) -> list[SanXuatKcsBatch]:
+        """Lần kiểm của công đoạn KHÁC có lỗi quy về công đoạn này (KCS bắt ở bước sau), cũ trước."""
+        return list(self.db.scalars(
+            select(SanXuatKcsBatch)
+            .where(
+                SanXuatKcsBatch.cong_viec_id != cong_viec_id,
+                SanXuatKcsBatch.id.in_(
+                    select(SanXuatKcsLoi.kcs_batch_id)
+                    .where(SanXuatKcsLoi.cong_doan_ref_id == cong_viec_id)
+                ),
+            )
+            .order_by(SanXuatKcsBatch.ket_thuc, SanXuatKcsBatch.id)
+        ))
+
     def loi_chua_xem_nhieu_to(self, department_ids) -> list[SanXuatKcsLoi]:
         """Lỗi KCS gửi tới các tổ này mà tổ chưa bấm "Đã xem" — hộp "Chờ tổ bạn xác nhận"."""
         ids = {i for i in department_ids if i}

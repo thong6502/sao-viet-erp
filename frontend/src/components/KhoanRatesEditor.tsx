@@ -13,6 +13,9 @@
 // Xoá ở đây là XOÁ MỀM (`PATCH /{id}/active`) — panel không có chỗ bày lý do "còn 3 bước lệnh đang
 // dùng" như hộp thoại của màn danh mục, mà xoá hẳn một đơn giá đang được định mức đầu việc trỏ tới
 // thì làm mồ côi dữ liệu. Muốn xoá hẳn thì qua màn danh mục, ở đó có đủ câu trả lời.
+//
+// Việc DÙNG CHUNG nhiều tổ (17/09/2026): ngừng dùng thì cả các tổ kia cũng mất việc, nên dòng chung
+// chỉ cho "Gỡ khỏi tổ này" (bớt tổ này khỏi danh sách tổ). Sửa giá thì báo rõ đổi cho cả tổ nào.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -25,7 +28,6 @@ import {
 } from "lucide-react";
 import { type PieceRate, type PieceRateInput } from "../api/client";
 import { crud, type Row } from "../api/rebuildCatalog";
-import { nhanTo } from "../pages/danh-muc/nhanTo";
 import { money } from "../utils/format";
 
 const apiKhoan = crud("/api/cong-viec-khoan");
@@ -33,6 +35,14 @@ const apiDonVi = crud("/api/don-vi");
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : "Có lỗi xảy ra.";
+}
+
+/** Tên các tổ KHÁC cùng làm việc này (ngoài tổ đang khai). Rỗng = việc riêng của tổ. */
+function toKhacCung(rate: Pick<PieceRate, "department_ids" | "tos">, departmentId: number): string[] {
+  const ten = new Map((rate.tos ?? []).map((t) => [t.id, t.ten]));
+  return (rate.department_ids ?? [])
+    .filter((id) => id !== departmentId)
+    .map((id) => ten.get(id) ?? `Tổ #${id} (đã xoá)`);
 }
 
 /** Một đơn vị chọn được: lưu MÃ (`to`), hiện TÊN ("tờ"). */
@@ -99,6 +109,20 @@ export function KhoanRatesEditor({
     }
   }
 
+  /** Bớt tổ này khỏi một việc dùng chung — các tổ còn lại giữ nguyên việc và đơn giá. */
+  async function goKhoiTo(r: PieceRate) {
+    try {
+      const input: PieceRateInput = {
+        ten: r.ten, unit: r.unit, unit_price: r.unit_price,
+        department_ids: r.department_ids.filter((id) => id !== departmentId),
+      };
+      await apiKhoan.update(token, r.id, { ...input, ma: r.ma });
+      load();
+    } catch (e) {
+      setErr(errText(e));
+    }
+  }
+
   const tenDonVi = (ma: unknown) => {
     const m = String(ma ?? "").trim();
     if (!m) return "—";
@@ -141,32 +165,50 @@ export function KhoanRatesEditor({
             </tr>
           </thead>
           <tbody>
-            {rates.map((r) => (
-              <tr key={r.id}>
-                <td>{r.ma ?? "—"}</td>
-                <td>{r.ten}</td>
-                <td>{r.don_vi_ten ?? tenDonVi(r.unit)}</td>
-                <td className="lg-num">{money(r.unit_price)}</td>
-                <td className="cc-rowact">
-                  <button className="btn btn--ghost" onClick={() => setEditing(r)}>
-                    Sửa
-                  </button>
-                  {/* Chữ "Ngừng dùng" chứ không "Xóa": đó đúng là việc nút này làm. Nhãn "Xóa" mà
-                      hành vi là ẩn mềm thì người dùng đi tìm dòng đã "xóa" ở đâu cũng không thấy. */}
-                  <button
-                    className="btn btn--ghost ns-danger"
-                    title="Ẩn khỏi các ô chọn. Bước lệnh và chứng từ cũ giữ nguyên. Xoá hẳn thì vào Cấu hình danh mục → Công việc khoán."
-                    onClick={() => ngungDung(r.id)}
-                  >
-                    Ngừng dùng
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {rates.map((r) => {
+              const khac = toKhacCung(r, departmentId);
+              return (
+                <tr key={r.id}>
+                  <td>{r.ma ?? "—"}</td>
+                  <td>
+                    {r.ten}
+                    {khac.length > 0 && (
+                      <div style={{ fontSize: 12, color: "var(--ash)" }}>Dùng chung với: {khac.join(", ")}</div>
+                    )}
+                  </td>
+                  <td>{r.don_vi_ten ?? tenDonVi(r.unit)}</td>
+                  <td className="lg-num">{money(r.unit_price)}</td>
+                  <td className="cc-rowact">
+                    <button className="btn btn--ghost" onClick={() => setEditing(r)}>
+                      Sửa
+                    </button>
+                    {/* Chữ "Ngừng dùng" chứ không "Xóa": đó đúng là việc nút này làm. Nhãn "Xóa" mà
+                        hành vi là ẩn mềm thì người dùng đi tìm dòng đã "xóa" ở đâu cũng không thấy. */}
+                    {khac.length > 0 ? (
+                      <button
+                        className="btn btn--ghost ns-danger"
+                        title={`Bỏ tổ này khỏi việc. ${khac.join(", ")} vẫn giữ việc và đơn giá.`}
+                        onClick={() => goKhoiTo(r)}
+                      >
+                        Gỡ khỏi tổ này
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn--ghost ns-danger"
+                        title="Ẩn khỏi các ô chọn. Bước lệnh và chứng từ cũ giữ nguyên. Xoá hẳn thì vào Cấu hình danh mục → Công việc khoán."
+                        onClick={() => ngungDung(r.id)}
+                      >
+                        Ngừng dùng
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {rates.length === 0 && (
               <tr>
                 <td colSpan={5} className="ns__empty">
-                  Chưa có đơn giá khoán nào của tổ {nhanTo(deptName) === "—" ? "này" : nhanTo(deptName)}.
+                  Chưa có đơn giá khoán nào của tổ {deptName?.trim() || "này"}.
                 </td>
               </tr>
             )}
@@ -218,9 +260,10 @@ function KhoanRateModal({
     setBusy(true);
     setErr(null);
     // `ma` KHÔNG gửi: server cấp `KH-####` khi tạo, và giữ nguyên mã cũ khi sửa (không gửi = không
-    // đổi). `group_name` cũng không gửi — server suy từ `department_id`.
+    // đổi). Danh sách tổ: tạo mới thì thuộc đúng tổ đang khai; sửa thì KHÔNG gửi — vắng = giữ nguyên
+    // các tổ đang dùng chung, sửa giá ở tổ này không được âm thầm gỡ việc khỏi tổ khác.
     const input: PieceRateInput = {
-      department_id: departmentId,
+      ...(rate ? {} : { department_ids: [departmentId] }),
       ten,
       unit,
       unit_price: price,
@@ -249,6 +292,15 @@ function KhoanRateModal({
           </button>
         </header>
         <div className="ns-modal__body">
+          {rate && toKhacCung(rate, departmentId).length > 0 && (
+            <div className="banner banner--warn" style={{ marginBottom: 16 }}>
+              <Info size={16} />
+              <span>
+                Việc này dùng chung với {toKhacCung(rate, departmentId).join(", ")} — đổi đơn giá ở đây là
+                đổi cho cả các tổ đó.
+              </span>
+            </div>
+          )}
           {err && (
             <div className="banner banner--error" style={{ marginBottom: 16 }}>
               <AlertCircle size={16} />

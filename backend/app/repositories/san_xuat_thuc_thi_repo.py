@@ -16,7 +16,7 @@ from ..models.cong_doan import CongDoan
 from ..models.employee import STATUS_RESIGNED, Employee
 from ..models.lsx import LsxCongDoan
 from ..models.may_thiet_bi import MayThietBi
-from ..models.san_xuat import SanXuatCongViec
+from ..models.san_xuat import CV_PHAT_HANH, CV_TAM_DUNG, SanXuatCongViec
 from ..models.san_xuat_thuc_thi import (
     PC_HOAT_DONG,
     SanXuatKhoangThamGia,
@@ -98,6 +98,51 @@ class SanXuatThucThiRepository:
                 .order_by(Employee.full_name)
             )
         )
+
+    def viec_dang_chay_cua_nhieu(self, employee_ids: set[int]) -> dict[int, SanXuatCongViec]:
+        """{employee_id: công việc người đó ĐANG CHẠY} — suy từ khoảng tham gia còn mở, cùng nguồn
+        với hàng rào "không hai khoảng chồng giờ" (§7.1). Người không chạy gì thì vắng khỏi map."""
+        if not employee_ids:
+            return {}
+        rows = self.db.execute(
+            select(SanXuatKhoangThamGia.employee_id, SanXuatCongViec)
+            .join(SanXuatCongViec, SanXuatCongViec.id == SanXuatKhoangThamGia.cong_viec_id)
+            .where(
+                SanXuatKhoangThamGia.employee_id.in_(employee_ids),
+                SanXuatKhoangThamGia.ket_thuc.is_(None),
+            )
+            .order_by(SanXuatKhoangThamGia.bat_dau)
+        ).all()
+        ra: dict[int, SanXuatCongViec] = {}
+        for eid, cv in rows:
+            ra.setdefault(eid, cv)
+        return ra
+
+    def viec_cho_cua_nhieu(self, employee_ids: set[int]) -> dict[int, list[SanXuatCongViec]]:
+        """{employee_id: các việc người đó đang CÓ TÊN trong tổ mà việc chưa chạy hoặc đang tạm
+        dừng} — giao trước để xếp người, chưa phải bận. Việc tạm dừng xếp trước (người đó đang dở
+        việc ấy), rồi việc chưa chạy theo giờ dự kiến. Người không có việc nào thì vắng khỏi map."""
+        if not employee_ids:
+            return {}
+        rows = self.db.execute(
+            select(SanXuatPhanCong.employee_id, SanXuatCongViec)
+            .join(SanXuatCongViec, SanXuatCongViec.id == SanXuatPhanCong.cong_viec_id)
+            .where(
+                SanXuatPhanCong.employee_id.in_(employee_ids),
+                SanXuatPhanCong.trang_thai == PC_HOAT_DONG,
+                SanXuatCongViec.trang_thai.in_((CV_PHAT_HANH, CV_TAM_DUNG)),
+            )
+            .order_by(
+                SanXuatCongViec.trang_thai != CV_TAM_DUNG,
+                SanXuatCongViec.du_kien_bat_dau.is_(None),
+                SanXuatCongViec.du_kien_bat_dau,
+                SanXuatCongViec.id,
+            )
+        ).all()
+        ra: dict[int, list[SanXuatCongViec]] = {}
+        for eid, cv in rows:
+            ra.setdefault(eid, []).append(cv)
+        return ra
 
     # --- Phân công (roster) -----------------------------------------------------------------
     def phan_cong_hoat_dong(self, cong_viec_id: int) -> list[SanXuatPhanCong]:
@@ -209,16 +254,6 @@ class SanXuatThucThiRepository:
         return out
 
     # --- Khoảng tham gia --------------------------------------------------------------------
-    def khoang_mo_cua_nguoi(self, employee_id: int) -> SanXuatKhoangThamGia | None:
-        """Khoảng tham gia còn MỞ của một người ở BẤT KỲ công việc nào — hàng rào luật §7.1
-        (không hai khoảng chồng giờ)."""
-        return self.db.scalars(
-            select(SanXuatKhoangThamGia).where(
-                SanXuatKhoangThamGia.employee_id == employee_id,
-                SanXuatKhoangThamGia.ket_thuc.is_(None),
-            )
-        ).first()
-
     def khoang_mo_cua_phien(self, phien_chay_id: int) -> list[SanXuatKhoangThamGia]:
         return list(
             self.db.scalars(

@@ -14,7 +14,7 @@ from app.models.delivery import DeliveryRequest
 from app.models.order import STATUS_ORDERED, Order, OrderLine
 from app.models.vat_lieu_kho import VatTuInAn
 from app.services.thanh_pham_khai_bao import cum_ban, gia_ban_cum, khai_cho_don
-from tests.test_giao_hang_api import _admin, _di_toi_dang_giao, _len_kh, _tai_xe
+from tests.test_giao_hang_api import _admin, _di_toi_dang_giao, _len_kh, _nap_ton, _tai_xe
 
 
 def _don(suffix: str, dong: list[dict]) -> tuple[int, list[int]]:
@@ -108,6 +108,7 @@ def _yc_giao(client, h, oid, lines):
 def test_yeu_cau_giao_bung_ca_cum_va_xuat_kho_MOT_dong(client):
     h = _admin(client)
     oid, (ruot, bia) = _don("giao", SACH)
+    _nap_ton(oid)
     r = _yc_giao(client, h, oid, [{"order_line_id": bia, "qty": 200}])
     assert r.status_code == 201, r.text
     db = SessionLocal()
@@ -145,6 +146,7 @@ def test_hai_dong_cung_cum_khac_sl_bi_chan(client):
 def test_giao_thieu_ghi_so_thuc_nhan_cho_ca_cum(client):
     h = _admin(client)
     oid, (ruot, bia) = _don("thieu", SACH)
+    _nap_ton(oid)
     yc = _yc_giao(client, h, oid, [{"order_line_id": ruot, "qty": 200}]).json()
     nv = _tai_xe("Tai xe cum thieu")
     trip = _len_kh(client, h, yc["id"], nv).json()["trip"]["id"]

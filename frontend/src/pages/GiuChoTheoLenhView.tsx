@@ -33,7 +33,6 @@ import { useNapTenDonVi } from "./tenDonVi";
 const MAU_VATTU_GIU: Record<string, { label: string; cls: string; dotColor: string }> = {
   khong_ro: { label: "Chưa rõ ĐVT", cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" },
   thieu: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "var(--kh-thieu-fg)" },
-  ve_muon: { label: "Hàng về muộn", cls: "khvt-stream-chip--vemuon", dotColor: "var(--kh-vemuon-fg)" },
   co_the_giu: { label: "Có thể giữ", cls: "khvt-stream-chip--vang", dotColor: "var(--kh-canhbao-fg)" },
   da_giu: { label: "Đã giữ", cls: "khvt-stream-chip--xanh", dotColor: "var(--moss)" },
   da_cap: { label: "Đã cấp", cls: "khvt-stream-chip--xam", dotColor: "var(--ash-2)" },
@@ -56,33 +55,6 @@ function nhanLoaiHang(loai: HangLoai): { label: string; cls: string } {
 function soGoc(v: number | null | undefined): string {
   if (v == null) return "—";
   return Number(v).toLocaleString("vi-VN", { maximumFractionDigits: 2 });
-}
-
-/** Món ĐÃ đặt mua rồi nhưng lô về SAU ngày cần. Đây là lý do DUY NHẤT khiến một lệnh đang thiếu
- *  hàng lại không có nút "Mua": server chặn mua thêm để khỏi mua đúp đúng lô đang trên đường về. */
-function monVeMuon(r: { hang: TheoLenhHang[] }): TheoLenhHang[] {
-  return r.hang.filter((h) => h.trang_thai === "ve_muon");
-}
-
-/** Lô về trễ mấy ngày so với mốc món đó cần. null khi thiếu một trong hai mốc. */
-function soNgayTre(h: TheoLenhHang): number | null {
-  if (!h.ngay_du_hang || !h.ngay_can) return null;
-  const a = new Date(h.ngay_du_hang).getTime();
-  const b = new Date(h.ngay_can).getTime();
-  if (Number.isNaN(a) || Number.isNaN(b)) return null;
-  return Math.round((a - b) / 86_400_000);
-}
-
-/** Một dòng gọn cho món về muộn: "PMH-VT-02 · về 1/9 · trễ 6 ngày". */
-function moTaVeMuon(h: TheoLenhHang): string {
-  const tre = soNgayTre(h);
-  return [
-    h.phieu_ve ?? null,
-    `về ${ngay(h.ngay_du_hang)}`,
-    tre != null && tre > 0 ? `trễ ${tre} ngày` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
 }
 
 /** Phần CÒN GIỮ ĐƯỢC NGAY nếu bấm giữ ngay bây giờ — tồn tự do/lô đang về CÒN TRỐNG (chưa ai
@@ -109,19 +81,6 @@ function moTaCoTheGiuNgay(h: TheoLenhHang): string {
     .filter(Boolean)
     .join(" + ");
   return `Giữ ngay được ${soGoc(g.tong)} ${nhanDonVi(h.don_vi_goc)} (${phan})`;
-}
-
-/** Câu giải thích vì sao nút mua bị khoá — phải GỌI TÊN phiếu và ngày về. Nút biến mất không một
- *  lời nào thì người dùng đọc thành "phần mềm hỏng", đúng câu hỏi đã nhận ngày 20/08/2026. */
-function lyDoKhoaMua(hs: TheoLenhHang[]): string {
-  const ke = hs.slice(0, 3).map((h) => `• ${h.hang_ten ?? h.hang_ma ?? "Vật tư"}: ${moTaVeMuon(h)}`);
-  const them = hs.length > 3 ? `\n• …và ${hs.length - 3} món nữa` : "";
-  return (
-    "Đã đặt mua rồi — mua thêm là MUA ĐÚP đúng lô đang về:\n" +
-    ke.join("\n") +
-    them +
-    "\nViệc cần làm: dời bước tiêu thụ sang sau ngày về, hoặc hối nhà cung cấp giao sớm."
-  );
 }
 
 function khoaChu(r: { lsx_id: number | null; bai_ghep_id: number | null }): string {
@@ -165,18 +124,17 @@ export function GiuChoTheoLenhView({
     if (focusLsxMa) setQ(focusLsxMa);
   }, [focusLsxMa]);
 
+  // Chip KHÔNG đi về máy chủ — `rowsHienThi` lọc ngay trên danh sách đã nạp. Trước đây chip
+  // "Đang giữ dở"/"Chưa giữ" gửi `chi_can_lo` (sót lại từ bản ô tick "chỉ lệnh còn việc phải lo"),
+  // nên mỗi lần bấm là dựng lại cả bảng cân đối, và danh sách ra ÍT hơn con số in trên chip.
   const load = useCallback(() => {
     if (!token) return;
     setErr(null);
     api.keHoachVatTu
-      .theoLenh(token, {
-        q: q.trim() || undefined,
-        chi_can_lo: filterType === "dang" || filterType === "tat",
-        chi_giu_lau: filterType === "giu_lau",
-      })
+      .theoLenh(token, { q: q.trim() || undefined })
       .then(setData)
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
-  }, [token, q, filterType]);
+  }, [token, q]);
 
   useEffect(() => {
     const t = setTimeout(load, q ? 250 : 0);
@@ -458,7 +416,6 @@ export function GiuChoTheoLenhView({
                 {rowsHienThi.map((r) => {
                   const k = khoaChu(r);
                   const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
-                  const veMuon = monVeMuon(r);
                   const soMonDu = r.hang.filter((h) => h.trang_thai_giu === "da_cap" || h.trang_thai_giu === "da_giu").length;
                   const tongMon = r.hang.length;
                   const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
@@ -504,11 +461,14 @@ export function GiuChoTheoLenhView({
                         </div>
                       </td>
 
-                      {/* Cột 2: Ngày cần */}
+                      {/* Cột 2: Ngày cần — ngày cần hàng trên yêu cầu mua đã lập cho lệnh; chưa mua
+                          (vd tồn đủ) thì trống, hệ không suy. */}
                       <td>
-                        <div className="khvt-cell-date">
+                        <div
+                          className="khvt-cell-date"
+                          title={r.ngay_can ? "Ngày cần hàng ghi trên yêu cầu mua đã lập" : "Chưa lập yêu cầu mua cho lệnh này"}
+                        >
                           <span className="khvt-date-val">{ngay(r.ngay_can)}</span>
-                          {r.moc_tam && <small className="khvt-tam-badge">mốc tạm</small>}
                         </div>
                       </td>
 
@@ -528,7 +488,7 @@ export function GiuChoTheoLenhView({
                               <div
                                 key={`${h.hang_loai}-${h.hang_id}`}
                                 className={`khvt-stream-chip ${meta.cls}`}
-                                title={`${h.hang_ten ?? h.hang_ma}\n• Nhu cầu: ${soGoc(h.can)} ${nhanDonVi(h.don_vi_goc)}\n• Đang giữ: ${soGoc(h.dang_giu)} ${nhanDonVi(h.don_vi_goc)}${h.thieu > 0 ? `\n• Thiếu: ${soGoc(h.thieu)}` : ""}${coTheGiuNgay(h) ? `\n• ${moTaCoTheGiuNgay(h)}` : ""}${h.trang_thai === "ve_muon" ? `\n• Đã đặt mua: ${moTaVeMuon(h)}` : ""}${vet ? `\n${vet.title}` : ""}`}
+                                title={`${h.hang_ten ?? h.hang_ma}\n• Nhu cầu: ${soGoc(h.can)} ${nhanDonVi(h.don_vi_goc)}\n• Đang giữ: ${soGoc(h.dang_giu)} ${nhanDonVi(h.don_vi_goc)}${h.thieu > 0 ? `\n• Thiếu: ${soGoc(h.thieu)}` : ""}${coTheGiuNgay(h) ? `\n• ${moTaCoTheGiuNgay(h)}` : ""}${vet ? `\n${vet.title}` : ""}`}
                               >
                                 <Icon name={icon} size={12} />
                                 <span className="khvt-stream-chip__name">
@@ -543,19 +503,13 @@ export function GiuChoTheoLenhView({
                                     {soGoc(h.dang_giu || h.can)}
                                   </span>
                                 )}
-                                {h.trang_thai === "ve_muon" && h.ngay_du_hang ? (
-                                  <span className="khvt-stream-chip__eta">
-                                    <Icon name="truck" size={10} /> về {ngay(h.ngay_du_hang)}
+                                {/* Đã có người lập phiếu — nói ra ngay trên chip để khỏi ai
+                                    bấm Mua chồng lên. */}
+                                {vet && (
+                                  <span className="khvt-stream-chip__po">
+                                    <Icon name="cart" size={10} /> {vet.chinh}
+                                    {vet.them > 0 && <b>+{vet.them}</b>}
                                   </span>
-                                ) : (
-                                  /* Chưa có lô nào phủ được chỗ thiếu, NHƯNG đã có người lập
-                                     phiếu — nói ra ngay trên chip để khỏi ai bấm Mua chồng lên. */
-                                  vet && (
-                                    <span className="khvt-stream-chip__po">
-                                      <Icon name="cart" size={10} /> {vet.chinh}
-                                      {vet.them > 0 && <b>+{vet.them}</b>}
-                                    </span>
-                                  )
                                 )}
                               </div>
                             );
@@ -632,16 +586,6 @@ export function GiuChoTheoLenhView({
                               <Icon name="cart" size={12} /> Mua ({soDo})
                             </Button>
                           )}
-                          {canDeNghiMua && soDo === 0 && veMuon.length > 0 && (
-                            <div className="khvt-po-chip" title={lyDoKhoaMua(veMuon)}>
-                              <Icon name="truck" size={11} />
-                              <span>
-                                {veMuon.length === 1 && veMuon[0].ngay_du_hang
-                                  ? `Đã đặt · về ${ngay(veMuon[0].ngay_du_hang)}`
-                                  : `Đã đặt (${veMuon.length} món)`}
-                              </span>
-                            </div>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -657,7 +601,6 @@ export function GiuChoTheoLenhView({
           {rowsHienThi.map((r) => {
             const k = khoaChu(r);
             const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
-            const veMuon = monVeMuon(r);
             const soMonDu = r.hang.filter((h) => h.trang_thai_giu === "da_cap" || h.trang_thai_giu === "da_giu").length;
             const tongMon = r.hang.length;
             const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
@@ -697,8 +640,7 @@ export function GiuChoTheoLenhView({
 
                     <div className="khvt-bcard__date">
                       <Icon name="calendar" size={12} />
-                      <span>Cần từ: <b>{ngay(r.ngay_can)}</b></span>
-                      {r.moc_tam && <small className="khvt-tam-badge">mốc tạm</small>}
+                      <span>Ngày cần: <b>{ngay(r.ngay_can)}</b></span>
                     </div>
                   </div>
 
@@ -757,13 +699,6 @@ export function GiuChoTheoLenhView({
                         <Icon name="cart" size={13} /> Đề nghị mua ({soDo} dòng)
                       </Button>
                     )}
-                    {canDeNghiMua && soDo === 0 && veMuon.length > 0 && (
-                      <span className="khvt-buy-lock" title={lyDoKhoaMua(veMuon)}>
-                        <Button variant="secondary" disabled className="khvt-btn-buy khvt-btn-buy--khoa">
-                          <Icon name="truck" size={13} /> Đã đặt mua — chờ hàng về
-                        </Button>
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -814,12 +749,7 @@ export function GiuChoTheoLenhView({
 
                           {/* "Đã có ai lo món này chưa" — không có dòng này thì "đã đề nghị" và
                               "chưa ai đụng vào" hiện y hệt nhau, và người sau bấm Mua lần nữa. */}
-                          {h.trang_thai === "ve_muon" ? (
-                            <div className="khvt-bcard__item-po">
-                              <Icon name="truck" size={10} /> {moTaVeMuon(h)}
-                            </div>
-                          ) : (
-                            (h.thieu > 0 || h.trang_thai === "khong_ro") &&
+                          {(h.thieu > 0 || h.trang_thai === "khong_ro") &&
                             h.phieu_mua.length > 0 && (
                               <div className="khvt-bcard__item-po">
                                 <Icon name="cart" size={10} />{" "}
@@ -833,8 +763,7 @@ export function GiuChoTheoLenhView({
                                   </span>
                                 ))}
                               </div>
-                            )
-                          )}
+                            )}
                         </li>
                       );
                     })}
@@ -891,7 +820,6 @@ function LenhVatTuDrawer({
   onOpenLsx?: (id: number) => void;
 }) {
   const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
-  const veMuon = monVeMuon(r);
   const soMonDu = r.hang.filter((h) => h.trang_thai_giu === "da_cap" || h.trang_thai_giu === "da_giu").length;
   const tongMon = r.hang.length;
   const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
@@ -1020,23 +948,6 @@ function LenhVatTuDrawer({
             </div>
           )}
 
-          {/* Đã mua rồi mà hàng về muộn — việc phải làm là DỜI LỊCH, không phải mua tiếp. Nói
-              ngay ở đây thì người dùng khỏi đi tìm nút mua đã bị khoá ở chân drawer. */}
-          {veMuon.length > 0 && (
-            <div className="khvt-recommend-box khvt-recommend-box--truck">
-              <div className="khvt-recommend-box__badge khvt-recommend-box__badge--truck">
-                <Icon name="truck" size={14} />
-              </div>
-              <div className="khvt-recommend-box__content">
-                <strong>Đã đặt mua — không mua thêm:</strong>{" "}
-                {veMuon.map((h) => `${h.hang_ten ?? h.hang_ma ?? "Vật tư"} (${moTaVeMuon(h)})`).join("; ")}.
-                Mua thêm là <b>mua đúp</b> đúng lô đang về —{" "}
-                <span className="khvt-recommend-box__action">dời bước tiêu thụ</span> sang sau ngày
-                về, hoặc hối nhà cung cấp giao sớm.
-              </div>
-            </div>
-          )}
-
           {/* BOM Breakdown Table */}
           <div className="khvt-drawer-breakdown">
             <div className="khvt-drawer-breakdown__head">
@@ -1104,21 +1015,16 @@ function LenhVatTuDrawer({
                             <span className="khsx-pill__dot" aria-hidden="true" />
                             {h.thieu > 0 ? `Thiếu ${soGoc(h.thieu)}` : meta.label}
                           </span>
-                          {h.trang_thai === "ve_muon" && (
-                            <div className="khvt-pill-note">{moTaVeMuon(h)}</div>
-                          )}
                           {coTheGiuNgay(h) && (
                             <div className="khvt-pill-note khvt-note--giu-ngay">
                               {moTaCoTheGiuNgay(h)}
                             </div>
                           )}
                           {/* Drawer là chỗ TRA nên kê ĐỦ phiếu đang chạy, kể cả khi dòng đã xanh —
-                              hai phiếu cùng một món nằm cạnh nhau chính là dấu hiệu đề nghị trùng.
-                              Bỏ đúng cái phiếu vừa gọi tên ở dòng trên để khỏi nói hai lần. */}
-                          {h.phieu_mua.filter((pm) => pm.ma !== h.phieu_ve).length > 0 && (
+                              hai phiếu cùng một món nằm cạnh nhau chính là dấu hiệu đề nghị trùng. */}
+                          {h.phieu_mua.length > 0 && (
                             <div className="khvt-pill-note khvt-pill-note--po">
                               {h.phieu_mua
-                                .filter((pm) => pm.ma !== h.phieu_ve)
                                 .map((pm) => (
                                   <span
                                     key={pm.ma}
@@ -1199,13 +1105,6 @@ function LenhVatTuDrawer({
               >
                 <Icon name="cart" size={13} /> Đề nghị mua ({soDo} dòng)
               </Button>
-            )}
-            {canDeNghiMua && soDo === 0 && veMuon.length > 0 && (
-              <span className="khvt-buy-lock" title={lyDoKhoaMua(veMuon)}>
-                <Button disabled className="khvt-btn-buy khvt-btn-buy--khoa">
-                  <Icon name="truck" size={13} /> Đã đặt mua — chờ hàng về
-                </Button>
-              </span>
             )}
           </div>
         </footer>

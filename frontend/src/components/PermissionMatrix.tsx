@@ -7,7 +7,7 @@
 // tiết" → bấm BUNG INLINE ngay dưới hàng (không popover portal). Data contract KHÔNG đổi.
 import { useState } from "react";
 import type { ModuleDef, PermissionRow, Scope, RoleTemplate } from "../api/client";
-import { BAI_GHEP_ENABLED, XEP_LICH_2_ENABLED } from "../constants/features";
+import { BAI_GHEP_ENABLED } from "../constants/features";
 import { Icon } from "./Icons";
 import "./permission-matrix.css";
 
@@ -133,35 +133,23 @@ const FINE_ACTIONS: Record<
       hint: "Tải file .xlsx báo cáo KCS (kết quả + checklist). Dữ liệu xuất ra theo ĐÚNG phạm vi tổ mà vai này đang thấy ở màn báo cáo — không mở rộng thêm.",
     },
   ],
-  // ⚠️ THÊM 17/08/2026 cùng lúc tách khoá. Hai bit này CÓ THẬT ở máy chủ từ lâu
-  // (`routers/xep_lich_2.py` gác các endpoint phát hành bằng `approve` + duyệt ngoại lệ bằng
-  // `approve_exception`) nhưng hồi đó chúng treo trên khoá `san_xuat`, mà ma trận KHÔNG bày ô nào
-  // để cấp ⇒ ngoài admin không ai phát hành được lịch. Cùng bệnh `nghi_phep:approve` hồi 11/08/2026.
-  // Khoá mang hậu tố `_2` nhưng đây là màn Xếp lịch DUY NHẤT từ 19/08/2026 — bản cũ gỡ, mg 0219 chép quyền.
-  // Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH. Hai bit y hệt màn 2 và vì ĐÚNG một lý do: người
-  // kéo-thả thử nghiệm không đương nhiên là người chốt lịch cho xưởng chạy.
-  xep_lich_3: [
+  // ⚠️ THÊM 17/08/2026 cùng lúc tách khoá. Hai bit này CÓ THẬT ở máy chủ từ lâu (router xếp lịch
+  // gác endpoint phát hành bằng `approve` + duyệt ngoại lệ bằng `approve_exception`) nhưng hồi đó
+  // chúng treo trên khoá `san_xuat`, mà ma trận KHÔNG bày ô nào để cấp ⇒ ngoài admin không ai phát
+  // hành được lịch. Cùng bệnh `nghi_phep:approve` hồi 11/08/2026.
+  // Khoá đi qua `xep_lich_2` → `xep_lich_3` rồi về đúng `xep_lich` (18/09/2026, mg `0314`) — đây
+  // là màn Xếp lịch DUY NHẤT, lý do tách hai bit vẫn nguyên: người kéo-thả thử nghiệm không đương
+  // nhiên là người chốt lịch cho xưởng chạy.
+  xep_lich: [
     {
       key: "can_approve",
       label: "Phát hành lịch ⚠️",
-      hint: "Thả lệnh đã xếp xuống xưởng (và thu hồi). Màn 3 KHÔNG có cửa gác nào khác — bấm là đi, nên đây là ô quyền duy nhất đứng giữa một cú bấm và cả xưởng.",
+      hint: "Thả lệnh đã xếp xuống xưởng (và thu hồi). Màn Xếp lịch KHÔNG có cửa gác nào khác — bấm là đi, nên đây là ô quyền duy nhất đứng giữa một cú bấm và cả xưởng.",
     },
     {
       key: "can_approve_exception",
       label: "Duyệt ngoại lệ khi phát hành ⚠️",
-      hint: "Phát hành lịch DÙ danh sách Vấn đề còn cảnh báo (trùng máy, nguy cơ trễ hạn, thiếu dữ liệu…). Nặng hơn ô Phát hành: đây là bỏ qua đèn đỏ, phải là người chịu trách nhiệm nếu trễ đơn. Thường chỉ trưởng điều độ.",
-    },
-  ],
-  xep_lich_2: [
-    {
-      key: "can_approve",
-      label: "Phát hành lịch ⚠️",
-      hint: "Chốt lịch đã xếp thành lịch CHÍNH THỨC cho xưởng chạy (và gỡ phát hành). Phát hành xong là routing bị khoá, tổ nhìn theo lịch này mà làm — nên tách khỏi ô Thao tác: người kéo-thả thử nghiệm không đương nhiên là người chốt.",
-    },
-    {
-      key: "can_approve_exception",
-      label: "Duyệt ngoại lệ khi phát hành ⚠️",
-      hint: "Phát hành lịch DÙ danh sách Vấn đề còn cảnh báo (trùng máy, nguy cơ trễ hạn, thiếu dữ liệu…). Nặng hơn ô Phát hành: đây là bỏ qua đèn đỏ, phải là người chịu trách nhiệm nếu trễ đơn. Thường chỉ trưởng điều độ.",
+      hint: "Di sản của bàn xếp lịch theo công đoạn (xoá 18/09/2026): phát hành DÙ danh sách Vấn đề còn cảnh báo. Bàn cấp lệnh không chặn gì nên hiện KHÔNG endpoint nào hỏi tới bit này — cấp hay không đều không đổi hành vi hôm nay.",
     },
   ],
   vai_tro: [{ key: "can_manage_permissions", label: "Sửa ma trận phân quyền" }],
@@ -429,10 +417,8 @@ const MODULE_HINTS: Record<string, string> = {
   // từ 18/08/2026 — bản cũ đã gỡ, mg 0216 chép quyền sang.
   bai_ghep_2:
     "Màn Bài ghép (gom công đoạn in của nhiều lệnh chạy chung một tờ). Xem: đọc hàng chờ ghép và các bài đã ghép. Chỉnh sửa: tạo bài, chọn giấy/khổ chung, sửa số con trên tờ, khai hao hụt, đánh dấu sẵn sàng.",
-  xep_lich_3:
+  xep_lich:
     "Màn Xếp lịch (bàn cấp LỆNH SẢN XUẤT — đặt MỘT giờ bắt đầu, hệ tự ra ngày kết thúc). Xem: nhìn lịch cả xưởng theo tuần. Chỉnh sửa: kéo-thả đặt/dời giờ bắt đầu, bỏ lịch. PHÁT HÀNH nằm ở quyền chi tiết — màn này không chặn gì khác, nên ô đó là cửa duy nhất.",
-  xep_lich_2:
-    "Màn Xếp lịch công đoạn (bảng Gantt theo máy + danh sách Vấn đề). Xem: nhìn lịch cả xưởng. Chỉnh sửa: đưa lệnh vào lịch, gán máy/ca/giờ, kéo-thả dời khe, khóa/gỡ. PHÁT HÀNH lịch và duyệt ngoại lệ nằm ở quyền chi tiết — sửa lịch nháp khác với chốt lịch cho xưởng chạy.",
   ky_thuat_may:
     "CHỈ màn Sửa chữa máy. Xem: xem phiếu + ảnh hiện trạng/chứng thực — hợp với quản đốc, điều độ. Chỉnh sửa: ghi nhận máy hỏng, ghi đã sửa gì, tải ảnh và xác nhận xong — hợp với tổ sửa chữa. Không có quyền duyệt riêng: cửa chặn là ẢNH chứng thực, thiếu ảnh thì KHÔNG AI đóng được phiếu, kể cả giám đốc.",
   phieu_bao_tri:
@@ -495,9 +481,6 @@ const MODULE_DA_NGUNG = new Set([
   // vì màn đã rút khỏi menu: để ô lại thì quản trị tick xong vẫn không ai thấy màn nào mở ra.
   // Dòng `role_permissions` đã cấp GIỮ NGUYÊN trong DB, bật cờ lại là ô hiện y như cũ.
   ...(BAI_GHEP_ENABLED ? [] : ["bai_ghep_2"]),
-  // `xep_lich_2` (Xếp lịch công đoạn) cùng lối: màn ĐANG ẨN theo `XEP_LICH_2_ENABLED`, ô quyền
-  // ẩn theo — quyền đã cấp giữ nguyên trong DB, API màn 2 vẫn đọc nó.
-  ...(XEP_LICH_2_ENABLED ? [] : ["xep_lich_2"]),
 ]);
 
 const MODULE_GROUPS: {
@@ -531,8 +514,7 @@ const MODULE_GROUPS: {
       "san_xuat",
       "ke_hoach_vat_tu",
       "bai_ghep_2",
-      "xep_lich_3",
-      "xep_lich_2",
+      "xep_lich",
       "ky_thuat_may",
       "yeu_cau_sua_chua",
       "phieu_bao_tri",
@@ -743,8 +725,7 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   // (`lsx.py` lọc lệnh theo scope), nên không bỏ cột đi được. Khoá về một lựa chọn để ô hiện mờ.
   ke_hoach_vat_tu: ["all"],
   bai_ghep_2: ["all"],
-  xep_lich_2: ["all"],
-  xep_lich_3: ["all"],
+  xep_lich: ["all"],
   phieu_bao_tri: ["all"],
   // Không có “chỉ của tôi”: ai cũng phải THẤY hết yêu cầu đang chờ thì mới thôi báo trùng. Việc
   // “chỉ sửa lời báo của mình” backend chặn bằng người gửi, không bằng phạm vi.

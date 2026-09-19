@@ -96,6 +96,29 @@ def test_bam_gui_kho_lap_yeu_cau_nhap_that_tu_duyet(db, orders, lsx_svc, admin, 
     assert db.query(StockRequest).filter_by(san_xuat_cong_viec_id=cv.id).count() == 1
 
 
+def test_nut_gui_kho_khong_tra_gia_ban_cho_nguoi_thieu_quyen_xem_gia(db, orders, lsx_svc, admin, customer):
+    """Chủ 18/09/2026: tiền chỉ người có `kho:view_cost` mới thấy — người KCS bấm gửi không nhận giá
+    bán trong phản hồi, dòng yêu cầu vẫn lưu đủ giá cho kế toán."""
+    from app.routers.san_xuat import tao_yeu_cau_nhap_kho_cong_doan
+
+    class _Quyen:
+        def __init__(self, co):
+            self.co = co
+
+        def can(self, _user, module, action):
+            return self.co and (module, action) == ("kho", "view_cost")
+
+    _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer, dat=90, khong_dat=0, cuoi=True)
+    res = tao_yeu_cau_nhap_kho_cong_doan(cv.id, db, _Quyen(False), rb["nguoi_kcs"])
+    assert res["dong"][0]["don_gia_ban"] is None
+    assert db.get(StockRequest, res["request_id"]).lines[0].don_gia_ban == 500
+
+    _to2, cv2, rb2 = _batch(db, orders, lsx_svc, admin, customer, dat=40, khong_dat=0, cuoi=True,
+                            ma="TO-KCS2")
+    res2 = tao_yeu_cau_nhap_kho_cong_doan(cv2.id, db, _Quyen(True), rb2["nguoi_kcs"])
+    assert res2["dong"][0]["don_gia_ban"] == 500
+
+
 def test_chua_co_thanh_tien_thi_gia_ban_trong(db, orders, lsx_svc, admin, customer):
     _to, cv, rb = _batch(db, orders, lsx_svc, admin, customer, dat=50, khong_dat=0, cuoi=True)
     for ln in _dong_don(db, cv):

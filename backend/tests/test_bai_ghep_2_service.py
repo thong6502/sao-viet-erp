@@ -134,10 +134,7 @@ def test_gop_bg2_chi_ke_thua_nhan_dien_danh_muc_don_vi_va_thu_tu(
     mau.department_id = 123
     mau.may_id = 456
     mau.nha_cung_cap = "NCC mẫu"
-    mau.nang_suat = 999
-    mau.so_nhan_cong_tieu_chuan = 4
-    mau.don_vi_nang_suat = "to_gio"
-    mau.khoan_json = {"piece_rate_id": 77, "ten": "Khoán mẫu"}
+    mau.so_gio_ke_hoach = 4.5
     mau.ghi_chu = "Không được bê sang lượt chung"
     db.commit()
 
@@ -159,10 +156,8 @@ def test_gop_bg2_chi_ke_thua_nhan_dien_danh_muc_don_vi_va_thu_tu(
     assert chung.department_id is None
     assert chung.may_id is None
     assert chung.nha_cung_cap is None
-    assert chung.nang_suat is None
-    assert chung.so_nhan_cong_tieu_chuan == 1
-    assert chung.don_vi_nang_suat is None
-    assert chung.khoan_json is None
+    # Số giờ kế hoạch là số của TỪNG lệnh — lượt chung khai lại từ 0, không bê của lệnh mẫu.
+    assert float(chung.so_gio_ke_hoach) == 0
     assert chung.ghi_chu is None
     assert list(chung.vat_tus) == []
 

@@ -6,6 +6,7 @@ import {
   api,
   connectQuoteEvents,
   type AppNotification,
+  type CanDoiKhoaDong,
   type DepartmentPurchaseSourceType,
   type HangLoai,
   type ModuleNotificationChannel,
@@ -13,7 +14,7 @@ import {
   type SxTeam,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
-import { BAI_GHEP_ENABLED, XEP_LICH_2_ENABLED } from "../constants/features";
+import { BAI_GHEP_ENABLED } from "../constants/features";
 import { useAuth } from "../auth/useAuth";
 import {
   buildCapabilities,
@@ -29,10 +30,9 @@ import { LenhSanXuatPage } from "../pages/LenhSanXuatPage";
 import { TheoDoiSanXuatPage } from "../pages/TheoDoiSanXuatPage";
 import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
-import { XepLich2Page } from "../pages/XepLich2Page";
-import { XepLich3Page } from "../pages/XepLich3Page";
+import { XepLichPage } from "../pages/XepLichPage";
 import { ThucHienSxPage } from "../pages/ThucHienSxPage";
-import { nhanDonVi } from "../pages/lsxBuoc";
+import { nhanChang, nhanDonVi } from "../pages/lsxBuoc";
 import { KcsTheoLenhPage } from "../pages/kcs/KcsTheoLenhPage";
 import { SuaChuaMayPage } from "../pages/SuaChuaMayPage";
 import { PhieuBaoTriPage } from "../pages/PhieuBaoTriPage";
@@ -116,15 +116,17 @@ export interface NavParams {
     note?: string | null;
   }[];
   purchaseSeedPurpose?: string;
-  /** Liên thông Kế hoạch vật tư → YCMH: điền sẵn cả ĐẦU PHIẾU (ngày cần + vết lệnh sản xuất),
-   *  không chỉ mấy dòng vật tư. Bên kia vừa tính xong ngày cần sớm nhất của lô lệnh đã tick — gõ
-   *  lại bằng tay là đoán lại một con số đã có. */
+  /** Liên thông Kế hoạch vật tư → YCMH: điền sẵn cả ĐẦU PHIẾU (nguồn + vết lệnh sản xuất), không
+   *  chỉ mấy dòng vật tư. `needed_date` để trống — người lập tự gõ ngày cần hàng (18/09/2026). */
   purchaseSeedHeader?: {
     source_type?: DepartmentPurchaseSourceType | null;
     needed_date?: string | null;
     related_document_type?: string | null;
     related_document_code?: string | null;
   };
+  /** Liên thông Kế hoạch vật tư → YCMH: yêu cầu này mua cho lệnh/bài nào (khoá các dòng đã tick).
+   *  Gửi kèm lúc Lưu để ngày cần hàng vừa gõ quay về đúng các lệnh đó trên Kế hoạch vật tư. */
+  purchaseSeedNguon?: CanDoiKhoaDong[];
   /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
   openSxOrderId?: number;
   /** Liên thông sơ đồ Bài ghép → Kế hoạch SX: mở thẳng chi tiết một lệnh. */
@@ -528,52 +530,14 @@ export function AppShell() {
         .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep-2": r.total })))
         .catch(() => {});
     }
-    // Badge Xếp lịch 3 = số thẻ CHỜ XẾP (`tong` là sau lọc ở máy chủ, không phải số dòng trả về).
-    if (readable.has("xep_lich_3")) {
-      api.xepLich3
+    // Badge Xếp lịch = số thẻ CHỜ XẾP (`tong` là sau lọc ở máy chủ, không phải số dòng trả về).
+    if (readable.has("xep_lich")) {
+      api.xepLich
         .hangCho(token, { moi_trang: 1 })
-        .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-3": r.tong })))
+        .then((r) => setBadges((prev) => ({ ...prev, "xep-lich": r.tong })))
         .catch(() => {});
     }
-    // Badge Xếp lịch = tổng hai rổ hàng chờ (v2 KHÔNG có `total`, tự cộng xep_duoc + bi_chan).
-    if (XEP_LICH_2_ENABLED && readable.has("xep_lich_2")) {
-      api.xepLich2
-        .hangCho(token)
-        .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan-2": r.xep_duoc.length + r.bi_chan.length })))
-        .catch(() => {});
-    }
-    if (readable.has("ke_hoach_vat_tu")) {
-      // Badge Kế hoạch vật tư = Σ BA loại việc phải lo: thiếu · chưa đánh giá được · hàng về muộn.
-      // Gộp cả ba vì cả ba đều làm lệnh đứng máy — thứ máy không tính nổi còn phải lo NHIỀU HƠN
-      // thứ đã biết thiếu, còn hàng về muộn thì đã mua rồi nhưng vẫn chưa chạy được.
-      //
-      // ⚠️ CỐ Ý chỉ nạp ở đây, KHÔNG nạp lại trong nhánh SSE bên dưới như ba badge trên: `can-doi`
-      // duyệt mọi lệnh + bài ghép + lô kho + phiếu mua rồi chạy engine quy đổi cho từng dòng — đắt
-      // hơn hẳn ba endpoint `hangCho` kia. Bắt nó tính lại sau MỖI sự kiện sản xuất là trả giá lớn
-      // cho một con số đổi rất chậm. Màn đang mở thì vẫn tươi: nó tự refetch theo `eventTick`.
-      if (!dangNapVatTu.current) {
-        dangNapVatTu.current = true;
-        api.keHoachVatTu
-          .canDoi(token, { chi_thieu: true })
-          .then((r) =>
-            setBadges((prev) => ({
-              ...prev,
-              // Cộng CẢ BA loại phải lo: thiếu · chưa đánh giá được · hàng về muộn. Bỏ sót loại
-              // thứ ba là bỏ sót đúng thứ vừa dựng ra để đừng bị bỏ sót — `chi_thieu=true` có
-              // trả về nhóm chỉ toàn dòng về muộn, mà badge hiện 0 thì không ai bấm vào.
-              "ke-hoach-vat-tu": (r.items ?? []).reduce(
-                (s, g) =>
-                  s + (g.so_dong_do ?? 0) + (g.so_dong_khong_ro ?? 0) + (g.so_dong_ve_muon ?? 0),
-                0,
-              ),
-            })),
-          )
-          .catch(() => {})
-          .finally(() => {
-            dangNapVatTu.current = false;
-          });
-      }
-    }
+    // (Badge Kế hoạch vật tư KHÔNG nạp ở đây nữa — xem `reloadBadgeVatTu` ngay dưới.)
     // Badge Sửa chữa máy = số YÊU CẦU báo hỏng chưa ai tiếp nhận (không phải số phiếu đang sửa):
     // phiếu đang sửa là việc tổ đã cầm, còn lời báo chưa tiếp nhận mới là thứ đang nằm chờ người.
     // Gác theo `ky_thuat_may` vì đây là hàng chờ CỦA TỔ SỬA CHỮA — người báo hỏng không cần số này
@@ -634,7 +598,7 @@ export function AppShell() {
   }, [token, readable, reloadModuleNotificationBadges]);
   // Nạp MỘT lần sau khi đăng nhập (và khi phạm vi quyền đổi). CỐ Ý bỏ `activeId` khỏi danh sách
   // phụ thuộc (18/08/2026): ghi chú cũ "cả 2 endpoint đều rất nhẹ" đã sai từ lâu — chùm này nay
-  // gọi ~10 endpoint, trong đó `can-doi`, `bai-ghep-2/hang-cho`, `xep-lich/hang-cho`,
+  // gọi ~10 endpoint, trong đó `bai-ghep-2/hang-cho`, `xep-lich/hang-cho`,
   // `kho/de-nghi/counts` đều là hàm nặng CPU thuần Python. Bắt chúng chạy lại mỗi lần ĐỔI MÀN là
   // trả giá lớn cho những con số hiếm khi đổi, và trên một tiến trình uvicorn thì nó làm cả API
   // đứng hình chứ không riêng cái đang gọi.
@@ -645,6 +609,43 @@ export function AppShell() {
   useEffect(() => {
     reloadBadges();
   }, [reloadBadges]);
+
+  // Badge Kế hoạch vật tư = Σ BA loại việc phải lo: thiếu · chưa đánh giá được · hàng về muộn.
+  // Gộp cả ba vì cả ba đều làm lệnh đứng máy — thứ máy không tính nổi còn phải lo NHIỀU HƠN thứ đã
+  // biết thiếu, còn hàng về muộn thì đã mua rồi nhưng vẫn chưa chạy được.
+  //
+  // ⚠️ TÁCH khỏi `reloadBadges` (18/09/2026): `can-doi` duyệt mọi lệnh + bài ghép + lô kho + phiếu
+  // mua rồi chạy engine quy đổi cho từng dòng. Nằm trong `reloadBadges` thì nó chạy lại sau MỖI
+  // sự kiện và mỗi thao tác gọi `onBadgeStale`/`onChanged` — nghỉ phép, tăng ca, báo giá, chăm sóc
+  // khách… chẳng cái nào đổi được con số này. Nay chỉ nạp lúc mở app / đổi quyền; khi màn Kế hoạch
+  // vật tư đang mở thì chính màn báo số lên (`baoSoViecVatTu`), không tốn thêm lượt gọi nào.
+  const reloadBadgeVatTu = useCallback(() => {
+    if (!token || readable === null || !readable.has("ke_hoach_vat_tu")) return;
+    if (dangNapVatTu.current) return;
+    dangNapVatTu.current = true;
+    api.keHoachVatTu
+      .canDoi(token, { chi_thieu: true })
+      .then((r) =>
+        setBadges((prev) => ({
+          ...prev,
+          // Cộng CẢ HAI loại phải lo: thiếu · chưa đánh giá được.
+          "ke-hoach-vat-tu": (r.items ?? []).reduce(
+            (s, g) => s + (g.so_dong_do ?? 0) + (g.so_dong_khong_ro ?? 0),
+            0,
+          ),
+        })),
+      )
+      .catch(() => {})
+      .finally(() => {
+        dangNapVatTu.current = false;
+      });
+  }, [token, readable]);
+  useEffect(() => {
+    reloadBadgeVatTu();
+  }, [reloadBadgeVatTu]);
+  const baoSoViecVatTu = useCallback((n: number) => {
+    setBadges((prev) => (prev["ke-hoach-vat-tu"] === n ? prev : { ...prev, "ke-hoach-vat-tu": n }));
+  }, []);
 
   // Trung tâm thông báo (chuông): nạp list + số chưa đọc. Mọi user đăng nhập đều có hộp riêng.
   const reloadNotifs = useCallback(() => {
@@ -834,10 +835,7 @@ export function AppShell() {
         e.type === "order_ordered" ||
         e.type === "lsx_changed" ||
         e.type === "bai_ghep_changed" ||
-        e.type === "xep_lich_changed" ||
-        // Xếp lịch 3 đẩy kênh RIÊNG: đặt/dời/bỏ mốc không đụng `xep_lich_cong_doan` nên không có
-        // `xep_lich_changed` nào bắn ra. Thiếu dòng này thì badge Xếp lịch của người khác đứng im.
-        e.type === "xep_lich_3_changed"
+        e.type === "xep_lich_changed"
       ) {
         // Sale "Chuyển xuống sản xuất" → hàng chờ Kế hoạch nhảy (badge + toast); Kế hoạch/ghép bài/
         // xếp lịch đổi → 3 badge khối Sản xuất co giãn NGAY. Nội dung màn tự refetch qua `quoteTick`.
@@ -861,16 +859,10 @@ export function AppShell() {
             .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep-2": r.total })))
             .catch(() => {});
         }
-        if (readable.has("xep_lich_3")) {
-          api.xepLich3
+        if (readable.has("xep_lich")) {
+          api.xepLich
             .hangCho(token, { moi_trang: 1 })
-            .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-3": r.tong })))
-            .catch(() => {});
-        }
-        if (XEP_LICH_2_ENABLED && readable.has("xep_lich_2")) {
-          api.xepLich2
-            .hangCho(token)
-            .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan-2": r.xep_duoc.length + r.bi_chan.length })))
+            .then((r) => setBadges((prev) => ({ ...prev, "xep-lich": r.tong })))
             .catch(() => {});
         }
       } else if (coQuyenBanTo(readable) && e.type === "san_xuat_cong_viec_changed") {
@@ -879,7 +871,7 @@ export function AppShell() {
         // `teams` mang cả `so_viec_cho` nên reloadTeams lo luôn badge — không gọi API badge riêng.
         reloadTeams();
       } else if (coQuyenBanTo(readable) && e.type === "san_xuat_kcs_changed") {
-        // KCS ghi/điều chỉnh một lần kiểm, hoặc tổ bấm "Đã xem" lỗi → badge "chờ xác nhận" của tổ
+        // KCS ghi/điều chỉnh một lần kiểm, hoặc tổ mở tab KCS (đã xem lỗi) → badge "chờ xác nhận" của tổ
         // bị báo lỗi đổi NGAY; `quoteTick` đã bump ở đầu handler nên màn KCS, hộp "KCS báo lỗi" và
         // mục "Kết quả KCS" đang mở tự nạp lại (không refresh).
         reloadTeams();
@@ -917,15 +909,24 @@ export function AppShell() {
         pushToast("🔔 Bạn được giao việc sản xuất mới", "info");
       } else if (e.type === "san_xuat_kcs_ket_qua") {
         // KCS vừa kiểm một công đoạn của tổ — đẩy ĐÍCH DANH tới người giữ Xác nhận sản lượng của tổ
-        // đó (§ thông báo tổ). Một chiều: tổ chỉ "Đã xem", không Nhận/Từ chối.
+        // đó (§ thông báo tổ). Một chiều: tổ mở tab KCS là đã xem, không Nhận/Từ chối.
         const ai = e.nguoi_kiem ? `KCS ${e.nguoi_kiem}` : "KCS";
         const soDat = e.so_dat ?? 0;
         const soLoi = e.so_loi ?? 0;
-        const so = `đạt ${soDat.toLocaleString("vi-VN")} · lỗi ${soLoi.toLocaleString("vi-VN")}`;
-        pushToast(
-          `${soLoi > 0 ? "⚠️" : "✓"} ${ai} đã kiểm ${e.ten_cong_doan || "công đoạn"}${e.lsx_ma ? ` (${e.lsx_ma})` : ""}: ${so}`,
-          soLoi > 0 ? "warn" : "ok",
-        );
+        const lenh = e.lsx_ma ? ` (${e.lsx_ma})` : "";
+        if (e.phat_hien_o) {
+          // Lỗi của công đoạn này bị bắt ở bước SAU — KCS quy trách nhiệm về tổ.
+          pushToast(
+            `⚠️ ${ai} bắt lỗi ${e.ten_cong_doan || "công đoạn"}${lenh} ở bước ${e.phat_hien_o}: ${soLoi.toLocaleString("vi-VN")} ${nhanChang(e.don_vi)}`.trim(),
+            "warn",
+          );
+        } else {
+          const so = `đạt ${soDat.toLocaleString("vi-VN")} · lỗi ${soLoi.toLocaleString("vi-VN")}`;
+          pushToast(
+            `${soLoi > 0 ? "⚠️" : "✓"} ${ai} đã kiểm ${e.ten_cong_doan || "công đoạn"}${lenh}: ${so}`,
+            soLoi > 0 ? "warn" : "ok",
+          );
+        }
       } else if (e.type === "san_xuat_kho") {
         // Nhập kho thành phẩm là tương tác GIỮA KCS và kho — kho ghi sổ phiếu nhập thì đẩy ĐÍCH DANH
         // tới người tạo yêu cầu (kho đã nhận tới đâu). `trang_thai` = trạng thái yêu cầu kho.
@@ -1411,7 +1412,7 @@ export function AppShell() {
     }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
-      return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
+      return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} navigate={navigate} />;
     }
     switch (baseId) {
       case "quy-trinh-kinh-doanh":
@@ -1505,6 +1506,7 @@ export function AppShell() {
             navigate={navigate}
             eventTick={quoteTick}
             focusLsxMa={navParams?.focusLsxMa ?? null}
+            onSoViec={baoSoViecVatTu}
           />
         );
       // GIỮ NGUYÊN dù màn đang ẩn (`BAI_GHEP_ENABLED = false`): route này hiện không tới được —
@@ -1512,20 +1514,8 @@ export function AppShell() {
       // trước khi tới đây. Bỏ `case` đi thì bật cờ lại phải sửa hai chỗ thay vì một.
       case "bai-ghep-2":
         return <BaiGhep2Page navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
-      case "xep-lich-3":
-        return <XepLich3Page eventTick={quoteTick} onBadgeStale={reloadBadges} />;
-      // GIỮ NGUYÊN dù màn đang ẩn (`XEP_LICH_2_ENABLED = false`), cùng lý do như `bai-ghep-2`
-      // ở trên: mục menu bị ẩn nên `MODULES_BY_NAV_ID` không có id này và cổng `allowed` chặn
-      // trước khi tới đây. Bỏ `case` đi thì bật cờ lại phải sửa hai chỗ thay vì một.
-      case "xep-lich-cong-doan-2":
-        return (
-          <XepLich2Page
-            navigate={navigate}
-            eventTick={quoteTick}
-            onBadgeStale={reloadBadges}
-            focusLsxMa={navParams?.focusLsxMa ?? null}
-          />
-        );
+      case "xep-lich":
+        return <XepLichPage eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "sua-chua-may":
         // `eventTick` nhích theo MỌI sự kiện SSE ⇒ danh sách yêu cầu tự nạp lại khi có lời báo mới
         // hoặc khi người khác vừa tiếp nhận — không để hai người cùng lập phiếu cho một cái máy.
@@ -1540,6 +1530,7 @@ export function AppShell() {
             seedLines={navParams?.purchaseSeedLines ?? null}
             seedPurpose={navParams?.purchaseSeedPurpose ?? null}
             seedHeader={navParams?.purchaseSeedHeader ?? null}
+            seedNguon={navParams?.purchaseSeedNguon ?? null}
           />
         );
       case "mua-hang":

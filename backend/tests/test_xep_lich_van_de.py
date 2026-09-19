@@ -10,18 +10,13 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from app.db import SessionLocal
 from app.models.department import Department
 from app.models.lsx import (
     LB_MAY, LB_THUE_NGOAI, LB_TO, Lsx, LsxCongDoan, TT_DA_LAP_KE_HOACH, TT_DA_PHAT_HANH,
 )
 from app.models.may_thiet_bi import MayThietBi
-from app.models.role import Role, RolePermission
 from app.repositories.audit_repo import AuditLogRepository
-from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
-from app.repositories.user_repo import UserRepository
 from app.repositories.xep_lich_repo import XepLichRepository
-from app.security import create_access_token, hash_password
 from app.services.gio_xuong import ve_gio_xuong  # noqa: F401  (đối xứng với `_thuc`)
 from app.services.xep_lich_service import XepLichConflict, _gio_xuong
 from app.services.xep_lich_van_de_service import XepLichVanDeService
@@ -49,8 +44,9 @@ def _thuc(t: datetime) -> datetime:
     return t - (datetime.now().astimezone().utcoffset() or timedelta(0))
 
 
-
 @pytest.fixture
+
+
 def vd_svc(db):
     return XepLichVanDeService(db, AuditLogRepository(db))
 
@@ -89,42 +85,30 @@ def _rows(*lsx_ids: int) -> list[dict]:
             for i in lsx_ids]
 
 
-def test_ve_muon_VAN_chan_phat_hanh_va_chi_viec_khac_voi_thieu(db, vd_svc, monkeypatch):
-    """🔴 Dòng `ve_muon` KHÔNG được tuột khỏi cửa chặn.
-
-    Bảng cân đối tách `ve_muon` khỏi `do` ngày 17/08/2026. Detector cũ lọc `!= "do"` nên nếu quên
-    sửa thì lệnh CHƯA CÓ GIẤY vẫn phát hành xuống xưởng được — hỏng câm, không ai báo.
-
-    Nhưng hai ca phải chỉ HAI VIỆC NGƯỢC NHAU: thiếu thì đi mua, về muộn thì dời lịch (mua thêm là
-    mua đúp đúng lô đang trên đường về).
-    """
+def test_chi_dong_DO_chan_phat_hanh_hang_dang_ve_thi_khong(db, vd_svc, monkeypatch):
+    """Chỉ `do` (tồn + hàng đang về vẫn không đủ) mới chặn. Từ 18/09/2026 bảng cân đối không so
+    ngày về với ngày cần nữa — hàng đang về (vàng) là đủ, dù NCC hẹn giao muộn đến đâu."""
     monkeypatch.setattr(vd_svc, "_can_doi_vat_tu", lambda: _bang_gia([
         {"trang_thai": "do", "lsx_id": 1, "bai_ghep_id": None},
-        {"trang_thai": "ve_muon", "lsx_id": 2, "bai_ghep_id": None,
-         "ngay_du_hang": date(2026, 8, 27)},
+        {"trang_thai": "vang", "lsx_id": 2, "bai_ghep_id": None},
+        {"trang_thai": "khong_ro", "lsx_id": 3, "bai_ghep_id": None},
     ]))
-    out = vd_svc._thieu_vat_tu(_rows(1, 2))
+    out = vd_svc._thieu_vat_tu(_rows(1, 2, 3))
 
-    assert len(out) == 2
-    assert {v["severity"] for v in out} == {"chan"}, "cả hai đều phải CHẶN phát hành"
-
-    thieu = next(v for v in out if "ve_muon" not in v["issue_key"])
-    muon = next(v for v in out if "ve_muon" in v["issue_key"])
-    assert "27/08" in muon["title"], "phải nói NGÀY VỀ để biết dời lịch tới đâu"
-    assert "dời bước" in muon["nguyen_nhan"] and "ĐỪNG lập yêu cầu mua" in muon["nguyen_nhan"]
-    assert "dời bước" not in thieu["nguyen_nhan"]
+    assert [v["issue_key"].split(":", 1)[1] for v in out] == ["lsx:1"]
+    assert out[0]["severity"] == "chan"
+    assert "Couché 300" in out[0]["title"]
 
 
-def test_mot_lenh_vua_thieu_vua_ve_muon_ra_HAI_van_de_khac_khoa(db, vd_svc, monkeypatch):
-    """Trùng `issue_key` thì một cái nuốt cái kia — và state "đã xử lý" của người dùng dính chung."""
+def test_mot_lenh_thieu_nhieu_mon_chi_ra_MOT_van_de(db, vd_svc, monkeypatch):
+    """Gộp một vấn đề cho mỗi lệnh — thiếu những gì thì mở bảng cân đối ra xem."""
     monkeypatch.setattr(vd_svc, "_can_doi_vat_tu", lambda: _bang_gia([
-        {"trang_thai": "do", "lsx_id": 1, "bai_ghep_id": None},
-        {"trang_thai": "ve_muon", "lsx_id": 1, "bai_ghep_id": None,
-         "ngay_du_hang": date(2026, 9, 3)},
+        {"trang_thai": "do", "lsx_id": 1, "bai_ghep_id": None, "buoc_id": 1},
+        {"trang_thai": "do", "lsx_id": 1, "bai_ghep_id": None, "buoc_id": 2},
     ]))
     out = vd_svc._thieu_vat_tu(_rows(1))
 
-    assert len({v["issue_key"] for v in out}) == 2, f"khoá phải khác nhau: {out}"
+    assert len(out) == 1, out
 
 
 def test_bang_can_doi_hong_thi_KEU_chu_khong_im(db, vd_svc, monkeypatch):
@@ -138,11 +122,13 @@ def test_bang_can_doi_hong_thi_KEU_chu_khong_im(db, vd_svc, monkeypatch):
 
 
 # --- Detector: đè vùng khóa máy ---------------------------------------------
+
+
 def test_de_khoa_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
     _luon_lam(monkeypatch)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao = 0, 5000, 5000
+    step.setup_phut, step.so_luong_vao = 0, 5000
     step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1  # theo máy 30+60 = 90'
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
@@ -160,6 +146,8 @@ def test_de_khoa_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
 
 
 # --- Detector: sai thứ tự tiền nhiệm ----------------------------------------
+
+
 def test_sai_tien_nhiem_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
     """Bước sau xếp trước khi bước trước xong ⇒ `sai_tien_nhiem`, mức Chặn.
 
@@ -177,7 +165,7 @@ def test_sai_tien_nhiem_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, cus
     _luon_lam(monkeypatch)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None  # In 60'
+    step.setup_phut, step.so_luong_vao, step.chay_phut = 0, 5000, None  # In 60'
     # Bước sau (Dán, chiếm TỔ — không máy nên không lẫn trùng-máy).
     dan = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Dán tay", nhom="finishing", loai_buoc=LB_TO,
                       department_id=step.department_id, so_luong_vao=5000, chay_phut=30,
@@ -233,6 +221,8 @@ def _gop_in_va_san_sang(db, bg_svc, bg, admin):
 
 
 # --- Xả tờ là bước Máy bình thường, không còn detector theo tên ---------------
+
+
 def test_khong_con_detector_gang_thieu_xa_to(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
     _luon_lam(monkeypatch)
     a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
@@ -240,8 +230,7 @@ def test_khong_con_detector_gang_thieu_xa_to(db, orders, lsx_svc, bg_svc, xl_svc
     db.add(LsxCongDoan(lsx_id=a.id, thu_tu=1, ten="Dán", nhom="finishing", loai_buoc=LB_TO,
                        department_id=_in_step(db, a.id).department_id, so_luong_vao=5000, chay_phut=20))
     db.add(LsxCongDoan(lsx_id=b.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
-                       may_id=_in_step(db, b.id).may_id, so_luong_vao=5000, nang_suat=6000,
-                       don_vi_nang_suat="to_gio"))
+                       may_id=_in_step(db, b.id).may_id, so_luong_vao=5000))
     db.commit()
     _nha_cho(db, [a.id, b.id])
     bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
@@ -252,12 +241,14 @@ def test_khong_con_detector_gang_thieu_xa_to(db, orders, lsx_svc, bg_svc, xl_svc
 
 
 # --- Gate phát hành: còn Chặn → chặn; ngoại lệ → thả; thu hồi ----------------
+
+
 def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
     _luon_lam(monkeypatch)
     a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     for lsx in (a, b):
         s = _in_step(db, lsx.id)
-        s.setup_phut, s.nang_suat, s.so_luong_vao, s.chay_phut = 0, 5000, 5000, None
+        s.setup_phut, s.so_luong_vao, s.chay_phut = 0, 5000, None
     # Gate KCS-cuối (§4.4) nay đã gác thật ở phát hành: thêm bước KCS cuối routing cho `a` —
     # đây là ứng viên DUY NHẤT bị phát hành trong test này (`b` không đụng tới).
     # Công đoạn cuối của nhóm suy TỰ ĐỘNG từ bước CUỐI routing (thu_tu=999 cao nhất) — tổ nào làm
@@ -328,6 +319,8 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
 
 
 # --- Vòng đời state + ngoại lệ kỹ thuật bị chặn + tái phát -------------------
+
+
 def test_state_lifecycle_technical_no_exception_reopen(db, orders, lsx_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
     _luon_lam(monkeypatch)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]  # quy_cach kho_in 650×900, 4 màu
@@ -336,7 +329,7 @@ def test_state_lifecycle_technical_no_exception_reopen(db, orders, lsx_svc, xl_s
     db.add(nho)
     db.flush()
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None
+    step.setup_phut, step.so_luong_vao, step.chay_phut = 0, 5000, None
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
@@ -362,6 +355,8 @@ def test_state_lifecycle_technical_no_exception_reopen(db, orders, lsx_svc, xl_s
 
 
 # --- Detector: quá tải máy (cửa sổ 7 ngày) ----------------------------------
+
+
 def test_qua_tai_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
     _luon_lam(monkeypatch)
     # Neo "hôm nay" của detector về đúng ngày xếp (cửa sổ 7 ngày mới trùm dòng đã xếp).
@@ -390,6 +385,8 @@ def test_qua_tai_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
 
 
 # --- Detector: hạn LSX sớm hơn lúc bài ghép in xong -------------------------
+
+
 def test_han_som_bai_ghep_detector(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
     _luon_lam(monkeypatch)
     a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
@@ -411,6 +408,8 @@ def test_han_som_bai_ghep_detector(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, 
 
 
 # --- Detector: lệch thực tế (J) ----------------------------------------------
+
+
 def _dong_va_cong_viec(db, orders, lsx_svc, admin, customer):
     """Một dòng lịch đã gán máy + giờ, cộng một công việc sản xuất ĐANG PHÁT HÀNH nối vào đúng
     dòng đó qua `lsx_cong_doan_id` — nền dùng chung cho các test lệch thực tế bên dưới.
@@ -430,7 +429,7 @@ def _dong_va_cong_viec(db, orders, lsx_svc, admin, customer):
     xl = XepLichService(db, XepLichRepository(db), AuditLogRepository(db))
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None
+    step.setup_phut, step.so_luong_vao, step.chay_phut = 0, 5000, None
     db.commit()
     xl.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
@@ -558,43 +557,10 @@ def test_lech_thuc_te_dung_gio_thi_im_lang(db, orders, lsx_svc, admin, customer)
     assert f"{K_LECH_THUC_TE}:{dong.id}" not in keys
 
 
-# --- Gate: duyệt ngoại lệ đòi approve_exception (tách khỏi approve) ----------
-def test_ngoai_le_gate_doi_approve_exception(client):
-    """Vai chỉ có `approve` (phát hành) mà THIẾU `approve_exception` → duyệt ngoại lệ 403;
-    vai Kế hoạch SX (seed đã gán approve_exception) qua được cửa quyền."""
-    db = SessionLocal()
-    try:
-        dept = DepartmentRepository(db).get_by_name("Sản xuất")
-        users = UserRepository(db)
-        # Vai A: có xep_lich_2.approve NHƯNG thiếu approve_exception — chứng minh hai bit TÁCH NHAU
-        # ngay trên cùng khoá: cầm quyền phát hành vẫn KHÔNG tự động duyệt được ngoại lệ.
-        role_a = Role(name="SX phát-không-ngoại-lệ", department_id=dept.id)
-        db.add(role_a)
-        db.flush()
-        db.add(RolePermission(role_id=role_a.id, module_key="xep_lich_2", scope="all",
-                              can_read=True, can_update=True, can_approve=True,
-                              can_approve_exception=False))
-        ua = users.create(username="sx_approve_only", name="SX phát", password_hash=hash_password("x"))
-        users.set_assignment(ua, department_id=dept.id, role_id=role_a.id, is_active=True)
-        # Vai B: Kế hoạch SX (seed_all đã gán can_approve_exception=True).
-        role_b = RoleRepository(db).get_by_name_and_department("Kế hoạch SX", dept.id)
-        ub = users.create(username="sx_ke_hoach", name="KH SX", password_hash=hash_password("x"))
-        users.set_assignment(ub, department_id=dept.id, role_id=role_b.id, is_active=True)
-        db.commit()
-        uid_a, uid_b = ua.id, ub.id
-    finally:
-        db.close()
-
-    # Endpoint v2 duyệt ngoại lệ TRỄ HẠN cho một lệnh; cửa quyền `xep_lich_2:approve_exception` bắn
-    # TRƯỚC handler nên lsx_id không cần tồn tại để phân biệt 403 (thiếu quyền) với !=403 (qua cửa).
-    body = {"ly_do": "thử"}
-    r = client.post("/api/xep-lich-2/duyet-ngoai-le/lsx/1", json=body,
-                    headers={"Authorization": f"Bearer {create_access_token(str(uid_a))}"})
-    assert r.status_code == 403, r.text
-
-    r2 = client.post("/api/xep-lich-2/duyet-ngoai-le/lsx/1", json=body,
-                     headers={"Authorization": f"Bearer {create_access_token(str(uid_b))}"})
-    assert r2.status_code != 403, r2.text
+# Gate "duyệt ngoại lệ đòi `approve_exception`" (`POST /api/xep-lich-2/duyet-ngoai-le/lsx/{id}`):
+# GỠ 18/09/2026 cùng bàn xếp lịch theo công đoạn — bàn cấp lệnh KHÔNG có cửa gác nên cũng không có
+# ngoại lệ để duyệt. Bit `can_approve_exception` vẫn còn trên khoá `xep_lich` (mg `0314` chép y
+# nguyên), chỉ là hiện không router nào hỏi tới.
 
 
 def test_sai_tien_nhiem_im_khi_to_da_vao_viec(db, orders, lsx_svc, admin, customer):

@@ -51,20 +51,22 @@ Service = Annotated[CongViecKhoanService, Depends(get_service)]
 
 
 def _dung_rows(svc: CongViecKhoanService, objs: list) -> list[CongViecKhoanRow]:
-    """Điền TÊN đơn vị (1 truy vấn cho cả trang) rồi mới dựng dòng.
+    """Điền TÊN đơn vị + TÊN các tổ (mỗi thứ 1 truy vấn cho cả trang) rồi mới dựng dòng.
 
     Truyền vào factory nên list · get · create · update dùng CÙNG một đường — bốn handler tự gọi
     thì chỉ cần quên một chỗ là màn hiện mã trần (`to` thay cho "tờ")."""
     svc.gan_ten_don_vi(objs)
+    svc.gan_to(objs)
     return [CongViecKhoanRow.model_validate(o) for o in objs]
 
 make_catalog_router(
     router, ten="cong_viec_khoan", ServiceDep=Service, module=MODULE, doc=_DOC,
     InModel=CongViecKhoanIn, RowModel=CongViecKhoanRow, ListModel=CongViecKhoanListOut,
-    # Tab lọc = TỔ. Giá trị là `group_name` (nhãn tổ trên dòng) chứ không phải id: dòng đời cũ chưa
-    # gắn tổ nào vẫn phải nằm trong một tab đọc được.
+    # Tab lọc = TỔ, giá trị là TÊN tổ (đọc được trên tab). Một việc làm ở hai tổ nằm ở cả hai tab,
+    # nên tab "Tất cả" lấy số riêng thay vì cộng các tab.
     loc="to",
     facets=lambda svc, kw: svc.dem_theo_to(**kw),
+    tong_theo_tim=lambda svc, kw: svc.dem_tong(**kw),
     dung_rows=_dung_rows,
     ma_goi_y=True,      # repo khai `ma_prefix = "KH-"`
     enable_clone=True,

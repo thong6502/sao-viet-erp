@@ -20,12 +20,14 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import (APIRouter, Depends, File, HTTPException, Query, Request, Response,
+                     UploadFile, status)
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import get_authorization_service, require_any_permission, require_permission
 from ..models.delivery import LAN_GIAO_DANG_CHAY
+from ..realtime import hub
 from ..models.role import SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from ..repositories.customer_repo import CustomerRepository
@@ -70,6 +72,19 @@ from ..schemas.delivery import (
     TripLineOut,
     TripOut,
     TripPage,
+    BangGiaoItem,
+    BangGiaoPage,
+    BatDauGiaoIn,
+    CaLuotOut,
+    GuiXuatKhoCaLuotIn,
+    LenLuotIn,
+    LenLuotOut,
+    LuotXeChiTietOut,
+    LuotXeMoOut,
+    LuotXeMoPage,
+    LuotXeTrongChuyenOut,
+    VeKhoIn,
+    VeKhoOut,
 )
 from ..services.delivery_service import (
     DeliveryError,
@@ -80,7 +95,16 @@ from ..services.delivery_service import (
 from ..services.rbac_service import AuthorizationService
 from ..services.thanh_pham_khai_bao import cum_ban
 
-router = APIRouter(prefix="/api/giao-hang", tags=["giao-hang"])
+def _bao_giao_hang_doi(request: Request):
+    """Mọi thao tác GHI thành công ở màn Giao hàng ⇒ đẩy một tín hiệu im lặng: drawer Đơn hàng bán
+    đang mở tự đọc lại tiến độ (real-time, không toast — chủ chốt 19/09/2026 bỏ chuông báo Sales)."""
+    yield
+    if request.method != "GET":
+        hub.broadcast({"type": "giao_hang_changed"})
+
+
+router = APIRouter(prefix="/api/giao-hang", tags=["giao-hang"],
+                   dependencies=[Depends(_bao_giao_hang_doi)])
 MODULE = "giao_hang"
 MODULE_KHO = "kho"
 
@@ -284,7 +308,8 @@ def _xe_cua(svc: DeliveryService, vehicle_id):
     return svc.xe.get(vehicle_id)
 
 
-def _trip_out(db: Session, svc: DeliveryService, trip, *, tong_km: int | None = None) -> TripOut:
+def _trip_out(db: Session, svc: DeliveryService, trip, *, tong_km: int | None = None,
+              canh_bao: list[str] | None = None) -> TripOut:
     req = svc.deliveries.get_request(trip.request_id)
     order = OrderRepository(db).get_by_id(req.order_id) if req is not None else None
     emp = EmployeeRepository(db).get_by_id(trip.employee_id)
@@ -293,6 +318,7 @@ def _trip_out(db: Session, svc: DeliveryService, trip, *, tong_km: int | None = 
         kh = CustomerRepository(db).get_by_id(req.customer_id)
         khach = getattr(kh, "name", None) if kh is not None else None
     yc_kho = svc.yeu_cau_kho_cua_trip(trip.id)
+    yc_tra = svc.deliveries.yeu_cau_kho_cua_chuyen(trip.id, "NHAP")
     return TripOut(
         id=trip.id,
         request_id=trip.request_id,
@@ -326,7 +352,15 @@ def _trip_out(db: Session, svc: DeliveryService, trip, *, tong_km: int | None = 
         yeu_cau_kho_ma=getattr(yc_kho, "ma", None),
         yeu_cau_kho_trang_thai=getattr(yc_kho, "trang_thai", None),
         kho_da_lap_phieu=svc.kho_da_lap_phieu(trip.id),
+        tra_hang_ma=getattr(yc_tra, "ma", None),
+        tra_hang_trang_thai=getattr(yc_tra, "trang_thai", None),
+        luot=_luot_out(svc.luot_cua_trip(trip)),
+        canh_bao=list(canh_bao or []),
     )
+
+
+def _luot_out(d: dict | None) -> LuotXeTrongChuyenOut | None:
+    return LuotXeTrongChuyenOut(**d) if d is not None else None
 
 
 # =================================================================================
@@ -342,10 +376,8 @@ def tao_yeu_cau(body: DeliveryRequestCreate, svc: Service, db: Db, user: Writer)
             ngay_can_giao=body.ngay_can_giao,
             lines=[l.model_dump() for l in body.lines],
             actor=user,
-            dia_chi=body.dia_chi,
-            nguoi_nhan=body.nguoi_nhan,
-            sdt_nguoi_nhan=body.sdt_nguoi_nhan,
-            ghi_chu=body.ghi_chu,
+            dia_chi_id=body.dia_chi_id,
+            lien_he_id=body.lien_he_id,
         )
     except DeliveryError as e:
         raise _err(e)
@@ -435,8 +467,11 @@ def sua_yeu_cau(request_id: int, body: DeliveryRequestUpdate, svc: Service, db: 
 
 
 @router.post("/requests/{request_id}/huy", response_model=DeliveryRequestOut)
-def huy_yeu_cau(request_id: int, body: LyDoIn, svc: Service, db: Db,
-                authz: Authz, user: Canceller):
+def huy_yeu_cau(request_id: int, body: LyDoIn, svc: Service, db: Db, authz: Authz,
+                # Người LẬP (ô Thao tác) huỷ được yêu cầu của mình khi CHƯA có chuyến — service chặn
+                # khi đã có chuyến sống; chuyến đã xếp thì phải qua quản lý huỷ chuyến trước.
+                user: Annotated[User, Depends(require_any_permission((MODULE, "create"),
+                                                                    (MODULE, "cancel")))]):
     try:
         svc.huy_yeu_cau(request_id, ly_do=body.ly_do, actor=user, scope=_scope(authz, user))
     except DeliveryError as e:
@@ -482,7 +517,7 @@ def len_ke_hoach(body: PlanIn, svc: Service, db: Db, authz: Authz, user: Planner
             vehicle_id=body.vehicle_id,
             gio_lay_hang=body.gio_lay_hang, gio_du_kien_giao=body.gio_du_kien_giao,
             actor=user, kho_id=body.kho_id, ghi_chu_phan_cong=body.ghi_chu_phan_cong,
-            scope=_scope(authz, user),
+            scope=_scope(authz, user), luot_xe_id=body.luot_xe_id,
         )
     except DeliveryError as e:
         raise _err(e)
@@ -609,13 +644,18 @@ def da_lay_hang(trip_id: int, svc: Service, db: Db, authz: Authz, user: Writer):
 
 
 @router.post("/trips/{trip_id}/bat-dau-giao", response_model=TripOut)
-def bat_dau_giao(trip_id: int, svc: Service, db: Db, authz: Authz, user: Writer):
+def bat_dau_giao(trip_id: int, svc: Service, db: Db, authz: Authz, user: Writer,
+                 body: BatDauGiaoIn | None = None):
+    """Chuyến ĐẦU của một lượt xe kèm số đồng hồ lúc xuất phát (PRD khoán km §14)."""
     try:
-        svc.bat_dau_giao(trip_id, actor=user, scope=_scope(authz, user))
+        kq = svc.bat_dau_giao(
+            trip_id, actor=user, scope=_scope(authz, user),
+            so_dong_ho_xuat_phat=body.so_dong_ho_xuat_phat if body is not None else None,
+        )
     except DeliveryError as e:
         raise _err(e)
     db.commit()
-    return _trip_out(db, svc, svc.deliveries.get_trip(trip_id))
+    return _trip_out(db, svc, svc.deliveries.get_trip(trip_id), canh_bao=kq["canh_bao"])
 
 
 @router.post("/trips/{trip_id}/ket-qua", response_model=TripOut)
@@ -631,11 +671,167 @@ def ghi_ket_qua(trip_id: int, body: KetQuaIn, svc: Service, db: Db,
             so_thuc_nhan=[m.model_dump() for m in (body.so_thuc_nhan or [])] or None,
             xac_nhan_km_lon=body.xac_nhan_km_lon,
             vehicle_id=body.vehicle_id,
+            so_dong_ho=body.so_dong_ho,
         )
     except DeliveryError as e:
         raise _err(e)
     db.commit()
     return _trip_out(db, svc, svc.deliveries.get_trip(trip_id))
+
+
+# =================================================================================
+# Lượt xe — tiền km theo CHẶNG (PRD khoán km §14, chủ chốt 18/09/2026)
+# =================================================================================
+@router.get("/luot-xe", response_model=LuotXeMoPage)
+def luot_xe_mo(svc: Service, user: Planner, vehicle_id: int = Query(...)):
+    """Lượt CHƯA về kho của một xe — ô Lượt xe lúc lên đơn (người lên đơn giao hàng lập lượt)."""
+    return LuotXeMoPage(items=[LuotXeMoOut(**x) for x in svc.luot_mo_cua_xe(vehicle_id)])
+
+
+@router.post("/luot-xe/{luot_id}/ve-kho", response_model=VeKhoOut)
+def ve_kho(luot_id: int, body: VeKhoIn, svc: Service, db: Db, authz: Authz, user: Writer):
+    """Tài xế ghi số đồng hồ VỀ KHO ⇒ đóng lượt, tính chặng về kho."""
+    try:
+        kq = svc.ve_kho(luot_id, so_dong_ho=body.so_dong_ho, actor=user,
+                        scope=_scope(authz, user), xac_nhan_km_lon=body.xac_nhan_km_lon)
+    except DeliveryError as e:
+        raise _err(e)
+    db.commit()
+    luot = kq["luot"]
+    return VeKhoOut(id=luot.id, code=luot.code, so_dong_ho_ve_kho=luot.so_dong_ho_ve_kho,
+                    km_ve_kho=luot.km_ve_kho, ve_kho_luc=luot.ve_kho_luc,
+                    canh_bao=kq["canh_bao"])
+
+
+# --- Gom theo lượt: một lần bấm cho cả lượt (chủ chốt 18/09/2026) ------------------------------
+# Lỗi giữa chừng ⇒ ném trước `db.commit()` ⇒ phiên đóng không commit ⇒ cả lô không lưu.
+@router.post("/luot-xe", response_model=LenLuotOut, status_code=status.HTTP_201_CREATED)
+def len_luot(body: LenLuotIn, svc: Service, db: Db, authz: Authz, user: Planner):
+    """Lên đơn NHIỀU yêu cầu giao vào MỘT lượt xe — mỗi yêu cầu vẫn một chuyến, một phiếu kho."""
+    try:
+        kq = svc.len_luot(
+            request_ids=body.request_ids, employee_id=body.employee_id,
+            phu_xe_employee_id=body.phu_xe_employee_id, vehicle_id=body.vehicle_id,
+            gio_lay_hang=body.gio_lay_hang, gio_du_kien_giao=body.gio_du_kien_giao,
+            ghi_chu_phan_cong=body.ghi_chu_phan_cong, luot_xe_id=body.luot_xe_id,
+            actor=user, scope=_scope(authz, user),
+        )
+    except DeliveryError as e:
+        db.rollback()
+        raise _err(e)
+    db.commit()
+    return LenLuotOut(
+        luot_id=kq["luot"].id, code=kq["luot"].code, canh_bao=kq["canh_bao"],
+        trips=[_trip_out(db, svc, svc.deliveries.get_trip(t.id)) for t in kq["trips"]],
+    )
+
+
+def _luot_chi_tiet_out(db: Session, svc: DeliveryService, kq: dict) -> LuotXeChiTietOut:
+    luot = kq["luot"]
+    xe = _xe_cua(svc, luot.vehicle_id)
+    return LuotXeChiTietOut(
+        id=luot.id, code=luot.code, ngay=luot.ngay, vehicle_id=luot.vehicle_id,
+        xe_bien_so=getattr(xe, "ma", None), xe_ten=getattr(xe, "ten", None),
+        so_dong_ho_xuat_phat=luot.so_dong_ho_xuat_phat,
+        so_dong_ho_ve_kho=luot.so_dong_ho_ve_kho, ve_kho_luc=luot.ve_kho_luc,
+        km_ve_kho=luot.km_ve_kho, goi_y_xuat_phat=kq["goi_y_xuat_phat"],
+        so_dong_ho_gan_nhat=kq["so_dong_ho_gan_nhat"], cho_ve_kho=kq["cho_ve_kho"],
+        tong_km=kq["tong_km"], diem=[_trip_out(db, svc, t) for t in kq["trips"]],
+        so_cho_gui_kho=kq["so_cho_gui_kho"], so_cho_lay_hang=kq["so_cho_lay_hang"],
+        so_cho_bat_dau=kq["so_cho_bat_dau"], so_dang_giao=kq["so_dang_giao"],
+    )
+
+
+@router.get("/luot-xe/{luot_id}", response_model=LuotXeChiTietOut)
+def chi_tiet_luot(luot_id: int, svc: Service, db: Db, authz: Authz, user: Reader):
+    try:
+        kq = svc.chi_tiet_luot(luot_id, actor=user, scope=_scope(authz, user))
+    except DeliveryError as e:
+        raise _err(e)
+    return _luot_chi_tiet_out(db, svc, kq)
+
+
+@router.get("/bang-giao", response_model=BangGiaoPage)
+def bang_giao(svc: Service, db: Db, authz: Authz, user: Reader,
+              page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=200)):
+    """Tab "Đơn giao hàng" gom theo LƯỢT XE (chủ chốt 18/09/2026: ghép nhiều yêu cầu mà hiện rời
+    từng dòng thì tài xế lẫn người lên đơn khó hiểu). Mỗi khối là MỘT lượt (đủ các điểm, theo thứ
+    tự chặng) hoặc MỘT chuyến lẻ; trang hoá theo khối nên một lượt không bị cắt đôi."""
+    scope = _scope(authz, user)
+    emp_ids = None
+    dept_ids = None
+    if scope == SCOPE_OWN:
+        eid = svc._employee_cua_user(user)
+        emp_ids = [eid] if eid is not None else [-1]
+    elif scope == SCOPE_DEPARTMENT:
+        dept_ids = svc._phong_duoc_xem(scope=scope, actor=user)
+    khoi, total = svc.deliveries.khoi_bang_giao(
+        employee_ids=emp_ids, department_ids=dept_ids, limit=size, offset=(page - 1) * size,
+    )
+    so_don = svc.deliveries.count_trips(employee_ids=emp_ids, department_ids=dept_ids,
+                                        latest_per_request=True)
+    le = [svc.deliveries.get_trip(i) for loai, i in khoi if loai == "chuyen"]
+    tong_km_map = svc.deliveries.tong_km_theo_yeu_cau([t.request_id for t in le if t is not None])
+    items: list[BangGiaoItem] = []
+    for loai, i in khoi:
+        if loai == "luot":
+            try:
+                kq = svc.chi_tiet_luot(i, actor=user, scope=scope)
+            except DeliveryError:
+                continue   # lượt vừa bị xoá giữa hai truy vấn — bỏ, đừng làm vỡ cả trang
+            items.append(BangGiaoItem(luot=_luot_chi_tiet_out(db, svc, kq)))
+        else:
+            t = svc.deliveries.get_trip(i)
+            if t is not None:
+                items.append(BangGiaoItem(
+                    trip=_trip_out(db, svc, t, tong_km=tong_km_map.get(t.request_id, t.km or 0))))
+    return BangGiaoPage(items=items, total=total, so_don=so_don)
+
+
+@router.post("/luot-xe/{luot_id}/yeu-cau-xuat-kho", response_model=CaLuotOut)
+def gui_xuat_kho_ca_luot(luot_id: int, svc: Service, db: Db, authz: Authz, user: Planner,
+                         body: GuiXuatKhoCaLuotIn | None = None):
+    """Mỗi chuyến của lượt MỘT phiếu yêu cầu xuất kho — gửi cả lượt bằng một lần bấm."""
+    try:
+        phieu = svc.gui_xuat_kho_ca_luot(luot_id, actor=user, scope=_scope(authz, user),
+                                         ghi_chu=body.ghi_chu if body is not None else None)
+    except DeliveryError as e:
+        db.rollback()
+        raise _err(e)
+    except Exception as e:  # lỗi nghiệp vụ của KHO — như đường gửi từng chuyến
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    db.commit()
+    # Báo kho SAU commit — bắn trước thì kho refetch trên kết nối khác, chưa thấy phiếu.
+    for p in phieu:
+        svc.stock_requests.thong_bao_yeu_cau_moi(p)
+    return CaLuotOut(so_chuyen=len(phieu), phieu=[p.ma for p in phieu])
+
+
+@router.post("/luot-xe/{luot_id}/da-lay-hang", response_model=CaLuotOut)
+def da_lay_hang_ca_luot(luot_id: int, svc: Service, db: Db, authz: Authz, user: Writer):
+    try:
+        trips = svc.da_lay_hang_ca_luot(luot_id, actor=user, scope=_scope(authz, user))
+    except DeliveryError as e:
+        db.rollback()
+        raise _err(e)
+    db.commit()
+    return CaLuotOut(so_chuyen=len(trips))
+
+
+@router.post("/luot-xe/{luot_id}/bat-dau-giao", response_model=CaLuotOut)
+def bat_dau_giao_ca_luot(luot_id: int, svc: Service, db: Db, authz: Authz, user: Writer,
+                         body: BatDauGiaoIn | None = None):
+    try:
+        kq = svc.bat_dau_giao_ca_luot(
+            luot_id, actor=user, scope=_scope(authz, user),
+            so_dong_ho_xuat_phat=body.so_dong_ho_xuat_phat if body is not None else None,
+        )
+    except DeliveryError as e:
+        db.rollback()
+        raise _err(e)
+    db.commit()
+    return CaLuotOut(so_chuyen=len(kq["trips"]), canh_bao=kq["canh_bao"])
 
 
 @router.post("/trips/{trip_id}/da-tra-hang", response_model=TripOut)

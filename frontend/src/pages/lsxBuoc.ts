@@ -63,30 +63,21 @@ export interface EditRow {
   so_luong_ra: string;
   don_vi_vao: string;
   don_vi_ra: string;
-  /** Đơn vị ĐO SẢN LƯỢNG của công đoạn (CHỈ ĐỌC, theo danh mục). Bước NGOÀI dòng giấy để trống cả
-   *  hai ô trên nên đây là chữ DUY NHẤT dán được cạnh số của nó. "" = công đoạn chưa khai. */
-  don_vi_san_luong: string;
   /** Bước có nằm trên DÒNG GIẤY không — CHỈ ĐỌC, server quyết theo cặp đơn vị của bước (bỏ trống
    *  cả hai = ngoài dòng giấy).
    *  `false` ⇒ số lượng không tự tính ngược, bù hao không cộng vào số giấy (drawer nói tại chỗ). */
   tren_dong_giay: boolean;
-  /** Bước ngoài dòng giấy thiếu cầu quy đổi vào→ra ở module Đơn vị & quy đổi ⇒ câu lỗi (server
-   *  tính lúc đọc). null = ổn. Có lỗi thì `so_luong_vao` = 0 và drawer bày banner đỏ. CHỈ ĐỌC. */
-  loi_quy_doi: string | null;
-  /** Diễn giải công thức SỐ RA cho bước ngoài dòng ("Số bản kẽm = 5 bản kẽm"; server tính lúc
-   *  đọc). null với bước trên dòng giấy. CHỈ ĐỌC. */
-  san_luong_dien_giai: string | null;
+  /* `don_vi_san_luong` · `loi_quy_doi` · `san_luong_dien_giai` GỠ 18/09/2026 (mg `0324`) cùng
+     công thức sản lượng ra của công đoạn — bước ngoài dòng giấy nay là số tự khai ở bước. */
   he_so_quy_doi: string;
   hao_hut: string;
   hao_hut_pct: string;
   so_luot_chay: string;
-  // năng suất & thời gian (phút)
-  /** Kíp chuẩn — con số nhân lực DUY NHẤT của bước (ô "số người bố trí" gỡ ở mg `0281`):
-   *  chia thời lượng bước tổ VÀ là số bàn xếp lịch cân quân số tổ. Kế thừa từ định mức công
-   *  đoạn nhưng SỬA ĐƯỢC tại bước, cho mọi loại bước. */
-  so_nhan_cong_tieu_chuan: number;
-  nang_suat: string;
-  don_vi_nang_suat: string;
+  // thời gian (phút)
+  /** SỐ GIỜ KẾ HOẠCH của bước TỔ (18/09/2026, mg `0319`) — người lập lệnh gõ tay, mặc định 0, nhận
+   *  số lẻ. Là TOÀN BỘ giờ chạy của bước tổ: tổ không còn năng suất hay kíp chuẩn nào để máy chia.
+   *  Bước máy / thuê ngoài bỏ qua ô này (giờ đến từ máy). */
+  so_gio_ke_hoach: string;
   /** Ô DUY NHẤT còn gõ được ở tab Thời gian ("Thời gian khác"). `setup_phut`/`chay_phut` kế thừa
    *  từ máy — số hiển thị lấy từ `thoi_luong_dien_giai` (server tính), không ô nào ghi ngược. */
   phat_sinh_phut: string;
@@ -106,8 +97,8 @@ export interface EditRow {
   so_luong_vao_moi: number | null;
   so_luong_ra_moi: number | null;
   phu_thuoc_step_keys: string[];
-  /** `tu_dong` = dòng MÁY bung khi chọn công việc khoán ⇒ lần bung sau thay được. Người tự thêm
-   *  hoặc đã sửa số thì về `false` và máy chừa ra — không thì đổi công việc khoán là mất số vừa gõ. */
+  /** `tu_dong` = dòng MÁY bung từ tab Vật tư của CÔNG ĐOẠN ⇒ lần bung sau thay được. Người tự thêm
+   *  hoặc đã sửa số thì về `false` và máy chừa ra — không thì đổi công đoạn là mất số vừa gõ. */
   vat_tus: { hang_loai: HangLoai; vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string;
              don_vi: string; so_luong: string; tu_dong: boolean }[];
   // gia công ngoài (§8)
@@ -124,43 +115,12 @@ export interface EditRow {
   /** Sổ giao–nhận THỰC TẾ + dẫn xuất — READ-ONLY ở form này. Ghi qua `api.lsx.giaoNhan`, không
    *  đi kèm lưu routing (hàng ra cổng lúc lệnh đang chạy, lưu routing thì bị chặn). */
   giao_nhan: LsxGiaoNhanFields | null;
-  // --- khoán theo đầu việc ---
-  /** Đầu việc đang chọn (`piece_rates.id`) — người dùng đổi được. */
-  khoan_rate_id: number | null;
-  /** Danh sách chọn được: READ-ONLY từ server (server áp luật khớp tổ + công đoạn). */
-  khoan_chon_duoc: KhoanChon[];
-  /** Đầu việc lúc TẢI về — đổi lựa chọn thì diễn giải cũ hết đúng, phải chờ lưu để server tính lại. */
-  khoan_rate_id_luc_tai: number | null;
+  /* Khối KHOÁN THEO ĐẦU VIỆC (`khoan_rate_id` · `khoan_chon_duoc` · `khoan_rate_id_luc_tai`) GỠ
+     18/09/2026 (mg `0320`): bước thôi mang đầu việc. Việc khoán chọn LÚC GHI MẺ ở bàn tổ. */
 }
 
-/** Đầu việc chọn được ở bước. `don_vi` + `don_gia` GỠ 11/09/2026: kế hoạch chọn VIỆC GÌ, không
- *  chọn GIÁ — giá do kế toán lương tra tại kỳ tính lương. */
-export interface KhoanChon {
-  id: number;
-  ten: string;
-  nang_suat_nguoi_gio?: number;
-  /** Dải năng suất của định mức — chỉ để hiện khoảng nhanh–chậm, null = chưa khai. */
-  nang_suat_nguoi_gio_min?: number | null;
-  nang_suat_nguoi_gio_max?: number | null;
-  /** Kíp chuẩn của công đoạn — MỘT số duy nhất về nhân lực (mg `0270`). */
-  so_nguoi_tieu_chuan?: number;
-  don_vi_nang_suat?: string | null;
-  /** VẬT TƯ đầu việc này tiêu thụ, ĐÃ tính số cho đúng bước đang mở (nền BOM, mg 0191). Server
-   *  quy đổi từ số lượng vào của bước sang đơn vị của vật tư — client chỉ việc bung ra. */
-  vat_tus?: {
-    vat_tu_id: number; ma: string; ten: string; don_vi: string;
-    so_luong: number; dien_giai?: string | null;
-  }[];
-  /** Vật tư khai ở danh mục nhưng chưa quy đổi được — nói thiếu gì, KHÔNG đoán số. */
-  canh_bao_vat_tu?: string[];
-  /** Tiền công DỰ KIẾN nếu chọn ĐÚNG đầu việc này, server tính sẵn cho bước đang mở (cùng bộ máy
-   *  với bước đã lưu). Nhờ đó chọn ở dropdown là "nhảy tiền" ngay, khỏi Lưu trước. Có key nghĩa là
-   *  option đến từ server cho bước hiện tại; `null` = chưa quy đổi được SL sang đơn vị đơn giá. */
-  tien_du_kien?: number | null;
-  sl_du_kien?: number | null;
-  don_vi_sl_du_kien?: string | null;
-  dien_giai_du_kien?: string | null;
-}
+/* `KhoanChon` (đầu việc chọn được ở bước, kèm năng suất + kíp + vật tư bung) GỠ 18/09/2026
+   (mg `0320`) — vật tư bung thẳng theo CÔNG ĐOẠN, giờ tổ là số gõ tay. */
 
 
 /** Điều kiện bắt đầu (§4.5) — "công đoạn trước xong" là mặc định nên không có ô riêng. */
@@ -211,19 +171,15 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     // vế VÀO khi vế vào CÓ giá trị — bước không đổi cách đếm thì hai vế bằng nhau.
     don_vi_vao: cd.don_vi_vao || "",
     don_vi_ra: cd.don_vi_ra || cd.don_vi_vao || "",
-    don_vi_san_luong: cd.don_vi_san_luong || "",
     // Server cũ chưa gửi cờ ⇒ coi như TRÊN dòng giấy: im lặng đúng với hành vi trước đây, hơn là
     // đột nhiên dán chú giải "ngoài dòng giấy" lên mọi bước.
     tren_dong_giay: cd.tren_dong_giay !== false,
-    loi_quy_doi: cd.loi_quy_doi ?? null,
-    san_luong_dien_giai: cd.san_luong_dien_giai ?? null,
     he_so_quy_doi: s(cd.he_so_quy_doi),
     hao_hut: s(cd.hao_hut),
     hao_hut_pct: s(cd.hao_hut_pct),
     so_luot_chay: s(cd.so_luot_chay),
-    so_nhan_cong_tieu_chuan: cd.so_nhan_cong_tieu_chuan ?? 1,
-    nang_suat: s(cd.nang_suat),
-    don_vi_nang_suat: cd.don_vi_nang_suat ?? "",
+    // "0" chứ không "": ô mặc định HIỆN số 0 (chủ 18/09/2026 — "để mặc định là 0").
+    so_gio_ke_hoach: String(Number(cd.so_gio_ke_hoach) || 0),
     phat_sinh_phut: s(cd.phat_sinh_phut),
     thoi_luong_dien_giai: cd.thoi_luong_dien_giai ?? {},
     vat_tu_goi_y: cd.vat_tu_goi_y ?? [],
@@ -259,9 +215,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
       tien_gia_cong_thuc: cd.tien_gia_cong_thuc ?? null,
       qua_han_ngay: cd.qua_han_ngay ?? null,
     },
-    khoan_rate_id: cd.khoan_rate_id ?? null,
-    khoan_chon_duoc: cd.khoan_chon_duoc ?? [],
-    khoan_rate_id_luc_tai: cd.khoan_rate_id ?? null,
   };
 }
 
@@ -323,11 +276,10 @@ export function emptyRow(): EditRow {
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
     khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null,
     khuon_nguon: null, khuon_phi: 0, khuon_lech: null,
-    so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", don_vi_san_luong: "",
-    tren_dong_giay: true, loi_quy_doi: null, san_luong_dien_giai: null, he_so_quy_doi: "",
+    so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to",
+    tren_dong_giay: true, he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "",
-    nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
-    so_nhan_cong_tieu_chuan: 1,
+    phat_sinh_phut: "", so_gio_ke_hoach: "0",
     thoi_luong_dien_giai: {},
     vat_tu_goi_y: [], so_luong_vao_moi: null, so_luong_ra_moi: null,
     phu_thuoc_step_keys: [], vat_tus: [],
@@ -336,9 +288,6 @@ export function emptyRow(): EditRow {
     ghi_chu: "",
     // Bước mới chưa lưu thì chưa có id để ghi giao–nhận — sổ chỉ mở sau khi lưu routing.
     giao_nhan: null,
-    // Bước THÊM TAY chưa biết tổ/công đoạn nên chưa có đầu việc nào để gợi ý; lưu xong server điền.
-    khoan_rate_id: null, khoan_chon_duoc: [],
-    khoan_rate_id_luc_tai: null,
   };
 }
 
@@ -446,9 +395,9 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       // Bước TỔ luôn 1 lượt (08/09/2026): ô đã gỡ khỏi drawer ở loại bước này, nên số cũ
       // khác 1 không được nằm lại vô hình. Server ghi đè 1 lần nữa ở `_ap_routing`.
       so_luot_chay: r.loai_buoc === "to" ? 1 : on(r.so_luot_chay),
-      // Kíp chuẩn gửi lên để số sửa tay không bị server kéo lại theo danh mục. Gửi cho MỌI loại
-      // bước (mg `0270`): kíp nay bám công đoạn chứ không còn bám máy.
-      so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan || undefined,
+      // Số giờ kế hoạch chỉ có nghĩa ở bước TỔ. Bước máy / thuê ngoài gửi 0 để số cũ (từ lúc bước
+      // còn là tổ) không nằm lại vô hình trong DB. Ô trống = 0, không phải "giữ số cũ".
+      so_gio_ke_hoach: r.loai_buoc === "to" ? Math.max(n(r.so_gio_ke_hoach), 0) : 0,
       // Ô trống = để máy tính từ năng suất (KHÔNG phải 0 phút).
       phat_sinh_phut: on(r.phat_sinh_phut),
       phu_thuoc_step_keys: r.phu_thuoc_step_keys,
@@ -468,14 +417,7 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       don_gia_gia_cong: ngoai ? on(r.don_gia_gia_cong) : undefined,
       yeu_cau_ky_thuat: ngoai ? ot(r.yeu_cau_ky_thuat) : null,
       ghi_chu: ot(r.ghi_chu),
-      // Đầu việc khoán — ba trạng thái khác nhau, đừng gộp:
-      //  · đang chọn         → gửi id
-      //  · từng có, nay bỏ   → gửi null (người dùng CHỦ Ý bỏ chọn)
-      //  · chưa bao giờ có   → KHÔNG gửi field, để server điền mặc định theo tổ + công đoạn
-      // Gửi null vô điều kiện thì bước mới thêm tay vĩnh viễn không được điền sẵn.
-      ...(r.khoan_rate_id != null || r.khoan_rate_id_luc_tai != null
-        ? { piece_rate_id: r.khoan_rate_id }
-        : {}),
+      // `piece_rate_id` GỠ 18/09/2026 (mg `0320`) — bước thôi ghim đầu việc khoán.
     };
   });
 }
@@ -541,8 +483,7 @@ export type ThoiLuongInput = Pick<
   EditRow,
   | "loai_buoc"
   | "so_luot_chay"
-  | "so_nhan_cong_tieu_chuan"
-  | "nang_suat"
+  | "so_gio_ke_hoach"
   | "phat_sinh_phut"
   | "thoi_luong_dien_giai"
   | "don_vi_vao"
@@ -585,30 +526,16 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     : (Array.isArray(dgServer.chuan_bi_khoan) ? dgServer.chuan_bi_khoan : []);
 
   let phuongPhap: string = theoMay ? "may" : r.loai_buoc;
-  let nangSuatCoSo = 0;       // năng suất/tốc độ GỐC (Tổ: theo đầu người; Máy: tốc độ máy)
-  let nangSuatHieuDung = 0;   // đã nhân kíp chuẩn với bước Tổ
-  let nguoiTinh: number | null = null;
+  let nangSuatCoSo = 0;       // tốc độ máy (bước tổ không có năng suất nào nữa — mg `0321`)
+  let nangSuatHieuDung = 0;
   let chay = 0;
   let chayNhanh = 0;
   let chayCham = 0;
 
   if (r.loai_buoc === "to") {
-    // Bước TỔ = SL vào ÷ (năng suất khoán × SỐ NGƯỜI TIÊU CHUẨN) × 60. Năng suất khai theo ĐẦU
-    // NGƯỜI nên kíp chuẩn N người chạy nhanh gấp N (chốt 20/08/2026). Số người tiêu chuẩn SỬA ĐƯỢC
-    // trong drawer ⇒ phải tính LIVE. Ba mức năng suất (min/tb/max) ghim trong `khoan_json` ở SERVER;
-    // client không giữ min/max nên co giãn khoảng server đã tính theo TỶ LỆ chay_live/chay_server —
-    // kíp chuẩn là hệ số ĐỀU trên cả ba mức nên tỷ lệ này tái tạo đúng khoảng khi đổi người hoặc SL.
-    const ns = f(r.nang_suat);
-    const nguoiTC = Math.max(Math.trunc(f(r.so_nhan_cong_tieu_chuan)) || 1, 1);
-    nangSuatCoSo = ns;
-    nangSuatHieuDung = ns * nguoiTC;
-    nguoiTinh = nguoiTC;
-    const chayServer = numOf("chay_phut");
-    chay = nangSuatHieuDung > 0 && vao > 0 ? (vao / nangSuatHieuDung) * 60 : chayServer;
-    const tyLe = chayServer > 0 && chay > 0 ? chay / chayServer : 1;
-    chayNhanh = (numOf("chay_phut_min") || chay) * tyLe;   // năng suất CAO ⇒ chạy nhanh ⇒ nhỏ nhất
-    chayCham = (numOf("chay_phut_max") || chay) * tyLe;
-    if (ns <= 0) phuongPhap = "thieu_nang_suat";
+    // Bước TỔ = SỐ GIỜ KẾ HOẠCH người lập lệnh gõ × 60 (18/09/2026, §5.1) — cùng phép với
+    // `thoi_luong_buoc` ở server. Một con số gõ tay: ba mức bằng nhau, 0 giờ là HỢP LỆ, không cảnh báo.
+    chay = chayNhanh = chayCham = Math.max(f(r.so_gio_ke_hoach), 0) * 60;
   } else {
     // Công thức chốt 2026-08-04: SL vào × 60 ÷ tốc độ × số lượt.
     const tocDo = coMay ? f(may?.tocDo) : numOf("toc_do");
@@ -625,7 +552,8 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
   // Chưa quy đổi được SL vào sang đơn vị tốc độ ⇒ không có giờ chạy, và nói đúng chỗ phải đi khai.
   // Thắng mọi lý do khác: có tốc độ mà không biết bước nhận bao nhiêu THEO ĐƠN VỊ ĐÓ thì phép chia
   // vô nghĩa (chủ 15/08/2026 — ca `500 kg/h` nhận số tờ).
-  if (!daQuyDoi) {
+  // Bước tổ không quy đổi gì (giờ là số gõ tay) — nhánh này chỉ dành cho máy / thuê ngoài.
+  if (!daQuyDoi && theoMay) {
     phuongPhap = "chua_quy_doi";
     chay = chayNhanh = chayCham = 0;
     // CHƯA GÁN MÁY nói câu khác: bước máy trống máy thì server không có ĐÍCH nào để quy về — cách
@@ -654,15 +582,13 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     so_luong_vao_goc: dgServer.so_luong_vao_goc ?? f(r.so_luong_vao),
     don_vi_vao_goc: (dgServer.don_vi_vao_goc as string | null) ?? r.don_vi_vao,
     quy_doi_dien_giai: dgServer.quy_doi_dien_giai ?? null,
-    nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : "may",
+    nguon_nang_suat: r.loai_buoc === "to" ? "gio_ke_hoach" : "may",
     nang_suat_co_so: nangSuatCoSo > 0 ? tron(nangSuatCoSo) : null,
     nang_suat_hieu_dung: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
     // Bước tổ vẫn BÁO số lượt — chip `so_luot_chay` của công thức tiền công cần số thật — nhưng
     // từ 08/09/2026 số đó luôn là 1: ô nhập chỉ còn ở bước máy/thuê ngoài.
     so_luot_chay: luot,
-    so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan,
-    // Bước TỔ nhân kíp chuẩn vào công thức (chốt 20/08/2026) ⇒ "số người tính" = số người tiêu chuẩn.
-    so_nhan_cong_tinh: nguoiTinh,
+    so_gio_ke_hoach: r.loai_buoc === "to" ? tron(Math.max(f(r.so_gio_ke_hoach), 0)) : 0,
     setup_phut: tron(setup),
     chuan_bi_khoan: khoanChuanBi,
     phat_sinh_phut: tron(khac),

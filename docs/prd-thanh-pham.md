@@ -163,6 +163,11 @@ KHO       stock_requests XUẤT → lập phiếu → trừ tồn   (luồng cũ
   > Khai tay để trống khách vẫn hiện đúng ở màn Thành phẩm — không còn "rơi sang Vật tư khác" như
   > mô tả ở trên.
 
+  > **Đổi 18/09/2026 — HẾT khai tay** (chủ dự án: *"bỏ nút thêm thành phẩm đi"*). Dòng chỉ do chốt
+  > đơn / giao hàng sinh ra. Màn giấu nút Thêm (`khongTaoTay`), máy chủ chặn `create`
+  > (`VatLieuKhoService._chan_tao_tay`). Nhập Excel vẫn còn để SỬA hàng loạt; mã chưa có trong file
+  > báo lỗi đúng dòng. Dòng khai tay còn sót từ 19/08–18/09 vẫn mở/sửa được.
+
   **Tên SỬA ĐƯỢC** (gõ sai chính tả phải sửa được — và vì tên là khoá gộp, sửa tên chính là cách
   gộp hai dòng lỡ đẻ trùng). **Mã thì KHÔNG**: nó đã nằm trong lô tồn và phiếu đã ghi sổ.
 - **L6 — Kho vẫn tìm thấy.** Ô tìm mặt hàng (`/api/vat-lieu-kho/mat-hang`) quét thêm thành phẩm,

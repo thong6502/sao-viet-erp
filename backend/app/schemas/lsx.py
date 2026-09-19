@@ -166,9 +166,8 @@ class LsxCongDoanIn(BaseModel):
     #: Con dao của bước (`khuon_be.id`). Gửi null = bỏ gán.
     khuon_be_id: int | None = None
 
-    # Đầu việc khoán của bước (`piece_rates.id`) — 0/null = bỏ chọn. KHÔNG gửi field này = giữ mặc
-    # định theo tổ + công đoạn (server tự điền), đừng gửi null "cho chắc" kẻo xoá mất đầu việc.
-    piece_rate_id: int | None = None
+    # ⚠️ `piece_rate_id` GỠ 18/09/2026 (mg `0320`): bước lệnh thôi chọn đầu việc khoán. Việc khoán
+    #    chọn LÚC GHI MẺ ở bàn tổ, nơi thợ biết mình vừa làm gì.
     # Số lượng & hao hụt
     so_luong_vao: float | None = None
     so_luong_ra: float | None = None
@@ -179,12 +178,12 @@ class LsxCongDoanIn(BaseModel):
     hao_hut_pct: float | None = Field(default=None, ge=0)
     so_luot_chay: int | None = Field(default=None, ge=1)
     # Năng suất & thời gian (phút)
-    # Kíp chuẩn KẾ THỪA từ định mức công đoạn nhưng SỬA ĐƯỢC tại bước — mỗi lệnh một hoàn cảnh
-    # (tổ mượn người, việc gấp). Không gửi = giữ số đang có / để server điền từ định mức.
-    so_nhan_cong_tieu_chuan: int | None = Field(default=None, ge=1)
-    # Hai ô gõ được ở tab Thời gian. `setup_phut` · `nang_suat` · `chay_phut` · `di_chuyen_phut`
-    # vẫn BỎ khỏi input: chuẩn bị + tốc độ kế thừa SỐNG từ module Máy, người kế hoạch không sửa
-    # tại bước.
+    # SỐ GIỜ KẾ HOẠCH của bước TỔ (mg `0319`) — người lập lệnh gõ tay, KHÔNG kế thừa từ danh mục.
+    # Nhận số lẻ (4,5 giờ) nên là `float`; 0 HỢP LỆ và không cảnh báo (§5.1). Thay chỗ
+    # `so_nhan_cong_tieu_chuan` (kíp chuẩn) đã gỡ cùng ngày (mg `0321`).
+    so_gio_ke_hoach: float | None = Field(default=None, ge=0)
+    # Hai ô gõ được ở tab Thời gian. `setup_phut` · `chay_phut` · `di_chuyen_phut` vẫn BỎ khỏi
+    # input: chuẩn bị + tốc độ kế thừa SỐNG từ module Máy, người kế hoạch không sửa tại bước.
     phat_sinh_phut: float | None = Field(default=None, ge=0)
     # Gia công ngoài (§8)
     nha_cung_cap: str | None = None
@@ -241,34 +240,25 @@ class LsxCongDoanOut(BaseModel):
     # cứng thì mọi lần mở chi tiết lệnh có bước chế bản là 500.
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
-    # Đơn vị ĐO SẢN LƯỢNG khai ở danh mục Công đoạn — chữ để dán cạnh số của bước NGOÀI dòng giấy
-    # (hai ô trên trống rỗng ở đúng những bước đó). Thiếu field này thì bảng routing hiện "—" ở
-    # bước ghi kẽm, tức giấu mất số bản kẽm phải ghi.
-    don_vi_san_luong: str | None = None
     # Bước có nằm trên DÒNG GIẤY không — quyết định bởi CỜ TRẠM của danh mục Đơn vị, FE không tự
     # suy được từ mã. Sai/thiếu field này thì màn hiện hai số 0 (số lượng + hao) mà không nói vì sao.
     tren_dong_giay: bool = True
-    # Câu lỗi khi bước NGOÀI dòng thiếu cầu quy đổi giữa hai đơn vị (`bài in → bản kẽm`) ở module
-    # Đơn vị & quy đổi. None = không lỗi. Drawer bày đỏ + số vào để 0 cho tới khi người khai cầu.
-    loi_quy_doi: str | None = None
-    # Diễn giải công thức SỐ RA cho bước ngoài dòng ("Số bản kẽm = 5 bản kẽm"). None với bước
-    # trên dòng giấy (số suy ngược theo chuỗi, không có công thức riêng).
-    san_luong_dien_giai: str | None = None
+    # ⚠️ `don_vi_san_luong` · `loi_quy_doi` · `san_luong_dien_giai` GỠ 18/09/2026 (mg `0324`) cùng
+    #    công thức sản lượng ra của công đoạn — bước ngoài dòng giấy nay là số tự khai ở bước.
     he_so_quy_doi: float
     hao_hut: float
     hao_hut_pct: float
     ty_le_hao_hut: float = 0      # derived = hao_hut / so_luong_vao
     so_luot_chay: int = 1
 
-    so_nhan_cong_tieu_chuan: int = 1
+    #: SỐ GIỜ KẾ HOẠCH của bước TỔ — ô gõ tay (mg `0319`). Bước máy luôn 0 và không đọc tới.
+    so_gio_ke_hoach: float = 0
     # `setup_phut` KẾ THỪA từ máy (read-only trên UI); `phat_sinh_phut` là ô người gõ.
     setup_phut: float = 0
     phat_sinh_phut: float = 0
     # CHỜ KỸ THUẬT (mực khô · keo đông · màng nguội) — kế thừa từ danh mục Công đoạn theo cặp
     # (công đoạn × loại SP), SỬA ĐÈ được tại bước. Vào `tong_phut` nhưng KHÔNG vào `chiem_may_phut`:
     # tờ nằm trên pallet chờ khô thì máy vẫn chạy job khác.
-    nang_suat: float | None = None
-    don_vi_nang_suat: str | None = None
     chay_phut: float | None = None      # dẫn xuất: SL vào × 60 ÷ tốc độ máy × số lượt
     # derived — thời lượng theo tốc độ TRUNG BÌNH (Gantt đặt thanh), kèm dải nhanh/chậm nhất
     # suy từ tốc độ tối đa / tối thiểu của máy. Máy chưa khai dải ⇒ cả ba bằng nhau.
@@ -304,16 +294,8 @@ class LsxCongDoanOut(BaseModel):
     qua_han_ngay: int | None = None           # >0 = quá hạn nhận, chỉ khi chưa nhận
     ghi_chu: str | None = None
 
-    # --- Đầu việc đã chọn cho bước --------------------------------------------
-    # GHIM (snapshot lúc chọn) — chỉ ĐỊNH DANH. Không ô tiền nào từ 11/09/2026: kế hoạch vẫn chọn
-    # đầu việc chi tiết (thợ làm VIỆC GÌ, và là khoá kế toán lương tra giá theo kỳ), còn quy ra tiền
-    # là việc của kế toán lương. Trước đó ở đây có `khoan_don_vi`/`khoan_don_gia` + bốn ô dẫn xuất
-    # (`khoan_sl`/`khoan_don_vi_sl`/`khoan_tien`/`khoan_dien_giai`) và `khoan_thieu`/`khoan_ly_do`.
-    khoan_rate_id: int | None = None
-    khoan_ten: str | None = None
-    # Các đầu việc CHỌN ĐƯỢC cho bước (theo tổ + công đoạn) — nuôi dropdown ở drawer. Mỗi lựa chọn
-    # mang định mức (năng suất · kíp · vật tư) để drawer xem trước giờ và nhân lực, KHÔNG mang giá.
-    khoan_chon_duoc: list[dict] = Field(default_factory=list)
+    # ⚠️ `khoan_rate_id` · `khoan_ten` · `khoan_chon_duoc` GỠ 18/09/2026 (mg `0320`): bước thôi chọn
+    #    đầu việc khoán — việc khoán chọn LÚC GHI MẺ ở bàn tổ, nơi thợ biết mình vừa làm gì.
     # `[{vat_tu_id, so_luong, dien_giai}]` — lượng tính sẵn cho MỌI vật tư theo bước này. Drawer
     # chọn món nào là điền số ngay, khỏi bắt gõ tay. Món chưa tính ra được thì KHÔNG có ở đây.
     vat_tu_goi_y: list[dict] = Field(default_factory=list)
@@ -374,23 +356,11 @@ class LsxListOut(BaseModel):
     facets: dict[str, int] = {}
 
 
-class BoDauViecOut(BaseModel):
-    """Một bước bị GỠ đầu việc mồ côi khi lưu routing (đầu việc đã ghim không còn thuộc công đoạn
-    ∩ tổ — thường vì danh mục đổi dưới chân lệnh). KHÔNG chặn lưu; báo để mở bước chọn lại."""
-
-    vi_tri: int          # số thứ tự bước trong routing (1-based) để người kế hoạch mở đúng chỗ
-    ten: str             # tên công đoạn của bước
-    dau_viec: str        # tên đầu việc đã bị gỡ
+# ⚠️ `BoDauViecOut` GỠ 18/09/2026 (mg `0320`): bước thôi ghim đầu việc nên không có gì mồ côi.
 
 
-class DanhMucDoiTruong(BaseModel):
-    """Một Ô của ảnh chụp khoán bị lệch. `cu`/`moi` đã là chuỗi bày được (công thức đã dịch sang
-    chữ); `None` = ô đang bỏ trống."""
-
-    truong: str
-    nhan: str
-    cu: str | None = None
-    moi: str | None = None
+# ⚠️ `DanhMucDoiTruong` GỠ 18/09/2026 (mg `0320`): nó mô tả MỘT ô của ảnh chụp khoán bị lệch,
+#    mà ảnh chụp ấy đã bay khỏi bước lệnh.
 
 
 class DanhMucDoiVatTu(BaseModel):
@@ -411,12 +381,9 @@ class DanhMucDoiBuoc(BaseModel):
     step_key: str | None = None
     thu_tu: int = 0
     ten: str = ""
-    khoan: list[DanhMucDoiTruong] = Field(default_factory=list)
-    # Bước chưa chọn đầu việc mà danh mục khớp ĐÚNG MỘT cái — tên cái đó. Cập nhật là điền vào.
-    khoan_chua_chon: str | None = None
-    # Đầu việc đã ghim nay không còn thuộc (công đoạn ∩ tổ) — người kế hoạch phải chọn lại tay,
-    # nút cập nhật KHÔNG đoán hộ.
-    khoan_mo_coi: str | None = None
+    # ⚠️ Ba khoá KHOÁN (`khoan` · `khoan_chua_chon` · `khoan_mo_coi`) GỠ 18/09/2026 (mg `0320`):
+    #    bước thôi ghim ảnh chụp đầu việc nên không có gì lệch với danh mục. Băng còn đúng hai
+    #    việc — VẬT TƯ của công đoạn và MÁY bị gỡ khỏi công đoạn.
     vat_tu_them: list[DanhMucDoiVatTu] = Field(default_factory=list)
     # Bước đang có mà danh mục không còn bung. CHỈ BÁO — nút cập nhật không xoá dòng nào.
     vat_tu_bo: list[DanhMucDoiVatTu] = Field(default_factory=list)
@@ -499,6 +466,8 @@ class LsxOut(BaseModel):
     # `thieu` CHẶN nút "Sẵn sàng lập kế hoạch" (§12). Rổ cảnh báo MỀM §14 (`canh_bao`) đã gỡ
     # 25/08/2026 — server vẫn tính mỗi lần mở lệnh mà không màn nào đọc.
     thieu: list[str] = Field(default_factory=list)
+    # Tên tổ đứng sau mã `thieu_viec_khoan_to` — màn lệnh gọi đích danh tổ nào chưa có việc khoán.
+    to_thieu_viec_khoan: list[str] = Field(default_factory=list)
     lead_time: LeadTimeOut | None = None
     # `khoan_tien_tong` gỡ 11/09/2026 cùng tiền khoán ở tầng lệnh — tổng công thợ là số của kế toán
     # lương, tính theo bảng giá TẠI KỲ TÍNH LƯƠNG, không phải Σ ảnh chụp lúc bung lệnh.
@@ -514,9 +483,6 @@ class LsxOut(BaseModel):
     # kế hoạch sửa xong cả routing mới ăn 409 lúc bấm Lưu, mà mỗi lần đổi công đoạn thì xem-trước
     # 409 im lặng nên số trên bảng đứng im không ai giải thích.
     giu_cho_bat: bool = False
-    # Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing này (rỗng ở mọi cửa đọc khác). Non-blocking:
-    # lưu vẫn thành công, FE bày lưu ý để người kế hoạch mở đúng bước chọn lại đầu việc.
-    bo_dau_viec: list[BoDauViecOut] = Field(default_factory=list)
     # Danh mục Công đoạn đã đổi sau lúc lệnh chụp ảnh (None = còn khớp). Lệnh KHÔNG tự lấy số mới;
     # băng trên màn lệnh nói lệch chỗ nào rồi để người lập kế hoạch bấm "Cập nhật theo danh mục".
     danh_muc_doi: DanhMucDoiOut | None = None
@@ -632,13 +598,10 @@ class XemTruocRoutingBuoc(BaseModel):
     so_luong_ra: float
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
-    don_vi_san_luong: str | None = None
     he_so_quy_doi: float
     hao_hut: float
     hao_hut_pct: float
     tren_dong_giay: bool = True
-    loi_quy_doi: str | None = None
-    san_luong_dien_giai: str | None = None
 
 
 class XemTruocRoutingOut(BaseModel):
@@ -678,7 +641,10 @@ class BuocMacDinhOut(BaseModel):
     cong_doan_id: int
     ten: str
     nhom: str | None = None
+    #: Tổ MẶC ĐỊNH (tổ đầu danh sách) + cả danh sách tổ phụ trách công đoạn (mg `0312`) — ô chọn tổ
+    #: của bước chỉ được chọn trong danh sách này.
     department_id: int | None = None
+    department_ids: list[int] = Field(default_factory=list)
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
     he_so_quy_doi: float

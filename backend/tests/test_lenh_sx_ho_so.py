@@ -34,11 +34,11 @@ from app.models.vat_lieu_kho import VatTuInAn
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.services.san_xuat import kcs as kcs_svc
 from app.services.san_xuat import kho as kho_svc
-from app.services.san_xuat import san_luong as san_luong_svc
 from app.services.san_xuat import nhom as nhom_svc
 from app.services.san_xuat import release, release_update, thuc_thi
 
 # Helper (plain function, KHÔNG phải fixture) của file anh em — đi đúng khuôn đường ghi thật.
+from tests.san_xuat_me_fixtures import tao_me
 from tests.test_lenh_sx_trang_thai import _giao_xong, _kcs_batch, _su_co
 from tests.test_san_xuat_kcs import _T0, _T1, _to_kiem
 from tests.test_san_xuat_nhap_kho_tp import _nhan as _kho_nhan
@@ -48,6 +48,7 @@ from tests.test_san_xuat_nhap_kho_tp import _nhan as _kho_nhan
 from tests.lenh_sx_fixtures import (  # noqa: F401
     _chay_that,
     _cvs,
+    _da_nhan_tu,
     _dot_dong_don,
     _lenh_ghep_doi,
     _giao_nguoi,
@@ -449,9 +450,9 @@ def test_nhan_luc_ghi_lai_lan_doi_may(client, seed_credentials, sess, admin, len
     _giao_nguoi(sess, admin, cv, ma="NV-HS-21", ten="Thợ đổi máy")
     cv.may_id = may_cu.id
     sess.commit()
+    _da_nhan_tu(sess, _cvs(sess, lenh_that)[0], cv)     # bắt đầu đòi đã nhận từ bước trước
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_so_nguoi="Tổ thiếu người",
     )
     thuc_thi.doi_may(sess, user=admin, cong_viec_id=cv.id, may_id_moi=may_moi.id,
                      ly_do="Máy cũ kẹt giấy")
@@ -802,9 +803,8 @@ def _ghi_san_luong(sess, admin, cv, *, tong, tot, hong=0, ma="NV-HS-SL") -> None
         _giao_nguoi(sess, admin, cv, ma=ma, ten="Thợ sản lượng")
         thuc_thi.bat_dau(
             sess, user=admin, cong_viec_id=cv.id,
-            ly_do_so_nguoi="Tổ thiếu người",
         )
-    san_luong_svc.tao_batch(
+    tao_me(
         sess, user=admin, cong_viec_id=cv.id,
         bat_dau=datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc),
         ket_thuc=datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc),
@@ -850,15 +850,19 @@ def test_kcs_ty_le_dat_tinh_theo_so_khong_phai_trung_binh(
     assert _ho_so(client, seed_credentials, lenh_that)["kcs"]["ty_le_dat"] is None
 
     cvs = _cvs(sess, lenh_that)
-    _kcs_batch(sess, cvs[0].id, nhan=100, dat=50, khong_dat=50, ket_luan="khong_dat")
-    _kcs_batch(sess, cvs[1].id, nhan=1000, dat=950, khong_dat=50, ket_luan="dat")
+    cuoi = cvs[-1]
+    cuoi.la_kcs_cuoi = True
+    _kcs_batch(sess, cuoi.id, nhan=100, dat=50, khong_dat=50, ket_luan="khong_dat")
+    _kcs_batch(sess, cuoi.id, nhan=1000, dat=950, khong_dat=50, ket_luan="dat")
+    # Công đoạn giữa KCS chỉ ghi lỗi (đạt = 0): lỗi cộng vào, nhưng KHÔNG kéo tỷ lệ đạt xuống.
+    _kcs_batch(sess, cvs[0].id, nhan=7, dat=0, khong_dat=7, ket_luan="khong_dat")
 
     k = _ho_so(client, seed_credentials, lenh_that)["kcs"]
     assert k["tong_nhan"] == 1100.0
     assert k["tong_dat"] == 1000.0
-    assert k["tong_khong_dat"] == 100.0
+    assert k["tong_khong_dat"] == 107.0
     assert round(k["ty_le_dat"], 2) == 90.91, "theo SỐ, không phải trung bình cộng batch (72.5)"
-    assert len(k["batch"]) == 2
+    assert len(k["batch"]) == 3
 
 
 def test_san_luong_cong_don_moi_batch(client, seed_credentials, sess, admin, lenh_that):

@@ -143,41 +143,20 @@ def test_nhu_cau_cong_viec_khong_thuoc_lenh_bai_nao_tra_rong(db, orders, lsx_svc
     assert kh.nhu_cau_cua_cong_viec(cv) == []
 
 
-def test_nhu_cau_cong_viec_khong_nap_lich_khong_suy_moc(
-    db, orders, lsx_svc, admin, customer, monkeypatch
-):
-    """Drawer bàn tổ gọi hàm này mỗi lần mở việc. Lịch + thời lượng chỉ nuôi NGÀY CẦN, thứ hàm này
-    vứt đi — nạp chúng là quét bảng lịch và dẫn mốc Xếp lịch 3 cho cả lệnh (đo 16/09/2026: 77 trong
-    113 ms của khối vật tư cấp). Cả ba cửa đều nổ ở đây: lỡ ai gọi lại là đỏ ngay."""
-    from app.services.ke_hoach_vat_tu_service import KeHoachVatTuService
+def test_nhu_cau_cong_viec_khong_doc_ngay_can(db, orders, lsx_svc, admin, customer, monkeypatch):
+    """Drawer bàn tổ gọi hàm này mỗi lần mở việc — nó vứt NGÀY CẦN đi, nên không được tra bảng
+    yêu cầu mua. Lỡ ai gọi lại là đỏ ngay."""
+    from app.repositories.purchase_repo import DepartmentPurchaseRequestRepository
 
     _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-KL")
-    kh = _kh_service(db)
-    so_goc = kh.nhu_cau_cua_cong_viec(cv)
+    so_goc = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     assert so_goc and so_goc[0]["sl"] > 0
 
     def _no(*_a, **_k):
-        raise AssertionError("nhu_cau_cua_cong_viec không được nạp lịch/thời lượng/mốc tạm")
+        raise AssertionError("nhu_cau_cua_cong_viec không được đọc ngày cần")
 
-    for ten in ("_nap_lich", "_nap_thoi_luong", "_moc_tam"):
-        monkeypatch.setattr(KeHoachVatTuService, ten, _no)
+    monkeypatch.setattr(DepartmentPurchaseRequestRepository, "ngay_can_theo_chu_the", _no)
     assert _kh_service(db).nhu_cau_cua_cong_viec(cv) == so_goc
-
-
-def test_nap_lich_tat_co_bo_qua_ngay_can():
-    """Cùng instance chạy `nhu_cau_cua_cong_viec` rồi `can_doi()`: cờ bỏ-ngày phải tắt khi nạp lịch,
-    không thì bảng cân đối mất mốc tạm của mọi lệnh chưa xếp mà không báo gì."""
-    from types import SimpleNamespace
-
-    from app.services.ke_hoach_vat_tu_service import KeHoachVatTuService
-
-    kh = KeHoachVatTuService.__new__(KeHoachVatTuService)
-    kh.repo = SimpleNamespace(dong_lich_da_xep=lambda: [])
-    kh.db = None
-    kh._bo_qua_ngay_can()
-    assert kh._khong_tinh_ngay is True
-    kh._nap_lich(set(), set())
-    assert kh._khong_tinh_ngay is False
 
 
 def test_ve_don_vi_goc_quy_dung_va_bao_loi_ro_khi_khong_quy_duoc(db, orders, lsx_svc, admin, customer):

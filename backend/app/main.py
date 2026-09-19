@@ -60,8 +60,7 @@ from .routers import (
     phieu_tinh_gia,
     lsx,
     bai_ghep_2,
-    xep_lich_2,
-    xep_lich_3,
+    xep_lich,
     ke_hoach_vat_tu,
     ky_thuat_may,
     san_xuat,
@@ -205,8 +204,8 @@ app.include_router(lsx.router)
 # (`services/bai_ghep_service.py` + `repositories/bai_ghep_repo.py`) vẫn là của chung, đừng nhầm
 # là code chết: router này chạy trên đó.
 app.include_router(bai_ghep_2.router)
-app.include_router(xep_lich_2.router)        # Bàn Xếp lịch công đoạn (module quyền `xep_lich_2`; màn cũ `xep_lich` gỡ 19/08/2026)
-app.include_router(xep_lich_3.router)        # Xếp lịch 3 — bàn cấp LỆNH (module quyền `xep_lich_3`; mg 0292 chép quyền từ `xep_lich_2`)
+app.include_router(xep_lich.router)          # Xếp lịch — bàn cấp LỆNH, module quyền `xep_lich`
+                                             # (bàn theo công đoạn `xep_lich_2` xoá hẳn 18/09/2026, mg 0314)
 app.include_router(ke_hoach_vat_tu.router)   # bảng cân đối vật tư (cùng module quyền `san_xuat`)
 app.include_router(ky_thuat_may.router)      # sửa chữa + phiếu bảo trì (module quyền `ky_thuat_may`)
 app.include_router(san_xuat.router)          # bàn Thực hiện sản xuất tại tổ (cùng module quyền `san_xuat`)

@@ -63,9 +63,14 @@ class XepLichCongDoan(Base):
     # Cột dẫn là `start_at` để một index phục vụ CẢ HAI — btree Postgres đánh cả NULL nên nhánh
     # nháp cũng bám được. Bảng lịch chỉ có tăng: một năm điều độ là vài chục nghìn dòng, mỗi lần
     # mở bàn mà quét cả bảng thì chi phí nền cứ thế phình theo lịch sử.
+    # Hàng đèn Kế hoạch SX hỏi "việc cùng máy/tổ CHẠM khoảng [lo, hi]" (`finish_at >= lo AND
+    # start_at <= hi`, xem `XepLichRepository.dong_quanh`) — dẫn bằng `finish_at` để chỉ quét từ `lo`
+    # trở đi; dẫn bằng `start_at` thì vế `<= hi` quét ngược về cả lịch sử của máy (mg `0323`).
     __table_args__ = (
         Index("ix_xep_lich_may_thoigian", "may_id", "start_at"),
         Index("ix_xep_lich_start_trangthai", "start_at", "trang_thai"),
+        Index("ix_xep_lich_may_xong", "may_id", "finish_at"),
+        Index("ix_xep_lich_to_xong", "department_id", "finish_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

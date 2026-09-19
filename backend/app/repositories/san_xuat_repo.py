@@ -15,11 +15,12 @@ from sqlalchemy.orm import Session
 
 from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
+from ..models.customer import Customer
 from ..models.department import Department
 from ..models.employee import Employee
 from ..models.lsx import Lsx, LsxCongDoan, LsxCongDoanPhuThuoc
 from ..models.may_thiet_bi import MayThietBi
-from ..models.order import OrderLine
+from ..models.order import Order, OrderLine
 from ..models.san_xuat import (
     CV_HOAN_THANH,
     GOI_DANG_PHAT_HANH,
@@ -474,6 +475,10 @@ class SanXuatRepository:
         trang: int = 1,
         co_trang: int = 20,
         chi_cong_viec_ids: set[int] | None = None,
+        trang_thai: set[str] | None = None,
+        nhan_tu: datetime | None = None,
+        nhan_den: datetime | None = None,
+        sap_xep: str = "moi_nhan",
     ) -> tuple[list[tuple[tuple[str, int | None], datetime | None, datetime | None]], int]:
         """Một TRANG các LỆNH/BÀI GHÉP mà tổ phải làm + tổng số lệnh.
 
@@ -488,12 +493,20 @@ class SanXuatRepository:
 
         `tim` cũng lọc Ở ĐÂY chứ không lọc bằng JS sau khi kéo trang về — lọc sau khi cắt trang
         thì ô tìm kiếm chỉ soi được đúng 20 lệnh đang hiện. Từ khoá soi mã/tên LỆNH, mã/tên BÀI
-        GHÉP và tên CÔNG ĐOẠN; khớp một bước là cả lệnh hiện ra (bàn tổ đi tìm LỆNH, không đi tìm
+        GHÉP, tên KHÁCH (của lệnh, hoặc của lệnh thành viên bài ghép) và tên CÔNG ĐOẠN; khớp một
+        bước là cả lệnh hiện ra (bàn tổ đi tìm LỆNH, không đi tìm
         bước rời).
 
         `chi_cong_viec_ids` (ô "chờ xác nhận"): chỉ giữ lệnh chứa ít nhất một bước trong tập. Lọc
         bằng HAVING chứ không WHERE — WHERE bỏ các bước khác của lệnh nên mốc sớm/muộn (thứ tự
         trang) lệch khỏi bàn không lọc. Tập rỗng ⇒ trang rỗng.
+
+        Lọc nâng cao của bàn (19/09/2026) — cũng HAVING, cũng trước khi cắt trang:
+        · `trang_thai`: giữ lệnh có ÍT NHẤT MỘT bước của tổ ở một trong các trạng thái ấy.
+        · `nhan_tu`/`nhan_den` (UTC THẬT, nửa mở `[tu, den)`): lúc tổ NHẬN lệnh — `created_at`
+          sớm nhất của các bước của tổ, cùng mốc bàn hiện "Nhận …" ở đầu lệnh.
+        `sap_xep`: `moi_nhan` (mặc định — lệnh phát hành xuống tổ SAU nằm TRÊN), `cu_nhan`, hoặc
+        `du_kien` (giờ dự kiến bước sớm nhất của tổ, lệnh chưa xếp giờ dồn cuối).
         """
         pham_vi = self._pham_vi_to(department_ids, employee_id, rieng_ids)
         if pham_vi is None or (chi_cong_viec_ids is not None and not chi_cong_viec_ids):
@@ -503,6 +516,7 @@ class SanXuatRepository:
         loai, nid = self._khoa_lenh_cols()
         som = func.min(SanXuatCongViec.du_kien_bat_dau)
         muon = func.max(SanXuatCongViec.du_kien_ket_thuc)
+        nhan = func.min(SanXuatCongViec.created_at)
         dieu_kien = [
             pham_vi,
             SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
@@ -517,26 +531,55 @@ class SanXuatRepository:
         if kw:
             from sqlalchemy import or_
 
+            from sqlalchemy.orm import aliased
+
             mau = f"%{kw}%"
             nhom = (
                 nhom.outerjoin(Lsx, SanXuatCongViec.lsx_id == Lsx.id)
+                .outerjoin(Order, Lsx.order_id == Order.id)
+                .outerjoin(Customer, Order.customer_id == Customer.id)
                 .outerjoin(BaiGhep, SanXuatCongViec.bai_ghep_id == BaiGhep.id)
             )
+            # Khách của BÀI GHÉP là khách các lệnh thành viên — EXISTS chứ không JOIN, join thì mỗi
+            # bước nhân lên theo số thành viên.
+            lsx_tv, don_tv, khach_tv = aliased(Lsx), aliased(Order), aliased(Customer)
+            khach_bai_ghep = (
+                sa_select(BaiGhepThanhVien.id)
+                .join(lsx_tv, BaiGhepThanhVien.lsx_id == lsx_tv.id)
+                .join(don_tv, lsx_tv.order_id == don_tv.id)
+                .join(khach_tv, don_tv.customer_id == khach_tv.id)
+                .where(BaiGhepThanhVien.bai_ghep_id == SanXuatCongViec.bai_ghep_id,
+                       khach_tv.name.ilike(mau))
+                .exists()
+            )
             dieu_kien.append(or_(
-                Lsx.ma.ilike(mau), Lsx.ten.ilike(mau),
-                BaiGhep.ma.ilike(mau), BaiGhep.ten.ilike(mau),
+                Lsx.ma.ilike(mau), Lsx.ten.ilike(mau), Customer.name.ilike(mau),
+                BaiGhep.ma.ilike(mau), BaiGhep.ten.ilike(mau), khach_bai_ghep,
                 SanXuatCongViec.ten_cong_doan.ilike(mau),
             ))
         nhom = nhom.where(*dieu_kien).group_by(loai, nid)
         if chi_cong_viec_ids is not None:
             nhom = nhom.having(func.sum(sa_case(
                 (SanXuatCongViec.id.in_(chi_cong_viec_ids), 1), else_=0)) > 0)
+        if trang_thai:
+            nhom = nhom.having(func.sum(sa_case(
+                (SanXuatCongViec.trang_thai.in_(trang_thai), 1), else_=0)) > 0)
+        if nhan_tu is not None:
+            nhom = nhom.having(nhan >= nhan_tu)
+        if nhan_den is not None:
+            nhom = nhom.having(nhan < nhan_den)
         tong = self.db.scalar(sa_select(func.count()).select_from(nhom.subquery())) or 0
 
         co_trang = max(1, min(int(co_trang or 20), 100))
         trang = max(1, int(trang or 1))
+        if sap_xep == "du_kien":
+            thu_tu = (sa_case((som.is_(None), 1), else_=0), som, nid)
+        elif sap_xep == "cu_nhan":
+            thu_tu = (nhan, nid)
+        else:
+            thu_tu = (nhan.desc(), nid.desc())
         rows = self.db.execute(
-            nhom.order_by(sa_case((som.is_(None), 1), else_=0), som, nid)
+            nhom.order_by(*thu_tu)
             .limit(co_trang)
             .offset((trang - 1) * co_trang)
         ).all()
@@ -682,6 +725,35 @@ class SanXuatRepository:
             select(BaiGhep.id, BaiGhep.ma, BaiGhep.ten).where(BaiGhep.id.in_(bg_ids))
         ).all()
         return {bid: (ma, ten) for bid, ma, ten in rows}
+
+    def khach_nhan(self, lsx_ids: set[int], bg_ids: set[int]) -> dict[tuple[str, int], str]:
+        """{("lsx", id) | ("bai_ghep", id): tên khách} — lệnh → đơn hàng → khách. Bài ghép chạy
+        chung nhiều lệnh nên gộp tên khách của mọi thành viên (khác nhau, theo thứ tự thêm vào bài).
+        Lệnh không có đơn/khách thì vắng khỏi map."""
+        ra: dict[tuple[str, int], str] = {}
+        if lsx_ids:
+            rows = self.db.execute(
+                select(Lsx.id, Customer.name)
+                .join(Order, Lsx.order_id == Order.id)
+                .join(Customer, Order.customer_id == Customer.id)
+                .where(Lsx.id.in_(lsx_ids))
+            ).all()
+            ra.update({("lsx", lid): ten for lid, ten in rows if ten})
+        if bg_ids:
+            rows = self.db.execute(
+                select(BaiGhepThanhVien.bai_ghep_id, Customer.name)
+                .join(Lsx, BaiGhepThanhVien.lsx_id == Lsx.id)
+                .join(Order, Lsx.order_id == Order.id)
+                .join(Customer, Order.customer_id == Customer.id)
+                .where(BaiGhepThanhVien.bai_ghep_id.in_(bg_ids))
+                .order_by(BaiGhepThanhVien.id)
+            ).all()
+            gom: dict[int, list[str]] = {}
+            for bid, ten in rows:
+                if ten and ten not in gom.setdefault(bid, []):
+                    gom[bid].append(ten)
+            ra.update({("bai_ghep", bid): " · ".join(ds) for bid, ds in gom.items() if ds})
+        return ra
 
     def may_nhan(self, may_ids: set[int]) -> dict[int, str]:
         """{may_id: tên máy} cho bàn tổ.

@@ -31,13 +31,23 @@ from datetime import date, datetime, time, timezone
 
 from sqlalchemy import or_, select
 
-from ..models.delivery import LAN_GIAO_CO_HANG_DEN_TAY, LG_THAT_BAI, DeliveryTrip
+from ..models.delivery import (
+    LAN_GIAO_CO_HANG_DEN_TAY,
+    LG_DA_TRA_HANG,
+    LG_DANG_TRA_HANG,
+    LG_THAT_BAI,
+    DeliveryTrip,
+    LuotXe,
+)
 
 #: Chuyến ĐÃ CHẠY XONG — có trả tiền km. Gồm cả `that_bai`: xe vẫn lăn bánh, tài xế vẫn đi, khách
 #: không nhận không phải lỗi của họ. Bỏ ra là phạt người ta vì một việc họ không quyết được.
-#: KHÔNG gồm `dang_tra_hang`/`da_tra_hang`: đó là trạng thái của HÀNG sau `that_bai`, đếm nữa là
-#: đếm hai lần cùng một chuyến.
-TRANG_THAI_TINH_TIEN = (*LAN_GIAO_CO_HANG_DEN_TAY, LG_THAT_BAI)
+#:
+#: ⚠️ Gồm cả `dang_tra_hang` / `da_tra_hang` (sửa 18/09/2026). Giao thất bại thì `ghi_ket_qua` đẩy
+#: chuyến sang `dang_tra_hang` NGAY (hướng xử lý chỉ còn "trả về"), rồi kho nhận lại thành
+#: `da_tra_hang` — nên trước bản sửa, chuyến thất bại KHÔNG BAO GIỜ ra tiền, ngược đúng câu chủ chốt
+#: ở trên. Một chuyến là một dòng, đếm theo trạng thái hiện tại của dòng đó ⇒ không đếm hai lần.
+TRANG_THAI_TINH_TIEN = (*LAN_GIAO_CO_HANG_DEN_TAY, LG_THAT_BAI, LG_DANG_TRA_HANG, LG_DA_TRA_HANG)
 
 
 def _bien_ky(nam: int, thang: int) -> tuple[datetime, datetime]:
@@ -59,8 +69,12 @@ class KhoanKmService:
     @staticmethod
     def chia_tien(trip) -> dict[int, float]:
         """`{employee_id: tiền}` của MỘT chuyến. Rỗng nếu chuyến chưa đủ dữ liệu để tính."""
-        km = trip.km
-        gia = trip.don_gia_km
+        return KhoanKmService._chia(trip, trip.km, trip.don_gia_km)
+
+    @staticmethod
+    def _chia(trip, km, gia) -> dict[int, float]:
+        """Tiền một QUÃNG `km × gia` chia cho kíp của `trip`. Dùng chung cho chuyến và cho chặng về
+        kho của lượt xe (chặng đó chia cho kíp của điểm cuối — PRD khoán km §14)."""
         # `is None` chứ không phải falsy: km = 0 là số THẬT (xe chưa lăn bánh, khách không nghe
         # máy) và đơn giá 0 cũng là "đã chụp, và bằng 0". Dùng `not km` là nuốt mất cả hai.
         if km is None or gia is None:
@@ -101,6 +115,38 @@ class KhoanKmService:
         for t in rows:
             for eid, tien in self.chia_tien(t).items():
                 ra[eid] = ra.get(eid, 0.0) + tien
+        # Chặng VỀ KHO của các lượt đã đóng trong kỳ (PRD khoán km §14) — không có chuyến riêng,
+        # xếp kỳ theo lúc về kho, chia cho kíp của điểm cuối.
+        for luot, trip in self._ve_kho_trong_ky(tu, den):
+            for eid, tien in self._chia(trip, luot.km_ve_kho, luot.don_gia_ve_kho).items():
+                ra[eid] = ra.get(eid, 0.0) + tien
+        return ra
+
+    def luot_chua_ve_kho(self, nam: int, thang: int) -> list[str]:
+        """Mã các lượt xe có điểm giao đóng trong kỳ mà CHƯA ghi số đồng hồ về kho — tiền chặng về
+        kho của chúng chưa vào lương. Cảnh báo trước khi chốt kỳ đọc hàm này (chỉ nhắc, không chặn)."""
+        from ..models.delivery import LuotXeDiem
+
+        tu, den = _bien_ky(nam, thang)
+        return sorted(self.db.execute(
+            select(LuotXe.code).distinct()
+            .join(LuotXeDiem, LuotXeDiem.luot_xe_id == LuotXe.id)
+            .join(DeliveryTrip, DeliveryTrip.id == LuotXeDiem.delivery_trip_id)
+            .where(LuotXe.ve_kho_luc.is_(None),
+                   DeliveryTrip.thoi_gian_ket_thuc >= tu, DeliveryTrip.thoi_gian_ket_thuc < den)
+        ).scalars().all())
+
+    def _ve_kho_trong_ky(self, tu, den) -> list[tuple]:
+        """`[(lượt, chuyến ở điểm cuối)]` của các lượt về kho trong [tu, den) và đã chụp đơn giá."""
+        luot_ds = self.db.execute(
+            select(LuotXe).where(LuotXe.ve_kho_luc >= tu, LuotXe.ve_kho_luc < den,
+                                 LuotXe.ve_kho_trip_id.is_not(None))
+        ).scalars().all()
+        ra = []
+        for luot in luot_ds:
+            trip = self.db.get(DeliveryTrip, luot.ve_kho_trip_id)
+            if trip is not None:
+                ra.append((luot, trip))
         return ra
 
     def chi_tiet(self, employee_id: int, nam: int, thang: int) -> list[dict]:
@@ -136,4 +182,24 @@ class KhoanKmService:
                                     else t.pct_phu_xe) or 0)),
                 "thanh_tien": round(tien, 2),
             })
+        # Chặng về kho — dòng riêng, để bảng đối chiếu cộng lại ĐÚNG BẰNG cột trên bảng lương.
+        for luot, t in self._ve_kho_trong_ky(tu, den):
+            if employee_id not in (t.employee_id, t.phu_xe_employee_id):
+                continue
+            tien = self._chia(t, luot.km_ve_kho, luot.don_gia_ve_kho).get(employee_id)
+            if tien is None:
+                continue
+            ra.append({
+                "trip_id": t.id,
+                "ngay": luot.ve_kho_luc,
+                "km": int(luot.km_ve_kho or 0),
+                "don_gia_km": float(luot.don_gia_ve_kho or 0),
+                "vai_tro": "tai_xe" if t.employee_id == employee_id else "phu_xe",
+                "pct": (100.0 if not t.phu_xe_employee_id
+                        else float((t.pct_tai_xe if t.employee_id == employee_id
+                                    else t.pct_phu_xe) or 0)),
+                "thanh_tien": round(tien, 2),
+                "ghi_chu": f"Về kho · lượt {luot.code}",
+            })
+        ra.sort(key=lambda r: (r["ngay"] is None, r["ngay"] or datetime.min.replace(tzinfo=timezone.utc)))
         return ra

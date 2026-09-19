@@ -158,9 +158,10 @@ class VatTuInAn(Base):
     # KHÁC `cong_thuc_gia` ngay trên: ô kia ra TIỀN cho phiếu tính giá, ô này ra LƯỢNG cho BOM ở
     # bước lệnh. Hai câu hỏi khác nhau nên hai ô, đừng gộp.
     #
-    # Ô "Công thức tính lượng" (`cong_thuc_luong`) ĐÃ GỠ 06/09/2026, migration `0274`: định mức nay
-    # khai theo TỪNG DÒNG vật tư của đầu việc (`cong_doan_dau_viec_vat_tu.cong_thuc_luong`) — mực ăn
-    # theo SỐ TỜ còn dung môi rửa máy ăn theo SỐ MÀU, cùng ĐVT kg mà hai cách hoàn toàn khác.
+    # Ô "Công thức tính lượng" (`cong_thuc_luong`) ĐÃ GỠ 06/09/2026, migration `0274`: định mức
+    # khai theo TỪNG DÒNG vật tư của CÔNG ĐOẠN (`cong_doan_vat_tu.cong_thuc_luong`, mg `0316`;
+    # trước 18/09/2026 dòng ấy treo dưới đầu việc của tổ) — mực ăn theo SỐ TỜ còn dung môi rửa
+    # máy ăn theo SỐ MÀU, cùng ĐVT kg mà hai cách hoàn toàn khác.
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # NVL THAY THẾ (mg 0239) — mảng id VẬT TƯ KHÁC khác dùng thay được món này. MỘT CHIỀU, xem
     # ghi chú đầy đủ ở `GiayNguyen.thay_the_ids`. NULL = chưa khai.

@@ -50,6 +50,9 @@ from ..schemas.payroll import (
     ChiTieuNgayIn,
     ChiTieuNgayListOut,
     ChiTieuNgayOut,
+    ToTruongIn,
+    ToTruongListOut,
+    ToTruongOut,
     CongBoIn,
     ComponentDeleteOut,
     BulkAssignIn,
@@ -459,6 +462,51 @@ def xoa_chi_tieu_ngay(dept_id: int, muc_id: int, svc: Service,
         _raise(exc)
 
 
+# --- TỔ TRƯỞNG ăn thưởng / ăn chia theo sản lượng tổ (19/09/2026) ---------------------------
+# Chỗ KHAI BÁO thôi, như Chỉ tiêu ngày ngay trên — chủ: *"giờ tôi cần chỗ nhập liệu trước còn đấu
+# vào lương để làm sau"*. Engine tính lương không đọc. Cùng quyền với Chỉ tiêu ngày.
+
+
+def _to_truong_out(d: dict) -> ToTruongListOut:
+    return ToTruongListOut(
+        department_id=d["department_id"],
+        hien_hanh=(ToTruongOut.model_validate(d["hien_hanh"]) if d["hien_hanh"] is not None
+                   else None),
+        items=[ToTruongOut.model_validate(m) for m in d["items"]],
+    )
+
+
+@router.get("/khoan/to-truong/{dept_id}", response_model=ToTruongListOut)
+def xem_to_truong(dept_id: int, svc: Service, user: ConfigViewer) -> ToTruongListOut:
+    try:
+        return _to_truong_out(svc.to_truong(dept_id))
+    except PayrollError as exc:
+        _raise(exc)
+
+
+@router.put("/khoan/to-truong/{dept_id}", response_model=ToTruongListOut)
+def khai_to_truong(dept_id: int, body: ToTruongIn, svc: Service,
+                   user: Annotated[User, Depends(require_permission(MODULE, "update"))]
+                   ) -> ToTruongListOut:
+    """Thêm mốc chế độ tổ trưởng; cùng ngày áp dụng thì sửa mốc đó."""
+    try:
+        return _to_truong_out(svc.khai_to_truong(
+            dept_id, ap_dung_tu=body.ap_dung_tu, che_do=body.che_do, ty_le=body.ty_le,
+            ghi_chu=body.ghi_chu, actor=user))
+    except PayrollError as exc:
+        _raise(exc)
+
+
+@router.delete("/khoan/to-truong/{dept_id}/{muc_id}", response_model=ToTruongListOut)
+def xoa_to_truong(dept_id: int, muc_id: int, svc: Service,
+                  user: Annotated[User, Depends(require_permission(MODULE, "update"))]
+                  ) -> ToTruongListOut:
+    try:
+        return _to_truong_out(svc.xoa_to_truong(dept_id, muc_id, actor=user))
+    except PayrollError as exc:
+        _raise(exc)
+
+
 @router.get("/late-penalty-brackets", response_model=LatePenaltyBracketsOut)
 def list_late_penalty_brackets(svc: Service, user: ConfigViewer) -> LatePenaltyBracketsOut:
     return LatePenaltyBracketsOut(
@@ -701,7 +749,9 @@ def get_table(svc: Service, employees: Employees, departments: Departments, auth
         return TableOut(period=None, lines=[], chan_chot_ly_do=ly_do)
     lines_out = _lines_out(data["lines"], employees, departments, svc)
     return TableOut(period=PeriodOut.model_validate(data["period"]), lines=lines_out,
-                    chan_chot_ly_do=ly_do, canh_bao_chot=_canh_bao_chot(lines_out))
+                    chan_chot_ly_do=ly_do,
+                    canh_bao_chot=_canh_bao_chot(
+                        lines_out, luot_chua_ve_kho=svc.luot_xe_chua_ve_kho(year, month)))
 
 
 @router.post("/generate", response_model=TableOut)
@@ -725,7 +775,8 @@ def generate(body: GenerateIn, svc: Service, employees: Employees, departments: 
     lines_out = _lines_out(data["lines"], employees, departments, svc)
     return TableOut(period=PeriodOut.model_validate(data["period"]), lines=lines_out,
                     chan_chot_ly_do=svc.ly_do_chua_chot_duoc(body.year, body.month),
-                    canh_bao_chot=_canh_bao_chot(lines_out))
+                    canh_bao_chot=_canh_bao_chot(
+                        lines_out, luot_chua_ve_kho=svc.luot_xe_chua_ve_kho(body.year, body.month)))
 
 
 @router.put("/lines/{line_id}", response_model=LineOut)
@@ -839,7 +890,7 @@ def _hoa_hong_total(l: LineOut) -> float:
     return float(getattr(l, "hoa_hong", 0) or 0)
 
 
-def _canh_bao_chot(lines: list[LineOut]) -> str | None:
+def _canh_bao_chot(lines: list[LineOut], *, luot_chua_ve_kho: list[str] | None = None) -> str | None:
     """Cảnh báo (KHÔNG chặn) trước khi chốt: ai thực lĩnh 0 vì bị trừ tạm ứng / nợ kỳ trước, ai còn nợ
     chuyển kỳ sau. Chủ chốt 07/09/2026: cho ứng vượt lương, dồn nợ, chỉ cảnh báo."""
     khong = [l for l in lines if float(l.net_pay or 0) <= 0
@@ -878,8 +929,9 @@ def _canh_bao_chot(lines: list[LineOut]) -> str | None:
     # vẫn không ai khai. Chỉ NÓI, không chặn.
     thieu_muc_bh = [l for l in lines if getattr(l, "chua_khai_muc_bh", False)
                     and float(getattr(l, "insurance_base", 0) or 0) > 0]
+    luot_mo = list(luot_chua_ve_kho or [])
     if (not khong and not no and not khoan_trong and not bu_lo_khong_khoan and not tai_xe_khong_km
-            and not thieu_muc_bh):
+            and not thieu_muc_bh and not luot_mo):
         return None
     ten = lambda xs: ", ".join((x.employee_name or f"NV #{x.employee_id}") for x in xs[:3]) + (
         f" và {len(xs) - 3} người nữa" if len(xs) > 3 else "")
@@ -904,6 +956,11 @@ def _canh_bao_chot(lines: list[LineOut]) -> str | None:
         parts.append(f"{len(tai_xe_khong_km)} tài xế / phụ xe có công nhưng tiền km kỳ này = 0 "
                      f"({ten(tai_xe_khong_km)}) — đang trả bù lỗ theo công, kiểm lại chuyến giao đã "
                      "ghi kết quả chưa")
+    if luot_mo:
+        # LƯỢT XE chưa về kho (PRD khoán km §14): chặng về kho chưa có km nên chưa ra tiền.
+        ma = ", ".join(luot_mo[:3]) + (f" và {len(luot_mo) - 3} lượt nữa" if len(luot_mo) > 3 else "")
+        parts.append(f"{len(luot_mo)} lượt xe chưa ghi số đồng hồ về kho ({ma}) — tiền chặng về kho "
+                     "chưa vào lương, nhắc tài xế bấm Về kho rồi Tính lại")
     return "Lưu ý trước khi chốt: " + "; ".join(parts) + "."
 
 

@@ -23,6 +23,7 @@ from ...models.san_xuat_san_luong import (
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ..quyen_to import VIEC_XAC_NHAN, nguoi_co_quyen
+from .dau_vao import kiem_giam_ban_giao
 from .thuc_thi import _gate, _kiem_version, _moc
 from .san_luong import _EPS, _so_khong_am
 
@@ -298,6 +299,7 @@ def dieu_chinh(
     """Điều chỉnh số lượng đã xác nhận (§11.3): đẻ dòng lịch sử trước/sau, cập nhật bàn giao.
 
     Giảm dưới lượng công đoạn sau ĐÃ DÙNG ⇒ đánh dấu không nhất quán (chặn chốt phân bổ/đóng nhóm).
+    Giảm tới mức số nhận × hệ số không còn đủ cho số công đoạn sau ĐÃ GHI MẺ ⇒ chặn hẳn (`dau_vao`).
     Ghi chú tự do (`mo_ta`) tuỳ chọn — danh mục lý do/lỗi ĐÃ GỠ."""
     repo = SanXuatSanLuongRepository(db)
     bg = repo.ban_giao(ban_giao_id)
@@ -312,6 +314,8 @@ def dieu_chinh(
 
     sl_sau = _so_khong_am(so_luong_sau, "Số lượng sau điều chỉnh")
     sl_truoc = float(bg.so_luong)
+    # Giảm mà kéo trần ghi mẻ của bên nhận xuống dưới số nó đã ghi ⇒ chặn (19/09/2026, `dau_vao`).
+    kiem_giam_ban_giao(db, repo, bg, dich_cv, sl_sau)
 
     # Không nhất quán nếu giảm dưới lượng công đoạn sau đã tiêu thụ (truy vết qua lot đầu vào).
     da_dung = 0.0

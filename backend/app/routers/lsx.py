@@ -26,7 +26,6 @@ from ..repositories.document_sequence_repo import DocumentSequenceRepository
 from ..repositories.lsx_repo import LsxRepository
 from ..repositories.org_scope import dept_subtree_ids
 from ..schemas.lsx import (
-    BoDauViecOut,
     BuocMacDinhOut,
     HangChoOut,
     LsxActivityItem,
@@ -318,24 +317,9 @@ def tao_khuon_cho_lenh(
         raise _map(exc)
 
 
-@router.get("/{lsx_id}/dau-viec-options")
-def dau_viec_options(
-    lsx_id: int,
-    cong_doan_id: int,
-    department_id: int | None,
-    db: Annotated[Session, Depends(get_db)],
-    authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> list[dict]:
-    """Đầu việc khoán hợp lệ sau khi kế hoạch đổi tổ của một bước LSX."""
-    svc = _svc(db)
-    try:
-        _guard_scope(db, svc.get(lsx_id), user, authz)
-        return svc.dau_viec_options(
-            lsx_id=lsx_id, cong_doan_id=cong_doan_id, department_id=department_id,
-        )
-    except Exception as exc:
-        raise _map(exc)
+# ⚠️ `GET /{lsx_id}/dau-viec-options` GỠ 18/09/2026 (mg `0320`): drawer bước thôi có ô
+#    "Đầu việc thợ làm", nên không còn ai hỏi "đổi sang tổ này thì chọn được đầu việc nào".
+#    Việc khoán chọn LÚC GHI MẺ ở bàn tổ — danh sách của tổ do module Thực hiện SX cấp.
 
 
 @router.get("/{lsx_id}/xem-truoc-buoc")
@@ -347,15 +331,17 @@ def xem_truoc_buoc(
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     may_id: int | None = None,
     loai_buoc: str | None = None,
-    piece_rate_id: int | None = None,
     so_luot_chay: int | None = None,
+    so_gio_ke_hoach: float | None = None,
 ) -> dict:
-    """Giờ chạy + tiền công của bước theo bộ số ĐANG SỬA trên drawer — không ghi gì.
+    """Giờ chạy của bước theo bộ số ĐANG SỬA trên drawer — không ghi gì.
 
-    Chỉ server mới quy đổi được SL vào sang đơn vị đích của bước (cầu quy đổi + công thức riêng của
-    máy / của đầu việc), nên đây là đường DUY NHẤT để ô thời gian và tiền công nhảy ngay lúc sửa.
-    Tên cũ `xem-truoc-may` đổi 07/09/2026: cửa này nhận cả loại bước · đầu việc · số lượt, giữ tên
-    cũ là dạy người đọc sau tin rằng chỉ đổi máy mới phải hỏi lại — đúng cái nhầm đã sinh ra lỗi.
+    Chỉ server mới quy đổi được SL vào sang đơn vị tốc độ của máy (cầu quy đổi + công thức riêng
+    của cặp công đoạn × máy), nên đây là đường DUY NHẤT để ô thời gian nhảy ngay lúc sửa. Bước TỔ
+    không quy đổi gì (giờ là số gõ tay) nhưng vẫn hỏi qua đây, để một màn chỉ có MỘT nguồn số.
+    Tên cũ `xem-truoc-may` đổi 07/09/2026: cửa này nhận cả loại bước · số lượt · số giờ kế hoạch,
+    giữ tên cũ là dạy người đọc sau tin rằng chỉ đổi máy mới phải hỏi lại — đúng cái nhầm đã sinh
+    ra lỗi. `piece_rate_id` GỠ 18/09/2026 (mg `0320`) cùng ô đầu việc của bước.
     Trả `dict` trần, KHÔNG bọc response_model: thêm khoá vào diễn giải mà quên khai schema là bị
     nuốt im lặng, mà khối này chính là thứ drawer đọc từng khoá.
     """
@@ -364,7 +350,8 @@ def xem_truoc_buoc(
         _guard_scope(db, svc.get(lsx_id), user, authz)
         return svc.xem_truoc_buoc(
             lsx_id=lsx_id, step_key=step_key, may_id=may_id,
-            loai_buoc=loai_buoc, piece_rate_id=piece_rate_id, so_luot_chay=so_luot_chay,
+            loai_buoc=loai_buoc, so_luot_chay=so_luot_chay,
+            so_gio_ke_hoach=so_gio_ke_hoach,
         )
     except Exception as exc:
         raise _map(exc)
@@ -451,11 +438,8 @@ def replace_routing(
     except Exception as exc:
         raise _map(exc)
     hub.broadcast({"type": "lsx_changed", "order_id": lsx.order_id})
-    out = _out(svc, lsx)
-    # Bước bị GỠ đầu việc mồ côi ngay trong LẦN LƯU này (per-request, không cột DB) → bày lưu ý
-    # một lần. Chỉ cửa lưu routing mới có; mọi cửa đọc khác để rỗng.
-    out.bo_dau_viec = [BoDauViecOut(**x) for x in getattr(svc, "bo_dau_viec_lan_luu", [])]
-    return out
+    # ⚠️ Lưu ý "bước bị gỡ đầu việc mồ côi" GỠ 18/09/2026 (mg `0320`) — bước thôi ghim đầu việc.
+    return _out(svc, lsx)
 
 
 @router.post("/{lsx_id}/dong-bo-danh-muc", response_model=LsxOut)

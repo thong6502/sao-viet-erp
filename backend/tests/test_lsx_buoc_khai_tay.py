@@ -1,14 +1,14 @@
 """Bước NGOÀI dòng giấy: ĐƠN VỊ + SỐ do kế hoạch khai thẳng tại lệnh (10/09/2026).
 
 Ghi kẽm CTP không chạm tờ giấy nào nên nó đứng ngoài chuỗi bù hao — số của nó không suy được từ
-số hàng khách đặt. Trước hôm nay chỉ có MỘT nguồn: `cong_doan.cong_thuc_san_luong` ở danh mục, tức
-một con số dùng chung cho mọi lệnh chạy công đoạn đó. Nhưng số bản kẽm đổi theo số màu / số mặt /
-số bài của TỪNG đơn, lại còn ca cá biệt (kẽm hỏng ghi lại 2 bản, khách sửa 1 màu, ghép chung bài
-nên chỉ gánh một nửa) — không công thức chung nào nói hộ, mà sửa danh mục là đè lên mọi lệnh khác.
+số hàng khách đặt. Số bản kẽm đổi theo số màu / số mặt / số bài của TỪNG đơn, lại còn ca cá biệt
+(kẽm hỏng ghi lại 2 bản, khách sửa 1 màu, ghép chung bài nên chỉ gánh một nửa) — không công thức
+chung nào nói hộ. Công thức sản lượng ra ở danh mục (`cong_doan.cong_thuc_san_luong`) GỠ 18/09/2026
+(mg `0324`): khai tay ở đây là nguồn DUY NHẤT.
 
 Nên drawer mở hai ô đơn vị + hai ô số cho đúng những bước ấy. Bài này soi CÁI GIÁ của việc mở:
 
-  ① khai đủ cặp đơn vị ⇒ số của người khai THẮNG công thức danh mục, và bước hết đòi cầu quy đổi;
+  ① khai đủ cặp đơn vị ⇒ số của người khai sống qua mọi lần Lưu;
   ② xoá một ô đơn vị ⇒ bước trả ngay về cho danh mục (không cần cột cờ nào để gỡ);
   ③ số khai tay đi tới THẺ VIỆC của tổ, đúng cả đơn vị;
   ④ nửa cặp KHÔNG phải lời khai — bước tự thêm vẫn nối chuỗi giấy như cũ (hồi quy);
@@ -41,11 +41,7 @@ from tests.test_xep_lich_service import (  # noqa: F401
 
 
 def _lenh_co_ghi_kem(db, orders, lsx_svc, admin, customer, *, to_id):
-    """Lệnh 4 bản kẽm theo công thức danh mục, có bước Ghi kẽm CTP đứng ĐẦU routing.
-
-    Cố ý để danh mục CÓ `cong_thuc_san_luong` — nếu không thì "khai tay thắng công thức" không có
-    gì để thắng, bài sẽ xanh cả khi luật chưa chạy.
-    """
+    """Lệnh có bước Ghi kẽm CTP (chưa khai tay) đứng ĐẦU routing."""
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     # Fixture chung giữ chỗ vật tư sẵn, mà giữ chỗ thì `replace_routing` chặn cứng (đúng luật).
     # Bài này soi ô số của bước chứ không soi cửa chặn ấy nên nhả chỗ ra — tương đương thao tác
@@ -85,14 +81,14 @@ def _buoc(lsx, step_key) -> LsxCongDoan:
     return next(c for c in lsx.cong_doans if c.step_key == step_key)
 
 
-# --- ① Khai đủ cặp: số của người khai thắng công thức danh mục -------------------------------
-def test_khai_du_cap_don_vi_thi_so_go_tay_thang_cong_thuc(
+# --- ① Khai đủ cặp: số của người khai sống qua mọi lần Lưu -----------------------------------
+def test_khai_du_cap_don_vi_thi_so_go_tay_duoc_giu(
     db, orders, lsx_svc, admin, customer
 ):
     to = _to_ky_thuat(db, admin)
     a, key = _lenh_co_ghi_kem(db, orders, lsx_svc, admin, customer, to_id=to.id)
-    # Trước khi khai: công thức danh mục cầm trịch (`so_kem` = 4).
-    assert float(_buoc(a, key).so_luong_ra) == 4
+    # Trước khi khai: danh mục không còn công thức nào ⇒ bước đứng ở 0.
+    assert float(_buoc(a, key).so_luong_ra or 0) == 0
 
     lsx_svc.replace_routing(lsx_id=a.id, actor=admin, rows_in=_rows(
         a, **{key: dict(don_vi_vao="bai", don_vi_ra="kem", so_luong_vao=1, so_luong_ra=6)}))
@@ -107,12 +103,11 @@ def test_khai_du_cap_don_vi_thi_so_go_tay_thang_cong_thuc(
     assert (float(b.so_luong_vao), float(b.so_luong_ra)) == (1.0, 6.0)
 
 
-def test_khai_tay_thi_thoi_doi_cau_quy_doi_va_thoi_bay_dien_giai(
+def test_khai_tay_khong_con_loi_quy_doi_hay_dien_giai(
     db, orders, lsx_svc, admin, customer
 ):
     """Hai đầu đều là số người ta gõ ⇒ chẳng có phép đổi nào phải bắc cầu, cũng chẳng có công thức
-    nào để diễn giải. Bản đầu bày cả hai: banner đỏ "chưa khai cầu bài→kẽm" chặn phát hành cho một
-    việc máy không hề cần làm, và câu "Số bản kẽm = 4 bản kẽm" nằm ngay dưới cái pill ghi 6."""
+    nào để diễn giải. `loi_quy_doi` + `san_luong_dien_giai` gỡ hẳn khỏi dòng bước (mg `0324`)."""
     to = _to_ky_thuat(db, admin)
     a, key = _lenh_co_ghi_kem(db, orders, lsx_svc, admin, customer, to_id=to.id)
     lsx_svc.replace_routing(lsx_id=a.id, actor=admin, rows_in=_rows(
@@ -121,8 +116,9 @@ def test_khai_tay_thi_thoi_doi_cau_quy_doi_va_thoi_bay_dien_giai(
     chi_tiet = lsx_svc.detail_dict(lsx_svc.get(a.id))
     hang = next(c for c in chi_tiet["cong_doans"] if c["step_key"] == key)
     assert hang["tren_dong_giay"] is False
-    assert hang["loi_quy_doi"] is None
-    assert hang["san_luong_dien_giai"] is None
+    assert "loi_quy_doi" not in hang and "san_luong_dien_giai" not in hang
+    assert "don_vi_san_luong" not in hang
+    assert (hang["don_vi_vao"], hang["don_vi_ra"]) == ("bai", "kem")
     assert hang["so_luong_ra"] == 6
 
 
@@ -137,7 +133,6 @@ def test_xoa_mot_o_don_vi_tra_buoc_ve_cho_danh_muc(db, orders, lsx_svc, admin, c
         lsx_svc.get(a.id), **{key: dict(don_vi_ra="")}))
     b = _buoc(lsx_svc.get(a.id), key)
     assert (b.don_vi_vao, b.don_vi_ra) == (None, None)
-    assert float(b.so_luong_ra) == 4        # công thức `so_kem` cầm trịch trở lại
 
 
 # --- ③ Số khai tay đi tới thẻ việc của tổ ------------------------------------------------------
@@ -165,7 +160,6 @@ def test_nua_cap_don_vi_khong_phai_loi_khai(db, orders, lsx_svc, admin, customer
         a, **{key: dict(don_vi_vao="bai", don_vi_ra="", so_luong_ra=6)}))
     b = _buoc(lsx_svc.get(a.id), key)
     assert (b.don_vi_vao, b.don_vi_ra) == (None, None)     # kế thừa danh mục: ngoài dòng, để trống
-    assert float(b.so_luong_ra) == 4
 
 
 def test_buoc_tren_dong_giay_van_bi_chuoi_nguoc_ghi_de(db, orders, lsx_svc, admin, customer):

@@ -6,7 +6,7 @@
 // The user widget lives in the top header (Topbar), not here (feat-018).
 import { useEffect, useState } from "react";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
-import { BAI_GHEP_ENABLED, XEP_LICH_2_ENABLED, VOUCHER_PAGE_LABEL } from "../constants/features";
+import { BAI_GHEP_ENABLED, VOUCHER_PAGE_LABEL } from "../constants/features";
 import { Icon, type IconName } from "./Icons";
 import "./sidebar.css";
 
@@ -115,18 +115,11 @@ export const NAV: NavSection[] = [
       ...(BAI_GHEP_ENABLED
         ? [{ id: "bai-ghep-2", label: "Bài ghép", icon: "layers", module: "bai_ghep_2" } as NavItem]
         : []),
-      // Màn xếp lịch cũ (module `xep_lich`) đã thay bằng "một bàn làm việc" v2 (`xep_lich_2`) — 19/08/2026.
-      // GIỮ id đường dẫn `xep-lich-cong-doan-2` để không hỏng dấu trang + bản đồ badge; NHÃN về tên quen.
-      // Mọi vai đã có quyền `xep_lich_2` (mg 0218 chép từ `xep_lich`) nên không ai mất quyền khi bỏ màn cũ.
-      // TẠM ẨN 10/09/2026 theo cờ `XEP_LICH_2_ENABLED` — spread rỗng chứ KHÔNG xoá dòng, y hệt
-      // cách ẩn Bài ghép ở trên. Thay bằng "Xếp lịch 3" ngay dưới.
-      ...(XEP_LICH_2_ENABLED
-        ? [{ id: "xep-lich-cong-doan-2", label: "Xếp lịch công đoạn", icon: "calendar",
-             module: "xep_lich_2" } as NavItem]
-        : []),
-      // Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH SẢN XUẤT. Module quyền RIÊNG `xep_lich_3`, mọi vai
-      // từng có `xep_lich_2` đã được chép sang (mg 0292 + seed), nên không ai mất đường vào.
-      { id: "xep-lich-3", label: "Xếp lịch", icon: "calendar", module: "xep_lich_3" },
+      // Xếp lịch — bàn cấp LỆNH SẢN XUẤT, màn xếp lịch DUY NHẤT của hệ. Bàn theo công đoạn
+      // (`xep-lich-cong-doan-2` / `xep_lich_2`, ẩn từ 10/09/2026) xoá hẳn 18/09/2026; khoá quyền
+      // bỏ đánh số về `xep_lich`, mg `0314` chép quyền của `xep_lich_3` sang nên không ai mất
+      // đường vào. Dấu trang cũ `/xep-lich-3` và `/xep-lich-cong-doan-2` không còn dùng được.
+      { id: "xep-lich", label: "Xếp lịch", icon: "calendar", module: "xep_lich" },
       // Hai ô quyền cùng mở màn này: tổ sửa chữa vào bằng `ky_thuat_may`, người ngoài báo máy hỏng
       // vào bằng `yeu_cau_sua_chua` (màn tự chọn khung theo quyền).
       { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may",
@@ -282,10 +275,10 @@ export const NAV: NavSection[] = [
       // Thành phẩm: hàng của đơn hàng bán, hệ tự khai khi chốt đơn. Đứng CẠNH Vật tư khác vì
       // chung một bảng và người dùng hay nhầm hai chỗ (docs/prd-thanh-pham.md).
       { id: "thanh-pham", label: "Thành phẩm", icon: "bag", module: "dm_thanh_pham" },
-      // Khuôn & khung: kho dụng cụ của xưởng (bế + ép nhũ + khung lụa) — khách · loại · số kệ ·
-      // tình trạng. Bước cần dụng cụ ở Lệnh sản xuất chọn từ đây. Nhan đề đổi 04/09/2026;
+      // Khuôn: kho dụng cụ của xưởng (bế + ép kim + khung lụa) — khách · loại · số kệ ·
+      // tình trạng. Bước cần dụng cụ ở Lệnh sản xuất chọn từ đây. Nhan đề đổi 18/09/2026;
       // `module` GIỮ chuỗi `khuon_be` vì nó nằm trong bảng phân quyền của DB thật.
-      { id: "khuon-be", label: "Khuôn & khung", icon: "clipboard", module: "khuon_be" },
+      { id: "khuon-be", label: "Khuôn", icon: "clipboard", module: "khuon_be" },
       // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
       { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "dm_kho_hang" },
       // Tiêu chí KCS (module KCS kiêm nhiệm, mg 0250): checklist chuẩn hoá + công đoạn nào áp

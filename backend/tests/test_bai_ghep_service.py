@@ -53,6 +53,11 @@ def _to_san_xuat(db) -> Department:
         to = Department(name="Tổ In test", code="TO-IN-BG", la_san_xuat=True)
         db.add(to)
         db.flush()
+    # Cổng "Sẵn sàng lập kế hoạch" đòi tổ có ÍT NHẤT một công việc khoán (18/09/2026,
+    # `thieu_viec_khoan_to`) — bàn tổ ghi mẻ theo việc khoán.
+    from tests.san_xuat_me_fixtures import viec_khoan_cua_to
+
+    viec_khoan_cua_to(db, to.id)
     return to
 
 
@@ -169,7 +174,8 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000, sl_them: tuple[int, ...] = ()) -> 
         cd_in = CongDoan(ma="CD-IN-B", ten="In offset", nhom="print",
                          cong_thuc_gia="so_luong * don_gia")
         db.add(cd_in)
-    cd_in.department_id = cd_in.department_id or to_id
+    if not cd_in.department_ids:
+        cd_in.department_ids = [to_id]
     # Đơn vị vào/ra PHẢI khai: từ 06/09/2026 bỏ TRỐNG cả hai nghĩa là "bước không chạm giấy"
     # (ghi kẽm, đóng thùng), không còn là "chưa khai" — `tren_dong_giay` bỏ lối lùi theo `nhom`.
     # Bài ghép đòi ÍT NHẤT một bước chung trên dòng giấy (`thieu_buoc_chung_tren_giay`), nên bước
@@ -454,7 +460,7 @@ def _them_buoc_hao_sau_in(db, lsx_svc, lsx, actor, *, so_to_bu_hao: int):
         cong_thuc_gia="so_luong * don_gia",
         don_vi_vao="cai", don_vi_ra="cai",
         kieu_bu_hao="co_dinh", so_to_bu_hao=so_to_bu_hao,
-        department_id=_to_san_xuat(db).id,
+        department_ids=[_to_san_xuat(db).id],
     )
     db.add(cd)
     db.flush()
@@ -1026,7 +1032,7 @@ def _cd_can_mang_chung(db) -> CongDoan:
     cd = CongDoan(
         ma="CD-CAN-CHUNG", ten="Cán màng", nhom="finishing",
         cong_thuc_gia="so_luong * don_gia", don_vi_vao="to", don_vi_ra="to",
-        department_id=_to_san_xuat(db).id,
+        department_ids=[_to_san_xuat(db).id],
     )
     db.add(cd)
     db.flush()
@@ -1192,97 +1198,47 @@ def test_sua_routing_thi_thu_tu_buoc_chung_duoc_danh_lai(
     )
 
 
-def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
+def test_luot_chung_so_gio_ke_hoach_go_tay_khong_con_dau_viec(
     db, orders, lsx_svc, bg_svc, admin, customer,
 ):
-    """Lượt chung chọn được đầu việc khoán — backend vẫn nhận nhưng form chưa có ô nhập.
-
-    Ghim theo ID và SERVER tự chụp ảnh: cho client gửi `khoan_json` thô là mở cửa cho dữ liệu bịa
-    chảy thẳng vào kế hoạch. Ảnh chụp không còn mang giá từ 11/09/2026 (bàn bài ghép và drawer lệnh
-    dùng chung một nguồn, cùng bỏ tiền một lượt) nên bài này canh phần ĐỊNH DANH + ĐỊNH MỨC.
-    """
-    from app.models.cong_doan import CongDoanDauViec
-    from app.models.piece_work import PieceRate
-
+    """Lượt chung mirror bước lệnh (spec 18/09/2026 §6): ô SỐ GIỜ KẾ HOẠCH gõ tay (số lẻ, 0 hợp
+    lệ); đầu việc khoán + kíp chuẩn + năng suất copy GỠ HẲN (mg `0320`, `0321`) — việc khoán chọn
+    lúc ghi mẻ ở bàn tổ."""
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    # Khai bảng khoán TRƯỚC khi đụng tới bài: `LsxService._piece_rates()` cache theo instance,
-    # mà `BaiGhepService` dựng instance đó ở lần gọi engine đầu tiên.
     to = _to_san_xuat(db)
-    cd_in_id = sorted(lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id
-    rate = PieceRate(group_name="to_in", ten="In tờ rời", unit="to", unit_price=35,
-                     department_id=to.id, active=True)
-    db.add(rate)
-    db.flush()
-    db.add(CongDoanDauViec(
-        cong_doan_id=cd_in_id, piece_rate_id=rate.id,
-        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2,
-    ))
-    db.commit()
-
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
     _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
     chung = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
-    assert chung["cong_doan_id"] == cd_in_id
+    assert chung["so_gio_ke_hoach"] == 0
 
     bg_svc.lap_ke_hoach_buoc_chung(
         bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
-        patch={"department_id": to.id, "piece_rate_id": rate.id}, actor=admin,
+        patch={"department_id": to.id, "so_gio_ke_hoach": 4.5}, actor=admin,
     )
     sau = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
-    assert sau["khoan_rate_id"] == rate.id
-    assert sau["khoan_ten"] == "In tờ rời"
-    for khoa in ("khoan_don_gia", "khoan_tien", "khoan_sl", "khoan_dien_giai"):
+    assert sau["so_gio_ke_hoach"] == 4.5
+    for khoa in ("khoan_rate_id", "khoan_ten", "khoan_chon_duoc", "so_nhan_cong_tieu_chuan",
+                 "nang_suat", "don_vi_nang_suat"):
         assert khoa not in sau, khoa
-    assert rate.id in {k["id"] for k in sau["khoan_chon_duoc"]}
-    # Định mức đi kèm: chọn xong mà năng suất vẫn trống thì thẻ vẫn kêu "Chưa có năng suất".
-    assert sau["nang_suat"] == 3000 and sau["so_nhan_cong_tieu_chuan"] == 2
-    assert "Chưa có năng suất" not in sau["thieu"]
-
-    # Đầu việc không thuộc tổ / công đoạn → CHẶN, không âm thầm ghim.
-    la = PieceRate(group_name="to_khac", ten="Việc tổ khác", unit="to", unit_price=99,
-                   department_id=None, active=True)
-    db.add(la)
-    db.commit()
-    with pytest.raises(BaiGhepValidationError):
-        bg_svc.lap_ke_hoach_buoc_chung(
-            bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
-            patch={"piece_rate_id": la.id}, actor=admin,
-        )
 
 
-def test_dau_viec_khoan_luot_chung_mang_san_vat_tu_de_drawer_bung(
+def test_vat_tu_cong_doan_bung_san_cho_luot_chung(
     db, orders, lsx_svc, bg_svc, admin, customer,
 ):
-    """Bước chung: chọn đầu việc khoán phải BUNG sẵn vật tư đã tính số, đúng như đường lệnh.
-
-    Bug 20/08 (drawer bước chung hiện "0 vật tư"): `_khoan_chung_dict` gọi `_dau_viec_option_dicts`
-    THIẾU `buoc`+`quy_cach`, nên `_vat_tu_bung` trả rỗng — trong khi đường lệnh (`lsx_service`) luôn
-    kèm hai thứ đó. Lỗi chép lệch giữa hai chỗ cùng một việc; test này đỏ nếu ai gỡ `buoc`/`quy_cach`.
-    """
-    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
-    from app.models.piece_work import PieceRate
+    """Vật tư BUNG THEO CÔNG ĐOẠN (tab Vật tư, mg `0316`) — lượt chung có sẵn lượng tính theo số tờ
+    ghép, không phải chọn đầu việc nào trước. Bug 20/08 ("0 vật tư" ở drawer bước chung) canh ở đây:
+    thiếu `buoc`/`quy_cach` lúc bung thì lượng về rỗng."""
+    from app.models.cong_doan import CongDoanVatTu
     from app.models.vat_lieu_kho import VatTuInAn
 
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    # Khai bảng khoán + vật tư TRƯỚC khi đụng tới bài (cache `_piece_rates()` theo instance).
-    to = _to_san_xuat(db)
     cd_in_id = sorted(lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id
-    rate = PieceRate(group_name="to_in", ten="In tờ rời", unit="to", unit_price=35,
-                     department_id=to.id, active=True)
-    db.add(rate)
-    db.flush()
-    link = CongDoanDauViec(
-        cong_doan_id=cd_in_id, piece_rate_id=rate.id,
-        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2,
-    )
-    db.add(link)
-    db.flush()
     keo = VatTuInAn(ma="KEO-CH", ten="Keo bước chung", don_vi_gia="kg", don_gia=45_000,
                     active=True)
     db.add(keo)
     db.flush()
-    link.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0,
-                                             cong_thuc_luong="sl_vao * 0.001"))
+    db.add(CongDoanVatTu(cong_doan_id=cd_in_id, vat_tu_id=keo.id, thu_tu=0,
+                         cong_thuc_luong="sl_vao * 0.001"))
     db.commit()
 
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
@@ -1291,13 +1247,9 @@ def test_dau_viec_khoan_luot_chung_mang_san_vat_tu_de_drawer_bung(
     assert chung["cong_doan_id"] == cd_in_id
     assert chung["so_luong_vao"] > 0, "bước chung in phải có số tờ vào để công thức lượng chạy"
 
-    chon = next(k for k in chung["khoan_chon_duoc"] if k["id"] == rate.id)
-    assert [v["ma"] for v in chon["vat_tus"]] == ["KEO-CH"], (
-        "chọn đầu việc khoán ở bước chung phải bung sẵn vật tư như đường lệnh, không để 0 vật tư"
-    )
-    assert chon["vat_tus"][0]["so_luong"] == pytest.approx(
+    goi_y = {(g["hang_loai"], g["vat_tu_id"]): g for g in chung["vat_tu_goi_y"]}
+    assert goi_y[("vat_tu", keo.id)]["so_luong"] == pytest.approx(
         round(chung["so_luong_vao"] * 0.001, 3))
-    assert chon["vat_tus"][0]["don_vi"] == "kg"
 
 
 # --- §4 sổ nợ: khoá TẦNG SERVICE của đồ thị (9 test cũ đều thuần Python) -----
@@ -1492,8 +1444,7 @@ def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
     field im lặng" nằm ở chỗ khoá nào service trả mà schema không khai thì rơi mất KHÔNG lỗi,
     frontend nhận `undefined` và bảng bóc tách hiện rỗng.
     """
-    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
-    from app.models.piece_work import PieceRate
+    from app.models.cong_doan import CongDoanVatTu
     from app.models.vat_lieu_kho import VatTuInAn
     from app.schemas.bai_ghep import SoDoOut
 
@@ -1503,34 +1454,15 @@ def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
     db.commit()
 
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    # Định mức nay treo ở DÒNG VẬT TƯ của đầu việc trong công đoạn (mg 0272), không còn ở món
-    # hàng — không khai qua đường này thì `so_luong` về `None` và drawer mất nút "Dùng số này".
-    # Khai TRƯỚC khi đụng tới bài: `_piece_rates()` cache theo instance.
-    to = _to_san_xuat(db)
+    # Định mức treo ở DÒNG VẬT TƯ của công đoạn (tab Vật tư, mg `0316`), không ở món hàng — không
+    # khai qua đường này thì `so_luong` về `None` và drawer mất nút "Dùng số này".
     cd_in_id = sorted(lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id
-    rate = PieceRate(group_name="to_in", ten="In tờ rời", unit="to", unit_price=35,
-                     department_id=to.id, active=True)
-    db.add(rate)
-    db.flush()
-    link = CongDoanDauViec(
-        cong_doan_id=cd_in_id, piece_rate_id=rate.id,
-        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2,
-    )
-    db.add(link)
-    db.flush()
-    link.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=muc.id, thu_tu=0,
-                                             cong_thuc_luong="sl_vao / 1000"))
+    db.add(CongDoanVatTu(cong_doan_id=cd_in_id, vat_tu_id=muc.id, thu_tu=0,
+                         cong_thuc_luong="sl_vao / 1000"))
     db.commit()
 
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
     _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
-    # Phải CHỌN đầu việc ở bước chung: định mức đi theo đầu việc đang gắn ở bước, chưa chọn thì
-    # không có công thức nào để gợi ý và nút "Dùng số này" mất số.
-    truoc = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
-    bg_svc.lap_ke_hoach_buoc_chung(
-        bai_ghep_id=bg.id, gang_step_key=truoc["step_key"],
-        patch={"piece_rate_id": rate.id}, actor=admin,
-    )
 
     chung = SoDoOut.model_validate(bg_svc.so_do(bg_svc._get(bg.id))).model_dump()["gop"][0]
 

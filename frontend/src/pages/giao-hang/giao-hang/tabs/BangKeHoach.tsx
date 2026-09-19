@@ -1,34 +1,50 @@
-// Tab "Đơn giao hàng" — bảng chuyến gộp theo yêu cầu + cụm nút thao tác từng chuyến
-// (tách từ pages/GiaoHangPage.tsx).
-import type { DeliveryTrip } from "../../../../api/client";
+// Tab "Đơn giao hàng" — danh sách KHỐI (chủ chốt 18/09/2026): mỗi LƯỢT XE là một khối đủ các điểm
+// (`KhoiLuot`), chuyến ngoài lượt là một thẻ gọn. Trước đó là bảng một dòng một yêu cầu: các đơn chung
+// một vòng xe nằm rải rác, chỉ nối nhau bằng một mã lượt nhỏ — người lên đơn lẫn tài xế "khó hiểu quá".
+// Máy chủ trang hoá theo khối (`/bang-giao`) nên một lượt không bị cắt đôi qua hai trang.
+import type { BangGiaoItem, DeliveryTrip } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { fmtDateTime } from "../../../../utils/format";
 import { nhanChuyen, toneChuyen } from "../shared/helpers";
-import { KhoangTrong, Pill } from "../components/giaoHangCells";
+import { CHUA_CAM_HANG, KhoangTrong, NutCho, Pill, TraHang } from "../components/giaoHangCells";
+import { KhoiLuot } from "../components/KhoiLuot";
 
 // =============================================================================
 // Tab · Đơn giao hàng
 // =============================================================================
 export function BangKeHoach({
-  trips,
+  items,
   loading,
+  token,
+  canPlan,
+  canWrite,
+  luotMoi,
+  onDoi,
   onMo,
   onGuiDeNghi,
   onDaLay,
   onBatDau,
   onKetQua,
   onDaTra,
+  onDoiChuyen,
 }: {
-  trips: DeliveryTrip[];
+  items: BangGiaoItem[];
   loading: boolean;
+  token: string;
+  canPlan: boolean;
+  canWrite: boolean;
+  /** Lượt vừa lập — khối đó được làm nổi + cuộn tới. */
+  luotMoi?: number | null;
+  onDoi: () => void;
   onMo: (requestId: number) => void;
   onGuiDeNghi?: (t: DeliveryTrip) => void;
-  onDaLay?: (t: DeliveryTrip) => void;
-  onBatDau?: (t: DeliveryTrip) => void;
+  onDaLay?: (t: DeliveryTrip) => Promise<unknown>;
+  onBatDau?: (t: DeliveryTrip) => Promise<unknown>;
   onKetQua?: (t: DeliveryTrip) => void;
-  onDaTra?: (t: DeliveryTrip) => void;
+  onDaTra?: (t: DeliveryTrip) => Promise<unknown>;
+  onDoiChuyen?: (t: DeliveryTrip) => void;
 }) {
-  if (!loading && trips.length === 0)
+  if (!loading && items.length === 0)
     return (
       <KhoangTrong
         title="Chưa có đơn giao hàng nào"
@@ -36,90 +52,83 @@ export function BangKeHoach({
       />
     );
   return (
-    <div className="rc__tablewrap">
-      <table className="rc__table rc__table--fixed">
-        <thead>
-          <tr>
-            <th style={{ width: "11%" }}>Yêu cầu</th>
-            <th style={{ width: "9%" }}>Đơn hàng</th>
-            {/* Khách hàng KHÔNG khai bề ngang — nó ăn phần còn lại. Trước đây 8 cột kia cộng
-                lại 92% nên tên khách bị ép xuống 8%, gãy làm hai dòng. */}
-            <th>Khách hàng</th>
-            <th style={{ width: "12%" }}>Nhân viên giao</th>
-            <th style={{ width: "12%" }}>Giờ lấy hàng</th>
-            <th style={{ width: "12%" }}>Dự kiến giao</th>
-            <th style={{ width: "13%" }}>Trạng thái</th>
-            {/* TỔNG km cả các lần giao của yêu cầu — không phải km của riêng lần cuối. */}
-            <th style={{ width: "6%" }}>Tổng km</th>
-            <th style={{ width: "11%" }} />
-          </tr>
-        </thead>
-        <tbody>
-          {loading && (
-            <tr>
-              <td colSpan={9}>Đang tải…</td>
-            </tr>
-          )}
-          {trips.map((t) => (
-            <tr key={t.request_id}>
-              <td>
-                <button type="button" className="gh-link" onClick={() => onMo(t.request_id)}>
-                  {t.request_code}
-                </button>
-              </td>
-              <td>{t.order_code}</td>
-              <td>{t.customer_name}</td>
-              <td>{t.employee_name}</td>
-              <td className="gh-nowrap">{fmtDateTime(t.gio_lay_hang)}</td>
-              <td className="gh-nowrap">{fmtDateTime(t.gio_du_kien_giao)}</td>
-              {/* `gh-nowrap`: "Kho đã chuẩn bị xong" dài hơn nhãn cũ nên cột hẹp bẻ nó xuống
-                  hai dòng giữa chữ, viên pill vỡ làm đôi. */}
-              <td className="gh-nowrap">
-                <Pill
-                  text={nhanChuyen(t)}
-                  tone={toneChuyen(t.trang_thai)}
-                />
-              </td>
-              <td className="gh-num">{t.tong_km || "—"}</td>
-              <td>
-                {/* Hàng ra khỏi kho phải có phiếu kho — giao khách không ngoại lệ. Nút này
-                    lập một YÊU CẦU XUẤT KHO thật, kho lập phiếu bằng luồng sẵn có. */}
-                {t.trang_thai === "da_len_ke_hoach" && !t.yeu_cau_kho_ma && onGuiDeNghi && (
-                  <Button variant="accent" onClick={() => onGuiDeNghi(t)}>
-                    Gửi yêu cầu xuất kho
-                  </Button>
-                )}
-                {/* Mã yêu cầu kho (DNX…) KHÔNG hiện ở cột Thao tác — nó không phải thao tác,
-                    không có nhãn, và đứng cạnh nút thì trông như một nút hỏng (bỏ 20/08/2026).
-                    Mã vẫn còn ở chi tiết yêu cầu, chỗ có ngữ cảnh để đọc. */}
-                {/* Tài xế TỰ bấm — người cầm hàng mới biết hàng đã ra khỏi kho. */}
-                {t.trang_thai === "dang_chuan_bi" && onDaLay && (
-                  <Button variant="accent" onClick={() => onDaLay(t)}>
-                    Đã lấy hàng
-                  </Button>
-                )}
-                {t.trang_thai === "da_lay_hang" && onBatDau && (
-                  <Button variant="ghost" onClick={() => onBatDau(t)}>
-                    Bắt đầu giao
-                  </Button>
-                )}
-                {t.trang_thai === "dang_giao" && onKetQua && (
-                  <Button variant="accent" onClick={() => onKetQua(t)}>
-                    Nhập kết quả
-                  </Button>
-                )}
-                {/* Thiếu nút này thì chuyến giao hỏng nằm mãi ở "Đang trả hàng": API có, giao
-                    diện quên — chuyến tắc mà không ai biết vì sao. */}
-                {t.trang_thai === "dang_tra_hang" && onDaTra && (
-                  <Button variant="ghost" onClick={() => onDaTra(t)}>
-                    Kho đã nhận lại
-                  </Button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="gh-ds">
+      {loading && items.length === 0 && <p className="rc__sub" style={{ textAlign: "center", padding: "24px" }}>Đang tải…</p>}
+      {items.map((it) =>
+        it.luot ? (
+          <KhoiLuot key={`luot-${it.luot.id}`} luot={it.luot} token={token}
+            canPlan={canPlan} canWrite={canWrite} moi={it.luot.id === luotMoi}
+            onDoi={onDoi} onMo={onMo} onKetQua={onKetQua} onDaTra={onDaTra} onDoiChuyen={onDoiChuyen} />
+        ) : it.trip ? (
+          <TheChuyen key={`chuyen-${it.trip.id}`} t={it.trip} onMo={onMo}
+            onGuiDeNghi={onGuiDeNghi} onDaLay={onDaLay} onBatDau={onBatDau}
+            onKetQua={onKetQua} onDaTra={onDaTra} onDoiChuyen={onDoiChuyen} />
+        ) : null,
+      )}
     </div>
+  );
+}
+
+/** Chuyến NGOÀI lượt (dữ liệu cũ, hoặc danh mục chưa có xe) — một thẻ gọn, đủ nút như bảng cũ. */
+function TheChuyen({
+  t,
+  onMo,
+  onGuiDeNghi,
+  onDaLay,
+  onBatDau,
+  onKetQua,
+  onDaTra,
+  onDoiChuyen,
+}: {
+  t: DeliveryTrip;
+  onMo: (requestId: number) => void;
+  onGuiDeNghi?: (t: DeliveryTrip) => void;
+  onDaLay?: (t: DeliveryTrip) => Promise<unknown>;
+  onBatDau?: (t: DeliveryTrip) => Promise<unknown>;
+  onKetQua?: (t: DeliveryTrip) => void;
+  onDaTra?: (t: DeliveryTrip) => Promise<unknown>;
+  onDoiChuyen?: (t: DeliveryTrip) => void;
+}) {
+  return (
+    <article className="gh-le" aria-label={`Đơn giao ${t.request_code ?? ""}`}>
+      <div className="gh-le__chinh">
+        <span className="gh-diem__ten">{t.customer_name}</span>
+        <span className="gh-ma rc__sub">
+          <button type="button" className="gh-link" onClick={() => onMo(t.request_id)}>
+            {t.request_code}
+          </button>
+          {t.order_code && <span className="gh-nowrap">· {t.order_code}</span>}
+        </span>
+      </div>
+      <div className="gh-le__phu rc__sub">
+        <span style={{ fontWeight: 600, color: "#0f172a" }}>{t.employee_name}</span>
+        <span className="gh-nowrap">Lấy {fmtDateTime(t.gio_lay_hang)}</span>
+        <span className="gh-nowrap">Giao {fmtDateTime(t.gio_du_kien_giao)}</span>
+      </div>
+      <span className="gh-le__tt gh-nowrap"><Pill text={nhanChuyen(t)} tone={toneChuyen(t.trang_thai)} /></span>
+      <span className="gh-le__km"><span className="gh-num">{t.tong_km || "—"}</span> km</span>
+      <div className="gh-le__nut">
+        {t.trang_thai === "da_len_ke_hoach" && !t.yeu_cau_kho_ma && onGuiDeNghi && (
+          <Button variant="accent" onClick={() => onGuiDeNghi(t)}>
+            Gửi yêu cầu xuất kho
+          </Button>
+        )}
+        {t.trang_thai === "dang_chuan_bi" && onDaLay && (
+          <NutCho bam={() => onDaLay(t)}>Đã lấy hàng</NutCho>
+        )}
+        {t.trang_thai === "da_lay_hang" && onBatDau && (
+          <NutCho variant="ghost" bam={() => onBatDau(t)}>Bắt đầu giao</NutCho>
+        )}
+        {t.trang_thai === "dang_giao" && onKetQua && (
+          <Button variant="accent" onClick={() => onKetQua(t)}>
+            Nhập kết quả
+          </Button>
+        )}
+        <TraHang t={t} onDaTra={onDaTra ? () => onDaTra(t) : undefined} />
+        {CHUA_CAM_HANG.includes(t.trang_thai) && onDoiChuyen && (
+          <Button variant="ghost" onClick={() => onDoiChuyen(t)}>Đổi / huỷ chuyến</Button>
+        )}
+      </div>
+    </article>
   );
 }

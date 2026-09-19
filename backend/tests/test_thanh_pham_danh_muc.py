@@ -221,6 +221,51 @@ def test_man_thanh_pham_hien_TEN_KHACH(client):
     assert dong["customer_ten"] == "Khach tenkh", dong
 
 
+def test_man_thanh_pham_tra_DU_nguon_goc_va_moc_thoi_gian(client):
+    """Màn phải hiện ĐỦ thứ bảng đang lưu (chủ 17/09/2026: "hiển thị hết đi").
+
+    `order_id`/`customer_id` trần là số vô nghĩa với người đọc ⇒ trả kèm SỐ ĐƠN và MÃ khách. Đường
+    mở một dòng (`GET /{id}`) cũng phải có, vì drawer đọc lại bản ghi từ đó sau khi lưu.
+    """
+    h = auth_headers(client)
+    kh = _khach("goc")
+    don = _don("goc-1", kh, ten="Tem nguồn gốc")
+    _khai(don)
+    r = client.get("/api/vat-lieu-kho/thanh-pham", params={"size": 200}, headers=h)
+    assert r.status_code == 200, r.text
+    dong = next(x for x in r.json()["items"] if x["order_id"] == don)
+    assert dong["order_no"] == "DH-TP-goc-1", dong
+    assert dong["customer_ma"] == "KH-TP-goc", dong
+    assert dong["created_at"] and dong["updated_at"], dong
+    assert "anh_url" in dong, dong
+
+    mot = client.get(f"/api/vat-lieu-kho/thanh-pham/{dong['id']}", headers=h)
+    assert mot.status_code == 200, mot.text
+    assert mot.json()["order_no"] == "DH-TP-goc-1", mot.json()
+
+
+def _dong_khong_don(**cot) -> int:
+    """Dòng thành phẩm KHÔNG gắn đơn — dạng dòng khai tay còn sót từ 19/08–18/09/2026 (hết khai
+    tay được từ đó, xem `test_KHONG_khai_tay_duoc`). Ghi thẳng DB vì API nay chặn tạo."""
+    db = SessionLocal()
+    try:
+        tp = VatTuInAn(la_thanh_pham=True, **cot)
+        db.add(tp)
+        db.commit()
+        return tp.id
+    finally:
+        db.close()
+
+
+def test_thanh_pham_KHONG_co_don_thi_nguon_goc_rong(client):
+    """Dòng không gắn đơn nào thì không có đơn/khách — trả `None`, đừng bịa."""
+    h = auth_headers(client)
+    tp_id = _dong_khong_don(ma="TP-TAY-1", ten="Món khai tay")
+    r = client.get(f"/api/vat-lieu-kho/thanh-pham/{tp_id}", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["order_no"] is None and r.json()["customer_ma"] is None, r.json()
+
+
 def test_khong_tra_CHEO_id_giua_hai_man(client):
     """Chặn cả đường tra theo id, không chỉ đường list.
 
@@ -239,26 +284,28 @@ def test_khong_tra_CHEO_id_giua_hai_man(client):
 # ------------------------------------------------------------------ PRD L5 — khai tay
 
 
-def test_KHAI_TAY_duoc_va_KHONG_CAN_khach(client):
-    """⭐ Khai tay được (PRD L5, nới 19/08/2026) và từ 21/08/2026 KHÔNG cần khách nữa.
+def test_KHONG_khai_tay_duoc(client):
+    """⭐ Hết khai tay (chủ dự án 18/09/2026: "bỏ nút thêm thành phẩm đi").
 
-    Cổng "phải chọn Khách hàng" đã gỡ cùng lượt bỏ ô đó khỏi form. Nhưng dòng khai từ MÀN Thành
-    phẩm vẫn phải Ở LẠI màn Thành phẩm — trước đây chính `customer_id` giữ việc đó, nay là cờ
-    `la_thanh_pham` do repo đóng dấu. Quên đóng dấu là dòng vừa khai rơi sang màn Vật tư khác và
-    biến mất khỏi màn vừa tạo nó: không lỗi, chỉ mất tích.
+    Chặn ở MÁY CHỦ, không chỉ giấu nút: nhập Excel một mã chưa có cũng đi đúng cửa `create` này.
+    Dòng chỉ do chốt đơn sinh (`khai_cho_don`, ghi thẳng repo) — cửa đó vẫn phải chạy.
     """
     h = auth_headers(client)
 
-    ok = client.post("/api/vat-lieu-kho/thanh-pham", json={
+    r = client.post("/api/vat-lieu-kho/thanh-pham", json={
         "ma": "TP-TAY-002", "ten": "Khai tay không khách", "don_vi_gia": "cái",
     }, headers=h)
-    assert ok.status_code == 201, ok.text
+    assert r.status_code == 422, r.text
+    assert "chốt đơn" in r.text
+    assert client.get("/api/vat-lieu-kho/thanh-pham", headers=h).json()["items"] == []
 
+    # Đường chốt đơn KHÔNG bị cửa này chặn nhầm — và dòng sinh ra vẫn ở màn Thành phẩm, không
+    # lẫn sang Vật tư khác.
+    tp_id = _khai(_don("tay-chot", _khach("tay-chot")))[0]
     ds = client.get("/api/vat-lieu-kho/thanh-pham", headers=h).json()["items"]
-    assert [x["ma"] for x in ds] == ["TP-TAY-002"], "khai xong không thấy ở màn Thành phẩm"
-    # …và KHÔNG lẫn sang màn Vật tư khác.
+    assert [x["id"] for x in ds] == [tp_id]
     vt = client.get("/api/vat-lieu-kho/vat-tu-in-an", headers=h).json()["items"]
-    assert all(x["ma"] != "TP-TAY-002" for x in vt), "lọt sang màn Vật tư khác"
+    assert all(x["id"] != tp_id for x in vt), "lọt sang màn Vật tư khác"
 
 
 def test_KHAI_TAY_xong_van_MO_RA_SUA_duoc(client):
@@ -268,14 +315,13 @@ def test_KHAI_TAY_xong_van_MO_RA_SUA_duoc(client):
     (`MotDanhMucVatLieu._dung_man`) bản đầu phân biệt bằng `order_line_id`, trong khi hai repo
     lọc bằng `customer_id` — hai nơi hỏi cùng một câu bằng hai cột khác nhau. Hậu quả: khai xong
     dòng đó hiện ở màn Thành phẩm, nhưng bấm vào là "Không tìm thấy mặt hàng.", không sửa được.
+
+    Hết khai tay từ 18/09/2026, nhưng dòng khai tay còn sót lại vẫn phải mở/sửa được.
     """
     h = auth_headers(client)
     kh = _khach("mora")
-    tao = client.post("/api/vat-lieu-kho/thanh-pham", json={
-        "ma": "TP-MORA-001", "ten": "Khai tay roi sua", "don_vi_gia": "cái", "customer_id": kh,
-    }, headers=h)
-    assert tao.status_code == 201, tao.text
-    tp_id = tao.json()["id"]
+    tp_id = _dong_khong_don(ma="TP-MORA-001", ten="Khai tay roi sua", don_vi_gia="cai",
+                            customer_id=kh)
 
     # Mở ra xem — đây là bước bị vỡ.
     xem = client.get(f"/api/vat-lieu-kho/thanh-pham/{tp_id}", headers=h)
@@ -393,9 +439,11 @@ def test_DVT_khong_tra_duoc_thi_de_TRONG_chu_khong_ghi_rac(client):
 
 def test_man_danh_muc_CHAN_don_vi_khong_co_trong_danh_muc(client):
     """Nửa sau của cùng một lỗi: màn Thành phẩm trước đây không có cổng nào cho đơn vị nên nhận
-    cả chuỗi lạ — Excel nhập danh mục đi đúng đường này."""
+    cả chuỗi lạ — Excel nhập danh mục đi đúng đường này. Hết khai tay (18/09/2026) nên kiểm ở
+    đường SỬA."""
     h = auth_headers(client)
-    r = client.post("/api/vat-lieu-kho/thanh-pham", json={
+    tp_id = _dong_khong_don(ma="TP-DV-LA", ten="Đơn vị lạ")
+    r = client.put(f"/api/vat-lieu-kho/thanh-pham/{tp_id}", json={
         "ma": "TP-DV-LA", "ten": "Đơn vị lạ", "don_vi_gia": "chiếc",
     }, headers=h)
     assert r.status_code == 422, r.text
@@ -405,8 +453,9 @@ def test_man_danh_muc_CHAN_don_vi_khong_co_trong_danh_muc(client):
 def test_go_TEN_don_vi_o_man_thi_hieu_va_luu_MA(client):
     """Người gõ "cái" (tên họ đọc thấy) vẫn phải vào được — chỉ là lưu xuống thành mã."""
     h = auth_headers(client)
-    r = client.post("/api/vat-lieu-kho/thanh-pham", json={
+    tp_id = _dong_khong_don(ma="TP-DV-TEN", ten="Gõ tên đơn vị")
+    r = client.put(f"/api/vat-lieu-kho/thanh-pham/{tp_id}", json={
         "ma": "TP-DV-TEN", "ten": "Gõ tên đơn vị", "don_vi_gia": "cái",
     }, headers=h)
-    assert r.status_code == 201, r.text
+    assert r.status_code == 200, r.text
     assert r.json()["don_vi_gia"] == "cai"

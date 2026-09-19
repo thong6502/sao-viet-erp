@@ -31,7 +31,7 @@ from .models.cong_doan import CongDoan
 from .models.don_vi_do import DonViDo, DonViQuyDoi
 from .models.khuon_be import KhuonBe
 from .models.may_thiet_bi import MayThietBi
-from .models.piece_work import PieceRate
+from .models.piece_work import CongViecKhoanTo, PieceRate
 from .models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from .repositories.rbac_repo import DepartmentRepository
 from .seed import seed_departments, seed_san_xuat_org, to_sx_theo_ten_bat_ky
@@ -318,13 +318,11 @@ _MAY_IN = [_IN, _INX]
 _CONG_DOAN = [
     # --- Chế bản (không đơn vị dòng giấy; kieu_bu_hao khong) ---
     _cd("CD-1001", "Phơi kẽm PS", "prepress", "so_kem * 55000",
-        nhom_may_cho_phep=[_CB], cong_thuc_san_luong="so_kem",
-        don_vi_san_luong="kem", run_rate=55000),
+        nhom_may_cho_phep=[_CB], run_rate=55000),
     _cd("CD-1002", "Bình bài điện tử", "prepress", "so_mau * 25000",
         nhom_may_cho_phep=[_CB], run_rate=25000),
     _cd("CD-1003", "Xuất film / ghi phim", "prepress", "so_kem * 40000",
-        nhom_may_cho_phep=[_CB], cong_thuc_san_luong="so_kem",
-        don_vi_san_luong="kem", run_rate=40000),
+        nhom_may_cho_phep=[_CB], run_rate=40000),
     # --- In (đơn vị to→to; kieu_bu_hao tra_bang → nối mã bù hao) ---
     _cd("CD-1004", "In offset 1 mặt (1-2 màu)", "print", "to_dau_vao * so_mat * 300",
         kieu_bu_hao="tra_bang", nhom_may_cho_phep=_MAY_IN, don_vi_vao="to", don_vi_ra="to", run_rate=300),
@@ -431,16 +429,15 @@ def _import_khoan(db: Session) -> int:
     depts = DepartmentRepository(db)
     co = {m for m in db.execute(select(PieceRate.ma)).scalars() if m}
     moi = []
-    for ma, ten, to_ten, grp, unit, gia in _KHOAN:
+    for ma, ten, to_ten, _grp, unit, gia in _KHOAN:
         if ma in co:
             continue
         d = to_sx_theo_ten_bat_ky(depts, to_ten)
-        # `grp` chỉ là mã gợi ý ở bảng trên. NHÃN TỔ ghi xuống phải là TÊN tổ tra ra được: tab lọc
-        # của màn Công việc khoán dựng từ `group_name`, ghi mã/tên tổ đời cũ vào là màn đẻ ra tab
-        # của tổ không còn tồn tại.
+        # `grp` chỉ là mã gợi ý ở bảng trên. Không tra ra tổ thì để việc chưa có tổ — người khai
+        # gắn tổ ở màn Công việc khoán, không bịa một tổ từ mã đời cũ.
         moi.append(PieceRate(
-            ma=ma, ten=ten, group_name=(d.name[:40] if d else grp), department_id=(d.id if d else None),
-            unit=unit, unit_price=gia, active=True,
+            ma=ma, ten=ten, unit=unit, unit_price=gia, active=True,
+            to_lam=[CongViecKhoanTo(department_id=d.id)] if d else [],
         ))
     if moi:
         db.add_all(moi)

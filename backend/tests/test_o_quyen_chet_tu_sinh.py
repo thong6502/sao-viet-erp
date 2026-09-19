@@ -271,11 +271,11 @@ def test_khong_co_hai_o_chi_tiet_dung_chung_mot_cot():
     than = s[s.index("const FINE_ACTIONS"):]
     than = than[: than.index("\n};")]
 
-    # `[a-z_0-9]+` — CHỮ SỐ là bắt buộc. Thiếu nó thì `xep_lich_2:` / `xep_lich_3:` /
-    # `bai_ghep_2:` không khớp dòng mở khối, `mod` kẹt lại ở module TRƯỚC ĐÓ và mọi ô của
-    # chúng bị dồn nhầm sang đó. Bệnh im lặng cho tới 10/09/2026: thêm `xep_lich_3` (cùng cặp
-    # can_approve / can_approve_exception với `xep_lich_2`) là hai khối dồn chung một rổ ⇒ báo
-    # trùng oan cho `san_xuat`.
+    # `[a-z_0-9]+` — CHỮ SỐ là bắt buộc. Thiếu nó thì `bai_ghep_2:` (và hồi còn đánh số là
+    # `xep_lich_2:` / `xep_lich_3:`) không khớp dòng mở khối, `mod` kẹt lại ở module TRƯỚC ĐÓ và
+    # mọi ô của chúng bị dồn nhầm sang đó. Bệnh im lặng cho tới 10/09/2026: thêm `xep_lich_3` (cặp
+    # can_approve_exception với `xep_lich_2`) là hai khối dồn chung một rổ ⇒ báo trùng oan cho
+    # `san_xuat`.
     trung, mod = [], None
     da_thay: dict[str, set[str]] = {}
     for dong in than.split("\n"):

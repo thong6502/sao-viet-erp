@@ -102,7 +102,8 @@ def loi_http(e: Exception) -> HTTPException:
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
 
-def _tham_so(ServiceDep, doc, loc: str | None, co_active: bool) -> list[Parameter]:
+def _tham_so(ServiceDep, doc, loc: str | None, co_active: bool,
+             loc_them: dict[str, type] | None = None) -> list[Parameter]:
     """Chữ ký của handler `list` — dựng bằng tay vì bộ lọc KHÁC NHAU theo từng màn.
 
     Không thể viết một `def` cố định: màn Máy không có cột `active`, còn bộ lọc riêng thì mỗi màn
@@ -118,6 +119,8 @@ def _tham_so(ServiceDep, doc, loc: str | None, co_active: bool) -> list[Paramete
     ]
     if loc:
         ps.append(Parameter(loc, K, default=Query(default=None), annotation=str | None))
+    for ten_loc, kieu in (loc_them or {}).items():
+        ps.append(Parameter(ten_loc, K, default=Query(default=None), annotation=kieu | None))
     if co_active:
         ps.append(Parameter("active", K, default=Query(default=None), annotation=bool | None))
     ps += [
@@ -140,8 +143,10 @@ def make_catalog_router(
     module: str,
     doc: Callable | None = None,
     loc: str | None = None,
+    loc_them: dict[str, type] | None = None,
     co_active: bool = True,
     facets: Callable[[Any, dict], dict] | None = None,
+    tong_theo_tim: Callable[[Any, dict], int] | None = None,
     dung_rows: Callable[[Any, list], list] | None = None,
     ma_goi_y: bool = False,
     loi_khac: tuple[type[Exception], ...] = (),
@@ -161,9 +166,16 @@ def make_catalog_router(
     * `doc` — dependency ĐỌC. Mặc định `require_permission(module, "read")`; màn nào là danh mục
       THAM CHIẾU thì truyền OR-gate rộng hơn (xem `deps.require_any_permission`).
     * `loc` — TÊN bộ lọc riêng của màn (`nhom`, `tinh_trang`…). Chỉ một, và luôn là chuỗi.
+      Đây là bộ lọc của HÀNG CHIP: `facets` đếm theo nó nên nó bị bỏ ra khi đếm.
+    * `loc_them` — các bộ lọc CỘNG THÊM của bảng "Lọc nâng cao", `{tên: kiểu}` (vd Khuôn:
+      `{"tinh_trang": str, "khach_hang_id": int}`). Ghép VÀ với `loc` và ô tìm, và KHÁC `loc` ở
+      chỗ `facets` VẪN áp chúng: lọc khách X rồi thì số trên chip phải là số khuôn của khách X.
+      Repo nhận qua `extra_conds(**kw)` như `loc`.
     * `co_active` — màn Máy đặt `False`: `may_thiet_bi` KHÔNG có cột `active`.
     * `facets(svc, kw)` — số trên tab lọc; `kw` là bộ lọc ĐÃ BỎ bộ lọc riêng (tab đang không được
       chọn vẫn phải khoe số của nó).
+    * `tong_theo_tim(svc, kw)` — số của tab "Tất cả" (cùng `kw` với `facets`). Chỉ cần khi một dòng
+      nằm ở NHIỀU tab (Công việc khoán: một việc, nhiều tổ) — vắng thì màn cộng `facets` lại.
     * `dung_rows(svc, objs) -> list[RowModel]` — cách dựng dòng trả về. Mặc định
       `RowModel.model_validate`. Màn nào cần điền thêm (tên đơn vị, chip quy đổi) thì truyền hàm
       riêng — dùng cho CẢ list, get, create, update nên không có chỗ nào lệch nhau.
@@ -171,8 +183,7 @@ def make_catalog_router(
     * `loi_khac` — lớp exception NGOÀI họ `Catalog*` mà handler cũng phải bắt.
     * `enable_clone` — mở `POST /{item_id}/clone`, gác bằng quyền `clone` riêng (không dùng chung
       `create` — nhân bản là thao tác khác, vai được tạo mới chưa chắc được nhân bản hàng cũ).
-    * `cong_thuc_truong` — tên cột công thức của danh mục này (`"cong_thuc_luong"` hoặc
-      `"cong_thuc_san_luong"`). Bật thì mỗi dòng trả về có thêm `<truong>_truoc` +
+    * `cong_thuc_truong` — tên cột công thức của danh mục này (`"cong_thuc_luong"`). Bật thì mỗi dòng trả về có thêm `<truong>_truoc` +
       `<truong>_sua_luc` (giá trị NGAY TRƯỚC lần sửa gần nhất, đọc từ `cong_thuc_lich_su`), và mở
       thêm `GET /{item_id}/lich-su-cong-thuc` cho lịch sử đầy đủ. Xem
       `services/nhat_ky_danh_muc._ghi_lich_su_cong_thuc` — nơi ghi vào bảng đó.
@@ -229,13 +240,15 @@ def make_catalog_router(
         page, size = kw["page"], kw["size"]
         rows, total = svc.list(**kw)
         them = {}
+        # `facets` KHÔNG nhận bộ lọc riêng: tab đang không được chọn vẫn phải khoe số của nó.
+        kw_tab = {k: v for k, v in kw.items() if k not in ("page", "size", loc)}
         if facets is not None:
-            # `facets` KHÔNG nhận bộ lọc riêng: tab đang không được chọn vẫn phải khoe số của nó.
-            them["facets"] = facets(svc, {k: v for k, v in kw.items()
-                                          if k not in ("page", "size", loc)})
+            them["facets"] = facets(svc, kw_tab)
+        if tong_theo_tim is not None:
+            them["tong_theo_tim"] = tong_theo_tim(svc, kw_tab)
         return ListModel(items=_rows(svc, rows), total=total, page=page, size=size, **them)
 
-    _list.__signature__ = Signature(_tham_so(ServiceDep, doc, loc, co_active))
+    _list.__signature__ = Signature(_tham_so(ServiceDep, doc, loc, co_active, loc_them))
     _list.__name__ = f"list_{ten}"
     router.get(goc or "", response_model=ListModel, name=f"list_{ten}")(_list)
 

@@ -50,8 +50,15 @@ def _ten_to(client, h, to_id: int) -> str:
     return ten
 
 
+def _to_moi(client, h, ten: str) -> int:
+    """Tạo một tổ sản xuất riêng cho test cần HAI tổ phân biệt được (tab, đếm, gỡ tổ)."""
+    tao = client.post("/api/departments", json={"name": ten, "la_san_xuat": True}, headers=h)
+    assert tao.status_code == 201, tao.text
+    return int(tao.json()["id"])
+
+
 def _mk(client, h, **over):
-    body = {"ten": "ZZ Việc test", "department_id": _to_id(client, h), "unit": "to",
+    body = {"ten": "ZZ Việc test", "department_ids": [_to_id(client, h)], "unit": "to",
             "unit_price": 100}
     body.update(over)
     return client.post(API, json=body, headers=h)
@@ -69,7 +76,7 @@ def test_vong_crud(client):
     assert any(x["id"] == rid for x in client.get(f"{API}?q=ZZ Bồi", headers=h).json()["items"])
 
     upd = client.put(f"{API}/{rid}", json={
-        "ten": "ZZ Bồi 3 lớp", "department_id": tao.json()["department_id"],
+        "ten": "ZZ Bồi 3 lớp", "department_ids": tao.json()["department_ids"],
         "unit": "to", "unit_price": 180,
     }, headers=h)
     assert upd.status_code == 200, upd.text
@@ -85,16 +92,43 @@ def test_ma_tu_sinh_khi_bo_trong(client):
     assert ma and ma.startswith("KH-"), ma
 
 
-def test_nhan_to_suy_tu_department_id(client):
-    """`group_name` là NHÃN tổ, server suy từ `department_id` — client không gửi.
+def test_mot_viec_NHIEU_to_luu_va_tra_ten_tung_to(client):
+    """Chủ chốt 17/09/2026: một việc ("Bế nổi") làm được ở nhiều tổ, chung một đơn giá.
 
-    Hai chỗ cùng khai một sự thật thì sớm muộn lệch: bảng mang tên tổ của tháng trước trong khi
-    con trỏ `department_id` đã sang tổ khác."""
+    Trả kèm `tos` (mã · tên từng tổ) — bảng vẽ cột "Tổ" từ đó, không tự tra; và soi cả ba cửa (tạo ·
+    danh sách · chi tiết) vì Pydantic nuốt IM LẶNG field không khai ở schema Out."""
     h = _admin(client)
-    to_id = _to_id(client, h)
-    ten_to = _ten_to(client, h, to_id)
-    row = _mk(client, h, department_id=to_id).json()
-    assert row["group_name"] == ten_to[:40], row["group_name"]
+    a, b = _to_moi(client, h, "ZZ Tổ Bế"), _to_moi(client, h, "ZZ Tổ Thành phẩm")
+    tao = _mk(client, h, ten="ZZ Bế nổi", department_ids=[b, a, b])
+    assert tao.status_code == 201, tao.text
+    row = tao.json()
+    assert sorted(row["department_ids"]) == sorted([a, b]), "trùng tổ phải được khử"
+    assert {t["ten"] for t in row["tos"]} == {"ZZ Tổ Bế", "ZZ Tổ Thành phẩm"}, row["tos"]
+    assert all(t["ma"] for t in row["tos"]), row["tos"]
+
+    rid = row["id"]
+    assert sorted(client.get(f"{API}/{rid}", headers=h).json()["department_ids"]) == sorted([a, b])
+    ds = client.get(f"{API}?q=ZZ Bế nổi", headers=h).json()["items"]
+    assert len(ds[0]["tos"]) == 2, ds[0]
+
+
+def test_sua_go_mot_to_giu_to_con_lai(client):
+    """Gỡ một tổ khỏi danh sách = xoá dòng nối của tổ đó; tổ còn lại giữ nguyên.
+
+    Vắng `department_ids` (client không biết tới tổ) thì GIỮ danh sách."""
+    h = _admin(client)
+    a, b = _to_moi(client, h, "ZZ Tổ A"), _to_moi(client, h, "ZZ Tổ B")
+    rid = _mk(client, h, ten="ZZ Gỡ tổ", department_ids=[a, b]).json()["id"]
+
+    go = client.put(f"{API}/{rid}", json={"ten": "ZZ Gỡ tổ", "department_ids": [a],
+                                          "unit": "to", "unit_price": 100}, headers=h)
+    assert go.status_code == 200, go.text
+    assert go.json()["department_ids"] == [a]
+
+    giu = client.put(f"{API}/{rid}", json={"ten": "ZZ Gỡ tổ", "unit": "to", "unit_price": 130},
+                     headers=h)
+    assert giu.status_code == 200, giu.text
+    assert giu.json()["department_ids"] == [a] and giu.json()["unit_price"] == 130
 
 
 def test_thieu_to_bi_chan(client):
@@ -102,20 +136,27 @@ def test_thieu_to_bi_chan(client):
     r = client.post(API, json={"ten": "ZZ Không tổ", "unit": "to", "unit_price": 10}, headers=h)
     assert r.status_code == 422, r.text
     assert "tổ" in r.json()["detail"].lower()
+    # Danh sách RỖNG cũng là chưa chọn — cả lúc tạo lẫn lúc sửa (gỡ hết tổ là việc mồ côi).
+    r = _mk(client, h, ten="ZZ Rỗng tổ", department_ids=[])
+    assert r.status_code == 422 and "chưa chọn tổ" in r.json()["detail"].lower(), r.text
+    rid = _mk(client, h, ten="ZZ Có tổ").json()["id"]
+    r = client.put(f"{API}/{rid}", json={"ten": "ZZ Có tổ", "department_ids": [],
+                                         "unit": "to", "unit_price": 100}, headers=h)
+    assert r.status_code == 422, r.text
 
 
 def test_to_khong_ton_tai_bi_chan_bang_CAU_KHAC(client):
     """Hai ca lỗi khác nhau ⇒ hai câu khác nhau: chưa chọn gì, và chọn một id không có thật (form
     còn cầm id của tổ đã xoá). Gộp một câu thì người khai sửa mãi không đúng chỗ."""
     h = _admin(client)
-    r = client.post(API, json={"ten": "ZZ Tổ ma", "department_id": 987654,
+    r = client.post(API, json={"ten": "ZZ Tổ ma", "department_ids": [987654],
                                "unit": "to", "unit_price": 10}, headers=h)
     assert r.status_code == 422, r.text
     assert "không tìm thấy tổ" in r.json()["detail"].lower(), r.json()["detail"]
 
 
 def test_sua_sang_to_khong_ton_tai_bi_chan_nhung_giu_to_cu_thi_qua(client):
-    """Đường SỬA chỉ chặn khi ĐỔI SANG một tổ không có thật.
+    """Đường SỬA chỉ chặn khi THÊM một tổ không có thật.
 
     Gửi lại đúng tổ đang lưu thì phải cho qua — form load ra chính giá trị đó, chặn cả ca này là
     khoá luôn đường sửa tên/đơn giá của dòng ấy."""
@@ -123,11 +164,11 @@ def test_sua_sang_to_khong_ton_tai_bi_chan_nhung_giu_to_cu_thi_qua(client):
     to_id = _to_id(client, h)
     rid = _mk(client, h, ten="ZZ Sửa tổ").json()["id"]
 
-    doi = client.put(f"{API}/{rid}", json={"ten": "ZZ Sửa tổ", "department_id": 987654,
+    doi = client.put(f"{API}/{rid}", json={"ten": "ZZ Sửa tổ", "department_ids": [to_id, 987654],
                                            "unit": "to", "unit_price": 120}, headers=h)
     assert doi.status_code == 422, doi.text
 
-    giu = client.put(f"{API}/{rid}", json={"ten": "ZZ Sửa tổ rồi", "department_id": to_id,
+    giu = client.put(f"{API}/{rid}", json={"ten": "ZZ Sửa tổ rồi", "department_ids": [to_id],
                                            "unit": "to", "unit_price": 120}, headers=h)
     assert giu.status_code == 200, giu.text
     assert giu.json()["ten"] == "ZZ Sửa tổ rồi"
@@ -195,28 +236,38 @@ def test_tra_kem_TEN_don_vi(client):
 
 def test_loc_theo_to_nhan_ca_TEN_va_ID(client):
     """`?to=` nhận hai dạng, cố ý: tab của màn gửi TÊN tổ (nhãn đọc được), panel Cấu hình lương gửi
-    ID (nó biết id và không muốn hụt dòng vì nhãn lệch một chữ)."""
+    ID (nó biết id và không muốn hụt dòng vì nhãn lệch một chữ).
+
+    Việc làm ở HAI tổ hiện ở CẢ HAI tab — lọc là "tổ đó có trong danh sách", không phải "tổ đầu"."""
     h = _admin(client)
-    to_id = _to_id(client, h)
-    ten_to = _ten_to(client, h, to_id)
-    rid = _mk(client, h, ten="ZZ Lọc theo tổ").json()["id"]
+    a, b = _to_moi(client, h, "ZZ Tổ lọc A"), _to_moi(client, h, "ZZ Tổ lọc B")
+    chung = _mk(client, h, ten="ZZ Lọc chung", department_ids=[a, b]).json()["id"]
+    rieng = _mk(client, h, ten="ZZ Lọc riêng B", department_ids=[b]).json()["id"]
 
-    theo_id = client.get(f"{API}?to={to_id}", headers=h).json()["items"]
-    assert any(x["id"] == rid for x in theo_id)
-    assert all(x["department_id"] == to_id for x in theo_id)
+    theo_id = client.get(f"{API}?to={a}", headers=h).json()["items"]
+    assert [x["id"] for x in theo_id] == [chung]
+    assert all(a in x["department_ids"] for x in theo_id)
 
-    theo_ten = client.get(f"{API}?to={ten_to}", headers=h).json()["items"]
-    assert any(x["id"] == rid for x in theo_ten)
+    theo_ten = {x["id"] for x in client.get(f"{API}?to=ZZ Tổ lọc B", headers=h).json()["items"]}
+    assert theo_ten == {chung, rieng}
 
 
-def test_facets_dem_theo_to(client):
-    """Số trên tab do MÁY CHỦ đếm — màn chỉ cầm 20 dòng nên không tự đếm được."""
+def test_facets_dem_theo_to_va_tong_khong_dem_trung(client):
+    """Số trên tab do MÁY CHỦ đếm — màn chỉ cầm 20 dòng nên không tự đếm được.
+
+    Việc hai tổ được đếm ở cả hai tab ⇒ cộng các tab là đếm trùng; tab "Tất cả" đọc `tong_theo_tim`."""
     h = _admin(client)
-    ten_to = _ten_to(client, h, _to_id(client, h))
-    _mk(client, h, ten="ZZ Đếm 1")
-    body = client.get(API, headers=h).json()
+    a, b = _to_moi(client, h, "ZZ Tổ đếm A"), _to_moi(client, h, "ZZ Tổ đếm B")
+    _mk(client, h, ten="ZZ Dem chung", department_ids=[a, b])
+    _mk(client, h, ten="ZZ Dem rieng", department_ids=[a])
+    body = client.get(f"{API}?q=ZZ Dem", headers=h).json()
     assert "facets" in body, "thiếu `facets` ⇒ tab lọc mất số"
-    assert body["facets"].get(ten_to, 0) >= 1
+    assert body["facets"].get("ZZ Tổ đếm A") == 2 and body["facets"].get("ZZ Tổ đếm B") == 1
+    assert body["tong_theo_tim"] == 2, body
+    # Tab đang chọn không đổi số của các tab, cũng không đổi tổng.
+    theo_tab = client.get(f"{API}?q=ZZ Dem&to={b}", headers=h).json()
+    assert theo_tab["total"] == 1 and theo_tab["tong_theo_tim"] == 2
+    assert theo_tab["facets"].get("ZZ Tổ đếm A") == 2
 
 
 # --- Luật xoá: một nút, hai kết cục do SỐ LIỆU quyết -------------------------
@@ -231,33 +282,6 @@ def test_kiem_xoa_chua_ai_dung_thi_cho_xoa_han(client):
     assert r.json()["chan"] == []
     # Không có CASCADE nào trỏ vào bảng này (`piece_rate_id` là soft-ref, không FK cứng).
     assert r.json()["keo_theo"] == []
-
-
-def test_dinh_muc_dau_viec_chan_xoa_han(client):
-    """Công đoạn trỏ đơn giá này bằng ID THẬT (`cong_doan_dau_viec.piece_rate_id`) ⇒ chỉ ngừng dùng.
-
-    Xoá cứng ở đây là để lại một id trỏ vào hư không trong bảng định mức — mà định mức là dữ liệu
-    khai tay (năng suất người-giờ, số người, BOM vật tư)."""
-    h = _admin(client)
-    to_id = _to_id(client, h)
-    rid = _mk(client, h, ten="ZZ Đang được dùng", department_id=to_id).json()["id"]
-
-    cd = client.post("/api/cong-doan", json={
-        "ma": "ZZCDK1", "ten": "ZZ Công đoạn khoán", "nhom": "finishing",
-        "pricing_basis": "per_finished_qty", "department_id": to_id,
-        "dau_viec_dinh_muc": [{"piece_rate_id": rid, "nang_suat_nguoi_gio": 100,
-                               "so_nguoi_tieu_chuan": 1}],
-    }, headers=h)
-    assert cd.status_code == 201, cd.text
-
-    kiem = client.get(f"/api/danh-muc/cong_viec_khoan/{rid}/kiem-xoa", headers=h).json()
-    assert kiem["xoa_han_duoc"] is False
-    assert any("định mức đầu việc" in c for c in kiem["chan"]), kiem["chan"]
-
-    # Cửa chặn THẬT ở service, không chỉ ở hộp thoại: gọi DELETE trực tiếp phải ăn 409 kèm lý do.
-    xoa = client.delete(f"{API}/{rid}", headers=h)
-    assert xoa.status_code == 409, xoa.text
-    assert "định mức đầu việc" in xoa.json()["detail"]
 
 
 def test_ngung_dung_va_bat_lai_bang_PATCH_active(client):
@@ -292,7 +316,8 @@ def test_clone_copy_toan_bo_cot_ma_moi_ten_them_hau_to(client):
     """`MA_TU_SINH=True` ở danh mục này ⇒ bản sao KHÔNG lấy `<mã>-COPY`, mà xin mã mới `KH-####`
     y hệt lúc tạo tay — hai đường sinh mã (tạo mới / nhân bản) không được lệch nhau."""
     h = _admin(client)
-    goc = _mk(client, h, ten="ZZ Bồi 3 lớp", unit_price=170).json()
+    goc = _mk(client, h, ten="ZZ Bồi 3 lớp", unit_price=170,
+              department_ids=[_to_moi(client, h, "ZZ Tổ C1"), _to_moi(client, h, "ZZ Tổ C2")]).json()
     r = client.post(f"{API}/{goc['id']}/clone", headers=h)
     assert r.status_code == 201, r.text
     ban_sao = r.json()
@@ -300,7 +325,8 @@ def test_clone_copy_toan_bo_cot_ma_moi_ten_them_hau_to(client):
     assert ban_sao["ma"] != goc["ma"] and ban_sao["ma"].startswith("KH-")
     assert ban_sao["ten"] == "ZZ Bồi 3 lớp (bản sao)"
     assert ban_sao["unit_price"] == 170
-    assert ban_sao["department_id"] == goc["department_id"]
+    assert sorted(ban_sao["department_ids"]) == sorted(goc["department_ids"])
+    assert len(ban_sao["department_ids"]) == 2
 
 
 def test_clone_bao_khong_thay_dong_goc(client):
@@ -326,7 +352,7 @@ def test_nhat_ky_ghi_du_tao_sua_ngung_dung(client):
     assert any(i["action"] == "dm_tao" for i in _nhat_ky(client, h, rid)), "thiếu dòng TẠO"
 
     client.put(f"{API}/{rid}", json={
-        "ten": "ZZ Có nhật ký", "department_id": _to_id(client, h), "unit": "to",
+        "ten": "ZZ Có nhật ký", "department_ids": [_to_id(client, h)], "unit": "to",
         "unit_price": 300,
     }, headers=h)
     dong = _nhat_ky(client, h, rid)
@@ -342,13 +368,26 @@ def test_nhat_ky_ghi_du_tao_sua_ngung_dung(client):
         "ngừng dùng cũng phải để lại vết — nó ảnh hưởng mọi ô chọn của hệ"
 
 
+def test_nhat_ky_ghi_THEM_TO_bang_ten_to(client):
+    """Thêm một tổ đổi nơi áp đơn giá (tiền của thợ tổ đó) ⇒ phải có vết, đọc bằng TÊN tổ."""
+    h = _admin(client)
+    a, b = _to_moi(client, h, "ZZ Tổ NK A"), _to_moi(client, h, "ZZ Tổ NK B")
+    rid = _mk(client, h, ten="ZZ Nhật ký tổ", department_ids=[a]).json()["id"]
+    r = client.put(f"{API}/{rid}", json={"ten": "ZZ Nhật ký tổ", "department_ids": [a, b],
+                                         "unit": "to", "unit_price": 100}, headers=h)
+    assert r.status_code == 200, r.text
+    sua = [i for i in _nhat_ky(client, h, rid) if i["action"] == "dm_sua"]
+    assert sua and "Tổ làm việc này" in sua[0]["detail"], sua
+    assert "ZZ Tổ NK B" in sua[0]["detail"], sua[0]["detail"]
+
+
 def test_nhat_ky_khong_ghi_khi_khong_doi_gi(client):
     """Bấm Lưu mà giữ nguyên = không phải sự kiện. Ghi vào thì nhật ký loãng, mất ngữ cảnh."""
     h = _admin(client)
     to_id = _to_id(client, h)
-    rid = _mk(client, h, ten="ZZ Không đổi", department_id=to_id).json()["id"]
+    rid = _mk(client, h, ten="ZZ Không đổi", department_ids=[to_id]).json()["id"]
     truoc = len(_nhat_ky(client, h, rid))
-    client.put(f"{API}/{rid}", json={"ten": "ZZ Không đổi", "department_id": to_id,
+    client.put(f"{API}/{rid}", json={"ten": "ZZ Không đổi", "department_ids": [to_id],
                                      "unit": "to", "unit_price": 100}, headers=h)
     assert len(_nhat_ky(client, h, rid)) == truoc
 

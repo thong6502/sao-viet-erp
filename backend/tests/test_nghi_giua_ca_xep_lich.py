@@ -15,8 +15,7 @@ xếp lịch (giờ xong · cửa chặn · quỹ giờ máy).
 """
 from datetime import datetime, timedelta, timezone
 
-from app.services.xep_lich_2 import constraint as C
-from app.services.xep_lich_2 import overlay
+from app.services.xep_lich import constraint as C
 
 
 def _gio(h: int, m: int = 0, ngay: int = 10) -> datetime:
@@ -134,19 +133,9 @@ def test_quy_gio_ngay_tru_gio_nghi():
     assert C.phut_ca_moi_ngay(ca, NGHI_TRUA) == 480
 
 
-def test_tai_may_khong_dem_gio_com():
-    """Việc 10:00→15:00 chiếm máy 5 tiếng đồng hồ tường nhưng chỉ 4 tiếng là chạy."""
-    pl = [(1, _gio(10), _gio(15))]
-    ngay = _gio(10).date()
-    assert overlay.tai_may(pl, ngay, ngay)[0]["phut_ban"] == 300
-    assert overlay.tai_may(pl, ngay, ngay, NGHI_TRUA)[0]["phut_ban"] == 240
-
-
-def test_tai_may_bo_han_dong_nam_tron_trong_gio_nghi():
-    """Không đẻ dòng 0 phút cho việc nằm gọn trong giờ nghỉ (dữ liệu cũ xếp trước khi có luật này)."""
-    pl = [(1, _gio(12, 10), _gio(12, 40))]
-    ngay = _gio(10).date()
-    assert overlay.tai_may(pl, ngay, ngay, NGHI_TRUA) == []
+# Hai test "tải máy" (`overlay.tai_may` trừ giờ cơm) GỠ 18/09/2026 cùng bàn xếp lịch theo công
+# đoạn: `overlay` là dải tải của riêng màn đó, xoá màn là xoá luôn hàm. Luật giờ nghỉ mà chúng
+# canh vẫn còn người canh — `phut_ca_moi_ngay` ngay bên trên và `trai_lich` ở bộ bàn cấp lệnh.
 
 
 # ---------------------------------------------------------------- lịch xưởng (lát 1)

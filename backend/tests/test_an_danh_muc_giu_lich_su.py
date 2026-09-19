@@ -4,8 +4,7 @@ Danh mục (đơn vị · bù hao · vật tư · giấy…) là dữ liệu G�
 14/08/2026 các đường ĐỌC đều lọc `active` — nghĩa là ẩn một mục là lệnh sản xuất cũ tự đổi số,
 và không ai được báo:
 
-  * ẩn một ĐƠN VỊ  → `_don_vis()` / `_ma_don_vi()` mất khoá → đích quy đổi tịt → THỜI LƯỢNG của
-    lệnh lịch sử về 0 phút, Xếp lịch chặn đặt lịch mà không nói vì sao;
+  * ẩn một ĐƠN VỊ  → `_ma_don_vi()` mất khoá → cầu TÊN→MÃ đứt;
   * ẩn một BÙ HAO  → `tinh_nguoc_routing` (chạy MỖI LẦN đọc chi tiết lệnh) ra số khác → cả loạt
     lệnh cũ hiện nhãn "tính lại" dù chẳng ai đụng vào;
   * ẩn một VẬT TƯ  → `replace_routing` ném lỗi → lệnh cũ KHÔNG LƯU LẠI ĐƯỢC routing nữa, kể cả
@@ -30,7 +29,6 @@ from app.services.lsx_service import LsxService
 from app.services.sequence_service import SequenceService
 from tests.test_lsx_service import (  # noqa: F401  (fixture dùng lại qua tên)
     _don_da_chuyen_sx,
-    _gan_dinh_muc,
     _ptg_2_san_pham,
     admin,
     customer,
@@ -52,41 +50,14 @@ def _svc_moi(db) -> LsxService:
 
 
 def _lenh_co_khoan(db, orders, lsx_svc, admin, customer):
-    """Một lệnh có bước TỔ "Dán hộp" đã ghim đầu việc đếm bằng CÁI, năng suất 1000 cái/người-giờ."""
+    """Một lệnh có bước TỔ "Dán hộp"."""
     from tests.test_lsx_service import _chon_loai_buoc
 
     ptg = _ptg_2_san_pham(db)
-    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").first()
-    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     lines = lsx_svc.preview(d.id)["lines"]
     lsx = lsx_svc.tao(order_id=d.id, order_line_ids=[lines[0]["order_line_id"]], actor=admin)[0]
     return _chon_loai_buoc(lsx_svc, lsx, admin, {"Dán hộp": "to"})
-
-
-def test_an_don_vi_khong_lam_gio_lenh_cu_ve_khong(db, orders, lsx_svc, admin, customer):
-    """Ẩn đơn vị "cái" xong, THỜI LƯỢNG của lệnh ĐÃ CÓ phải y nguyên.
-
-    Đây là ca đau nhất: ảnh chụp đầu việc lưu TÊN đơn vị (`piece_rates.unit`), `_ma_don_vi` là cầu
-    TÊN→MÃ duy nhất, và bước Tổ chưa khai đơn vị năng suất thì lùi về đúng cái tên ấy để lấy đích
-    quy đổi. Lọc `active` ở cầu đó là đứt cầu, và số phút không báo lỗi — nó chỉ lặng lẽ về 0.
-
-    Trước 11/09/2026 bài này canh TIỀN khoán (cùng một cầu, cùng một cách vỡ); tầng lệnh bỏ tiền nên
-    nay canh nửa còn lại.
-    """
-    lsx = _lenh_co_khoan(db, orders, lsx_svc, admin, customer)
-    truoc = lsx_svc.detail_dict(lsx)
-    buoc_truoc = next(b for b in truoc["cong_doans"] if b["ten"] == "Dán hộp")
-    assert buoc_truoc["chay_phut"], "chưa ra được số phút thì test không kiểm được gì"
-
-    dv = db.query(DonViDo).filter(DonViDo.ma == "cai").first()
-    assert dv is not None, "seed phải có đơn vị `cai` thì ca này mới đúng bài"
-    dv.active = False
-    db.commit()
-
-    sau = _svc_moi(db).detail_dict(db.get(type(lsx), lsx.id))
-    buoc_sau = next(b for b in sau["cong_doans"] if b["ten"] == "Dán hộp")
-    assert buoc_sau["chay_phut"] == pytest.approx(buoc_truoc["chay_phut"], abs=0.01)
 
 
 def test_an_bu_hao_khong_lam_so_to_lenh_cu_doi(db, orders, lsx_svc, admin, customer):
@@ -106,7 +77,6 @@ def test_an_bu_hao_khong_lam_so_to_lenh_cu_doi(db, orders, lsx_svc, admin, custo
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").first()
     cd_dan.kieu_bu_hao = "tra_bang"
     cd_dan.bu_hao_id = bh.id
-    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     lines = lsx_svc.preview(d.id)["lines"]

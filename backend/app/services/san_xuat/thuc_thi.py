@@ -49,6 +49,8 @@ from ..bai_ghep_service import BaiGhepService
 from ..may_trang_thai import NHAN as NHAN_TT_MAY
 from ..may_trang_thai import TT_RANH, trang_thai_may
 from ..quyen_to import VIEC_THUC_HIEN, gate_to
+from .dau_vao import kiem_bat_dau
+from .tinh_trang_nguoi import hom_nay, kiem_di_lam, kiem_khong_chay_viec_khac
 
 
 def _moc() -> datetime:
@@ -132,12 +134,21 @@ def phan_cong(
     emp = repo.nhan_vien(employee_id)
     if emp is None:
         raise ValueError("Không tìm thấy nhân viên.")
+    # Nghỉ dài hạn / đình chỉ / nghỉ phép đã duyệt HÔM NAY ⇒ không giao (tinh_trang_nguoi).
+    kiem_di_lam(db, emp, hom_nay(), duoi="không giao việc được")
     la_khoan = _la_luong_khoan(db, emp)
     if cv.loai_buoc == BUOC_TO and not la_khoan:
         # Câu tổ đọc: nói "công nhật" (ngoại lệ) chứ đừng nói "lương khoán" — cùng chữ với bàn tổ.
         raise ValueError(f"{emp.full_name} là người công nhật — bước nội bộ không nhận người công nhật.")
     if repo.phan_cong_hoat_dong_cua(cong_viec_id, employee_id) is not None:
         raise ValueError("Nhân viên này đã được giao vào công việc.")
+    # Việc đang chạy thì giao = mở khoảng tham gia ngay ⇒ người đang chạy việc khác bị chặn. Kiểm
+    # TRƯỚC khi thêm dòng phân công, khỏi để dòng dở trong session khi báo lỗi.
+    phien = repo.phien_dang_mo(cv.id) if cv.trang_thai == CV_DANG_CHAY else None
+    if phien is not None:
+        kiem_khong_chay_viec_khac(
+            db, emp, duoi="việc này đang chạy nên không giao chồng được, dừng hoặc rút người đó ở việc kia trước"
+        )
 
     pc = SanXuatPhanCong(
         cong_viec_id=cv.id,
@@ -149,21 +160,15 @@ def phan_cong(
     repo.add(pc)
 
     # Thêm người GIỮA CHỪNG khi việc đang chạy → mở khoảng tham gia ngay (§7.2).
-    if cv.trang_thai == CV_DANG_CHAY:
-        phien = repo.phien_dang_mo(cv.id)
-        if phien is not None:
-            if repo.khoang_mo_cua_nguoi(employee_id) is not None:
-                raise ValueError(
-                    "Người này đang tham gia một công việc khác (khoảng tham gia chồng giờ)."
-                )
-            repo.add(
-                SanXuatKhoangThamGia(
-                    cong_viec_id=cv.id,
-                    phien_chay_id=phien.id,
-                    employee_id=employee_id,
-                    bat_dau=_moc(),
-                )
+    if phien is not None:
+        repo.add(
+            SanXuatKhoangThamGia(
+                cong_viec_id=cv.id,
+                phien_chay_id=phien.id,
+                employee_id=employee_id,
+                bat_dau=_moc(),
             )
+        )
 
     cv.version += 1
     _audit(db, user, "san_xuat_phan_cong", cv, detail=f"employee_id={employee_id}")
@@ -207,15 +212,18 @@ def bat_dau(
     *,
     user,
     cong_viec_id: int,
-    ly_do_so_nguoi: str | None = None,
     expected_version: int | None = None,
 ) -> dict:
     """Bắt đầu (hoặc Tiếp tục) chạy: mở phiên mới + mở khoảng tham gia cho mọi người đang trong tổ.
 
-    Luật: phải có ≥1 thợ lương khoán đang được giao (§7.1); số người THỰC TẾ khác số dự kiến (chốt
-    lúc phát hành) bắt buộc `ly_do_so_nguoi` (§7.1); không ai được có khoảng tham gia chồng giờ
-    (§7.1). Sớm hay trễ so với dự kiến KHÔNG hỏi lý do (gỡ 16/09/2026) — lệch giờ đọc thẳng từ mốc
-    thực tế của phiên so với `du_kien_*`."""
+    Luật: phải có ≥1 thợ lương khoán đang được giao (§7.1); không ai được có khoảng tham gia chồng
+    giờ (§7.1). Sớm hay trễ so với dự kiến KHÔNG hỏi lý do (gỡ 16/09/2026) — lệch giờ đọc thẳng từ
+    mốc thực tế của phiên so với `du_kien_*`.
+
+    ⚠️ CỔNG "số người khác dự kiến thì bắt chọn lý do" GỠ 18/09/2026 cùng toàn bộ logic KÍP (mg
+    `0321`). Hệ thôi biết một việc *nên* mấy người, nên tổ cử 1 người vào việc 5 người cũng không ai
+    cảnh báo — đúng chủ trương "máy chỉ ghi nhận". Luật ≥1 thợ thì Ở LẠI: đó là luật về NGƯỜI
+    CÓ MẶT, không phải về cỡ kíp."""
     repo = SanXuatThucThiRepository(db)
     cv = _lay_cong_viec(repo, cong_viec_id)
     _gate(db, user, cv)
@@ -233,16 +241,18 @@ def bat_dau(
             "Người đang giao đều là công nhật — cần thêm ít nhất 1 thợ không phải công nhật mới bắt đầu được."
         )
 
-    # §7.1: số người THỰC TẾ bắt đầu khác số dự kiến (chốt lúc phát hành trong dinh_muc_json) ⇒
-    # vẫn cho bắt đầu nhưng BẮT BUỘC chọn lý do. Không khai định mức người (None) → miễn kiểm.
-    du_kien_so_nguoi = (
-        cv.dinh_muc_json.get("so_nhan_cong_tieu_chuan")
-        if isinstance(cv.dinh_muc_json, dict) else None
-    )
-    lech_so_nguoi = du_kien_so_nguoi is not None and len(roster) != du_kien_so_nguoi
-    if lech_so_nguoi and not (ly_do_so_nguoi or "").strip():
-        raise ValueError(
-            f"Số người thực tế ({len(roster)}) khác dự kiến ({du_kien_so_nguoi}) — bắt buộc chọn lý do."
+    # Người trong tổ — kiểm TRƯỚC số người dự kiến: người vắng thì phải rút ra, đếm lại rồi mới
+    # biết có lệch không. Không ai vắng mặt hôm nay (nghỉ dài hạn / đình chỉ / nghỉ phép đã
+    # duyệt — giao từ hôm trước rồi mới có đơn), không ai đang mở khoảng ở việc khác (§7.1). Câu
+    # báo gọi TÊN người và việc họ đang giữ; "Nhân viên #57" thì tổ trưởng không biết ai.
+    ngay = hom_nay()
+    for pc in roster:
+        emp = repo.nhan_vien(pc.employee_id)
+        if emp is None:
+            continue
+        kiem_di_lam(db, emp, ngay, duoi="rút người này khỏi tổ rồi mới bắt đầu được")
+        kiem_khong_chay_viec_khac(
+            db, emp, duoi="dừng hoặc rút người đó ở việc kia trước, không mở được hai việc chồng giờ"
         )
 
     # Cổng BƯỚC GHÉP (§10.2): công việc có cạnh phụ thuộc đổ vào (bài ghép gộp nhiều nhánh) chỉ
@@ -254,6 +264,9 @@ def bat_dau(
             raise ValueError(
                 "Bước ghép chưa đủ đầu vào — cần bàn giao đã xác nhận từ mọi nhánh trước khi chạy."
             )
+    # Cổng ROUTING (19/09/2026): công đoạn sau làm trên đầu ra của công đoạn trước — chưa nhận gì
+    # từ công đoạn trước thì chưa có gì để làm. Công đoạn đầu lệnh ⇒ no-op.
+    kiem_bat_dau(sl_repo, cv)
 
     # Cổng KHUÔN/KHUNG: bước có dụng cụ lưu kho thì phải có người xác nhận dao đang nằm trên bàn.
     # Đây là ĐIỂM CHẶN DUY NHẤT của luật "bế phải có khuôn mới làm được" — ngày dự kiến có khuôn
@@ -266,19 +279,11 @@ def bat_dau(
         )
 
     now = _moc()
-    # Không ai được đang mở khoảng ở việc khác (§7.1) — kiểm TRƯỚC khi mở loạt.
-    for pc in roster:
-        if repo.khoang_mo_cua_nguoi(pc.employee_id) is not None:
-            raise ValueError(
-                f"Nhân viên #{pc.employee_id} đang tham gia công việc khác — không thể mở khoảng chồng giờ."
-            )
-
     phien = SanXuatPhienChay(
         cong_viec_id=cv.id,
         so_thu_tu=repo.so_phien(cv.id) + 1,
         may_id=cv.may_id,          # ẢNH CHỤP máy lúc mở phiên — đổi máy sau này đẻ phiên khác
         bat_dau=now,
-        ly_do_so_nguoi=((ly_do_so_nguoi or "").strip() or None) if lech_so_nguoi else None,
         created_by=getattr(user, "id", None),
     )
     repo.add(phien)
@@ -296,8 +301,6 @@ def bat_dau(
     cv.trang_thai = CV_DANG_CHAY
     cv.version += 1
     chi_tiet = f"phien={phien.so_thu_tu}"
-    if lech_so_nguoi:
-        chi_tiet += f"; so_nguoi {len(roster)}≠{du_kien_so_nguoi}: {phien.ly_do_so_nguoi}"
     _audit(db, user, "san_xuat_bat_dau", cv, detail=chi_tiet)
     db.commit()
     return _ket_qua(cv)

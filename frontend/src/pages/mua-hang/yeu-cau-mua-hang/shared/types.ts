@@ -1,5 +1,6 @@
 // Kiểu dùng chung của màn Yêu cầu mua hàng (tách từ pages/DepartmentPurchaseRequestsPage.tsx).
 import type {
+  CanDoiKhoaDong,
   DepartmentPurchaseRequestLineInput,
   DepartmentPurchaseRequestLineOut,
   DepartmentPurchaseSourceType,
@@ -22,15 +23,16 @@ export interface DepartmentPurchaseRequestsPageProps {
   /** Liên thông từ Kho: mở form tạo, điền sẵn dòng vật tư (Tên + ĐVT) — bỏ trống SL/ghi chú. */
   seedLines?: DepartmentPurchaseRequestLineInput[] | null;
   seedPurpose?: string | null;
-  /** Phần ĐẦU PHIẾU điền sẵn — hiện chỉ Kế hoạch vật tư gửi (20/08/2026).
-   *
-   *  Bên đó đã biết thừa ngày cần (mốc sớm nhất của các lệnh đã tick) và lệnh nào sinh ra yêu cầu
-   *  này; bắt người dùng gõ lại là bắt họ đoán lại một con số máy vừa tính xong. Kho gửi seed
-   *  không kèm đầu phiếu thì mọi thứ chạy y như cũ. */
+  /** Phần ĐẦU PHIẾU điền sẵn — hiện chỉ Kế hoạch vật tư gửi (20/08/2026): nguồn + mã lệnh sinh ra
+   *  yêu cầu này. `needed_date` bên đó gửi TRỐNG (18/09/2026) — ngày cần hàng do người lập gõ. Kho
+   *  gửi seed không kèm đầu phiếu thì mọi thứ chạy y như cũ. */
   seedHeader?: {
     source_type?: DepartmentPurchaseSourceType | null;
     needed_date?: string | null;
     related_document_type?: string | null;
     related_document_code?: string | null;
   } | null;
+  /** Kế hoạch vật tư gửi: yêu cầu này mua cho lệnh/bài nào. Chỉ đi kèm lúc TẠO — lưu xong, ngày cần
+   *  hàng người lập gõ quay về làm "Ngày cần" của đúng các lệnh đó. */
+  seedNguon?: CanDoiKhoaDong[] | null;
 }

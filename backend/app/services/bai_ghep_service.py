@@ -41,7 +41,6 @@ from ._may_fit import LY_DO_GSM, LY_DO_KHO, LY_DO_SO_MAU, kiem_kha_nang
 from .bu_hao_engine import chuoi_nguoc_dv, hao_buoc
 from ..models.don_vi_do import TRAM_CAI, TRAM_TAY, TRAM_TO, TRAM_TO_NGUYEN
 from .dong_giay import ban_do_tram, don_vi_chuoi, tram_cua, tren_dong_giay
-from .piece_work_service import khoan_snapshot
 from .thanh_phan_engine import (
     cau_to_sang_cai, la_gap_tay, so_kem_moi_tay, so_mau_dan_xuat, so_tay_moi_cuon, tap_muc,
     tap_muc_tu_so,
@@ -124,6 +123,9 @@ class BaiGhepService:
         self._lsx_service = None   # dựng trễ, xem `_lsx_svc`
         self._bu_hao_cache: list[dict] | None = None
         self._tram_cache: dict[str, str] | None = None
+        # Nạp lô cho đường ĐỌC nhiều bài (xem `nap_truoc`). None = chưa nạp ⇒ hỏi DB từng bài.
+        self._chung_nap: dict[int, list[BaiGhepCongDoan]] | None = None
+        self._gop_nap: dict[int, dict[int, set[str]]] | None = None
 
     def _tram(self) -> dict[str, str]:
         """Bản đồ `{mã đơn vị: trạm}` — CACHE. Hỏi lại danh mục trong vòng lặp thành viên là N+1."""
@@ -570,8 +572,29 @@ class BaiGhepService:
 
     # ================= BƯỚC CHUNG (lớp ghi đè do NGƯỜI khai) =================
 
+    def nap_truoc(
+        self, bai_ids: list[int], lsx_ids: list[int],
+        *, buoc_chung: dict[int, list[BaiGhepCongDoan]] | None = None,
+    ) -> None:
+        """Nạp LÔ những thứ engine hỏi TỪNG BÀI — chỉ cho đường ĐỌC chạy engine trên nhiều bài.
+
+        `tinh_so_to` hỏi bước chung + bản đồ gộp của bài, rồi chuỗi ngược của mỗi thành viên lại
+        hỏi "lệnh này thuộc bài nào" vài lần. Bảng cân đối vật tư chạy nó cho MỌI bài trong xưởng
+        nên mỗi bài đội thêm ~15 câu. Nạp ba lô ở đây thì số câu không còn chạy theo số bài.
+
+        Đừng gọi trên đường GHI: nạp xong mà gộp/tách bước trong cùng instance là đọc số cũ.
+        `buoc_chung` = lô bước chung người gọi đã nạp (cùng `repo.buoc_chung_theo_bai`), khỏi hỏi lại.
+        """
+        self._chung_nap = (
+            buoc_chung if buoc_chung is not None else self.repo.buoc_chung_theo_bai(bai_ids)
+        )
+        self._gop_nap = self.repo.gop_theo_bai(bai_ids)
+        self._lsx_svc().nap_ghep_cua(self.repo.ghep_theo_lsx(lsx_ids), lsx_ids)
+
     def _buoc_chungs(self, bg: BaiGhep) -> list[BaiGhepCongDoan]:
         """Các bước chạy chung của bài, theo thứ tự khai."""
+        if self._chung_nap is not None and bg.id in self._chung_nap:
+            return list(self._chung_nap[bg.id])
         return list(self.db.execute(
             select(BaiGhepCongDoan)
             .where(BaiGhepCongDoan.bai_ghep_id == bg.id)
@@ -584,6 +607,8 @@ class BaiGhepService:
         KHÔNG suy từ `buoc_in_step_key` nữa: cột đó giả định bước in là điểm gộp duy nhất, mà
         thực tế còn CTP/cán/bế chung. Không khai thì không gộp — máy không tự đúc node in chung.
         """
+        if self._gop_nap is not None and bg.id in self._gop_nap:
+            return {k: set(v) for k, v in self._gop_nap[bg.id].items()}
         ket: dict[int, set[str]] = {}
         for m in self.db.execute(
             select(BaiGhepCongDoanMap)
@@ -760,8 +785,9 @@ class BaiGhepService:
             loai_buoc=mau.loai_buoc, bat_buoc=bool(mau.bat_buoc),
             # CHƯA gán tổ/máy: gộp xong là phải lập lại kế hoạch cho lượt chạy chung, không thừa
             # kế mù của bất kỳ lệnh nào — hai lệnh có thể đang khai hai máy khác nhau.
-            so_nhan_cong_tieu_chuan=1,
-            don_vi_nang_suat=None,
+            # SỐ GIỜ KẾ HOẠCH để 0 (mg `0319`): gộp xong là phải lập lại kế hoạch cho lượt chạy
+            # chung, mà giờ của lượt chung không phải tổng giờ của các bước thành viên.
+            so_gio_ke_hoach=0,
             # Đơn vị vào/ra là thứ NGƯỜI khai ở danh mục công đoạn, không phải thứ bài tự đặt.
             # Đóng đinh `tờ ➔ tờ` là nói sai ngay khi bước gộp là bế (`to → cai`): thẻ chung ghi
             # "5.075 tờ ➔ 5.075 tờ" trong khi thẻ liền kề ghi "vào 20.300 cái".
@@ -817,16 +843,13 @@ class BaiGhepService:
     # Trường NGƯỜI nhập cho lượt chạy chung. Số lượng/hao/thời lượng KHÔNG có ở đây: chúng là
     # dẫn xuất, engine tính lúc đọc — cho sửa là đẻ nguồn sự thật thứ hai.
     _SUA_DUOC_BUOC_CHUNG = (
-        # `khoan_json` KHÔNG có ở đây: nó là ảnh chụp server tự chụp từ `piece_rate_id`
-        # (xem `_ghim_khoan_chung`), không phải thứ client gửi thẳng.
         # Thời lượng KẾ THỪA từ máy (2026-08-04): client chỉ còn gửi `phat_sinh_phut`.
         # `setup_phut`/`chay_phut`/`di_chuyen_phut`/`ve_sinh_phut` đã rời bộ này.
         "department_id", "may_id", "loai_buoc",
-        # Kíp chuẩn: kế thừa từ định mức đầu việc nhưng SỬA ĐÈ được y như bước lệnh — bước chung
-        # của bài cũng là một bước có kế hoạch. Hai mốc tối thiểu/tối đa đã gỡ (migration `0270`),
-        # ô "số người bố trí" gỡ tiếp ở `0281`: chỉ còn MỘT con số nhân lực cho cả hệ.
-        "so_nhan_cong_tieu_chuan",
-        "nang_suat", "don_vi_nang_suat", "phat_sinh_phut",
+        # SỐ GIỜ KẾ HOẠCH của lượt chung khi nó là bước TỔ (mg `0319`) — ô gõ tay, y như bước
+        # lệnh. Thay chỗ `so_nhan_cong_tieu_chuan` · `nang_suat` · `don_vi_nang_suat` đã gỡ cùng
+        # logic kíp (mg `0321`).
+        "so_gio_ke_hoach", "phat_sinh_phut",
         # Chờ kỹ thuật: gộp lấy mức lớn nhất làm MẶC ĐỊNH, người lập kế hoạch sửa đè được (mục B).
         "so_luot_chay", "ghi_chu",
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
@@ -836,13 +859,23 @@ class BaiGhepService:
     def lap_ke_hoach_buoc_chung(
         self, *, bai_ghep_id: int, gang_step_key: str, patch: dict, actor,
     ) -> BaiGhep:
-        """Lập kế hoạch cho lượt chạy chung: một tổ, một máy, một kíp, một bộ vật tư."""
+        """Lập kế hoạch cho lượt chạy chung: một tổ, một máy, một bộ vật tư."""
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
         self._chan_dang_giu_cho(bg)
         chung = next((c for c in self._buoc_chungs(bg) if c.step_key == gang_step_key), None)
         if chung is None:
             raise BaiGhepNotFound("Không tìm thấy bước chung")
+        # Tổ của lượt chạy chung phải là một TỔ PHỤ TRÁCH của công đoạn (mg `0312`) — cùng luật với
+        # bước lệnh (`LsxService.replace_routing`). Chỉ soi khi tổ ĐỔI: lưu lại tổ cũ đã lệch vì
+        # danh mục đổi sau thì để yên, không khoá đường sửa máy/kíp của bước.
+        to_moi = patch.get("department_id")
+        if to_moi is not None and to_moi != chung.department_id and chung.cong_doan_id:
+            cd_obj = self.db.get(CongDoan, chung.cong_doan_id)
+            if cd_obj is not None and cd_obj.department_ids and to_moi not in cd_obj.department_ids:
+                raise BaiGhepValidationError(
+                    f'Tổ đã chọn không phụ trách công đoạn "{cd_obj.ten}" — chọn một trong các tổ '
+                    f'khai ở danh mục Công đoạn.')
         for field in self._SUA_DUOC_BUOC_CHUNG:
             if field in patch:
                 setattr(chung, field, patch[field])
@@ -851,12 +884,6 @@ class BaiGhepService:
         # cùng lượt lưu cũng ăn luật này.
         if chung.loai_buoc == LB_TO:
             chung.so_luot_chay = 1
-        # Sau vòng trên: tổ có thể vừa đổi trong cùng lượt lưu, mà đầu việc khoán lọc THEO TỔ.
-        if "piece_rate_id" in patch:
-            self._ghim_khoan_chung(
-                chung, patch["piece_rate_id"],
-                giu_bien="so_nhan_cong_tieu_chuan" in patch,
-            )
         if "vat_tus" in patch:
             self._thay_vat_tu_chung(chung, patch["vat_tus"] or [])
         self.db.flush()
@@ -870,65 +897,10 @@ class BaiGhepService:
         self.repo.commit()
         return self._get(bg.id)
 
-    def _ghim_khoan_chung(
-        self, chung: BaiGhepCongDoan, rate_id: int | None, *, giu_bien: bool = False,
-    ) -> None:
-        """Ghim đầu việc khoán cho lượt chạy chung — mượn NGUYÊN luật của bước lệnh.
-
-        Khoán của một lượt chạy chung không có gì khác khoán của một bước lệnh: vẫn là "tổ này
-        làm đầu việc nào, đơn giá bao nhiêu". Nên chỗ này gọi thẳng `LsxService` chứ không chép
-        lại phép lọc theo tổ + kiểm đầu việc thuộc công đoạn + gắp định mức.
-
-        Kéo theo định mức (năng suất · số người) y như bước lệnh: chọn đầu việc xong mà năng suất
-        vẫn trống thì thẻ vẫn kêu "Chưa có năng suất", người dùng phải gõ lại số đã có sẵn.
-        """
-        from .lsx_service import _dinh_muc_snapshot, dich_gio_cua_khoan
-
-        svc = self._lsx_svc()
-        cd_obj = self.db.get(CongDoan, chung.cong_doan_id) if chung.cong_doan_id else None
-        rid = int(rate_id or 0)
-        rate = next((x for x in svc._piece_rates() if x.id == rid), None) if rid else None
-        if rid and rate is None:
-            raise BaiGhepValidationError("Không tìm thấy đầu việc khoán")
-        if rate is not None:
-            allowed = {x.id for x in svc._dau_viec_cua_cong_doan(cd_obj, chung.department_id)}
-            if rate.id not in allowed:
-                raise BaiGhepValidationError("Đầu việc không thuộc công đoạn hoặc tổ phụ trách")
-        dm = next((x for x in (getattr(cd_obj, "dau_viec_dinh_muc", None) or [])
-                   if rate is not None and x.piece_rate_id == rate.id), None)
-        chung.khoan_json = khoan_snapshot(rate, dm) if rate is not None else None
-        if rate is None or dm is None:
-            return
-        # Bước chung của bài cũng là "một bước có kế hoạch" → ghim NGUYÊN bộ định mức như bước
-        # lệnh, gồm cả dải năng suất min/max và đơn vị khai báo.
-        chung.khoan_json.update(_dinh_muc_snapshot(dm))
-        chung.nang_suat = _f(dm.nang_suat_nguoi_gio)
-        # Nhãn năng suất ĐI THEO đơn vị mà giờ quy về (07/09/2026) — cùng một hàm bước lệnh
-        # dùng, để bàn bài ghép và drawer lệnh không nói hai đơn vị khác nhau cho cùng một số.
-        chung.don_vi_nang_suat = dich_gio_cua_khoan(chung.khoan_json)[0]
-        if not giu_bien:                      # cùng lượt lưu mà người dùng tự gõ kíp chuẩn thì đừng đè
-            chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
-
-    def _khoan_chung_dict(self, c: BaiGhepCongDoan, quy_cach: dict) -> dict:
-        """Khối đầu việc của thẻ bước chung: phần GHIM + danh sách chọn được. KHÔNG có tiền.
-
-        Bỏ tiền 11/09/2026 cùng bước lệnh (`LsxService._khoan_derived` đã xoá): sản xuất chỉ ghi SỐ
-        LƯỢNG, quy ra tiền là việc của kế toán lương. Bàn bài ghép và drawer lệnh dùng chung một
-        nguồn nên phải cùng bỏ, để một chỗ mà hai màn nói hai kiểu là chỗ sinh lệch.
-
-        `quy_cach` = quy cách TỜ GHÉP (`qc_bien`) vẫn truyền xuống: danh sách chọn được mang theo
-        VẬT TƯ đã tính số cho đúng tờ ghép này, và đó là lý do tham số còn ở đây.
-        """
-        svc = self._lsx_svc()
-        cd_obj = self.db.get(CongDoan, c.cong_doan_id) if c.cong_doan_id else None
-        kh = c.khoan_json or {}
-        return {
-            "khoan_rate_id": kh.get("rate_id"),
-            "khoan_ten": kh.get("ten"),
-            "khoan_chon_duoc": svc._dau_viec_option_dicts(
-                cd_obj, c.department_id, buoc=c, quy_cach=quy_cach,
-            ),
-        }
+    # ⚠️ `_ghim_khoan_chung()` + `_khoan_chung_dict()` GỠ 18/09/2026 (mg `0320`): lượt chạy
+    #    chung thôi ghim đầu việc khoán, y như bước lệnh. Việc khoán chọn LÚC GHI MẺ ở bàn tổ,
+    #    và mẻ neo vào BƯỚC LỆNH (`lsx_cong_doan`) chứ không vào bước chung của bài — bài ghép
+    #    chỉ xếp chỗ trên tờ giấy, không phải nơi thợ ghi sản lượng.
 
     def _thay_vat_tu_chung(self, chung: BaiGhepCongDoan, vat_tus: list[dict]) -> None:
         """Thay toàn bộ vật tư của bước chung. Snapshot mã/tên/đơn vị để đổi danh mục không làm
@@ -1106,6 +1078,7 @@ class BaiGhepService:
             return 0
         rows = {r["idx"]: r for r in self._lsx_svc().tinh_nguoc_routing(
             lsx, so_con=so_con, bo_hao_step_keys=set(bo_hao) if bo_hao else None,
+            bu_hao_rows=self._bu_hao_rows(),
         )}
         buoc = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
         # Bước đếm TỜ IN = bước có đơn vị đứng ở TRẠM `to`, không phải bước có mã bằng "to":
@@ -1174,7 +1147,8 @@ class BaiGhepService:
             if l is None or con <= 0 or not toa:
                 r["san_luong_du_kien"] = so_to_tot * con if con > 0 else 0
             else:
-                xuoi = svc.tinh_xuoi_tu_to(l, tu_step_key=toa, so_to=so_to_tot, so_con=con)
+                xuoi = svc.tinh_xuoi_tu_to(l, tu_step_key=toa, so_to=so_to_tot, so_con=con,
+                                           bu_hao_rows=self._bu_hao_rows())
                 r["san_luong_du_kien"] = int(xuoi[-1]["so_luong_ra"]) if xuoi else so_to_tot * con
             r["du"] = r["san_luong_du_kien"] - r["can"]
             # Dư TỜ ngay tại điểm toả — đại lượng có nghĩa ở nút thắt, khác hẳn dư con ở cuối chuỗi.
@@ -1325,10 +1299,12 @@ class BaiGhepService:
             xuoi = {
                 x["step_key"]: x for x in svc.tinh_xuoi_tu_to(
                     l, tu_step_key=toa, so_to=so_to["so_to_tot"], so_con=con or None,
+                    bu_hao_rows=self._bu_hao_rows(),
                 )
             } if toa else {}
             nguoc_rows = svc.tinh_nguoc_routing(
                 l, so_con=con or None, bo_hao_step_keys=bo_hao or None,
+                bu_hao_rows=self._bu_hao_rows(),
             )
             nguoc = {buoc[x["idx"]].step_key: x for x in nguoc_rows if x["idx"] < len(buoc)}
 
@@ -1526,25 +1502,10 @@ class BaiGhepService:
             c.he_so_quy_doi = h["he_so"]
             c.hao_hut = h["hao"]
             c.hao_hut_pct = pct
-        # Bước NGOÀI dòng giấy (ghi kẽm, phơi bản…): số RA từ `cong_thuc_san_luong` ở CẤP BÀI, chạy
-        # ĐÚNG `buoc_ngoai_dong` của lệnh (ghép bài bám theo lệnh). Phải GHI như lệnh vì `thoi_luong`,
-        # `_goi_y_luong_vat_tu`, khối lệnh của lsx_service đọc THẲNG `so_luong_vao` — không ghi thì cả
-        # ba đọc ra 0 (đúng triệu chứng "Ghi kẽm CTP" của bài ghép hiện 0/0). Bước chưa khai công
-        # thức → bỏ qua, KHÔNG đoán.
+        # Bước NGOÀI dòng giấy (ghi kẽm, phơi bản…) không có số ở cấp bài: `buoc_ngoai_dong` (tính
+        # từ `cong_thuc_san_luong` của công đoạn) GỠ 18/09/2026 (mg `0324`). Ở lệnh, số ấy do người
+        # lập lệnh tự khai; bài ghép không có ô khai nên bước đó đứng ở số đang có.
         qc_bien = self._qc_bien_bai(bg, lsx_map, so_to=so_to)
-        bu_hao_rows = self._bu_hao_rows()
-        svc = self._lsx_svc()
-        for c in chungs:
-            if hang.get(c.id) is not None:
-                continue
-            r = svc.buoc_ngoai_dong(c, qc_bien, bu_hao_rows=bu_hao_rows)
-            if r is None:
-                continue
-            c.so_luong_vao = r["so_luong_vao"]
-            c.so_luong_ra = r["so_luong_ra"]
-            c.he_so_quy_doi = r["he_so_quy_doi"]
-            c.hao_hut = r["hao_hut"]
-            c.hao_hut_pct = r["hao_hut_pct"]
         for c in chungs:
             self._ap_dinh_muc_vat_tu(c, qc_bien)
 
@@ -1582,7 +1543,6 @@ class BaiGhepService:
         # Quy cách tờ ghép dưới dạng BIẾN CÔNG THỨC — nguồn số cho thời lượng · vật tư · khoán · bước
         # ngoài dòng giấy. THAY cho `{}` cũ (mọi biến quy cách = 0 nên `so_kem`… tịt sạch).
         qc_bien = self._qc_bien_bai(bg, lsx_map, so_to=so_to)
-        bu_hao_rows = self._bu_hao_rows()
 
         from .lsx_service import thoi_luong_buoc
 
@@ -1594,21 +1554,10 @@ class BaiGhepService:
             may_obj = self.db.get(MayThietBi, c.may_id) if c.may_id else None
             cd_obj = self.db.get(CongDoan, c.cong_doan_id) if c.cong_doan_id else None
             # `tren_giay=False` = bước chế bản (ghi kẽm, phơi bản) đứng NGOÀI chuỗi giấy: không đếm
-            # tờ vào/ra trên dòng giấy. Nhưng nó VẪN có số ra riêng (số kẽm/bản) — tính từ
-            # `cong_thuc_san_luong` ở CẤP BÀI, đúng `buoc_ngoai_dong` của lệnh, thay vì 0/0 như cũ.
-            # Mồi thẳng vào object để thời lượng · vật tư · khoán đọc được `so_luong_vao`; đường ĐỌC
-            # không commit nên set lại vô hại (đường GHI đã persist ở `_ap_so_luong_chung`).
+            # tờ vào/ra trên dòng giấy, và cũng không còn số riêng từ công thức sản lượng ra của
+            # công đoạn (GỠ 18/09/2026, mg `0324`) ⇒ 0/0.
             tren_giay = hh is not None
-            ngoai = None if tren_giay else \
-                self._lsx_svc().buoc_ngoai_dong(c, qc_bien, bu_hao_rows=bu_hao_rows)
-            if ngoai is not None:
-                c.so_luong_vao = ngoai["so_luong_vao"]
-                c.so_luong_ra = ngoai["so_luong_ra"]
-                h = {"vao": ngoai["so_luong_vao"], "ra": ngoai["so_luong_ra"],
-                     "hao": ngoai["hao_hut"], "he_so": ngoai["he_so_quy_doi"],
-                     "ra_quy": None, "canh_bao": []}
-                pct = _f(ngoai.get("hao_hut_pct"))
-            elif tren_giay:
+            if tren_giay:
                 h = hh
                 _fixed, pct = self._hao_o_bac(c.cong_doan_id, h["ra"])
             else:
@@ -1629,14 +1578,6 @@ class BaiGhepService:
                 # Bước chế bản chạy chung = CHUNG BẢN (1 bộ kẽm), không đếm tờ trên dòng giấy.
                 "tren_giay": tren_giay,
                 "so_luong_vao": h["vao"], "so_luong_ra": h["ra"],
-                # Bước NGOÀI dòng giấy: câu "Số ra = <công thức chữ> = N <đvị>" (số kẽm/bản tính từ
-                # `cong_thuc_san_luong` cấp bài) + lỗi quy đổi nếu cầu đơn vị vào↔ra chưa khai —
-                # bám đúng drawer lệnh, để người xem thấy 5 kẽm chứ không phải "0 tờ".
-                "san_luong_dien_giai": (
-                    None if tren_giay
-                    else self._lsx_svc().san_luong_dien_giai(c, cd_obj, qc_bien)
-                ),
-                "loi_quy_doi": None if tren_giay else (ngoai or {}).get("loi_quy_doi"),
                 # Đơn vị lấy từ KHAI BÁO của công đoạn, không đóng đinh.
                 "don_vi_vao": c.don_vi_vao or dv_to_bai, "don_vi_ra": c.don_vi_ra or dv_to_bai,
                 # `ra` quy về đơn vị VÀO + hệ số đã dùng — cùng bộ số `bu_hao_chi_tiet` của tính
@@ -1655,16 +1596,16 @@ class BaiGhepService:
                 # nhóm máy cho phép để FE lọc dropdown ("Bế" chỉ hiện máy Bế).
                 "may_khong_hop": self._may_hop_cong_doan(may_obj, cd_obj, qc_bai),
                 "nhom_may_cho_phep": (cd_obj.nhom_may_cho_phep or []) if cd_obj is not None else [],
+                # Tổ PHỤ TRÁCH công đoạn (mg `0312`) — ô chọn tổ của form chỉ bày các tổ này.
+                "to_chon_duoc": list(cd_obj.department_ids) if cd_obj is not None else [],
                 "nha_cung_cap": c.nha_cung_cap,
                 "tong_phut": t["tong_phut"], "chiem_may_phut": t["chiem_may_phut"],
                 "chiem_may_phut_min": t["chiem_may_phut_min"],
                 "chiem_may_phut_max": t["chiem_may_phut_max"],
                 # Giá trị NGƯỜI đã khai — form phải mồi lại được, không thì mỗi lần mở drawer là
                 # ô trống và lưu đè mất số cũ.
-                # Kíp chuẩn — con số nhân lực DUY NHẤT của bước chung (ô "số người bố trí" gỡ ở
-                # mg `0281`): vừa chia thời lượng bước tổ, vừa là số bàn xếp lịch cân quân số tổ.
-                "so_nhan_cong_tieu_chuan": c.so_nhan_cong_tieu_chuan,
-                "nang_suat": _f(c.nang_suat) or None, "don_vi_nang_suat": c.don_vi_nang_suat,
+                # SỐ GIỜ KẾ HOẠCH — toàn bộ giờ chạy của lượt chung khi nó là bước TỔ (mg `0319`).
+                "so_gio_ke_hoach": _f(c.so_gio_ke_hoach),
                 # Chuẩn bị + chạy là SỐ DẪN XUẤT từ máy, không phải cột cũ (đã dormant).
                 "chay_phut": t["chay_phut"],
                 "setup_phut": t["dien_giai"]["setup_phut"],
@@ -1675,7 +1616,6 @@ class BaiGhepService:
                 "phat_sinh_phut": _f(c.phat_sinh_phut),
                 # Chờ kỹ thuật của lượt chung — trả từ CỘT (thứ người gõ đè được), không qua `t`.
                 "so_luot_chay": c.so_luot_chay,
-                **self._khoan_chung_dict(c, qc_bien),
                 "vat_tus": [
                     {"vat_tu_id": v.vat_tu_id, "ma": v.vat_tu_ma_snapshot,
                      "ten": v.vat_tu_ten_snapshot, "don_vi": v.don_vi_snapshot,
@@ -1704,8 +1644,8 @@ class BaiGhepService:
                 # tách không hỏi, và ai đã khai máy + năng suất nhưng chưa chọn tổ thì mất trắng.
                 "da_lap_ke_hoach": bool(
                     c.department_id or c.may_id or _f(c.phat_sinh_phut)
-                    or _f(c.nang_suat) or (c.ghi_chu or "").strip()
-                    or (c.nha_cung_cap or "").strip() or c.vat_tus or c.khoan_json
+                    or _f(c.so_gio_ke_hoach) or (c.ghi_chu or "").strip()
+                    or (c.nha_cung_cap or "").strip() or c.vat_tus
                 ),
             })
         return out
@@ -1772,8 +1712,15 @@ class BaiGhepService:
         bước chạy chung, mà quy cách của bài thì chỉ service này biết cách dựng (gộp `so_mau`/
         `so_kem` của mọi thành viên, ba số tờ ở cấp bài). Bày ra một hàm còn hơn để nơi khác chép
         lại cách dựng rồi lệch số khi luật gộp đổi.
+
+        Kèm HỢP tập mực từng mặt (`muc_a`/`muc_b`) cho thẻ quy cách ở bàn tổ — biến công thức chỉ
+        cần số đếm, nhưng thợ in cần biết mặt nào chạy mực nào.
         """
-        return self._qc_bien_bai(bg, self._lsx_map(bg))
+        lsx_map = self._lsx_map(bg)
+        qc = self._qc_bien_bai(bg, lsx_map)
+        tong = self._qc_bai(bg, lsx_map)
+        qc["muc_a"], qc["muc_b"] = tong["muc_a"], tong["muc_b"]
+        return qc
 
     def _qc_bien_bai(self, bg: BaiGhep, lsx_map: dict[int, Lsx],
                      so_to: dict | None = None) -> dict:
@@ -1841,9 +1788,9 @@ class BaiGhepService:
         # Thuê ngoài cũng phải chọn máy: nhà thầu khai như một máy trong danh mục.
         if c.loai_buoc in (LB_MAY, "thue_ngoai") and not c.may_id:
             thieu.append("Chưa chọn máy")
-        # Bước máy lấy tốc độ SỐNG từ máy đang gán; thiếu thì chip "Chưa chọn máy" ở trên đã nói.
-        if c.loai_buoc not in (LB_MAY, "thue_ngoai") and not _f(c.nang_suat):
-            thieu.append("Chưa có năng suất")
+        # ⚠️ Chip "Chưa có năng suất" GỠ 18/09/2026 (mg `0319`): bước TỔ thôi chia theo năng suất,
+        #    giờ của nó là SỐ GIỜ KẾ HOẠCH gõ tay và để 0 là HỢP LỆ — chủ xưởng 18/09/2026:
+        #    *"không cần cảnh báo, bản chất nó là số giờ kế hoạch, nếu thiếu thì cứ để 0"*.
         return thieu
 
     def _node(self, cd, dept_names: dict, may_names: dict, sl: dict | None = None,

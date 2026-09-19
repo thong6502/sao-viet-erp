@@ -904,6 +904,46 @@ class AttendanceService:
                     outs += 1
         return ins, outs
 
+    def _vao_dau_ngay(self, emp, shift, work_day: date) -> datetime | None:
+        """Lượt VÀO sớm nhất của NV trong NGÀY CÔNG `work_day` (giờ VN), hoặc None."""
+        vao = [_as_utc(lg.checked_at).astimezone(VN_TZ)
+               for lg in self.attendance.list_by_employee(emp.id, limit=30)
+               if lg.check_type == CHECK_IN
+               and work_day_of(_as_utc(lg.checked_at).astimezone(VN_TZ), shift) == work_day]
+        return min(vao) if vao else None
+
+    def _ly_do_chan_vao_tang_ca(self, emp, shift, work_day: date, now_local: datetime,
+                                ins_today: int) -> str | None:
+        """Lượt VÀO sau khi trong ngày đã có lượt RA = VÀO TĂNG CA. None = cho chấm.
+
+        Hai luật đã chốt, áp CẢ khi còn trong giờ ca chính:
+          1. MỘT NGÀY CÔNG TỐI ĐA 2 CẶP — ca chính + tăng ca (chủ chốt 09/09/2026). Xong cặp tăng ca là
+             hết; ngày chỉ-có-tăng-ca thì cặp đầu đã là tăng ca.
+          2. PHẢI CÓ PHIẾU TĂNG CA ĐÃ DUYỆT phủ giờ này (chủ chốt 25/07/2026).
+        Bản trước chỉ đòi phiếu SAU giờ tan ca: ra ca chính lúc 15h rồi bấm vào lại vẫn lọt, gắn nhãn
+        "VÀO TĂNG CA" dù không phiếu, và vào/ra lặp mãi được (bấm thử 18/09/2026: 6 cặp trong 2 phút).
+        """
+        midnight = datetime(work_day.year, work_day.month, work_day.day, tzinfo=VN_TZ)
+        now_min = round((now_local - midnight).total_seconds() / 60)
+        end_ref = int(shift.end_minute) + (1440 if shift.is_overnight else 0)
+        vao_dau = self._vao_dau_ngay(emp, shift, work_day)
+        chi_tang_ca = (vao_dau is not None
+                       and (vao_dau - midnight).total_seconds() / 60 >= end_ref)
+        if ins_today >= 2 or (ins_today >= 1 and chi_tang_ca):
+            return ("Hôm nay bạn đã chấm đủ ca chính và tăng ca — một ngày chỉ có 2 cặp vào/ra. "
+                    "Bấm nhầm thì gửi yêu cầu chỉnh công.")
+        ot_win = self._ot_window_on(emp, work_day)
+        if ot_win is None:
+            return ("Bạn đã chấm ra ca chính. Chưa có phiếu tăng ca được duyệt cho hôm nay nên không "
+                    "thể chấm vào tăng ca. Bấm nhầm RA thì gửi yêu cầu chỉnh công.")
+        if now_min < ot_win[0] - CHECK_IN_EARLY_MINUTES:
+            return (f"Phiếu tăng ca hôm nay bắt đầu lúc {min_to_hhmm(ot_win[0] % 1440)}. Bạn chỉ "
+                    f"được chấm vào tăng ca từ {min_to_hhmm((ot_win[0] - CHECK_IN_EARLY_MINUTES) % 1440)}.")
+        if now_min > ot_win[1] + CHECK_OUT_GRACE_HOURS * 60:
+            return (f"Phiếu tăng ca hôm nay kết thúc lúc {min_to_hhmm(ot_win[1] % 1440)}. "
+                    "Đã quá giờ nên không chấm vào tăng ca được.")
+        return None
+
     def _check_timing(self, employee_id: int, shift, work_day: date,
                       now_local: datetime) -> tuple[str, str | None, bool]:
         """Trả (action, reason, ot_mode). `ot_mode` = lượt bấm kế tiếp thuộc phiên TĂNG CA (vào/ra
@@ -930,18 +970,7 @@ class AttendanceService:
                     ot_mode = True
             if outs_today >= 1:      # đã ra ca chính → lượt VÀO này là VÀO TĂNG CA
                 ot_mode = True
-                if reason is not None:   # sau tan ca: chỉ mở nếu có phiếu duyệt phủ giờ này
-                    ot_win = self._ot_window_on(emp, work_day)
-                    midnight = datetime(work_day.year, work_day.month, work_day.day, tzinfo=VN_TZ)
-                    now_min = round((now_local - midnight).total_seconds() / 60)
-                    if ot_win is None:
-                        reason = ("Bạn đã chấm ra ca chính. Chưa có phiếu tăng ca được duyệt cho hôm "
-                                  "nay nên không thể chấm vào tăng ca.")
-                    elif now_min <= ot_win[1] + CHECK_OUT_GRACE_HOURS * 60:
-                        reason = None    # trong khung phiếu (nới hậu kỳ) → cho chấm vào tăng ca
-                    else:
-                        reason = (f"Phiếu tăng ca hôm nay kết thúc lúc {min_to_hhmm(ot_win[1] % 1440)}. "
-                                  "Đã quá giờ nên không chấm vào tăng ca được.")
+                reason = self._ly_do_chan_vao_tang_ca(emp, shift, work_day, now_local, ins_today)
         else:  # CHECK_OUT
             ot_mode = ins_today >= 2   # đang đóng phiên thứ 2+ = RA tăng ca
         return action, reason, ot_mode

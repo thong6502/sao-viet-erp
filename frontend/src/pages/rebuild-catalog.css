@@ -116,6 +116,128 @@
   color: var(--steel);
 }
 
+/* --- Lọc nâng cao (`config.locNangCao`) -----------------------------------------------------
+   Nút đứng NGAY SAU ô tìm, cùng cao với ô tìm (viền mảnh, bo 6px) — nó là một phần của cụm "tìm",
+   không phải một chip lọc. Đang áp bộ lọc thì chữ + viền charcoal và có số tiêu chí: gập bảng lại
+   vẫn phải nhìn ra bảng đang bị cắt. Charcoal chứ không rust: rust là màu của HÀNH ĐỘNG. */
+.rc__locnc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  background: var(--canvas, #fbfaf6);
+  border: 1px solid var(--rule, #e7e3d8);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard);
+}
+.rc__locnc-btn:hover,
+.rc__locnc-btn.is-open {
+  color: var(--ink);
+  border-color: var(--ash);
+}
+.rc__locnc-btn.is-active {
+  color: var(--ink);
+  border-color: var(--charcoal);
+  font-weight: var(--fw-bold);
+}
+.rc__locnc-btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.rc__locnc-btn.is-active > .chip-count {
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+}
+/* Bảng mở: một hàng ô, mỗi tiêu chí rộng cố định để nhãn + ô không nhảy khi chọn/bỏ. Canh ĐỈNH:
+   tên dài còn gập dòng thì ô đó cao hơn, canh đáy là nhãn các ô so le nhau. */
+.rc__locnc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--rule-hair, #f4f1e8);
+  border-radius: 8px;
+}
+.rc__locnc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 260px;
+  max-width: 100%;
+}
+/* Ô tìm-chọn danh mục (Khách hàng): tên công ty đầy đủ "Công ty TNHH Thực phẩm Minh Long" không
+   lọt 260px, chọn xong là gập hai dòng. */
+.rc__locnc-field--rong { width: 360px; }
+/* Nút ✕ của ô đã chọn cao 25px, hơn dòng chữ 20px, đẩy ô lên 43px, lệch ô chọn 38px bên cạnh. Lề
+   âm giữ nguyên vùng bấm mà không đội ô lên. */
+.rc__locnc-field .rc-input > .rc-timeline__btn { margin-block: -3px; }
+.rc__locnc-label {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.rc__locnc-clear {
+  padding: 8px 4px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--rust);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.rc__locnc > .rc__locnc-clear { align-self: flex-end; }
+.rc__locnc-clear:hover { text-decoration: underline; }
+/* Bảng gập mà vẫn lọc: hàng nhãn "Khách hàng: Minh Long ✕". */
+.rc__locnc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.rc__locnc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--rule-hair, #f4f1e8);
+  border: 1px solid var(--rule, #e7e3d8);
+  border-radius: var(--r-pill);
+}
+.rc__locnc-tag-k { color: var(--ash); }
+.rc__locnc-tag-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--ash);
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.rc__locnc-tag-x:hover { color: var(--ink); background: var(--rule); }
+@media (max-width: 640px) {
+  .rc__locnc-field,
+  .rc__locnc-field--rong { width: 100%; }
+}
+
 /* --- Toolbar & Unified Top Bar ------------------------------------------------------
    ⚠️ `.rc__unified-bar` / `.rc__unified-right` KHÔNG còn dùng ở màn danh mục (header đã gom về
    một dạng 15/08/2026) nhưng PHẢI GIỮ: `PhieuBaoTriPage.tsx` và `SuaChuaMayPage.tsx` (module Kỹ
@@ -308,6 +430,11 @@
   flex-basis: 100%;
   margin: 0;
 }
+/* Chữ "· mặc định" sau chip tổ chọn ĐẦU của ô tổ phụ trách công đoạn (`ToMultiField` `nhanDau`). */
+.rc-to-multi__dau {
+  font-weight: 600;
+  opacity: 0.85;
+}
 
 /* Formula Chips & Badges trong Bảng Danh Mục */
 .rc__formula-chips {
@@ -358,23 +485,6 @@
   vertical-align: top;
 }
 
-/* Cảnh báo MỀM (không chặn lưu) — vd cặp số cố định đè lên đường công thức. MÀU lấy ở
-   `.badge-sem--amber` (hổ phách chứ không đỏ: đỏ dành cho lỗi chặn, dùng đỏ cho thứ vẫn lưu được
-   thì người ta quen mắt rồi bỏ qua cả hai). Ở đây CHỈ còn phần HÌNH HỌC mà primitive không lo:
-   cột "Lưu ý" hẹp 12% nên câu dài phải cắt bằng ba chấm, và `title` mới là chỗ đọc nguyên câu.
-   Scope `.rc--dm` (0-2-0) để chắc chắn thắng `display: inline-flex` của `.badge-sem` bất kể thứ
-   tự bundle — `text-overflow` không cắt được chữ nằm trong hộp flex. */
-.rc--dm .rc__warn-pill {
-  display: inline-block;
-  max-width: 100%;
-  box-sizing: border-box;
-  overflow: hidden;
-  /* Giành lại `nowrap` từ luật `.rc__formula-chips .badge-sem` ở trên (cùng 0-2-0, luật này nằm
-     sau nên thắng): ba chấm chỉ hiện được khi chữ KHÔNG xuống dòng. */
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  cursor: help;
-}
 /* --- Khối QUY ĐỔI trong drawer Đơn vị (.dvqd) — Modern Enterprise Layout ------------- */
 .dvqd {
   margin-top: 0;
@@ -1123,6 +1233,33 @@
   padding-right: 12px !important;
 }
 
+/* Cột Hành động của MÀN DANH MỤC — bề rộng tính bằng px ở `CatalogListPage` (NUT_RONG), khớp đúng
+   đệm trái 8px ở đây. Nút xếp trong một hàng flex dồn phải, khe 4px, không dùng `margin-left` của
+   `.rc__link-btn` (luật chung đó còn phục vụ Kho / Kỹ thuật máy nên để nguyên). */
+.rc--dm .rc__table :is(th, td).rc__actcol {
+  padding-left: 8px;
+  /* Tiêu đề phải dồn phải theo cụm nút: `.rc__table thead th` (0-1-2) đặt `left` đè mất
+     `.rc__actcol` (0-1-0). */
+  text-align: right;
+}
+.rc__acts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.rc__acts .rc__link-btn {
+  margin-left: 0;
+  flex: none;
+}
+.rc__acts .rc__link-btn svg {
+  flex: none;
+}
+.rc__acts .rc__link-btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
 /* `.rc__tram-badge` XOÁ 15/08/2026 → `.badge-sem--steel`. Nó là một badge trạng thái như mọi badge
    khác, không có lý do gì để có bảng màu riêng (#7c2d12 trên #ffedd5 lại còn sát tông rust của
    NÚT BẤM, nhìn thoáng qua tưởng bấm được). */
@@ -1214,36 +1351,360 @@
 
 .rc-drawer__tabs {
   display: flex;
-  gap: 2px;
-  background: rgba(138, 134, 118, 0.08);
-  padding: 3px;
-  border-radius: 8px;
-  margin-bottom: var(--sp-3);
+  gap: 4px;
+  background: var(--surface-neutral, #f4f3ef);
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--rule-soft, #e6e4dc);
+  margin-bottom: var(--sp-4, 16px);
 }
 
 .rc-drawer__tab {
   flex: 1;
-  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
   border: none;
   background: transparent;
-  color: var(--ash, #8a8676);
+  color: var(--ash, #6e6a5e);
   font-weight: 600;
-  font-size: 12px;
-  border-radius: 6px;
+  font-size: 13px;
+  border-radius: 7px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   text-align: center;
 }
 
 .rc-drawer__tab:hover {
   color: var(--ink, #14130f);
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .rc-drawer__tab.is-active {
-  background: #fff;
-  color: var(--ink, #14130f);
-  box-shadow: 0 2px 6px rgba(20, 19, 15, 0.06);
+  background: #ffffff;
+  color: var(--primary, #c5400a);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
+
+.rc-drawer__tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.75;
+}
+
+.rc-drawer__tab.is-active .rc-drawer__tab-icon {
+  opacity: 1;
+  color: var(--primary, #c5400a);
+}
+
+.rc-drawer__tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 10px;
+  background: rgba(138, 134, 118, 0.15);
+  color: var(--ash, #6e6a5e);
+  min-width: 18px;
+  height: 18px;
+  transition: all 0.2s ease;
+}
+
+.rc-drawer__tab.is-active .rc-drawer__tab-badge {
+  background: rgba(197, 64, 10, 0.12);
+  color: var(--primary, #c5400a);
+}
+
+/* ── KhoViTriPanel - Modern Sleek Warehouse Location Management ───── */
+.kvt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.kvt-card {
+  background: var(--paper, #ffffff);
+  border: 1px solid var(--rule-soft, #e6e4dc);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.kvt-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.kvt-header__title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kvt-header__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink, #14130f);
+}
+
+.kvt-header__subtitle {
+  font-size: 12px;
+  color: var(--ash, #8a8577);
+  font-weight: 400;
+  margin-left: 32px;
+}
+
+.kvt-header__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(197, 64, 10, 0.08);
+  color: var(--primary, #c5400a);
+}
+
+.kvt-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(197, 64, 10, 0.06);
+  border: 1px solid rgba(197, 64, 10, 0.15);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary, #c5400a);
+  white-space: nowrap;
+}
+
+.kvt-count-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary, #c5400a);
+}
+
+.kvt-chips-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kvt-chips-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.kvt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(197, 64, 10, 0.15);
+  background: rgba(197, 64, 10, 0.03);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-mono, monospace, sans-serif);
+  color: var(--ink, #14130f);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: all 0.2s ease;
+}
+
+.kvt-chip:hover {
+  border-color: var(--primary, #c5400a);
+  background: rgba(197, 64, 10, 0.06);
+  transform: translateY(-1px);
+}
+
+.kvt-chip__pin {
+  color: var(--primary, #c5400a);
+  opacity: 0.9;
+  display: inline-flex;
+}
+
+.kvt-chip__del-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ash, #8a8577);
+  line-height: 0;
+  padding: 3px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.kvt-chip__del-btn:hover {
+  background: rgba(197, 31, 31, 0.12);
+  color: #c51f1f;
+}
+
+.kvt-empty-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed var(--rule-soft, #e2e0d7);
+  border-radius: 10px;
+  background: var(--surface-neutral, #faf9f6);
+}
+
+.kvt-empty-state__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft, #e6e4dc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ash, #8a8577);
+  flex-shrink: 0;
+}
+
+.kvt-empty-state__text {
+  font-size: 13px;
+  color: var(--ash, #6e6a5e);
+  margin: 0;
+  font-weight: 500;
+}
+
+.kvt-divider {
+  height: 1px;
+  background: var(--rule-soft, #eceae3);
+  margin: 2px 0;
+}
+
+.kvt-add-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kvt-add-section__header {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ash, #6e6a5e);
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kvt-input-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.kvt-input-bar__prefix {
+  position: absolute;
+  left: 12px;
+  color: var(--ash, #8a8577);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.kvt-input-bar__field {
+  width: 100%;
+  height: 42px;
+  padding: 8px 115px 8px 36px !important;
+  border-radius: 9px !important;
+  border: 1px solid var(--rule-soft, #d8d6cb) !important;
+  background: #ffffff !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+}
+
+.kvt-input-bar__field:focus {
+  border-color: var(--primary, #c5400a) !important;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.12) !important;
+  outline: none !important;
+}
+
+.kvt-input-bar__btn {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary, #c5400a);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(197, 64, 10, 0.2);
+}
+
+.kvt-input-bar__btn:hover:not(:disabled) {
+  background: #ad3607;
+}
+
+.kvt-input-bar__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.kvt-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ash, #8a8577);
+}
+
+.kvt-preset-btn {
+  border: 1px solid var(--rule-soft, #e2e0d7);
+  background: var(--surface-neutral, #f7f6f2);
+  color: var(--ink, #222);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.kvt-preset-btn:hover {
+  border-color: var(--primary, #c5400a);
+  color: var(--primary, #c5400a);
+  background: rgba(197, 64, 10, 0.05);
+}
+
 
 .rc-drawer__fields-container {
   display: flex;
@@ -1912,7 +2373,8 @@ select.rc-input:focus {
 .rc-bands--vps .rc-bands__table th:nth-child(3) { width: 34%; }
 .rc-bands--vps .rc-bands__table th:nth-child(4) { width: 44px; }
 
-/* ── Bảng Định mức đầu việc của Tổ (DinhMucDauViecField) ── */
+/* ── Bảng định mức dạng lưới (sinh ra cho bảng đầu việc của tổ — gỡ 18/09/2026; nay dùng ở
+   `MayCuaCongDoan`, `VatTuCongDoan`, `SelfRefMulti`) ── */
 .rc-bands--dinh-muc {
   gap: 10px;
 }

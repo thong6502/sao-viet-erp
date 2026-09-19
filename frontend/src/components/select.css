@@ -186,6 +186,9 @@
 .sel__opt.is-active {
   background: #f1f5f9;
 }
+/* Lựa chọn tắt (`disabled`): vẫn thấy để biết vì sao không chọn được, nhưng không bấm được. */
+.sel__opt.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.sel__opt.is-disabled.is-active { background: transparent; }
 .sel__opt.is-selected {
   background: rgba(99, 102, 241, 0.08);
   color: #4338ca;

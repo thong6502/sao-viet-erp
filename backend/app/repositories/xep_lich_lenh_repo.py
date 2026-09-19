@@ -1,4 +1,4 @@
-"""Truy vấn bảng `xep_lich_lenh` + nạp routing THEO LÔ cho Xếp lịch 3.
+"""Truy vấn bảng `xep_lich_lenh` + nạp routing THEO LÔ cho bàn Xếp lịch.
 
 Mọi đường đọc CẮT theo cửa sổ thời gian hoặc theo tập `lsx_id` — không có đường nào trải toàn bộ
 lịch sử. Routing của cả lô nạp bằng MỘT truy vấn `IN (...)`, không N+1: một lần vẽ bảng có thể
@@ -243,7 +243,7 @@ class XepLichLenhRepository:
 
         Dòng sống mang trạng thái của MỌI phiên bản kể từ `cv.phien_ban_so` trở đi; dòng lịch sử
         mang trạng thái đã bị đè, khoá bằng số phiên bản CŨ. Hai tập này ghép lại mới đủ để dựng
-        "bước X ở phiên bản N trông thế nào" — xem `XepLich3Service.so_sanh_phien_ban`.
+        "bước X ở phiên bản N trông thế nào" — xem `XepLichLenhService.so_sanh_phien_ban`.
 
         Bước bị BÀI GHÉP phủ (`lsx_id IS NULL`) không lọt vào đây, cùng giới hạn `may_dang_chay`.
         """

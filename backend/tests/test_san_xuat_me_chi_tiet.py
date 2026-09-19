@@ -4,7 +4,7 @@ Chủ xưởng: *"tổ trưởng phải thấy được thông tin của từng 
 và chi tiết để sau này hỗ trợ kế toán lương"*.
 
 Bài viết ở tầng SERVICE (`board.chi_tiet_cong_viec`) chứ không qua HTTP: dàn cảnh "việc đang chạy
-+ phiên đổi máy + mẻ + chấm công" chỉ dựng được bằng các helper của `test_san_xuat_phan_bo` /
++ phiên đổi máy + mẻ + chấm công" chỉ dựng được bằng các helper của `san_xuat_me_fixtures` /
 `test_san_xuat_thuc_thi`, và đường HTTP của drawer đã có bài riêng ở `test_san_xuat_board_api.py`.
 """
 from __future__ import annotations
@@ -20,18 +20,16 @@ from app.services.san_xuat import board
 from app.services.san_xuat.thuc_thi import _aware
 
 # Fixtures + helper luồng thật.
-from tests.test_san_xuat_phan_bo import (  # noqa: F401
-    _T0,
-    _canh_phan_bo,
-    _cham_cong,
-    _khoang,
+from tests.san_xuat_me_fixtures import T0 as _T0
+from tests.san_xuat_me_fixtures import canh_me, khoang, tao_me, viec_khoan_cua_to, viec_phat_sinh
+from tests.test_san_xuat_thuc_thi import (  # noqa: F401
+    _emp,
     admin,
     customer,
     db,
     lsx_svc,
     orders,
 )
-from tests.test_san_xuat_thuc_thi import _emp
 
 
 def _authz(db):
@@ -59,10 +57,8 @@ def _phien(db, cv, *, bat_dau, ket_thuc, may_id=None, loai_dong="ket_thuc", ly_d
 
 
 def _me(db, cv, *, bat_dau, ket_thuc, tot=50.0, admin=None):
-    from app.services.san_xuat import san_luong
-
-    r = san_luong.tao_batch(db, user=admin, cong_viec_id=cv.id,
-                            bat_dau=bat_dau, ket_thuc=ket_thuc, tong=tot, tot=tot)
+    r = tao_me(db, user=admin, cong_viec_id=cv.id,
+               bat_dau=bat_dau, ket_thuc=ket_thuc, tong=tot, tot=tot)
     return r["batch_id"]
 
 
@@ -74,7 +70,7 @@ def _mes(db, admin, cv):
 def test_me_mang_theo_may_da_chay_no(db, orders, lsx_svc, admin, customer):
     """Máy đứng trên PHIÊN, không trên công việc: đổi máy giữa chừng thì mỗi mẻ một máy khác nhau.
     Đọc `cv.may_id` là luôn ra máy HIỆN TẠI — sai cho mẻ chạy trước lúc đổi."""
-    _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-MAY")
+    _to, cv, batch = canh_me(db, orders, lsx_svc, admin, customer, ma="TO-ME-MAY")
     m1, m2 = _may(db, "MAY-ME-1"), _may(db, "MAY-ME-2")
     db.commit()
     # Mẻ 1 = chính `batch` của dàn cảnh (T0 → T0+1h); mẻ 2 chạy sau, trên máy khác.
@@ -89,7 +85,7 @@ def test_me_mang_theo_may_da_chay_no(db, orders, lsx_svc, admin, customer):
 
 
 def test_me_mang_theo_ca_va_su_co_dung_may(db, orders, lsx_svc, admin, customer):
-    _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-CA")
+    _to, cv, batch = canh_me(db, orders, lsx_svc, admin, customer, ma="TO-ME-CA")
     # `start_minute` là phút-trong-ngày theo GIỜ TƯỜNG xưởng, còn cửa sổ mẻ là UTC THẬT (mg 0298),
     # nên ca phải neo vào giờ tường CỦA CHÍNH mốc mẻ — ghim cứng 06:00–14:00 là bài chỉ xanh trên
     # máy đặt múi UTC. Kẹp hai đầu để ca 8 tiếng luôn ôm trọn mốc ở mọi múi giờ máy chủ.
@@ -110,7 +106,7 @@ def test_dung_may_tinh_tu_luc_tam_dung_toi_luc_chay_lai(db, orders, lsx_svc, adm
     """Khoảng [bat_dau, ket_thuc] của phiên đóng bằng Tạm dừng là lúc máy CHẠY. Máy DỪNG từ
     `ket_thuc` của phiên đó tới lúc phiên kế mở. Lấy nhầm khoảng chạy thì mẻ 09:09–09:11 hiện
     "Dừng máy 09:09–00:21" cho lần hết giấy lúc nửa đêm (DB dev 17/09/2026)."""
-    _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-DUNG")
+    _to, cv, batch = canh_me(db, orders, lsx_svc, admin, customer, ma="TO-ME-DUNG")
     bd = _aware(batch.bat_dau)
     dung_tu, chay_lai = bd + timedelta(minutes=20), bd + timedelta(minutes=35)
     _phien(db, cv, bat_dau=bd, ket_thuc=dung_tu, loai_dong="tam_dung", ly_do="kẹt giấy", stt=1)
@@ -124,7 +120,7 @@ def test_dung_may_tinh_tu_luc_tam_dung_toi_luc_chay_lai(db, orders, lsx_svc, adm
 
 def test_dung_may_ngoai_cua_so_me_khong_gan_vao_me(db, orders, lsx_svc, admin, customer):
     """Phiên chạy phủ qua mẻ nhưng lúc DỪNG rơi sau mẻ ⇒ mẻ không có lần dừng nào."""
-    _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-DUNG-SAU")
+    _to, cv, batch = canh_me(db, orders, lsx_svc, admin, customer, ma="TO-ME-DUNG-SAU")
     bd = _aware(batch.bat_dau)
     dung_tu = _aware(batch.ket_thuc) + timedelta(hours=10)
     _phien(db, cv, bat_dau=bd, ket_thuc=dung_tu, loai_dong="tam_dung", ly_do="hết giấy", stt=1)
@@ -137,7 +133,7 @@ def test_dung_may_ngoai_cua_so_me_khong_gan_vao_me(db, orders, lsx_svc, admin, c
 
 def test_dung_may_chua_chay_lai_de_trong_gio_het(db, orders, lsx_svc, admin, customer):
     """Việc còn đang tạm dừng, chưa có phiên kế ⇒ lần dừng chưa hết: `ket_thuc` trống."""
-    _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-DUNG-MO")
+    _to, cv, batch = canh_me(db, orders, lsx_svc, admin, customer, ma="TO-ME-DUNG-MO")
     bd = _aware(batch.bat_dau)
     _phien(db, cv, bat_dau=bd, ket_thuc=bd + timedelta(minutes=20), loai_dong="tam_dung",
            ly_do="mất điện", stt=1)
@@ -148,20 +144,36 @@ def test_dung_may_chua_chay_lai_de_trong_gio_het(db, orders, lsx_svc, admin, cus
     assert [(s["ly_do"], s["ket_thuc"]) for s in su_co] == [("mất điện", None)]
 
 
-def test_me_mang_ten_dau_viec_ke_hoach_da_chon_nhung_khong_mang_gia(
+def test_me_mang_viec_khoan_va_phat_sinh_da_chup_khong_co_thanh_tien(
     db, orders, lsx_svc, admin, customer,
 ):
-    _to, cv, batch = _canh_phan_bo(db, orders, lsx_svc, admin, customer, ma="TO-ME-DV")
-    cv.khoan_json = {"ten": "Bế hộp bánh · 1050"}
+    """Mẻ ghi theo CÔNG VIỆC KHOÁN (§7.1): drawer đọc ẢNH CHỤP tên · ĐVT · đơn giá lúc ghi, kèm
+    việc phát sinh đã tích. Không có ô THÀNH TIỀN nào — sản xuất chỉ ghi nhận số lượng (chốt ý 4)."""
+    _to, cv, batch = canh_me(db, orders, lsx_svc, admin, customer, ma="TO-ME-DV")
+    vk = viec_khoan_cua_to(db, cv.department_id)
+    ps = viec_phat_sinh(db, vk, ten="Thay bản kẽm", don_gia=15000, don_vi="ban")
     e = _emp(db, cv_to(db, cv), "NV-ME-1", ten="Thợ Mẻ")
     db.commit()
-    _khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
+    b2 = tao_me(
+        db, user=admin, cong_viec_id=cv.id, piece_rate_id=vk.id,
+        bat_dau=_T0 + timedelta(hours=2), ket_thuc=_T0 + timedelta(hours=3), tong=30, tot=30,
+        phat_sinh=[{"phat_sinh_id": ps.id, "so_luong": 2}],
+    )["batch_id"]
+    khoang(db, cv, e, batch.bat_dau, batch.ket_thuc)
     db.commit()
 
-    me = _mes(db, admin, cv)[0]
-    assert me["dau_viec_ten"] == "Bế hộp bánh · 1050"
-    assert me["so_nguoi"] >= 1
-    assert "don_gia" not in me and "tien" not in me
+    mes = {m["id"]: m for m in _mes(db, admin, cv)}
+    m1, m2 = mes[batch.id], mes[b2]
+    assert (m1["viec_khoan_id"], m1["viec_khoan_ten"], m1["viec_khoan_don_gia"]) == (
+        vk.id, "Việc khoán test", 100.0)
+    assert m1["phat_sinh"] == [] and m1["so_nguoi"] == 1
+    assert [(p["ten"], p["so_luong"], p["don_gia"]) for p in m2["phat_sinh"]] == [
+        ("Thay bản kẽm", 2.0, 15000.0)]
+    # Việc phát sinh KHÔNG cộng vào sản lượng: mẻ 2 vẫn đúng 30 tốt.
+    assert m2["tot"] == 30.0
+    for m in (m1, m2):
+        assert "tien" not in m and "thanh_tien" not in m
+        assert all("thanh_tien" not in p for p in m["phat_sinh"])
 
 
 def cv_to(db, cv):

@@ -79,7 +79,7 @@ from . import boi_canh, danh_sach, pham_vi, tien_do, trang_thai
 from .boi_canh import BoiCanh
 
 # Màu của bảng cân đối coi là "không phải việc phải lo": `xanh` = đủ bằng tồn đang có, `xam` = đã
-# cấp đủ. Ba màu còn lại (`vang` chỉ đủ nhờ hàng đang về, `do`, `ve_muon`, `khong_ro`) đều là thứ
+# cấp đủ. Các màu còn lại (`vang` chỉ đủ nhờ hàng đang về, `do`, `khong_ro`) đều là thứ
 # người điều độ phải nhìn thấy. Khai ở đây thay vì import hằng của `ke_hoach_vat_tu_service`: chỗ
 # đó là module nặng (kéo cả chuỗi kho/mua), và đây chỉ là hai chuỗi.
 _VT_YEN_TAM = ("xanh", "xam")
@@ -269,20 +269,25 @@ def _khuon_buoc(db: Session, buocs: list[LsxCongDoan]) -> dict[int, dict]:
 
 
 def _buoc_can_khuon(db: Session, buocs: list[LsxCongDoan]) -> set[int]:
-    """Id các BƯỚC mà công đoạn nguồn bật `requires_tooling` — nạp MỘT lô cho cả routing.
+    """Id các BƯỚC phải chốt khuôn ở lệnh (`can_chot_khuon`: bật `requires_tooling`, trừ khung
+    lụa) — nạp MỘT lô cho cả routing.
 
     Tách khỏi `_khuon_buoc` vì hai câu hỏi khác nhau: "bước này trỏ dao nào" (có thể rỗng) và
     "bước này CÓ CẦN dao không". Thiếu vế thứ hai thì bước cần dao mà chưa chốt lại hiện y hệt bước
     không cần — đúng chỗ đang chặn ở cửa "Sẵn sàng lập kế hoạch" mà hồ sơ lại im lặng.
     """
+    from ..lsx_service import can_chot_khuon   # cùng luật với cửa "Sẵn sàng" (khung lụa miễn)
+
     ids = {b.cong_doan_id for b in buocs if b.cong_doan_id}
     if not ids:
         return set()
     can = {
         cd_id
-        for (cd_id,) in db.execute(
-            select(CongDoan.id).where(CongDoan.id.in_(ids), CongDoan.requires_tooling.is_(True))
+        for cd_id, co, loai in db.execute(
+            select(CongDoan.id, CongDoan.requires_tooling, CongDoan.tooling_type)
+            .where(CongDoan.id.in_(ids))
         )
+        if can_chot_khuon(co, loai)
     }
     return {b.id for b in buocs if b.cong_doan_id in can}
 
@@ -388,7 +393,6 @@ def _dong_vat_tu(nhom: dict, row: dict, pham_vi_dong: str) -> dict:
         "thieu": row.get("thieu"),
         "trang_thai": row.get("trang_thai"),
         "ngay_can": row.get("ngay_can"),
-        "ngay_du_hang": row.get("ngay_du_hang"),
     }
 
 
@@ -576,14 +580,16 @@ def _san_luong(bc: BoiCanh, lsx_id: int) -> dict:
 def _kcs(bc: BoiCanh, lsx_id: int) -> dict:
     """Tổng nhận/đạt/không đạt + từng batch. Tỉ lệ tính THEO SỐ (Σđạt/Σnhận), không phải trung bình
     cộng các batch — batch 10 cái và batch 10.000 cái không cân nhau. Chưa kiểm cái nào ⇒ `None`,
-    KHÔNG phải 0.0: "0% đạt" là một lời báo động sai."""
+    KHÔNG phải 0.0: "0% đạt" là một lời báo động sai.
+    Nhận/đạt chỉ cộng công đoạn CUỐI — công đoạn giữa KCS chỉ ghi lỗi (19/09/2026); lỗi cộng hết."""
     ghep = {cv.id for cv in bc.cong_viec_ghep[lsx_id]}
     dong = []
     nhan = dat = khong_dat = 0.0
     for cv in bc.cong_viec_du(lsx_id):
         for k in sorted(bc.kcs[cv.id], key=lambda x: _aware(x.ket_thuc)):
-            nhan += _f(k.so_luong_nhan)
-            dat += _f(k.so_luong_dat)
+            if cv.la_kcs_cuoi:
+                nhan += _f(k.so_luong_nhan)
+                dat += _f(k.so_luong_dat)
             khong_dat += _f(k.so_luong_khong_dat)
             dong.append({
                 "id": k.id,

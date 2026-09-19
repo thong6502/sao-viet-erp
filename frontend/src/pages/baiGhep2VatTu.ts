@@ -69,7 +69,6 @@ export function keVatTuBaiGhep(sd: BaiGhepSoDo, materials: BaiGhep2VatTuHieuLuc)
       ten: g.ten,
       to: g.to_ten,
       may: g.may_ten,
-      dau_viec: g.khoan_ten,
       tren_dong_giay: g.tren_giay,
       sl_vao: soHoac0(g.so_luong_vao),
       dv_vao: nhanChang(g.don_vi_vao),
@@ -100,7 +99,6 @@ export function keVatTuBaiGhep(sd: BaiGhepSoDo, materials: BaiGhep2VatTuHieuLuc)
     buocs,
     tong,
     so_buoc_trong: buocs.filter((b) => b.dong.length === 0).length,
-    so_buoc_chua_dau_viec: buocs.filter((b) => !b.dau_viec).length,
     so_mon: tong.length,
   };
 }

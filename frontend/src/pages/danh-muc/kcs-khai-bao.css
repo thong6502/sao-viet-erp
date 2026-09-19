@@ -1,238 +1,649 @@
-/* Màn khai báo hạng mục kiểm KCS — cây Giai đoạn → Công đoạn → hạng mục.
-   Nền là khung `.rc` + class công cụ `.rc__*` (rebuild-catalog.css), file này chỉ chứa phần
-   không có tiền lệ: khối "thêm công đoạn", thẻ công đoạn, form hạng mục nội tuyến.
+/* Màn khai báo hạng mục kiểm KCS — Matched 100% with Mockup Image 2
+   Glassmorphism Topbar, Hanging Bookmark Flags, Stage Top Gradient Borders, Vibrant Glow Tabs, ISO Callout Boxes.
+*/
 
-   ⚠️ HAI CÁI BẪY ĐÃ SẬP Ở FILE NÀY, đừng sập lại:
-   1. Token KHÔNG CÓ THẬT (`--r-md`, `--r-sm`, `--ink-soft`, `--surface`, `--surface-soft`). CSS
-      không báo lỗi biến sai — nó bỏ nguyên khai báo. Thẻ mất bo góc, mất nền, chữ phụ ăn màu
-      thừa kế, nhìn y như trang chưa gắn CSS. Token đúng ở `styles/tokens.css`: bo góc --r-2/3/5/6,
-      nền --canvas/--paper, chữ mờ --ash/--ash-2.
-   2. `<select>`/`<input>` TRẦN. `styles/global.css` KHÔNG có rule `select {}` nền, nên select
-      không class rơi về widget gốc của Windows — xám, vuông góc, mũi tên hệ điều hành, cao lệch
-      hẳn so với nút bên cạnh. Ô nhập của app là `.rc-input` (rebuild-catalog.css:1494) và
-      `select.rc-input` (:1544, tự vẽ mũi tên chevron). Mọi ô trên màn này PHẢI mang class đó. */
-
-.kkb {
+.kkb--compact {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-6);
-  /* Đây là màn ĐỌC một tờ checklist, không phải bảng nhiều cột cần kéo ngang. Thả tự do trên màn
-     rộng thì mỗi dòng hạng mục kéo dài cả nghìn pixel rồi bỏ trống, nút Sửa/Xoá văng ra tận rìa. */
-  max-width: 1120px;
+  gap: var(--sp-4);
+  max-width: 1320px;
+  margin: 0 auto;
 }
 
-.kkb .rc__sub {
-  max-width: 78ch;
-  color: var(--ash);
-  font-size: var(--fs-sm);
-  line-height: 1.6;
-  margin: var(--sp-2) 0 0;
-}
-
-/* ---- Khối "Thêm công đoạn cần kiểm" ------------------------------------------------------ */
-.kkb-them {
+/* ---- 1. Topbar 2 Tầng (Glassmorphic Top Header & Toolbar) -------------------- */
+.kkb-topbar {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
-  padding: var(--sp-4);
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  background: var(--canvas);
-  box-shadow: var(--shadow-1);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
 }
-.kkb-them h2 {
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--ash);
+
+/* Tầng 1: Page Header & Primary Action */
+.kkb-topbar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.kkb-topbar__left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.kkb-topbar__title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
   margin: 0;
+  line-height: 1;
+  letter-spacing: -.02em;
 }
-.kkb-them__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--sp-3);
-}
-/* Hai ô chọn có bề rộng CỐ ĐỊNH, không `flex: 1` chia nhau cả hàng: chúng chỉ chứa một tên công
-   đoạn ngắn, kéo tới 440px mỗi ô thì hàng này nặng hơn cả nội dung chính bên dưới. */
-.kkb-them__row label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  flex: 0 1 300px;
-  min-width: 200px;
-}
-.kkb-them__row label > span {
+
+.kkb-topbar__count {
   font-size: var(--fs-xs);
-  font-weight: var(--fw-medium);
-  color: var(--ash);
+  font-weight: 700;
+  color: #475569;
+  background: #f1f5f9;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid #e2e8f0;
 }
-/* Nút CTA lúc chưa chọn đủ: `.btn:disabled` chỉ hạ opacity .55 nên nền cam nhạt đi mà VẪN đọc ra
-   "nút cam bấm được". Tắt hẳn màu cam khi disabled cho khỏi mời gọi bấm. */
-.kkb-them .btn--accent:disabled {
-  opacity: 1;
-  background: var(--rule-hair);
+
+.kkb-topbar__add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 var(--sp-5);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  white-space: nowrap;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(197, 64, 10, 0.25);
+  transition: transform var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.kkb-topbar__add-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(197, 64, 10, 0.35);
+}
+
+/* Tầng 2: Toolbar Bộ Lọc & Tìm Kiếm */
+.kkb-topbar__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px dashed var(--rule-soft);
+}
+
+/* Compact Search Box */
+.kkb-searchbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.kkb-searchbox svg {
+  position: absolute;
+  left: 12px;
   color: var(--ash-2);
-  border-color: var(--rule-soft);
+  pointer-events: none;
 }
 
-/* ---- Tầng GIAI ĐOẠN ---------------------------------------------------------------------- */
-.kkb-giaidoan {
+.kkb-searchbox__input {
+  width: 240px;
+  height: 36px;
+  padding: 0 var(--sp-8) 0 36px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  color: var(--ink);
+  transition: all var(--duration-base) var(--easing-standard);
+}
+
+.kkb-searchbox__input:focus {
+  outline: none;
+  width: 290px;
+  background: var(--canvas);
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.15);
+}
+
+.kkb-searchbox__clear {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--ash-2);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+/* ---- 2. Vibrant Stage Filter Tabs (Glow Tabs như Mockup Image 2) -------- */
+.kkb-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.kkb-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ash);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+
+.kkb-tab:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.kkb-tab--active {
+  background: linear-gradient(135deg, #334155, #0f172a);
+  color: #ffffff;
+  border-color: transparent;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.25);
+}
+
+/* Vibrant Glow Tabs per Stage matching Mockup Image 2 */
+.kkb-tab--prepress.kkb-tab--active {
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.45);
+}
+
+.kkb-tab--print.kkb-tab--active {
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 15px rgba(14, 165, 233, 0.45);
+}
+
+.kkb-tab--finishing.kkb-tab--active {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.45);
+}
+
+.kkb-tab--other.kkb-tab--active {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.45);
+}
+
+/* ---- 3. Collapsible Add Toolbar ---------------------------------------- */
+/* Cùng khuôn với thẻ công đoạn bên dưới: nền trắng, viền slate nhạt, đầu thẻ nền xám nhạt. */
+.kkb-them-pop {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
-}
-/* Nhãn giai đoạn kéo một kẻ ngang hết chiều rộng: nó là VÁCH NGĂN giữa các nhóm thẻ, không phải
-   tiêu đề của một thẻ. Không có kẻ thì hai giai đoạn liền nhau đọc thành một khối dài. */
-.kkb-giaidoan__ten {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: .12em;
-  color: var(--ash);
-  margin: var(--sp-2) 0 0;
-}
-.kkb-giaidoan__ten::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--rule-soft);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  animation: slideDown 180ms ease-out;
 }
 
-/* ---- Tầng CÔNG ĐOẠN — một thẻ, một dòng của tờ ISO ---------------------------------------- */
-.kkb-cd {
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  background: var(--canvas);
-  box-shadow: var(--shadow-1);
-  overflow: hidden;
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-/* Băng đầu thẻ tô nền: tên công đoạn là thứ người khai tìm khi lướt cả trang, phải bật ra khỏi
-   danh sách hạng mục bên dưới. */
-.kkb-cd__head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-4);
+
+.kkb-them-pop__head {
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
   background: var(--paper);
   border-bottom: 1px solid var(--rule-soft);
 }
-.kkb-cd__head h3 {
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-  margin: 0;
-}
-.kkb-cd__ma {
-  font-family: var(--ff-sans);
-  font-size: var(--fs-2xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--ash-2);
-  background: var(--rule-hair);
-  border-radius: var(--r-2);
-  padding: 2px 6px;
-}
 
-/* ---- Bảng hạng mục ----------------------------------------------------------------------- */
-/* Ba cột: số thứ tự · (câu chữ + hướng dẫn xuống dòng) · nút. `.rc__table` là table-layout: fixed
-   nên cột nào không khai bề rộng sẽ chia đều — phải ghim hai cột biên, chừa cột giữa co giãn. */
-.kkb-table col.kkb-col--num { width: 52px; }
-.kkb-table col.kkb-col--nut { width: 128px; }
-
-.kkb-table td.num {
-  text-align: right;
-  font-family: var(--ff-sans);
-  font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--ash-2);
-  padding-right: var(--sp-2);
-}
-.kkb-table td {
-  vertical-align: top;
-  padding-top: var(--sp-3);
-  padding-bottom: var(--sp-3);
-}
-.kkb-hm__ten {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-  color: var(--ink);
-  line-height: 1.45;
-}
-/* Hướng dẫn là chú thích của chính câu trên, không phải một cột riêng: thụt vào bằng cỡ chữ nhỏ +
-   màu mờ là đủ phân cấp. */
-.kkb-hm__hd {
-  margin-top: 2px;
-  font-size: var(--fs-xs);
-  color: var(--ash);
-  line-height: 1.5;
-}
-.kkb-td--nut {
-  white-space: nowrap;
-  text-align: right;
-}
-/* Nút hàng LUÔN hiện (không chờ hover): trên máy bảng ở xưởng không có con trỏ để hover. */
-.kkb-td--nut .btn + .btn { margin-left: var(--sp-1); }
-
-.kkb-row--tat td { opacity: .55; }
-.kkb-tat {
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-regular);
-  color: var(--ash-2);
-}
-
-/* ---- Form hạng mục nội tuyến (không drawer: phải nhìn thấy các mục đã khai) ---------------- */
-/* Nằm trong thân thẻ, ngay dưới bảng — tô nhạt + vạch rust bên trái để đọc ra "đang khai dòng
-   mới cho ĐÚNG công đoạn này", chứ không phải một khối rời trôi giữa trang. */
-.kkb-form {
+.kkb-them-pop__row {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--sp-3);
-  margin: 0;
-  padding: var(--sp-3) var(--sp-4);
-  border-top: 1px solid var(--rule-soft);
-  border-left: 3px solid var(--rust);
-  background: var(--paper);
+  padding: 16px;
 }
-/* Trong khối "Thêm công đoạn cần kiểm" thì form là con của một thẻ khác — bo góc lại cho khớp. */
-.kkb-them .kkb-form {
+
+.kkb-them-pop__row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 220px;
+}
+
+.kkb-them-pop__row label > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+/* ---- 4. Grid 2 Cột Thẻ Công Đoạn (Matched Image 2) ----------------------- */
+/* Xếp gạch: `chiaCot` (KcsKhaiBaoPage) đã chia thẻ vào từng cột, số cột đặt inline theo bề ngang
+   khung. Lưới chỉ dàn các cột; cột kéo cao bằng nhau (stretch) và thẻ cuối mỗi cột giãn lấp phần
+   dư ⇒ đỉnh và đáy khối thẳng hàng, chỉ đường nối giữa các thẻ so le. */
+.kkb-grid {
+  display: grid;
+  gap: var(--sp-4);
+  align-items: stretch;
+}
+
+.kkb-cot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+.kkb-cot > .kkb-cd:last-child {
+  flex-grow: 1;
+}
+
+/* Thẻ Công đoạn với Cờ Ribbon Tụ Rủ (Bookmark Flag) & Top Colored Border Bar */
+.kkb-cd {
+  position: relative;
   border: 1px solid var(--rule-soft);
-  border-left: 3px solid var(--rust);
-  border-radius: var(--r-3);
+  border-radius: 14px;
+  background: var(--canvas);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  transition: transform var(--duration-fast), box-shadow var(--duration-fast);
 }
+
+.kkb-cd:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.12);
+}
+
+/* Top Accent Bar per Stage — `--kkb-mau` để form thêm/sửa trong thẻ ăn theo màu giai đoạn */
+.kkb-cd--prepress { --kkb-mau: #8b5cf6; border-top: 4px solid #8b5cf6; }
+.kkb-cd--print    { --kkb-mau: #0ea5e9; border-top: 4px solid #0ea5e9; }
+.kkb-cd--finishing{ --kkb-mau: #f59e0b; border-top: 4px solid #f59e0b; }
+.kkb-cd--other    { --kkb-mau: #10b981; border-top: 4px solid #10b981; }
+
+/* BOOKMARK RIBBON FLAG ở góc trên bên trái như Mockup Image 2 */
+.kkb-cd__bookmark {
+  position: absolute;
+  top: -1px;
+  left: 18px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.kkb-cd__bookmark--prepress { color: #8b5cf6; filter: drop-shadow(0 2px 4px rgba(139, 92, 246, 0.4)); }
+.kkb-cd__bookmark--print    { color: #0ea5e9; filter: drop-shadow(0 2px 4px rgba(14, 165, 233, 0.4)); }
+.kkb-cd__bookmark--finishing{ color: #f59e0b; filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.4)); }
+.kkb-cd__bookmark--other    { color: #10b981; filter: drop-shadow(0 2px 4px rgba(16, 185, 129, 0.4)); }
+
+/* Header của Thẻ */
+.kkb-cd__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* Trái 58px: chừa Ribbon Flag + thẳng cột với tên hạng mục bên dưới (14 + chip 28 + gap 16) */
+  padding: 12px 16px 12px 58px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.kkb-cd__info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.kkb-cd__info h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+
+.kkb-cd__ma {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: #ffffff;
+  background: #1e293b;
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.kkb-cd__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.kkb-cd__count-tag {
+  font-size: 12px;
+  color: #475569;
+  font-weight: 600;
+  background: #f1f5f9;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.kkb-cd__btn-them {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.kkb-cd__btn-them svg {
+  width: 12px;
+  height: 12px;
+}
+
+.kkb-cd__btn-them:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+/* ---- 5. Checklist Items & ISO Callout Boxes (Matched Image 2) ------------ */
+.kkb-cd__body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Dòng danh sách 3 khối: chip | nội dung (tên + hướng dẫn cùng bề rộng) | nút — cả ba căn giữa
+   theo chiều dọc, không khối nào lấn sang cột khác. Trái 14px để chip nằm giữa dưới Ribbon Flag
+   và tên thẳng cột với tên công đoạn ở đầu thẻ (14 + 28 + 16 = 58). */
+.kkb-hm {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px 14px 14px;
+  border-bottom: 1px solid var(--rule-hair);
+  transition: background var(--duration-fast);
+}
+
+.kkb-hm:last-child {
+  border-bottom: none;
+}
+
+.kkb-hm:hover {
+  background: rgba(248, 250, 252, 0.8);
+}
+
+/* Chip số thứ tự hình tròn viền màu sắc như Mockup Image 2 */
+.kkb-hm__num-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.kkb-hm__num-chip--prepress { border: 2px solid #8b5cf6; color: #7e22ce; background: #faf5ff; }
+.kkb-hm__num-chip--print    { border: 2px solid #0ea5e9; color: #0369a1; background: #f0f9ff; }
+.kkb-hm__num-chip--finishing{ border: 2px solid #f59e0b; color: #b45309; background: #fffbeb; }
+.kkb-hm__num-chip--other    { border: 2px solid #10b981; color: #15803d; background: #f0fdf4; }
+
+.kkb-hm__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kkb-hm__ten {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* Khối Hướng dẫn ISO Kem Nổi full-width như Mockup Image 2 */
+.kkb-hm__hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  padding: 6px 12px;
+  border-radius: 8px;
+  line-height: 1.4;
+}
+
+.kkb-hm__hd svg {
+  color: #d97706;
+  flex-shrink: 0;
+}
+
+/* Sleek Icon Buttons bên phải như Mockup Image 2 */
+.kkb-hm__actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kkb-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.kkb-icon-btn:hover {
+  background: #cbd5e1;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.kkb-icon-btn--danger:hover {
+  background: #ffe4e6;
+  color: #e11d48;
+  border-color: #fecdd3;
+}
+
+.kkb-hm--tat {
+  opacity: .5;
+}
+
+.kkb-tat {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+
+/* ---- 6. Form Nội tuyến --------------------------------------------------- */
+.kkb-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--rule-hair);
+  background: #f8fafc;
+}
+
+.kkb-form__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.kkb-form__fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3);
+}
+
 .kkb-form label {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
+  gap: 4px;
 }
+
 .kkb-form label > span {
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-medium);
-  color: var(--ash);
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
 }
-.kkb-form__ten { flex: 2 1 240px; }
-.kkb-form__hd  { flex: 3 1 300px; }
+
+.kkb-form .rc-input,
+.kkb-them-pop .rc-input {
+  background-color: #ffffff;
+  border-color: #cbd5e1;
+}
+
+.kkb-form .rc-input:hover:not(:disabled),
+.kkb-them-pop .rc-input:hover:not(:disabled) {
+  border-color: #94a3b8;
+}
+
+.kkb-form .rc-input:focus,
+.kkb-them-pop .rc-input:focus {
+  border-color: var(--kkb-mau, #475569);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--kkb-mau, #475569) 18%, transparent);
+}
+
+/* Mũi tên ô chọn: nền chung đổi sang cam rust khi focus (!important) — giữ slate cho cùng tông. */
+.kkb-them-pop select.rc-input:focus {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+}
+
+.kkb-form__ten { flex: 2 1 200px; }
+.kkb-form__hd  { flex: 3 1 240px; }
 .kkb-form__nut {
   display: flex;
   gap: var(--sp-2);
   margin-left: auto;
 }
 
-/* ---- Màn hẹp (tablet trở xuống) ---------------------------------------------------------- */
-/* responsive.css §11 đổi `.rc__table` sang `table-layout: auto` và ép `white-space: normal` cho
-   MỌI ô (`.rc__table :is(th, td)` = 0-1-1, nặng hơn `.kkb-td--nut` 0-1-0 nên đè mất nowrap của
-   nó), lại chỉ chừa 72px cho cột cuối. Hai nút "Sửa"/"Xoá" cần ~110px, thiếu 38px là chúng rơi
-   xuống hai dòng và hàng cao gấp đôi. Neo lại bằng `.kkb-table td.kkb-td--nut` (0-2-1). */
-@media screen and (max-width: 1024px) {
-  .kkb-table td.kkb-td--nut {
-    min-width: 118px;
-    white-space: nowrap;
+/* Nút trong form + khung khai báo, cùng họ với nút đầu thẻ (viền slate, bo 8px) — nút chính
+   dùng slate đậm như chip mã CĐ, không dùng cam rust để khỏi lạc tông trên thẻ màu giai đoạn. */
+.kkb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.kkb-btn:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.kkb-btn--chinh {
+  background: #1e293b;
+  border-color: #1e293b;
+  color: #ffffff;
+}
+
+.kkb-btn--chinh:hover:not(:disabled) {
+  background: #0f172a;
+  border-color: #0f172a;
+}
+
+.kkb-btn:disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+.kkb-empty {
+  padding: var(--sp-8) var(--sp-4);
+  text-align: center;
+  background: var(--canvas);
+  border-radius: 14px;
+  border: 1px solid var(--rule-soft);
+}
+
+/* ---- Responsive ---------------------------------------------------------- */
+@media screen and (max-width: 900px) {
+  .kkb-topbar__toolbar {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: var(--sp-3);
   }
-  .kkb-table td.num {
-    min-width: 40px;
+  .kkb-tabs {
+    overflow-x: auto;
+    padding-bottom: 4px;
+    width: 100%;
+  }
+  .kkb-searchbox__input {
+    width: 100%;
+  }
+  .kkb-searchbox__input:focus {
+    width: 100%;
   }
 }
+
+@media screen and (max-width: 600px) {
+  .kkb-topbar__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-3);
+  }
+  .kkb-topbar__add-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+
+

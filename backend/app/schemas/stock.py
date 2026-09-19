@@ -94,7 +94,19 @@ class StockRequestLineOut(BaseModel):
     sl_duyet: float
     sl_da_ung: float
     # Đơn giá NHẬP người yêu cầu khai — phiếu kế thừa (kho chỉ đọc). Null với yêu cầu XUẤT.
+    # Mọi trường TIỀN của dòng (`don_gia`, `gia_goc`, `don_gia_ban`) chỉ có khi `can_view_cost` —
+    # người tạo yêu cầu cũng không có ngoại lệ (chủ 18/09/2026).
     don_gia: int | None = None
+    # Dòng thành phẩm KCS gửi nhập: `don_gia` luôn 0 (phần mềm không tính được giá gốc), giá gốc thật
+    # do kế toán kho gõ trên lô sau khi ghi sổ ⇒ đọc từ lô. `gia_goc` None = "Chưa có giá gốc".
+    tu_kcs: bool = False
+    gia_goc: int | None = None
+    # Tiền gốc đã nhập của dòng KCS = Σ giá × SL từng đợt đã ghi sổ — KHÔNG phải `gia_goc` × SL
+    # (giá bình quân đã làm tròn nhân ngược lệch tổng các phiếu). None cùng lúc với `gia_goc`.
+    tien_goc: int | None = None
+    # Giá bán theo đơn hàng (chỉ để đọc, không vào sổ) + số đơn đi kèm.
+    don_gia_ban: int | None = None
+    don_ban_ma: str | None = None
     # Kho phản hồi: lý do kho cấp/nhập thiếu so với còn phải cấp (nếu có).
     ly_do_thieu: str | None = None
     ghi_chu: str | None = None
@@ -284,11 +296,19 @@ class ThanhPhamChuaGiaGocRow(BaseModel):
     so_lo: int
 
 
+class LuaChonLocGiaGoc(BaseModel):
+    id: int
+    ten: str | None = None
+
+
 class ThanhPhamChuaGiaGocPage(BaseModel):
     items: list[ThanhPhamChuaGiaGocRow]
     total: int
     page: int
     size: int
+    # Lựa chọn cho ô lọc nâng cao — chỉ kho/khách có lô gốc thành phẩm từ KCS.
+    cac_kho: list[LuaChonLocGiaGoc] = []
+    cac_khach: list[LuaChonLocGiaGoc] = []
 
 
 class TinhGiaKyIn(BaseModel):
@@ -475,6 +495,18 @@ class StockVoucherLineOut(BaseModel):
     # Hai trường tiền — router xóa khi thiếu `can_view_cost`.
     don_gia: int | None = None
     thanh_tien: int | None = None
+    # Dòng là thành phẩm KCS mà lô CHƯA CÓ giá gốc (kế toán kho gõ sau ở Báo cáo kho) ⇒ số 0 ở hai
+    # trường trên là "chưa biết", không phải miễn phí — màn và bản in ghi "Chưa có giá gốc". Luôn
+    # False khi thiếu `can_view_cost` (biết "giá đang 0" cũng là biết giá).
+    chua_gia_goc: bool = False
+    # Nguồn của hàng (lệnh / đơn / khách, đọc ở LÔ GỐC như StockLotOut) — để phiếu nói hàng này của ai.
+    # Dòng xuất gộp nhiều lô khác đơn thì nối các mã bằng ", ". Không phải tiền nên không ẩn.
+    lsx_ma: str | None = None
+    order_ma: str | None = None
+    khach_hang: str | None = None
+    # Giá bán của đơn (đ / đvt dòng yêu cầu), chỉ tham khảo, không vào sổ kho. Là tiền ⇒ None khi
+    # thiếu `can_view_cost`; dòng xuất gộp các lô có giá bán khác nhau cũng None.
+    don_gia_ban: int | None = None
 
 
 class StockVoucherOut(BaseModel):

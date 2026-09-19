@@ -427,6 +427,27 @@ def test_nguoi_de_nghi_khong_thay_ton_va_khong_thay_gia(client):
     assert line["ton_kha_dung"] is None
 
 
+def test_tien_chi_nguoi_co_quyen_xem_gia_moi_thay_ke_ca_nguoi_tao(client):
+    """Chủ 18/09/2026 "liên quan đến tiền thì chỉ có quyền mới xem được": người TẠO yêu cầu nhập tự
+    khai giá vẫn không đọc lại được giá — trên yêu cầu lẫn phiếu sinh từ nó (bỏ luật 10/08/2026)."""
+    kho_id, mat_id = _setup(client)
+    v = _nhap(client, kho_id=kho_id, mat_id=mat_id, qty=10, gia=100_000)
+    dn, kt = _login(client, "t_denghi"), _login(client, "t_ketoan")
+
+    ds = client.get("/api/kho/de-nghi", headers=dn, params={"loai": "NHAP"}).json()["items"]
+    assert [ln["don_gia"] for r in ds for ln in r["lines"]] == [None]
+    rid = ds[0]["id"]
+    assert client.get(f"/api/kho/de-nghi/{rid}", headers=dn).json()["lines"][0]["don_gia"] is None
+    assert client.get(f"/api/kho/de-nghi/{rid}", headers=kt).json()["lines"][0]["don_gia"] == 100_000
+
+    phieu = client.get(f"/api/kho/phieu/{v['id']}", headers=dn).json()
+    assert phieu["gia_von"] is None and phieu["lines"][0]["don_gia"] is None
+    assert phieu["lines"][0]["thanh_tien"] is None
+    theo_yc = client.get("/api/kho/phieu", headers=dn, params={"request_id": rid}).json()["items"]
+    assert [ln["don_gia"] for p in theo_yc for ln in p["lines"]] == [None]
+    assert client.get(f"/api/kho/phieu/{v['id']}", headers=kt).json()["lines"][0]["don_gia"] == 100_000
+
+
 def test_thu_kho_thay_ton_nhung_khong_thay_gia_von(client):
     kho_id, mat_id = _setup(client)
     v = _nhap(client, kho_id=kho_id, mat_id=mat_id, qty=10, gia=100_000)

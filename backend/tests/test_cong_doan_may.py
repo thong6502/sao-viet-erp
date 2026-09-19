@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401 — đăng ký metadata
 from app.db import Base
-from app.models.cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu, CongDoanMay
+from app.models.cong_doan import CongDoan, CongDoanMay, CongDoanVatTu
 from app.models.may_thiet_bi import MayThietBi
 
 
@@ -74,19 +74,24 @@ def test_xoa_cong_doan_keo_theo_dong_may(db):
     assert db.query(CongDoanMay).count() == 0
 
 
-def test_dau_viec_giu_cong_thuc_tien_cong_va_moi_vat_tu_mot_cong_thuc(db):
-    """Mực ăn theo SỐ TỜ, dung môi rửa máy ăn theo SỐ MÀU — cùng đầu việc, cùng ĐVT kg."""
+def test_cong_doan_moi_vat_tu_mot_cong_thuc(db):
+    """Mực ăn theo SỐ TỜ, dung môi rửa máy ăn theo SỐ MÀU — cùng công đoạn, cùng ĐVT kg.
+
+    Vật tư neo thẳng vào CÔNG ĐOẠN từ 18/09/2026 (mg `0316`) — tầng đầu việc định mức đã gỡ.
+    """
     cd = _cd(db, "CD-M9")
-    dv = CongDoanDauViec(
-        piece_rate_id=1, nang_suat_nguoi_gio=100, so_nguoi_tieu_chuan=2,
-        cong_thuc_khoan="sl_vao * so_luot_chay")
-    dv.vat_tus.append(CongDoanDauViecVatTu(
-        vat_tu_id=11, thu_tu=0, cong_thuc_luong="sl_vao / 40000"))
-    dv.vat_tus.append(CongDoanDauViecVatTu(
-        vat_tu_id=12, thu_tu=1, cong_thuc_luong="so_mau * 0.3"))
-    cd.dau_viec_dinh_muc.append(dv)
+    cd.vat_tus.append(CongDoanVatTu(vat_tu_id=11, thu_tu=0, cong_thuc_luong="sl_vao / 40000"))
+    cd.vat_tus.append(CongDoanVatTu(vat_tu_id=12, thu_tu=1, cong_thuc_luong="so_mau * 0.3"))
     db.commit()
     db.refresh(cd)
-    got = cd.dau_viec_dinh_muc[0]
-    assert got.cong_thuc_khoan == "sl_vao * so_luot_chay"
-    assert [v.cong_thuc_luong for v in got.vat_tus] == ["sl_vao / 40000", "so_mau * 0.3"]
+    assert [v.cong_thuc_luong for v in cd.vat_tus] == ["sl_vao / 40000", "so_mau * 0.3"]
+
+
+def test_mot_vat_tu_khong_khai_hai_lan_trong_cung_cong_doan(db):
+    cd = _cd(db, "CD-M10")
+    cd.vat_tus.append(CongDoanVatTu(vat_tu_id=11, thu_tu=0))
+    db.commit()
+    cd.vat_tus.append(CongDoanVatTu(vat_tu_id=11, thu_tu=1))
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()

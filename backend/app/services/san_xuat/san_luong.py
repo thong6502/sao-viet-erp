@@ -7,6 +7,12 @@ tổ trưởng) → transaction → ghi audit → (SSE do router phát sau commi
 Luật cứng (§11.1): `tong = tot + hong` (dung sai làm tròn 3 số lẻ); hỏng ghi kèm mô tả tự do
 (`mo_ta_loi`, tuỳ chọn) — danh mục lý do/lỗi ĐÃ GỠ. Chọn lot đầu vào (§10.3) dựng quan hệ truy vết
 mẻ công đoạn trước → batch đầu ra.
+
+Từ 18/09/2026 (mg `0318`) mẻ ghi theo CÔNG VIỆC KHOÁN của tổ, bắt buộc, kèm các VIỆC PHÁT SINH đã
+làm — kiểm + chụp ảnh ở `viec_khoan.chuan_hoa_khi_ghi`. Việc phát sinh KHÔNG cộng vào `tong` /
+`tot` / `hong`: nó là con số ĐỨNG CẠNH sản lượng (*"mẻ sản lượng 3.000 và thay kẽm 2"*), không đi
+vào tiến độ, bàn giao, KCS hay nhập kho. Tầng CHIA sản lượng cho từng người GỠ HẲN cùng ngày —
+chủ xưởng: *"ghi nhận thế thôi, đừng có chia bất cứ gì"*.
 """
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from ...models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG
+from ...models.san_xuat import BUOC_THUE_NGOAI, CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG
 from ...models.san_xuat_san_luong import (
     BG_XAC_NHAN,
     SanXuatBanGiao,
@@ -25,7 +31,9 @@ from ...models.san_xuat_san_luong import (
 from ...repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ..gio_xuong import moc_tu_client
+from .dau_vao import kiem_tran_ghi
 from .thuc_thi import _gate, _moc
+from .viec_khoan import chuan_hoa_khi_ghi
 
 # Dung sai làm tròn cho ràng buộc tong = tot + hong: cột Numeric(18,3) nên nửa bậc số lẻ cuối là
 # 0.0005 — quá ngưỡng này coi như nhập lệch chứ không phải sai số làm tròn.
@@ -167,11 +175,14 @@ def tao_batch(
     mo_ta_loi: str | None = None,
     ghi_chu: str | None = None,
     lot_vao: list[dict] | None = None,
+    piece_rate_id: int | None = None,
+    phat_sinh: list[dict] | None = None,
 ) -> dict:
-    """Ghi MỘT batch sản lượng (§11.1) + các lot đầu vào (§10.3). Cho nhiều batch một phần / công đoạn.
+    """Ghi MỘT batch sản lượng (§11.1) + lot đầu vào (§10.3) + việc khoán & phát sinh (§7.1).
 
     Ràng buộc: `tong = tot + hong`. Đơn vị bỏ trống ⇒ lấy `don_vi_ra` của công việc (đơn vị bản
-    địa công đoạn)."""
+    địa công đoạn). `piece_rate_id` BẮT BUỘC (§7.2) — mẻ là chứng từ của một VIỆC, không của một
+    công đoạn. `phat_sinh` là `[{phat_sinh_id, so_luong}]`, cho phép rỗng."""
     repo = SanXuatSanLuongRepository(db)
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
@@ -183,8 +194,8 @@ def tao_batch(
     tong_f = _so_khong_am(tong, "Tổng số lượng")
     tot_f = _so_khong_am(tot, "Số lượng tốt")
     hong_f = _so_khong_am(hong, "Số lượng hỏng")
-    if tong_f <= 0:
-        raise ValueError("Tổng số lượng phải lớn hơn 0.")
+    # Mẻ 0 hợp lệ (19/09/2026): ca chỉ làm việc phát sinh (thay kẽm, lên khuôn…) vẫn phải có mẻ để
+    # ghi nhận ai có mặt + việc phát sinh; số 0 không cộng gì vào tiến độ/bàn giao.
     if abs(tong_f - (tot_f + hong_f)) > _EPS:
         raise ValueError("Tổng số lượng phải bằng Tốt + Hỏng.")
 
@@ -218,13 +229,21 @@ def tao_batch(
             f"Đơn vị sản lượng phải là “{nhan_don_vi(dv_ten, don_vi_cv)}” — "
             f"đúng đơn vị đầu ra của bước này."
         )
-
-    # Dựng lot TRƯỚC khi add batch để bắt lỗi sớm (chưa chạm session cho tới khi hợp lệ hết).
+    # Dựng lot + kiểm việc khoán TRƯỚC khi add batch để bắt lỗi sớm (chưa chạm session cho tới khi
+    # hợp lệ hết) — add nửa mẻ rồi mới báo "việc phát sinh không thuộc việc này" là để lại rác
+    # trong session của request.
     don_vi_lot_mac_dinh = (cv.don_vi_vao or don_vi_batch or "").strip()
     cac_lot = [
         _chuan_hoa_lot(repo, cv, don_vi_lot_mac_dinh, r, dv_ten)
         for r in (lot_vao or [])
     ]
+    # Trần theo số đã nhận từ công đoạn trước × hệ số quy đổi (19/09/2026) — xem `dau_vao`. Đứng
+    # SAU lot: lot trỏ đúng mẻ nguồn nên câu lỗi của lot (vượt phần đã toả…) cụ thể hơn.
+    kiem_tran_ghi(db, repo, cv, tot_f)
+    o_khoan, cac_phat_sinh = chuan_hoa_khi_ghi(
+        db, department_id=cv.department_id, piece_rate_id=piece_rate_id, phat_sinh=phat_sinh,
+        bat_buoc=cv.loai_buoc != BUOC_THUE_NGOAI,
+    )
 
     batch = SanXuatBatch(
         cong_viec_id=cv.id,
@@ -237,19 +256,24 @@ def tao_batch(
         mo_ta_loi=(mo_ta_loi or "").strip() or None,
         ghi_chu=(ghi_chu or "").strip() or None,
         created_by=getattr(user, "id", None),
+        **o_khoan,
     )
     repo.add(batch)
-    repo.flush()  # cần batch.id để neo lot
+    repo.flush()  # cần batch.id để neo lot + việc phát sinh
     for lot in cac_lot:
         lot.batch_id = batch.id
         repo.add(lot)
+    for ps in cac_phat_sinh:
+        ps.batch_id = batch.id
+        repo.add(ps)
 
     from ...repositories.audit_repo import AuditLogRepository
     AuditLogRepository(db).create(
         actor_user_id=getattr(user, "id", None),
         action="san_xuat_tao_batch",
         target=f"san_xuat_batch:{batch.id}",
-        detail=f"cong_viec={cv.id} tot={tot_f} hong={hong_f}",
+        detail=(f"cong_viec={cv.id} tot={tot_f} hong={hong_f} "
+                f"khoan={o_khoan['piece_rate_id']} phat_sinh={len(cac_phat_sinh)}"),
     )
     ket_qua_lsx = _toa_san_luong(db, repo, cv=cv, batch=batch, tot=tot_f, actor=user)
     db.commit()

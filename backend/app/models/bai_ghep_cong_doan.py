@@ -72,13 +72,16 @@ class BaiGhepCongDoan(Base):
     # --- Phân công: MỘT lượt chạy thì một tổ, một máy, một kíp ---
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
-    # Mirror `lsx_cong_doan.so_nhan_cong_tieu_chuan` — bước chung của bài cũng là một bước có kế
-    # hoạch, và cũng là con số nhân lực DUY NHẤT của nó. Hai mốc tối thiểu/tối đa gỡ ở mg `0270`,
-    # ô "số người bố trí" (`so_nhan_cong`) gỡ ở mg `0281` vì luôn là bản sao của cột này.
-    so_nhan_cong_tieu_chuan: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="1", default=1
+    # ⚠️ `so_nhan_cong_tieu_chuan` + `khoan_json` GỠ 18/09/2026 (mg `0321`) — mirror `LsxCongDoan`,
+    # chốt *"sửa cả bên bài ghép như bên lệnh"*.
+    # SỐ GIỜ KẾ HOẠCH của bước TỔ (18/09/2026, mg `0319`) — người lập kế hoạch gõ tay, đơn vị GIỜ.
+    # Mặc định 0 và **không cảnh báo khi để 0**: chốt của chủ dự án *"nếu thiếu thì cứ để 0"*.
+    # Đây là thứ THAY cho cả đường tính thời lượng cũ của bước tổ (năng suất khoán ÷ kíp chuẩn),
+    # gỡ cùng ngày với đầu việc định mức. Bước MÁY / THUÊ NGOÀI không đọc ô này — chúng vẫn tính
+    # từ tốc độ máy. Numeric(8,2) để gõ được 4,5 giờ; không bắt tròn.
+    so_gio_ke_hoach: Mapped[float] = mapped_column(
+        Numeric(8, 2), nullable=False, server_default="0", default=0
     )
-    khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # `kcs_tieu_chi_bo_sung_json` GỠ ở mg `0283` cùng lượt với `LsxCongDoan` — checklist KCS chỉ
     # còn MỘT nguồn là danh mục gắn theo công đoạn (`docs/design-kcs-theo-cong-doan.md`).
 
@@ -102,9 +105,7 @@ class BaiGhepCongDoan(Base):
 
     # --- Thời gian (phút) — một lượt chạy, một khoảng chiếm máy ---
     setup_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
-    nang_suat: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
-    # String(32) — cùng lý do với `lsx_cong_doan.don_vi_nang_suat` (mã đơn vị người khai chọn).
-    don_vi_nang_suat: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # ⚠️ `nang_suat` + `don_vi_nang_suat` GỠ 18/09/2026 (mg `0321`) — mirror `LsxCongDoan`.
     chay_phut: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     # DORMANT 2026-08-04 — mirror `LsxCongDoan.ve_sinh_phut`, cùng lý do: bỏ khỏi hệ, giữ cột.
     ve_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)

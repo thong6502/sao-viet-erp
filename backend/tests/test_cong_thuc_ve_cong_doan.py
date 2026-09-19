@@ -1,7 +1,8 @@
 """Bốn công thức mới đọc ĐÚNG chỗ mới (06/09/2026).
 
 Xem plan `docs/superpowers/plans/2026-09-06-doi-cong-thuc-ve-cong-doan.md`: cách đo lượng của bước
-chuyển từ MÁY / ĐẦU VIỆC KHOÁN / VẬT TƯ về màn CÔNG ĐOẠN, vì cả ba câu hỏi ("chạy trên máy này
+chuyển từ MÁY / ĐẦU VIỆC KHOÁN / VẬT TƯ về màn CÔNG ĐOẠN (18/09/2026: vật tư neo thẳng
+vào công đoạn — tab Vật tư, mg `0316`; tầng đầu việc gỡ, mg `0320`), vì cả ba câu hỏi ("chạy trên máy này
 bằng bao nhiêu", "việc này khoán theo lượng nào", "món này ăn bao nhiêu") đều đổi theo công đoạn.
 """
 from __future__ import annotations
@@ -34,7 +35,6 @@ def test_gio_chay_doc_cong_thuc_cua_cap_cong_doan_va_may(db, orders, lsx_svc, ad
         don_vi_vao = "to"
         don_vi_ra = "to"
         so_luot_chay = 1
-        khoan_json = None
 
     got = lsx_svc.sl_tinh_cua_buoc(_Buoc(), may, {"so_mau": 5})
     assert got is not None
@@ -59,18 +59,17 @@ def test_may_khong_nam_trong_danh_sach_cong_doan_thi_lui_ve_cau_quy_doi(
         don_vi_vao = "to"
         don_vi_ra = "to"
         so_luot_chay = 1
-        khoan_json = None
 
     got = lsx_svc.sl_tinh_cua_buoc(_Buoc(), may, {})
     assert got is not None and round(got[0]) == 800, "cùng đơn vị ⇒ cầu quy đổi trả nguyên số"
 
 
-def test_hai_vat_tu_cung_kg_trong_mot_dau_viec_an_theo_hai_cach(db, orders, lsx_svc, admin,
-                                                                customer):
+def test_hai_vat_tu_cung_kg_trong_mot_cong_doan_an_theo_hai_cach(db, orders, lsx_svc, admin,
+                                                                  customer):
     """Mực ăn theo SỐ TỜ, dung môi rửa máy ăn theo SỐ MÀU — đúng ca đã bàn với chủ dự án."""
     from types import SimpleNamespace
 
-    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+    from app.models.cong_doan import CongDoanVatTu
     from app.models.vat_lieu_kho import VatTuInAn
 
     cd = CongDoan(ma="CD-G5", ten="In offset khổ nhỏ", nhom="print",
@@ -80,17 +79,13 @@ def test_hai_vat_tu_cung_kg_trong_mot_dau_viec_an_theo_hai_cach(db, orders, lsx_
     db.add_all([cd, muc, dm_moi])
     db.flush()
 
-    dv = CongDoanDauViec(cong_doan_id=cd.id, piece_rate_id=1,
-                         nang_suat_nguoi_gio=100, so_nguoi_tieu_chuan=2)
-    dv.vat_tus.append(CongDoanDauViecVatTu(
-        vat_tu_id=muc.id, thu_tu=0, cong_thuc_luong="sl_vao / 40000"))
-    dv.vat_tus.append(CongDoanDauViecVatTu(
-        vat_tu_id=dm_moi.id, thu_tu=1, cong_thuc_luong="so_mau * 0.3"))
-    db.add(dv)
+    # Tab VẬT TƯ của công đoạn (mg `0316`) — neo ở CÔNG ĐOẠN, không còn qua đầu việc.
+    cd.vat_tus.append(CongDoanVatTu(vat_tu_id=muc.id, thu_tu=0, cong_thuc_luong="sl_vao / 40000"))
+    cd.vat_tus.append(CongDoanVatTu(vat_tu_id=dm_moi.id, thu_tu=1, cong_thuc_luong="so_mau * 0.3"))
     db.commit()
 
     buoc = SimpleNamespace(so_luong_vao=5000, so_luong_ra=5000, so_luot_chay=1)
-    ra, canh_bao = lsx_svc._vat_tu_bung(dv, buoc, {"so_mau": 4})
+    ra, canh_bao = lsx_svc._vat_tu_bung(cd, buoc, {"so_mau": 4})
 
     theo_ma = {r["ma"]: r["so_luong"] for r in ra}
     assert theo_ma["VT-MUC-C"] == 0.125, "5.000 tờ ÷ 40.000 = 0,125 kg"
@@ -102,7 +97,7 @@ def test_dong_vat_tu_chua_khai_cong_thuc_thi_bo_ra_kem_ly_do(db, orders, lsx_svc
     """KHÔNG ĐOÁN: thà người kế hoạch tự thêm còn hơn bung một con số sai trông như thật."""
     from types import SimpleNamespace
 
-    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+    from app.models.cong_doan import CongDoanVatTu
     from app.models.vat_lieu_kho import VatTuInAn
 
     cd = CongDoan(ma="CD-G6", ten="Vào gáy", nhom="finishing",
@@ -110,14 +105,11 @@ def test_dong_vat_tu_chua_khai_cong_thuc_thi_bo_ra_kem_ly_do(db, orders, lsx_svc
     keo = VatTuInAn(ma="VT-KEO-9", ten="Keo vào gáy", don_vi_gia="kg", active=True)
     db.add_all([cd, keo])
     db.flush()
-    dv = CongDoanDauViec(cong_doan_id=cd.id, piece_rate_id=1,
-                         nang_suat_nguoi_gio=100, so_nguoi_tieu_chuan=1)
-    dv.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong=None))
-    db.add(dv)
+    cd.vat_tus.append(CongDoanVatTu(vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong=None))
     db.commit()
 
     ra, canh_bao = lsx_svc._vat_tu_bung(
-        dv, SimpleNamespace(so_luong_vao=100, so_luong_ra=100, so_luot_chay=1), {})
+        cd, SimpleNamespace(so_luong_vao=100, so_luong_ra=100, so_luot_chay=1), {})
     assert ra == []
     assert len(canh_bao) == 1 and "Keo vào gáy" in canh_bao[0]
 
@@ -131,7 +123,7 @@ def test_buoc_ngoai_dong_giay_van_bung_vat_tu_khong_an_theo_sl(db, orders, lsx_s
     """
     from types import SimpleNamespace
 
-    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+    from app.models.cong_doan import CongDoanVatTu
     from app.models.vat_lieu_kho import VatTuInAn
 
     cd = CongDoan(ma="CD-CTP", ten="Ghi kẽm CTP", nhom="prepress")
@@ -140,16 +132,12 @@ def test_buoc_ngoai_dong_giay_van_bung_vat_tu_khong_an_theo_sl(db, orders, lsx_s
     db.add_all([cd, kem, muc])
     db.flush()
 
-    dv = CongDoanDauViec(cong_doan_id=cd.id, piece_rate_id=1,
-                         nang_suat_nguoi_gio=12, so_nguoi_tieu_chuan=1)
-    dv.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=kem.id, thu_tu=0, cong_thuc_luong="so_kem"))
-    dv.vat_tus.append(CongDoanDauViecVatTu(
-        vat_tu_id=muc.id, thu_tu=1, cong_thuc_luong="sl_vao / 40000"))
-    db.add(dv)
+    cd.vat_tus.append(CongDoanVatTu(vat_tu_id=kem.id, thu_tu=0, cong_thuc_luong="so_kem"))
+    cd.vat_tus.append(CongDoanVatTu(vat_tu_id=muc.id, thu_tu=1, cong_thuc_luong="sl_vao / 40000"))
     db.commit()
 
     buoc = SimpleNamespace(so_luong_vao=0, so_luong_ra=0, so_luot_chay=1)
-    ra, canh_bao = lsx_svc._vat_tu_bung(dv, buoc, {"so_kem": 4})
+    ra, canh_bao = lsx_svc._vat_tu_bung(cd, buoc, {"so_kem": 4})
 
     assert [r["ma"] for r in ra] == ["VT-KEM-01"], "bản kẽm bung được dù bước không có SL"
     assert ra[0]["so_luong"] == 4
@@ -162,8 +150,7 @@ def test_buoc_may_trong_may_bao_dung_cho_khong_do_cho_cau_quy_doi():
 
     from app.services.lsx_service import thoi_luong_buoc
 
-    cd = SimpleNamespace(loai_buoc="may", so_luot_chay=1, phat_sinh_phut=0, nang_suat=0,
-                         so_nhan_cong_tieu_chuan=1, khoan_json=None, so_luong_vao=705)
+    cd = SimpleNamespace(loai_buoc="may", so_luot_chay=1, phat_sinh_phut=0, so_luong_vao=705)
     kq = thoi_luong_buoc(cd, may=None, sl_tinh=None)["dien_giai"]
     assert kq["phuong_phap"] == "chua_quy_doi", "mã giữ nguyên — xếp lịch phân nhánh theo nó"
     assert "chưa gán máy" in kq["canh_bao"][0]
@@ -225,9 +212,8 @@ def test_buoc_to_van_bao_so_luot_chay_mac_dinh_mot():
     from app.services.lsx_service import thoi_luong_buoc
 
     to = SimpleNamespace(
-        loai_buoc="to", so_luot_chay=2, nang_suat=100,
-        so_nhan_cong_tieu_chuan=2, phat_sinh_phut=0, so_luong_vao=1000,
-        don_vi_vao="to", khoan_json={})
+        loai_buoc="to", so_luot_chay=2, so_gio_ke_hoach=0, phat_sinh_phut=0,
+        so_luong_vao=1000, don_vi_vao="to")
     dg = thoi_luong_buoc(to, None, (1000.0, "to", ""))["dien_giai"]
     assert dg["so_luot_chay"] == 2
 
@@ -247,11 +233,11 @@ def test_so_luot_KHONG_nhan_vao_gio_cua_buoc_to():
 
     def _phut(luot):
         to = SimpleNamespace(
-            loai_buoc="to", so_luot_chay=luot, nang_suat=100,
-            so_nhan_cong_tieu_chuan=1, phat_sinh_phut=0, so_luong_vao=1000,
-            don_vi_vao="to", khoan_json={})
+            loai_buoc="to", so_luot_chay=luot, so_gio_ke_hoach=2.5, phat_sinh_phut=0,
+            so_luong_vao=1000, don_vi_vao="to")
         return thoi_luong_buoc(to, None, (1000.0, "to", ""))["chiem_may_phut"]
 
+    assert _phut(1) == 150, "bước tổ = số giờ kế hoạch gõ tay × 60 (mg `0319`)"
     assert _phut(2) == _phut(1), "bước tổ: đổi số lượt KHÔNG đổi giờ"
 
 

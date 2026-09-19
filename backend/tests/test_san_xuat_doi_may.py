@@ -97,11 +97,8 @@ def _mot_cv_dang_chay(
     for i in range(so_nguoi):
         e = _emp(db, to, f"NV-{ma}-{i}")
         thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=e.id)
-    # `ly_do_so_nguoi` chỉ THỰC SỰ được dùng khi số người dàn cảnh lệch định mức chốt lúc phát
-    # hành (xem `bat_dau()`) — truyền sẵn cho an toàn, vô hại với các test `so_nguoi=1` khớp định mức.
     thuc_thi.bat_dau(
         db, user=admin, cong_viec_id=cv.id,
-        ly_do_so_nguoi="Dàn cảnh test — số người khác định mức chốt lúc phát hành",
     )
     db.refresh(cv)
     return cv

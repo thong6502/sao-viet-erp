@@ -40,11 +40,6 @@ const MAU_META: Record<CanDoiMau, { label: string; cls: string; hint: string }> 
     cls: "khvt-pill--khongro",
     hint: "Chưa quy đổi được về đơn vị kho — hệ thống KHÔNG đoán. Kiểm lại đơn vị của mặt hàng.",
   },
-  ve_muon: {
-    label: "Hàng về muộn",
-    cls: "khvt-pill--vemuon",
-    hint: "Đã đặt mua rồi nhưng hàng về SAU ngày cần. Dời bước tiêu thụ, hoặc hối nhà cung cấp — đừng mua thêm.",
-  },
 };
 
 function metaCua(mau: CanDoiMau): { label: string; cls: string; hint: string } {
@@ -88,19 +83,22 @@ function soGoc(v: number | null | undefined): string {
   return Number(v).toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 }
 
-type FilterType = "all" | "thieu" | "ve_muon" | "khong_ro" | "du";
+type FilterType = "all" | "thieu" | "khong_ro" | "du";
 
 export function VatTuKeHoachView({
   eventTick,
   canDeNghiMua,
   onOpenLsx,
   onSoDo,
+  onSoGiuLau,
   onMoFormMua,
 }: {
   eventTick?: number;
   canDeNghiMua: boolean;
   onOpenLsx?: (id: number) => void;
   onSoDo?: (n: number) => void;
+  /** Badge "giữ lâu" của nút Theo lệnh — server trả kèm bảng cân đối, khỏi gọi `/theo-lenh`. */
+  onSoGiuLau?: (n: number) => void;
   /** Mở form "Tạo yêu cầu mua hàng" ĐÃ ĐIỀN SẴN từ bản nháp server vừa tính.
    *
    *  Bảng này không tự dựng form mua thứ hai: form đã có ở màn Yêu cầu mua hàng, việc ở đây chỉ là
@@ -120,14 +118,17 @@ export function VatTuKeHoachView({
   const [flash, setFlash] = useState<string | null>(null);
   const [selectedNhomId, setSelectedNhomId] = useState<string | null>(null);
 
+  // KHÔNG gửi `chi_thieu` theo chip: năm chip lọc ngay trên bảng đã nạp (`nhomsHienThi`), còn
+  // gửi lên thì mỗi lần bấm chip là chạy lại cả bảng cân đối toàn xưởng — và số trên các chip
+  // khác tụt theo tập đã lọc. Chỉ ô tìm kiếm đi về máy chủ.
   const load = useCallback(() => {
     if (!token) return;
     setErr(null);
     api.keHoachVatTu
-      .canDoi(token, { q: q.trim() || undefined, chi_thieu: filterType === "thieu" })
+      .canDoi(token, { q: q.trim() || undefined })
       .then(setData)
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
-  }, [token, q, filterType]);
+  }, [token, q]);
 
   useEffect(() => {
     const t = setTimeout(load, q ? 250 : 0);
@@ -183,25 +184,25 @@ export function VatTuKeHoachView({
   const nhoms = data?.items ?? [];
   const tongDo = nhoms.reduce((s, n) => s + n.so_dong_do, 0);
   const tongKhongRo = nhoms.reduce((s, n) => s + n.so_dong_khong_ro, 0);
-  const tongVeMuon = nhoms.reduce((s, n) => s + (n.so_dong_ve_muon ?? 0), 0);
 
   const nhomAnToan = useMemo(() => {
-    return nhoms.filter(
-      (n) => n.so_dong_do === 0 && (n.so_dong_ve_muon ?? 0) === 0 && n.so_dong_khong_ro === 0,
-    );
+    return nhoms.filter((n) => n.so_dong_do === 0 && n.so_dong_khong_ro === 0);
   }, [nhoms]);
 
   // Báo ngược số dòng đỏ lên trang cha
   useEffect(() => {
-    if (data && !q.trim() && filterType === "all") {
-      onSoDo?.(tongDo + tongKhongRo + tongVeMuon);
+    if (data && !q.trim()) {
+      onSoDo?.(tongDo + tongKhongRo);
     }
-  }, [data, q, filterType, tongDo, tongKhongRo, tongVeMuon, onSoDo]);
+  }, [data, q, tongDo, tongKhongRo, onSoDo]);
+
+  useEffect(() => {
+    if (data) onSoGiuLau?.(data.so_giu_lau ?? 0);
+  }, [data, onSoGiuLau]);
 
   // Lọc danh sách theo filterType
   const nhomsHienThi = useMemo(() => {
     if (filterType === "thieu") return nhoms.filter((n) => n.so_dong_do > 0);
-    if (filterType === "ve_muon") return nhoms.filter((n) => (n.so_dong_ve_muon ?? 0) > 0);
     if (filterType === "khong_ro") return nhoms.filter((n) => n.so_dong_khong_ro > 0);
     if (filterType === "du") return nhomAnToan;
     return nhoms;
@@ -271,16 +272,17 @@ export function VatTuKeHoachView({
     setDangGui(true);
     try {
       // MỞ FORM, KHÔNG TỰ LẬP PHIẾU (20/08/2026, theo yêu cầu chủ). Cửa `xem-truoc` tính đúng thứ
-      // đường tạo thật sẽ dùng — số lượng đã gộp theo mặt hàng, ngày cần sớm nhất, nội dung kèm
-      // ghi chú ngày của từng lệnh — nhưng KHÔNG ghi gì. Người dùng nhìn thấy phiếu trước khi nó
-      // tồn tại, sửa được số, rồi mới bấm Lưu.
+      // đường tạo thật sẽ dùng — số lượng đã gộp theo mặt hàng, nội dung, lệnh nguồn — nhưng KHÔNG
+      // ghi gì. NGÀY CẦN HÀNG để trống cho người lập tự gõ (18/09/2026: hệ không suy nữa); ngày đó
+      // lưu xong sẽ quay về làm "Ngày cần" của đúng các lệnh đã tick.
       const nhap = await api.keHoachVatTu.xemTruocDeNghiMua(token, dong);
       if (onMoFormMua) {
         onMoFormMua(nhap);
         return;
       }
       // Đường lùi: không sang được màn Yêu cầu mua hàng thì vẫn lập như cũ, đừng để người dùng
-      // bấm xong không thấy gì xảy ra.
+      // bấm xong không thấy gì xảy ra. Không có form để gõ ngày ⇒ server báo "Ngày cần hàng bắt
+      // buộc" — đúng, vì hệ không được tự điền ngày thay người.
       const r = await api.keHoachVatTu.deNghiMua(token, dong);
       setChon(new Set());
       setFlash(
@@ -320,20 +322,6 @@ export function VatTuKeHoachView({
             <span className="khvt-utab__dot" />
             <span>Cần mua ngay</span>
             {tongDo > 0 && <span className="khvt-utab__count khvt-utab__count--do">{num(tongDo)}</span>}
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={filterType === "ve_muon"}
-            className={`khvt-utab khvt-utab--vemuon ${filterType === "ve_muon" ? "is-active" : ""}`}
-            onClick={() => setFilterType("ve_muon")}
-          >
-            <span className="khvt-utab__dot" />
-            <span>Hàng về muộn</span>
-            {tongVeMuon > 0 && (
-              <span className="khvt-utab__count khvt-utab__count--vemuon">{num(tongVeMuon)}</span>
-            )}
           </button>
 
           <button
@@ -484,7 +472,7 @@ export function VatTuKeHoachView({
                   Trạng thái
                 </th>
                 <th scope="col" className="khsx__col--opt" style={{ width: 120 }}>
-                  Hạn đặt
+                  Ngày cần
                 </th>
               </tr>
             </thead>
@@ -496,25 +484,17 @@ export function VatTuKeHoachView({
                 const tongCan = nhom.tong_can ?? 0;
                 const pct = tongCan > 0 ? Math.min(100, Math.round((ton / tongCan) * 100)) : 100;
                 const isThieu = nhom.so_dong_do > 0;
-                const isVeMuon = (nhom.so_dong_ve_muon ?? 0) > 0;
                 const isKhongRo = nhom.so_dong_khong_ro > 0;
-                const isDu = !isThieu && !isVeMuon && !isKhongRo;
+                const isDu = !isThieu && !isKhongRo;
                 // Chỉ bày ở mặt hàng CÒN PHẢI LO — nhóm đã đủ kho mà vẫn đeo mã phiếu thì
                 // cột trạng thái toàn chữ, cái cần đọc chìm mất. Drawer vẫn kê đủ.
                 const vetMua = isDu ? null : tomTatPhieuMua(nhom.phieu_mua);
 
-                // Màu chỉ số độ phủ — bốn trạng thái, nặng nhất thắng:
-                //   đỏ  = thiếu và chưa ai đặt mua ⇒ phải mua ngay
-                //   cam = thiếu nhưng hàng đang trên đường về
+                // Màu chỉ số độ phủ — ba trạng thái, nặng nhất thắng:
+                //   đỏ  = tồn + hàng đang về vẫn thiếu ⇒ phải mua
                 //   vàng = chưa quy đổi được đơn vị ⇒ con số chưa tin được
-                //   xanh = đủ tồn, không phải lo
-                const mauPhu = isThieu
-                  ? "is-deficit"
-                  : isVeMuon
-                    ? "is-onway"
-                    : isKhongRo
-                      ? "is-unknown"
-                      : "is-full";
+                //   xanh = đủ, không phải lo
+                const mauPhu = isThieu ? "is-deficit" : isKhongRo ? "is-unknown" : "is-full";
 
                 // Tính tổng lượng thiếu của cả nhóm
                 const tongThieuNhom = nhom.dong.reduce((s, d) => s + (d.thieu ?? 0), 0);
@@ -523,11 +503,12 @@ export function VatTuKeHoachView({
                 const keysDo = nhom.dong.filter((d) => d.trang_thai === "do").map((d) => khoa(nhom, d));
                 const daTickNhom = keysDo.length > 0 && keysDo.every((k) => chon.has(k));
 
-                // Lấy hạn đặt sớm nhất nếu có
-                const hanDatSomNhat = nhom.dong
-                  .filter((d) => !!d.han_dat)
-                  .map((d) => ({ han: d.han_dat!, datMuon: d.dat_muon }))
-                  .sort((a, b) => a.han.localeCompare(b.han))[0];
+                // Ngày cần SỚM NHẤT của mặt hàng — chỉ có ở lệnh đã lập yêu cầu mua (ngày người lập
+                // gõ). Không lệnh nào đã mua ⇒ trống, hệ không suy.
+                const ngayCanSomNhat = nhom.dong
+                  .map((d) => d.ngay_can)
+                  .filter((v): v is string => !!v)
+                  .sort()[0];
 
                 // Lấy danh sách mã lệnh liên quan (tối đa 2 badge + đếm)
                 const dsLenh = Array.from(new Set(nhom.dong.map((d) => d.ma).filter(Boolean)));
@@ -538,13 +519,7 @@ export function VatTuKeHoachView({
                   <tr
                     key={nhomId}
                     className={`khsx__row khvt-master-row ${
-                      isThieu
-                        ? "khvt-row--thieu"
-                        : isVeMuon
-                          ? "khvt-row--vemuon"
-                          : isKhongRo
-                            ? "khvt-row--khongro"
-                            : ""
+                      isThieu ? "khvt-row--thieu" : isKhongRo ? "khvt-row--khongro" : ""
                     } ${daTickNhom ? "khvt-row--chon" : ""}`}
                     onClick={() => setSelectedNhomId(nhomId)}
                   >
@@ -643,12 +618,7 @@ export function VatTuKeHoachView({
                             <Icon name="ban" size={11} /> {nhom.so_dong_do} dòng thiếu
                           </span>
                         )}
-                        {isVeMuon && !isThieu && (
-                          <span className="khvt-badge khvt-badge--vemuon">
-                            <Icon name="truck" size={11} /> {nhom.so_dong_ve_muon} về muộn
-                          </span>
-                        )}
-                        {isKhongRo && !isThieu && !isVeMuon && (
+                        {isKhongRo && !isThieu && (
                           <span className="khvt-badge khvt-badge--khongro">
                             <Icon name="help" size={11} /> Chưa quy đổi
                           </span>
@@ -678,16 +648,14 @@ export function VatTuKeHoachView({
                       </div>
                     </td>
 
-                    {/* Cột 7: Hạn đặt (Shape Date Badge 6px đồng bộ với Lệnh sử dụng) */}
+                    {/* Cột 7: Ngày cần — lấy từ yêu cầu mua đã lập, trống nếu chưa mua */}
                     <td className="khsx__col--opt">
-                      {hanDatSomNhat ? (
+                      {ngayCanSomNhat ? (
                         <span
-                          className={`khvt-date-badge ${
-                            hanDatSomNhat.datMuon || isVeMuon ? "is-late" : ""
-                          }`}
-                          title={isVeMuon ? `Hạn đặt ${ngay(hanDatSomNhat.han)} (cần dời kế hoạch hoặc hối giao hàng)` : undefined}
+                          className="khvt-date-badge"
+                          title="Ngày cần hàng ghi trên yêu cầu mua đã lập (sớm nhất)"
                         >
-                          <Icon name="clock" size={11} /> {ngay(hanDatSomNhat.han)}
+                          <Icon name="clock" size={11} /> {ngay(ngayCanSomNhat)}
                         </span>
                       ) : (
                         <span className="khvt-date-empty">—</span>
@@ -775,15 +743,8 @@ function VatTuDetailDrawer({
   const tongCan = nhom.tong_can ?? 0;
   const pct = tongCan > 0 ? Math.min(100, Math.round((ton / tongCan) * 100)) : 100;
   const isThieu = nhom.so_dong_do > 0;
-  // Cùng luật màu với bảng: đỏ (phải mua) > cam (đang về) > vàng (chưa quy đổi) > xanh.
-  const mauPhu = isThieu
-    ? "is-deficit"
-    : (nhom.so_dong_ve_muon ?? 0) > 0
-      ? "is-onway"
-      : nhom.so_dong_khong_ro > 0
-        ? "is-unknown"
-        : "is-full";
-  const dongVeMuon = nhom.dong.find((d) => d.trang_thai === "ve_muon");
+  // Cùng luật màu với bảng: đỏ (phải mua) > vàng (chưa quy đổi) > xanh.
+  const mauPhu = isThieu ? "is-deficit" : nhom.so_dong_khong_ro > 0 ? "is-unknown" : "is-full";
   const tag = nhanLoaiHang(nhom);
   const tongThieuNhom = nhom.dong.reduce((s, d) => s + (d.thieu ?? 0), 0);
 
@@ -863,26 +824,6 @@ function VatTuDetailDrawer({
             </div>
           </div>
 
-          {/* Khuyến nghị điều phối cho ca Hàng về muộn */}
-          {dongVeMuon && (
-            <div className="khvt-recommend-box khvt-recommend-box--truck">
-              <div className="khvt-recommend-box__badge khvt-recommend-box__badge--truck">
-                <Icon name="truck" size={16} />
-              </div>
-              <div className="khvt-recommend-box__content">
-                <strong>Khuyến nghị điều phối:</strong> Lô hàng{" "}
-                {dongVeMuon.phieu_ve && (
-                  <>
-                    theo phiếu <b>{dongVeMuon.phieu_ve}</b>{" "}
-                  </>
-                )}
-                dự kiến về ngày <b>{ngay(dongVeMuon.ngay_du_hang)}</b> (sau ngày lệnh cần{" "}
-                {ngay(dongVeMuon.ngay_can)}). Đã có đơn đặt mua, hãy{" "}
-                <span className="khvt-recommend-box__action">dời ngày sản xuất</span> thay vì mua đúp!
-              </div>
-            </div>
-          )}
-
           {/* Phiếu ĐANG CHẠY của món — trả lời "đã có ai lo chưa" trước khi người dùng bấm Mua.
               Bày ĐỦ danh sách (không cắt như trên bảng): drawer là chỗ tra, và hai phiếu cùng số
               lượng nằm cạnh nhau chính là dấu hiệu ai đó đã đề nghị trùng. */}
@@ -937,7 +878,7 @@ function VatTuDetailDrawer({
           <div className="khvt-drawer-breakdown">
             <div className="khvt-drawer-breakdown__head">
               <h3 className="khvt-drawer-breakdown__title">
-                Phân bổ tiêu thụ theo thứ tự ngày cần ({nhom.dong.length} lệnh)
+                Phân bổ tiêu thụ theo thứ tự hạn sản xuất ({nhom.dong.length} lệnh)
               </h3>
               {canDeNghiMua && keysDo.length > 0 && (
                 <label className="khvt-tickall">
@@ -973,9 +914,6 @@ function VatTuDetailDrawer({
                     <th scope="col" style={{ width: 160 }}>
                       Trạng thái
                     </th>
-                    <th scope="col" className="khsx__col--opt" style={{ width: 110 }}>
-                      Hạn đặt
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1002,9 +940,11 @@ function VatTuDetailDrawer({
                           </td>
                         )}
 
-                        <td className={`khvt-cell-date ${d.moc_tam ? "" : classHan(d.ngay_can)}`}>
+                        <td
+                          className={`khvt-cell-date ${classHan(d.ngay_can)}`}
+                          title={d.ngay_can ? "Ngày cần hàng ghi trên yêu cầu mua đã lập" : "Chưa lập yêu cầu mua cho lệnh này"}
+                        >
                           <span className="khvt-date-val">{ngay(d.ngay_can)}</span>
-                          {d.moc_tam && <span className="khvt-tam-badge">mốc tạm</span>}
                         </td>
 
                         <td>
@@ -1024,11 +964,6 @@ function VatTuDetailDrawer({
                             {d.is_rush && <ChipGap />}
                           </div>
                           {d.ten_viec && <div className="khvt-lsx-sub">{d.ten_viec}</div>}
-                          {d.trang_thai === "ve_muon" && (
-                            <div className="khvt-sub-note khvt-sub-note--vemuon">
-                              <Icon name="truck" size={11} /> Về {ngay(d.ngay_du_hang)} · dời bước
-                            </div>
-                          )}
                         </td>
 
                         <td className="khsx-num khvt-num-cell">
@@ -1070,20 +1005,6 @@ function VatTuDetailDrawer({
                             <div className="khsx-warn-inline">
                               <Icon name="help" size={11} /> chưa quy đổi ĐVT
                             </div>
-                          )}
-                        </td>
-
-                        <td className="khsx__col--opt">
-                          {d.han_dat ? (
-                            <div
-                              className={`khvt-date-val ${
-                                d.dat_muon ? "khsx-date--late" : classHan(d.han_dat)
-                              }`}
-                            >
-                              {ngay(d.han_dat)}
-                            </div>
-                          ) : (
-                            <span className="khsx-muted">—</span>
                           )}
                         </td>
                       </tr>

@@ -167,13 +167,21 @@ class ThanhPhamRow(BaseModel):
     # Tên đơn vị cho BẢNG đọc được — router gán, không có trong DB (như `VatTuRow`).
     don_vi_ten: str | None = None
     ghi_chu: str | None = None
-    # CHỦ của thành phẩm + phạm vi dedup. `customer_ten` do router gán, không có trong DB.
+    # KHÁCH ĐẶT LẦN ĐẦU — từ mg 0228 chỉ còn là vết nguồn gốc, không phải chủ. `customer_ma` /
+    # `customer_ten` do service gán (`gan_nguon_goc_thanh_pham`), không có trong bảng này.
     customer_id: int | None = None
+    customer_ma: str | None = None
     customer_ten: str | None = None
     # Đơn ĐẦU TIÊN đặt món này — tra nguồn gốc, KHÔNG phải khoá định danh (xem mg 0204).
+    # `order_no` do service gán: id trần không nói gì với người đọc.
     order_id: int | None = None
+    order_no: str | None = None
     order_line_id: int | None = None
+    # Ảnh minh hoạ — kho gắn lúc lập phiếu nhập (đường `/vat_tu/{id}/anh`, thành phẩm với kho LÀ
+    # "vat_tu"). Màn danh mục chỉ XEM.
+    anh_url: str | None = None
     active: bool
+    created_at: datetime | None = None
     updated_at: datetime | None = None
 
 

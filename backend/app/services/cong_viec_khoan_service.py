@@ -4,22 +4,27 @@ Bảng `piece_rates` vào Cấu hình danh mục ngày 17/08/2026. Thân CRUD (c
 trong CÙNG giao dịch · mã tự sinh · bật/tắt bằng `dat_active`) nằm ở `services/catalog_base`; ở đây
 chỉ còn ba việc bảng này khác 8 danh mục kia:
 
-* `group_name` (nhãn tổ trên dòng) SUY từ `department_id` — client không gửi. Một sự thật một chỗ.
-* Xoá: đơn giá bị `cong_doan_dau_viec.piece_rate_id` trỏ tới bằng ID THẬT, và bị bước lệnh / bài
-  ghép GHIM ảnh chụp (`khoan_json.rate_id`). Còn nơi dùng ⇒ chỉ ngừng dùng, `_blockers` đếm hộ.
+* TỔ là DANH SÁCH (`department_ids`, bảng nối `cong_viec_khoan_to`, 17/09/2026) — một việc làm được
+  ở nhiều tổ, cùng một đơn giá. Tạo mới phải có ít nhất một tổ, tổ phải có thật.
+* Xoá: đơn giá bị MẺ SẢN XUẤT trỏ tới bằng ID THẬT (`san_xuat_batch.piece_rate_id`, 18/09/2026).
+  Còn nơi dùng ⇒ chỉ ngừng dùng, `_blockers` đếm hộ.
 * Đơn vị lưu ĐÚNG chữ nhận được, chỉ cắt khoảng trắng — quyết định 31/07/2026 giữ nguyên: dòng cũ,
   seed và import đều mang đơn vị ngoài danh mục, chặn ở service là khoá luôn đường sửa chúng.
 * VIỆC PHÁT SINH (bảng con `cong_viec_khoan_phat_sinh`, 14/09/2026): ba ô tên · đơn giá · đơn vị,
   kiểm ở `_kiem_viec_phat_sinh`, nhân bản chép theo ở `_anh_chup_nhan_ban`.
+* CÔNG THỨC KHOÁN (`cong_thuc_khoan`, 18/09/2026, mg `0317`) — tab thứ hai của drawer. Soi bằng
+  `kiem_cong_thuc` họ `quy_doi` như mọi ô công thức khác, để câu lỗi là tiếng Việt chứ không 500.
 """
 from __future__ import annotations
 
 from ..models.piece_work import UNIT_KHAC
 from ..repositories.cong_viec_khoan_repo import CongViecKhoanRepository
+from .bien_cong_thuc import LOAI_QUY_DOI
 from .catalog_base import (
     CatalogDuplicate, CatalogError, CatalogInUse, CatalogNotFound, CatalogService,
     CatalogValidationError,
 )
+from .thanh_phan_engine import kiem_cong_thuc
 
 
 class CongViecKhoanError(CatalogError):
@@ -63,19 +68,24 @@ class CongViecKhoanService(CatalogService):
     # -- luật riêng ---------------------------------------------------------------------
 
     def _chuan_hoa(self, data: dict) -> dict:
-        """Cắt khoảng trắng đơn vị + suy `group_name` từ tổ.
+        """Cắt khoảng trắng đơn vị + khử trùng danh sách tổ (giữ thứ tự chọn).
 
-        `group_name` là NHÃN hiển thị, `department_id` là con trỏ. Client chỉ chọn tổ; nhãn lấy tên
-        tổ ĐANG dùng để bảng không mang tên tổ của tháng trước. Tổ không còn tồn tại (id lạ) thì
-        giữ nhãn cũ chứ không ghi đè bằng chuỗi rỗng — `group_name` là cột NOT NULL.
+        `department_ids = None` là VẮNG (giữ nguyên danh sách đang có) — bỏ khoá hẳn để repo không
+        tưởng đó là "xoá hết tổ".
         """
         data = dict(data)
         if "unit" in data:
             data["unit"] = str(data.get("unit") or UNIT_KHAC).strip() or UNIT_KHAC
-        if "department_id" in data:
-            ten_to = self.repo.ten_to(data.get("department_id"))
-            if ten_to:
-                data["group_name"] = ten_to[:40]
+        if "cong_thuc_khoan" in data:
+            # Khoảng trắng thừa làm `if cong_thuc:` ở engine tưởng có khai rồi `safe_eval("  ")` nổ
+            # — cùng luật đang áp cho các ô công thức của màn Công đoạn.
+            data["cong_thuc_khoan"] = (str(data.get("cong_thuc_khoan") or "").strip()) or None
+        if "department_ids" in data:
+            ids = data.get("department_ids")
+            if ids is None:
+                data.pop("department_ids")
+            else:
+                data["department_ids"] = list(dict.fromkeys(int(i) for i in ids if i))
         if isinstance(data.get("viec_phat_sinh"), list):
             # Mã đơn vị hạ chữ thường: danh mục Đơn vị lưu mã thường (`don_vi_do_repo.ma_case`).
             data["viec_phat_sinh"] = [
@@ -88,25 +98,7 @@ class CongViecKhoanService(CatalogService):
     def _validate(self, data: dict, obj=None) -> None:
         if not (data.get("ten") or "").strip():
             raise CongViecKhoanValidationError("Tên công việc không được trống.")
-        # Tổ là bắt buộc khi TẠO MỚI: bảng gom theo tổ, dòng không tổ rơi vào tab "chưa khai" và
-        # không đầu việc nào của lệnh tìm thấy nó. Dòng CŨ chưa gắn tổ vẫn sửa được (obj != None)
-        # — chặn cả đường sửa là khoá luôn cách duy nhất để gắn tổ cho chúng.
-        #
-        # `group_name` ở đây là kết quả của `_chuan_hoa`: rỗng nghĩa là KHÔNG tra ra tên tổ. Nên hai
-        # ca lỗi khác nhau cần hai câu khác nhau — chưa chọn gì, và chọn một id không có thật (form
-        # cầm id cũ của tổ đã xoá). Gộp một câu thì người khai sửa mãi không đúng chỗ.
-        if obj is None and not (data.get("group_name") or "").strip():
-            raise CongViecKhoanValidationError(
-                "Không tìm thấy tổ đã chọn." if data.get("department_id")
-                else "Chưa chọn tổ cho công việc khoán."
-            )
-        # Đường SỬA: chỉ chặn khi người ta ĐỔI SANG một tổ không có thật. Gửi lại đúng tổ cũ thì cho
-        # qua kể cả khi tổ đó đã bị xoá khỏi cây tổ chức — form load ra chính giá trị đang lưu, chặn
-        # cả ca đó là khoá luôn đường sửa tên/đơn giá của dòng ấy (giữ giá trị vốn có).
-        if obj is not None and "department_id" in data:
-            moi = data.get("department_id")
-            if moi and moi != obj.department_id and not self.repo.ten_to(moi):
-                raise CongViecKhoanValidationError("Không tìm thấy tổ đã chọn.")
+        self._kiem_to(data, obj)
         gia = data.get("unit_price")
         if gia is None and obj is None:
             raise CongViecKhoanValidationError("Thiếu đơn giá.")
@@ -114,6 +106,41 @@ class CongViecKhoanService(CatalogService):
             raise CongViecKhoanValidationError("Đơn giá không được âm.")
         if isinstance(data.get("viec_phat_sinh"), list):
             self._kiem_viec_phat_sinh(data["viec_phat_sinh"])
+        if data.get("cong_thuc_khoan"):
+            try:
+                kiem_cong_thuc(data["cong_thuc_khoan"], nhan="Công thức khoán", loai=LOAI_QUY_DOI)
+            except ValueError as e:
+                raise CongViecKhoanValidationError(str(e)) from e
+
+    def _kiem_to(self, data: dict, obj=None) -> None:
+        """Luật chọn TỔ — ít nhất một tổ, và tổ MỚI thêm vào phải có thật.
+
+        Tạo mới thiếu tổ thì chặn: dòng không tổ không đầu việc nào của lệnh tìm thấy. Sửa mà gửi
+        danh sách RỖNG cũng chặn — đó là gỡ hết tổ, việc thành mồ côi; muốn thôi dùng thì Ngừng dùng.
+        Dòng đời cũ chưa có tổ vẫn sửa được tên/đơn giá khi client KHÔNG gửi `department_ids`.
+
+        Tổ không có thật chỉ chặn khi nó là tổ MỚI thêm: form nạp lại đúng danh sách đang lưu, kể cả
+        một tổ đã bị xoá khỏi cây tổ chức — chặn cả ca đó là khoá luôn đường sửa đơn giá của dòng.
+
+        Gỡ tổ KHÔNG bị chặn nữa (18/09/2026): công đoạn thôi khai đầu việc nên chẳng còn định mức
+        nào mồ côi. Tổ hết việc khoán thì cổng "Sẵn sàng lập kế hoạch" của lệnh báo thiếu.
+        """
+        if "department_ids" not in data:
+            if obj is None:
+                raise CongViecKhoanValidationError("Chưa chọn tổ cho công việc khoán.")
+            return
+        ids = data["department_ids"]
+        if not ids:
+            raise CongViecKhoanValidationError("Chưa chọn tổ cho công việc khoán.")
+        cu = set(obj.department_ids) if obj is not None else set()
+        # ⚠️ Cổng "gỡ tổ mà công đoạn còn khai định mức đầu việc này" GỠ 18/09/2026 (mg `0320`):
+        #    công đoạn thôi khai đầu việc nên không còn định mức nào mồ côi được. Hậu quả của việc
+        #    tổ hết việc khoán chuyển sang CỔNG "Sẵn sàng lập kế hoạch" của lệnh
+        #    (`thieu_viec_khoan_to`) — chặn đúng lúc nó gây hại, không chặn ở danh mục.
+        moi = [i for i in ids if i not in cu]
+        co_that = self.repo.to_theo_id(set(moi))
+        if any(i not in co_that for i in moi):
+            raise CongViecKhoanValidationError("Không tìm thấy tổ đã chọn.")
 
     def _kiem_viec_phat_sinh(self, rows: list[dict]) -> None:
         """Luật khai VIỆC PHÁT SINH — đủ ba ô, tên không trùng trong cùng công việc khoán.
@@ -167,6 +194,8 @@ class CongViecKhoanService(CatalogService):
         """Bản sao chép luôn các việc phát sinh — thành dòng MỚI (không id), không dùng chung dòng
         với bản gốc. Ảnh chụp nhật ký mang chúng dưới dạng chữ để so, không dựng lại được."""
         data = super()._anh_chup_nhan_ban(goc)
+        data["department_ids"] = list(goc.department_ids)
+        data["cong_thuc_khoan"] = goc.cong_thuc_khoan
         data["viec_phat_sinh"] = [
             {"ten": v.ten, "don_gia": float(v.don_gia), "don_vi": v.don_vi}
             for v in goc.viec_phat_sinh
@@ -186,5 +215,21 @@ class CongViecKhoanService(CatalogService):
         for o in objs:
             o.don_vi_ten = ten.get(str(getattr(o, "unit", "") or "").strip().lower())
 
+    def gan_to(self, objs: list) -> None:
+        """Điền `tos` (id · mã · tên từng tổ) cho cả trang bằng MỘT truy vấn.
+
+        Tổ đã bị xoá khỏi cây tổ chức vẫn nằm trong danh sách với `ten = None` — màn đánh dấu để
+        người khai tự gỡ, không lặng lẽ bỏ nó đi (bỏ đi rồi bấm Lưu là mất dấu).
+        """
+        tra = self.repo.to_theo_id({i for o in objs for i in o.department_ids})
+        for o in objs:
+            o.tos = []
+            for i in o.department_ids:
+                ma, ten = tra.get(i, (None, None))
+                o.tos.append({"id": i, "ma": ma, "ten": ten})
+
     def dem_theo_to(self, **kw) -> dict[str, int]:
         return self.repo.dem_theo_to(**kw)
+
+    def dem_tong(self, **kw) -> int:
+        return self.repo.dem_tong(**kw)

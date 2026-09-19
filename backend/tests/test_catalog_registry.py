@@ -48,9 +48,10 @@ SCOPELESS_CU = frozenset({
     # ra dropdown Phạm vi, rồi scope `own` bó âm thầm quyền vừa cấp.
     "dm_thanh_pham",
     "ky_thuat_may", "yeu_cau_sua_chua",
-    "ke_hoach_vat_tu", "bai_ghep_2", "xep_lich_2", "phieu_bao_tri",
-    # Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH, không đọc scope lần nào, quyền chép từ `xep_lich_2`.
-    "xep_lich_3",
+    "ke_hoach_vat_tu", "bai_ghep_2", "phieu_bao_tri",
+    # Xếp lịch (bàn cấp LỆNH, 10/09/2026) — không đọc scope lần nào. Khoá đi qua `xep_lich_2` rồi
+    # `xep_lich_3`; 18/09/2026 gộp về đúng `xep_lich`, mg `0314` chép quyền rồi xoá hai khoá cũ.
+    "xep_lich",
     "dm_kcs_tieu_chi",
     # Xe giao hàng (12/09/2026): danh mục biển số dùng chung cả xưởng, không có "xe của tôi".
     "dm_xe",

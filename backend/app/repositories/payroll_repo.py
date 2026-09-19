@@ -14,6 +14,7 @@ from ..models.payroll import (
     DepartmentSalaryComponent,
     EmployeeSalary,
     KhoanChiTieuNgay,
+    KhoanToTruong,
     LatePenaltyBracket,
     PayrollLine,
     PayrollParams,
@@ -138,6 +139,45 @@ class PayrollRepository:
         return m
 
     def delete_chi_tieu_ngay(self, m: KhoanChiTieuNgay) -> None:
+        self.db.delete(m)
+        self.db.commit()
+
+    # --- khoan_to_truong (tổ trưởng ăn thưởng / ăn chia, theo mốc ngày) -----
+
+    def list_to_truong(self, department_id: int) -> list[KhoanToTruong]:
+        """Các mốc của MỘT tổ, mốc MỚI nhất đứng đầu."""
+        return list(self.db.execute(
+            select(KhoanToTruong)
+            .where(KhoanToTruong.department_id == department_id)
+            .order_by(KhoanToTruong.ap_dung_tu.desc(), KhoanToTruong.id.desc())
+        ).scalars())
+
+    def get_to_truong(self, muc_id: int) -> KhoanToTruong | None:
+        return self.db.get(KhoanToTruong, muc_id)
+
+    def get_to_truong_theo_moc(self, department_id: int, ap_dung_tu: date) -> KhoanToTruong | None:
+        return self.db.execute(
+            select(KhoanToTruong).where(
+                KhoanToTruong.department_id == department_id,
+                KhoanToTruong.ap_dung_tu == ap_dung_tu,
+            )
+        ).scalar_one_or_none()
+
+    def create_to_truong(self, **fields) -> KhoanToTruong:
+        m = KhoanToTruong(**fields)
+        self.db.add(m)
+        self.db.commit()
+        self.db.refresh(m)
+        return m
+
+    def update_to_truong(self, m: KhoanToTruong, **fields) -> KhoanToTruong:
+        for k, v in fields.items():
+            setattr(m, k, v)
+        self.db.commit()
+        self.db.refresh(m)
+        return m
+
+    def delete_to_truong(self, m: KhoanToTruong) -> None:
         self.db.delete(m)
         self.db.commit()
 

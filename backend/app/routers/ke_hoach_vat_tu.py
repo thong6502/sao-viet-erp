@@ -94,7 +94,7 @@ def can_doi(
     try:
         bang = svc.can_doi(q=q, chi_thieu=chi_thieu)
         giu.gan_giu_cho_vao_bang(bang)
-        return CanDoiOut(**bang)
+        return CanDoiOut(**bang, so_giu_lau=giu.dem_giu_lau())
     except KeHoachVatTuError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
 
@@ -178,16 +178,9 @@ def _noi_dung_de_nghi(gom: dict, ghi_chu: str | None) -> str:
     Cửa xem-trước và cửa tạo thật phải ra CÙNG một câu chữ. Lệch nhau thì người dùng đọc một đằng
     trên form, hệ ghi một nẻo vào phiếu, mà không ai kiểm được vì hai câu nằm ở hai chỗ.
     """
-    noi_dung = (ghi_chu or "").strip() or (
+    return (ghi_chu or "").strip() or (
         f"Thiếu vật tư cho {gom['related_document_code']} — lập từ bảng cân đối kế hoạch vật tư."
     )
-    # Ngày cần của TỪNG lệnh nối vào cuối nội dung. Yêu cầu chỉ mang MỘT ngày (sớm nhất), nên thiếu
-    # dòng này thì người mua không biết trong lô có lệnh nào cần muộn hơn hay lệnh nào đang gấp —
-    # dễ hối cả đơn cho kịp mốc sớm nhất, hoặc chia đơn nhầm chỗ. Nối cả khi người dùng tự gõ ghi
-    # chú: đây là dữ kiện của hệ, không phải câu chữ thay thế được.
-    if gom.get("ghi_chu_ngay"):
-        noi_dung = f"{noi_dung}\n{gom['ghi_chu_ngay']}"
-    return noi_dung
 
 
 @router.post("/de-nghi-mua/xem-truoc", response_model=DeNghiMuaXemTruocOut)
@@ -200,8 +193,8 @@ def xem_truoc_de_nghi_mua(
 ) -> DeNghiMuaXemTruocOut:
     """Tính BẢN NHÁP của yêu cầu mua — không ghi gì vào cơ sở dữ liệu.
 
-    FE đổ kết quả vào chính form "Tạo yêu cầu mua hàng" (ngày cần · nội dung · từng dòng vật tư đã
-    gộp) để người dùng nhìn, sửa, rồi tự bấm Lưu. Đường tạo thật vẫn là cửa cũ của thu mua
+    FE đổ kết quả vào chính form "Tạo yêu cầu mua hàng" (nội dung · từng dòng vật tư đã gộp · lệnh
+    nguồn) để người dùng nhìn, gõ NGÀY CẦN HÀNG, rồi tự bấm Lưu. Đường tạo thật vẫn là cửa cũ của thu mua
     `POST /api/department-purchase-requests` — ở đây KHÔNG đẻ thêm đường tạo thứ hai.
 
     Vẫn hỏi bit TẠO yêu cầu mua ngay tại cửa chỉ-đọc này: dẫn người không có quyền tới một form mà
@@ -219,9 +212,10 @@ def xem_truoc_de_nghi_mua(
     return DeNghiMuaXemTruocOut(
         related_document_type="lsx",
         related_document_code=gom["related_document_code"],
-        needed_date=gom["needed_date"],
+        needed_date=None,
         noi_dung=_noi_dung_de_nghi(gom, payload.ghi_chu),
         lines=gom["lines"],
+        nguon=gom["nguon"],
     )
 
 
@@ -252,8 +246,10 @@ def de_nghi_mua(
             related_document_type="lsx",
             related_document_code=gom["related_document_code"],
             content=noi_dung,
-            needed_date=gom["needed_date"],
+            # Ngày cần do NGƯỜI gửi lên, không suy — thiếu thì thu mua báo lỗi "bắt buộc".
+            needed_date=payload.needed_date,
             lines=gom["lines"],
+            nguon_lenh=gom["nguon"],
             actor=user,
         )
     except PurchaseForbidden as exc:

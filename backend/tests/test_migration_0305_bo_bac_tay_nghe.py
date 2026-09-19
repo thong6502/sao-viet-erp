@@ -59,13 +59,11 @@ def test_0305_db_trang_khong_no():
 def test_model_va_schema_khong_con_bac():
     import app.models as m
     from app.models.employee import Employee
-    from app.models.san_xuat_phan_bo import SanXuatPhanBoDong
     from app.models.san_xuat_thuc_thi import SanXuatKhoangThamGia
     from app.schemas.employee import EmployeeOut, TransitionIn
 
     assert not hasattr(m, "JobGrade")
     assert not {"job_grade_id", "job_grade", "pay_grade_key"} & set(Employee.__table__.columns.keys())
     assert not {"job_grade_id", "output_coefficient"} & set(SanXuatKhoangThamGia.__table__.columns.keys())
-    assert "he_so_bac" not in SanXuatPhanBoDong.__table__.columns
     assert not {"job_grade_id", "job_grade_name", "job_grade", "pay_grade_key"} & set(EmployeeOut.model_fields)
     assert not {"new_job_grade_id", "new_job_grade"} & set(TransitionIn.model_fields)

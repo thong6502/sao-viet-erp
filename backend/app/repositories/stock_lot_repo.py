@@ -30,6 +30,28 @@ def goc_cua(lot: StockLot) -> int:
     return int(lot.lo_goc_id or lot.id)
 
 
+_NGUON_TRONG = {"lsx_id": None, "lsx_ma": None, "order_id": None, "order_ma": None,
+                "customer_id": None, "khach_hang": None, "don_gia_ban": None, "tu_kcs": False}
+
+
+def _chon_nguon(khoa):
+    """Cột nguồn (dòng yêu cầu → lệnh → đơn → khách), đứng sau cột `khoa` của câu gọi."""
+    return select(
+        khoa, StockRequestLine.lsx_id, StockRequestLine.don_gia_ban,
+        StockRequest.san_xuat_cong_viec_id, Lsx.ma, Order.id, Order.order_no,
+        Customer.id, Customer.name,
+    )
+
+
+def _dong_nguon(r) -> dict:
+    return {
+        "lsx_id": r[1], "lsx_ma": r[4], "order_id": r[5], "order_ma": r[6],
+        "customer_id": r[7], "khach_hang": r[8],
+        "don_gia_ban": int(r[2]) if r[2] is not None else None,
+        "tu_kcs": r[3] is not None,
+    }
+
+
 class StockLotRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -80,11 +102,8 @@ class StockLotRepository:
         goc = {int(i): int(g or i) for i, g in self.db.execute(
             select(StockLot.id, StockLot.lo_goc_id).where(StockLot.id.in_(ids))).all()}
         rows = self.db.execute(
-            select(
-                StockVoucherLine.lot_id, StockRequestLine.lsx_id, StockRequestLine.don_gia_ban,
-                StockRequest.san_xuat_cong_viec_id, Lsx.ma, Order.id, Order.order_no,
-                Customer.id, Customer.name,
-            )
+            _chon_nguon(StockVoucherLine.lot_id)
+            .select_from(StockVoucherLine)
             .join(StockVoucher, StockVoucher.id == StockVoucherLine.voucher_id)
             .join(StockRequestLine, StockRequestLine.id == StockVoucherLine.request_line_id)
             .join(StockRequest, StockRequest.id == StockRequestLine.request_id)
@@ -94,18 +113,25 @@ class StockLotRepository:
             # Chỉ dòng phiếu NHẬP đẻ ra lô — dòng phiếu XUẤT cũng trỏ `lot_id` về lô này.
             .where(StockVoucherLine.lot_id.in_(set(goc.values())), StockVoucher.loai == VOUCHER_NHAP)
         ).all()
-        theo_goc = {
-            int(r[0]): {
-                "lsx_id": r[1], "lsx_ma": r[4], "order_id": r[5], "order_ma": r[6],
-                "customer_id": r[7], "khach_hang": r[8],
-                "don_gia_ban": int(r[2]) if r[2] is not None else None,
-                "tu_kcs": r[3] is not None,
-            }
-            for r in rows
-        }
-        trong = {"lsx_id": None, "lsx_ma": None, "order_id": None, "order_ma": None,
-                 "customer_id": None, "khach_hang": None, "don_gia_ban": None, "tu_kcs": False}
-        return {i: {"lo_goc_id": g, **theo_goc.get(g, trong)} for i, g in goc.items()}
+        theo_goc = {int(r[0]): _dong_nguon(r) for r in rows}
+        return {i: {"lo_goc_id": g, **theo_goc.get(g, _NGUON_TRONG)} for i, g in goc.items()}
+
+    def nguon_dong_yeu_cau(self, request_line_ids) -> dict[int, dict]:
+        """`{request_line_id: nguồn}`, cùng khoá với `nguon_lo` trừ `lo_goc_id` — cho dòng phiếu NHẬP
+        còn nháp: chưa có lô để truy nên đọc thẳng dòng yêu cầu nó ứng. Một câu cho cả tập."""
+        ids = {int(i) for i in request_line_ids if i}
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            _chon_nguon(StockRequestLine.id)
+            .select_from(StockRequestLine)
+            .join(StockRequest, StockRequest.id == StockRequestLine.request_id)
+            .outerjoin(Lsx, Lsx.id == StockRequestLine.lsx_id)
+            .outerjoin(Order, Order.id == Lsx.order_id)
+            .outerjoin(Customer, Customer.id == Order.customer_id)
+            .where(StockRequestLine.id.in_(ids))
+        ).all()
+        return {int(r[0]): _dong_nguon(r) for r in rows}
 
     def create(self, **data) -> StockLot:
         lot = StockLot(**data)

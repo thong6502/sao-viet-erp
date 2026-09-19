@@ -6,30 +6,31 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 
 import { useAuth } from "../../auth/useAuth";
 import { Button } from "../../components/Button";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../../components/DiscardChangesDialog";
 import { useTre } from "../../lib/useTre";
 import { ApiError } from "../../api/client";
 import { crud, type Row } from "../../api/rebuildCatalog";
 import { Drawer } from "./components/Drawer";
 import {
-  BandsField, ChuanBiKhoanField, DinhMucDauViecField, DonViTocDoField, FormulaField,
+  BandsField, ChuanBiKhoanField, DonViTocDoField, FormulaField,
   LichBaoTriField, MayCuaCongDoanField, NhomMayField, NhomMayMultiField, RefMultiField,
   RefSearchField,
-  SelfRefMultiField, ViecPhatSinhField,
+  SelfRefMultiField, ToMultiField, VatTuCongDoanField, ViecPhatSinhField,
 } from "./fields";
 import { goiYMaTiepTheo } from "./maGoiY";
 import { useNapTenDonVi } from "../tenDonVi";
 import { NhatKyTab } from "./nhat-ky/NhatKyTab";
+import { DieuHuongDanhMuc, useDieuHuongDanhMuc } from "./dieuHuong";
+import type { NavigateFn } from "../../components/AppShell";
 import type {
-  BacRow, CatalogConfig, ChuanBiKhoanRow, DinhMucRow, FieldDef, LichBaoTriRow, MayCongDoanRow,
-  ViecPhatSinhRow,
+  BacRow, CatalogConfig, ChuanBiKhoanRow, FieldDef, LichBaoTriRow, MayCongDoanRow,
+  VatTuCongDoanRow, ViecPhatSinhRow,
 } from "./types";
 
 /** Ô mà GIÁ TRỊ là một MẢNG (bảng con / chọn nhiều) — khởi tạo `[]` và gửi lên nguyên mảng. */
 const KIEU_MANG = new Set<string>([
-  "ref-multi", "self-ref-multi", "nhom_may-multi", "bands", "dau-viec-dinh-muc", "may-cua-cong-doan",
-  "viec-phat-sinh",
+  "ref-multi", "self-ref-multi", "nhom_may-multi", "bands", "vat-tu-cong-doan", "may-cua-cong-doan",
+  "viec-phat-sinh", "to-multi",
 ]);
 
 /** Bỏ mục đã NGỪNG DÙNG khỏi một ô chọn — TRỪ mục bản ghi đang trỏ tới; mục đó ở lại, và mang
@@ -66,8 +67,8 @@ function locConDung(rows: Row[], dangChon: unknown, nhan = true): Row[] {
 }
 
 const KIEU_CO_THAM_CHIEU = new Set<string>([
-  "ref", "ref-multi", "self-ref-multi", "ref-search", "ref-search-ma", "dau-viec-dinh-muc",
-  "may-cua-cong-doan", "don_vi_toc_do", "nhom_may", "nhom_may-multi", "viec-phat-sinh",
+  "ref", "ref-multi", "self-ref-multi", "ref-search", "ref-search-ma",
+  "may-cua-cong-doan", "don_vi_toc_do", "nhom_may", "nhom_may-multi", "viec-phat-sinh", "to-multi",
 ]);
 
 /** Danh mục nguồn cần nạp cho các ô chọn của drawer: `{prefix: query}`. Gộp `refParams` theo
@@ -155,23 +156,33 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
   const formMoiNhat = useRef(form);
   formMoiNhat.current = form;
   const [hoiBoThayDoi, setHoiBoThayDoi] = useState(false);
-  /** Ô "Tổ phụ trách" đang chờ xác nhận đổi (null = không có). Chuỗi rỗng LÀ giá trị hợp lệ
-   *  (chọn "— chọn —"), nên phải so `!== null`, đừng so truthy. */
-  const [doiToChoXacNhan, setDoiToChoXacNhan] = useState<string | null>(null);
-  const dangHoi = hoiBoThayDoi || doiToChoXacNhan !== null;
+  // Hộp hỏi "bỏ tổ phụ trách thì bỏ luôn định mức đầu việc?" GỠ 18/09/2026 cùng bảng đầu việc
+  // định mức (mg `0320`): tổ phụ trách không còn kéo theo dòng nào của công đoạn.
+  const dangHoi = hoiBoThayDoi;
 
-  /** Cửa DUY NHẤT để đóng drawer. `Drawer` gom cả ba đường đóng (nút ✕ · bấm ra nền · phím Esc)
-   *  vào `onClose`, nên chặn ở đây là chặn đủ ba. */
-  const yeuCauDong = useCallback(() => {
+  /** Việc chạy khi người dùng chọn "Bỏ thay đổi": đóng drawer, hoặc sang màn khác. */
+  const sauKhiBo = useRef<(() => void) | null>(null);
+  /** Cửa DUY NHẤT để RỜI drawer — đóng, hay bấm mã đơn sang màn khác (`dieuHuong`). Rời màn mà
+   *  không qua đây là mất bản sửa dở không một lời hỏi. */
+  const roiDi = useCallback((di: () => void) => {
     // Esc lúc hộp thoại đang mở: `Drawer` và `ConfirmDialog` cùng nghe trên `document` nên cả hai
     // đều chạy. Không có cửa này thì hộp thoại đóng rồi mở lại ngay — nhìn như phím Esc chết.
     if (dangHoi) return;
     if (JSON.stringify(formMoiNhat.current) !== JSON.stringify(mocBanDau.current)) {
+      sauKhiBo.current = di;
       setHoiBoThayDoi(true);
       return;
     }
-    onClose();
-  }, [dangHoi, onClose]);
+    di();
+  }, [dangHoi]);
+  /** `Drawer` gom cả ba đường đóng (nút ✕ · bấm ra nền · phím Esc) vào `onClose`, nên chặn ở đây
+   *  là chặn đủ ba. */
+  const yeuCauDong = useCallback(() => roiDi(onClose), [roiDi, onClose]);
+  const dieuHuongGoc = useDieuHuongDanhMuc();
+  const dieuHuong = useMemo<NavigateFn | undefined>(
+    () => dieuHuongGoc && ((id, params) => roiDi(() => dieuHuongGoc(id, params))),
+    [dieuHuongGoc, roiDi],
+  );
 
   // Mã gợi ý cho bản ghi MỚI (màn nào để người dùng tự đặt mã). Hỏi xong mới điền, và chỉ điền
   // khi ô mã vẫn còn trống — người khai gõ tay trước thì tôn trọng cái họ gõ.
@@ -214,19 +225,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     if (Object.keys(doi).length) setForm((p) => ({ ...p, ...doi }));
   }, [form, config.fields, isEdit]);
 
-  const setRef = (key: string, value: string) => {
-    if (key !== "department_id" || String(form.department_id ?? "") === value) {
-      set(key, value);
-      return;
-    }
-    const dinhMuc = Array.isArray(form.dau_viec_dinh_muc) ? form.dau_viec_dinh_muc : [];
-    // Đổi tổ là XOÁ SẠCH bảng định mức đã khai — phải hỏi. Hỏi bằng `ConfirmDialog` của hệ chứ
-    // không `window.confirm`: hộp của trình duyệt khoá cả tab, không theo được tông màu/tiếng Việt
-    // của app, và ở Chrome còn có ô "chặn hộp thoại" — tick vào là từ đó về sau đổi tổ mất định
-    // mức KHÔNG một lời cảnh báo nào.
-    if (dinhMuc.length > 0) { setDoiToChoXacNhan(value); return; }
-    setForm((prev) => ({ ...prev, department_id: value, dau_viec_dinh_muc: [] }));
-  };
+  const setRef = (key: string, value: string) => set(key, value);
 
   // Đổ dropdown "chọn theo tên" cho field ref/ref-multi từ danh mục nguồn.
   // Bản đã nhớ thì bày NGAY lần render đầu — đợi tới effect là drawer vẽ một nhịp "#13" trước đã.
@@ -280,7 +279,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
     const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
     const laDonVi = config.prefix.includes("don-vi");
-    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.type === "may-cua-cong-doan" || f.type === "viec-phat-sinh" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "vat-tu-cong-doan" || f.type === "may-cua-cong-doan" || f.type === "viec-phat-sinh" || f.type === "to-multi" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
     const Tag = f.type === "formula" || f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "viec-phat-sinh" ? "div" : "label";
@@ -309,11 +308,8 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             nhomChoPhep={Array.isArray(form.nhom_may_cho_phep) ? form.nhom_may_cho_phep as string[] : []}
             nhomCongDoan={String(form.nhom ?? "")}
             onChange={(v) => set(f.key, v)} />
-        ) : f.type === "dau-viec-dinh-muc" ? (
-          <DinhMucDauViecField value={Array.isArray(form[f.key]) ? form[f.key] as DinhMucRow[] : []}
-            options={optsRef(f)}
-            departmentId={form.department_id ? Number(form.department_id) : null}
-            donViVao={String(form.don_vi_vao ?? "")}
+        ) : f.type === "vat-tu-cong-doan" ? (
+          <VatTuCongDoanField value={Array.isArray(form[f.key]) ? form[f.key] as VatTuCongDoanRow[] : []}
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "select" ? (
           <div className="rc-input-wrapper">
@@ -383,6 +379,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
           <RefMultiField
             value={Array.isArray(form[f.key]) ? (form[f.key] as number[]) : []}
             options={optsRef(f)}
+            onChange={(v) => set(f.key, v)}
+          />
+        ) : f.type === "to-multi" ? (
+          <ToMultiField
+            value={Array.isArray(form[f.key]) ? (form[f.key] as number[]) : []}
+            options={optsRef(f)}
+            nhanDau={f.nhanDau}
             onChange={(v) => set(f.key, v)}
           />
         ) : f.type === "self-ref-multi" ? (
@@ -604,8 +607,12 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
       </label>
     );
 
+    // Khối chỉ đọc bám tab khai ĐẦU (cùng chỗ với ô Mã/Tên), chỉ khi đang sửa — xem `renderChiDoc`.
+    const chiDoc = keoTheoMaTen && isEdit && existing && config.renderChiDoc
+      ? config.renderChiDoc(existing) : null;
+
     if (!hasGroups) {
-      return (
+      const khoi = (
         <section className="rc-card-section" style={{ padding: "16px 20px" }}>
           <div className="rc-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px 16px" }}>
             {keoTheoMaTen && baseFields}
@@ -613,6 +620,9 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
           </div>
         </section>
       );
+      return chiDoc
+        ? <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>{khoi}{chiDoc}</div>
+        : khoi;
     }
 
     const sectionsMap = new Map<string, FieldDef[]>();
@@ -637,11 +647,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             </section>
           );
         })}
+        {chiDoc}
       </div>
     );
   };
 
   return (
+    <DieuHuongDanhMuc.Provider value={dieuHuong}>
     <Drawer
       kicker={isEdit ? "Chỉnh sửa" : "Thêm mới"}
       title={isEdit ? String(existing?.ten) : config.title}
@@ -669,6 +681,14 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
                   className={`rc-drawer__tab${tabKhaiHienTai?.id === t.id && dangOTabKhai ? " is-active" : ""}`}
                   onClick={() => setFormulaTab(t.id)}
                 >
+                  <span className="rc-drawer__tab-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="16" y1="13" x2="8" y2="13"/>
+                      <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                  </span>
                   {t.label}
                 </button>
               )) : (
@@ -677,25 +697,56 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
                   className={`rc-drawer__tab${formulaTab === "info" ? " is-active" : ""}`}
                   onClick={() => setFormulaTab("info")}
                 >
+                  <span className="rc-drawer__tab-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="16" y1="13" x2="8" y2="13"/>
+                      <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                  </span>
                   Khai báo thông tin
                 </button>
               )}
-              {formulaTabs.map((ft) => (
-                <button
-                  key={ft.id}
-                  type="button"
-                  className={`rc-drawer__tab${formulaTab === ft.id ? " is-active" : ""}`}
-                  onClick={() => setFormulaTab(ft.id)}
-                >
-                  {ft.label}
-                </button>
-              ))}
+              {formulaTabs.map((ft) => {
+                const isLocation = ft.label.toLowerCase().includes("vị trí");
+                return (
+                  <button
+                    key={ft.id}
+                    type="button"
+                    className={`rc-drawer__tab${formulaTab === ft.id ? " is-active" : ""}`}
+                    onClick={() => setFormulaTab(ft.id)}
+                  >
+                    <span className="rc-drawer__tab-icon">
+                      {isLocation ? (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                          <circle cx="12" cy="10" r="3"/>
+                        </svg>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="4" y="4" width="16" height="16" rx="2"/>
+                          <line x1="9" y1="9" x2="15" y2="15"/>
+                          <line x1="15" y1="9" x2="9" y2="15"/>
+                        </svg>
+                      )}
+                    </span>
+                    {ft.label}
+                  </button>
+                );
+              })}
               {coNhatKy && (
                 <button
                   type="button"
                   className={`rc-drawer__tab${formulaTab === "nhatky" ? " is-active" : ""}`}
                   onClick={() => setFormulaTab("nhatky")}
                 >
+                  <span className="rc-drawer__tab-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"/>
+                      <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                  </span>
                   Nhật ký
                 </button>
               )}
@@ -730,22 +781,10 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
           thì drawer đóng là chúng biến mất cùng, đúng lúc đang hỏi có nên đóng hay không. */}
       <DiscardChangesDialog
         open={hoiBoThayDoi}
-        onDiscard={() => { setHoiBoThayDoi(false); onClose(); }}
-        onKeepEditing={() => setHoiBoThayDoi(false)}
-      />
-      <ConfirmDialog
-        open={doiToChoXacNhan !== null}
-        title="Đổi tổ phụ trách?"
-        message="Các đầu việc định mức đã chọn sẽ bị bỏ hết — định mức gắn theo tổ, đổi tổ là chúng không còn nghĩa."
-        confirmLabel="Đổi tổ, bỏ định mức"
-        cancelLabel="Giữ nguyên"
-        danger
-        onConfirm={() => {
-          setForm((prev) => ({ ...prev, department_id: doiToChoXacNhan, dau_viec_dinh_muc: [] }));
-          setDoiToChoXacNhan(null);
-        }}
-        onCancel={() => setDoiToChoXacNhan(null)}
+        onDiscard={() => { setHoiBoThayDoi(false); (sauKhiBo.current ?? onClose)(); }}
+        onKeepEditing={() => { setHoiBoThayDoi(false); sauKhiBo.current = null; }}
       />
     </Drawer>
+    </DieuHuongDanhMuc.Provider>
   );
 }

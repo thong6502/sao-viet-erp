@@ -16,7 +16,7 @@ KHÔNG có ở đây, cố ý: nhật ký sửa đổi, phiên bản giá giấy
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import select
 
@@ -25,7 +25,6 @@ from ..models.cong_doan import CongDoan, NHOM
 from ..models.customer import Customer
 from ..models.department import Department
 from ..models.may_thiet_bi import MayThietBi
-from ..models.piece_work import PieceRate
 from ..models.vat_lieu_kho import ChungLoaiGiay, VatTuInAn
 from ..models.xe import MucKhoanKm
 from ..repositories.bu_hao_repo import BuHaoRepository
@@ -116,7 +115,8 @@ TRA_TO = _Tra(Department, "code", "tổ/phòng ban", cot_ten="name", man="Phòng
 TRA_KHACH = _Tra(Customer, "code", "khách hàng", cot_ten="name", man="Khách hàng")
 TRA_BU_HAO = _Tra(BuHao, "ma", "mã bù hao", cot_ten="ten", man="Bù hao")
 TRA_CONG_DOAN = _Tra(CongDoan, "ma", "mã công đoạn", cot_ten="ten", man="Công đoạn")
-TRA_DAU_VIEC = _Tra(PieceRate, "ma", "mã công việc khoán", cot_ten="ten", man="Công việc khoán")
+# ⚠️ `TRA_DAU_VIEC` GỠ 18/09/2026 (mg `0320`): chỉ sheet "Đầu việc định mức" của Công đoạn tra
+#    theo mã công việc khoán, mà sheet đó đã bay cùng bảng `cong_doan_dau_viec`.
 TRA_MAY = _Tra(MayThietBi, "ma", "mã máy", cot_ten="ten", man="Thiết bị & Máy móc")
 # Mức không có cột mã — khoá nghiệp vụ LÀ TÊN ("Xe 2 tấn"), nên tra hai chiều theo `ten`.
 TRA_MUC_KM = _Tra(MucKhoanKm, "ten", "mức khoán km",
@@ -132,6 +132,36 @@ def _cot_to(field: str = "department_id", nhan: str = "Mã tổ", nhan_ten: str 
     return (
         Cot(nhan, field, doc=TRA_TO.doc, ghi=TRA_TO.ghi, nhan_cu=nhan_cu),
         Cot(nhan_ten, field, ghi=TRA_TO.ghi_ten, chi_doc=True, rong=26),
+    )
+
+
+def _doc_nhieu_to(gt: Any, ctx: NguCanh) -> list[int] | None:
+    """Ô "PB015, PB020" (mã hoặc tên tổ) → danh sách id tổ. Trống ⇒ None (giữ nguyên khi cập nhật).
+
+    Thử CẢ Ô trước khi tách: file đời cũ một tổ ghi tên, mà tên tổ có thể chứa dấu phẩy.
+    """
+    if _tach_danh_sach(gt, ctx) == []:
+        return None
+    try:
+        return [TRA_TO.doc(gt, ctx)]
+    except ValueError:
+        return [TRA_TO.doc(t, ctx) for t in _tach_danh_sach(gt, ctx)]
+
+
+def _ghi_nhieu_to(ghi_mot: Callable[[Any, NguCanh], str | None]):
+    """Danh sách id tổ → "a, b". Tổ đã xoá khỏi cây tổ chức thì bỏ — không có mã/tên nào để ghi."""
+    def ghi(ids: Any, ctx: NguCanh) -> str | None:
+        chu = [t for t in (ghi_mot(i, ctx) for i in (ids or [])) if t]
+        return ", ".join(chu) or None
+    return ghi
+
+
+def _cot_nhieu_to(field: str = "department_ids", nhan: str = "Mã tổ", nhan_ten: str = "Tên tổ",
+                  nhan_cu: tuple[str, ...] = ()) -> tuple[Cot, Cot]:
+    """Như `_cot_to` nhưng cho field DANH SÁCH tổ — mỗi ô nhiều mã/tên cách nhau dấu phẩy."""
+    return (
+        Cot(nhan, field, doc=_doc_nhieu_to, ghi=_ghi_nhieu_to(TRA_TO.ghi), nhan_cu=nhan_cu, rong=20),
+        Cot(nhan_ten, field, ghi=_ghi_nhieu_to(TRA_TO.ghi_ten), chi_doc=True, rong=32),
     )
 
 
@@ -249,16 +279,18 @@ CONG_VIEC_KHOAN = CatalogExcelSpec(
     cot=(
         Cot("Mã", "ma"),
         Cot("Tên", "ten", rong=32),
-        # `nhan_cu="Tổ"`: file đời cũ ghi TÊN tổ trong cột "Tổ" — `_Tra` nhận cả tên lẫn mã.
-        *_cot_to(nhan_cu=("Tổ",)),
+        # Một việc làm ở NHIỀU tổ (17/09/2026): ô ghi "PB015, PB020". `nhan_cu="Tổ"`: file đời cũ
+        # ghi TÊN một tổ trong cột "Tổ" — `_Tra` nhận cả tên lẫn mã.
+        *_cot_nhieu_to(nhan_cu=("Tổ",)),
         Cot("Đơn vị", "unit", rong=14),
         Cot("Đơn giá", "unit_price", kieu="so", rong=16),
+        # CÔNG THỨC KHOÁN (mg `0317`) — cách ra TIỀN của việc này khi kế toán tính lương về sau.
+        # Ô chữ thuần, không validate ở tầng Excel: cùng bộ biến với các ô công thức khác nên nếu
+        # gõ sai biến thì engine tính lương báo, còn chặn ở đây là chặn cả bản khai đang làm dở.
+        Cot("Công thức khoán", "cong_thuc_khoan", rong=36),
         Cot("Ghi chú", "note", rong=32),
         CO_ACTIVE,
     ),
-    # `group_name` là NHÃN TỔ do service tự đặt theo `department_id` (`CongViecKhoanIn` cố ý không
-    # có nó). Cho nhập là mở đường để hai cột cùng khai một sự thật rồi lệch nhau.
-    loai_tru=frozenset({"group_name"}),
 )
 
 
@@ -459,68 +491,28 @@ def _doc_nhom(gt: Any, _ctx: NguCanh) -> str:
     return ma
 
 
-def _doc_dau_viec_hien_co(obj, ctx: NguCanh) -> list[dict]:
-    return [
-        {
-            "piece_rate_id": dv.piece_rate_id,
-            "nang_suat_nguoi_gio": float(dv.nang_suat_nguoi_gio),
-            "nang_suat_nguoi_gio_min": (None if dv.nang_suat_nguoi_gio_min is None
-                                        else float(dv.nang_suat_nguoi_gio_min)),
-            "nang_suat_nguoi_gio_max": (None if dv.nang_suat_nguoi_gio_max is None
-                                        else float(dv.nang_suat_nguoi_gio_max)),
-            "don_vi_nang_suat": dv.don_vi_nang_suat,
-            "so_nguoi_tieu_chuan": dv.so_nguoi_tieu_chuan,
-            "cong_thuc_khoan": dv.cong_thuc_khoan,
-            "cong_thuc_gio": dv.cong_thuc_gio,
-        }
-        for dv in (getattr(obj, "dau_viec_dinh_muc", None) or [])
-    ]
+def _giu_vat_tu_cong_doan(obj, _ctx: NguCanh) -> list[dict]:
+    """Vật tư của công đoạn ĐANG CÓ — gán lại khi file KHÔNG có sheet đó (mg `0316`).
 
+    `CongDoanRepository._sau_gan` thay TRỌN bảng `cong_doan_vat_tu` mỗi lần ghi, kể cả khi khoá
+    vắng mặt trong `data`; không gán lại là nhập một file thiếu sheet cũng xoá sạch định mức vật
+    tư của mọi công đoạn. Cùng lý do với `_giu_may_cong_doan`.
 
-def _giu_dau_viec(obj, ctx: NguCanh) -> list[dict]:
-    """Định mức đầu việc ĐANG CÓ, đủ cả `vat_tus` — gán lại khi file KHÔNG có sheet đó.
-
-    `CongDoanRepository._sau_gan` thay TRỌN bảng con mỗi lần ghi, kể cả khi khoá vắng mặt trong
-    `data`; không gán lại là nhập một file thiếu sheet cũng xoá sạch định mức của mọi công đoạn.
+    Thay `_doc_dau_viec_hien_co` · `_giu_dau_viec` · `_doc_vat_tu_dau_viec` ·
+    `_gop_vat_tu_dau_viec` GỠ 18/09/2026 (mg `0320`): vật tư nay treo THẲNG vào công đoạn nên
+    hết cấu trúc hai tầng, không còn gì để `gop_con` ghép lại.
     """
-    ra = _doc_dau_viec_hien_co(obj, ctx)
-    for dong, dv in zip(ra, getattr(obj, "dau_viec_dinh_muc", None) or [], strict=False):
-        dong["vat_tus"] = [{"vat_tu_id": v.vat_tu_id, "cong_thuc_luong": v.cong_thuc_luong}
-                           for v in dv.vat_tus]
-    return ra
+    return [{"vat_tu_id": v.vat_tu_id, "cong_thuc_luong": v.cong_thuc_luong}
+            for v in (getattr(obj, "vat_tus", None) or [])]
 
 
 def _giu_may_cong_doan(obj, _ctx: NguCanh) -> list[dict]:
-    """Máy của công đoạn ĐANG CÓ — cùng lý do với `_giu_dau_viec`: `_sau_gan` cũng thay TRỌN bảng
-    `cong_doan_may`, sheet vắng mà không gán lại là xoá sạch công thức giờ/giá của mọi máy."""
+    """Máy của công đoạn ĐANG CÓ — cùng lý do với `_giu_vat_tu_cong_doan`: `_sau_gan` cũng thay
+    TRỌN bảng `cong_doan_may`, sheet vắng mà không gán lại là xoá sạch công thức giờ/giá của
+    mọi máy."""
     return [{"may_id": m.may_id, "cong_thuc_gio": m.cong_thuc_gio,
              "cong_thuc_gia": m.cong_thuc_gia}
             for m in (getattr(obj, "may_lam_duoc", None) or [])]
-
-
-def _doc_vat_tu_dau_viec(obj, ctx: NguCanh) -> list[dict]:
-    return [
-        {"piece_rate_id": dv.piece_rate_id, "vat_tu_id": vt.vat_tu_id,
-         "cong_thuc_luong": vt.cong_thuc_luong}
-        for dv in (getattr(obj, "dau_viec_dinh_muc", None) or [])
-        for vt in dv.vat_tus
-    ]
-
-
-def _gop_vat_tu_dau_viec(du_lieu: dict, rieng: dict, _ctx: NguCanh) -> None:
-    """Nối sheet "Vật tư đầu việc" vào đúng dòng đầu việc (khoá: mã công việc khoán)."""
-    dong = rieng.get("Vật tư đầu việc")
-    if dong is None:
-        return
-    theo_dv: dict[Any, list[dict]] = {}
-    for r in dong:
-        if r.get("vat_tu_id"):
-            theo_dv.setdefault(r.get("piece_rate_id"), []).append({
-                "vat_tu_id": int(r["vat_tu_id"]),
-                "cong_thuc_luong": (r.get("cong_thuc_luong") or "").strip() or None,
-            })
-    for dv in du_lieu.get("dau_viec_dinh_muc") or []:
-        dv["vat_tus"] = theo_dv.get(dv.get("piece_rate_id"), [])
 
 
 def _cong_doan_truoc_khi_ghi(du_lieu: dict, _ctx: NguCanh, cu) -> dict:
@@ -544,15 +536,13 @@ CONG_DOAN = CatalogExcelSpec(
         Cot("Nhóm", "nhom", doc=_doc_nhom, rong=18),
         Cot("Đơn vị vào", "don_vi_vao", rong=14),
         Cot("Đơn vị ra", "don_vi_ra", rong=14),
-        Cot("Công thức sản lượng", "cong_thuc_san_luong", rong=36),
-        # Đơn vị của số vừa tính ở cột trên (mg `0289`) — mã ở danh mục Đơn vị & quy đổi (`kem`).
-        # Chỉ có nghĩa với bước NGOÀI dòng giấy (hai ô đơn vị chặng để trống).
-        Cot("Đơn vị sản lượng", "don_vi_san_luong", rong=18),
         Cot("Công thức giá", "cong_thuc_gia", rong=36),
         Cot("Kiểu bù hao", "kieu_bu_hao", rong=16),
         Cot("Mã bù hao", "bu_hao_id", doc=TRA_BU_HAO.doc, ghi=TRA_BU_HAO.ghi),
         Cot("Số tờ bù hao", "so_to_bu_hao", kieu="nguyen", rong=16),
-        *_cot_to(nhan="Mã tổ phụ trách", nhan_ten="Tên tổ phụ trách", nhan_cu=("Tổ phụ trách",)),
+        # NHIỀU tổ (mg `0312`): "PB012, PB013" — tổ đầu là mặc định của bước lệnh.
+        *_cot_nhieu_to(nhan="Mã tổ phụ trách", nhan_ten="Tên tổ phụ trách",
+                       nhan_cu=("Tổ phụ trách",)),
         Cot("Khoán ghi theo", "khoan_ghi_theo", rong=18),
         Cot("% hao cho phép", "allowed_defect_pct", kieu="so", rong=16),
         Cot("Số hao cho phép", "allowed_defect_abs", kieu="so", rong=16),
@@ -592,28 +582,16 @@ CONG_DOAN = CatalogExcelSpec(
                 Cot("Đơn giá", "don_gia", kieu="so", rong=16),
             ),
         ),
+        # VẬT TƯ của công đoạn (mg `0316`) — MỘT tầng phẳng, mỗi món một dòng với công thức
+        # định mức riêng. Trước 18/09/2026 chỗ này là hai sheet lồng nhau ("Đầu việc định mức"
+        # + "Vật tư đầu việc" khoá theo mã công việc khoán) vì vật tư treo dưới đầu việc; người
+        # khai phải khai đúng cặp ở hai sheet mới nối được.
         SheetCon(
-            "Đầu việc định mức", field="dau_viec_dinh_muc",
-            cot=(
-                Cot("Mã công việc khoán", "piece_rate_id",
-                    doc=TRA_DAU_VIEC.doc, ghi=TRA_DAU_VIEC.ghi, rong=22),
-                Cot("Năng suất người/giờ", "nang_suat_nguoi_gio", kieu="so", rong=20),
-                Cot("Năng suất tối thiểu", "nang_suat_nguoi_gio_min", kieu="so", rong=20),
-                Cot("Năng suất tối đa", "nang_suat_nguoi_gio_max", kieu="so", rong=20),
-                Cot("Đơn vị năng suất", "don_vi_nang_suat", rong=18),
-                Cot("Số người tiêu chuẩn", "so_nguoi_tieu_chuan", kieu="nguyen", rong=18),
-                Cot("Công thức tính tiền công", "cong_thuc_khoan", rong=36),
-                Cot("Cách đo giờ chạy", "cong_thuc_gio", rong=36),
-            ),
-            doc_hien_co=_doc_dau_viec_hien_co, giu_khi_vang=_giu_dau_viec,
-        ),
-        SheetCon(
-            "Vật tư đầu việc", rieng=True,
-            khoa_phu=(Cot("Mã công việc khoán", "piece_rate_id",
-                          doc=TRA_DAU_VIEC.doc, ghi=TRA_DAU_VIEC.ghi, rong=22),),
-            cot=(Cot("Mã vật tư", "vat_tu_id", doc=TRA_VAT_TU.doc, ghi=TRA_VAT_TU.ghi),
+            "Vật tư công đoạn", field="vat_tus",
+            cot=(Cot("Mã vật tư", "vat_tu_id", doc=TRA_VAT_TU.doc, ghi=TRA_VAT_TU.ghi,
+                     rong=22),
                  Cot("Công thức định mức", "cong_thuc_luong", rong=36)),
-            doc_hien_co=_doc_vat_tu_dau_viec,
+            giu_khi_vang=_giu_vat_tu_cong_doan,
         ),
         SheetCon(
             "Máy của công đoạn", field="may_lam_duoc",
@@ -625,7 +603,6 @@ CONG_DOAN = CatalogExcelSpec(
             giu_khi_vang=_giu_may_cong_doan,
         ),
     ),
-    gop_con=_gop_vat_tu_dau_viec,
     truoc_khi_ghi=_cong_doan_truoc_khi_ghi,
     # Hai ô này KHÔNG có trên màn: `rebuildCatalogConfigs.tsx` luôn ép `theo_san_luong`+`per_other`
     # ("CHỈ TÍNH THEO CÔNG THỨC"). Bày ra Excel là mở lại một cách tính mà UI đã bỏ.

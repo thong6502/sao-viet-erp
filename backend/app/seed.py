@@ -70,15 +70,12 @@ MODULES: list[tuple[str, str]] = [
     # Khoá `bai_ghep` (màn cũ) gỡ 18/08/2026 — mg `0216` chép quyền sang `bai_ghep_2` rồi xoá.
     # Khoá giữ hậu tố "_2" để khỏi phải đổi khoá trong DB; NHÃN là "Bài ghép", đây là màn duy nhất.
     ("bai_ghep_2", "Bài ghép"),
-    # Khoá `xep_lich` (màn cũ) gỡ 19/08/2026 — mg `0219` chép quyền sang `xep_lich_2` rồi xoá.
-    # Khoá giữ hậu tố "_2" để khỏi đổi khoá trong DB; NHÃN là "Xếp lịch công đoạn", màn duy nhất.
-    ("xep_lich_2", "Xếp lịch công đoạn"),
-    # Xếp lịch 3 (10/09/2026) — bàn cấp LỆNH SẢN XUẤT. Khoá RIÊNG chứ không tick thêm bit vào
-    # `xep_lich_2`: hai màn còn chạy song song tới lúc nghiệm thu, tách khoá thì tắt/bật từng màn
-    # theo vai được. mg `0292` chép quyền cho DB đã có dữ liệu; ở đây là đường của DB TRẮNG.
-    # NHÃN "Xếp lịch" (14/09/2026): menu đã gọi màn này là "Xếp lịch", ô quyền phải cùng tên để
-    # người cấp quyền dò theo màn hình. `seed_modules` tự đồng bộ nhãn vào DB lúc khởi động.
-    ("xep_lich_3", "Xếp lịch"),
+    # Xếp lịch — bàn cấp LỆNH SẢN XUẤT, màn xếp lịch DUY NHẤT của hệ.
+    # Ba đời khoá đã đi qua đây: `xep_lich` (màn cũ, gỡ 19/08/2026 — mg `0219`) → `xep_lich_2`
+    # (bàn theo công đoạn, xoá hẳn 18/09/2026) → `xep_lich_3` (bàn cấp lệnh, 10/09/2026). Chủ dự
+    # án chốt 18/09/2026 bỏ đánh số, nên khoá quay về đúng `xep_lich`; mg `0314` chép quyền của
+    # `xep_lich_3` sang rồi xoá cả hai khoá cũ. Ở đây là đường của DB TRẮNG.
+    ("xep_lich", "Xếp lịch"),
     # HAI MÀN CHỈ ĐỌC (31/08/2026). Phạm vi của chúng bám `orders.sale_user_id` — phạm vi của
     # người BÁN — khác hẳn `san_xuat` vốn bám `lsx.nguoi_phu_trach_id` (người LÀM). Đó là lý do
     # phải là hai khoá riêng chứ không tick thêm bit vào `san_xuat`: sửa nghĩa scope của
@@ -464,13 +461,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "theo_doi_san_xuat": _read(SCOPE_ALL),
             "ke_hoach_vat_tu": _rcu(SCOPE_ALL),
             "bai_ghep_2": _rcu(SCOPE_ALL),
-            # can_approve = phát hành lịch; can_approve_exception = duyệt ngoại lệ (bỏ qua cảnh báo
-            # khi phát hành) — trưởng điều độ cầm cả hai. Chỉ `routers/xep_lich_2.py` hỏi tới hai bit
-            # này (trước 17/08/2026 chúng treo nhầm trên khoá `san_xuat`).
-            "xep_lich_2": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
-            # Màn 3 thừa hưởng ĐÚNG quyền của màn 2 (xem mg `0292`) — ai đang xếp
-            # lịch thì mở màn mới ra là dùng được, không phải cấp lại tay.
-            "xep_lich_3": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
+            # can_approve = phát hành lịch. `can_approve_exception` (duyệt ngoại lệ — bỏ qua cảnh
+            # báo lúc phát hành) là di sản của bàn theo công đoạn đã xoá 18/09/2026: bàn cấp lệnh
+            # KHÔNG chặn gì nên không ai hỏi tới bit này nữa. Giữ cấp cho trưởng điều độ để hàng
+            # quyền của vai không hụt so với DB đang chạy (mg `0314` chép y nguyên sang).
+            "xep_lich": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
             # Điều độ XEM phiếu kỹ thuật để biết máy nào sắp/đang nằm mà né khi xếp lịch.
             "ky_thuat_may": _read(SCOPE_ALL),
             "phieu_bao_tri": _read(SCOPE_ALL),
@@ -513,8 +508,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # trên ma trận, đó là quyết định của chủ chốt chứ không phải của seed.
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
-            "xep_lich_2": _read(SCOPE_ALL),
-            "xep_lich_3": _read(SCOPE_ALL),
+            "xep_lich": _read(SCOPE_ALL),
             # Tổ trưởng vẫn cần ĐỌC danh mục máy (đổ danh sách máy ở màn của tổ), không sửa.
             "dm_thiet_bi": _read(SCOPE_ALL),
             # Báo máy hỏng thay cả tổ + sửa lại lời báo của thợ cho rõ trước khi tổ kỹ thuật đọc.
@@ -563,8 +557,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         # bán" — thợ không bán đơn nào nên màn sẽ luôn rỗng. Thợ vào lệnh qua Thực hiện SX.
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
          "ke_hoach_vat_tu": _read(SCOPE_ALL), "bai_ghep_2": _read(SCOPE_ALL),
-         "xep_lich_2": _read(SCOPE_ALL),
-         "xep_lich_3": _read(SCOPE_ALL),
+         "xep_lich": _read(SCOPE_ALL),
          # Thợ đứng máy là người ĐẦU TIÊN biết máy hỏng: cho gửi yêu cầu + sửa lại yêu cầu của
          # mình (khi chưa ai tiếp nhận). `read` để trống mắt thấy người khác đã báo cùng cái máy
          # đó chưa — không có nó thì mỗi ca lại đẻ một yêu cầu trùng.
@@ -580,8 +573,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
          # Scope rộng hơn giữa `san_xuat` (all, không có `don_hang_ban`) = all.
          "lenh_san_xuat": _read(SCOPE_ALL), "theo_doi_san_xuat": _read(SCOPE_ALL),
          "ke_hoach_vat_tu": _read(SCOPE_ALL), "bai_ghep_2": _read(SCOPE_ALL),
-         "xep_lich_2": _read(SCOPE_ALL),
-         "xep_lich_3": _read(SCOPE_ALL),
+         "xep_lich": _read(SCOPE_ALL),
          "yeu_cau_sua_chua": _rcu(SCOPE_ALL),  # soi ra máy chạy sai thì báo ngay tại chỗ
          "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self(),
          "cham_cong": _cham_cong_self()},
@@ -675,8 +667,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # nhất — bảng cân đối nói hôm nào phải có giấy gì, đúng việc của người giữ kho.
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
-            "xep_lich_2": _read(SCOPE_ALL),
-            "xep_lich_3": _read(SCOPE_ALL),
+            "xep_lich": _read(SCOPE_ALL),
             # Kho là nơi phát hiện tồn chạm ngưỡng ⇒ nơi đề nghị mua bù.
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
@@ -699,8 +690,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "theo_doi_san_xuat": _read(SCOPE_ALL),
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
-            "xep_lich_2": _read(SCOPE_ALL),
-            "xep_lich_3": _read(SCOPE_ALL),
+            "xep_lich": _read(SCOPE_ALL),
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
     ),
@@ -792,8 +782,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "theo_doi_san_xuat": _read(SCOPE_ALL),
             "ke_hoach_vat_tu": _rcu(SCOPE_ALL),
             "bai_ghep_2": _rcu(SCOPE_ALL),
-            "xep_lich_2": _rcu(SCOPE_ALL),
-            "xep_lich_3": _rcu(SCOPE_ALL),
+            "xep_lich": _rcu(SCOPE_ALL),
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_OWN),
         },
     ),
@@ -812,8 +801,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "theo_doi_san_xuat": _read(SCOPE_ALL),
             "ke_hoach_vat_tu": _full(SCOPE_ALL),
             "bai_ghep_2": _full(SCOPE_ALL),
-            "xep_lich_2": _full(SCOPE_ALL),
-            "xep_lich_3": _full(SCOPE_ALL),
+            "xep_lich": _full(SCOPE_ALL),
             # Quản lý XEM được phiếu sửa chữa / bảo trì (máy nào đang nằm, ai đang sửa) nhưng KHÔNG
             # nhập hộ — nhập hộ là mở đường cho phiếu ghi sai người làm.
             "ky_thuat_may": _read(SCOPE_ALL),
@@ -2382,8 +2370,8 @@ def seed_san_xuat_org(db: Session) -> None:
 
     # 4) Gắn công đoạn → tổ (chỉ set khi chưa gắn hoặc đang trỏ chung phòng "Sản xuất").
     for cd in db.execute(select(CongDoan)).scalars():
-        if cd.department_id in (None, sx.id):
-            cd.department_id = _to_for_cd(cd).id
+        if cd.department_ids in ([], [sx.id]):
+            cd.department_ids = [_to_for_cd(cd).id]
 
     # 5) Chuyển thợ demo từ HCNS về đúng tổ (theo chức danh). Chỉ đụng "thợ", và chỉ người CHƯA
     # thuộc tổ nào của khối SX — ai đã được xếp tổ (seeder cũ hay người dùng xếp tay) thì để yên,
@@ -2548,7 +2536,7 @@ def seed_nhan_su_to_san_xuat(db: Session) -> None:
     """Bù hồ sơ nhân sự cho SÁU TỔ khối Sản xuất cho ĐỦ 10 người/tổ (SEED_DEMO).
 
     Vì sao cần: `seed_san_xuat_accounts` chỉ đẻ 1 tổ trưởng + 2 thợ mỗi tổ — vừa đủ để đăng nhập
-    xem luồng, nhưng mọi màn đọc quân số (hộp việc của tổ, đỉnh quân số ở Xếp lịch 2, chấm công,
+    xem luồng, nhưng mọi màn đọc quân số (hộp việc của tổ, đỉnh quân số ở bàn Xếp lịch, chấm công,
     khoán) nhìn vào thì tổ nào cũng lèo tèo 3 người. Hàm này thêm thợ có hồ sơ ĐẦY ĐỦ: chức danh ·
     ca mặc định · CCCD/BHXH/thuế/ngân hàng · quá trình công tác — đúng những ô màn
     Nhân sự bày ra.

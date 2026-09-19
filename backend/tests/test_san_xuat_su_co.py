@@ -94,7 +94,6 @@ def _mot_cong_viec(
     if chay:
         thuc_thi.bat_dau(
             db, user=admin, cong_viec_id=cv.id,
-            ly_do_so_nguoi="Dàn cảnh test — số người khác định mức chốt lúc phát hành",
         )
     db.refresh(cv)
     return cv

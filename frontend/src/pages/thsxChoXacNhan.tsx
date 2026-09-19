@@ -1,5 +1,5 @@
 // VIỆC CHỜ TỔ BẤM trên bàn tổ (spec §11.5) — bàn giao đến chờ nhận · hỗ trợ chéo chờ bên tổ mình ·
-// lỗi KCS chưa "Đã xem". Không còn hộp riêng đầu trang: mỗi việc gắn vào CÔNG ĐOẠN của nó — chấm đỏ
+// lỗi KCS tổ chưa xem (mở tab KCS là xem). Không còn hộp riêng đầu trang: mỗi việc gắn vào CÔNG ĐOẠN của nó — chấm đỏ
 // trên dòng công đoạn, trên đầu lệnh và trên tab ngăn chi tiết nơi bấm. Chấm nghĩa là "còn việc chờ
 // bấm", không phải "chưa đọc": xác nhận / đã xem xong là tự tắt, không cần lưu trạng thái đã đọc.
 //

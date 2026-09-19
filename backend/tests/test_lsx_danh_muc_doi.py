@@ -6,67 +6,50 @@ chúng thay vì đọc ngược qua một lệnh 5 bước.
 """
 from __future__ import annotations
 
-from app.services.lsx_danh_muc_doi import khoan_lech, vat_tu_lech
+from app.services.lsx_danh_muc_doi import o_lech, vat_tu_lech
+
+# Bộ ô băng "Danh mục đã đổi" của MẺ (§7.2b) — nửa khoán của bước lệnh (`khoan_lech`) gỡ 18/09/2026,
+# ba luật so thuần dưới đây giờ đứng sau băng mẻ.
+_O_ME = (("ten", "Tên việc"), ("don_vi", "Đơn vị"), ("don_gia", "Đơn giá"))
 
 
-# --- ảnh chụp khoán -----------------------------------------------------------
-def test_khoan_khong_lech_thi_khong_bao_gi():
-    kh = {"rate_id": 7, "ten": "Dán thường", "don_vi": "cái", "nang_suat_nguoi_gio": 1000}
-    assert khoan_lech(kh, dict(kh)) == []
+# --- phép so ô ---------------------------------------------------------------
+def test_khong_lech_thi_khong_bao_gi():
+    kh = {"ten": "Dán thường", "don_vi": "cái", "don_gia": 1000}
+    assert o_lech(kh, dict(kh), _O_ME) == []
 
 
-def test_KHONG_so_cac_o_TIEN_nua():
-    """⭐ Ô tiền ra khỏi bộ so 11/09/2026 — cùng lúc ảnh chụp thôi mang giá.
-
-    Để lại `don_gia`/`cong_thuc` trong bộ so thì mọi lệnh bung TRƯỚC ngày ấy (ảnh chụp cũ có giá)
-    báo lệch giả "250 → —" ngay lần mở đầu, và không cách nào tắt ngoài bấm Cập nhật. Băng vàng hiện
-    thường trực là băng bị bỏ qua.
-    """
-    cu = {"ten": "Dán thường", "don_gia": 250, "cong_thuc": "sl_ra",
-          "nang_suat_nguoi_gio": 1000}
-    moi = {"ten": "Dán thường", "nang_suat_nguoi_gio": 1000}
-    assert khoan_lech(cu, moi) == []
+def test_chi_so_dung_bo_o_noi_goi_truyen_vao():
+    """Ô ngoài bộ so (ghi chú, mã…) đổi thế nào cũng không lên băng."""
+    assert o_lech({"ten": "A", "ghi_chu": "x"}, {"ten": "A", "ghi_chu": "y"}, _O_ME) == []
 
 
 def test_rong_va_thieu_khoa_la_MOT_THU():
-    """`khoan_snapshot` VẮNG hẳn khoá `cong_thuc_gio` khi đầu việc không có định mức, ảnh chụp cũ
-    lại có khoá ấy
-    mang chuỗi rỗng. Không quy về một dạng thì MỌI bước cũ đều báo lệch giả — băng mất uy tín ngay
-    lần đầu bật lên."""
-    assert khoan_lech({"cong_thuc_gio": "", "ten": "A"}, {"ten": "A"}) == []
-    assert khoan_lech({"cong_thuc_gio": "   ", "ten": "A"},
-                      {"cong_thuc_gio": None, "ten": "A"}) == []
+    """Ảnh chụp cũ mang chuỗi rỗng, bản mới VẮNG hẳn khoá — không quy về một dạng thì mọi bản ghi
+    cũ đều báo lệch giả, băng mất uy tín ngay lần đầu bật lên."""
+    assert o_lech({"don_vi": "", "ten": "A"}, {"ten": "A"}, _O_ME) == []
+    assert o_lech({"don_vi": "   ", "ten": "A"}, {"don_vi": None, "ten": "A"}, _O_ME) == []
 
 
 def test_lech_so_thuc_o_chu_so_cuoi_KHONG_tinh_la_doi():
     """Hai đường tính khác nhau lệch nhau ở chữ số cuối là chuyện thường; báo "600 → 600" thì
     người dùng thôi tin cái băng."""
-    ns = "nang_suat_nguoi_gio"
-    assert khoan_lech({ns: 600.0}, {ns: 600.0 + 1e-12}) == []
-    assert [x["truong"] for x in khoan_lech({ns: 600}, {ns: 601})] == [ns]
+    assert o_lech({"don_gia": 600.0}, {"don_gia": 600.0 + 1e-12}, _O_ME) == []
+    assert [x["truong"] for x in o_lech({"don_gia": 600}, {"don_gia": 601}, _O_ME)] == ["don_gia"]
 
 
 def test_bao_dich_danh_o_nao_kem_nhan_doc_duoc():
-    lech = khoan_lech({"nang_suat_nguoi_gio": 250, "so_nguoi_tieu_chuan": 2},
-                      {"nang_suat_nguoi_gio": 400, "so_nguoi_tieu_chuan": 3})
+    lech = o_lech({"don_gia": 250.0, "ten": "Bế"}, {"don_gia": 400, "ten": "Bế hộp"}, _O_ME)
     theo_truong = {x["truong"]: x for x in lech}
-    assert theo_truong["nang_suat_nguoi_gio"]["nhan"] == "Năng suất người-giờ"
-    assert (theo_truong["nang_suat_nguoi_gio"]["cu"],
-            theo_truong["nang_suat_nguoi_gio"]["moi"]) == ("250", "400")
-    assert theo_truong["so_nguoi_tieu_chuan"]["nhan"] == "Kíp chuẩn"
-
-
-def test_cong_thuc_hien_ra_CHU_chu_khong_bay_ma_bien():
-    """Người lập kế hoạch đọc băng này để QUYẾT, không phải để debug — bày `sl_vao * don_gia` ra
-    thì họ không biết mình đang đồng ý với cái gì."""
-    [x] = khoan_lech({"cong_thuc_gio": "sl_vao"}, {"cong_thuc_gio": "sl_ra"})
-    assert "sl_vao" not in (x["cu"] or "") and "sl_ra" not in (x["moi"] or "")
-    assert x["cu"] and x["moi"] and x["cu"] != x["moi"]
+    assert theo_truong["don_gia"]["nhan"] == "Đơn giá"
+    # 250.0 bày thành 250 — con số người vừa gõ, không phải thứ máy sinh.
+    assert (theo_truong["don_gia"]["cu"], theo_truong["don_gia"]["moi"]) == ("250", "400")
+    assert (theo_truong["ten"]["cu"], theo_truong["ten"]["moi"]) == ("Bế", "Bế hộp")
 
 
 def test_o_bo_trong_tra_None_de_FE_ve_dau_gach():
-    [x] = khoan_lech({"nang_suat_nguoi_gio": 250}, {"nang_suat_nguoi_gio": None})
-    assert x["cu"] == "250" and x["moi"] is None
+    [x] = o_lech({"don_vi": "tờ"}, {"don_vi": None}, _O_ME)
+    assert x["cu"] == "tờ" and x["moi"] is None
 
 
 # --- dòng vật tư --------------------------------------------------------------

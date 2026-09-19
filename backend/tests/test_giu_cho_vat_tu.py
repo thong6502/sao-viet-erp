@@ -689,6 +689,8 @@ def test_giu_qua_NGUONG_ma_chua_xep_lich_thi_noi_len(db, svc, customer):
     assert row["giu_lau_chua_chay"] is True
     assert row["so_ngay_giu"] >= NGUONG_GIU_LAU_NGAY
     assert kq["so_giu_lau"] == 1
+    # Bản đếm đi kèm `/can-doi` (không dựng bảng cân đối) phải ra đúng con số của `/theo-lenh`.
+    assert svc.dem_giu_lau() == 1
 
 
 def test_nhat_them_khi_hang_ve_KHONG_reset_dong_ho_giu_lau(db, svc, customer):
@@ -707,6 +709,7 @@ def test_nhat_them_khi_hang_ve_KHONG_reset_dong_ho_giu_lau(db, svc, customer):
 
     assert _the(svc, a.id)["giu_lau_chua_chay"] is True, \
         "bù hàng không được xoá dấu vết đã giữ từ tuần trước"
+    assert svc.dem_giu_lau() == 1, "bản đếm cho badge cũng phải lấy dòng giữ CŨ NHẤT"
 
 
 def test_da_dua_vao_ke_hoach_thi_KHONG_con_la_giu_lau(db, svc, customer):
@@ -726,6 +729,7 @@ def test_da_dua_vao_ke_hoach_thi_KHONG_con_la_giu_lau(db, svc, customer):
     row = _the(svc, a.id)
     assert row["da_xep_lich"] is True
     assert row["giu_lau_chua_chay"] is False
+    assert svc.dem_giu_lau() == 0
 
 
 def test_lenh_ROI_KHOI_pham_vi_van_hien_de_con_duong_NHA(db, svc, customer):
@@ -754,6 +758,27 @@ def test_lenh_ROI_KHOI_pham_vi_van_hien_de_con_duong_NHA(db, svc, customer):
     assert giay[0]["hang_ten"], "tên mặt hàng phải tra được dù lệnh đã rơi khỏi bảng"
     assert svc.ton_tu_do([_giay_hang(g)])[_giay_hang(g)] == pytest.approx(tu_do_truoc), \
         "rơi khỏi bảng KHÔNG tự nhả — đó chính là lý do phải bày ra"
+
+
+def test_dem_giu_lau_tinh_ca_lenh_da_ROI_KHOI_bang(db, svc, customer):
+    """Badge "giữ lâu" đếm không cần bảng cân đối — nhưng vẫn phải thấy lệnh đã rơi khỏi bảng.
+
+    Chỗ giữ của lệnh bị kéo về nháp là chỗ giữ tệ nhất (không ai dùng mà vẫn khoá tồn). Bản đếm
+    duyệt theo DÒNG GIỮ CHỖ chứ không theo bảng, nên phải ra đúng số của `theo_chu_the`.
+    """
+    from app.models.lsx import TT_NHAP
+    from app.services.giu_cho_service import NGUONG_GIU_LAU_NGAY
+
+    g = _giay(db)
+    _ton(db, _giay_hang(g), 100)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    svc.bat(lsx_id=a.id)
+    _lui_ngay_giu(db, so_ngay=NGUONG_GIU_LAU_NGAY + 2)
+    db.get(Lsx, a.id).trang_thai = TT_NHAP
+    db.commit()
+
+    assert svc.theo_chu_the()["so_giu_lau"] == 1
+    assert svc.dem_giu_lau() == 1
 
 
 # ================== CỬA API ==================
@@ -1197,7 +1222,7 @@ def test_trang_thai_tach_da_giu_kho_va_dang_ve(db, svc, kh, customer):
 
 def test_giu_theo_chu_the_hang_co_the_giu_roi_thanh_da_giu(db, svc, kh, customer):
     """Chưa bật giữ chỗ nhưng tồn đủ ⇒ `co_the_giu` (chưa giữ, biết là giữ được). Bật xong ⇒
-    `da_giu`. Không tồn/không đủ để giữ ⇒ vẫn `thieu`/`ve_muon`/`khong_ro` như can_doi() gốc."""
+    `da_giu`. Không tồn/không đủ để giữ ⇒ vẫn `thieu`/`khong_ro` như can_doi() gốc."""
     g = _giay(db)
     _ton(db, _giay_hang(g), 100)
     a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg

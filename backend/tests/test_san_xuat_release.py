@@ -248,8 +248,8 @@ def test_dung_diem_toa_sinh_canh_theo_so_con(db, orders, lsx_svc, bg_svc, admin,
     for lsx in (a, b):
         db.add(LsxCongDoan(
             lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
-            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000, nang_suat=3000,
-            don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
+            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000,
+            don_vi_vao="to", don_vi_ra="to",
         ))
     db.commit()
     _nha_cho(db, [a.id, b.id])
@@ -404,37 +404,20 @@ def test_phat_hanh_chup_khuon_va_nha_gia_cong(db, orders, lsx_svc, admin, custom
     assert cvs[ngoai.step_key].nha_cung_cap == "Cơ sở Minh Phát"
 
 
-def test_phat_hanh_khong_ghim_bat_ky_o_tien_nao_vao_cong_viec(
+def test_phat_hanh_khong_mang_dau_viec_hay_tien_vao_cong_viec(
     db, orders, lsx_svc, admin, customer,
 ):
-    """⭐ Phát hành KHÔNG đóng băng đơn giá nào vào công việc (11/09/2026).
+    """⭐ Công việc phát hành KHÔNG mang ảnh chụp khoán nào (18/09/2026, mg `0320`).
 
-    Trước đó bước khai ô tiền công bằng công thức RA TIỀN được gắn thêm `don_gia_hd` (đơn giá hiệu
-    dụng) để tầng phân bổ nhân với sản lượng từng người. Cả cơ chế ấy đã gỡ: sản xuất ghi SỐ LƯỢNG,
-    kế toán lương đổi ra tiền. Bài này canh cho khoá đó khỏi mọc lại.
-
-    Ảnh chụp của bước đi qua NGUYÊN VẸN — kể cả ảnh chụp KIỂU CŨ còn khoá tiền như ở đây (JSON
-    không migrate): phát hành không thêm, không bớt khoá nào.
+    Trước đó bước lệnh ghim đầu việc (`khoan_json`) rồi phát hành chép nguyên xuống công việc. Bước
+    thôi chọn việc khoán — thợ chọn LÚC GHI MẺ ở bàn tổ, mẻ mới là chỗ chụp tên · ĐVT · đơn giá.
+    Bài này canh cho cột ấy (và `don_gia_hd` gỡ 11/09) khỏi mọc lại trên công việc.
     """
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    steps = _steps(db, a.id)
-    tien = _them_buoc(db, a.id, thu_tu=97, ten="Bế hộp",
-                      department_id=steps[0].department_id)
-    tien.khoan_json = {"rate_id": 7, "ten": "Bế hộp bánh",
-                       "don_gia": 40, "don_vi": "nhịp",
-                       "cong_thuc": "50000 + don_gia_khoan * sl_ra"}
-    luong = _them_buoc(db, a.id, thu_tu=98, ten="Dán hộp",
-                       department_id=steps[0].department_id)
-    luong.khoan_json = {"rate_id": 8, "ten": "Dán hộp"}
-    db.flush()
-
     goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
     db.commit()
-    cvs = {cv.step_key: cv for cv in
-           db.query(SanXuatCongViec).filter_by(goi_id=goi.id, lsx_id=a.id).all()}
+    cvs = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, lsx_id=a.id).all()
 
-    assert "don_gia_hd" not in cvs[tien.step_key].khoan_json
-    assert cvs[tien.step_key].khoan_json == tien.khoan_json
-    # Đầu việc kế hoạch đã chọn vẫn theo bước vào sản xuất — đó là TÊN việc cho kế toán lương.
-    assert cvs[luong.step_key].khoan_json["rate_id"] == 8
-    assert cvs[luong.step_key].khoan_json["ten"] == "Dán hộp"
+    assert cvs
+    for cv in cvs:
+        assert not hasattr(cv, "khoan_json") and not hasattr(cv, "don_gia_hd")

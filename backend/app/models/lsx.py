@@ -20,8 +20,8 @@ from datetime import date, datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint,
-    false as sa_false, true as sa_true,
+    Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text,
+    UniqueConstraint, desc, false as sa_false, true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -69,7 +69,7 @@ LB_TO = "to"                   # chiếm TỔ lao động (dán tay, đóng gói
 LB_THUE_NGOAI = "thue_ngoai"   # nhà gia công làm — máy của họ khai trong danh mục Máy; nhập
                                # liệu Y HỆT bước máy, chỉ KHÔNG sinh tiền khoán / sản lượng tổ
 LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI)
-# Bước chiếm tổ (nhiều người làm song song được → `so_nhan_cong_tieu_chuan` chia thời gian chạy).
+# Bước chiếm tổ — thời lượng là `so_gio_ke_hoach` người lập kế hoạch gõ tay (18/09/2026).
 LOAI_BUOC_THEO_TO = (LB_TO,)
 
 # Nhãn TẠM của bước chưa đặt tên và chưa gắn công đoạn. Cột `lsx_cong_doan.ten` NOT NULL nên phải
@@ -90,6 +90,22 @@ def _utcnow() -> datetime:
 
 class Lsx(Base):
     __tablename__ = "lsx"
+    # Hai index sắp xếp của BẢNG LỆNH (rà 18/09/2026). Chúng THAY THẾ `ix_lsx_created_at` và
+    # `ix_lsx_trang_thai_created_at` của mg 0217 — xem mg `0315_index_bang_lenh`, chỗ đó xoá hai
+    # cái cũ đi. Khác biệt duy nhất là cột `id DESC` ở cuối, và nó không thừa: màn Kế hoạch SX
+    # sắp xếp bằng `ORDER BY created_at DESC, id DESC`; index chỉ có `created_at DESC` thì
+    # Postgres vẫn phải chèn Incremental Sort để phá hoà trong nhóm cùng giây — lệnh sinh theo lô
+    # nên hoà rất nhiều. Đo trên Postgres thật 300.000 dòng: lật tới trang 200 (`OFFSET 9950`)
+    # 9,5 ms → 2,4 ms; cắt trang đầu 3,1 ms → 1,6 ms.
+    #   · `ix_lsx_sap_xep`      : tab "Tất cả" + mọi lượt không lọc trạng thái.
+    #   · `ix_lsx_trang_thai_sx`: tab đã lọc (`trang_thai IN (...)`).
+    # Thứ tự cột phải khớp `ORDER BY` (cùng DESC) thì Postgres mới đọc thẳng, khỏi bước sort.
+    # Ô tìm kiếm là chuyện khác: `ILIKE '%…%'` không dùng được btree, phần đó do hai index
+    # trigram `ix_lsx_ma_trgm` / `ix_lsx_ten_trgm` của mg 0217 lo (chỉ Postgres, cần `pg_trgm`).
+    __table_args__ = (
+        Index("ix_lsx_sap_xep", desc("created_at"), desc("id")),
+        Index("ix_lsx_trang_thai_sx", "trang_thai", desc("created_at"), desc("id")),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)  # LSX26-0001
@@ -269,11 +285,9 @@ class LsxCongDoan(Base):
     # `chiếm máy` = setup + chạy + vệ sinh (ăn capacity). `chờ`/`di chuyển` CHỈ đẩy thời gian, không
     # ăn capacity — đúng BC: "wait time and move time don't consume capacity on the work center".
     setup_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
-    nang_suat: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
-    # String(32): đơn vị năng suất của bước TỔ nay là mã người khai chọn ở định mức đầu việc
-    # (`ban_proof_gio` dài 13) chứ không chỉ ba mã suy ra `to_gio`/`cai_gio`/`kem_gio`. SQLite bỏ
-    # qua độ dài nên test không bắt được — chỉ Postgres thật mới lỗi lúc lưu (migration 0159).
-    don_vi_nang_suat: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # ⚠️ `nang_suat` + `don_vi_nang_suat` GỠ 18/09/2026 (mg `0321`): hai cột này CHÉP từ định mức
+    # đầu việc của công đoạn, mà đầu việc đã gỡ ⇒ không còn ai nuôi chúng. Bước MÁY vẫn lấy tốc độ
+    # đọc SỐNG từ danh mục Máy (không qua cột nào ở đây), bước TỔ nay gõ `so_gio_ke_hoach`.
     # Người kế hoạch gõ đè thời gian chạy → thắng công thức năng suất. NULL = để máy tính.
     chay_phut: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     # DORMANT 2026-08-04 — vệ sinh/rửa mực bỏ khỏi hệ: bước mới luôn 0, engine thôi cộng.
@@ -282,22 +296,25 @@ class LsxCongDoan(Base):
     # cộng THẲNG vào thời gian chiếm máy. Chuẩn bị/tốc độ nay kế thừa từ máy, không sửa tại bước.
     phat_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     di_chuyen_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
-    # Kíp CHUẨN chụp từ công đoạn lúc bung/chọn đầu việc — kế thừa là MẶC ĐỊNH, sửa được tại bước.
-    # Bước tổ chia thời lượng cho số này; bàn tổ đóng băng nó lúc phát hành để đối chiếu điểm danh.
-    # Hai mốc tối thiểu/tối đa ĐÃ GỠ 06/09/2026 (migration `0270`) cùng lúc với hai cột nguồn ở
-    # `cong_doan_dau_viec`. Ô "số người bố trí" (`so_nhan_cong`) GỠ nốt 08/09/2026 (mg `0281`) —
-    # nó luôn là bản sao của cột này; kíp chuẩn nay gánh CẢ HAI vai: chia thời lượng bước tổ VÀ
-    # là số bàn xếp lịch cộng dồn để cân quân số tổ. Nhân lực còn MỘT con số xuyên suốt.
-    so_nhan_cong_tieu_chuan: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="1", default=1
+    # ⚠️ `so_nhan_cong_tieu_chuan` (Kíp chuẩn) GỠ 18/09/2026 (mg `0321`) — chốt *"bỏ luôn logic kíp
+    # người mà mấy cái chặn hoặc cảnh báo hoặc phép tính liên quan đến kíp người"*. Hệ thôi biết
+    # một việc NÊN mấy người: tổ cử 1 người vào việc thường 5 người cũng không ai cảnh báo, đúng
+    # chủ trương máy chỉ ghi nhận. Luật *"phải có ≥ 1 thợ mới bắt đầu được việc"* thì GIỮ — đó là
+    # luật về người có mặt, không phải về kíp.
+    # SỐ GIỜ KẾ HOẠCH của bước TỔ (18/09/2026, mg `0319`) — người lập kế hoạch gõ tay, đơn vị GIỜ.
+    # Mặc định 0 và **không cảnh báo khi để 0**: chốt của chủ dự án *"nếu thiếu thì cứ để 0"*.
+    # Đây là thứ THAY cho cả đường tính thời lượng cũ của bước tổ (năng suất khoán ÷ kíp chuẩn),
+    # gỡ cùng ngày với đầu việc định mức. Bước MÁY / THUÊ NGOÀI không đọc ô này — chúng vẫn tính
+    # từ tốc độ máy. Numeric(8,2) để gõ được 4,5 giờ; không bắt tròn.
+    so_gio_ke_hoach: Mapped[float] = mapped_column(
+        Numeric(8, 2), nullable=False, server_default="0", default=0
     )
 
     # --- Phương thức thực hiện ---
-    # ĐẦU VIỆC KHOÁN của bước (`piece_rates`) — kế hoạch chọn "hôm nay bước cán này làm CÁN MỜ hay
-    # GHÉP MATELIZE", vì cùng một công đoạn mà hai đơn giá khoán khác nhau, máy không đoán được.
-    # SNAPSHOT {rate_id, ten, don_vi, don_gia} chứ không đọc-sống: xưởng lên giá khoán về
-    # sau KHÔNG được làm xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc), không lưu.
-    khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # ⚠️ `khoan_json` (ảnh chụp "Đầu việc thợ làm" của bước) GỠ 18/09/2026 (mg `0321`). Việc khoán
+    # nay KHÔNG khai ở bước nữa: thợ chọn ngay lúc GHI MẺ, trong danh sách việc khoán của tổ mình
+    # (`san_xuat_batch.piece_rate_id`) — chốt *"ghi mẻ đó nhưng cho công việc chứ không phải công
+    # đoạn nữa"*. Ảnh chụp giá dời xuống mẻ, kèm băng "Danh mục đã đổi" của riêng mẻ.
     # `kcs_tieu_chi_bo_sung_json` GỠ ở mg `0283`: checklist KCS nay chỉ còn MỘT nguồn là danh mục
     # `san_xuat_kcs_tieu_chi` gắn theo công đoạn — xem `docs/design-kcs-theo-cong-doan.md`. Đừng
     # bày lại ô gõ thêm dòng riêng cho một lệnh: hai nguồn cho cùng một checklist thì không ai

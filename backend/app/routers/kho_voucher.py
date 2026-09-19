@@ -68,7 +68,7 @@ from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestService
 from ..services.stock_voucher_service import StockVoucherError, StockVoucherService
 
-from ..services.delivery_notify import bao_tai_xe_kho_lap_phieu
+from ..services.delivery_notify import bao_tai_xe_kho_lap_phieu, kho_nhan_lai_hang_giao
 from ..services.san_xuat.kho import phat_su_kien_kho
 
 router = APIRouter(prefix="/api/kho/phieu", tags=["kho-phieu"])
@@ -132,19 +132,40 @@ def _err(e: StockVoucherError) -> HTTPException:
 
 
 def _can_see_cost(v, user, authz, db) -> bool:
-    """Ai thấy GIÁ VỐN của phiếu: người có quyền `view_cost`, HOẶC chính NGƯỜI TẠO yêu cầu gốc
-    (chủ 10/08/2026: người tạo xem được phiếu sinh từ yêu cầu của họ — không ẩn giá)."""
-    if authz.can(user, MODULE, "view_cost"):
-        return True
-    req = StockRequestRepository(db).get(v.request_id) if getattr(v, "request_id", None) else None
-    return req is not None and req.nguoi_tao_id == user.id
+    """Ai thấy GIÁ VỐN của phiếu: CHỈ người có quyền `view_cost`. Chủ 18/09/2026 "liên quan đến tiền
+    thì chỉ có quyền mới xem được" — thay luật 10/08/2026 cho người tạo yêu cầu gốc thấy giá phiếu."""
+    return authz.can(user, MODULE, "view_cost")
+
+
+def _lo_cua_dong(ln) -> int | None:
+    """Lô để truy nguồn của một dòng phiếu: lô của dòng, hoặc lô gốc mà dòng nhập điều chuyển còn nháp
+    đã ghi sẵn (chưa ghi sổ nên chưa có lô)."""
+    return ln.lot_id or getattr(ln, "lo_goc_id", None)
+
+
+def _dong_nhap_chua_lo(v) -> list[int]:
+    """Dòng yêu cầu của các dòng phiếu NHẬP chưa có lô để truy nguồn (phiếu nhập còn nháp)."""
+    if v.loai != VOUCHER_NHAP:
+        return []
+    return [ln.request_line_id for ln in v.lines if not _lo_cua_dong(ln)]
+
+
+def _nguon_dong(ns: list[dict], can_view_cost: bool) -> dict:
+    """Nguồn hiện trên một dòng phiếu, gộp từ nguồn của các lô dưới nó: mã khác nhau nối ", ", giá
+    bán chỉ khi các lô cùng MỘT giá (và có quyền xem giá)."""
+    def noi(k: str) -> str | None:
+        return ", ".join(dict.fromkeys(str(n[k]) for n in ns if n.get(k))) or None
+    gia = {n["don_gia_ban"] for n in ns if n.get("don_gia_ban") is not None}
+    return {"lsx_ma": noi("lsx_ma"), "order_ma": noi("order_ma"), "khach_hang": noi("khach_hang"),
+            "don_gia_ban": gia.pop() if can_view_cost and len(gia) == 1 else None}
 
 
 def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
                hang_map: dict | None = None, lot_map: dict | None = None,
-               req_map: dict | None = None) -> StockVoucherOut:
-    """`hang_map`/`lot_map`/`req_map` dựng SẴN theo cả trang (list) để tránh N+1; gọi lẻ 1 phiếu
-    thì để None, hàm tự nạp mỗi map 1 query cho các dòng của phiếu đó."""
+               req_map: dict | None = None, nguon_map: dict | None = None,
+               nguon_yc: dict | None = None) -> StockVoucherOut:
+    """`hang_map`/`lot_map`/`req_map`/`nguon_map`/`nguon_yc` dựng SẴN theo cả trang (list) để tránh
+    N+1; gọi lẻ 1 phiếu thì để None, hàm tự nạp mỗi map 1 query cho các dòng của phiếu đó."""
     users = UserRepository(db)
     khos = KhoHangRepository(db)
     requests = StockRequestRepository(db)
@@ -153,7 +174,17 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
     if hang_map is None:
         hang_map = svc.hang.map_theo_cap([(ln.hang_loai, ln.hang_id) for ln in v.lines])
     if lot_map is None:
-        lot_map = svc.lots.by_ids([ln.lot_id for ln in v.lines])
+        lot_map = svc.lots.by_ids([_lo_cua_dong(ln) for ln in v.lines])
+    # Nguồn (lệnh / đơn / khách / giá bán) đọc ở lô gốc; dòng nhập còn nháp thì đọc dòng yêu cầu.
+    if nguon_map is None:
+        nguon_map = svc.lots.nguon_lo([_lo_cua_dong(ln) for ln in v.lines])
+    if nguon_yc is None:
+        nguon_yc = svc.lots.nguon_dong_yeu_cau(_dong_nhap_chua_lo(v))
+
+    def _lo_chua_gia(lot_id) -> bool:
+        lot = lot_map.get(lot_id) if lot_id else None
+        return (lot is not None and bool(nguon_map.get(lot_id, {}).get("tu_kcs"))
+                and not int(lot.don_gia_nhap or 0))
 
     req = req_map.get(v.request_id)
     req_lines = req.lines if req is not None else []
@@ -162,6 +193,8 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
     # "yêu cầu vs thực nhận/xuất". Đọc-nối, không lưu cột.
     line_sl_de_nghi = {ln.id: float(ln.sl_de_nghi) for ln in req_lines}
     goc_map = svc.hang.don_vi_goc_map([(ln.hang_loai, ln.hang_id) for ln in v.lines])
+    # Phiếu NHẬP ứng theo yêu cầu KCS: lúc còn nháp chưa có lô để truy nguồn, nên dựa vào yêu cầu gốc.
+    nhap_tu_kcs = getattr(req, "san_xuat_cong_viec_id", None) is not None
 
     lines: list[StockVoucherLineOut] = []
     gia_von_total = 0
@@ -194,6 +227,10 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
                 vi_tri=ln.vi_tri,   # vị trí cất lô — phiếu điều chuyển khai/hiện per-lô
                 don_gia=unit if can_view_cost else None,
                 thanh_tien=thanh_tien if can_view_cost else None,
+                chua_gia_goc=(can_view_cost and unit == 0
+                              and (nhap_tu_kcs or _lo_chua_gia(_lo_cua_dong(ln)))),
+                **_nguon_dong([nguon_map.get(_lo_cua_dong(ln))
+                               or nguon_yc.get(ln.request_line_id) or {}], can_view_cost),
             ))
     else:
         # XUẤT: đích danh trừ lô per-lô GIỮ NGUYÊN ở DB; chỉ ở tầng ĐỌC gộp các dòng lô lẻ theo
@@ -245,6 +282,8 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
                 ghi_chu=ghi_chu,
                 don_gia=blended if can_view_cost else None,
                 thanh_tien=thanh_tien if can_view_cost else None,
+                chua_gia_goc=can_view_cost and any(_lo_chua_gia(ln.lot_id) for ln in grp),
+                **_nguon_dong([nguon_map.get(ln.lot_id) or {} for ln in grp], can_view_cost),
             ))
     kho = khos.get(v.kho_id)
     lap = users.get_by_id(v.nguoi_lap_id) if v.nguoi_lap_id else None
@@ -290,20 +329,19 @@ def list_vouchers(
         kho_id=kho_id, q=q, page=page, size=size,
     )
     can_view_cost = authz.can(user, MODULE, "view_cost")
-    # Người TẠO yêu cầu lọc phiếu theo yêu cầu của MÌNH → cho thấy giá (không ẩn), như GET phiếu.
-    if not can_view_cost and request_id is not None:
-        req0 = StockRequestRepository(db).get(request_id)
-        if req0 is not None and req0.nguoi_tao_id == user.id:
-            can_view_cost = True
     # Nạp SẴN mã hàng / lô / đề nghị của cả trang trong vài query (tránh N+1 trong _serialize).
     hang_map = _hang_service(db).map_theo_cap(
         [(ln.hang_loai, ln.hang_id) for v in rows for ln in v.lines])
-    lot_map = svc.lots.by_ids([ln.lot_id for v in rows for ln in v.lines])
+    lo_ids = [_lo_cua_dong(ln) for v in rows for ln in v.lines]
+    lot_map = svc.lots.by_ids(lo_ids)
     req_map = StockRequestRepository(db).by_ids_with_lines([v.request_id for v in rows])
+    nguon_map = svc.lots.nguon_lo(lo_ids)
+    nguon_yc = svc.lots.nguon_dong_yeu_cau([k for v in rows for k in _dong_nhap_chua_lo(v)])
     return StockVoucherPage(
         items=[
             _serialize(v, svc=svc, db=db, can_view_cost=can_view_cost,
-                       hang_map=hang_map, lot_map=lot_map, req_map=req_map)
+                       hang_map=hang_map, lot_map=lot_map, req_map=req_map, nguon_map=nguon_map,
+                       nguon_yc=nguon_yc)
             for v in rows
         ],
         total=total,
@@ -361,6 +399,7 @@ def post_voucher(
     except StockVoucherError as e:
         raise _err(e) from None
     _bao_san_xuat(db, v)
+    kho_nhan_lai_hang_giao(db, getattr(v, "request_id", None), actor=user)
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
 
 

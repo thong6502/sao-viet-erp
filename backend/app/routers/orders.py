@@ -149,6 +149,25 @@ def get_order(
         raise _map(exc)
 
 
+@router.get("/{order_id}/tien-do")
+def get_tien_do(
+    order_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    svc: Service,
+    authz: Authz,
+) -> dict:
+    """Thanh tiến độ của drawer đơn: Sản xuất → Nhập kho → Giao hàng theo từng sản phẩm (19/09/2026).
+    Cùng cổng đọc + phạm vi với chi tiết đơn — ai xem được đơn thì xem được tiến độ của nó."""
+    from ..services.don_hang_tien_do import tien_do_don
+
+    try:
+        svc.get(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)
+    order = svc.repo.get_by_id(order_id)
+    return tien_do_don(svc.db, order)
+
+
 @router.get("/{order_id}/activity", response_model=OrderActivityOut)
 def get_activity(
     order_id: int,

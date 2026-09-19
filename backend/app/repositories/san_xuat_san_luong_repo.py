@@ -24,6 +24,7 @@ from ..models.san_xuat_san_luong import (
     SanXuatBanGiaoDieuChinh,
     SanXuatBatch,
     SanXuatBatchLotVao,
+    SanXuatBatchPhatSinh,
     SanXuatKetQuaNhanh,
     SanXuatVatTuNhan,
 )
@@ -145,6 +146,74 @@ class SanXuatSanLuongRepository:
         ))
         return rows
 
+    def cong_viec_chang_truoc(self, cv: SanXuatCongViec) -> list[SanXuatCongViec]:
+        """Công việc của CHẶNG TRƯỚC theo routing lệnh — CHIỀU NGƯỢC đúng của `cong_viec_chang_sau`
+        (19/09/2026), để A là chặng trước của B ⇔ B là chặng sau của A.
+
+        Bước A đứng trước bước B khi: có cạnh `lsx_cong_doan_phu_thuoc` A → B; HOẶC A không khai
+        cạnh đi ra nào và đứng liền trước B theo `thu_tu` trong lệnh. Bước đầu lệnh ⇒ rỗng. Bước
+        trước tách lần chạy ⇒ trả MỌI lần chạy (bên gọi gom theo bước)."""
+        if cv.bai_ghep_cong_doan_id is not None:
+            keys = set(self.db.scalars(
+                select(BaiGhepCongDoanMap.lsx_step_key).where(
+                    BaiGhepCongDoanMap.bai_ghep_cong_doan_id == cv.bai_ghep_cong_doan_id
+                )
+            ))
+        else:
+            keys = {cv.step_key} if cv.step_key else set()
+        if not keys:
+            return []
+        buoc = list(self.db.scalars(select(LsxCongDoan).where(LsxCongDoan.step_key.in_(keys))))
+        if not buoc:
+            return []
+
+        truoc_keys: set[str] = set(self.db.scalars(
+            select(LsxCongDoan.step_key)
+            .join(LsxCongDoanPhuThuoc, LsxCongDoanPhuThuoc.buoc_truoc_id == LsxCongDoan.id)
+            .where(LsxCongDoanPhuThuoc.buoc_sau_id.in_([b.id for b in buoc]))
+        ))
+        thu_tu_lenh: dict[int, list[LsxCongDoan]] = {}
+        lien_truoc: list[LsxCongDoan] = []
+        for b in buoc:
+            if b.lsx_id not in thu_tu_lenh:
+                thu_tu_lenh[b.lsx_id] = list(self.db.scalars(
+                    select(LsxCongDoan)
+                    .where(LsxCongDoan.lsx_id == b.lsx_id)
+                    .order_by(LsxCongDoan.thu_tu, LsxCongDoan.id)
+                ))
+            ds = thu_tu_lenh[b.lsx_id]
+            i = next(i for i, x in enumerate(ds) if x.id == b.id)
+            if i > 0:
+                lien_truoc.append(ds[i - 1])
+        if lien_truoc:
+            # Bước liền trước CÓ khai cạnh đi ra thì cạnh của nó quyết chặng sau, không phải thu_tu.
+            co_canh_ra = set(self.db.scalars(
+                select(LsxCongDoanPhuThuoc.buoc_truoc_id).where(
+                    LsxCongDoanPhuThuoc.buoc_truoc_id.in_([a.id for a in lien_truoc])
+                )
+            ))
+            truoc_keys.update(a.step_key for a in lien_truoc if a.id not in co_canh_ra)
+        truoc_keys = {k for k in truoc_keys if k} - keys
+        if not truoc_keys:
+            return []
+
+        bg_cd_ids = set(self.db.scalars(
+            select(BaiGhepCongDoanMap.bai_ghep_cong_doan_id).where(
+                BaiGhepCongDoanMap.lsx_step_key.in_(truoc_keys)
+            )
+        ))
+        dieu_kien = SanXuatCongViec.step_key.in_(truoc_keys)
+        if bg_cd_ids:
+            dieu_kien = dieu_kien | SanXuatCongViec.bai_ghep_cong_doan_id.in_(bg_cd_ids)
+        rows = [
+            r for r in self.db.scalars(
+                select(SanXuatCongViec).where(SanXuatCongViec.goi_id == cv.goi_id, dieu_kien)
+            )
+            if r.id != cv.id
+        ]
+        rows.sort(key=lambda c: (c.step_key or "", c.phan_doan_so, c.id))
+        return rows
+
     # --- Batch sản lượng (§11.1) -------------------------------------------------------------
     def batch(self, batch_id: int) -> SanXuatBatch | None:
         return self.db.get(SanXuatBatch, batch_id)
@@ -215,6 +284,26 @@ class SanXuatSanLuongRepository:
         for lot in rows:
             out.setdefault(lot.batch_id, []).append(lot)
         return out
+
+    def phat_sinh_cua_nhieu(self, batch_ids: list[int]) -> dict[int, list[SanXuatBatchPhatSinh]]:
+        """`{batch_id: [việc phát sinh]}` — MỘT truy vấn cho cả tab Sản lượng (mg `0318`).
+
+        Cùng khuôn `lot_vao_cua_nhieu`: drawer bày mọi mẻ của bước nên lazy-load là mỗi mẻ một
+        truy vấn. Việc phát sinh KHÔNG cộng vào sản lượng, đây chỉ là dữ liệu để BÀY."""
+        if not batch_ids:
+            return {}
+        rows = self.db.scalars(
+            select(SanXuatBatchPhatSinh)
+            .where(SanXuatBatchPhatSinh.batch_id.in_(batch_ids))
+            .order_by(SanXuatBatchPhatSinh.id)
+        )
+        out: dict[int, list[SanXuatBatchPhatSinh]] = {}
+        for r in rows:
+            out.setdefault(r.batch_id, []).append(r)
+        return out
+
+    def phat_sinh_cua_batch(self, batch_id: int) -> list[SanXuatBatchPhatSinh]:
+        return self.phat_sinh_cua_nhieu([int(batch_id)]).get(int(batch_id), [])
 
     def da_dung_tu_nguon(self, nguon_cong_viec_id: int, dich_cong_viec_id: int) -> float:
         """Lượng đầu vào mà công đoạn SAU (`dich`) đã tiêu thụ từ đầu ra công đoạn TRƯỚC (`nguon`).

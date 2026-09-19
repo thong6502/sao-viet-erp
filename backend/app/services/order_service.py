@@ -741,6 +741,16 @@ class OrderService:
                 raise OrderConflict(
                     "Đơn đã có hóa đơn còn hiệu lực; hãy hủy hóa đơn trước khi hủy đơn."
                 )
+            # Nghiệm thu #12 giao hàng: còn yêu cầu / chuyến giao đang chạy thì chặn — huỷ đơn mà
+            # xe vẫn đang chở hàng của nó đi là hai bộ phận nói hai chuyện.
+            from ..repositories.delivery_repo import DeliveryRepository
+            from .delivery_service import DeliveryError, DeliveryService
+
+            try:
+                DeliveryService(DeliveryRepository(self.db), self.repo, None, None, None) \
+                    .chan_huy_don_khi_con_yeu_cau_mo(order.id)
+            except DeliveryError as e:
+                raise OrderConflict(str(e)) from None
             order.cancel_fault = fault
         order.status = STATUS_CANCELLED
         order.cancel_reason = reason

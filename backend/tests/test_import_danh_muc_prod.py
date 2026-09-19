@@ -47,7 +47,7 @@ _CTX_DAY_DU.update(
 # khác (vd `don_gia_giay` trong ô ra LƯỢNG). Từ 07/09/2026 service chặn ca đó, nên bộ danh mục
 # ship kèm mà phạm là người dùng không sửa nổi dòng ấy trên màn khai nữa.
 _BANG_CONG_THUC = [
-    (CongDoan, [("cong_thuc_gia", LOAI_CONG_DOAN), ("cong_thuc_san_luong", LOAI_QUY_DOI)]),
+    (CongDoan, [("cong_thuc_gia", LOAI_CONG_DOAN)]),
     (GiayNguyen, [("cong_thuc_luong", LOAI_QUY_DOI)]),
     # Máy · Công việc khoán không còn ô công thức nào (mg `0274`) nên rơi khỏi danh sách này;
     # Vật tư khác chỉ còn ô giá.

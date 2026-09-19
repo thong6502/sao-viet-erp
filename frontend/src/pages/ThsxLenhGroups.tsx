@@ -78,11 +78,19 @@ export function ThsxLenhGroups({
               <Icon name={sxNguonIcon(l.nguon_loai)} size={15} className="thsx-lenh__ic" />
               <span className="thsx-lenh__ma thsx-num">{l.nguon_ma || "— không rõ lệnh —"}</span>
               <span className="thsx-lenh__ten">{l.nguon_ten}</span>
+              {l.khach_hang && (
+                <span className="thsx-lenh__khach" title={`Khách hàng: ${l.khach_hang}`}>
+                  <Icon name="building" size={12} />
+                  <span>{l.khach_hang}</span>
+                </span>
+              )}
               <ChamCho c={choLenh} />
               <span className="thsx-lenh__spacer" />
-              <span className="thsx-lenh__gio thsx-num">
-                {l.som_nhat ? ngayGio(l.som_nhat) : "chưa xếp giờ"}
-              </span>
+              {l.nhan_luc && (
+                <span className="thsx-lenh__gio thsx-num" title="Lúc tổ nhận việc (phát hành xuống tổ)">
+                  Nhận {ngayGio(l.nhan_luc)}
+                </span>
+              )}
               <span className="thsx-lenh__n thsx-num">{l.so_viec} việc</span>
               <LenhDigest d={l.digest} />
             </button>

@@ -76,7 +76,7 @@ DANH_MUC = [
     # Công việc khoán (17/08/2026): mã tự sinh `KH-####`, DELETE xoá HẲN khi chưa ai dùng (dòng test
     # chưa có định mức đầu việc nào trỏ tới) — cùng luật với Công đoạn · Bù hao, khác Kho.
     ("/api/cong-viec-khoan", "dm_cong_viec_khoan",
-     lambda c, h, i: {"ten": f"ZZ Việc khoán {i}", "department_id": _to_sx_id(c, h),
+     lambda c, h, i: {"ten": f"ZZ Việc khoán {i}", "department_ids": [_to_sx_id(c, h)],
                       "unit": "to", "unit_price": 100 + i}, True, False),
     ("/api/don-vi", "dm_don_vi",
      lambda c, h, i: {"ma": f"zzdv{i}", "ten": f"ZZ Đơn vị {i}"}, False, False),

@@ -13,6 +13,8 @@ Quyền: `kho:view_cost` (router gác) — người không thấy giá thì cũn
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy.orm import Session
 
 from ..repositories.audit_repo import AuditLogRepository
@@ -97,13 +99,20 @@ def sua_gia_goc(db: Session, *, user, lot_id: int, don_gia: int) -> dict:
     }
 
 
-def ds_chua_gia_goc(db: Session, *, q: str | None, chi_chua_gia: bool, page: int, size: int) -> dict:
+def ds_chua_gia_goc(db: Session, *, q: str | None, chi_chua_gia: bool, page: int, size: int,
+                    tu_ngay: date | None = None, den_ngay: date | None = None,
+                    kho_id: int | None = None, khach_hang_id: int | None = None) -> dict:
     """Danh sách "Thành phẩm chưa có giá gốc" — lô GỐC nhập từ KCS, gom mọi kho (số kho đổi theo danh
-    mục; bắt kế toán đi từng kho là sót). Phân trang + lọc ở máy chủ."""
+    mục; bắt kế toán đi từng kho là sót). Phân trang + lọc ở máy chủ. Kèm `cac_kho`/`cac_khach` cho ô
+    lọc nâng cao — chỉ kho/khách có lô, bất kể bộ lọc đang áp."""
+    if tu_ngay is not None and den_ngay is not None and den_ngay < tu_ngay:
+        raise GiaGocError("Ngày nhập 'đến' phải từ ngày 'từ' trở đi.")
     page, size = max(1, int(page)), min(max(1, int(size)), 200)
     repo = KhoGiaGocRepository(db)
     rows, total = repo.ds_lo_goc_tu_kcs(
-        q=q, chi_chua_gia=chi_chua_gia, offset=(page - 1) * size, limit=size)
+        q=q, chi_chua_gia=chi_chua_gia, offset=(page - 1) * size, limit=size,
+        tu_ngay=tu_ngay, den_ngay=den_ngay, kho_id=kho_id, khach_hang_id=khach_hang_id)
+    cac_kho, cac_khach = repo.lua_chon_loc()
     ton = repo.ton_theo_goc([r[0].id for r in rows])
     dv = DonViDoRepository(db).ten_theo_ma()
     items = []
@@ -130,4 +139,8 @@ def ds_chua_gia_goc(db: Session, *, q: str | None, chi_chua_gia: bool, page: int
             "don_vi_goc_ten": nhan_don_vi(dv, getattr(hang, "don_vi_gia", None)) if hang else None,
             "so_lo": so_lo,
         })
-    return {"items": items, "total": total, "page": page, "size": size}
+    return {
+        "items": items, "total": total, "page": page, "size": size,
+        "cac_kho": [{"id": i, "ten": t} for i, t in cac_kho],
+        "cac_khach": [{"id": i, "ten": t} for i, t in cac_khach],
+    }

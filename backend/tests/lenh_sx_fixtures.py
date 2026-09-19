@@ -54,6 +54,7 @@ from app.models.lsx import (
 )
 from app.models.order import Order, OrderLine
 from app.models.san_xuat import CV_HOAN_THANH, SanXuatCongViec
+from app.models.san_xuat_san_luong import BG_XAC_NHAN, SanXuatBanGiao
 from app.models.san_xuat_thuc_thi import (
     PC_HOAT_DONG, PHIEN_KET_THUC, SanXuatPhanCong, SanXuatPhienChay,
 )
@@ -412,6 +413,21 @@ def _dat_xong_luc(sess, cv: SanXuatCongViec, luc: datetime) -> None:
     sess.expire_all()
 
 
+def _da_nhan_tu(sess, nguon: SanXuatCongViec, dich: SanXuatCongViec, so_luong: float = 1) -> None:
+    """Một lần bàn giao ĐÃ XÁC NHẬN nguồn → đích, đúng hình dạng `ban_giao.xac_nhan` để lại.
+
+    Từ 19/09/2026 bước có công đoạn trước chỉ bắt đầu được khi đã nhận hàng từ đó
+    (`dau_vao.kiem_bat_dau`). Bài nào dựng bước trước "xong" bằng `_dat_xong_luc` rồi bắt đầu bước
+    sau thì gọi hàm này để mở cửa — bàn giao không phải thứ các bài đó soi.
+    """
+    sess.add(SanXuatBanGiao(
+        nguon_cong_viec_id=nguon.id, dich_cong_viec_id=dich.id, cung_to=False,
+        so_luong=so_luong, don_vi=nguon.don_vi_ra or dich.don_vi_vao or "cai",
+        trang_thai=BG_XAC_NHAN, xac_nhan_luc=datetime.now(timezone.utc),
+    ))
+    sess.commit()
+
+
 _dem_bai_ghep = 0
 
 
@@ -542,12 +558,10 @@ def _giao_nguoi(sess, admin, cv, *, ma: str, ten: str) -> int:
 def _chay_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     """Cho một bước chạy rồi kết thúc bằng ĐÚNG hai lệnh production, không đặt cột nào bằng tay.
 
-    Hai cửa của `thuc_thi.bat_dau` phải mở đúng thứ tự, không cửa nào đi vòng được:
-      · `has_piece_work` của TỔ — `_la_luong_khoan` soi cờ này lúc `phan_cong` chụp roster, không
-        bật thì `bat_dau` chặn “Người đang giao đều là công nhật…”. Bật TRƯỚC khi giao người,
-        vì cờ được CHỤP vào dòng phân công chứ không tra lại lúc bắt đầu.
-      · `ly_do_so_nguoi` — roster một người thường lệch `so_nhan_cong_tieu_chuan` của snapshot.
-    Truyền lý do vô điều kiện là an toàn: không lệch thì service tự bỏ qua.
+    Cửa của `thuc_thi.bat_dau` không đi vòng được: `has_piece_work` của TỔ — `_la_luong_khoan` soi
+    cờ này lúc `phan_cong` chụp roster, không bật thì `bat_dau` chặn “Người đang giao đều là công
+    nhật…”. Bật TRƯỚC khi giao người, vì cờ được CHỤP vào dòng phân công chứ không tra lại lúc bắt
+    đầu. (Cửa "lý do lệch kíp chuẩn" gỡ 18/09/2026 cùng logic kíp.)
     """
     to = sess.get(Department, cv.department_id)
     to.has_piece_work = True
@@ -555,7 +569,6 @@ def _chay_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     _giao_nguoi(sess, admin, cv, ma=ma, ten=ten)
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_so_nguoi="Tổ thiếu người",
     )
     thuc_thi.ket_thuc(sess, user=admin, cong_viec_id=cv.id)
     sess.expire_all()

@@ -44,13 +44,14 @@ from app.models.order import Order
 from app.models.san_xuat import CV_HOAN_THANH
 from app.models.san_xuat_thuc_thi import PC_HOAT_DONG, SanXuatPhanCong
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
+from app.repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from app.repositories.user_repo import UserRepository
 from app.security import hash_password
 from app.services.lenh_sx import bang_theo_doi
 from app.services.san_xuat import thuc_thi
 
 from tests.lenh_sx_fixtures import (  # noqa: F401
-    BAY_GIO, _cvs, _dat_xong_luc, _dot_dong_don, _giao_nguoi, _phat_hanh_that, _chay_that,
+    BAY_GIO, _cvs, _da_nhan_tu, _dat_xong_luc, _dot_dong_don, _giao_nguoi, _phat_hanh_that, _chay_that,
     admin, customer, ghep_doi, lenh_nhap, lsx_svc, orders, sale_own, sess,
 )
 
@@ -105,7 +106,7 @@ def _h(token: str) -> dict[str, str]:
 def _bat_dau_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     """Bắt đầu một bước qua ĐÚNG đường ghi production, KHÔNG kết thúc — dựng ca "đang chạy" đứng
     yên để test dàn cảnh song song. Rút gọn của `lenh_sx_fixtures._chay_that` (bỏ đoạn `ket_thuc`);
-    xem docstring ở đó cho lý do từng bước (`has_piece_work`, `ly_do_so_nguoi`).
+    xem docstring ở đó cho lý do từng bước (`has_piece_work`).
     """
     to = sess.get(Department, cv.department_id)
     to.has_piece_work = True
@@ -113,7 +114,6 @@ def _bat_dau_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     _giao_nguoi(sess, admin, cv, ma=ma, ten=ten)
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_so_nguoi="Tổ thiếu người",
     )
     sess.expire_all()
 
@@ -182,6 +182,12 @@ def lenh_hai_nhanh_cung_chay(sess, orders, lsx_svc, admin, customer) -> int:
     )
     cvs = {cv.ten_cong_doan: cv for cv in _cvs(sess, lsx_id)}
     _dat_xong_luc(sess, cvs["CTP"], BAY_GIO)
+    # Bắt đầu đòi đã nhận hàng từ MỌI chặng trước (`dau_vao`, 19/09/2026). In không khai cạnh ra nên
+    # bàn giao theo routing nối nó sang bước kế (Cán) — lấy danh sách từ chính repo cho khỏi đoán.
+    repo = SanXuatSanLuongRepository(sess)
+    for ten in ("In", "Cán"):
+        for truoc in repo.cong_viec_chang_truoc(cvs[ten]):
+            _da_nhan_tu(sess, truoc, cvs[ten])
     _bat_dau_that(sess, admin, cvs["In"], ma="TD-HN-IN", ten="Thợ In (song song)")
     _bat_dau_that(sess, admin, cvs["Cán"], ma="TD-HN-CAN", ten="Thợ Cán (song song)")
     return lsx_id

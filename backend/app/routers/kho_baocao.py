@@ -180,12 +180,21 @@ def thanh_pham_chua_gia_goc(
     _: Annotated[User, Depends(require_permission(MODULE, "view_cost"))],
     q: str | None = Query(default=None, max_length=100),
     chi_chua_gia: bool = Query(default=True),
+    tu: date | None = Query(default=None),
+    den: date | None = Query(default=None),
+    kho_id: int | None = Query(default=None),
+    khach_hang_id: int | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> ThanhPhamChuaGiaGocPage:
-    """Lô gốc thành phẩm nhập từ KCS ở MỌI kho — mặc định chỉ lô còn giá gốc 0 đ. Phân trang máy chủ."""
-    return ThanhPhamChuaGiaGocPage(**kho_gia_goc_service.ds_chua_gia_goc(
-        db, q=q, chi_chua_gia=chi_chua_gia, page=page, size=size))
+    """Lô gốc thành phẩm nhập từ KCS ở MỌI kho — mặc định chỉ lô còn giá gốc 0 đ. Lọc nâng cao: khoảng
+    ngày nhập (`tu`/`den`), kho nhập, khách hàng. Phân trang máy chủ."""
+    try:
+        return ThanhPhamChuaGiaGocPage(**kho_gia_goc_service.ds_chua_gia_goc(
+            db, q=q, chi_chua_gia=chi_chua_gia, page=page, size=size,
+            tu_ngay=tu, den_ngay=den, kho_id=kho_id, khach_hang_id=khach_hang_id))
+    except kho_gia_goc_service.GiaGocError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
 
 
 # --- Điều chuyển kho: 1 dòng/mặt hàng (Xuất tại kho → Nhập tại kho) --------------

@@ -93,9 +93,12 @@ class MayThietBi(Base):
     # cách đo nay khai theo CẶP (công đoạn × máy) ở `cong_doan_may.cong_thuc_gio`. Treo ở máy thì
     # mọi công đoạn chạy máy đó dùng chung một cách đo, mà In khổ 79×109 và In khổ 11×11 đo khác.
     makeready_time_default: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)  # phút
-    # Ô "Số người vận hành tiêu chuẩn" (`so_nhan_cong`) ĐÃ GỠ 06/09/2026, migration `0270`: kíp nay
-    # bám theo CÔNG ĐOẠN (`cong_doan_dau_viec.so_nguoi_tieu_chuan`) cho mọi loại bước. Hai nơi cùng
-    # nói một chuyện mà không màn nào đặt cạnh nhau thì khai lệch cũng chẳng ai thấy.
+    # Ô "Số người vận hành tiêu chuẩn" (`so_nhan_cong`) ĐÃ GỠ 06/09/2026, migration `0270`: kíp
+    # dồn về CÔNG ĐOẠN cho mọi loại bước, vì hai nơi cùng nói một chuyện mà không màn nào đặt
+    # cạnh nhau thì khai lệch cũng chẳng ai thấy. Rồi 18/09/2026 (mg `0321`) KHÁI NIỆM KÍP GỠ
+    # HẲN — chủ xưởng: *"bỏ luôn logic kíp người, và mấy cái chặn hoặc cảnh báo hoặc phép tính
+    # liên quan đến kíp người"*. Bước TỔ nay khai SỐ GIỜ KẾ HOẠCH gõ tay
+    # (`lsx_cong_doan.so_gio_ke_hoach`), không suy ra từ quân số nữa.
 
     # ---- Khổ · vùng in · chừa lề (★ = engine bình bài đọc) ----
     kho_max_dai: Mapped[int | None] = mapped_column(Integer, nullable=True)   # ★ bình bài

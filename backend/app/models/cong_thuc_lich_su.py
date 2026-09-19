@@ -3,8 +3,8 @@
 Vì sao có bảng riêng: `audit_logs` (`nhat_ky_danh_muc.ghi_sua`) đã ghi MỌI thay đổi của mọi danh
 mục, nhưng gộp thành một dòng chữ "Công thức tính lượng A → B" trong `detail` — đọc được nhưng
 không TRA LẠI được (không lọc theo trường, không lấy đúng giá trị cũ để hiện cạnh ô đang sửa).
-Bảng này lưu THÊM, có cấu trúc, CHỈ cho các trường công thức (`cong_thuc_luong`,
-`cong_thuc_san_luong`) — không thay `audit_logs`, không đổi hành vi nhật ký hiện có.
+Bảng này lưu THÊM, có cấu trúc, CHỈ cho trường công thức `cong_thuc_luong` (`cong_thuc_san_luong`
+của Công đoạn gỡ 18/09/2026, mg `0324`) — không thay `audit_logs`, không đổi hành vi nhật ký hiện có.
 
 `bang`/`row_id` phẳng (không FK riêng từng bảng) — đúng quy ước `AuditLog.target`, dùng chung cho
 cả 5 danh mục (giấy · vật tư khác · máy thiết bị · công đoạn · đầu việc khoán).

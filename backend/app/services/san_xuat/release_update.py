@@ -1,7 +1,7 @@
 """Thực hiện sản xuất — PHÁT HÀNH CẬP NHẬT & THU HỒI GÓI khi lịch đổi sau phát hành (§4.3).
 
 Bối cảnh: sau phát hành, người lập kế hoạch có thể sửa THỜI GIAN / NGUỒN LỰC (máy) của công việc
-CHƯA BẮT ĐẦU ở màn Xếp lịch 2. Thay đổi đó nằm ở lịch sống (`xep_lich_cong_doan`) — là "bản nháp";
+CHƯA BẮT ĐẦU ở bàn Xếp lịch. Thay đổi đó nằm ở lịch sống (`xep_lich_cong_doan`) — là "bản nháp";
 chỉ có hiệu lực khi bấm **Phát hành cập nhật** ở đây, khi ấy snapshot của các việc chưa bắt đầu được
 CHỤP LẠI theo lịch hiện tại và gói lên một phiên bản mới.
 
@@ -16,7 +16,7 @@ Luật §4.3 (chốt bởi chủ dự án):
   · Khi BẤT KỲ việc nào trong gói đã bắt đầu ⇒ KHÔNG được thu hồi toàn bộ gói (chỉ chặn thu-hồi,
     không chặn cập-nhật phần còn chưa bắt đầu).
 
-TÁI CHỤP thời gian + máy (thứ Xếp lịch 2 đổi được sau phát hành) VÀ **hành lý đọc-để-làm** của
+TÁI CHỤP thời gian + máy (thứ bàn Xếp lịch đổi được sau phát hành) VÀ **hành lý đọc-để-làm** của
 thẻ việc (10/09/2026): đơn vị bản địa · cờ + câu diễn giải sản lượng bước ngoài dòng · kíp chuẩn ·
 dải phút chạy · dặn dò của kế hoạch · thẻ quy cách rút gọn. Xem
 `docs/superpowers/specs/2026-09-10-ban-to-du-thong-tin-design.md` §8: lệnh phát hành TRƯỚC ngày có
@@ -85,10 +85,10 @@ def _lich_nguon(repo: SanXuatRepository, cv: SanXuatCongViec) -> list[tuple]:
         dong = repo.lich_lsx_step(cv.lsx_cong_doan_id)
         if dong:
             return dong
-        # Lệnh xếp ở Xếp lịch 3: không dòng lịch nào, mốc bước là số dẫn xuất. Trả rỗng ở đây thì
+        # Lệnh xếp ở bàn Xếp lịch: không dòng lịch nào, mốc bước là số dẫn xuất. Trả rỗng ở đây thì
         # "Phát hành cập nhật" coi mọi việc là "lịch đã tách/gộp" và bỏ qua sạch — người điều độ
         # dời giờ cả lệnh xong bấm cập nhật mà bàn tổ không đổi một phút nào.
-        from ..xep_lich_3.moc import moc_theo_buoc
+        from ..xep_lich.moc import moc_theo_buoc
 
         moc = moc_theo_buoc(repo.db, [cv.lsx_id]) if cv.lsx_id else {}
         bd_kt = moc.get(cv.lsx_cong_doan_id)

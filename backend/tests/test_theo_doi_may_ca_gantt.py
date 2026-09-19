@@ -1602,14 +1602,13 @@ def _bat_dau_that(sess, admin, cv, *, ma: str, ten: str) -> None:
     """Bắt đầu một bước qua ĐÚNG đường ghi production, KHÔNG kết thúc — dựng một ca "đang chạy"
     đứng yên. Bản sao của `test_theo_doi_kanban._bat_dau_that` (hai file test độc lập nhau, mỗi
     file tự dựng nền trên DB SQLite riêng); xem `lenh_sx_fixtures._chay_that` cho lý do từng cửa
-    (`has_piece_work`, `ly_do_so_nguoi`)."""
+    (`has_piece_work`)."""
     to = sess.get(Department, cv.department_id)
     to.has_piece_work = True
     sess.commit()
     _giao_nguoi(sess, admin, cv, ma=ma, ten=ten)
     thuc_thi.bat_dau(
         sess, user=admin, cong_viec_id=cv.id,
-        ly_do_so_nguoi="Tổ thiếu người",
     )
     sess.expire_all()
 

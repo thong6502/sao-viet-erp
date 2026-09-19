@@ -23,7 +23,6 @@ from .repositories.leave_repo import LeaveRepository
 from .repositories.overtime_repo import OvertimeRepository
 from .repositories.payroll_component_repo import PayrollComponentRepository
 from .repositories.payroll_repo import PayrollRepository
-from .repositories.production_output_repo import ProductionOutputRepository
 from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
 from .repositories.delivery_repo import DeliveryRepository
@@ -447,9 +446,13 @@ def get_cong_doan_repository(
 def get_piece_work_service(
     db: Annotated[Session, Depends(get_db)],
 ) -> PieceWorkService:
-    # Tiền khoán theo NGƯỜI = Phiếu phân bổ ĐÃ CHỐT (Giai đoạn 4, §12). `list_nguoi_by_period` trả
-    # rỗng tới khi tổ trưởng chốt một phân bổ ⇒ nối seam này KHÔNG đổi lương cho tới lúc đó.
-    return PieceWorkService(outputs=ProductionOutputRepository(db))
+    # `outputs=None` ⇒ `khoan_map`/`defect_map` trả rỗng ⇒ cột Khoán của bảng lương bằng 0.
+    # CỐ Ý, và KHÔNG đổi con số nào: nguồn cũ (`production_output_repo`) hard-code `unit_price = 0`
+    # từ 11/09/2026 nên cột này đã bằng 0 cho mọi người trước khi gỡ. Nguồn THẬT sẽ là màn
+    # "Khoán theo kỳ" của kế toán lương — chỗ duy nhất được nhân số lượng với đơn giá. Giữ seam
+    # (cả cột Khoán) theo đúng chốt của chủ dự án: *"chỗ bảng lương có cột khoán cứ để đó sau này
+    # sẽ dùng"*.
+    return PieceWorkService()
 
 
 def get_payroll_component_repository(

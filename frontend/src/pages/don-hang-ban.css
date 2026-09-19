@@ -764,6 +764,8 @@
 }
 
 .dhb__timeline {
+  /* Mép trái/phải của đường nối = tâm chấm đầu/cuối: 6 bước chia đều ⇒ 1/12 bề ngang. */
+  --dhb-tl-le: 8.33%;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -782,13 +784,13 @@
 }
 
 .dhb__timeline-track {
-  left: 10%;
-  right: 10%;
+  left: var(--dhb-tl-le);
+  right: var(--dhb-tl-le);
   background: var(--rule-soft);
 }
 
 .dhb__timeline-fill {
-  left: 10%;
+  left: var(--dhb-tl-le);
   background: var(--moss);
   transition: width var(--duration-base) var(--easing-standard);
 }
@@ -1489,3 +1491,118 @@
 }
 
 
+
+/* --- Tiến độ đơn: SX → Nhập kho → Giao (19/09/2026) --- */
+.dhb__td-mini {
+  display: block;
+  width: 70%;
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: var(--rule-soft);
+  overflow: hidden;
+}
+.dhb__td-mini-fill {
+  display: block;
+  height: 100%;
+  background: var(--amber);
+}
+.dhb__td-mini-fill.is-xong { background: var(--moss); }
+.dhb__timeline-sub.is-warn { color: var(--signal); font-weight: 600; }
+
+.dhb__td-tre { margin: 0 0 var(--sp-2); font-size: 12px; }
+.dhb__td-dung { margin: 0 0 var(--sp-2); font-size: 12px; color: var(--moss-deep); }
+.dhb__td-note { margin: 0; font-size: 12px; color: var(--ash); }
+.dhb__td-warn { color: var(--signal); font-style: normal; }
+
+.dhb__td-cums { display: grid; gap: var(--sp-3); margin-top: var(--sp-2); }
+.dhb__td-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--ash);
+}
+.dhb__td-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+.dhb__td-cum { display: grid; gap: 4px; min-width: 0; }
+.dhb__td-cum-head {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+  font-size: 12.5px;
+  flex-wrap: wrap;
+}
+.dhb__td-cum-head b { overflow-wrap: anywhere; }
+.dhb__td-cum-head span { margin-left: auto; color: var(--ash); }
+.dhb__td-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--rule-soft);
+}
+.dhb__td-bar > span { height: 100%; }
+.dhb__td-seg--giao { background: var(--moss); }
+.dhb__td-seg--kho { background: var(--steel); }
+.dhb__td-seg--chokho { background: var(--amber); }
+.dhb__td-seg--sx { background: var(--amber-soft); box-shadow: inset 0 0 0 1px var(--amber); }
+.dhb__td-seg--chua { background: var(--rule-soft); box-shadow: inset 0 0 0 1px var(--rule); }
+.dhb__td-cum-nums {
+  display: grid;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--ash);
+  overflow-wrap: anywhere;
+}
+
+.dhb__td-giao { display: grid; gap: var(--sp-3); min-width: 0; }
+.dhb__td-yc-list { display: grid; gap: var(--sp-2); }
+.dhb__td-yc {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: var(--sp-2) var(--sp-3);
+  display: grid;
+  gap: 4px;
+  background: var(--paper-contrast);
+  min-width: 0;
+}
+.dhb__td-yc-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  font-size: 12.5px;
+}
+.dhb__td-yc-ngay { font-size: 11.5px; color: var(--ash); }
+.dhb__td-yc-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.dhb__td-yc-dc { color: var(--ash); flex-basis: 100%; }
+.dhb__td-yc-chuyen { font-size: 11.5px; color: var(--ash); overflow-wrap: anywhere; }
+.dhb__td-yc-huy { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+.dhb__td-yc-huy .input { flex: 1 1 200px; }
+.dhb__td-link {
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  color: var(--rust);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+.dhb__td-link--do { color: var(--signal); }
+.dhb__td-tao { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+.dhb__td-luuy { display: grid; gap: 2px; font-size: 12px; }
+.dhb__td-luuy span { color: var(--ash); font-weight: 600; }
+.dhb__td-luuy p { margin: 0; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }

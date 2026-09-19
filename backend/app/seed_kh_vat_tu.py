@@ -13,14 +13,17 @@ Bản đồ ca (1 đơn hàng, 5 lệnh mới):
      ⇒ giữ chỗ BẬT: giấy giữ đủ 100% mà VẪN chưa mở khoá xếp lịch vì còn dòng không rõ.
      ⇒ `created_at` dòng giữ chỗ lùi 10 ngày       → chip "giữ lâu chưa chạy" (ngưỡng 7 ngày).
 
-  ② Tờ rơi A4 · Couché 150 (tồn 0, KHÔNG mua)     → ĐỎ + đèn ĐẶT MUỘN (ngày cần = hôm nay)
+  ② Tờ rơi A4 · Couché 150 (tồn 0, KHÔNG mua)     → ĐỎ
      ⇒ giữ chỗ bật mà giữ được 0%                  → nút "Nhặt thêm ngay".
 
-  ③ Thực đơn A4 · Ivory 350 (tồn 0, phiếu mua về TRƯỚC ngày cần 4 ngày) → VÀNG
+  ③ Thực đơn A4 · Ivory 350 (tồn 0, phiếu mua về TRƯỚC hạn SX 4 ngày) → VÀNG
      ⇒ phần giữ bám nguồn `dang_ve`                → "xếp sớm nhất từ" = ngày hàng về.
 
-  ④ Bảng giá A3 · Duplex 300 (tồn 0, phiếu mua về SAU ngày cần 7 ngày)  → VỀ MUỘN
+  ④ Bảng giá A3 · Duplex 300 (tồn 0, phiếu mua NCC hẹn giao SAU hạn SX 7 ngày) → VÀNG
+     (hàng đang về cộng đủ, không so ngày — 18/09/2026 bỏ ca "về muộn")
      + mực CMYK duyệt 8 kg / kho mới giao 5 kg     → "đã cấp 5 · đang lĩnh 3".
+
+  "Ngày cần" của cả năm lệnh để TRỐNG: nó chỉ có khi đã lập yêu cầu mua hàng cho lệnh.
 
   ⑤ Tem decal · gỡ giấy khỏi quy cách             → khối "BỎ QUA" (lệnh chưa chọn giấy).
 
@@ -30,8 +33,8 @@ Bản đồ ca (1 đơn hàng, 5 lệnh mới):
     đó KHÔNG sinh nhu cầu riêng; Couché 300 không bị đụng thêm gì.
 
 Hai pha, cố ý:
-  · Pha A dựng lệnh rồi ĐỌC LẠI `can_doi()` để lấy ngày cần + lượng cần THẬT do engine tính.
-  · Pha B mới nắn hạn sản xuất và cân số lô tồn / phiếu mua theo đúng số vừa đọc.
+  · Pha A dựng lệnh rồi ĐỌC LẠI `can_doi()` để lấy lượng cần THẬT do engine tính.
+  · Pha B mới cân số lô tồn / phiếu mua theo đúng số vừa đọc.
 Làm ngược lại (đoán trước số kg rồi chèn lô) là gán số chết: engine đổi công thức một cái là màu
 đổi hết mà không ai biết.
 
@@ -78,10 +81,10 @@ from .services.tinh_gia_service import compute_phieu_snapshot
 
 TEN_PHIEU_VT = "Bộ ấn phẩm khai trương chi nhánh Bình Dương"
 
-# Mỗi sản phẩm = 1 ca của bảng cân đối. `ngay_can_sau` = số ngày kể từ HÔM NAY mà pha B sẽ nắn
-# ngày cần về đúng đó — nắn bằng HẠN SẢN XUẤT, không chèn dòng lịch giả.
+# Mỗi sản phẩm = 1 ca của bảng cân đối. Số cuối = HẠN SẢN XUẤT sau hôm nay ... ngày (cũng là thứ
+# tự ăn tồn của bảng cân đối).
 #  (khoá, tên, mã giấy, dài TP, rộng TP, khổ nguyên (dài, rộng), mã máy,
-#   (màu mặt A, màu mặt B), số lượng, đvt, ngày cần sau ... ngày)
+#   (màu mặt A, màu mặt B), số lượng, đvt, hạn SX sau ... ngày)
 _SAN_PHAM: list[tuple] = [
     ("xanh", "Tờ hướng dẫn sử dụng A4 (1 màu 2 mặt)", "FORD-70-65x86",
      297, 210, (860, 650), "IN-01", (1, 1), 20000, "tờ", 6),
@@ -89,12 +92,12 @@ _SAN_PHAM: list[tuple] = [
      297, 210, (1090, 790), "IN-02", (4, 4), 30000, "tờ", 0),
     ("vang", "Thực đơn A4 (cán màng mờ 2 mặt)", "IVORY-350-79x109",
      297, 210, (1090, 790), "IN-02", (4, 4), 3000, "cái", 10),
-    ("ve_muon", "Bảng giá treo A3 (cán màng mờ)", "DUPLEX-300",
+    ("dang_ve", "Bảng giá treo A3 (cán màng mờ)", "DUPLEX-300",
      420, 297, (1090, 790), "IN-02", (4, 0), 2000, "cái", 8),
     ("bo_qua", "Tem decal cuộn 40×25mm", "COUCHE-300-65x86",
      40, 25, (860, 650), "IN-04", (4, 0), 5000, "cái", 12),
 ]
-_NGAY_CAN_SAU = {s[0]: s[-1] for s in _SAN_PHAM}
+_HAN_SAU = {s[0]: s[-1] for s in _SAN_PHAM}
 
 # Routing từng sản phẩm. Bước XÉN RỜI (`CD-0014`, `to → cai`) là BẮT BUỘC với hàng tờ rời: chuỗi
 # tính ngược đổi đơn vị NGAY TRONG một bước, nên thiếu bước bắc cầu tờ↔cái thì bước in nhận thẳng
@@ -109,7 +112,7 @@ _ROUTING: dict[str, list[tuple[str, str, int]]] = {
     "vang": [("CD-0001", "Ghi kẽm CTP", 1), ("CD-0002", "In offset", 2),
              ("CD-0010", "Cán màng mờ", 2), ("CD-0014", "Xén rời thành phẩm", 1),
              ("CD-0012", "Đóng gói + nhập kho", 1)],
-    "ve_muon": [("CD-0001", "Ghi kẽm CTP", 1), ("CD-0002", "In offset", 1),
+    "dang_ve": [("CD-0001", "Ghi kẽm CTP", 1), ("CD-0002", "In offset", 1),
                 ("CD-0010", "Cán màng mờ", 1), ("CD-0014", "Xén rời thành phẩm", 1),
                 ("CD-0012", "Đóng gói + nhập kho", 1)],
     "bo_qua": [("CD-0001", "Ghi kẽm CTP", 1), ("CD-0002", "In offset", 1),
@@ -340,11 +343,8 @@ def seed_kh_vat_tu(db: Session) -> None:
         return   # engine không sinh đủ lệnh → dừng, đừng để lại nửa bộ ca
 
     for khoa, lsx in lenh.items():
-        # Hạn SX tạm đặt bằng ngày cần mong muốn; pha B nắn lại theo thời gian dẫn engine tính.
-        lsx.han_hoan_thanh_sx = hom_nay + timedelta(days=_NGAY_CAN_SAU[khoa])
-        # Ép `san_sang` để lệnh vào PHẠM VI TÍNH của bảng cân đối. Bước hoàn thiện còn chưa gán
-        # máy (giống mọi lệnh demo đang có) — đó chính là cảnh báo "chưa suy được mốc" mà màn này
-        # cần trưng bày, không phải lỗi phải chữa ở đây.
+        lsx.han_hoan_thanh_sx = hom_nay + timedelta(days=_HAN_SAU[khoa])
+        # Ép `san_sang` để lệnh vào PHẠM VI TÍNH của bảng cân đối.
         lsx.trang_thai = TT_SAN_SANG
 
     # ⑤ Tem decal: GỠ giấy khỏi quy cách → rơi vào khối "bỏ qua" của bảng cân đối.
@@ -361,7 +361,7 @@ def seed_kh_vat_tu(db: Session) -> None:
     # KHÔNG RÕ: mực pha Pantone xưởng mua theo HỘP, mà danh mục để đơn vị gốc là kg và bảng
     # `don_vi_quy_doi` không có cầu hộp→kg ⇒ engine từ chối đoán, dán nhãn "không đối chiếu được".
     _khai_vat_tu(db, lenh["xanh"], cd_in, vts["MUC-PANTONE"], 2, "hop")
-    _khai_vat_tu(db, lenh["ve_muon"], cd_in, vts["MUC-CMYK"], 8, "kg")
+    _khai_vat_tu(db, lenh["dang_ve"], cd_in, vts["MUC-CMYK"], 8, "kg")
 
     # Bài ghép GB26-0004 quay lại bảng: bài vào phạm vi khi CÓ thành viên trong phạm vi.
     for ma in ("LSX26-0005", "LSX26-0006"):
@@ -370,18 +370,13 @@ def seed_kh_vat_tu(db: Session) -> None:
             l.trang_thai = TT_SAN_SANG
     db.commit()
 
-    # ══ PHA B — đọc số THẬT engine tính rồi mới nắn ngày + cân lô tồn / phiếu mua ═════════════
+    # ══ PHA B — đọc số THẬT engine tính rồi mới cân lô tồn / phiếu mua ═════════════════════
     bang = _kh_service(db).can_doi()
-    can: dict[str, tuple[date, float]] = {}
-    for khoa in ("xanh", "do", "vang", "ve_muon"):
+    can: dict[str, float] = {}
+    for khoa in ("xanh", "do", "vang", "dang_ve"):
         d = _dong_giay(bang, lenh[khoa].id)
-        if d and d.get("ngay_can"):
-            can[khoa] = (d["ngay_can"], float(d.get("nhu_cau") or 0))
-
-    for khoa, (ngay_can, _sl) in can.items():
-        lech = ((hom_nay + timedelta(days=_NGAY_CAN_SAU[khoa])) - ngay_can).days
-        if lech:
-            lenh[khoa].han_hoan_thanh_sx += timedelta(days=lech)
+        if d:
+            can[khoa] = float(d.get("nhu_cau") or 0)
 
     giay = {g.ma: g for g in db.execute(select(GiayNguyen)).scalars()}
 
@@ -389,28 +384,28 @@ def seed_kh_vat_tu(db: Session) -> None:
     # như xưởng vẫn nhập nguyên kiện) TRỪ tồn sẵn có, nên bộ ca tự đúng trên mọi DB: DB dev đã có
     # lô Ford khai tay thì lô này chỉ bù phần thiếu, DB trắng thì nó gánh cả.
     if "xanh" in can:
-        con_thieu = can["xanh"][1] * 1.25 - _ton(db, HANG_GIAY, giay["FORD-70-65x86"].id)
+        con_thieu = can["xanh"] * 1.25 - _ton(db, HANG_GIAY, giay["FORD-70-65x86"].id)
         if con_thieu > 0:
             _lo(db, ma="LO-FORD70-VT01", kho_id=kho.id, hang_loai=HANG_GIAY,
                 hang_id=giay["FORD-70-65x86"].id, sl=round(con_thieu, 2), don_gia=28000,
                 ngay=hom_nay - timedelta(days=12))
-    # VÀNG — hàng về TRƯỚC ngày cần 4 ngày; mua dư 15% như xưởng vẫn mua.
+    # VÀNG — hàng về TRƯỚC hạn SX 4 ngày; mua dư 15% như xưởng vẫn mua.
     if "vang" in can:
-        ngay_can, sl = can["vang"]
+        sl = can["vang"]
         _phieu_mua(
             db, code="PMH-VT-01", ncc=ncc["Giấy Vĩnh Tiến"],
-            ngay_ve=hom_nay + timedelta(days=max(1, (ngay_can - hom_nay).days - 4)),
+            ngay_ve=hom_nay + timedelta(days=max(1, _HAN_SAU["vang"] - 4)),
             hang_loai=HANG_GIAY, hang_id=giay["IVORY-350-79x109"].id,
             ten="Giấy Ivory 350 79×109", dvt="kg", sl=round(sl * 1.15, 2), don_gia=32000,
             nguoi_id=mua_hang.id,
             ghi_chu="Mua cho thực đơn khai trương — NCC hẹn giao trước ngày lên máy.",
         )
-    # VỀ MUỘN — cùng cách mua nhưng NCC hẹn giao SAU ngày cần 7 ngày.
-    if "ve_muon" in can:
-        ngay_can, sl = can["ve_muon"]
+    # Cùng cách mua nhưng NCC hẹn giao SAU hạn SX 7 ngày — vẫn là hàng đang về (vàng).
+    if "dang_ve" in can:
+        sl = can["dang_ve"]
         _phieu_mua(
             db, code="PMH-VT-02", ncc=ncc["Giấy Vĩnh Tiến"],
-            ngay_ve=ngay_can + timedelta(days=7),
+            ngay_ve=hom_nay + timedelta(days=_HAN_SAU["dang_ve"] + 7),
             hang_loai=HANG_GIAY, hang_id=giay["DUPLEX-300"].id,
             ten="Giấy Duplex 300 79×109", dvt="kg", sl=round(sl * 1.15, 2), don_gia=24000,
             nguoi_id=mua_hang.id,
@@ -429,7 +424,7 @@ def seed_kh_vat_tu(db: Session) -> None:
         ghi_chu="Cấp đủ mực CMYK cho tờ hướng dẫn — đã ký nhận tại kho.",
     )
     _phieu_xuat(
-        db, ma="DNX-VT02", kho_id=kho.id, nguoi_id=thu_kho.id, lsx_id=lenh["ve_muon"].id,
+        db, ma="DNX-VT02", kho_id=kho.id, nguoi_id=thu_kho.id, lsx_id=lenh["dang_ve"].id,
         hang_loai=HANG_VAT_TU, hang_id=muc.id, dvt="kg",
         de_nghi=8, duyet=8, da_ung=5, ngay_can=hom_nay + timedelta(days=2),
         ghi_chu="Duyệt 8 kg, kho mới giao 5 kg — còn 3 kg chờ lĩnh nốt.",
@@ -439,7 +434,7 @@ def seed_kh_vat_tu(db: Session) -> None:
     # ══ PHA C — giữ chỗ ══════════════════════════════════════════════════════════════════════
     from .services.giu_cho_service import GiuChoService
 
-    for khoa in ("xanh", "do", "vang", "ve_muon"):
+    for khoa in ("xanh", "do", "vang", "dang_ve"):
         GiuChoService(db, _kh_service(db)).bat(lsx_id=lenh[khoa].id)
     db.commit()
 

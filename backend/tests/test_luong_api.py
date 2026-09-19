@@ -946,6 +946,98 @@ def test_cham_vao_tang_ca_chi_khi_co_phieu(client):
     assert action2 == "in" and reason2 is None and ot_mode2 is True
 
 
+def _ghi_luot_bam(eid, luot):
+    """Ghi các lượt bấm ngày 15/06/2026; `luot` = [(loại, giờ VN, phút)]. Đổi sang UTC trước khi lưu
+    — SQLite bỏ múi giờ, lưu thẳng giờ VN thì đọc lại thành giờ UTC (lệch 7 tiếng, có khi sang ngày)."""
+    from datetime import datetime as _dt, timezone as _tz
+    from app.repositories.attendance_repo import AttendanceRepository
+    from app.services.attendance_service import VN_TZ
+
+    db = SessionLocal()
+    try:
+        arepo = AttendanceRepository(db)
+        for loai, gio, phut in luot:
+            arepo.create_log(employee_id=eid, check_type=loai, within_range=True,
+                             checked_at=_dt(2026, 6, 15, gio, phut, tzinfo=VN_TZ).astimezone(_tz.utc))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _canh_gate_tc(client, token, name, luot):
+    """NV + ca HC 08:00–17:00 + các lượt bấm ngày 15/06/2026 (`luot` như `_ghi_luot_bam`).
+    Trả (eid, `timing(giờ, phút)`) — `timing` gọi thẳng `_check_timing` ở giờ VN đó."""
+    from datetime import datetime as _dt, date as _date
+    from app.repositories.attendance_repo import AttendanceRepository
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.repositories.overtime_repo import OvertimeRepository
+    from app.services.attendance_service import AttendanceService, VN_TZ
+
+    eid = _make_emp(client, token, name=name, status="active")
+    db = SessionLocal()
+    try:
+        shift_id = AttendanceRepository(db).create_shift(
+            name=f"HC {name}", start_minute=480, end_minute=1020, is_overnight=False,
+            grace_minutes=5).id
+        EmployeeRepository(db).get_by_id(eid).default_shift_id = shift_id
+        db.commit()
+    finally:
+        db.close()
+    _ghi_luot_bam(eid, luot)
+
+    def timing(gio, phut=0):
+        d = SessionLocal()
+        try:
+            svc = AttendanceService(AttendanceRepository(d), EmployeeRepository(d),
+                                    AuditLogRepository(d), overtime=OvertimeRepository(d))
+            sh = next(s for s in AttendanceRepository(d).list_shifts() if s.id == shift_id)
+            return svc._check_timing(eid, sh, _date(2026, 6, 15), _dt(2026, 6, 15, gio, phut, tzinfo=VN_TZ))
+        finally:
+            d.close()
+
+    return eid, timing
+
+
+def test_vao_lai_TRONG_gio_ca_chinh_van_la_tang_ca_phai_co_phieu_va_toi_da_2_cap(client):
+    """⭐ Bấm thử 18/09/2026: ra ca chính lúc 15h28 rồi bấm vào lại VẪN LỌT — gắn nhãn "VÀO TĂNG CA"
+    dù không có phiếu — và vào/ra lặp 6 cặp trong 2 phút. Cổng phiếu trước đó chỉ bật SAU giờ tan
+    ca. Luật (chốt 25/07 + 09/09/2026): sau lượt RA đầu, lượt VÀO nào cũng là tăng ca ⇒ phải có phiếu
+    duyệt phủ giờ đó (kể cả trong giờ ca chính), và một ngày tối đa 2 cặp."""
+    token = _admin_token(client)
+    eid, timing = _canh_gate_tc(client, token, "NV Gate TC trong ca",
+                                [("in", 8, 0), ("out", 15, 0)])   # về sớm lúc 15:00
+
+    # 15:05, còn trong giờ ca chính, KHÔNG phiếu ⇒ chặn, nói đúng lý do + chỉ đường chỉnh công.
+    action, reason, ot_mode = timing(15, 5)
+    assert action == "in" and ot_mode is True
+    assert reason is not None and "phiếu tăng ca" in reason.lower() and "chỉnh công" in reason
+
+    # Có phiếu 17:00–20:00 nhưng mới 15:05 (trước 16:00 = giờ phiếu − 60') ⇒ chưa cho.
+    _mk_ot(client, token, eid, work_date="2026-06-15", frm=1020, to=1200)
+    _a, reason2, _o = timing(15, 5)
+    assert reason2 is not None and "bắt đầu lúc 17:00" in reason2
+    # 16:30 (trong 60' trước giờ phiếu) ⇒ cho VÀO tăng ca.
+    action3, reason3, ot_mode3 = timing(16, 30)
+    assert action3 == "in" and reason3 is None and ot_mode3 is True
+
+    # Đã xong cặp tăng ca (vào 16:30, ra 19:00) ⇒ cặp thứ 3 bị chặn, kể cả phiếu còn hiệu lực.
+    _ghi_luot_bam(eid, [("in", 16, 30), ("out", 19, 0)])
+    action4, reason4, _o4 = timing(19, 5)
+    assert action4 == "in" and reason4 is not None and "đủ ca chính và tăng ca" in reason4
+
+
+def test_ngay_CHI_CO_TANG_CA_xong_cap_dau_la_het(client):
+    """Ngày chỉ có tăng ca (gọi vào buổi tối, không làm ca chính): cặp đầu ĐÃ LÀ cặp tăng ca ⇒ ra
+    xong là hết, không mở thêm cặp tăng ca thứ hai dù phiếu còn hiệu lực."""
+    token = _admin_token(client)
+    eid, timing = _canh_gate_tc(client, token, "NV Chi TC",
+                                [("in", 18, 0), ("out", 20, 0)])   # sau giờ tan ca 17:00
+    _mk_ot(client, token, eid, work_date="2026-06-15", frm=1080, to=1260)   # 18:00–21:00
+    action, reason, ot_mode = timing(20, 10)
+    assert action == "in" and ot_mode is True
+    assert reason is not None and "đủ ca chính và tăng ca" in reason
+
+
 def test_day_detail_goi_y_cham_bu_cap_tang_ca(client):
     """`GET /api/attendance/day` gợi ý chấm bù cặp TC khi NV có phiếu duyệt (trong ngày) + mới xong ca
     chính (đúng 1 phiên); null khi đã có phiên TC / không phiếu. Phiếu qua nửa đêm từ 07/09/2026 CŨNG

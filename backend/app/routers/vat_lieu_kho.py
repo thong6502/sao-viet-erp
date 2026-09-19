@@ -20,7 +20,6 @@ from ..deps import (
     CurrentUser, get_authorization_service, require_any_permission, require_permission,
     require_quyen_to,
 )
-from ..models.customer import Customer
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
@@ -88,20 +87,10 @@ def _rows_kem_don_vi(svc: MotDanhMucVatLieu, objs: list, RowModel) -> list:
 
 
 def _rows_thanh_pham(svc: MotDanhMucVatLieu, objs: list, RowModel) -> list:
-    """Dòng + tên đơn vị + TÊN KHÁCH, mỗi thứ một truy vấn cho cả trang.
-
-    Không gán tên khách thì bảng chỉ có một số id — người khai không biết dòng đó của ai, mà
-    "của ai" chính là thứ phân biệt hai thành phẩm cùng tên (docs/prd-thanh-pham.md §5 L2).
-    """
+    """Dòng + tên đơn vị + NGUỒN GỐC (số đơn, mã/tên khách đặt lần đầu) — mỗi thứ một truy vấn
+    cho cả trang. Bảng chỉ lưu id; không dịch ra thì màn chẳng có gì để hiện."""
     rows = _rows_kem_don_vi(svc, objs, RowModel)
-    ids = {r.customer_id for r in rows if r.customer_id}
-    if ids:
-        db = svc.goc.repo.db
-        ten = dict(
-            db.query(Customer.id, Customer.name).filter(Customer.id.in_(sorted(ids))).all()
-        )
-        for r in rows:
-            r.customer_ten = ten.get(r.customer_id or 0)
+    svc.gan_nguon_goc_thanh_pham(rows)
     return rows
 
 
@@ -137,7 +126,7 @@ _khai("giay", GiayIn, GiayRow, "giay", kem_don_vi=True, enable_clone=True,
 # Vật tư khác hết ô công thức (mg `0274`) — dòng GIẤY ngay trên GIỮ `cong_thuc_truong`.
 _khai("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an", kem_don_vi=True, enable_clone=True,
       excel_spec=VAT_TU)
-# Thành phẩm: CÙNG nền CRUD, nhưng `VatLieuKhoService._chan_go_tay` chặn tạo/xoá — dòng ở
+# Thành phẩm: CÙNG nền CRUD, nhưng `VatLieuKhoService._chan_tao_tay` / `_chan_go_tay` chặn tạo/xoá — dòng ở
 # đây chỉ do `OrderService.confirm()` sinh ra (docs/prd-thanh-pham.md L1, L5). Không nhân bản được
 # vì cùng lý do: đây không phải danh mục khai tay.
 _khai("thanh_pham", ThanhPhamIn, ThanhPhamRow, "thanh-pham", kem_don_vi="khach",

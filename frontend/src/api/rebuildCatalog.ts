@@ -11,6 +11,9 @@ export interface ListOut<T> {
    *  khai giá trị đó). Chỉ 3 endpoint có tab lọc mới trả: Máy · Công đoạn · Khuôn bế.
    *  Màn danh mục phân trang ở máy chủ nên chỉ cầm 20 dòng — số trên tab phải do server đếm. */
   facets?: Record<string, number>;
+  /** Tổng theo Ô TÌM (bỏ qua tab), do server đếm — chỉ màn mà một dòng rơi vào NHIỀU tab mới trả
+   *  (Công việc khoán: một việc nhiều tổ). Cộng `facets` ở màn đó là đếm trùng. */
+  tong_theo_tim?: number;
 }
 
 export type Row = Record<string, unknown> & { id: number; ma: string; ten: string };

@@ -75,10 +75,11 @@ DANH_MUC: tuple[DanhMuc, ...] = (
     # thường, trả ra con số sai cho cả hai màn. Không có bộ đếm còn hơn có bộ đếm nói dối.
     DanhMuc("thanh_pham", "dm_thanh_pham", "Thành phẩm", "thanh-pham"),
     # `khuon_be` KHÔNG có tiền tố `dm_` — chuỗi này đã cấp quyền trong DB thật, đổi cần migration.
-    # NHÃN đổi thành "Khuôn & khung" (04/09/2026): màn nay chứa cả khuôn bế, khuôn ép nhũ và khung
-    # lụa — xem `LOAI_KHUON`. Chỉ chữ hiển thị đổi (menu · ma trận quyền · nhãn module), KHOÁ giữ
-    # nguyên. Nhãn nằm ở cột `modules.label` của DB thật nên đi kèm migration 0261.
-    DanhMuc("khuon_be", "khuon_be", "Khuôn & khung", "khuon-be", model="models.khuon_be:KhuonBe"),
+    # NHÃN "Khuôn & khung" (04/09/2026) → "Khuôn" (18/09/2026, chủ đổi): màn vẫn chứa cả khuôn bế,
+    # khuôn ép kim và khung lụa — chip loại trên màn phân biệt chúng. Chỉ chữ hiển thị đổi (menu ·
+    # ma trận quyền · nhãn module), KHOÁ giữ nguyên. `seed_modules` chạy mỗi lần khởi động và tự
+    # đồng bộ `modules.label` theo dòng này (mg 0261 chỉ đổi nhãn đời trước).
+    DanhMuc("khuon_be", "khuon_be", "Khuôn", "khuon-be", model="models.khuon_be:KhuonBe"),
     DanhMuc("kho_hang", "dm_kho_hang", "Khai báo kho", "khai-bao-kho"),
     # Hạng mục kiểm KCS: khai theo cây Giai đoạn → Công đoạn → hạng mục (mg `0285`), màn riêng
     # `KcsKhaiBaoPage` chứ không dùng nền danh mục phẳng. `model=` để bộ đếm "còn ai dùng không"

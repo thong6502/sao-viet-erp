@@ -158,7 +158,7 @@ def test_luy_ke_san_luong_cua_toi_hinh_dang(client):
                    headers=_admin_h(client))
     assert r.status_code == 200
     d = r.json()
-    assert set(d) == {"nam", "thang", "employee_id", "theo_don_vi", "so_me"}
+    assert set(d) == {"nam", "thang", "employee_id", "me", "so_me"}
     assert d["nam"] == 2026 and d["thang"] == 9
     assert "tien" not in str(d) and "don_gia" not in str(d)
 

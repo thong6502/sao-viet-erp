@@ -61,7 +61,7 @@ from ..repositories.rbac_repo import DepartmentRepository
 from ..services.bai_ghep_service import BaiGhepService
 from ..services.calendar_service import CalendarService
 from ..services._may_fit import kiem_kha_nang
-from ..services.lsx_service import _f, thoi_luong_buoc
+from ..services.lsx_service import _f, can_chot_khuon, thoi_luong_buoc
 
 NHOM_PRINT = "print"
 GIO_BAT_DAU = 8          # 08:00 — giờ bắt đầu ca ngày (giờ nhà máy)
@@ -526,13 +526,12 @@ class XepLichService:
 
         Đọc `work_shifts.break_*` của ĐÚNG tập ca xưởng ở trên, rồi để `constraint` chốt luật "chỉ
         là nghỉ khi mọi ca đang phủ mốc đó đều nghỉ" (ca gối nhau thì một ca còn đứng máy là xưởng
-        vẫn chạy). Cửa DUY NHẤT dựng khoảng nghỉ — Xếp lịch 2 gọi lại qua `ctx.nghi_windows()` nên
-        hai lát không thể trôi nhau.
+        vẫn chạy). Cửa DUY NHẤT dựng khoảng nghỉ.
 
-        Import trễ: `xep_lich_2/__init__` kéo `service` mà `service` lại kéo chính module này.
+        Import trễ: `xep_lich/__init__` kéo `service` mà `service` lại kéo chính module này.
         """
         if self._nghi_cache is None:
-            from .xep_lich_2 import constraint as C
+            from .xep_lich import constraint as C
 
             self._nghi_cache = tuple(C.doan_nghi_trong_ngay([
                 (int(s.start_minute), int(s.end_minute),
@@ -598,7 +597,8 @@ class XepLichService:
 
         Tách khỏi `quan_so_tu_tinh` vì đây là phần duy nhất không đổi theo ngày: một vòng quét
         nhiều ngày của cùng một tổ (panel một lệnh chạy 3-4 ngày) hỏi lại đúng con số này mỗi ngày.
-        Chỗ nhớ nằm ở `XepLich2Context.si_so_to`, phạm vi một khối đóng băng.
+        Chỗ nhớ từng nằm ở context của bàn theo công đoạn (đã xoá 18/09/2026); nay `quan_so_tu_tinh`
+        là chỗ gọi duy nhất và tự truyền `si_so` khi quét nhiều ngày.
         """
         dang_lam = (EMP_ACTIVE, EMP_PROBATION, EMP_PROBATION_ENDED)
         return int(self.db.execute(
@@ -727,14 +727,27 @@ class XepLichService:
 
         ra: list[dict] = []
         for dept_id, rs in theo_to.items():
-            mocs = sorted({_aware(r["start_at"]) for r in rs}
-                          | {_aware(r["finish_at"]) for r in rs})
+            # Quét MỘT lượt: việc vào tập đang chạy ở mốc bắt đầu, ra ở mốc kết thúc. Giữa hai mốc
+            # liền kề không có mốc nào nên "phủ trọn [s, e]" ⟺ `start <= s < finish`. Trước
+            # 18/09/2026 mỗi khoảng lại lọc cả danh sách việc của tổ — bậc hai theo số việc, mà tổ
+            # nào cũng giữ nguyên lịch sử trên bàn (0,5 s ở 204 dòng, 4 lần số dòng là 16 lần giờ).
+            ks = [(_aware(r["start_at"]), _aware(r["finish_at"])) for r in rs]
+            mocs = sorted({k for ab in ks for k in ab})
+            vao = sorted(range(len(rs)), key=lambda j: ks[j][0])
+            ra_khoi = sorted(range(len(rs)), key=lambda j: ks[j][1])
+            dang: set[int] = set()
+            iv = ir = 0
             for i in range(len(mocs) - 1):
                 s, e = mocs[i], mocs[i + 1]
-                chay = [r for r in rs
-                        if _aware(r["start_at"]) <= s and _aware(r["finish_at"]) >= e]
-                if not chay:
+                while iv < len(vao) and ks[vao[iv]][0] <= s:
+                    dang.add(vao[iv])
+                    iv += 1
+                while ir < len(ra_khoi) and ks[ra_khoi[ir]][1] <= s:
+                    dang.discard(ra_khoi[ir])
+                    ir += 1
+                if not dang:
                     continue
+                chay = [rs[j] for j in sorted(dang)]      # giữ thứ tự `rs` như bản lọc cũ
                 dung = sum(int(r.get("so_nguoi") or 1) for r in chay)
                 qs = _qs(dept_id, s.date())
                 if qs["so_nguoi"] <= 0 and not qs["go_de"]:
@@ -924,18 +937,14 @@ class XepLichService:
         return round(tong, 2)
 
     def _so_nguoi_dong(self, r: XepLichCongDoan) -> int | None:
-        """Kíp của một dòng — bước lệnh đọc `lsx_cong_doan`, bài ghép đọc bước chung.
+        """Kíp của một dòng. LUÔN 1 kể từ 18/09/2026 (mg `0321`) — cột kíp chuẩn đã gỡ.
 
-        Đọc KÍP CHUẨN (`so_nhan_cong_tieu_chuan`). Ô "số người bố trí" riêng đã gỡ 08/09/2026
-        (mg `0281`): nó luôn là bản sao của kíp chuẩn — cùng rót từ
-        `cong_doan_dau_viec.so_nguoi_tieu_chuan` — mà không ai đồng bộ lại bản sao đó.
+        Chủ xưởng 18/09/2026: *"bỏ luôn logic kíp người, và mấy cái chặn hoặc cảnh báo hoặc phép
+        tính liên quan đến kíp người"*. Hàm giữ lại (chứ không xoá) vì hai chỗ gọi nó nhân vào giờ
+        để cân quân số tổ của module XẾP LỊCH 2 — module đó đang được gỡ ở nhánh khác, sờ vào đây
+        là đụng file của họ. Trả 1 thì phép nhân ấy thành phép đồng nhất: giờ vẫn là giờ.
         """
-        buoc = (
-            self._lcd(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
-            else self.db.get(BaiGhepCongDoan, r.bai_ghep_cong_doan_id)
-            if r.bai_ghep_cong_doan_id else None
-        )
-        return int(getattr(buoc, "so_nhan_cong_tieu_chuan", 1) or 1) if buoc else None
+        return 1 if r is not None else None
 
     def _khoang_may(self, may_id: int | None, kieu: str) -> tuple[tuple[datetime, datetime], ...]:
         if not may_id:
@@ -987,9 +996,10 @@ class XepLichService:
         ).all()
         cd_ids = {int(b[1]) for b in buocs if b[1]}
         can_dc = {
-            int(r[0]): bool(r[1])
+            int(r[0]): can_chot_khuon(r[1], r[2])
             for r in self.db.execute(
-                select(CongDoan.id, CongDoan.requires_tooling).where(CongDoan.id.in_(cd_ids))
+                select(CongDoan.id, CongDoan.requires_tooling, CongDoan.tooling_type)
+                .where(CongDoan.id.in_(cd_ids))
             ).all()
         } if cd_ids else {}
         k_ids = {int(b[2]) for b in buocs if b[2]}
@@ -1025,8 +1035,18 @@ class XepLichService:
     def _nap_lo(self, rows: list[XepLichCongDoan]) -> tuple[dict, dict, dict]:
         """Nạp LÔ bối cảnh cho cả tập dòng lịch — 3 query thay vì 3-5 query MỖI dòng (né N+1):
         Lsx kèm công đoạn (identity map ấm → `_lcd` khỏi query), bài ghép kèm thành viên, máy full
-        spec (nạp TRƯỚC vòng `_thoi_luong` để `db.get(MayThietBi)` trúng identity map)."""
+        spec (nạp TRƯỚC vòng `_thoi_luong` để `db.get(MayThietBi)` trúng identity map).
+
+        Hâm luôn `_qc_cache` từ chính các lệnh vừa nạp: `quy_cach_bien` chỉ đọc cột của lệnh +
+        `cong_doans`, đúng thứ `lsx_by_ids` đã kéo về. Không hâm thì `_sl_tinh` tự đi `lsx_repo.get`
+        cho TỪNG lệnh — 4 câu kéo trọn cây routing (bước + vật tư + phụ thuộc) chỉ để lấy mấy biến
+        quy cách. Đo 18/09/2026, bàn 204 dòng / 200 lệnh: 816 câu, 4,4 s trong tổng 5,3 s."""
+        from .bien_cong_thuc import quy_cach_bien
+
         lsx_map = self.bg_repo.lsx_by_ids(list({r.lsx_id for r in rows if r.lsx_id}))
+        for lid, lsx in lsx_map.items():
+            if lid not in self._qc_cache:
+                self._qc_cache[lid] = quy_cach_bien(lsx)
         bg_map = self.bg_repo.by_ids(list({r.bai_ghep_id for r in rows if r.bai_ghep_id}))
         may_map = self._may_by_ids({r.may_id for r in rows if r.may_id})
         return lsx_map, bg_map, may_map
@@ -1074,7 +1094,7 @@ class XepLichService:
         """
         if dong is None or getattr(dong, "phan_doan_tong", 1) <= 1:
             return 1.0
-        from .xep_lich_2.phan_doan import cac_phan_doan, ty_le_trong_cum
+        from .xep_lich.phan_doan import cac_phan_doan, ty_le_trong_cum
 
         return ty_le_trong_cum(dong, cac_phan_doan(self.db, dong))
 
@@ -1616,18 +1636,35 @@ class XepLichService:
 
     # ================= XUNG ĐỘT MÁY =================
 
-    def _xung_dot_ids(self) -> set[int]:
-        """Id các dòng trùng lịch máy (cùng máy, khoảng [start, finish) chồng nhau)."""
+    def _xung_dot_ids(self, rows: list[XepLichCongDoan] | None = None) -> set[int]:
+        """Id các dòng trùng lịch máy (cùng máy, khoảng [start, finish) chồng nhau).
+
+        `rows` = tập dòng để soi; bỏ trống là cả bàn. Truyền phần bàn quanh vài lệnh
+        (`XepLichRepository.dong_quanh`) thì cờ của CHÍNH các lệnh đó vẫn đúng khít, vì việc trùng
+        máy với chúng đều chạm khoảng giờ của chúng nên đã có trong tập.
+
+        So với dòng có giờ xong MUỘN NHẤT đã quét, không chỉ dòng liền trước. Trước 18/09/2026 chỉ
+        so cặp liền kề theo giờ bắt đầu, nên A 8h–12h · B 9h–9h30 · C 10h–11h thì C trùng A mà
+        không bị tô (liền trước C là B) — lệch với `trung_may`, vốn so đủ mọi cặp.
+        """
+        if rows is None:
+            nguon = self.repo.rows_da_xep_co_may()
+        else:
+            nguon = [r for r in rows if r.trang_thai == TT_DA_XEP and r.may_id
+                     and r.start_at is not None and r.finish_at is not None]
         theo_may: dict[int, list[XepLichCongDoan]] = {}
-        for r in self.repo.rows_da_xep_co_may():
+        for r in nguon:
             theo_may.setdefault(r.may_id, []).append(r)
         bad: set[int] = set()
-        for rows in theo_may.values():
-            rows.sort(key=lambda r: _aware(r.start_at))
-            for a, b in zip(rows, rows[1:]):
-                if _aware(b.start_at) < _aware(a.finish_at):
-                    bad.add(a.id)
+        for rs in theo_may.values():
+            rs.sort(key=lambda r: _aware(r.start_at))
+            dai: XepLichCongDoan | None = None
+            for b in rs:
+                if dai is not None and _aware(b.start_at) < _aware(dai.finish_at):
+                    bad.add(dai.id)
                     bad.add(b.id)
+                if dai is None or _aware(b.finish_at) > _aware(dai.finish_at):
+                    dai = b
         return bad
 
     # ================= GỢI Ý (cơ bản) =================
@@ -2305,13 +2342,25 @@ class XepLichService:
         items = lsx_items + bg_items
         return {"items": items, "total": len(items)}
 
-    def danh_sach(self, *, may_id: int | None = None, q: str | None = None) -> dict:
+    def danh_sach(self, *, may_id: int | None = None, q: str | None = None,
+                  quanh_lsx_ids: set[int] | None = None) -> dict:
+        """Bàn xếp lịch: mọi dòng kèm mốc sớm/muộn, độ dư, cờ trùng máy, thời lượng.
+
+        `quanh_lsx_ids` = chỉ nạp phần bàn QUANH các lệnh này (`XepLichRepository.dong_quanh`):
+        dòng của chúng ra y hệt bản cả bàn, kèm dòng hàng xóm để bộ dò có cái so — số của hàng xóm
+        thì KHÔNG đúng, bên gọi phải tự lọc về lệnh của mình. Dành cho hàng đèn Kế hoạch SX: trang
+        50 lệnh không lẽ nạp cả lịch sử xưởng rồi vứt gần hết.
+        """
         # Luôn tính DAG trên TOÀN bộ dòng đã đưa vào kế hoạch; lọc máy chỉ là lọc hiển thị. Nếu
         # lọc trước, tiền nhiệm nằm ở máy khác bị hiểu nhầm là "chưa vào kế hoạch".
-        rows = self.repo.list_dong()
+        if quanh_lsx_ids is None:
+            rows = self.repo.list_dong()
+            xung_dot = self._xung_dot_ids()
+        else:
+            rows = self.repo.dong_quanh(quanh_lsx_ids)
+            xung_dot = self._xung_dot_ids(rows)
         lsx_map, bg_map, may_objs = self._nap_lo(rows)
         dur = {r.id: self._thoi_luong(r, bg=bg_map.get(r.bai_ghep_id)) for r in rows}
-        xung_dot = self._xung_dot_ids()
 
         noi_bo = [r for r in rows if r.nguon == NGUON_LSX]
         chuoi = self._do_thi(noi_bo, dur=dur, lsx_map=lsx_map) if noi_bo else {}
@@ -2378,9 +2427,8 @@ class XepLichService:
                 "can_xac_nhan": bool(ly_do_xn), "ly_do_xac_nhan": ly_do_xn,
                 "is_rush": bool(lsx.is_rush) if lsx else False,
                 # Kíp của bước — ĐẦU VÀO của `khoang_tai_to`/`_qua_tai_to`, không phải số để bày.
-                # Đọc kíp chuẩn: ô "số người bố trí" riêng gỡ ở mg `0281` (nó luôn là bản sao),
-                # và detector "thiếu người" gỡ ở `0270` (hết mốc tối thiểu để so).
-                "so_nguoi": int(getattr(buoc, "so_nhan_cong_tieu_chuan", 1) or 1) if buoc else None,
+                # LUÔN 1 kể từ 18/09/2026 (mg `0321`): cột kíp chuẩn đã gỡ — xem `_so_nguoi_dong`.
+                "so_nguoi": 1 if buoc else None,
                 # (E) Khoá GOM việc cùng loại — cùng giấy · cùng khổ tờ in · cùng bộ mực. Hai việc
                 # cùng khoá thì đổi từ việc này sang việc kia gần như không phải canh lại máy.
                 "gom_key": self._gom_key(lsx),

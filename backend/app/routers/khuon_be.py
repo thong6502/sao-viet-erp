@@ -1,4 +1,4 @@
-"""Khuôn bế router — CRUD danh mục KHAI BÁO nơi lưu trữ khuôn bế.
+"""Khuôn router — CRUD danh mục KHAI BÁO nơi lưu trữ khuôn (bế · ép kim · khung lụa).
 
 Thân CRUD sinh từ `routers/catalog_base.make_catalog_router`. Dependency INLINE.
 MODULE quyền RIÊNG = "khuon_be" (tích quyền độc lập trong ma trận).
@@ -33,9 +33,11 @@ make_catalog_router(
     router, ten="khuon_be", ServiceDep=Service, module=MODULE,
     InModel=KhuonBeIn, RowModel=KhuonBeRow, ListModel=KhuonBeListOut,
     excel_spec=KHUON_BE,
-    # Tab lọc của màn Khuôn bế (Còn dùng · Hỏng · Trả khách…). Trước 14/08/2026 màn tự lọc trong
-    # JS trên toàn bộ danh mục đã tải về; nay bảng chỉ cầm 20 dòng nên việc lọc phải về máy chủ.
-    loc="tinh_trang",
-    facets=lambda svc, kw: svc.dem_theo_tinh_trang(**kw),
+    # Chip lọc của màn Khuôn theo LOẠI (Khuôn bế · Khuôn ép kim · Khung lụa) từ 18/09/2026 —
+    # trước đó chip theo tình trạng. Tình trạng + khách + số kệ nằm ở bảng "Lọc nâng cao"
+    # (`loc_them`), ghép VÀ với chip và ô tìm. Mọi việc lọc đều ở máy chủ: bảng chỉ cầm 20 dòng.
+    loc="loai",
+    loc_them={"tinh_trang": str, "khach_hang_id": int, "so_ke": str},
+    facets=lambda svc, kw: svc.dem_theo_loai(**kw),
     ma_goi_y=True,      # repo khai `ma_prefix = "KB-"`
 )

@@ -12,7 +12,6 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from app.models.cong_doan import CongDoan
 from app.models.employee import Employee
 from app.models.lsx import LsxCongDoan
 from app.models.machine import Machine
@@ -151,20 +150,19 @@ def test_cap_nhat_tai_chup_hanh_ly_don_vi_va_dan_do(db, orders, lsx_svc, xl_svc,
     a, goi = _lsx_da_phat_hanh(db, orders, lsx_svc, xl_svc, admin, customer)
     target = next(cv for cv in _cvs(db, goi.id) if cv.lsx_cong_doan_id)
     cd = db.get(LsxCongDoan, target.lsx_cong_doan_id)
-    assert cd.cong_doan_id, "bước seed phải trỏ danh mục công đoạn thì mới có đơn vị sản lượng"
+    assert cd.cong_doan_id, "bước seed phải trỏ danh mục công đoạn"
 
     sl_vao_da_chot = float(target.so_luong_vao or 0)
     assert target.ghi_chu is None
     assert (target.dinh_muc_json or {}).get("ngoai_dong") is False
 
-    # Người lập kế hoạch sửa SAU phát hành: thêm dặn dò, gỡ bước khỏi dòng giấy (bỏ trống CẢ HAI
-    # ô đơn vị chặng — đó đúng là định nghĩa "ngoài dòng" từ mg `0273`), đơn vị đo sản lượng khai
-    # ở danh mục Công đoạn (mg `0289`). Đổi luôn số lượng vào để soi phần cố ý KHÔNG chụp lại.
+    # Người lập kế hoạch sửa SAU phát hành: thêm dặn dò, đưa bước ra khỏi dòng giấy bằng cách TỰ
+    # KHAI đơn vị `kem → kem` ở bước (mã ngoài 5 chặng ⇒ ngoài dòng; đơn vị sản lượng ở danh mục
+    # GỠ 18/09/2026, mg `0324`). Đổi luôn số lượng vào để soi phần cố ý KHÔNG chụp lại.
     cd.ghi_chu = "Kẽm cũ của đợt 1 còn dùng được, chỉ ghi lại tay 3."
-    cd.don_vi_vao = None
-    cd.don_vi_ra = None
+    cd.don_vi_vao = "kem"
+    cd.don_vi_ra = "kem"
     cd.so_luong_vao = sl_vao_da_chot + 500
-    db.get(CongDoan, cd.cong_doan_id).don_vi_san_luong = "kem"
     db.commit()
 
     release_update.phat_hanh_cap_nhat(
@@ -189,7 +187,7 @@ def test_cap_nhat_huy_phan_cong_va_ho_tro(db, orders, lsx_svc, xl_svc, admin, cu
     pc = SanXuatPhanCong(cong_viec_id=cv.id, employee_id=emp.id, trang_thai=PC_HOAT_DONG)
     ht = SanXuatHoTro(
         cong_viec_id=cv.id, employee_id=emp.id, to_goc_id=emp.department_id,
-        ngay_lam_viec=date(2026, 9, 1), ty_le_phan_tram=10, trang_thai=HT_CHO_HAI_BEN,
+        ngay_lam_viec=date(2026, 9, 1), trang_thai=HT_CHO_HAI_BEN,
     )
     db.add_all([pc, ht])
     db.commit()

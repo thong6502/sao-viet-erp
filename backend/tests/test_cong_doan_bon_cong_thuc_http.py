@@ -1,7 +1,11 @@
 """Bốn ô công thức của màn Công đoạn — đi TRỌN vòng POST → GET qua API thật.
 
-Vì sao kiểm ở tầng router chứ không tầng service: bốn ô này nằm ở BA schema lồng nhau
-(`CongDoanMayIn`, `CongDoanDauViecIn`, `CongDoanDauViecVatTuIn`). Bẫy "Pydantic nuốt field im
+Vì sao kiểm ở tầng router chứ không tầng service: các ô này nằm ở schema LỒNG
+(`CongDoanMayIn`, `CongDoanVatTuIn`).
+
+18/09/2026: ô thứ tư (`cong_thuc_khoan` của đầu việc định mức) rời công đoạn cùng cả tầng đầu việc
+(mg `0320`) — công thức khoán nay là tab của màn Công việc khoán (`piece_rates.cong_thuc_khoan`,
+mg `0317`). Vật tư treo THẲNG vào công đoạn (tab Vật tư, mg `0316`). Bẫy "Pydantic nuốt field im
 lặng" ăn đúng khuôn đó — service trả đủ mà schema `Out` quên khai một khoá thì nó rơi KHÔNG lỗi,
 form nhận `undefined` và người dùng thấy ô mình vừa gõ tự trống lại sau khi lưu.
 
@@ -22,7 +26,7 @@ def _headers(client) -> dict[str, str]:
 
 @pytest.fixture()
 def nen(client) -> dict:
-    """Máy · tổ · đầu việc khoán · vật tư — dựng thẳng vào DB.
+    """Máy · tổ · vật tư — dựng thẳng vào DB.
 
     `SEED_DEMO=false` trong test nên bốn danh mục này rỗng; dựng qua ORM chứ không qua bốn lượt
     POST vì thứ đang kiểm là vòng lưu–đọc của CÔNG ĐOẠN, không phải form của bốn màn kia.
@@ -30,7 +34,6 @@ def nen(client) -> dict:
     from app.db import engine
     from app.models.department import Department
     from app.models.may_thiet_bi import MayThietBi
-    from app.models.piece_work import PieceRate
     from app.models.vat_lieu_kho import VatTuInAn
 
     with Session(engine) as db:
@@ -39,12 +42,8 @@ def nen(client) -> dict:
         vat_tu = VatTuInAn(ma="MUC-TEST", ten="Mực đen", don_vi_gia="kg", don_gia=180_000,
                            active=True)
         db.add_all([to, may, vat_tu])
-        db.flush()
-        rate = PieceRate(group_name="to_in", ten="In tờ rời", unit="to", unit_price=35,
-                         department_id=to.id, active=True)
-        db.add(rate)
         db.commit()
-        ids = {"may_id": may.id, "vat_tu_id": vat_tu.id, "rate_id": rate.id, "to_id": to.id}
+        ids = {"may_id": may.id, "vat_tu_id": vat_tu.id, "to_id": to.id}
     return {"headers": _headers(client), **ids}
 
 
@@ -53,15 +52,10 @@ def _payload(nen: dict, *, nhom: str = "print", ct_gia: str | None = "sl_vao * s
     return dict(
         ma="CD-4CT", ten="In offset 4 công thức", nhom=nhom,
         che_do_tinh="theo_san_luong", pricing_basis="per_finished_qty",
-        department_id=nen["to_id"],
+        department_ids=[nen["to_id"]],
         may_lam_duoc=[{"may_id": nen["may_id"], "cong_thuc_gio": ct_gio,
                        "cong_thuc_gia": ct_gia}],
-        dau_viec_dinh_muc=[{
-            "piece_rate_id": nen["rate_id"],
-            "nang_suat_nguoi_gio": 3000, "so_nguoi_tieu_chuan": 2,
-            "cong_thuc_khoan": "sl_vao * so_luot_chay",
-            "vat_tus": [{"vat_tu_id": nen["vat_tu_id"], "cong_thuc_luong": "sl_vao / 8000"}],
-        }],
+        vat_tus=[{"vat_tu_id": nen["vat_tu_id"], "cong_thuc_luong": "sl_vao / 8000"}],
     )
 
 
@@ -81,12 +75,11 @@ def test_bon_o_cong_thuc_song_sot_ca_luc_luu_lan_luc_doc_lai(client, nen):
     may = cd["may_lam_duoc"][0]
     assert (may["cong_thuc_gio"], may["cong_thuc_gia"]) == (
         "sl_vao * so_mat", "sl_vao * so_mat * 420")
-    dv = cd["dau_viec_dinh_muc"][0]
-    assert dv["cong_thuc_khoan"] == "sl_vao * so_luot_chay"
-    assert dv["vat_tus"][0]["cong_thuc_luong"] == "sl_vao / 8000"
-    # Trả lời ngay ở POST cũng phải đủ bốn ô: form dựng lại state từ response này.
+    assert cd["vat_tus"][0]["cong_thuc_luong"] == "sl_vao / 8000"
+    assert "dau_viec_dinh_muc" not in cd, "tầng đầu việc định mức đã gỡ (mg `0320`)"
+    # Trả lời ngay ở POST cũng phải đủ các ô: form dựng lại state từ response này.
     assert tao["may_lam_duoc"][0]["cong_thuc_gia"] == "sl_vao * so_mat * 420"
-    assert tao["dau_viec_dinh_muc"][0]["vat_tus"][0]["cong_thuc_luong"] == "sl_vao / 8000"
+    assert tao["vat_tus"][0]["cong_thuc_luong"] == "sl_vao / 8000"
 
 
 def test_cong_doan_ngoai_nhom_in_khong_giu_duoc_cong_thuc_gia(client, nen):

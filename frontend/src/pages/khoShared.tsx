@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes } from "react";
 import type { StockRequestKind, StockRequestStatus, StockVoucherStatus } from "../api/client";
 import { Select } from "../components/Select";
+import { tenDonVi } from "./tenDonVi";
 import "./kho-request.css";
 
 /** TẠM ẨN toàn bộ giao diện ĐIỀU CHUYỂN kho — CHỈ ở FE (backend/API + dữ liệu cũ giữ nguyên).
@@ -181,6 +182,33 @@ export function DieuChuyenPill({ khoNguonTen }: { khoNguonTen?: string | null })
     >
       <span aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>⇄</span> Điều chuyển{khoNguonTen ? ` · từ ${khoNguonTen}` : ""}
     </span>
+  );
+}
+
+/** Ô ĐƠN GIÁ (giá gốc) của dòng nhập thành phẩm từ KCS — drawer Yêu cầu, lập phiếu, phiếu kho.
+ *  Giá gốc do kế toán kho gõ SAU (Báo cáo kho › Giá gốc thành phẩm) nên chưa có thì báo thẳng
+ *  "Chưa có giá gốc" thay vì "0 đ". Chỉ giá gốc — giá bán nằm CỘT RIÊNG (`GiaBanDong`), gộp chung
+ *  một ô là đọc nhầm giá bán thành giá vốn. Nơi gọi phải gate cột theo `view_cost`. */
+export function GiaGocKcs({ gia }: { gia: number | null }) {
+  return gia != null ? (
+    <>{gia.toLocaleString("vi-VN")} đ</>
+  ) : (
+    <span className="badge-sem badge-sem--amber" title="Kế toán kho gõ ở Báo cáo kho › Giá gốc thành phẩm">
+      Chưa có giá gốc
+    </span>
+  );
+}
+
+/** Ô GIÁ BÁN (tham khảo) — cột riêng cạnh Thành tiền, không cộng vào tiền phiếu. `donMa` = đơn lấy
+ *  giá; bỏ trống khi dòng đã hiện đơn ở chỗ khác. Server chỉ trả giá bán cho người có `view_cost`. */
+export function GiaBanDong({ gia, dvt, donMa }: { gia: number | null; dvt: string; donMa?: string | null }) {
+  if (gia == null) return <>—</>;
+  const dv = tenDonVi(dvt) || dvt;
+  return (
+    <>
+      {gia.toLocaleString("vi-VN")} đ{dv ? `/${dv}` : ""}
+      {donMa && <div className="kho-hint">{donMa}</div>}
+    </>
   );
 }
 

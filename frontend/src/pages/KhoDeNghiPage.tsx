@@ -26,7 +26,7 @@ import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import { PrintSheet } from "../components/PrintSheet";
 import { fmtDate, fmtDateISO } from "../utils/format";
-import { AN_IN_YEU_CAU, DateFilterHead, DecimalInput, LoaiYeuCauChip, RequestStatusBadge, VoucherStatusBadge, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
+import { AN_IN_YEU_CAU, DateFilterHead, DecimalInput, GiaBanDong, GiaGocKcs, LoaiYeuCauChip, RequestStatusBadge, VoucherStatusBadge, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
 import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
@@ -729,6 +729,13 @@ interface DraftLine extends SeedLine {
   sl_da_ung: number;
   /** Kho phản hồi: lý do cấp/nhập thiếu (chỉ đọc). */
   ly_do_thieu: string | null;
+  /** Dòng thành phẩm KCS: giá gốc đọc từ lô + giá bán theo đơn (chỉ đọc, chỉ có khi `view_cost`). */
+  tu_kcs: boolean;
+  gia_goc: number | null;
+  /** Σ giá × SL các đợt đã nhập — tổng giá trị dòng KCS, không nhân ngược `gia_goc` đã làm tròn. */
+  tien_goc: number | null;
+  don_gia_ban: number | null;
+  don_ban_ma: string | null;
 }
 
 let lineSeq = 0;
@@ -753,6 +760,11 @@ function newLine(seed?: Partial<SeedLine>): DraftLine {
     sl_duyet: 0,
     sl_da_ung: 0,
     ly_do_thieu: null,
+    tu_kcs: false,
+    gia_goc: null,
+    tien_goc: null,
+    don_gia_ban: null,
+    don_ban_ma: null,
   };
 }
 
@@ -793,6 +805,11 @@ function RequestDrawer({
 }: RequestDrawerProps) {
   // ĐVT hiện TÊN có dấu từ danh mục, không phải mã `dvt` lưu trong dòng — xem KhoYeuCauPage.
   useNapTenDonVi();
+  // Mọi con số TIỀN (đơn giá, ước tính, giá gốc, giá bán, giá trên phiếu) chỉ cho người có
+  // `kho:view_cost` — người tạo yêu cầu cũng không ngoại lệ (chủ 18/09/2026). Máy chủ đã xoá số khi
+  // thiếu quyền; ở đây ẩn luôn cột/ô để không còn một cột trống "—".
+  const can = useCan();
+  const canViewCost = can("kho", "view_cost");
   const [req, setReq] = useState<StockRequest | null>(null);
   const [loading, setLoading] = useState(requestId != null);
   const [busy, setBusy] = useState(false);
@@ -846,6 +863,11 @@ function RequestDrawer({
             sl_duyet: l.sl_duyet,
             sl_da_ung: l.sl_da_ung,
             ly_do_thieu: l.ly_do_thieu,
+            tu_kcs: l.tu_kcs,
+            gia_goc: l.gia_goc,
+            tien_goc: l.tien_goc,
+            don_gia_ban: l.don_gia_ban,
+            don_ban_ma: l.don_ban_ma,
           })),
         );
         setDirty(false);
@@ -980,10 +1002,15 @@ function RequestDrawer({
   const totalSKU = lines.length;
   const totalDeNghi = lines.reduce((acc, l) => acc + (Number(l.sl_de_nghi) || 0), 0);
   const totalDaUng = lines.reduce((acc, l) => acc + (Number(l.sl_da_ung) || 0), 0);
-  const totalGiaTri = lines.reduce(
-    (acc, l) => acc + (Number(l.sl_de_nghi) || 0) * (Number(l.don_gia) || 0),
-    0,
-  );
+  const totalGiaTri = canViewCost
+    ? lines.reduce(
+      (acc, l) =>
+        acc + (l.tu_kcs ? Number(l.tien_goc) || 0 : (Number(l.sl_de_nghi) || 0) * (Number(l.don_gia) || 0)),
+      0,
+    )
+    : 0;
+  // Giá bán (tham khảo) là CỘT RIÊNG cạnh Đơn giá — chỉ dựng khi có dòng thành phẩm mang giá bán.
+  const hienGiaBan = loai === "NHAP" && canViewCost && lines.some((l) => l.don_gia_ban != null);
   const percentDone = totalDeNghi > 0 ? Math.min(100, Math.round((totalDaUng / totalDeNghi) * 100)) : 0;
 
   const showStepper = req && req.trang_thai !== "cancelled" && req.trang_thai !== "rejected";
@@ -1193,9 +1220,14 @@ function RequestDrawer({
                             {loai === "NHAP" ? "SL thực nhận" : "SL thực cấp"}
                           </th>
                         )}
-                        {loai === "NHAP" && (
-                          <th className="kho-num" style={{ width: 110 }}>
+                        {loai === "NHAP" && canViewCost && (
+                          <th className="kho-num" style={{ width: 150 }}>
                             Đơn giá
+                          </th>
+                        )}
+                        {hienGiaBan && (
+                          <th className="kho-num" style={{ width: 120 }}>
+                            Giá bán
                           </th>
                         )}
                         {editable && <th style={{ width: 32 }} aria-label="Xóa" />}
@@ -1286,9 +1318,11 @@ function RequestDrawer({
                                 {fmtQty(l.sl_da_ung)}
                               </td>
                             )}
-                            {loai === "NHAP" && (
+                            {loai === "NHAP" && canViewCost && (
                               <td className="kho-num">
-                                {editable ? (
+                                {l.tu_kcs ? (
+                                  <GiaGocKcs gia={l.gia_goc} />
+                                ) : editable ? (
                                   <input
                                     type="number"
                                     min={0}
@@ -1309,6 +1343,11 @@ function RequestDrawer({
                                 ) : (
                                   "—"
                                 )}
+                              </td>
+                            )}
+                            {hienGiaBan && (
+                              <td className="kho-num">
+                                <GiaBanDong gia={l.don_gia_ban} dvt={l.dvt} donMa={l.don_ban_ma} />
                               </td>
                             )}
                             {editable && (
@@ -1339,7 +1378,7 @@ function RequestDrawer({
                     <div className="kho-live-summary-bar">
                       <span>Đã chọn <strong>{lines.filter((l) => l.hang_id != null || l.hang_ten).length}</strong> mặt hàng</span>
                       <span>Tổng SL: <strong>{fmtQty(totalDeNghi)}</strong></span>
-                      {totalGiaTri > 0 && <span>Tổng tiền ước tính: <strong>{totalGiaTri.toLocaleString("vi-VN")} đ</strong></span>}
+                      {canViewCost && totalGiaTri > 0 && <span>Tổng tiền ước tính: <strong>{totalGiaTri.toLocaleString("vi-VN")} đ</strong></span>}
                     </div>
                   )}
                 </div>
@@ -1378,8 +1417,10 @@ function RequestDrawer({
                             {none
                               ? "Kho không duyệt yêu cầu này."
                               : l.sl_da_ung > 0
-                                ? `Kho đã cấp ${fmtQty(l.sl_da_ung)} ${tenDonVi(l.dvt) || l.dvt || ""}`
-                                : "Đang chờ kho xuất cấp hàng."}
+                                ? `${loai === "NHAP" ? "Kho đã nhận" : "Kho đã cấp"} ${fmtQty(l.sl_da_ung)} ${tenDonVi(l.dvt) || l.dvt || ""}`
+                                : loai === "NHAP"
+                                  ? "Đang chờ kho nhận hàng."
+                                  : "Đang chờ kho xuất cấp hàng."}
                           </div>
                           {l.ly_do_thieu && (
                             <div className="kho-reply-card__reason">Lý do: {l.ly_do_thieu}</div>
@@ -1393,7 +1434,9 @@ function RequestDrawer({
 
               {vouchers.length > 0 && (
                 <section className="rc-sec">
-                  <h3 className="rc-sec__title">Phiếu kho đã cấp ({vouchers.length})</h3>
+                  <h3 className="rc-sec__title">
+                    {loai === "NHAP" ? "Phiếu nhập kho" : "Phiếu kho đã cấp"} ({vouchers.length})
+                  </h3>
                   <div className="kho-vlinks">
                     {vouchers.map((v) => (
                       <button
@@ -1468,15 +1511,15 @@ function RequestDrawer({
         <RequestPrint req={req} lines={lines} onClose={() => setPrinting(false)} />
       )}
 
-      {/* Người TẠO xem phiếu đã cấp — cùng màn phiếu như bên kho, read-only. `canViewCost` để true
-          vì backend cho người tạo thấy giá phiếu của CHÍNH yêu cầu họ (kho_voucher.py). */}
+      {/* Người TẠO xem phiếu đã cấp — cùng màn phiếu như bên kho, read-only. Giá theo đúng quyền
+          `view_cost` như mọi nơi (bỏ luật 10/08/2026 cho người tạo thấy giá — chủ 18/09/2026). */}
       {openVoucher != null && (
         <VoucherDrawer
           token={token}
           voucherId={openVoucher}
           canCreate={false}
           canPost={false}
-          canViewCost={true}
+          canViewCost={canViewCost}
           onClose={() => setOpenVoucher(null)}
           onChanged={() => {}}
         />

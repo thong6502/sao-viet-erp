@@ -46,6 +46,10 @@ from ..models.payroll import (
     PERIOD_LOCKED,
     PERIOD_PAID,
     SALARY_COMPONENT_KEYS,
+    TO_TRUONG_CHE_DO,
+    TO_TRUONG_CHIA,
+    TO_TRUONG_KHONG,
+    TO_TRUONG_THUONG,
 )
 
 
@@ -581,6 +585,74 @@ class PayrollService:
             self._audit(actor, "payroll_chi_tieu_ngay_changed", f"department:{department_id}",
                         f"xoá mốc {moc:%d/%m/%Y}")
         return self.chi_tieu_ngay(department_id)
+
+    # --- TỔ TRƯỞNG ăn thưởng / ăn chia theo sản lượng tổ (19/09/2026) — CHƯA nối vào lương -----
+
+    def to_truong(self, department_id: int, *, on: date | None = None) -> dict:
+        """Các mốc chế độ tổ trưởng của MỘT tổ + mốc đang hiệu lực tại ngày `on` (mặc định hôm nay).
+
+        Chỉ để hiện và khai báo — engine tính lương KHÔNG gọi hàm này (chủ: *"giờ tôi cần chỗ nhập
+        liệu trước còn đấu vào lương để làm sau"*)."""
+        if self.departments is not None and self.departments.get_by_id(department_id) is None:
+            raise PayrollNotFound("Không tìm thấy phòng ban.")
+        moc = self.payroll.list_to_truong(department_id)
+        ngay = on or date.today()
+        hien_hanh = next((m for m in moc if m.ap_dung_tu <= ngay), None)
+        return {"department_id": department_id, "hien_hanh": hien_hanh, "items": moc}
+
+    def khai_to_truong(self, department_id: int, *, ap_dung_tu: date, che_do: str, ty_le=0,
+                       ghi_chu=None, actor=None) -> dict:
+        """Thêm mốc chế độ tổ trưởng — cùng tổ, CÙNG ngày áp dụng thì SỬA mốc đó. Chỉ tổ đang bật
+        Lương khoán mới khai được: thưởng / chia tính trên SẢN LƯỢNG tổ, tổ công nhật không có."""
+        dept = self.departments.get_by_id(department_id) if self.departments is not None else None
+        if self.departments is not None and dept is None:
+            raise PayrollNotFound("Không tìm thấy phòng ban.")
+        if not self._component_enabled(COMP_LUONG_KHOAN, department_id):
+            raise PayrollValidationError(
+                "Tổ này chưa bật Lương khoán / sản lượng nên chưa khai chế độ tổ trưởng được. Bật "
+                "công tắc Lương khoán / sản lượng của tổ và bấm Lưu trước."
+            )
+        if che_do not in TO_TRUONG_CHE_DO:
+            raise PayrollValidationError("Chế độ tổ trưởng không hợp lệ.")
+        ty_le = round(float(ty_le or 0), 2)
+        if che_do == TO_TRUONG_KHONG:
+            ty_le = 0.0
+        elif ty_le <= 0:
+            raise PayrollValidationError("Ăn thưởng / ăn chia phải có tỷ lệ % lớn hơn 0.")
+        elif ty_le > 100:
+            raise PayrollValidationError("Tỷ lệ tối đa 100%.")
+        elif che_do == TO_TRUONG_CHIA and ty_le >= 100:
+            raise PayrollValidationError(
+                "Ăn chia mà tổ trưởng lấy 100% thì không còn gì chia cho tổ — tỷ lệ phải nhỏ hơn 100%."
+            )
+        ghi_chu = (ghi_chu or "").strip() or None
+        cu = self.payroll.get_to_truong_theo_moc(department_id, ap_dung_tu)
+        if cu is not None:
+            self.payroll.update_to_truong(cu, che_do=che_do, ty_le=ty_le, ghi_chu=ghi_chu,
+                                          updated_at=datetime.now(timezone.utc))
+            viec = "sửa"
+        else:
+            self.payroll.create_to_truong(
+                department_id=department_id, ap_dung_tu=ap_dung_tu, che_do=che_do, ty_le=ty_le,
+                ghi_chu=ghi_chu, created_by=getattr(actor, "id", None))
+            viec = "thêm"
+        if actor is not None:
+            nhan = {TO_TRUONG_KHONG: "không áp dụng", TO_TRUONG_THUONG: f"ăn thưởng {ty_le:g}%",
+                    TO_TRUONG_CHIA: f"ăn chia {ty_le:g}%"}[che_do]
+            self._audit(actor, "payroll_to_truong_changed", f"department:{department_id}",
+                        f"{viec} mốc {ap_dung_tu:%d/%m/%Y}: {nhan}")
+        return self.to_truong(department_id)
+
+    def xoa_to_truong(self, department_id: int, muc_id: int, *, actor=None) -> dict:
+        m = self.payroll.get_to_truong(muc_id)
+        if m is None or m.department_id != department_id:
+            raise PayrollNotFound("Không tìm thấy mốc chế độ tổ trưởng.")
+        moc = m.ap_dung_tu
+        self.payroll.delete_to_truong(m)
+        if actor is not None:
+            self._audit(actor, "payroll_to_truong_changed", f"department:{department_id}",
+                        f"xoá mốc {moc:%d/%m/%Y}")
+        return self.to_truong(department_id)
 
     # --- bảng phạt đi trễ / về sớm (sửa được) -------------------------------
 
@@ -2070,6 +2142,14 @@ class PayrollService:
             return []
         from .khoan_km_service import KhoanKmService
         return KhoanKmService(self.components.db).chi_tiet(ln.employee_id, ky.year, ky.month)
+
+    def luot_xe_chua_ve_kho(self, year: int, month: int) -> list[str]:
+        """Mã lượt xe có điểm giao trong kỳ mà chưa ghi số đồng hồ về kho — tiền chặng về kho của
+        chúng chưa vào lương (PRD khoán km §14). Cảnh báo trước khi chốt kỳ đọc hàm này."""
+        if self.components is None:
+            return []
+        from .khoan_km_service import KhoanKmService
+        return KhoanKmService(self.components.db).luot_chua_ve_kho(year, month)
 
     def add_line_component(self, *, actor, line_id: int, component_id: int, amount: float, scope=None,
                            note: str | None = None):

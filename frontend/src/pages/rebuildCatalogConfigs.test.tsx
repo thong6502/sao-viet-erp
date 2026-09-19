@@ -1,18 +1,22 @@
 // Bằng chứng THẬT cho phần HIỆN RA của danh mục gốc (Giấy · Vật tư khác · Đơn vị).
 //
-// Ba thứ dưới đây từng "làm xong" mà người dùng không thấy gì, nên phải khoá lại bằng render chứ
+// Hai thứ dưới đây từng "làm xong" mà người dùng không thấy gì, nên phải khoá lại bằng render chứ
 // không bằng niềm tin:
 //   · cột ĐVT hiện MÃ (`kem`) thay vì TÊN ("bản kẽm") — mã thì không ai đoán ra;
-//   · cảnh báo cặp quy đổi sai: server trả `canh_bao` từ lâu nhưng KHÔNG màn nào render;
 //   · câu "1 thùng = 3 kg" dựng từ 3 ô đang gõ — `hint` vốn chỉ nhận chuỗi tĩnh nên câu này im.
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CFG_CONG_DOAN, CFG_CONG_VIEC_KHOAN, CFG_DON_VI, CFG_GIAY, CFG_MAY, CFG_THANH_PHAM, CFG_VAT_TU,
 } from "./rebuildCatalogConfigs";
 import type { CatalogConfig, FieldDef } from "./RebuildCatalogPage";
 import type { Row } from "../api/rebuildCatalog";
+import type { ModuleCapability } from "../api/client";
+import { PermissionsProvider, buildCapabilities } from "../auth/permissions";
+import { DieuHuongDanhMuc } from "./danh-muc/dieuHuong";
+import type { NavigateFn } from "../components/AppShell";
 
 function cot(cfg: CatalogConfig, key: string) {
   const c = cfg.columns.find((x) => x.key === key);
@@ -48,19 +52,9 @@ describe("cột ĐVT của mặt hàng gốc", () => {
   });
 });
 
-describe("cảnh báo quy đổi ở màn Đơn vị", () => {
-  it("có canh_bao thì HIỆN RA — trước đây server trả mà không màn nào đọc", () => {
-    // Câu dài bị CẮT cho vừa cột nên đừng dò bằng nội dung chữ: bản trước tìm "số cố định" — cụm
-    // đó nằm sau ký tự thứ 27 nên không bao giờ có trong DOM, test đỏ mà chẳng nói lên điều gì.
-    // Chữ đầy đủ luôn ở `title` (hover ra xem), nên soi ở đó.
-    const c = "Chưa khai quy đổi — g chưa đổi qua lại được với đơn vị nào.";
-    render(<>{cot(CFG_DON_VI, "canh_bao")(row({ canh_bao: [c] }))}</>);
-    expect(screen.getByTitle(c)).toBeInTheDocument();
-  });
-
-  it("không có cảnh báo thì để gạch, không để ô trống lửng lơ", () => {
-    render(<>{cot(CFG_DON_VI, "canh_bao")(row({ canh_bao: [] }))}</>);
-    expect(screen.getByText("—")).toBeInTheDocument();
+describe("màn Đơn vị & quy đổi", () => {
+  it("KHÔNG còn cột Lưu ý (`canh_bao`) — chủ gỡ 18/09/2026", () => {
+    expect(CFG_DON_VI.columns.map((c) => c.key)).toEqual(["quy_doi_text", "ghi_chu"]);
   });
 });
 
@@ -102,9 +96,14 @@ describe("màn Công việc khoán (đơn giá khoán theo tổ)", () => {
     expect(o).toHaveAttribute("title", expect.stringContaining("không có trong danh mục"));
   });
 
-  it("cột Tổ dịch mã tổ đời cũ sang tên đọc được", () => {
-    render(<>{cot(CFG_CONG_VIEC_KHOAN, "group_name")(row({ group_name: "to_boi" }))}</>);
-    expect(screen.getByText("Tổ Bồi")).toBeInTheDocument();
+  it("cột Tổ liệt kê MỌI tổ làm việc này, tổ đã xoá hiện dấu hiệu", () => {
+    render(<>{cot(CFG_CONG_VIEC_KHOAN, "tos")(row({ tos: [
+      { id: 1, ma: "PB015", ten: "Tổ Bế" }, { id: 2, ma: "PB020", ten: "Tổ Thành phẩm" },
+      { id: 9, ma: null, ten: null },
+    ] }))}</>);
+    expect(screen.getByText("Tổ Bế")).toBeInTheDocument();
+    expect(screen.getByText("Tổ Thành phẩm")).toBeInTheDocument();
+    expect(screen.getByText("Tổ #9 đã xoá")).toHaveAttribute("title", expect.stringContaining("không còn"));
   });
 
   it("đi đúng nền danh mục: mã tự sinh · xoá mềm · có tab Nhật ký · gác quyền riêng", () => {
@@ -122,11 +121,14 @@ describe("màn Công việc khoán (đơn giá khoán theo tổ)", () => {
     expect(f.refParams?.active).toBeUndefined();
   });
 
-  it("KHÔNG có ô `group_name`: nhãn tổ do server suy từ tổ đã chọn", () => {
+  it("ô Tổ chọn NHIỀU tổ (`department_ids`), bắt buộc", () => {
     const keys = CFG_CONG_VIEC_KHOAN.fields.map((f) => f.key);
-    expect(keys).toContain("department_id");
     expect(keys).not.toContain("group_name");
-    expect(truong(CFG_CONG_VIEC_KHOAN, "department_id").required).toBe(true);
+    expect(keys).not.toContain("department_id");
+    const f = truong(CFG_CONG_VIEC_KHOAN, "department_ids");
+    expect(f.type).toBe("to-multi");
+    expect(f.refPrefix).toBe("/api/cong-doan/phong-ban");
+    expect(f.required).toBe(true);
   });
 });
 
@@ -160,21 +162,32 @@ describe("ô Cách đo lượng ĐÃ GỠ khỏi Máy · Công việc khoán · 
     expect(CFG_GIAY.nhanTabCongThuc).toBeUndefined();
   });
 
-  it("Công đoạn: cặp ô của bước NGOÀI dòng giấy chỉ hiện khi hai ô chặng đều trống", () => {
-    // `cong_thuc_san_luong` ẩn 07/09/2026 rồi HIỆN LẠI 10/09/2026: ẩn nó là cắt cửa khai duy nhất
-    // của số lượng bước ngoài dòng giấy (engine vẫn đọc cột nhưng không ai gõ được), nên "Ghi kẽm
-    // CTP" xuống bàn tổ với `0 → 0`. Đi cùng nó là ô ĐƠN VỊ của số ấy (mg `0289`).
-    const ct = truong(CFG_CONG_DOAN, "cong_thuc_san_luong");
-    const dv = truong(CFG_CONG_DOAN, "don_vi_san_luong");
-    expect(ct.nhanTab).toBe("Công thức sản lượng ra");
-    expect(ct.loaiO).toBe("quy_doi");     // ô ra LƯỢNG ⇒ bộ chip `quy_doi`, không mời chip đơn giá
-    for (const f of [ct, dv]) {
-      expect(f.showIf?.({})).toBe(true);                          // chưa khai chặng ⇒ hiện
-      expect(f.showIf?.({ don_vi_vao: "to", don_vi_ra: "to" })).toBe(false);   // trên dòng ⇒ ẩn
+  it("Công đoạn: KHÔNG còn cặp ô sản lượng ra của bước NGOÀI dòng giấy", () => {
+    // GỠ 18/09/2026 (mg `0324`): server thôi nhận/trả `cong_thuc_san_luong` + `don_vi_san_luong`
+    // (cùng `he_so_ngoai_dong`) — số của bước ngoài dòng giấy nay khai tay ở drawer bước lệnh.
+    const keys = CFG_CONG_DOAN.fields.map((f) => f.key);
+    for (const k of ["cong_thuc_san_luong", "don_vi_san_luong", "he_so_ngoai_dong"]) {
+      expect(keys).not.toContain(k);
     }
     // Ô giá vẫn tự khai `nhanTab` ⇒ tab công thức mang đúng tên, không rơi vào nhãn mặc định.
     expect(truong(CFG_CONG_DOAN, "cong_thuc_gia").nhanTab).toBe("Công thức tính giá");
     expect(CFG_CONG_DOAN.nhanTabCongThuc).toBeUndefined();
+  });
+
+  it("Công đoạn: ô Tổ phụ trách chọn NHIỀU tổ, gửi lên luôn là MẢNG", () => {
+    // 18/09/2026 (mg `0312`): "Cán màng mờ" do tổ Cán lẫn tổ Thành phẩm làm. Bước lệnh chọn MỘT
+    // trong số này; tổ đầu danh sách là tổ mặc định lúc lên lệnh (nhãn `nhanDau`).
+    const keys = CFG_CONG_DOAN.fields.map((f) => f.key);
+    expect(keys).not.toContain("department_id");
+    const f = truong(CFG_CONG_DOAN, "department_ids");
+    expect(f.type).toBe("to-multi");
+    expect(f.refPrefix).toBe("/api/cong-doan/phong-ban");
+    expect(f.nhanDau).toBe("mặc định");
+    // Chưa chọn tổ nào phải gửi MẢNG RỖNG (= gỡ hết), không phải bỏ khoá — bỏ khoá thì backend
+    // hiểu là "giữ nguyên" và tổ vừa gỡ ở drawer sống lại sau khi lưu.
+    expect(CFG_CONG_DOAN.transformSubmit?.({ ma: "CD-0002" }, {}, null).department_ids).toEqual([]);
+    expect(CFG_CONG_DOAN.transformSubmit?.({ department_ids: [3, 7] }, {}, null).department_ids)
+      .toEqual([3, 7]);
   });
 
   it("Vật tư khác: drawer KHÔNG còn ô công thức nào", () => {
@@ -200,14 +213,46 @@ describe("ô Cách đo lượng ĐÃ GỠ khỏi Máy · Công việc khoán · 
 });
 
 describe("Thành phẩm — hàng đặt riêng của MỘT khách (docs/prd-thanh-pham.md)", () => {
-  it("bảng KHÔNG còn cột Khách hàng", () => {
-    // Đảo luật 21/08/2026 ("không dùng tới với lại cũng không cần thiết"). Trước đó cột này để
-    // phân biệt hai thành phẩm cùng tên khác khách; đếm lúc gỡ: 7 thành phẩm, 0 tên trùng.
-    // Mã dòng (`TP-<mã khách>-nnn`) vẫn chỉ ra chủ nếu về sau có trùng thật.
-    expect(CFG_THANH_PHAM.columns.some((c) => c.key === "customer_ten")).toBe(false);
+  it("bảng hiện ĐỦ thứ đang lưu: đơn + khách đặt lần đầu + ngày khai (chỉ đọc)", () => {
+    // Chủ 17/09/2026: "hiển thị hơi thiếu thông tin so với những gì nó lưu, hiển thị hết đi".
+    // Đây là VẾT NGUỒN GỐC máy ghi lúc chốt đơn — cột xem, không phải ô chọn chủ (xem test dưới).
+    const keys = CFG_THANH_PHAM.columns.map((c) => c.key);
+    expect(keys).toEqual(["don_vi_gia", "order_no", "customer_ten", "created_at", "ghi_chu"]);
+    // Trang tự giữ Mã 14% + Tên 24% + Hành động 8%; phần còn lại khai đủ đúng 54%, lệch là
+    // `table-layout: fixed` co mọi cột không đều.
+    const rong = CFG_THANH_PHAM.columns.reduce((s, c) => s + parseFloat(c.width ?? "NaN"), 0);
+    expect(rong).toBe(54);
   });
 
-  it("⭐ KHÔNG còn ô Khách hàng ở đâu cả", () => {
+  it("dòng KHAI TAY không có đơn thì ghi rõ, đừng để ô trống như chưa nạp", () => {
+    const r = { id: 1, ma: "TP-1", ten: "x", order_id: null, order_no: null } as Row;
+    expect(render(<>{cot(CFG_THANH_PHAM, "order_no")(r)}</>).container.textContent).toBe("Khai tay");
+  });
+
+  describe("⭐ bấm MÃ ĐƠN là mở luôn đơn (chủ 18/09/2026)", () => {
+    const r = { id: 1, ma: "TP-1", ten: "x", order_id: 2, order_no: "DH002" } as Row;
+    const docDon = { module_key: "don_hang_ban", scope: "all", can_read: true } as ModuleCapability;
+    const ve = (nav: NavigateFn, caps: ModuleCapability[]) => render(
+      <PermissionsProvider caps={buildCapabilities(caps)}>
+        <DieuHuongDanhMuc.Provider value={nav}>{cot(CFG_THANH_PHAM, "order_no")(r)}</DieuHuongDanhMuc.Provider>
+      </PermissionsProvider>,
+    );
+
+    it("bấm → sang Đơn hàng bán, mở đúng đơn theo id", async () => {
+      const nav = vi.fn<NavigateFn>();
+      ve(nav, [docDon]);
+      await userEvent.click(screen.getByRole("button", { name: "DH002" }));
+      expect(nav).toHaveBeenCalledWith("don-hang-ban", { openOrderId: 2 });
+    });
+
+    it("KHÔNG quyền đọc đơn ⇒ chữ thường, không bày link dẫn vào màn cấm", () => {
+      ve(vi.fn(), []);
+      expect(screen.queryByRole("button")).toBeNull();
+      expect(screen.getByText("DH002")).toBeTruthy();
+    });
+  });
+
+  it("⭐ KHÔNG có ô CHỌN Khách hàng", () => {
     // Đảo luật 21/08/2026: "khách hàng mình lưu làm gì, mình không dùng tới — thành phẩm này là
     // một cái tên hàng mới, nêu chưa khai để tái sử dụng, tránh phình lên".
     //
@@ -215,16 +260,16 @@ describe("Thành phẩm — hàng đặt riêng của MỘT khách (docs/prd-tha
     // khai rơi sang màn Vật tư khác rồi mất tích. Công tắc nay là cột `la_thanh_pham` (mg 0228)
     // do repo tự đóng dấu, nên bỏ ô này an toàn.
     //
-    // Test này ĐỎ ngay khi ai đó đưa lại khách vào thành phẩm — dù ở cột hay ở ô.
+    // Test này ĐỎ ngay khi ai đó đưa lại khách thành một thứ SỬA ĐƯỢC. Hiện khách đặt lần đầu ở
+    // cột/khối chỉ đọc (17/09/2026) thì được — đó là nguồn gốc, không phải chủ.
     expect(CFG_THANH_PHAM.fields.some((f) => f.key === "customer_id")).toBe(false);
-    expect(CFG_THANH_PHAM.columns.some((c) => c.key === "customer_ten")).toBe(false);
   });
 
-  it("KHÔNG cho xoá, NHƯNG cho khai tay", () => {
-    // Xoá là làm mồ côi lô tồn (L7). Khai tay thì cho (L5 nới 19/08/2026) — luật siết 08/08/2026
-    // của kho bỏ ô tên tự do TRÊN PHIẾU XUẤT, nó không cấm khai danh mục.
+  it("KHÔNG cho xoá, KHÔNG cho khai tay", () => {
+    // Xoá là làm mồ côi lô tồn (L7). Khai tay: 19/08/2026 từng nới, chủ 18/09/2026 "bỏ nút thêm
+    // thành phẩm đi" — dòng chỉ do chốt đơn sinh. Máy chủ chặn song song (`_chan_tao_tay`).
     expect(CFG_THANH_PHAM.khongXoa).toBe(true);
-    expect(CFG_THANH_PHAM.khongTaoTay).toBeUndefined();
+    expect(CFG_THANH_PHAM.khongTaoTay).toBe(true);
   });
 
   it("KHÔNG bày ô Mã thành ô sửa", () => {

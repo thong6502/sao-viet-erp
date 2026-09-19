@@ -23,6 +23,17 @@ export function wallOf(y: number, mo: number, d: number, hh = 0, mi = 0): number
   return Date.UTC(y, mo - 1, d, hh, mi) / 60000;
 }
 
+/** Phút wall-clock của 00:00 một ngày "YYYY-MM-DD" (`NaN` nếu chuỗi không đúng dạng).
+ *
+ * Chuyển về đây 18/09/2026 từ `xl2Shared.tsx` — file đó đi cùng bàn Xếp lịch theo công đoạn đã
+ * xoá, mà bàn Thực hiện SX vẫn cần đúng hàm này để đặt mốc đầu ngày cho dải mini-Gantt.
+ */
+export function ngayToWall(ymd: string): number {
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return NaN;
+  return wallOf(+m[1], +m[2], +m[3], 0, 0);
+}
+
 /** Giải mã ngược phút wall → thành phần (dùng getUTC* — UTC-nominal, DST-free). */
 export function fromWall(t: number): { y: number; mo: number; d: number; hh: number; mi: number } {
   const dt = new Date(t * 60000);

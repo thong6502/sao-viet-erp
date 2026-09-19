@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -28,7 +28,19 @@ def _make_engine():
             # across requests/threads.
             engine_kwargs["poolclass"] = StaticPool
 
-    return create_engine(url, connect_args=connect_args, **engine_kwargs)
+    eng = create_engine(url, connect_args=connect_args, **engine_kwargs)
+    if url.startswith("sqlite"):
+        event.listen(eng, "connect", _dang_ky_ham_sqlite)
+    return eng
+
+
+def _dang_ky_ham_sqlite(dbapi_conn, _record) -> None:
+    """Hàm `bo_dau` cho tìm kiếm không dấu — Postgres dùng `translate` sẵn có, SQLite không có
+    nên đăng ký bản Python (xem `repositories/tim_khong_dau.py`)."""
+    from .repositories.tim_khong_dau import bo_dau
+
+    dbapi_conn.create_function("bo_dau", 1, lambda v: None if v is None else bo_dau(str(v)),
+                               deterministic=True)
 
 
 engine = _make_engine()

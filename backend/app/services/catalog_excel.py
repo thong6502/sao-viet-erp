@@ -127,12 +127,12 @@ class Cot:
 class SheetCon:
     """Một sheet CON — tập dòng con thuộc về một mã cha ở sheet chính.
 
-    * `field` — field của `InModel` nhận danh sách dòng con (`bac`, `dau_viec_dinh_muc`…).
+    * `field` — field của `InModel` nhận danh sách dòng con (`bac`, `vat_tus`…).
     * `rut_gon` — field này là danh sách VÔ HƯỚNG (id / tên), không phải danh sách dict: lấy đúng
       một khoá của mỗi dòng con (`routing_template`, `thay_the_ids`, `nhom_may_cho_phep`).
     * `trong_json` — field nằm LỒNG trong một cột JSON (`fields_theo_loai` → `chuan_bi_khoan`).
-    * `rieng` — sheet do `spec.gop_con` tự ghép (cấu trúc hai tầng: hạng mục trong gói bảo trì,
-      vật tư trong đầu việc). Nền chỉ parse rồi đưa nguyên vào tay hook.
+    * `rieng` — sheet do `spec.gop_con` tự ghép (cấu trúc hai tầng: hạng mục trong gói bảo trì).
+      Nền chỉ parse rồi đưa nguyên vào tay hook.
     * `toan_cuc` — sheet KHÔNG khoá theo mã cha (danh mục Nhóm máy đi kèm màn Máy).
     * `khoa_phu` — cột khoá phụ ngoài mã cha (Mã gói bảo trì), để hook ghép hai tầng.
     * `doc_hien_co(obj, ctx)` — cách ĐỌC tập con hiện có của một bản ghi, dùng cho CẢ xuất lẫn
@@ -140,10 +140,11 @@ class SheetCon:
     * `ap_dung(ctx, obj, rows, actor_id)` — ghi tập con nằm NGOÀI `InModel` (cặp quy đổi là bảng
       riêng, nhóm máy là danh mục riêng).
     * `giu_khi_vang(obj, ctx)` — giá trị phải GÁN LẠI cho `field` khi sheet VẮNG MẶT trong file,
-      dành cho field mà repo thay-trọn-bộ dù không được gửi lên. Chỉ `cong_doan.dau_viec_dinh_muc`
-      cần: `CongDoanRepository._sau_gan` xoá sạch bảng con khi khoá vắng trong `data`, nên không
-      gán lại là nhập một file thiếu sheet đó cũng xoá hết định mức. Các field khác nằm trong
-      `repo.fields` nên `_gan` bỏ qua khi vắng — không cần khai.
+      dành cho field mà repo thay-trọn-bộ dù không được gửi lên. Chỉ hai bảng con của
+      `cong_doan` cần (`vat_tus` · `may_lam_duoc`): `CongDoanRepository._sau_gan` xoá sạch bảng
+      con khi khoá vắng trong `data`, nên không gán lại là nhập một file thiếu sheet đó cũng xoá
+      hết định mức. Các field khác nằm trong `repo.fields` nên `_gan` bỏ qua khi vắng — không
+      cần khai.
     """
 
     ten: str
@@ -910,6 +911,12 @@ def _doc_dong_chinh(spec: CatalogExcelSpec, hang, co_mat: dict[str, int], ctx: N
     return thong, hong, tu_cot
 
 
+def _chu_doi_chieu(gt: Any) -> str:
+    """Chuẩn hoá ô tên để so: bỏ hoa/thường và khoảng trắng thừa, kể cả quanh dấu phẩy — ô nhiều
+    tổ "Tổ Bế,Tổ In" và "Tổ Bế, Tổ In" là một."""
+    return ", ".join(" ".join(t.split()) for t in str(gt).lower().split(","))
+
+
 def _lech_cot_doi_chieu(spec: CatalogExcelSpec, hang, co_mat: dict[str, int], ctx: NguCanh,
                         thong: dict, tu_cot: set[str], ten_sheet: str, so_dong: int,
                         loi: list[LoiDong]) -> bool:
@@ -931,7 +938,7 @@ def _lech_cot_doi_chieu(spec: CatalogExcelSpec, hang, co_mat: dict[str, int], ct
         if _rong(gt) or c.field not in tu_cot or thong.get(c.field) is None:
             continue
         that = c.ghi(thong[c.field], ctx)
-        if not that or str(gt).strip().lower() == str(that).strip().lower():
+        if not that or _chu_doi_chieu(gt) == _chu_doi_chieu(that):
             continue
         cot_ma = ma_theo_field.get(c.field)
         o_ma = hang[co_mat[cot_ma.nhan]] if cot_ma is not None else None

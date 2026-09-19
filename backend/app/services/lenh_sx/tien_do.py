@@ -143,10 +143,10 @@ def phan_tram(bc: BoiCanh, lsx_id: int) -> tuple[float, bool]:
         "bằng 0" là ca THƯỜNG chứ không phải dữ liệu hỏng. Không có cờ thì bước đó im lặng đóng
         góp 0% và không ai phân biệt được với "chưa ai làm".
 
-    CỜ NÀY BẬT NHIỀU LÀ ĐÚNG, KHÔNG PHẢI NHIỄU. Bước CHẾ BẢN thường không đo được: nó không khai
-    `don_vi_vao/ra`, mà `LsxService.buoc_ngoai_dong` (`lsx_service.py:1733`) chặn ngay ở
-    `if not don_vi_ra: return None` — TRƯỚC khi đọc `cong_thuc_san_luong` — nên `_ap_chuoi_nguoc`
-    bỏ qua bước đó và `so_luong_ra` nằm lại ở 0. Trong danh mục PROD, cả ba bước chế bản
+    CỜ NÀY BẬT NHIỀU LÀ ĐÚNG, KHÔNG PHẢI NHIỄU. Bước CHẾ BẢN thường không đo được: nó đứng ngoài
+    dòng giấy nên `_ap_chuoi_nguoc` không tính số cho nó, và nếu người lập lệnh không tự khai ở
+    bước thì `so_luong_ra` nằm lại ở 0 (công thức sản lượng ra ở danh mục GỠ 18/09/2026, mg
+    `0324`). Trong danh mục PROD, cả ba bước chế bản
     (`CD-1001` Phơi kẽm PS · `CD-1002` Bình bài điện tử · `CD-1003` Xuất film) đều như vậy. Nghĩa
     là phần lớn lệnh sẽ đeo cờ `uoc_tinh` ở GIAI ĐOẠN ĐẦU — và đúng lúc đó con số phần trăm thật
     sự mềm. Nhờ luật "chỉ tính bước CHƯA `completed`", cờ TỰ TẮT ngay khi chế bản đóng: nó bật

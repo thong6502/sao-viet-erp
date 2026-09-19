@@ -71,6 +71,17 @@ K_QUA_TAI_TO = "qua_tai_to"                  # I: Σ người các việc cùng 
 K_LECH_THUC_TE = "lech_thuc_te"               # J: tổ chạy lệch mốc kế hoạch (vào muộn / quá giờ)
 K_LICH_DA_QUA = "lich_da_qua"                # K: mốc đã xếp trôi qua mà chưa ai vào việc
 
+# Bộ dò ra kết quả ĐÚNG KHÍT cho một lệnh chỉ từ dòng của lệnh đó + hàng xóm chạm giờ (cùng máy,
+# cùng tổ) + lệnh cùng đơn — tức chạy được trên phần bàn của `dong_va_van_de(chi_lsx_ids=…)`.
+# Vắng mặt có lý do: `qua_tai_may` cộng TẢI 7 NGÀY của cả máy, `han_bai_ghep` cần dòng in chung của
+# bài, `thieu_vat_tu` cần bảng cân đối — ba thứ đó cần cả bàn. Thêm bộ dò mới mà nó chỉ nhìn dòng
+# của chính mình thì thêm vào đây; nhóm nào hàng đèn đọc mà thiếu ở đây thì test
+# `test_xep_lich_pham_vi_hep` đỏ.
+KHOA_THEO_DONG = (
+    K_TRUNG_MAY, K_DE_KHOA_MAY, K_SAI_TIEN_NHIEM, K_LICH_DA_QUA, K_THIEU_DU_LIEU,
+    K_NGUY_CO_TRE, K_MAY_KHONG_KHAM, K_QUA_TAI_TO, K_LECH_THUC_TE,
+)
+
 # Lệch bao nhiêu phút thì mới đáng nói. Dưới ngưỡng là nhiễu: ca sản xuất vốn xê dịch 15–30 phút
 # vì bàn giao ca, vệ sinh máy, chờ pallet. Báo mọi lệch = người điều độ tắt hẳn hàng đèn.
 NGUONG_LECH_THUC_TE_PHUT = 60
@@ -95,12 +106,6 @@ def _fmt(dt) -> str:
     if a is None:
         return "—"
     return a.replace(tzinfo=None).strftime("%d/%m %H:%M")
-
-
-def _ngay(d) -> str:
-    """`date` → 'dd/mm'. Khác `_fmt` (nhận datetime, in kèm giờ): ngày hàng về là NGÀY, gắn giờ vào
-    là bịa ra một độ chính xác nhà cung cấp chưa từng hứa."""
-    return d.strftime("%d/%m") if hasattr(d, "strftime") else str(d)
 
 
 def _phut_str(phut: float) -> str:
@@ -162,7 +167,7 @@ class XepLichVanDeService:
         # Nạp GỘP một lượt cho cả bàn rồi chia cho hai bộ dò cần nó. Trước đây `_lech_thuc_te` tự
         # nạp bên trong, nên thêm người dùng thứ hai là chạy hai lượt truy vấn y hệt nhau cho cùng
         # một tập dòng — bàn vài trăm thanh thì đó là hai vòng gom sản lượng + phiên chạy thừa.
-        from .xep_lich_2.thuc_te import nap_thuc_te
+        from .xep_lich.thuc_te import nap_thuc_te
         tt = nap_thuc_te(self.db, rows)
         issues: list[dict] = []
         issues += self._trung_may(rows)
@@ -179,13 +184,41 @@ class XepLichVanDeService:
         self._merge_state(issues)
         return issues
 
-    def dong_va_van_de(self) -> tuple[list[dict], list[dict]]:
+    def dong_va_van_de(self, *, chi_lsx_ids=None) -> tuple[list[dict], list[dict]]:
         """(dòng lịch, vấn đề) trong MỘT lượt tính — cho bên ngoài cần cả hai (hàng đèn Kế hoạch SX).
 
         Gọi `danh_sach()` rồi `liet_ke()` là chạy engine hai lần cho cùng một tập dữ liệu.
+
+        `chi_lsx_ids` = chỉ trả dòng của các lệnh này + vấn đề CHẠM tới chúng, và chỉ nạp phần bàn
+        quanh chúng (`XepLichRepository.dong_quanh`) thay vì cả bàn. Chỉ chạy các bộ dò trong
+        `KHOA_THEO_DONG` — những bộ dò khác cần cả bàn mới đúng, chạy trên phần bàn là ra số sai
+        chứ không phải ra ít hơn. Đúng cái hàng đèn cần: đèn Vật tư có nguồn riêng, hai đèn kia chỉ
+        đọc nhóm máy/người. Màn Vấn đề và cửa phát hành vẫn gọi không tham số, tức đủ bộ dò.
         """
-        rows = self.xl.danh_sach()["items"]
-        return rows, self._build(rows)
+        if chi_lsx_ids is None:
+            rows = self.xl.danh_sach()["items"]
+            return rows, self._build(rows)
+        trang = {int(i) for i in chi_lsx_ids if i}
+        if not trang:
+            return [], []
+        quanh = self.xl.danh_sach(quanh_lsx_ids=trang)["items"]
+        rows = [r for r in quanh if r["lsx_id"] in trang]
+        from .xep_lich.thuc_te import nap_thuc_te
+        tt = nap_thuc_te(self.db, rows)
+        issues: list[dict] = []
+        # Hai bộ dò SO VỚI HÀNG XÓM chạy trên cả phần bàn đã nạp; còn lại chỉ nhìn chính dòng / chính
+        # lệnh nên chạy trên dòng của trang là đủ.
+        issues += self._trung_may(quanh)
+        issues += self._qua_tai_to(quanh)
+        issues += self._de_khoa_may(rows)
+        issues += self._sai_tien_nhiem(rows, tt)
+        issues += self._thieu_du_lieu(rows)
+        issues += self._nguy_co_tre(rows)
+        issues += self._may_khong_kham(rows)
+        issues += self._lech_thuc_te(rows, tt)
+        issues = [it for it in issues if trang & set(it["impacts"]["lsx_ids"])]
+        self._merge_state(issues)
+        return rows, issues
 
     def liet_ke(self, *, severity: str | None = None, category: str | None = None,
                 trang_thai: str | None = None, lsx_id: int | None = None,
@@ -627,8 +660,9 @@ class XepLichVanDeService:
         """Gác xung đột ĐỜI CŨ (12 detector của màn Xếp lịch 1) — chặn khi còn vấn đề CHẶN chưa
         ngoại lệ.
 
-        `bo_qua=True` CHỈ dùng cho đường màn XẾP LỊCH 2 (25/08/2026): bên đó đã tự gác bằng
-        `XepLich2Service._chan_phat_hanh`, ĐÚNG BẰNG danh sách UI đang bày. Chạy thêm gác này nữa là
+        `bo_qua=True` từng là đường của màn XẾP LỊCH 2 (25/08/2026) — màn đó xoá 18/09/2026 nên nay
+        KHÔNG còn ai truyền `True`. Giữ tham số vì lý do cũ vẫn đúng: bên đó đã tự gác bằng danh
+        sách xung đột ĐÚNG BẰNG cái UI đang bày. Chạy thêm gác này nữa là
         hai người gác hai danh sách khác nhau — dải chân báo "đủ điều kiện phát hành" mà nút Phát
         hành trả "còn 2 xung đột CHẶN chưa xử lý/ngoại lệ", người dùng không có cách nào biết phải
         gỡ cái gì (LSX26-0029: hai `sai_tien_nhiem` sinh ra vì bước đã trôi vào quá khứ — luật v2
@@ -643,15 +677,16 @@ class XepLichVanDeService:
 
     def _chan_thieu_vat_tu(self, *, lsx_id: int | None = None,
                            bai_ghep_id: int | None = None) -> None:
-        """GATE DÙNG CHUNG với màn Xếp lịch 2 (§9.3): chưa giữ đủ vật tư thì KHÔNG phát hành.
+        """GATE phát hành (§9.3): chưa giữ đủ vật tư thì KHÔNG phát hành.
 
         Màn cũ trước đây chỉ soi bảng CÂN ĐỐI (tồn tự do) nên nhả giữ chỗ mà kho vẫn đầy thì cửa
-        này mở — lệnh phát hành ra xưởng trong khi vật tư đã bị lệnh khác lĩnh mất. Nay cả hai cửa
-        (cũ + v2) cùng vấp một luật: `release.van_de_vat_tu` soi theo GIỮ CHỖ, không phải tồn tự do.
+        này mở — lệnh phát hành ra xưởng trong khi vật tư đã bị lệnh khác lĩnh mất. Luật chốt lại
+        ở `release.van_de_vat_tu`: soi theo GIỮ CHỖ, không phải tồn tự do. Viết ra thời còn hai
+        cửa phát hành; từ 18/09/2026 chỉ còn bàn Xếp lịch cấp lệnh, luật giữ nguyên.
         """
-        from .xep_lich_2 import release as _release2
+        from .xep_lich import release as _release_gate
 
-        vd = _release2.van_de_vat_tu(self.db, lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        vd = _release_gate.van_de_vat_tu(self.db, lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
         if vd:
             raise XepLichConflict(
                 "Vật tư chưa giữ đủ — không thể phát hành: "
@@ -953,74 +988,48 @@ class XepLichVanDeService:
                 "delay_phut": None,
                 "group_key": "thieu_vat_tu:loi",
             }]
-        # HAI rổ, KHÔNG gộp: `do` = chưa có hàng ⇒ đi mua. `ve_muon` = đã mua rồi, hàng về SAU ngày
-        # cần ⇒ phải DỜI LỊCH (mua thêm là mua đúp). Cùng chặn phát hành, nhưng câu chỉ việc khác
-        # hẳn nhau — gộp một câu là chỉ người ta đi làm nhầm việc.
-        #
-        # ⚠️ Phải nhận CẢ HAI mã. Bảng cân đối tách `ve_muon` ra khỏi `do` ngày 17/08/2026; lọc mỗi
-        # `!= "do"` như bản cũ thì dòng về muộn TUỘT khỏi cửa chặn và lệnh không có giấy vẫn phát
-        # hành được.
+        # Chỉ một rổ: `do` = tồn cộng hàng đang về vẫn không đủ ⇒ đi mua. Không còn rổ "về sau
+        # ngày cần" (18/09/2026): ngày cần không suy nữa, nên không có gì để so ngày về với.
         thieu_lsx: dict[int, list[str]] = {}
         thieu_bg: dict[int, list[str]] = {}
-        muon_lsx: dict[int, list[str]] = {}
-        muon_bg: dict[int, list[str]] = {}
         for nhom in bang.get("items", []):
             if nhom.get("loai_nhom") != "vat_tu":
                 continue
             for d in nhom.get("dong", []):
-                tt = d.get("trang_thai")
-                if tt not in ("do", "ve_muon"):
+                if d.get("trang_thai") != "do":
                     continue
                 ten = nhom.get("hang_ten") or nhom.get("hang_ma") or "?"
-                if tt == "ve_muon" and d.get("ngay_du_hang"):
-                    ten = f"{ten} (về {_ngay(d['ngay_du_hang'])})"
-                bang_lsx, bang_bg = (muon_lsx, muon_bg) if tt == "ve_muon" else (thieu_lsx, thieu_bg)
                 if d.get("lsx_id"):
-                    bang_lsx.setdefault(d["lsx_id"], []).append(ten)
+                    thieu_lsx.setdefault(d["lsx_id"], []).append(ten)
                 elif d.get("bai_ghep_id"):
-                    bang_bg.setdefault(d["bai_ghep_id"], []).append(ten)
+                    thieu_bg.setdefault(d["bai_ghep_id"], []).append(ten)
 
         ma_lsx = {r["lsx_id"]: r["lsx_ma"] for r in rows if r.get("lsx_id")}
         ma_bg = {r["bai_ghep_id"]: r["lsx_ma"] for r in rows if r.get("bai_ghep_id")}
         out: list[dict] = []
-        for ve_muon, blsx, bbg in ((False, thieu_lsx, thieu_bg), (True, muon_lsx, muon_bg)):
-            for lsx_id, tens in blsx.items():
-                lien_quan = [r for r in rows if r.get("lsx_id") == lsx_id]
-                if not lien_quan:
-                    continue                 # lệnh chưa vào kế hoạch thì chưa phải việc của bàn này
-                out.append(self._van_de_thieu_vt(
-                    f"lsx:{lsx_id}", ma_lsx.get(lsx_id), tens, lien_quan, None,
-                    ve_muon=ve_muon))
-            for bg_id, tens in bbg.items():
-                lien_quan = [r for r in rows if r.get("bai_ghep_id") == bg_id]
-                if not lien_quan:
-                    continue
-                out.append(self._van_de_thieu_vt(
-                    f"bai_ghep:{bg_id}", ma_bg.get(bg_id), tens, lien_quan, bg_id,
-                    ve_muon=ve_muon))
+        for lsx_id, tens in thieu_lsx.items():
+            lien_quan = [r for r in rows if r.get("lsx_id") == lsx_id]
+            if not lien_quan:
+                continue                 # lệnh chưa vào kế hoạch thì chưa phải việc của bàn này
+            out.append(self._van_de_thieu_vt(
+                f"lsx:{lsx_id}", ma_lsx.get(lsx_id), tens, lien_quan, None))
+        for bg_id, tens in thieu_bg.items():
+            lien_quan = [r for r in rows if r.get("bai_ghep_id") == bg_id]
+            if not lien_quan:
+                continue
+            out.append(self._van_de_thieu_vt(
+                f"bai_ghep:{bg_id}", ma_bg.get(bg_id), tens, lien_quan, bg_id))
         return out
 
     def _van_de_thieu_vt(self, khoa: str, ma: str | None, tens: list[str],
-                         lien_quan: list[dict], bg_id: int | None,
-                         *, ve_muon: bool = False) -> dict:
+                         lien_quan: list[dict], bg_id: int | None) -> dict:
         ds = _uniq(tens)
         hien = ", ".join(ds[:3]) + (f" và {len(ds) - 3} thứ khác" if len(ds) > 3 else "")
-        # `issue_key` phải kèm loại: một lệnh có thể VỪA thiếu món A VỪA có món B về muộn, hai vấn
-        # đề khác nhau. Thiếu tiền tố thì hai cái trùng khoá, một cái nuốt cái kia — và state
-        # "đã xử lý" của người dùng cũng dính chung.
-        tien_to = "ve_muon:" if ve_muon else ""
         return {
-            "issue_key": f"{K_THIEU_VAT_TU}:{tien_to}{khoa}",
+            "issue_key": f"{K_THIEU_VAT_TU}:{khoa}",
             "category": CAT_VAT_TU, "severity": SEV_CHAN,
-            "title": (f"{ma or khoa}: {hien} về sau ngày cần" if ve_muon
-                      else f"{ma or khoa}: thiếu {hien}"),
-            "nguyen_nhan": (
-                # ĐÃ mua rồi ⇒ chỉ đúng việc phải làm là dời lịch, KHÔNG phải đi mua tiếp.
-                "Hàng đã đặt nhưng ngày về muộn hơn ngày cần — dời bước tiêu thụ sang sau ngày về, "
-                "hoặc hối nhà cung cấp. ĐỪNG lập yêu cầu mua nữa: lô đang trên đường về."
-                if ve_muon else
-                "Bảng cân đối vật tư báo thiếu — tồn cộng hàng đang về vẫn không đủ tới ngày cần."
-            ),
+            "title": f"{ma or khoa}: thiếu {hien}",
+            "nguyen_nhan": "Bảng cân đối vật tư báo thiếu — tồn cộng hàng đang về vẫn không đủ.",
             "impacts": self._impact(lien_quan, extra_bg=[bg_id] if bg_id else None),
             "delay_phut": None,
             "group_key": khoa,
