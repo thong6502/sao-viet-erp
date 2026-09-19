@@ -284,10 +284,10 @@ def test_dieu_kien_shape_va_du_dong_thieu(db, orders, lsx_svc, admin, customer):
     mas = {d["ma"] for d in dk["dieu_kien"]}
     assert mas == {
         "moi_viec_xong", "khong_lech_ban_giao", "kcs_cuoi_kiem_het", "dat_muc_tieu",
-        "phan_bo_da_chot",
+        # "phan_bo_da_chot" GỠ 18/09/2026 cùng tầng chia sản lượng (mg `0322`).
     }
     # Còn dở (chưa xong hết) nhưng sạch điều kiện toàn vẹn ⇒ chưa đóng đủ nhưng đủ đóng thiếu.
     assert dk["du_dong_du"] is False and dk["du_dong_thieu"] is True
     # response_model của GET /dieu-kien-dong phải nhận trọn dict (kể cả list điều kiện lồng).
     val = DongNhomDieuKienOut.model_validate(dk)
-    assert len(val.dieu_kien) == 5 and val.du_dong_thieu is True
+    assert len(val.dieu_kien) == 4 and val.du_dong_thieu is True

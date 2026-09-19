@@ -89,19 +89,10 @@ def test_drawer_hien_nhan_luc_ke_thua_va_ket_qua_thoi_gian_o_cuoi() -> None:
     # Bám NGUYÊN VĂN NHÃN chứ không bám hai chữ "bố trí": comment lịch sử ngay trên khối nhân lực
     # còn nhắc tên ô cũ, mà file này soi cả comment (xem docstring đầu file).
     assert "số người bố trí (kế hoạch)" not in source
-    # 06/09/2026 (mg `0270`): khối ba mốc "biên nhân lực" thu về MỘT ô kíp chuẩn, dùng chung cho
-    # cả ba loại bước — nguồn là định mức đầu việc của công đoạn, không còn ô riêng trên máy.
-    assert "kíp chuẩn (định mức công đoạn)" in source
-    # Kíp chuẩn nay gánh CẢ vai cũ của ô bố trí: bàn xếp lịch cân quân số tổ theo đúng số này.
-    assert "cân quân số tổ" in source
-    # Bước MÁY: nhân lực không đổi tốc độ máy — nói rõ kíp kế thừa từ đâu (định mức công đoạn).
-    # Câu cũ "nhân lực không thay đổi tốc độ máy" nằm ở hint của ô bố trí, gỡ cùng ô đó ở mg `0281`;
-    # hint của kíp chuẩn vẫn nói đúng ý ấy, kèm tên máy đang chọn.
-    assert "không ảnh hưởng tốc độ máy" in source
-    assert "điền sẵn từ định mức đầu việc của công đoạn" in source
-    # Bước TỔ: kíp chuẩn RÚT NGẮN thời gian (nhân năng suất/đầu người).
-    assert "kíp chuẩn" in source
-    assert "rút ngắn thời gian" in source
+    # 18/09/2026 (mg `0321`): kíp chuẩn + năng suất khoán GỠ HẲN cùng đầu việc định mức — bước TỔ
+    # tính giờ bằng SỐ GIỜ KẾ HOẠCH gõ tay, bước máy theo tốc độ máy. Ô kíp không được quay lại.
+    assert "kíp chuẩn (định mức công đoạn)" not in source
+    assert "điền sẵn từ định mức đầu việc của công đoạn" not in source
     # Nguồn tính đứng TRƯỚC kết quả — đọc từ "vì sao ra số này" rồi mới tới con số.
     assert "nguồn tính" in source
     assert "thời gian chiếm máy" in source
@@ -113,16 +104,14 @@ def test_drawer_doi_dau_viec_cap_nhat_dinh_muc_va_thoi_gian_live() -> None:
     source = DRAWER.read_text(encoding="utf-8")
     model = (DRAWER.parent / "lsxBuoc.ts").read_text(encoding="utf-8")
 
-    assert "chonDauViec" in source
-    assert "nang_suat_nguoi_gio" in source
-    assert "so_nguoi_tieu_chuan" in source
     assert "thoiLuongLive" in source
     assert "export function thoiLuongLive" in model
-    # Bước TỔ nhân năng suất với SỐ NGƯỜI TIÊU CHUẨN (chốt 20/08/2026): mirror FE phải đọc đúng cột
-    # đó và nhân vào công thức — KHÔNG còn trần `min(kế hoạch, tối đa)` của thiết kế cũ.
-    assert "so_nhan_cong_tieu_chuan" in model
-    assert "ns * nguoiTC" in model
-    assert "Math.min(nguoiKeHoach, nguoiToiDa)" not in model
+    # 18/09/2026 (mg `0321`): bước thôi chọn đầu việc, bước TỔ = SỐ GIỜ KẾ HOẠCH × 60 — mirror FE
+    # phải cùng phép với `thoi_luong_buoc` ở server, không còn nhân năng suất × số người.
+    assert "chonDauViec(" not in source
+    assert "nang_suat_nguoi_gio" not in source
+    assert "so_nhan_cong_tieu_chuan" not in model
+    assert "f(r.so_gio_ke_hoach), 0) * 60" in model
 
 
 def test_so_do_bai_ghep_ve_routing_day_du_va_mot_cua_ghi() -> None:
@@ -337,8 +326,6 @@ def test_quy_cach_o_lenh_chi_xem_khong_con_o_nao_sua_duoc() -> None:
     # Nhãn khối phải nói đúng cái đang cho phép, không thì màn tự cãi nhau.
     assert "thông số — chỉ xem" in _nhan(DETAIL)
     assert "đổi được giấy khi thiếu hàng" not in _nhan(DETAIL)
-    # Và nói ra đường đi tiếp: sửa quy cách là việc của phiếu tính giá, không phải của lệnh.
-    assert "muốn đổi thì sửa ở phiếu tính giá" in _nhan(DETAIL)
 
 
 def test_lenh_giu_cho_vat_tu_thi_khong_con_nut_xoa() -> None:
