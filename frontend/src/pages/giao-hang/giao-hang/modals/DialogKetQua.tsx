@@ -1,6 +1,6 @@
 // Hộp thoại GHI KẾT QUẢ GIAO (tách từ pages/GiaoHangPage.tsx).
-// ⚠️ Ô `km` ở đây NUÔI TIỀN KHOÁN KM của tài xế, và payload `ghiKetQua` là logic nghiệp vụ —
-// giữ nguyên văn, đừng đụng.
+// ⚠️ Ô `km` (chuyến ngoài lượt) và ô SỐ ĐỒNG HỒ (chuyến trong lượt xe, từ 18/09/2026) ở đây NUÔI
+// TIỀN KHOÁN KM của tài xế, và payload `ghiKetQua` là logic nghiệp vụ — sửa thì sửa có chủ đích.
 import { useEffect, useState } from "react";
 import { crud, type Row } from "../../../../api/rebuildCatalog";
 import type { DeliveryTrip, KetQuaInput } from "../../../../api/client";
@@ -26,25 +26,20 @@ export function DialogKetQua({
 }) {
   const [ketQua, setKetQua] = useState<KetQuaInput["ket_qua"]>("thanh_cong");
   const [km, setKm] = useState("");
+  const luot = trip.luot ?? null;
+  const [soDongHo, setSoDongHo] = useState("");
   const [nguoiNhan, setNguoiNhan] = useState("");
   const [lyDo, setLyDo] = useState("");
   const [loi, setLoi] = useState<string | null>(null);
   const [xacNhanKm, setXacNhanKm] = useState(false);
-  // XE của chuyến. Mặc định lấy xe đã xếp lúc lên đơn; đổi được ở đây vì đổi xe phút chót
-  // là chuyện thường, và ĐÂY mới là lúc máy chủ cần biết để tra mức đơn giá.
+  const [hoiXacNhan, setHoiXacNhan] = useState(false);
   const [xeId, setXeId] = useState(trip.vehicle_id ? String(trip.vehicle_id) : "");
   const [xeDs, setXeDs] = useState<Row[]>([]);
-  // Số thực nhận TỪNG DÒNG. Bản đầu chỉ có một ô cho `lines[0]` — đơn hai mặt hàng là ghi thiếu
-  // hẳn một dòng mà không ai báo.
   const [nhan, setNhan] = useState<Record<number, string>>({});
-  const [conLai, setConLai] = useState<DongConLai[]>([]);
+  const [conLai, setConLai] = useState<DongConLai[] | null>(null);
 
-  // Đọc từ CHÍNH YÊU CẦU, không phải từ đơn: chuyến này chỉ giao phần của yêu cầu đó, và phần
-  // "còn lại" phải trừ những lần giao trước của cùng yêu cầu — đúng phép máy chủ đang tính.
   useEffect(() => {
-    // Chỉ xe CÒN DÙNG — nhưng chuyến đang gắn một xe vừa ngưng thì vẫn phải giữ nó trong
-    // danh sách, không thì mở hộp ra là ô nhảy về rỗng rồi bắt chọn lại xe khác cho một
-    // chuyến đã chạy xong.
+    if (trip.luot) return;
     crud("/api/xe").list(token, { active: true })
       .then(async (r) => {
         const ds = r.items;
@@ -55,7 +50,7 @@ export function DialogKetQua({
         setXeDs(ds);
       })
       .catch(() => setXeDs([]));
-  }, [token, trip.vehicle_id]);
+  }, [token, trip.vehicle_id, trip.luot]);
 
   useEffect(() => {
     api.giaoHang
@@ -82,10 +77,10 @@ export function DialogKetQua({
     setLoi(null);
     const body: KetQuaInput = {
       ket_qua: ketQua,
-      km: Number(km),
+      ...(luot ? { so_dong_ho: Number(soDongHo) } : { km: Number(km) }),
       xac_nhan_km_lon: xacNhanKm,
     };
-    if (xeId) body.vehicle_id = Number(xeId);
+    if (xeId && !luot) body.vehicle_id = Number(xeId);
     if (ketQua === "thanh_cong" || ketQua === "giao_thieu") body.nguoi_nhan_thuc_te = nguoiNhan;
     // Cụm bán nhận cùng nhau: gửi dòng đầu cụm, máy chủ ghi cho mọi dòng của cụm.
     if (ketQua === "giao_thieu")
@@ -95,8 +90,6 @@ export function DialogKetQua({
       }));
     if (ketQua === "that_bai") {
       body.ly_do_that_bai = lyDo;
-      // Chỉ còn MỘT hướng xử lý (22/08/2026): hàng về kho. "Chờ giao lại" giữ hàng trên xe trong
-      // khi sổ kho ghi đã xuất — chính chỗ đó che mất lỗi "trả hàng về không vào sổ".
       body.huong_xu_ly = "tra_ve";
     }
     api.giaoHang
@@ -105,13 +98,20 @@ export function DialogKetQua({
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : "Không ghi được kết quả";
         setLoi(msg);
-        // Km lớn bất thường là chặn MỀM — hiện nút xác nhận thay vì bắt gõ lại.
-        if (msg.includes("bất thường")) setXacNhanKm(false);
+        if (msg.includes("bất thường")) {
+          setXacNhanKm(false);
+          setHoiXacNhan(true);
+        }
       });
   };
 
-  const kmLon = Number(km) > 500;
-  const cum = gomCum(conLai);
+  const soGo = soDongHo === "" ? null : Number(soDongHo);
+  const ganNhat = luot?.so_dong_ho_gan_nhat ?? null;
+  const chang = soGo != null && ganNhat != null && soGo >= ganNhat ? soGo - ganNhat : null;
+  const kmXem = luot ? chang : km === "" ? null : Number(km);
+  const kmLon = (kmXem ?? 0) > 500 || hoiXacNhan;
+  // `conLai` null = đang tải hàng của yêu cầu ⇒ chưa có cụm nào.
+  const cum = gomCum(conLai ?? []);
 
   return (
     <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
@@ -122,31 +122,47 @@ export function DialogKetQua({
             <Icon name="x" size={16} />
           </button>
         </header>
-        <div className="rc-drawer__body">
+        <div className="rc-drawer__body gh-form">
           <label>
             Kết quả
             <select className="input" value={ketQua}
               onChange={(e) => setKetQua(e.target.value as KetQuaInput["ket_qua"])}>
               <option value="thanh_cong">Giao thành công</option>
               <option value="giao_thieu">Giao thiếu</option>
-              {/* "Khách hẹn lại" GỠ 22/08/2026: nó là trạng thái treo — chuyến chưa xong mà cũng
-                  không kết thúc, hàng nằm trên xe không biết tới bao giờ. Khách hẹn lại thì chọn
-                  "Giao thất bại", hàng về kho, rồi lập YÊU CẦU MỚI cho ngày hẹn. */}
               <option value="that_bai">Giao thất bại</option>
             </select>
           </label>
 
-          <label>
-            Số km thực tế
-            {/* `type="number"` chứ KHÔNG phải `inputMode` — inputMode chỉ đổi bàn phím điện
-                thoại, bàn phím máy tính vẫn gõ chữ vào được. `min=0` vì 0 km là số THẬT. */}
-            <input className="input" type="number" min="0" step="1" value={km}
-              onChange={(e) => setKm(e.target.value)} />
-          </label>
-          {/* Xe: BẮT BUỘC khi đóng chuyến (máy chủ chặn) — đơn giá km tra theo MỨC của xe. Chỉ
-              hiện khi danh mục đã có xe: chưa khai chiếc nào thì máy chủ cũng không đòi, bày một
-              ô rỗng bắt buộc ra là chặn người dùng vì thứ họ chưa có. */}
-          {xeDs.length > 0 && (
+          {luot ? (
+            <div className="gh-card" style={{ background: "#f8fafc", margin: "4px 0" }}>
+              <label>
+                Số đồng hồ lúc tới khách
+                <input className="input" type="number" min="0" step="1" value={soDongHo}
+                  onChange={(e) => setSoDongHo(e.target.value)} />
+              </label>
+              <p className="rc__sub" style={{ margin: "6px 0 0" }}>
+                Lượt <b>{luot.code}</b>
+                {trip.xe_bien_so ? ` · xe ${trip.xe_bien_so}` : ""}
+                {ganNhat != null ? ` · số gần nhất đã ghi ${ganNhat.toLocaleString("vi-VN")}` : ""}
+                {chang != null ? ` ⇒ chặng này ${chang.toLocaleString("vi-VN")} km` : ""}
+              </p>
+              {soGo != null && luot.so_dong_ho_xuat_phat != null && soGo < luot.so_dong_ho_xuat_phat
+                && soDongHo.length >= String(luot.so_dong_ho_xuat_phat).length && (
+                <div className="banner banner--warn" role="status" style={{ marginTop: "8px" }}>
+                  Nhỏ hơn số lúc xuất phát ({luot.so_dong_ho_xuat_phat.toLocaleString("vi-VN")}) —
+                  đồng hồ không chạy lùi, kiểm lại số.
+                </div>
+              )}
+            </div>
+          ) : (
+            <label>
+              Số km thực tế
+              <input className="input" type="number" min="0" step="1" value={km}
+                onChange={(e) => setKm(e.target.value)} />
+            </label>
+          )}
+
+          {!luot && xeDs.length > 0 && (
             <label>
               Xe đã chạy chuyến
               <select className="input" value={xeId} onChange={(e) => setXeId(e.target.value)}>
@@ -161,24 +177,25 @@ export function DialogKetQua({
               </select>
             </label>
           )}
-          {/* 0 km là số THẬT (xe chưa lăn bánh) — không chặn. Chỉ hỏi lại khi lớn bất thường. */}
+
           {kmLon && (
-            <label className="gh-line">
+            <label className="gh-line" style={{ background: "#fffbeb", padding: "8px 12px", borderRadius: "6px" }}>
               <input type="checkbox" checked={xacNhanKm}
                 onChange={(e) => setXacNhanKm(e.target.checked)} />
-              {" "}Xác nhận {km} km là đúng
+              {" "}
+              {luot
+                ? `Xác nhận ${chang != null ? `chặng ${chang} km` : `số đồng hồ ${soDongHo}`} là đúng`
+                : `Xác nhận ${km} km là đúng`}
             </label>
           )}
 
-          {/* SỐ LƯỢNG THỰC NHẬN hiện ở CẢ HAI kết quả. Trước đây chọn "Giao thành công" thì
-              máy tự điền, người bấm không thấy mình đang xác nhận bao nhiêu — mà đây là con số
-              cộng thẳng vào "đã giao" của đơn hàng. */}
           {(ketQua === "thanh_cong" || ketQua === "giao_thieu") && (
             <fieldset className="gh-pick">
               <legend>
                 {ketQua === "thanh_cong" ? "Khách nhận đủ" : "Số khách thực nhận"}
               </legend>
-              {conLai.length === 0 && <p className="rc__sub">Không còn hàng nào để giao.</p>}
+              {conLai === null && <p className="rc__sub">Đang tải hàng của yêu cầu…</p>}
+              {conLai?.length === 0 && <p className="rc__sub">Không còn hàng nào để giao.</p>}
               {cum.map((c) => {
                 const l = c.dau;
                 const conCum = Math.min(...c.dong.map((d) => d.con));
@@ -211,7 +228,7 @@ export function DialogKetQua({
           {(ketQua === "thanh_cong" || ketQua === "giao_thieu") && (
             <label>
               Người nhận hàng
-              <input className="input" value={nguoiNhan}
+              <input className="input" value={nguoiNhan} placeholder="Tên người nhận..."
                 onChange={(e) => setNguoiNhan(e.target.value)} />
             </label>
           )}
@@ -220,11 +237,10 @@ export function DialogKetQua({
             <>
               <label>
                 Lý do thất bại
-                <input className="input" value={lyDo} onChange={(e) => setLyDo(e.target.value)} />
+                <input className="input" value={lyDo} placeholder="Nhập lý do giao thất bại..."
+                  onChange={(e) => setLyDo(e.target.value)} />
               </label>
-              {/* Không còn ô chọn: chỉ một hướng. Nói TRƯỚC hệ quả, đừng để người dùng phát
-                  hiện sau khi bấm. */}
-              <p className="rc__sub">
+              <p className="rc__sub" style={{ margin: 0 }}>
                 Hàng sẽ được <strong>trả về kho</strong>. Muốn giao lại thì lập
                 {" "}<strong>yêu cầu giao mới</strong>.
               </p>
@@ -232,12 +248,12 @@ export function DialogKetQua({
           )}
 
           {loi && (
-            <div className="banner banner--error" role="alert">
+            <div className="banner banner--error" role="alert" style={{ margin: 0 }}>
               {loi}
             </div>
           )}
 
-          <Button variant="accent" disabled={km === ""} onClick={gui}>
+          <Button variant="accent" disabled={luot ? soDongHo === "" : km === ""} onClick={gui}>
             Lưu kết quả
           </Button>
         </div>

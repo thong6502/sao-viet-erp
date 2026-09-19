@@ -52,8 +52,7 @@ export function TaoYeuCauGiaoHang({
   const [ngay, setNgay] = useState("");
   const [soLuong, setSoLuong] = useState<Record<number, string>>({});
   // TÍCH TỪNG DÒNG. Đơn hai sản phẩm mà mới xong cái thứ nhất là chuyện thường — phải giao được
-  // riêng cái đó. Bản đầu làm ngầm (để trống ô số = tự loại), đúng việc nhưng nhìn vào không
-  // biết, nên người lập tưởng cả đơn đi kèm.
+  // riêng cái đó.
   const [chon, setChon] = useState<Record<number, boolean>>({});
   const [diaChi, setDiaChi] = useState(diaChiMacDinh ?? "");
   const [nguoiNhan, setNguoiNhan] = useState(nguoiNhanMacDinh ?? "");
@@ -71,12 +70,9 @@ export function TaoYeuCauGiaoHang({
     load();
   }, [load]);
 
-  // Không có ô Xem màn Giao hàng ⇒ khối này không tồn tại với họ.
   if (!canRead || !con) return null;
 
   const conGi = con.lines.some((l) => l.con_phai_giao > 0);
-  // Yêu cầu giao là việc SẮP LÀM, không phải sổ ghi việc đã làm — ngày quá khứ chỉ có thể là gõ
-  // nhầm, mà gõ nhầm thì kéo lệch cả hàng chờ giao lẫn thống kê trễ hạn.
   const ngayQuaKhu = ngay !== "" && ngay < HOM_NAY;
 
   const gui = () => {
@@ -114,41 +110,44 @@ export function TaoYeuCauGiaoHang({
 
   return (
     <section className="gh-section">
-      <div className="rc__headrow">
-        <h3 className="rc__title" style={{ fontSize: "15px" }}>Giao hàng</h3>
-        {con.da_giao_du && <span className="rc-pill rc-pill--on">Đã giao đủ</span>}
+      <div className="rc__headrow" style={{ marginBottom: "12px" }}>
+        <h3 className="rc__title" style={{ fontSize: "15px", margin: 0 }}>Giao hàng</h3>
+        {con.da_giao_du && <span className="rc-pill rc-pill--on gh-pill gh-pill--on">Đã giao đủ</span>}
       </div>
 
-      <table className="rc__table">
-        <thead>
-          <tr>
-            <th>Mặt hàng</th>
-            <th>Đặt</th>
-            <th>Đã giao</th>
-            <th>Còn phải giao</th>
-          </tr>
-        </thead>
-        <tbody>
-          {con.lines.map((l) => (
-            <tr key={l.order_line_id}>
-              <td>{l.mo_ta}</td>
-              <td>
-                {l.qty_dat} {l.don_vi_tinh}
-              </td>
-              <td>{l.da_giao}</td>
-              <td>{l.con_phai_giao}</td>
+      <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", overflow: "hidden", marginBottom: "14px" }}>
+        <table className="rc__table">
+          <thead>
+            <tr>
+              <th>Mặt hàng</th>
+              <th style={{ width: 110, textAlign: "right" }}>Đặt</th>
+              <th style={{ width: 100, textAlign: "right" }}>Đã giao</th>
+              <th style={{ width: 120, textAlign: "right" }}>Còn phải giao</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {con.lines.map((l) => (
+              <tr key={l.order_line_id}>
+                <td style={{ fontWeight: 500 }}>{l.mo_ta}</td>
+                <td className="gh-num">
+                  {l.qty_dat} {l.don_vi_tinh}
+                </td>
+                <td className="gh-num">{l.da_giao}</td>
+                <td className="gh-num" style={{ fontWeight: 600, color: l.con_phai_giao > 0 ? "#0f172a" : "#64748b" }}>
+                  {l.con_phai_giao}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {ds.length > 0 && (
-        <p className="rc__sub">
+        <p className="rc__sub" style={{ margin: "0 0 12px" }}>
           Đã lập {ds.length} yêu cầu: {ds.map((r) => r.code).join(", ")}
         </p>
       )}
 
-      {/* Bày nút CHỈ KHI có ô Thao tác và còn hàng để giao. */}
       {canWrite && conGi && !mo && (
         <Button variant="accent" onClick={() => setMo(true)}>
           Tạo yêu cầu giao hàng
@@ -161,18 +160,14 @@ export function TaoYeuCauGiaoHang({
       )}
 
       {mo && (
-        <div className="gh-form">
+        <div className="gh-form" style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #e2e8f0" }}>
           <label>
             Ngày cần giao
-            {/* `min` chặn ở lịch chọn, nhưng gõ tay vẫn lọt — nên còn hàng rào khoá nút bên
-                dưới, và máy chủ chặn lần cuối (`_chan_ngay_qua_khu`). */}
             <input className="input" type="date" value={ngay} min={HOM_NAY}
               onChange={(e) => setNgay(e.target.value)} />
           </label>
           <fieldset className="gh-pick">
             <legend>Chọn hàng giao đợt này</legend>
-            {/* Nói rõ máy đã làm hộ gì — không thì kho mở danh mục thấy hàng lạ, không biết ở
-                đâu ra. Việc khai xảy ra lúc CHỐT ĐƠN, không phải lúc bấm nút này. */}
             <p className="rc__sub" style={{ margin: "0 0 8px 6px" }}>
               Hàng của đơn đã được tự khai vào danh mục <strong>Thành phẩm</strong> khi chốt đơn —
               không phải chọn mặt hàng kho.
@@ -226,28 +221,27 @@ export function TaoYeuCauGiaoHang({
                 );
               })}
           </fieldset>
-          {/* Ba ô dưới điền sẵn từ đơn — sửa được, rồi ĐÔNG LẠI thành snapshot của yêu cầu. */}
           <label>
             Địa chỉ giao
-            <input className="input" value={diaChi} onChange={(e) => setDiaChi(e.target.value)} />
+            <input className="input" value={diaChi} placeholder="Địa chỉ nơi giao hàng..." onChange={(e) => setDiaChi(e.target.value)} />
           </label>
           <label>
             Người nhận
-            <input className="input" value={nguoiNhan}
+            <input className="input" value={nguoiNhan} placeholder="Tên người nhận hàng..."
               onChange={(e) => setNguoiNhan(e.target.value)} />
           </label>
           <label>
             SĐT người nhận
-            <input className="input" value={sdt} onChange={(e) => setSdt(e.target.value)} />
+            <input className="input" value={sdt} placeholder="Số điện thoại liên hệ..." onChange={(e) => setSdt(e.target.value)} />
           </label>
 
           {ngayQuaKhu && (
-            <div className="banner banner--error" role="alert">
+            <div className="banner banner--error" role="alert" style={{ margin: 0 }}>
               Ngày cần giao không được ở quá khứ — hôm nay là {fmtDate(HOM_NAY)}.
             </div>
           )}
           {loi && (
-            <div className="banner banner--error" role="alert">
+            <div className="banner banner--error" role="alert" style={{ margin: 0 }}>
               {loi}
             </div>
           )}
@@ -271,7 +265,7 @@ export function TaoYeuCauGiaoHang({
       )}
 
       {ds.length > 0 && (
-        <p className="rc__sub">
+        <p className="rc__sub" style={{ margin: "10px 0 0" }}>
           Yêu cầu gần nhất cần giao ngày {fmtDate(ds[0].ngay_can_giao)}.
         </p>
       )}

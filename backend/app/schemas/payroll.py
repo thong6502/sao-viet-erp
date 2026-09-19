@@ -764,6 +764,9 @@ class KhoanKmChuyenOut(BaseModel):
     #: % được hưởng của chuyến. Đi một mình = 100, không phải `pct_tai_xe`.
     pct: float = 0
     thanh_tien: float = 0
+    #: Dòng không phải chuyến giao, vd "Về kho · lượt LX-…" — chặng về kho của lượt xe (PRD khoán
+    #: km §14) chia cho kíp của điểm cuối, nên `trip_id` là chuyến ở điểm cuối.
+    ghi_chu: str | None = None
 
 
 class KhoanKmChiTietOut(BaseModel):

@@ -1,10 +1,37 @@
 // Ô hiển thị dùng chung của màn Giao hàng: pill trạng thái + khoảng trống có hướng dẫn
 // (tách từ pages/GiaoHangPage.tsx).
+import { useState, type ReactNode } from "react";
+import { Button } from "../../../../components/Button";
+
+/** Nút gọi máy chủ — TỰ KHOÁ khi lệnh đang đi. Bấm "Kho đã nhận lại" hai lần liền từng bắn hai
+ *  lệnh: lệnh sau ăn 400 "không có hàng nào phải trả về kho" dù việc đã xong (bấm thử 18/09/2026). */
+export function NutCho({
+  variant = "accent",
+  bam,
+  children,
+}: {
+  variant?: "accent" | "ghost";
+  bam: () => Promise<unknown>;
+  children: ReactNode;
+}) {
+  const [dang, setDang] = useState(false);
+  return (
+    <Button variant={variant} disabled={dang}
+      onClick={() => {
+        setDang(true);
+        bam().finally(() => setDang(false));
+      }}>
+      {children}
+    </Button>
+  );
+}
 
 /** Pill trạng thái — dùng chung ba tab để mắt không phải học hai bảng màu. */
 export function Pill({ text, tone }: { text: string; tone: "on" | "off" | "warn" }) {
   return (
-    <span className={`rc-pill rc-pill--${tone === "warn" ? "off" : tone}`}>{text}</span>
+    <span className={`rc-pill rc-pill--${tone === "warn" ? "off" : tone} gh-pill gh-pill--${tone}`}>
+      {text}
+    </span>
   );
 }
 

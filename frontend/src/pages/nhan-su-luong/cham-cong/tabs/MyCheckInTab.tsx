@@ -112,6 +112,8 @@ export function MyCheckIn({
       if (mounted.current) setLocating(false);
     }
   }, [token]);
+  // Dò lại cả khi lượt kế tiếp đổi (vừa chấm xong). Lượt kế tiếp bị chặn (vd đã ra ca, không phiếu
+  // tăng ca) thì KHÔNG dò: máy chủ từ chối preview ⇒ hộp lỗi đỏ lặp lại đúng lý do ở băng vàng.
   useEffect(() => {
     if (status?.has_employee && status.can_check && status.locations_configured)
       refreshPreview();
@@ -119,6 +121,7 @@ export function MyCheckIn({
     status?.has_employee,
     status?.can_check,
     status?.locations_configured,
+    status?.next_action,
     refreshPreview,
   ]);
 
@@ -152,7 +155,7 @@ export function MyCheckIn({
       );
       setResult(res);
       load();
-      refreshPreview();
+      if (!res.success) refreshPreview(); // chấm hụt (ngoài vùng) → vẽ lại vòng geofence
     } catch (e) {
       setGeoErr(geoErrText(e));
     } finally {
@@ -387,7 +390,9 @@ export function MyCheckIn({
                     : locating
                     ? "Đang dò GPS…"
                     : !status.can_check
-                    ? "CHƯA ĐẾN GIỜ CHẤM"
+                    ? otMode
+                      ? "ĐÃ RA CA" // đã ra ca chính, chưa/không được vào tăng ca — lý do ở băng vàng
+                      : "CHƯA ĐẾN GIỜ CHẤM"
                     : actionLabel}
                 </span>
               </button>

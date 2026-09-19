@@ -300,7 +300,10 @@ def test_06_thieu_km_thi_khong_dong_duoc_chuyen(client):
     trip = _chuyen_dang_giao(client, h, "06")
     r = client.post(f"/api/giao-hang/trips/{trip}/ket-qua",
                     json={"ket_qua": "thanh_cong", "nguoi_nhan_thuc_te": "Anh Ba"}, headers=h)
-    assert r.status_code == 422, r.text
+    # 400 chứ không còn 422 (18/09/2026): ô km thôi bắt buộc ở schema vì chuyến trong LƯỢT XE gửi
+    # số đồng hồ thay cho km — luật "chuyến ngoài lượt phải có km" nay chặn ở service, kèm câu báo.
+    assert r.status_code == 400, r.text
+    assert "số km" in r.json()["detail"]
 
 
 def test_06b_km_bang_0_la_HOP_LE(client):

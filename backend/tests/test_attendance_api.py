@@ -236,14 +236,19 @@ def test_check_in_out_toggle_and_hard_block(client):
     assert r1["success"] is True and r1["within_range"] is True and r1["check_type"] == "in"
     assert r1["log"] is not None
 
-    # again → auto toggle to RA
+    # far away (~150km) → hard block, no log — and the miss does not use up the RA turn
+    r_far = client.post("/api/attendance/check", json={"latitude": 11.0, "longitude": 107.0}, headers=_h(token)).json()
+    assert r_far["success"] is False and r_far["within_range"] is False
+    assert r_far["log"] is None and r_far["distance_m"] > 200
+
+    # back in range → auto toggle to RA
     r2 = client.post("/api/attendance/check", json={"latitude": 10.0, "longitude": 106.0}, headers=_h(token)).json()
     assert r2["success"] is True and r2["check_type"] == "out"
 
-    # far away (~150km) → hard block, no log
-    r3 = client.post("/api/attendance/check", json={"latitude": 11.0, "longitude": 107.0}, headers=_h(token)).json()
-    assert r3["success"] is False and r3["within_range"] is False
-    assert r3["log"] is None and r3["distance_m"] > 200
+    # Đã RA ca chính, không có phiếu tăng ca ⇒ bấm VÀO lại bị từ chối ngay ở lượt chấm (18/09/2026:
+    # trước đó vào/ra lặp được mãi). Lượt bấm xa ở trên từng nằm SAU lượt RA — giờ tới đó là bị chặn.
+    r3 = client.post("/api/attendance/check", json={"latitude": 10.0, "longitude": 106.0}, headers=_h(token))
+    assert r3.status_code == 400 and "phiếu tăng ca" in r3.json()["detail"]
 
     logs = client.get("/api/attendance/me/logs", headers=_h(token)).json()["items"]
     assert len(logs) == 2  # only the two in-range checks were recorded

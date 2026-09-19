@@ -15,7 +15,7 @@ export function BangNhanVien({ rows, loading, thang, onDoiThang }: {
   const dauBang = (
     <div className="gh-nvbar">
       <label className="gh-nvbar__thang">
-        <span>Tháng</span>
+        <span>Tháng:</span>
         <input className="input" type="month" value={thang}
           onChange={(e) => onDoiThang(e.target.value)} />
       </label>
@@ -46,43 +46,37 @@ export function BangNhanVien({ rows, loading, thang, onDoiThang }: {
         <thead>
           <tr>
             <th>Nhân viên</th>
-            <th style={{ width: "14%" }}>Trạng thái</th>
+            <th style={{ width: "13%" }}>Trạng thái</th>
             <th style={{ width: "16%" }}>Đang thực hiện</th>
             <th style={{ width: "16%" }}>Chuyến kế tiếp</th>
             {/* Bốn cột SỐ đều căn phải — trộn trái/phải thì mắt phải nhảy qua nhảy lại để
                 so hàng, và các số nhiều chữ số trông như lệch cột. */}
-            {/* "Xong hôm nay" đổi thành "Đã giao hôm nay" (chủ 21/08/2026: "nhìn vào người ta
-                không hiểu đâu") — "xong" không nói xong CÁI GÌ. Đếm số CHUYẾN hàng tới tay
-                khách, tính cả chuyến giao thiếu. */}
-            <th className="gh-num" style={{ width: "10%" }}>Đã giao hôm nay</th>
+            <th className="gh-num" style={{ width: "11%" }}>Đã giao hôm nay</th>
             <th className="gh-num" style={{ width: "10%" }}>Km hôm nay</th>
-            {/* Hai khung thời gian, hai câu hỏi khác nhau: cột NGÀY để điều độ ("giờ ai đang
-                rảnh"), cột THÁNG để theo dõi định kỳ. Gộp một cột là mất một trong hai. */}
-            <th className="gh-num" style={{ width: "10%" }}>Đã giao tháng này</th>
-            <th className="gh-num" style={{ width: "10%" }}>Km tháng này</th>
+            <th className="gh-num" style={{ width: "12%" }}>Đã giao tháng này</th>
+            <th className="gh-num" style={{ width: "11%" }}>Km tháng này</th>
           </tr>
         </thead>
         <tbody>
           {loading && (
             <tr>
-              <td colSpan={8}>Đang tải…</td>
+              <td colSpan={8} style={{ textAlign: "center", padding: "24px", color: "#64748b" }}>Đang tải…</td>
             </tr>
           )}
           {rows.map((d) => (
             <tr key={d.employee_id}>
-              <td>{d.ho_ten}</td>
+              <td style={{ fontWeight: 600, color: "#0f172a" }}>{d.ho_ten}</td>
               <td>
                 <Pill
                   text={NHAN_TRANG_THAI_NV[d.trang_thai] ?? d.trang_thai}
                   tone={d.trang_thai === "ranh" ? "on" : d.trang_thai === "nghi" ? "off" : "warn"}
                 />
               </td>
-              <td>{d.chuyen_dang_thuc_hien ?? "—"}</td>
-              <td>{d.chuyen_ke_tiep ?? "—"}</td>
-              <td className="gh-num">{d.so_chuyen_xong}</td>
-              {/* Số km CHỈ ĐỂ THỐNG KÊ — không vào lương (PRD quyết định #3). */}
+              <td style={{ color: "#334155" }}>{d.chuyen_dang_thuc_hien ?? "—"}</td>
+              <td style={{ color: "#334155" }}>{d.chuyen_ke_tiep ?? "—"}</td>
+              <td className="gh-num" style={{ fontWeight: 600, color: "#0f172a" }}>{d.so_chuyen_xong}</td>
               <td className="gh-num">{d.tong_km}</td>
-              <td className="gh-num">{d.so_chuyen_thang ?? 0}</td>
+              <td className="gh-num" style={{ fontWeight: 600, color: "#0f172a" }}>{d.so_chuyen_thang ?? 0}</td>
               <td className="gh-num">{d.tong_km_thang ?? 0}</td>
             </tr>
           ))}

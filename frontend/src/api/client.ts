@@ -11054,11 +11054,56 @@ export const api = {
     cancelPlan(token: string, tripId: number, lyDo: string): Promise<DeliveryTrip> {
       return authed<DeliveryTrip>(`/api/giao-hang/plans/${tripId}/huy`, token, { method: "POST", body: JSON.stringify({ ly_do: lyDo }) });
     },
-    batDauGiao(token: string, tripId: number): Promise<DeliveryTrip> {
-      return authed<DeliveryTrip>(`/api/giao-hang/trips/${tripId}/bat-dau-giao`, token, { method: "POST" });
+    /** Chuyến ĐẦU của một lượt xe phải kèm số đồng hồ lúc xe rời kho (PRD khoán km §14). Trả về
+     *  `canh_bao` (vd "xe chạy ngoài sổ N km") — không chặn, chỉ để người bấm biết. */
+    batDauGiao(token: string, tripId: number, input?: { so_dong_ho_xuat_phat?: number }): Promise<DeliveryTrip> {
+      return authed<DeliveryTrip>(`/api/giao-hang/trips/${tripId}/bat-dau-giao`, token, {
+        method: "POST", ...(input ? { body: JSON.stringify(input) } : {}),
+      });
     },
     ghiKetQua(token: string, tripId: number, input: KetQuaInput): Promise<DeliveryTrip> {
       return authed<DeliveryTrip>(`/api/giao-hang/trips/${tripId}/ket-qua`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    /** Lượt CHƯA về kho của một xe — ô Lượt xe lúc lên đơn giao hàng. */
+    luotXeMo(token: string, vehicleId: number): Promise<{ items: LuotXeMo[] }> {
+      return authed<{ items: LuotXeMo[] }>(`/api/giao-hang/luot-xe?vehicle_id=${vehicleId}`, token);
+    },
+    /** Tài xế ghi số đồng hồ lúc xe về tới kho ⇒ đóng lượt, máy tính km chặng về kho. */
+    veKho(token: string, luotId: number, input: { so_dong_ho: number; xac_nhan_km_lon?: boolean }): Promise<VeKhoKetQua> {
+      return authed<VeKhoKetQua>(`/api/giao-hang/luot-xe/${luotId}/ve-kho`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    /** Tab "Đơn giao hàng" gom theo LƯỢT XE — mỗi lượt MỘT khối (đủ các điểm), chuyến lẻ một khối.
+     *  Trang hoá theo KHỐI ở máy chủ nên một lượt không bị cắt đôi qua hai trang. */
+    bangGiao(token: string, opts?: { page?: number; size?: number }): Promise<BangGiaoPage> {
+      const q = new URLSearchParams();
+      if (opts?.page != null) q.set("page", String(opts.page));
+      if (opts?.size != null) q.set("size", String(opts.size));
+      const s = q.toString();
+      return authed<BangGiaoPage>(`/api/giao-hang/bang-giao${s ? `?${s}` : ""}`, token);
+    },
+    /** Lên đơn NHIỀU yêu cầu vào MỘT lượt xe bằng một lần bấm (chủ chốt 18/09/2026). Mỗi yêu cầu
+     *  vẫn một chuyến, một phiếu xuất kho; một yêu cầu hỏng là cả lô không lưu. */
+    lenLuot(token: string, input: LenLuotInput): Promise<LenLuotKetQua> {
+      return authed<LenLuotKetQua>("/api/giao-hang/luot-xe", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    /** Cả lượt nhìn một chỗ — các điểm theo thứ tự chặng + số đếm để biết bày nút cả lượt nào. */
+    luotXe(token: string, luotId: number): Promise<LuotXeChiTiet> {
+      return authed<LuotXeChiTiet>(`/api/giao-hang/luot-xe/${luotId}`, token);
+    },
+    /** Mỗi chuyến của lượt MỘT phiếu yêu cầu xuất kho — gửi cả lượt một lần. */
+    guiXuatKhoCaLuot(token: string, luotId: number, ghiChu?: string | null): Promise<CaLuotKetQua> {
+      return authed<CaLuotKetQua>(`/api/giao-hang/luot-xe/${luotId}/yeu-cau-xuat-kho`, token, {
+        method: "POST", body: JSON.stringify({ ghi_chu: ghiChu || null }),
+      });
+    },
+    daLayHangCaLuot(token: string, luotId: number): Promise<CaLuotKetQua> {
+      return authed<CaLuotKetQua>(`/api/giao-hang/luot-xe/${luotId}/da-lay-hang`, token, { method: "POST" });
+    },
+    /** Xe rời kho với mọi chuyến đã lấy hàng; số đồng hồ xuất phát ghi MỘT lần cho cả lượt. */
+    batDauGiaoCaLuot(token: string, luotId: number, input?: { so_dong_ho_xuat_phat?: number }): Promise<CaLuotKetQua> {
+      return authed<CaLuotKetQua>(`/api/giao-hang/luot-xe/${luotId}/bat-dau-giao`, token, {
+        method: "POST", ...(input ? { body: JSON.stringify(input) } : {}),
+      });
     },
     daTraHang(token: string, tripId: number): Promise<DeliveryTrip> {
       return authed<DeliveryTrip>(`/api/giao-hang/trips/${tripId}/da-tra-hang`, token, { method: "POST" });
@@ -14170,6 +14215,117 @@ export interface DeliveryTrip {
   /** Kho đã LẬP PHIẾU chưa. Suy từ `stock_vouchers`, không phải cột lưu — kho thao tác trên
    *  màn của họ nên trạng thái phải đọc ngược từ sổ kho. */
   kho_da_lap_phieu?: boolean;
+  /** Lượt xe của chuyến (PRD khoán km §14). `null` = chuyến ngoài lượt: một ô km như cũ. */
+  luot?: LuotXeTrongChuyen | null;
+  /** Cảnh báo KHÔNG chặn của thao tác vừa làm (vd "xe chạy ngoài sổ 30 km"). */
+  canh_bao?: string[];
+}
+
+/** Lượt xe nhìn từ MỘT chuyến. Chuyến trong lượt không gõ km: tài xế ghi SỐ ĐỒNG HỒ lúc xuất
+ *  phát, lúc tới từng khách, lúc về kho — máy trừ ra km từng chặng rồi tra đơn giá theo chặng. */
+export interface LuotXeTrongChuyen {
+  id: number;
+  code: string;
+  vehicle_id: number;
+  ngay: string;
+  so_diem: number;
+  so_dong_ho_xuat_phat: number | null;
+  so_dong_ho_ve_kho: number | null;
+  ve_kho_luc: string | null;
+  km_ve_kho: number | null;
+  /** Số đồng hồ lúc TỚI điểm của chính chuyến này (null = chưa nhập kết quả). */
+  so_dong_ho: number | null;
+  /** Số lớn nhất đã ghi trong lượt (hoặc số xuất phát) — để nhắc khi nhập số tiếp theo. */
+  so_dong_ho_gan_nhat: number | null;
+  /** Số cuối đã ghi của xe ở lượt trước — tự điền lúc xuất phát. Chỉ có khi lượt chưa xuất phát. */
+  goi_y_xuat_phat: number | null;
+  /** Mọi điểm đã có kết quả, lượt chưa về kho ⇒ hiện nút "Về kho". */
+  cho_ve_kho: boolean;
+  /** Chuyến này là điểm có số đồng hồ lớn nhất — nút "Về kho" đặt ở dòng này. */
+  la_diem_cuoi: boolean;
+}
+
+/** Một lượt CHƯA về kho của một xe — ô Lượt xe lúc lên đơn. */
+export interface LuotXeMo {
+  id: number;
+  code: string;
+  ngay: string;
+  so_diem: number;
+  tai_xe: string | null;
+  da_xuat_phat: boolean;
+}
+
+export interface VeKhoKetQua {
+  id: number;
+  code: string;
+  so_dong_ho_ve_kho: number | null;
+  km_ve_kho: number | null;
+  ve_kho_luc: string | null;
+  canh_bao: string[];
+}
+
+export interface LenLuotInput {
+  request_ids: number[];
+  employee_id: number;
+  phu_xe_employee_id?: number | null;
+  /** Lượt là vòng chạy của MỘT chiếc xe ⇒ bắt buộc. */
+  vehicle_id: number;
+  gio_lay_hang: string;
+  gio_du_kien_giao: string;
+  ghi_chu_phan_cong?: string | null;
+  /** `"moi"` = lượt mới · id = ghép vào lượt đang mở của cùng xe. */
+  luot_xe_id: number | "moi";
+}
+
+export interface LenLuotKetQua {
+  luot_id: number;
+  code: string;
+  trips: DeliveryTrip[];
+  canh_bao: string[];
+}
+
+export interface LuotXeChiTiet {
+  id: number;
+  code: string;
+  ngay: string;
+  vehicle_id: number;
+  xe_bien_so: string | null;
+  xe_ten: string | null;
+  so_dong_ho_xuat_phat: number | null;
+  so_dong_ho_ve_kho: number | null;
+  ve_kho_luc: string | null;
+  km_ve_kho: number | null;
+  goi_y_xuat_phat: number | null;
+  so_dong_ho_gan_nhat: number | null;
+  cho_ve_kho: boolean;
+  tong_km: number;
+  /** Các điểm theo THỨ TỰ CHẶNG (số đồng hồ tăng dần; chưa có số thì xếp cuối). */
+  diem: DeliveryTrip[];
+  so_cho_gui_kho: number;
+  so_cho_lay_hang: number;
+  so_cho_bat_dau: number;
+  so_dang_giao: number;
+}
+
+/** Một KHỐI của tab Đơn giao hàng — đúng MỘT trong hai ô có giá trị. */
+export interface BangGiaoItem {
+  luot: LuotXeChiTiet | null;
+  trip: DeliveryTrip | null;
+}
+
+export interface BangGiaoPage {
+  items: BangGiaoItem[];
+  /** Tổng số KHỐI — để phân trang. */
+  total: number;
+  /** Tổng số ĐƠN giao (chuyến) — số đếm trên tab / đầu trang. */
+  so_don: number;
+}
+
+/** Kết quả một thao tác CẢ LƯỢT: số chuyến vừa đi tiếp, mã phiếu kho (nếu có), cảnh báo. */
+export interface CaLuotKetQua {
+  so_chuyen: number;
+  phieu: string[];
+  canh_bao: string[];
 }
 
 export interface DeliveryHistory {
@@ -14247,12 +14403,18 @@ export interface PlanInput {
   gio_du_kien_giao: string;
   kho_id?: number | null;
   ghi_chu_phan_cong?: string | null;
+  /** LƯỢT XE (PRD khoán km §14): `"moi"` = lượt mới · id = ghép vào lượt đang mở của CÙNG xe ·
+   *  không gửi = chuyến ngoài lượt (một ô km như cũ). Chỉ có nghĩa khi đã chọn xe. */
+  luot_xe_id?: number | "moi" | null;
 }
 
 export interface KetQuaInput {
   ket_qua: "thanh_cong" | "giao_thieu" | "hen_lai" | "that_bai";
-  /** `>= 0`, KHÔNG phải `> 0`: xe chưa lăn bánh mà khách không nghe máy thì 0 km là số THẬT. */
-  km: number;
+  /** `>= 0`, KHÔNG phải `> 0`: xe chưa lăn bánh mà khách không nghe máy thì 0 km là số THẬT.
+   *  Chỉ cho chuyến NGOÀI lượt — chuyến trong lượt gửi `so_dong_ho`, máy tự trừ ra km. */
+  km?: number | null;
+  /** Số đồng hồ lúc TỚI khách — chuyến trong lượt xe. */
+  so_dong_ho?: number | null;
   thoi_gian_ket_thuc?: string | null;
   nguoi_nhan_thuc_te?: string | null;
   ly_do_that_bai?: string | null;
