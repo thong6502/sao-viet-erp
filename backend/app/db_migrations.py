@@ -5477,7 +5477,9 @@ def _migrate_buoc_don_vi_nang_suat_rong_hon(db: Session) -> None:
         return
     tables = insp.get_table_names()
     for bang in ("lsx_cong_doan", "bai_ghep_cong_doan"):
-        if bang in tables:
+        # Cột GỠ ở mg `0321` — DB trắng dựng theo model mới không có nó (bai_ghep_cong_doan không mg
+        # nào thêm lại), ALTER thẳng là vỡ migrate trên Postgres trắng.
+        if bang in tables and "don_vi_nang_suat" in _existing_columns(insp, bang):
             db.execute(text(f"ALTER TABLE {bang} ALTER COLUMN don_vi_nang_suat TYPE VARCHAR(32)"))
     db.commit()
 
