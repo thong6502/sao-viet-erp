@@ -5330,6 +5330,34 @@ export interface ChiTieuNgayInput {
   ghi_chu?: string | null;
 }
 
+/** Tổ trưởng ăn gì trên sản lượng tổ (19/09/2026): không áp dụng · ăn thưởng · ăn chia. */
+export type ToTruongCheDo = "khong" | "thuong" | "chia";
+/** Một MỐC chế độ tổ trưởng của tổ khoán — CHƯA nối vào tính lương. */
+export interface ToTruongMoc {
+  id: number;
+  department_id: number;
+  /** `YYYY-MM-DD` */
+  ap_dung_tu: string;
+  che_do: ToTruongCheDo;
+  /** % trên sản lượng tổ (5 = 5%); `khong` là 0. */
+  ty_le: number;
+  ghi_chu: string | null;
+  updated_at: string | null;
+}
+export interface ToTruongList {
+  department_id: number;
+  /** Mốc đang hiệu lực HÔM NAY; null = chưa khai, hoặc mọi mốc đều áp dụng từ ngày tương lai. */
+  hien_hanh: ToTruongMoc | null;
+  /** Mới nhất đứng đầu. */
+  items: ToTruongMoc[];
+}
+export interface ToTruongInput {
+  ap_dung_tu: string;
+  che_do: ToTruongCheDo;
+  ty_le: number;
+  ghi_chu?: string | null;
+}
+
 // --- Danh mục khoản thu nhập & thu nhập chịu thuế TNCN (chốt chủ 2026-07-27) ---
 // Trước đây mọi phụ cấp gộp vào MỘT ô `allowance` nên engine không biết khoản nào miễn thuế →
 // thu thừa TNCN. Giờ mỗi khoản một dòng danh mục, có cờ `is_taxable` bật/tắt tại chỗ.
@@ -10911,6 +10939,17 @@ export const api = {
     },
     xoaChiTieuNgay(token: string, deptId: number, mucId: number): Promise<ChiTieuNgayList> {
       return authed<ChiTieuNgayList>(`/api/luong/khoan/chi-tieu-ngay/${deptId}/${mucId}`, token, { method: "DELETE" });
+    },
+    // --- Tổ trưởng ăn thưởng / ăn chia theo sản lượng tổ (19/09/2026) — chưa nối vào lương ---
+    toTruong(token: string, deptId: number): Promise<ToTruongList> {
+      return authed<ToTruongList>(`/api/luong/khoan/to-truong/${deptId}`, token);
+    },
+    /** Cùng tổ + CÙNG ngày áp dụng ⇒ sửa mốc đó (không đẻ mốc trùng ngày). */
+    khaiToTruong(token: string, deptId: number, input: ToTruongInput): Promise<ToTruongList> {
+      return authed<ToTruongList>(`/api/luong/khoan/to-truong/${deptId}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    xoaToTruong(token: string, deptId: number, mucId: number): Promise<ToTruongList> {
+      return authed<ToTruongList>(`/api/luong/khoan/to-truong/${deptId}/${mucId}`, token, { method: "DELETE" });
     },
     // --- Danh mục khoản thu nhập (Cấu hình lương, tab "Danh mục khoản thu nhập") ---
     components: {

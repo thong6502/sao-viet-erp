@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -201,6 +202,35 @@ class ChiTieuNgayListOut(BaseModel):
     # Mốc đang hiệu lực HÔM NAY (null = tổ chưa khai, hoặc mọi mốc đều áp dụng từ ngày tương lai).
     hien_hanh: ChiTieuNgayOut | None = None
     items: list[ChiTieuNgayOut]          # mới nhất trước
+
+
+# --- tổ trưởng ăn thưởng / ăn chia theo sản lượng tổ (19/09/2026, chưa nối vào lương) ---
+
+
+class ToTruongIn(BaseModel):
+    ap_dung_tu: date
+    che_do: Literal["khong", "thuong", "chia"]
+    ty_le: float = Field(default=0, ge=0, le=100)   # % trên sản lượng tổ; `khong` thì bỏ qua
+    ghi_chu: str | None = Field(default=None, max_length=255)
+
+
+class ToTruongOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    department_id: int
+    ap_dung_tu: date
+    che_do: str
+    ty_le: float
+    ghi_chu: str | None = None
+    updated_at: datetime | None = None
+
+
+class ToTruongListOut(BaseModel):
+    department_id: int
+    # Mốc đang hiệu lực HÔM NAY (null = tổ chưa khai, hoặc mọi mốc đều áp dụng từ ngày tương lai).
+    hien_hanh: ToTruongOut | None = None
+    items: list[ToTruongOut]             # mới nhất trước
 
 
 class SalaryIn(BaseModel):

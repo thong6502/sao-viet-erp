@@ -1383,6 +1383,43 @@
   .cl-chitieu__form > :nth-child(3) { grid-column: span 2; }
   .cl-chitieu__form > .btn { justify-self: start; }
 }
+
+/* Tổ trưởng ăn thưởng / ăn chia (19/09/2026) — cùng khuôn thẻ Chỉ tiêu ngày ngay trên. */
+.cl-totruong__nguoi {
+  margin: 0 0 var(--sp-3);
+  font-size: 13px;
+  color: var(--ash);
+}
+.cl-totruong__nguoi b { color: var(--ink); }
+.cl-totruong__che-do {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.cl-totruong__che-do .rc-field__label { margin: 0; }
+.cl-totruong__form {
+  display: grid;
+  grid-template-columns: 170px 170px minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: end;
+}
+.cl-totruong__form .rc-input,
+.cl-totruong__form > .btn { height: 38px; }
+.cl-totruong__vd {
+  margin: var(--sp-2) 0 0;
+  font-size: 12.5px;
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
+}
+.cl-totruong__vd b { color: var(--ink); font-weight: 600; }
+.cl-totruong__loi { display: block; margin-top: var(--sp-2); color: var(--signal); }
+@media (max-width: 900px) {
+  .cl-totruong__che-do { flex-wrap: wrap; }
+  .cl-totruong__form { grid-template-columns: 1fr 1fr; }
+  .cl-totruong__form > :nth-child(3) { grid-column: span 2; }
+  .cl-totruong__form > .btn { justify-self: start; }
+}
 .cl-banner-sub {
   display: block;
   margin-top: 3px;
