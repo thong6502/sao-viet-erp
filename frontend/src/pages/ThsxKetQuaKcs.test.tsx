@@ -40,7 +40,7 @@ describe("ThsxKetQuaKcs · mở tab là tổ đã xem (18/09/2026)", () => {
     await waitFor(() => expect(onXem).toHaveBeenCalledTimes(1));
     expect(onXem).toHaveBeenCalledWith([9]);
     expect(screen.queryByRole("button", { name: /Đã xem/ })).toBeNull();
-    expect(screen.getAllByText("Tổ chưa xem")).toHaveLength(2);
+    expect(screen.getAllByText("chưa xem")).toHaveLength(2);
   });
 
   it("thợ không nằm trong danh sách chờ mở tab: không ghi gì", async () => {
