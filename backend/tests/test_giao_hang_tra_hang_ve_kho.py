@@ -8,6 +8,10 @@ kho lần hai. Bỏ đường đó (mô hình một-yêu-cầu-một-chuyến) l
 thêm một lần nữa cho cùng một lô hàng.
 
 Bộ này khoá bốn thứ, đúng nghiệm thu #19–#22 của PRD.
+
+19/09/2026: yêu cầu NHẬP trả về được MÁY TỰ LẬP ngay lúc ghi kết quả thất bại / giao thiếu; người
+xác nhận "kho đã nhận lại" là THỦ KHO — lập + ghi sổ phiếu nhập trên màn Kho. Nút cũ của tài xế
+(`/da-tra-hang`) chỉ còn cho chuyến cũ chưa có yêu cầu nhập.
 """
 from __future__ import annotations
 
@@ -73,10 +77,8 @@ def test_19_GIAO_THAT_BAI_tra_lai_TOAN_BO_vao_so_kho(client):
     _ket_qua(client, h, trip, ket_qua="that_bai",
              ly_do_that_bai="Khach dong cua", huong_xu_ly="tra_ve")
 
-    assert _yc_kho(trip, REQ_NHAP) is None, "chưa nhận lại mà đã đẻ phiếu nhập"
-    r = client.post(f"/api/giao-hang/trips/{trip}/da-tra-hang", headers=h)
-    assert r.status_code == 200, r.text
-
+    # Máy tự lập yêu cầu nhập ngay lúc ghi kết quả — tài xế không phải bấm gì.
+    assert _yc_kho(trip, REQ_NHAP) is not None, "thất bại mà không lập yêu cầu nhập trả về"
     yc_xuat = _yc_kho(trip, REQ_XUAT)
     assert _so_tra_ve(trip) == {("vat_tu", _hang_id(yc_xuat)): 100.0}
 
@@ -100,8 +102,6 @@ def test_20_GIAO_THIEU_chi_tra_lai_PHAN_THUA(client):
     _ket_qua(client, h, trip, ket_qua="giao_thieu", nguoi_nhan_thuc_te="Chi Lan",
              so_thuc_nhan=[{"order_line_id": lid, "qty": 80}])
 
-    r = client.post(f"/api/giao-hang/trips/{trip}/da-tra-hang", headers=h)
-    assert r.status_code == 200, r.text
     assert list(_so_tra_ve(trip).values()) == [20.0], _so_tra_ve(trip)
 
 
@@ -129,9 +129,10 @@ def test_22_BAM_HAI_LAN_khong_nhap_kho_hai_lan(client):
     _ket_qua(client, h, trip, ket_qua="that_bai",
              ly_do_that_bai="Khach doi hang", huong_xu_ly="tra_ve")
 
-    assert client.post(f"/api/giao-hang/trips/{trip}/da-tra-hang", headers=h).status_code == 200
-    lan_hai = client.post(f"/api/giao-hang/trips/{trip}/da-tra-hang", headers=h)
-    assert lan_hai.status_code == 400, lan_hai.text
+    # Đã có yêu cầu nhập tự lập ⇒ nút cũ bấm mấy lần cũng bị chặn.
+    for _ in range(2):
+        lan = client.post(f"/api/giao-hang/trips/{trip}/da-tra-hang", headers=h)
+        assert lan.status_code == 400, lan.text
 
     # Bất biến thật sự cần khoá là SỐ PHIẾU, không phải câu báo: chặn bằng cổng nào cũng được,
     # miễn là kho không bị cộng hàng hai lần.
@@ -186,8 +187,6 @@ def test_KHO_DIEU_CHINH_XUAT_thi_tra_ve_theo_so_CHOT_khong_theo_so_duyet(client)
 
     _ket_qua(client, h, trip, ket_qua="giao_thieu", nguoi_nhan_thuc_te="Chi Lan",
              so_thuc_nhan=[{"order_line_id": lid, "qty": 440}])
-    r = client.post(f"/api/giao-hang/trips/{trip}/da-tra-hang", headers=h)
-    assert r.status_code == 200, r.text
 
     assert list(_so_tra_ve(trip).values()) == [20.0], (
         f"trả về kho {_so_tra_ve(trip)} — chỉ 460 rời kho, khách giữ 440, nên 20 mới là số thật"
@@ -213,3 +212,69 @@ def test_yeu_cau_XUAT_cua_chuyen_khong_bi_lan_sang_phieu_NHAP(client):
         assert repo.tim_theo_delivery_trip(trip, loai=REQ_NHAP).ma != ma_xuat
     finally:
         db.close()
+
+
+# =============================================================================================
+# 19/09/2026 — THỦ KHO nhận lại hàng bằng phiếu nhập; hàng quay về "giao được"
+# =============================================================================================
+def _thu_kho_nhan(client, h, trip) -> None:
+    yc = _yc_kho(trip, REQ_NHAP)
+    db = SessionLocal()
+    try:
+        yc = db.query(StockRequest).filter(StockRequest.id == yc.id).one()
+        dong = [{"request_line_id": l.id, "so_luong": float(l.sl_de_nghi)} for l in yc.lines]
+        kho_id = yc.kho_id
+    finally:
+        db.close()
+    r = client.post("/api/kho/phieu", headers=h, json={
+        "request_id": yc.id, "kho_id": kho_id, "lines": dong})
+    assert r.status_code == 201, r.text
+    r = client.post(f"/api/kho/phieu/{r.json()['id']}/ghi-so", headers=h)
+    assert r.status_code == 200, r.text
+
+
+def _trip(trip_id: int):
+    from app.models.delivery import DeliveryTrip
+    db = SessionLocal()
+    try:
+        t = db.get(DeliveryTrip, trip_id)
+        return t.trang_thai, t.request.order_id
+    finally:
+        db.close()
+
+
+def test_THAT_BAI_thu_kho_ghi_so_thi_chuyen_DA_TRA_HANG_va_hang_ve_giao_duoc(client):
+    h = _admin(client)
+    trip, lid = _chuyen(client, h, suffix="tv7", qty=100)
+    _ket_qua(client, h, trip, ket_qua="that_bai",
+             ly_do_that_bai="Khach dong cua", huong_xu_ly="tra_ve")
+    tt, oid = _trip(trip)
+    assert tt == "dang_tra_hang"
+    # Hàng còn trên xe ⇒ vẫn giữ, chưa lập lại được.
+    con = client.get(f"/api/giao-hang/orders/{oid}/con-phai-giao", headers=h).json()
+    assert con["lines"][0]["con_phai_giao"] == 0
+
+    _thu_kho_nhan(client, h, trip)
+    assert _trip(trip)[0] == "da_tra_hang"
+    assert _yc_kho(trip, REQ_NHAP).trang_thai == "done"
+    con = client.get(f"/api/giao-hang/orders/{oid}/con-phai-giao", headers=h).json()
+    assert con["lines"][0]["con_phai_giao"] == 100
+    yc = client.get(f"/api/giao-hang/requests?order_id={oid}", headers=h).json()["items"][0]
+    assert yc["trang_thai"] == "that_bai"
+
+
+def test_GIAO_THIEU_giu_phan_thua_toi_khi_thu_kho_nhan_lai(client):
+    h = _admin(client)
+    trip, lid = _chuyen(client, h, suffix="tv8", qty=100)
+    oid = _trip(trip)[1]
+    _ket_qua(client, h, trip, ket_qua="giao_thieu", nguoi_nhan_thuc_te="Chi Lan",
+             so_thuc_nhan=[{"order_line_id": lid, "qty": 70}])
+    con = client.get(f"/api/giao-hang/orders/{oid}/con-phai-giao", headers=h).json()
+    assert con["lines"][0]["da_giao"] == 70 and con["lines"][0]["con_phai_giao"] == 0
+
+    _thu_kho_nhan(client, h, trip)
+    assert _trip(trip)[0] == "giao_thieu"          # kết cục giữ nguyên
+    con = client.get(f"/api/giao-hang/orders/{oid}/con-phai-giao", headers=h).json()
+    assert con["lines"][0]["con_phai_giao"] == 30
+    yc = client.get(f"/api/giao-hang/requests?order_id={oid}", headers=h).json()["items"][0]
+    assert yc["trang_thai"] == "giao_thieu"

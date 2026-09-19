@@ -1,7 +1,8 @@
 // KCS theo LỆNH (mg 0306) — màn thứ hai: CHUỖI CÔNG ĐOẠN của một lệnh, theo thứ tự routing.
 //
 // Mỗi công đoạn: tổ làm, trạng thái chạy, số lượng tổ đã ghi, tình trạng kiểm (chưa kiểm · đạt · có
-// lỗi, số lần). Bấm "Kiểm" → ngăn `KcsKiemForm`. Công đoạn cuối của nhóm (`la_kcs_cuoi`) có thêm dải
+// lỗi, số lần). Bấm "Kiểm" → ngăn `KcsKiemForm`. Chỉ công đoạn cuối mới KIỂM ĐẠT (để nhập kho);
+// công đoạn giữa KCS chỉ "Ghi lỗi" khi thấy, không bắt buộc — không bày đạt/tỉ lệ ở đó (19/09/2026). Công đoạn cuối của nhóm (`la_kcs_cuoi`) có thêm dải
 // nhập kho: phần đạt luỹ kế (trần = số tốt) chưa gửi kho → nút "Tạo yêu cầu nhập kho". Yêu cầu tạo ra
 // là yêu cầu NHẬP thật ở màn Yêu cầu nhập xuất (mã DNN…) — dải liệt kê từng mã, bấm mã mở màn Kho.
 import { useCallback, useEffect, useState } from "react";
@@ -15,7 +16,8 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Icon } from "../../components/Icons";
 import { Drawer } from "../danh-muc/components/Drawer";
 import { ngayGio, num } from "../keHoachSxShared";
-import { nhanDonVi } from "../lsxBuoc";
+import { nhanChang, nhanDonVi } from "../lsxBuoc";
+import { useNapTenDonVi } from "../tenDonVi";
 import { KcsChotNhom } from "./KcsChotNhom";
 import { KcsKiemForm } from "./KcsKiemForm";
 import { KcsLanKiemList } from "./KcsLanKiemList";
@@ -36,6 +38,8 @@ export function KcsChuoiCongDoan({
 }) {
   const { token } = useAuth();
   const { kcs, truongKcs } = useKcs();
+  // Nhãn chặng + tên đơn vị nạp từ danh mục — không gọi thì bảng hiện mã trần ("to", "ma-0002").
+  useNapTenDonVi();
   const [data, setData] = useState<SxKcsChuoiCongDoan | null>(null);
   const [loi, setLoi] = useState<string | null>(null);
   const [kiem, setKiem] = useState<SxKcsCongDoan | null>(null);
@@ -73,7 +77,7 @@ export function KcsChuoiCongDoan({
     setNhapKhoLoi(null);
     try {
       const r = await api.sanXuat.taoYeuCauNhapKhoCongDoan(token, nhapKho.cong_viec_id);
-      setThongBao(`Đã tạo yêu cầu nhập kho ${r.ma}: ${num(r.so_luong)} ${nhanDonVi(nhapKho.don_vi)} — chờ kho nhận.`);
+      setThongBao(`Đã tạo yêu cầu nhập kho ${r.ma}: ${num(r.so_luong)} ${nhanChang(nhapKho.don_vi)} — chờ kho nhận.`);
       setNhapKho(null);
       tai();
       onChanged();
@@ -90,9 +94,11 @@ export function KcsChuoiCongDoan({
 
   // Tính toán chỉ số tổng quan cho Hero Card
   const tongCd = congDoan.length;
-  const daKiemCd = congDoan.filter((cd) => cd.so_lan_kiem > 0).length;
-  const pctKiem = tongCd > 0 ? Math.round((daKiemCd / tongCd) * 100) : 0;
-  const tongDat = congDoan.reduce((acc, cd) => acc + cd.tong_dat, 0);
+  // Đạt chỉ có nghĩa ở công đoạn cuối — số đó mới là hàng vào kho.
+  const cdCuoi = congDoan.filter((cd) => cd.la_kcs_cuoi);
+  const tongDat = cdCuoi.reduce((acc, cd) => acc + cd.tong_dat, 0);
+  const totCuoi = cdCuoi.reduce((acc, cd) => acc + cd.tot, 0);
+  const dvCuoi = cdCuoi.length > 0 ? nhanChang(cdCuoi[0].don_vi) : "";
   const tongLoi = congDoan.reduce((acc, cd) => acc + cd.tong_loi, 0);
 
   return (
@@ -121,19 +127,19 @@ export function KcsChuoiCongDoan({
 
           <div className="kcs-hero__inline-stats">
             <span className="kcs-hero__inline-item">
-              Chuỗi công đoạn: <b>{tongCd} bước ({daKiemCd} đã kiểm)</b>
+              Chuỗi công đoạn: <b>{tongCd} bước</b>
             </span>
-            <span style={{ color: "#cbd5e1" }}>·</span>
-            <span className="kcs-hero__inline-item">
-              Tiến độ KCS: <b>{pctKiem}%</b>
-            </span>
-            <span style={{ color: "#cbd5e1" }}>·</span>
-            <span className="kcs-hero__inline-item" style={{ color: "#047857" }}>
-              Tổng KCS Đạt: <b>{num(tongDat)} sản phẩm</b>
-            </span>
+            {cdCuoi.length > 0 && (
+              <>
+                <span style={{ color: "#cbd5e1" }}>·</span>
+                <span className="kcs-hero__inline-item" style={{ color: "#047857" }}>
+                  KCS đạt ở công đoạn cuối: <b>{num(tongDat)} / {num(totCuoi)} {dvCuoi}</b>
+                </span>
+              </>
+            )}
             <span style={{ color: "#cbd5e1" }}>·</span>
             <span className="kcs-hero__inline-item" style={{ color: tongLoi > 0 ? "#b91c1c" : "#64748b" }}>
-              Tổng KCS Lỗi: <b>{num(tongLoi)} sản phẩm</b>
+              Lỗi đã ghi: <b>{num(tongLoi)}</b>
             </span>
           </div>
         </div>
@@ -144,7 +150,7 @@ export function KcsChuoiCongDoan({
         <div className="kcs-pipeline">
           <div className="kcs-pipeline__track">
             {congDoan.map((cd, i) => {
-              const tt = tinhTrangKiem(cd.so_lan_kiem, cd.tong_loi);
+              const tt = tinhTrangKiem(cd.so_lan_kiem, cd.tong_loi, cd.la_kcs_cuoi);
               const isLast = i === congDoan.length - 1;
               return (
                 <div key={cd.cong_viec_id} className="kcs-pipeline__node">
@@ -213,8 +219,8 @@ export function KcsChuoiCongDoan({
               </thead>
               <tbody>
                 {congDoan.map((cd, i) => {
-                  const tt = tinhTrangKiem(cd.so_lan_kiem, cd.tong_loi);
-                  const dv = nhanDonVi(cd.don_vi);
+                  const tt = tinhTrangKiem(cd.so_lan_kiem, cd.tong_loi, cd.la_kcs_cuoi);
+                  const dv = nhanChang(cd.don_vi);
                   const choKiem = kiemDuoc(cd.trang_thai);
 
                   const tongKcs = cd.tong_dat + cd.tong_loi;
@@ -243,7 +249,15 @@ export function KcsChuoiCongDoan({
                         </span>
                       </td>
                       <td>
-                        {cd.so_lan_kiem > 0 ? (
+                        {!cd.la_kcs_cuoi ? (
+                          cd.tong_loi > 0 ? (
+                            <span className="kcs-matrix__stat">
+                              Lỗi <b style={{ color: "#b91c1c" }}>{num(cd.tong_loi)}</b> {dv}
+                            </span>
+                          ) : (
+                            <span style={{ color: "#94a3b8", fontSize: "12px" }}>Chưa ghi lỗi</span>
+                          )
+                        ) : cd.so_lan_kiem > 0 ? (
                           <span className="kcs-matrix__stat">
                             Đạt <b style={{ color: "#047857" }}>{num(cd.tong_dat)}</b> · Lỗi <b style={{ color: cd.tong_loi > 0 ? "#b91c1c" : "#64748b" }}>{num(cd.tong_loi)}</b> {dv}
                             {rateDat !== null && (
@@ -255,6 +269,12 @@ export function KcsChuoiCongDoan({
                         ) : (
                           <span style={{ color: "#94a3b8", fontStyle: "italic", fontSize: "12px" }}>Chưa kiểm</span>
                         )}
+                        {(cd.loi_buoc_sau ?? []).map((l) => (
+                          <span key={`${l.phat_hien_o}-${l.don_vi}`} className="kcs-matrix__loi-sau"
+                            title="Lỗi KCS bắt ở công đoạn sau, quy trách nhiệm về công đoạn này — không trừ số của công đoạn này">
+                            +{num(l.so_luong)} {nhanChang(l.don_vi)} lỗi bắt ở {l.phat_hien_o}
+                          </span>
+                        ))}
                       </td>
                       <td>
                         <span className={`badge-sem ${tt.cls}`}>{tt.nhan}</span>
@@ -292,7 +312,7 @@ export function KcsChuoiCongDoan({
                               title={choKiem ? undefined : "Công đoạn chưa bắt đầu — chưa kiểm được."}
                               onClick={() => setKiem(cd)}
                             >
-                              <Icon name="shield" size={12} /> Kiểm
+                              <Icon name="shield" size={12} /> {cd.la_kcs_cuoi ? "Kiểm" : "Ghi lỗi"}
                             </button>
                           )}
                           {cd.so_lan_kiem > 0 && (
@@ -301,9 +321,9 @@ export function KcsChuoiCongDoan({
                               className="btn btn--ghost btn--sm"
                               style={{ padding: "3px 8px", fontSize: "12px" }}
                               onClick={() => setLanKiemCd(cd)}
-                              title={`Xem ${cd.so_lan_kiem} lần kiểm đã ghi trong popup`}
+                              title={`Xem ${cd.so_lan_kiem} lần ${cd.la_kcs_cuoi ? "kiểm" : "ghi lỗi"} trong popup`}
                             >
-                              Lần kiểm ({cd.so_lan_kiem})
+                              {cd.la_kcs_cuoi ? "Lần kiểm" : "Lỗi đã ghi"} ({cd.so_lan_kiem})
                             </button>
                           )}
                         </div>
@@ -326,12 +346,15 @@ export function KcsChuoiCongDoan({
       {/* Popup Drawer xem danh sách các lần kiểm */}
       {lanKiemCd && (
         <Drawer
-          title={`Lịch sử ${lanKiemCd.so_lan_kiem} lần kiểm: ${lanKiemCd.ten}`}
+          title={lanKiemCd.la_kcs_cuoi
+            ? `Lịch sử ${lanKiemCd.so_lan_kiem} lần kiểm: ${lanKiemCd.ten}`
+            : `Lỗi đã ghi: ${lanKiemCd.ten}`}
           kicker={lsx ? `Lệnh ${lsx.ma} · ${lsx.ten}` : "KCS Công đoạn"}
           onClose={() => setLanKiemCd(null)}
         >
           <div className="rc-drawer__body" style={{ padding: "16px 20px" }}>
-            <KcsLanKiemList lanKiem={lanKiemCd.lan_kiem} checklist={lanKiemCd.checklist} />
+            <KcsLanKiemList lanKiem={lanKiemCd.lan_kiem} checklist={lanKiemCd.checklist}
+              chiLoi={!lanKiemCd.la_kcs_cuoi} />
           </div>
         </Drawer>
       )}
@@ -376,12 +399,21 @@ export function KcsChuoiCongDoan({
       )}
 
       {kiem && lsx && (
-        <KcsKiemForm lenh={lsx} cd={kiem} onClose={() => setKiem(null)}
+        <KcsKiemForm lenh={lsx} cd={kiem} chuoi={congDoan} onClose={() => setKiem(null)}
           onSaved={(r) => {
             setKiem(null);
+            const nguon = r.bao_loi_nguon ?? [];
+            const soNguon = nguon.reduce((s, n) => s + n.so_loi, 0);
+            const baoNguon = nguon.map((n) => `${n.ten_cong_doan} (${num(n.so_loi)})`).join(", ");
+            // Công đoạn giữa chỉ ghi lỗi — không nói "đạt 0".
+            const laCuoi = kiem.la_kcs_cuoi;
             setThongBao(
-              `Đã ghi lần kiểm ${r.ten_cong_doan}: đạt ${num(r.so_dat)} · lỗi ${num(r.so_loi)}`
-              + (r.so_loi > 0 ? " — đã báo tổ làm công đoạn." : "."),
+              (laCuoi
+                ? `Đã ghi lần kiểm ${r.ten_cong_doan}: đạt ${num(r.so_dat)} · lỗi ${num(r.so_loi)}`
+                : `Đã ghi lỗi ${r.ten_cong_doan}: ${num(r.so_loi)} ${nhanChang(kiem.don_vi)}`)
+              + (r.so_loi - soNguon > 1e-9 ? " — đã báo tổ làm công đoạn" : "")
+              + (baoNguon ? `${r.so_loi - soNguon > 1e-9 ? ";" : " —"} lỗi quy về ${baoNguon}, đã báo tổ đó` : "")
+              + ".",
             );
             tai();
             onChanged();
@@ -392,7 +424,7 @@ export function KcsChuoiCongDoan({
         open={nhapKho != null}
         title="Tạo yêu cầu nhập kho"
         message={nhapKho
-          ? `Đề nghị kho nhập ${num(nhapKho.con_gui_kho)} ${nhanDonVi(nhapKho.don_vi)} thành phẩm đã kiểm đạt của ${lsx?.ma ?? "lệnh"} (${nhapKho.ten}).`
+          ? `Đề nghị kho nhập ${num(nhapKho.con_gui_kho)} ${nhanChang(nhapKho.don_vi)} thành phẩm đã kiểm đạt của ${lsx?.ma ?? "lệnh"} (${nhapKho.ten}).`
           : undefined}
         confirmLabel="Gửi yêu cầu"
         busy={nhapKhoBusy}

@@ -296,11 +296,19 @@ class ThanhPhamChuaGiaGocRow(BaseModel):
     so_lo: int
 
 
+class LuaChonLocGiaGoc(BaseModel):
+    id: int
+    ten: str | None = None
+
+
 class ThanhPhamChuaGiaGocPage(BaseModel):
     items: list[ThanhPhamChuaGiaGocRow]
     total: int
     page: int
     size: int
+    # Lựa chọn cho ô lọc nâng cao — chỉ kho/khách có lô gốc thành phẩm từ KCS.
+    cac_kho: list[LuaChonLocGiaGoc] = []
+    cac_khach: list[LuaChonLocGiaGoc] = []
 
 
 class TinhGiaKyIn(BaseModel):

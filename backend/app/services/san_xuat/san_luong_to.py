@@ -27,10 +27,13 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from ...models.user import User
+from ...repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
+from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ...repositories.san_xuat_san_luong_to_repo import CuaSoGiup, SanXuatSanLuongToRepository
 from ..gio_xuong import thuc_te_hien_thi, ve_gio_xuong, ve_utc_that
 from .board import _nhan_vien_id, _pham_vi_doc
 from .nguoi_trong_me import nguoi_theo_me
+from .snapshot import the_quy_cach
 
 CO_TRANG_MAC_DINH = 20
 KHOANG_TOI_DA = 366  # ngày — chặn một cú lọc cả chục năm kéo sập bảng mẻ
@@ -50,6 +53,30 @@ def _cong(bang: dict, don_vi: str | None, **so: float) -> None:
     dong = bang.setdefault(don_vi, {k: 0.0 for k in so})
     for k, v in so.items():
         dong[k] = dong.get(k, 0.0) + float(v or 0)
+
+
+def _kho_so(chuoi: str | None) -> dict | None:
+    """`"790 × 545"` của thẻ quy cách → `{dai, rong}` (mm) để bảng tách hai cột."""
+    if not chuoi:
+        return None
+    try:
+        dai, rong = (float(x) for x in str(chuoi).split("×"))
+    except ValueError:
+        return None
+    return {"dai": dai, "rong": rong}
+
+
+def _quy_cach_bang(the: dict | None) -> dict | None:
+    """Giấy · định lượng · khổ tờ nguyên / tờ in / con — ĐÚNG thẻ quy cách thợ thấy ở bàn tổ."""
+    if not the:
+        return None
+    return {
+        "giay": the.get("giay"),
+        "dinh_luong": the.get("dinh_luong"),
+        "to_nguyen": _kho_so(the.get("kho_nguyen")),
+        "to_in": _kho_so(the.get("kho_in")),
+        "con": _kho_so(the.get("kho_tp")),
+    }
 
 
 def _ra_ds(bang: dict) -> list[dict]:
@@ -106,6 +133,10 @@ def san_luong(
     nhan = repo.nhan_nguon(khoa)
     # AI CÓ MẶT — suy lúc đọc (khoảng tham gia + hỗ trợ chéo), gộp truy vấn cho cả trang (§7.3b luật 2).
     theo_me = nguoi_theo_me(db, [b.id for b, _ in me])
+    # VIỆC PHÁT SINH của từng mẻ (mg `0318`) — một truy vấn cho cả trang. Chỉ để BÀY cạnh sản
+    # lượng, không cộng vào đâu; không kèm đơn giá (tiền là việc của màn kế toán).
+    ps_map = SanXuatSanLuongRepository(db).phat_sinh_cua_nhieu([b.id for b, _ in me])
+    dv_ten = DonViDoRepository(db).ten_theo_ma() if ps_map else {}
     to_nguoi = {n["department_id"] for ds in theo_me.values() for n in ds if n["department_id"]}
     ten_to = repo.ten_to(to_nguoi | {cv.department_id for _, cv in me if cv.department_id})
 
@@ -129,7 +160,11 @@ def san_luong(
         ]
 
     # Gom: nguồn → công việc → mẻ.
-    nguon: dict[tuple, dict] = {k: {"cd": {}, "me": 0, "dau": None, "cuoi": None} for k in khoa}
+    nguon: dict[tuple, dict] = {
+        k: {"cd": {}, "me": 0, "dau": None, "cuoi": None, "qc": None} for k in khoa}
+    # Quy cách của nguồn: ảnh chụp ở công việc (cái thợ đang thấy), khoá nào thiếu — ảnh chụp đời
+    # cũ chưa có khổ nguyên — thì lấy thẻ dựng từ quy cách của lệnh.
+    qc_lenh = repo.quy_cach_lenh({i for l, i in khoa if l == "lsx" and i is not None})
     for b, cv in me:
         k = ("bai_ghep", cv.bai_ghep_id) if cv.bai_ghep_id is not None else ("lsx", cv.lsx_id)
         n = nguon.get(k)
@@ -138,6 +173,8 @@ def san_luong(
         ngay = _ngay_xuong(b.bat_dau)
         n["dau"] = ngay if n["dau"] is None or (ngay and ngay < n["dau"]) else n["dau"]
         n["cuoi"] = ngay if n["cuoi"] is None or (ngay and ngay > n["cuoi"]) else n["cuoi"]
+        if n["qc"] is None:
+            n["qc"] = {**(the_quy_cach(qc_lenh.get(cv.lsx_id)) or {}), **(cv.quy_cach_json or {})}
         la_khach = cv.department_id not in cua_minh
         c = n["cd"].setdefault(cv.id, {
             "cong_viec_id": cv.id, "ten_cong_doan": cv.ten_cong_doan, "to_id": cv.department_id,
@@ -159,6 +196,16 @@ def san_luong(
             "hong": float(b.hong),
             "don_vi": b.don_vi,
             "nguoi": _nguoi_cua(b.id, cv.department_id, la_khach),
+            "phat_sinh": [
+                {
+                    "ten": r.ten_snapshot,
+                    "so_luong": float(r.so_luong),
+                    "don_vi": r.don_vi_snapshot,
+                    "don_vi_ten": (nhan_don_vi(dv_ten, r.don_vi_snapshot)
+                                   if r.don_vi_snapshot else None),
+                }
+                for r in ps_map.get(b.id, [])
+            ],
         })
 
     lenh = []
@@ -182,6 +229,7 @@ def san_luong(
         lenh.append({
             "nguon_loai": k[0], "nguon_id": k[1], "ma": ma, "ten": ten,
             "so_me": n["me"], "ngay_dau": n["dau"], "ngay_cuoi": n["cuoi"],
+            "quy_cach": _quy_cach_bang(n["qc"]),
             "san_luong": _ra_ds(sl_nguon),
             "cong_doan": cds,
         })

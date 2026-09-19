@@ -3,7 +3,7 @@
 import { Icon } from "../components/Icons";
 import type { SxLenhNhom, SxVatTuDinhMuc, SxWorkItem, SxQuyCachThe } from "../api/client";
 import { ChipKcs, ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
-import { num, ngayGio } from "./keHoachSxShared";
+import { num, ngayGio, thoiLuong } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
 import { ThsxLenhGroups } from "./ThsxLenhGroups";
 import { ChamCho, type SxChoCuaViec } from "./thsxChoXacNhan";
@@ -59,14 +59,15 @@ function renderVatTuInline(vt: SxVatTuDinhMuc[]) {
   );
 }
 
-/** Format thời lượng chạy rút gọn (VD: "84 phút") */
+/** Thời gian làm dự kiến của bước (mất bao lâu để xong) — không phải một mốc ngày giờ. */
 function phutChayGon(w: SxWorkItem): { main: string; sub?: string } | null {
   if (w.chay_phut == null || w.chay_phut <= 0) return null;
   const giua = Math.round(w.chay_phut);
   const lo = w.chay_phut_min == null ? giua : Math.round(w.chay_phut_min);
   const hi = w.chay_phut_max == null ? giua : Math.round(w.chay_phut_max);
-  const sub = lo !== giua || hi !== giua ? `Dải: ${lo}–${hi} phút` : undefined;
-  return { main: `${giua} phút`, sub };
+  const sub = lo !== giua || hi !== giua
+    ? `Nhanh nhất ${thoiLuong(lo)} · chậm nhất ${thoiLuong(hi)}` : undefined;
+  return { main: thoiLuong(giua), sub };
 }
 
 export function ThsxDanhSach({
@@ -115,7 +116,7 @@ function DsBang({
               <th className="thsx-ds__th-src">Nguồn & Mã</th>
               <th className="thsx-ds__th-cd">Công đoạn & Quy cách</th>
               <th className="thsx-ds__th-may">Máy / Trạm</th>
-              <th className="thsx-ds__th-gio">Giờ hẹn</th>
+              <th className="thsx-ds__th-gio">Thời gian dự kiến</th>
               <th className="thsx-ds__th-sl">Tiến độ sản lượng</th>
               <th className="thsx-ds__th-vt">Định mức vật tư</th>
               <th className="thsx-ds__th-act">Trạng thái & Thao tác</th>
@@ -219,15 +220,15 @@ function DsRowBlock({
         )}
       </td>
 
-      {/* Giờ hẹn & Thời lượng */}
+      {/* Thời gian làm dự kiến + lúc tổ nhận việc */}
       <td>
         <div className="thsx-ds__time-cell">
-          <span className="thsx-ds__time-val thsx-num">
-            {w.du_kien_bat_dau ? ngayGio(w.du_kien_bat_dau) : "—"}
+          <span className="thsx-ds__time-val thsx-num" title={durInfo?.sub}>
+            {durInfo ? <><Icon name="clock" size={10} /> {durInfo.main}</> : "—"}
           </span>
-          {durInfo && (
-            <span className="thsx-ds__dur-inline thsx-num" title={durInfo.sub}>
-              <Icon name="clock" size={10} /> {durInfo.main}
+          {w.nhan_luc && (
+            <span className="thsx-ds__dur-inline thsx-num" title="Lúc tổ nhận việc (phát hành xuống tổ)">
+              Nhận {ngayGio(w.nhan_luc)}
             </span>
           )}
         </div>

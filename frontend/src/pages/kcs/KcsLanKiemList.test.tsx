@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { SxKcsLanKiem } from "../../api/client";
-import { KcsLanKiemList } from "./KcsLanKiemList";
+import { KcsLanKiemList, KcsLoiCuaTo, loiCuaTo } from "./KcsLanKiemList";
 
 const lanKiem = [{
   id: 5, nguoi_kiem: "Bùi Tổ Trưởng", luc: "2026-09-16T15:12:00", so_dat: 100, so_loi: 5, don_vi: "to",
@@ -62,5 +62,29 @@ describe("KcsLanKiemList · ảnh lỗi", () => {
     }
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(trangDongNgan).toBe(0);
+  });
+});
+
+describe("KcsLoiCuaTo · tab KCS bàn tổ chỉ bày lỗi tổ chịu", () => {
+  const loi = (id: number, mo_ta: string, cong_doan_id: number | null) => ({
+    id, mo_ta, so_luong: 2, don_vi: "to", cong_doan_id, da_xem_luc: null, nguoi_xem: null, anh: [],
+  });
+  const tai = [
+    { ...lanKiem[0], id: 1, cong_viec_id: 7, luc: "2026-09-16T08:00:00", so_loi: 0, loi: [] },
+    { ...lanKiem[0], id: 2, cong_viec_id: 7, luc: "2026-09-17T08:00:00",
+      loi: [loi(11, "Lem mực", null), loi(12, "Quy về bước trước", 6)] },
+  ] as unknown as SxKcsLanKiem[];
+  const sau = [{ ...lanKiem[0], id: 3, cong_viec_id: 8, cong_doan_ten: "Dán", luc: "2026-09-19T08:00:00",
+    loi: [loi(13, "Bong keo do in", 7)] }] as unknown as SxKcsLanKiem[];
+
+  it("bỏ lần kiểm đạt và lỗi đã quy sang công đoạn khác, gộp lỗi bước sau — mới nhất trước", () => {
+    const dong = loiCuaTo(7, tai, sau);
+    expect(dong.map((d) => d.l.id)).toEqual([13, 11]);
+    render(<KcsLoiCuaTo congViecId={7} dong={dong} />);
+    const it = Array.from(document.querySelectorAll(".kcs-bs__it"));
+    expect(it).toHaveLength(2);
+    expect(it[0].textContent).toContain("Bắt ở Dán");
+    expect(it[1].textContent).not.toContain("Bắt ở");
+    expect(document.body.textContent).not.toMatch(/đạt/i);
   });
 });

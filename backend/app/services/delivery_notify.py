@@ -50,3 +50,29 @@ def bao_tai_xe_kho_lap_phieu(db, request_id: int | None, ma_phieu: str | None = 
         })
     except Exception:
         return
+
+
+def kho_nhan_lai_hang_giao(db, request_id: int | None, *, actor) -> None:
+    """Kho vừa ghi sổ phiếu NHẬP của một yêu cầu trả hàng về (19/09/2026) ⇒ chuyến thất bại sang
+    "đã trả hàng" và đơn tự làm mới tiến độ (phần hàng đó quay lại "giao được").
+
+    THỦ KHO là người xác nhận hàng về — bằng chính phiếu nhập của họ; trước đây tài xế tự bấm "kho đã
+    nhận lại". Nuốt lỗi như móc trên: phiếu kho đã ghi sổ đúng, không được báo đỏ vì phần phụ này.
+    """
+    try:
+        if not request_id:
+            return
+        req = db.get(StockRequest, int(request_id))
+        if req is None or not getattr(req, "delivery_trip_id", None):
+            return
+        from ..repositories.delivery_repo import DeliveryRepository
+        from ..repositories.order_repo import OrderRepository
+        from .delivery_service import DeliveryService
+
+        svc = DeliveryService(DeliveryRepository(db), OrderRepository(db), None, None, None)
+        if svc.sau_ghi_so_tra_hang(req, actor=actor):
+            db.commit()
+        hub.broadcast({"type": "giao_hang_changed", "trip_id": req.delivery_trip_id})
+    except Exception:
+        db.rollback()
+        return

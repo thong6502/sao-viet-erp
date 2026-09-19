@@ -212,7 +212,8 @@ describe("Giao hàng · không để chuyến nào tắc", () => {
     ["dang_chuan_bi", /Đã lấy hàng/],
     ["da_lay_hang", /Bắt đầu giao/],
     ["dang_giao", /Nhập kết quả/],
-    ["dang_tra_hang", /Kho đã nhận lại/],
+    // Chuyến CŨ chưa có yêu cầu nhập trả hàng — còn nút lập phiếu trả kho.
+    ["dang_tra_hang", /Lập phiếu trả kho/],
   ];
   for (const [tt, nut] of buoc) {
     it(`trạng thái ${tt} có nút đi tiếp`, async () => {
@@ -221,6 +222,28 @@ describe("Giao hàng · không để chuyến nào tắc", () => {
       expect(await screen.findByRole("button", { name: nut })).toBeInTheDocument();
     });
   }
+
+  it("đang trả hàng đã có yêu cầu nhập ⇒ chờ THỦ KHO ghi sổ, tài xế không bấm gì", async () => {
+    stubApi({ trips: [{ ...CHUYEN, trang_thai: "dang_tra_hang", tra_hang_ma: "YCN-0009", tra_hang_trang_thai: "approved" }] });
+    ve({ can_create: true });
+    expect(await screen.findByText(/Chờ kho nhận lại · YCN-0009/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Lập phiếu trả kho|Kho đã nhận lại/ })).toBeNull();
+  });
+
+  it("chuyến chưa cầm hàng có nút Đổi / huỷ chuyến cho người lên đơn", async () => {
+    stubApi({ trips: [{ ...CHUYEN, trang_thai: "da_len_ke_hoach" }] });
+    ve({ can_plan: true, can_create: true });
+    expect(await screen.findByRole("button", { name: /Đổi \/ huỷ chuyến/ })).toBeInTheDocument();
+  });
+
+  it("kho đã lập phiếu ⇒ hộp Đổi / huỷ không cho huỷ, bảo kho huỷ phiếu trước", async () => {
+    stubApi({ trips: [{ ...CHUYEN, trang_thai: "dang_chuan_bi", yeu_cau_kho_ma: "YCX-0007",
+      kho_da_lap_phieu: true }] });
+    ve({ can_plan: true, can_create: true });
+    await userEvent.click(await screen.findByRole("button", { name: /Đổi \/ huỷ chuyến/ }));
+    expect(screen.getByText(/báo kho huỷ phiếu trước/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Huỷ chuyến" })).toBeNull();
+  });
 });
 
 describe("Giao hàng · yêu cầu xuất kho là chứng từ CỦA KHO", () => {

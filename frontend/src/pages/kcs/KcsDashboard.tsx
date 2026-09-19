@@ -146,13 +146,15 @@ export function KcsDashboard({
     {
       id: "luot", icon: "clipboard", tone: "steel", nhan: "Lượt kiểm",
       giaTri: num(data?.tong_luot ?? 0),
-      phu: data && data.tong_nhan > 0 ? `${num(data.tong_nhan)} đã kiểm` : undefined,
+      phu: data && data.tong_nhan > 0 ? `${num(data.tong_nhan)} đã kiểm ở công đoạn cuối` : undefined,
     },
-    { id: "dat", icon: "fileCheck", tone: "moss", nhan: "Đạt", giaTri: num(data?.tong_dat ?? 0) },
-    { id: "loi", icon: "alert", tone: "rust", nhan: "Lỗi", giaTri: num(tongLoi) },
+    // Đạt/tỷ lệ chỉ tính công đoạn cuối — công đoạn giữa KCS chỉ ghi lỗi (19/09/2026). Lỗi cộng mọi công đoạn.
+    { id: "dat", icon: "fileCheck", tone: "moss", nhan: "Đạt", giaTri: num(data?.tong_dat ?? 0), phu: "công đoạn cuối" },
+    { id: "loi", icon: "alert", tone: "rust", nhan: "Lỗi", giaTri: num(tongLoi), phu: "mọi công đoạn" },
     {
       id: "ty_le", icon: "activity", tone: "amber", nhan: "Tỷ lệ đạt",
       giaTri: data?.ty_le_dat != null ? phanTram(data.ty_le_dat) : "—",
+      phu: "công đoạn cuối",
     },
   ];
 

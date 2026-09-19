@@ -34,6 +34,7 @@ from app.repositories.rbac_repo import RoleRepository
 from app.repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from app.services.rbac_service import AuthorizationService
 from app.services.san_xuat import ban_giao, board
+from tests.lenh_sx_fixtures import _da_nhan_tu
 from tests.san_xuat_me_fixtures import tao_me
 from tests.quyen_to_fixtures import cap_quyen_to
 
@@ -244,6 +245,10 @@ def test_xac_nhan_la_quyen_to_dich(db, orders, lsx_svc, admin, customer):
 def test_dieu_chinh_ghi_lich_su_va_co_khong_nhat_quan(db, orders, lsx_svc, admin, customer):
     to, cv1, cv2, lsx = _hai_cv(db, orders, lsx_svc, admin, customer)
     cv1.lsx_id = cv2.lsx_id = lsx
+    # Bế 1 tờ → 2 con: giảm nhận xuống 50 tờ vẫn đủ trần 100 con cho 80 con đã ghi (luật trần
+    # `dau_vao`, 19/09/2026), nên lần giảm lọt qua và chỉ còn cờ lot dùng 80 tờ > 50 tờ nhận.
+    cv2.don_vi_ra = "con"
+    cv2.he_so_quy_doi = 2
     db.commit()
     b1 = _batch(db, admin, cv1, tot=100)
     r = ban_giao.de_xuat(
@@ -344,6 +349,10 @@ def test_buoc_cuoi_lenh_khong_ban_giao(db, orders, lsx_svc, admin, customer):
     cuoi = next(c for c in _cvs(db, to) if not repo.cong_viec_chang_sau(c))
     cuoi.trang_thai = CV_DANG_CHAY
     cuoi.don_vi_ra = cuoi.don_vi_vao = "tờ"
+    # Ghi mẻ phải có hàng đã nhận từ công đoạn trước (`dau_vao`, 19/09/2026).
+    for truoc in repo.cong_viec_chang_truoc(cuoi):
+        truoc.don_vi_ra = "tờ"
+        _da_nhan_tu(db, truoc, cuoi, 100)
     db.commit()
     b = _batch(db, admin, cuoi, tot=100)
     for dich in (None, cv1.id):
@@ -352,7 +361,7 @@ def test_buoc_cuoi_lenh_khong_ban_giao(db, orders, lsx_svc, admin, customer):
                 db, user=admin, nguon_cong_viec_id=cuoi.id, dich_cong_viec_id=dich,
                 batch_ids=[b],
             )
-    assert db.query(SanXuatBanGiao).count() == 0
+    assert db.query(SanXuatBanGiao).filter_by(nguon_cong_viec_id=cuoi.id).count() == 0
 
 
 def _buoc(db, lsx_id, thu_tu, ten):

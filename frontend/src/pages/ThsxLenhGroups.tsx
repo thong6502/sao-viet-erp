@@ -86,9 +86,11 @@ export function ThsxLenhGroups({
               )}
               <ChamCho c={choLenh} />
               <span className="thsx-lenh__spacer" />
-              <span className="thsx-lenh__gio thsx-num">
-                {l.som_nhat ? ngayGio(l.som_nhat) : "chưa xếp giờ"}
-              </span>
+              {l.nhan_luc && (
+                <span className="thsx-lenh__gio thsx-num" title="Lúc tổ nhận việc (phát hành xuống tổ)">
+                  Nhận {ngayGio(l.nhan_luc)}
+                </span>
+              )}
               <span className="thsx-lenh__n thsx-num">{l.so_viec} việc</span>
               <LenhDigest d={l.digest} />
             </button>

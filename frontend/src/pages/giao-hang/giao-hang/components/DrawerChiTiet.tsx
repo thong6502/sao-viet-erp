@@ -28,7 +28,9 @@ export function DrawerChiTiet({
   const { token } = useAuth();
   const [lyDo, setLyDo] = useState("");
   const r = detail.request;
-  const huyDuoc = canCancel && r.trang_thai === "cho_len_ke_hoach" && detail.trips.length === 0;
+  // Huỷ được khi CHƯA có chuyến, hoặc mọi chuyến đã huỷ (quản lý huỷ chuyến ⇒ "Chuyến đã huỷ").
+  const huyDuoc = canCancel && (
+    (r.trang_thai === "cho_len_ke_hoach" && detail.trips.length === 0) || r.trang_thai === "chuyen_da_huy");
 
   return (
     <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>

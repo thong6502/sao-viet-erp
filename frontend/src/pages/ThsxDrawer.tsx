@@ -16,16 +16,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { assetUrl } from "../api/client";
 import type {
-  SxNhanVienChon, SxWorkItemChiTiet, SxHoTroUngVien, SxQuyCachThe,
+  SxNhanVienChon, SxWorkItemChiTiet, SxHoTroUngVien,
 } from "../api/client";
 import type { MayChon } from "../api/kyThuatMay";
 import { Button } from "../components/Button";
 import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { Icon } from "../components/Icons";
-import { MucInHang } from "../components/MucIn";
-import { nhanCachIn, num, ngayGio } from "./keHoachSxShared";
-// Khung `.khsx-kv` của khối Mực in mượn từ màn lệnh — nạp tường minh, đừng trông vào AppShell.
-import "./ke-hoach-sx.css";
+import { num, ngayGio } from "./keHoachSxShared";
 import { nhanChang } from "./lsxBuoc";
 import { phutChayText, slText, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 import { ThsxBaoSuCoDialog } from "./ThsxBaoSuCoDialog";
@@ -34,6 +31,7 @@ import { ThsxExecPanels, ThsxNhanVe, type ThsxExec } from "./ThsxExecPanels";
 import type { SxChoCuaViec } from "./thsxChoXacNhan";
 import { ThsxTepLenh } from "./ThsxTepLenh";
 import { ThsxKetQuaKcs } from "./ThsxKetQuaKcs";
+import { ThsxQuyCachThe } from "./ThsxQuyCach";
 import { tinhTrangChon } from "./thsxTinhTrangNguoi";
 
 interface Props {
@@ -88,43 +86,6 @@ const DONG_LABEL: Record<string, string> = {
   // riêng để người xem lịch sử phiên không hiểu lầm công việc đã dừng.
   doi_may: "đổi máy",
 };
-
-// THẺ QUY CÁCH (§6) — thứ tự đọc của người đứng máy: giấy → khổ → cách in/màu/kẽm → con/tờ → SL đặt.
-// Server BỎ HẲN khoá không có số, nên bảng này chỉ là NHÃN + đuôi đơn vị; hàng nào thiếu thì
-// không vẽ. Khoá `ghi_chu_ky_thuat` là chữ nên tách ra khỏi bảng (vẽ thành đoạn riêng bên dưới);
-// mực từng mặt là tập mã nên vẽ bằng khối chip của màn lệnh, cũng nằm ngoài bảng.
-const QUY_CACH_DONG: [keyof SxQuyCachThe, string, string][] = [
-  ["giay", "Giấy", ""],
-  ["dinh_luong", "Định lượng", " gsm"],
-  ["kho_nguyen", "Khổ giấy nguyên", " mm"],
-  ["kho_in", "Khổ tờ in", " mm"],
-  ["kho_tp", "Khổ thành phẩm", " mm"],
-  ["cach_in", "Cách in", ""],
-  ["so_mat", "Số mặt", ""],
-  ["so_mau", "Số màu", ""],
-  ["so_kem", "Số kẽm", " bản"],
-  ["so_con", "Con / tờ", ""],
-  ["so_luong", "SL đặt của đơn", ""],
-];
-
-/** Các dòng của thẻ quy cách thành cặp nhãn–chữ. Khổ tờ in LUÔN có dòng: server bỏ khoá khi
- *  khổ 0 × 0, và 0 × 0 nghĩa là in thẳng khổ giấy nguyên (cùng câu với màn lệnh) — mất dòng thì
- *  đọc như lệnh thiếu khổ. "Số mặt" nhường cho "Cách in" khi có: "2 mặt (AB)" đã nói số mặt. */
-function dongQuyCach(qc: SxQuyCachThe): [string, string, string][] {
-  const out: [string, string, string][] = [];
-  for (const [k, nhan, duoi] of QUY_CACH_DONG) {
-    if (k === "so_mat" && qc.cach_in) continue;
-    const v = qc[k];
-    if (k === "kho_in" && v == null) {
-      out.push([k, nhan, "In thẳng khổ giấy nguyên"]);
-    } else if (k === "cach_in" && typeof v === "string") {
-      out.push([k, nhan, nhanCachIn(v) ?? v]);
-    } else if (v != null) {
-      out.push([k, nhan, `${v}${duoi}`]);
-    }
-  }
-  return out;
-}
 
 function khoangTimeText(batDau: string | null | undefined, ketThuc: string | null | undefined): string {
   if (!batDau) return "—";
@@ -208,15 +169,15 @@ export function ThsxDrawer({
   const mayHienTai = mayOptions.find((m) => m.id === cv?.may_id);
   const mayNhanSuCo = mayHienTai ? `${mayHienTai.ma} · ${mayHienTai.ten}` : (cv?.may ?? "—");
   const phutChay = cv ? phutChayText(cv) : null;
-  
-  // Dòng quy cách hiển thị bảng (Option A: Inline Spec Table)
-  const quyCachItems = useMemo(() => (cv?.quy_cach ? dongQuyCach(cv.quy_cach) : []), [cv?.quy_cach]);
 
   const hasKhoan = rosterActive.some((p) => p.la_luong_khoan);
   const done = tt === "completed";
   const khuonChoNhan = !!cv?.khuon && !cv?.khuon_da_nhan;
+  // Cổng routing (`dau_vao.kiem_bat_dau`): công đoạn trước chưa giao sang + mình chưa xác nhận nhận.
+  const thieuDauVao = chiTiet?.thieu_dau_vao ?? [];
   const canBatDau =
-    canAssign && !busy && (tt === "released" || tt === "paused") && hasKhoan && !khuonChoNhan;
+    canAssign && !busy && (tt === "released" || tt === "paused") && hasKhoan && !khuonChoNhan &&
+    thieuDauVao.length === 0;
   const canTamDung = canAssign && !busy && tt === "running";
   const canKetThuc = canAssign && !busy && (tt === "running" || tt === "paused");
   const canGiao = canAssign && !done;
@@ -430,46 +391,8 @@ export function ThsxDrawer({
                   </div>
                 </div>
 
-                {/* 1C · THẺ QUY CÁCH CHẠY MÁY (BẢNG PHẲNG 2 CỘT SIÊU MẢNH - PHẲNG TĂM TẮP) */}
-                {cv.quy_cach && (
-                  <div className="thsx-card">
-                    <div className="thsx-psec__h">
-                      <Icon name="layers" size={14} />
-                      <span className="thsx-psec__title" style={{ color: "var(--rust-deep)" }}>
-                        Quy cách chạy máy
-                      </span>
-                    </div>
-                    <div className="thsx-flat-spec-grid">
-                      {quyCachItems.map(([k, nhan, chu]) => (
-                        <div className="thsx-flat-spec-item" key={k}>
-                          <span className="thsx-flat-spec-lbl">{nhan}:</span>
-                          <span className="thsx-flat-spec-val">{chu}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Mực từng mặt — ĐÚNG khối chip của màn lệnh (khung `.khsx-kv` + `MucInHang`
-                        khoá sửa), để thợ in và kế hoạch nhìn cùng một hình. */}
-                    {(cv.quy_cach.muc_a?.length || cv.quy_cach.muc_b?.length) ? (
-                      <div className="khsx-kv khsx-kv--span thsx-muc">
-                        <span className="khsx-kv__key">Mực in</span>
-                        <MucInHang
-                          mucA={cv.quy_cach.muc_a ?? []}
-                          mucB={cv.quy_cach.muc_b ?? []}
-                          quyCachIn={cv.quy_cach.cach_in ?? (cv.quy_cach.muc_b?.length ? "hai_mat" : "mot_mat")}
-                          disabled
-                          onChange={() => {}}
-                        />
-                      </div>
-                    ) : null}
-                    {cv.quy_cach.ghi_chu_ky_thuat && (
-                      <div style={{ marginTop: "8px", paddingTop: "6px", borderTop: "1px solid #f1f5f9" }}>
-                        <p className="thsx-dando" style={{ fontSize: "12px", color: "#475569" }}>
-                          {cv.quy_cach.ghi_chu_ky_thuat}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* 1C · THẺ QUY CÁCH CHẠY MÁY — dùng chung với form kiểm của KCS (`ThsxQuyCach`). */}
+                {cv.quy_cach && <ThsxQuyCachThe qc={cv.quy_cach} />}
 
                 {/* 1D · KẾ HOẠCH & MÁY GÁN (GRID 2 CỘT MINI MATRIX) */}
                 <section className="thsx-psec">
@@ -747,6 +670,15 @@ export function ThsxDrawer({
                   : chuaGiaoChoToi
                     ? "việc chưa giao cho bạn, mà quyền của bạn ở tổ này là “Của tôi”."
                     : "cần quyền Thực hiện lệnh ở tổ này mới xác nhận được."}
+              </span>
+            </div>
+          )}
+          {thieuDauVao.length > 0 && tt !== "running" && (
+            <div className="thsx-alert-capsule">
+              <Icon name="alert" size={14} style={{ color: "#d97706" }} />
+              <span>
+                Chưa nhận hàng từ {thieuDauVao.join(", ")} — tổ trước giao sang và tổ mình xác nhận ở tab
+                “Nhận” rồi mới {tt === "paused" ? "Tiếp tục" : "Bắt đầu"} được.
               </span>
             </div>
           )}

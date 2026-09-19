@@ -68,7 +68,7 @@ from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestService
 from ..services.stock_voucher_service import StockVoucherError, StockVoucherService
 
-from ..services.delivery_notify import bao_tai_xe_kho_lap_phieu
+from ..services.delivery_notify import bao_tai_xe_kho_lap_phieu, kho_nhan_lai_hang_giao
 from ..services.san_xuat.kho import phat_su_kien_kho
 
 router = APIRouter(prefix="/api/kho/phieu", tags=["kho-phieu"])
@@ -399,6 +399,7 @@ def post_voucher(
     except StockVoucherError as e:
         raise _err(e) from None
     _bao_san_xuat(db, v)
+    kho_nhan_lai_hang_giao(db, getattr(v, "request_id", None), actor=user)
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
 
 

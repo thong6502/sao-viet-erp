@@ -200,6 +200,19 @@ def test_phat_sinh_khong_cong_vao_san_luong(db, orders, lsx_svc, admin, customer
 
 
 # --- Băng "Danh mục đã đổi" + cập nhật theo danh mục (§7.2b) ---------------------------------
+def test_me_so_luong_0_ghi_duoc_de_ghi_nhan_viec_phat_sinh(db, orders, lsx_svc, admin, customer):
+    """Ca chỉ thay kẽm, không ra tờ nào — vẫn ghi được mẻ 0 kèm việc phát sinh (19/09/2026)."""
+    to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
+    vk = viec_khoan_cua_to(db, to.id, ma="KH-0450")
+    ps = viec_phat_sinh(db, vk, ten="Thay kẽm", don_vi="kem")
+    db.commit()
+    kq = _ghi(db, admin, cv, piece_rate_id=vk.id, tong=0, tot=0,
+              phat_sinh=[{"phat_sinh_id": ps.id, "so_luong": 2}])
+    b = db.get(SanXuatBatch, kq["batch_id"])
+    assert float(b.tot) == 0 and float(b.tong) == 0
+    assert san_luong.SanXuatSanLuongRepository(db).tong_tot(cv.id) == 0
+
+
 def test_danh_muc_doi_bao_lech_va_chi_doi_khi_nguoi_bam(db, orders, lsx_svc, admin, customer):
     to, cv = _cv_chay(db, orders, lsx_svc, admin, customer)
     vk = viec_khoan_cua_to(db, to.id, ma="KH-0500", ten="Cán màng", don_gia=100)

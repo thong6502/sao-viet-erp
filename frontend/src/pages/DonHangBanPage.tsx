@@ -4,14 +4,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Icon, type IconName } from "../components/Icons";
+import { DetailModal } from "../components/DetailModal";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
-import { TaoYeuCauGiaoHang } from "./giao-hang/tao-yeu-cau";
+import { BangCum, BuocGiaoHang, CanhBaoTre, ThanhNho, tomTatTienDo, useTienDoDon } from "./giao-hang/tien-do-don";
 import {
   api,
   ApiError,
   connectQuoteEvents,
   type CompanyBankAccountRow,
+  type DonTienDoYeuCau,
   type LsxListItem,
   type OrderDetail,
   type OrderRow,
@@ -421,6 +423,8 @@ function OrderDrawer({
   const [editing, setEditing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
+  // In phiếu giao theo MỘT yêu cầu (19/09/2026) — bản in cả đơn vẫn ở nút "Xem bản in".
+  const [inYc, setInYc] = useState<DonTienDoYeuCau | null>(null);
   const [invoiceBook, setInvoiceBook] = useState<SalesInvoiceListOut | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
@@ -483,14 +487,33 @@ function OrderDrawer({
     api.lsx.list(token, { order_id: order.id }).then((r) => setLenhs(r.items)).catch(() => setLenhs([]));
   }, [token, order.id, order.status, order.san_xuat_released_at]);
   const sxReleased = !!order.san_xuat_released_at;
-  const sxDone = false;
+  // Tiến độ SX → Nhập kho → Giao do máy chủ gộp theo sản phẩm (`/orders/{id}/tien-do`), tự tươi qua SSE.
+  const { td, taiLai: taiTienDo } = useTienDoDon(order.id, order.status !== "draft");
+  const tt = tomTatTienDo(td);
+  // SX xong = MỌI lệnh của đơn xong VÀ không còn món nào thiếu nguồn (không lệnh mà tồn kho không
+  // đủ) — thiếu một món là bước này chưa thể xong, dù các lệnh đã chạy hết.
+  const thieuNguon = tt.thieuNguon.length;
+  const sxDone = td != null && td.cum.length > 0 && thieuNguon === 0 && (tt.coLenh ? tt.sxXong : sxReleased);
+  // Nhập kho xong = MỌI sản phẩm đã đủ hàng trong kho (từ lệnh hoặc từ tồn).
+  const khoDone = td != null && tt.khoXong;
+  const giaoDone = td != null && tt.giaoXong;
   const sxState: "chua" | "cho_kh" | "chay" =
     !sxReleased ? "chua" : lenhs.length === 0 ? "cho_kh" : "chay";
-  const sxText = order.status === "cancelled"
+  // Chỉ BÁO thiếu nguồn khi Kế hoạch đã bắt đầu lên lệnh: trước đó mọi món đều chưa có lệnh, báo
+  // "4 món chưa có nguồn" lúc vừa chuyển xuống chỉ là báo động giả.
+  const baoThieuNguon = sxState === "chay" && thieuNguon > 0;
+  const sxLenhText = order.status === "cancelled"
     ? "đơn đã hủy"
+    : sxDone ? "xong"
+    : sxState === "chay" && tt.soLenh > 0 ? `${tt.lenhXong}/${tt.soLenh} lệnh · ${Math.round(tt.sxPct)}%`
     : { chua: "chưa chuyển", cho_kh: "chờ kế hoạch", chay: "đang chạy" }[sxState];
+  // Chấm vòng đời + nhãn: thiếu nguồn được ưu tiên báo; dòng "Trạng thái" trong thẻ vẫn là tiến độ lệnh.
+  const sxText = baoThieuNguon && order.status !== "cancelled" ? `${thieuNguon} món chưa có nguồn` : sxLenhText;
+  const khoText = !td || tt.soMon === 0 ? "—" : khoDone ? "đủ hàng" : `đủ ${tt.soMonDuHang}/${tt.soMon} món`;
+  const giaoText = giaoDone ? "đã giao đủ" : td && tt.giaoPct > 0 ? `giao ${Math.round(tt.giaoPct)}%`
+    : tt.soYeuCauMo > 0 ? `${tt.soYeuCauMo} yêu cầu mở` : "—";
 
-  const doneSeg = (isChotDone ? 1 : 0) + (isCocDone ? 1 : 0) + (sxDone ? 1 : 0);
+  const doneSeg = (isChotDone ? 1 : 0) + (isCocDone ? 1 : 0) + (sxDone ? 1 : 0) + (khoDone ? 1 : 0) + (giaoDone ? 1 : 0);
 
   const chotDate = order.ordered_at ? fmtDate(order.ordered_at) : (order.created_at ? fmtDate(order.created_at) : "—");
   const cocText = !isChotDone ? "chưa tới" : noDeposit ? "không cần cọc" : order.deposit_ok ? "đủ" : "chờ cọc";
@@ -505,7 +528,7 @@ function OrderDrawer({
       ? "Đã ghi một phần"
       : "Chưa ghi";
 
-  const [activeStep, setActiveStep] = useState<"coc" | "chot" | "sanxuat" | "giao" | "hoadon">("coc");
+  const [activeStep, setActiveStep] = useState<"coc" | "chot" | "sanxuat" | "nhapkho" | "giao" | "hoadon">("coc");
 
   useEffect(() => {
     if (token) api.orders.activity(token, order.id).then((r) => setActs(r.items)).catch(() => {});
@@ -516,9 +539,13 @@ function OrderDrawer({
     // xuống bước sau như thể lệnh còn đang chờ xử lý.
     const defaultStep = order.status === "cancelled"
       ? "chot"
-      : !isChotDone ? "chot" : !isCocDone ? "coc" : !sxDone ? "sanxuat" : "giao";
+      : !isChotDone ? "chot" : !isCocDone ? "coc" : !sxDone ? "sanxuat" : !khoDone ? "nhapkho"
+      : !giaoDone ? "giao" : "hoadon";
     setActiveStep(defaultStep);
-  }, [order.id, order.status, isChotDone, isCocDone, sxDone]);
+    // Chỉ chọn bước mặc định khi MỞ đơn / đổi trạng thái / tiến độ vừa tải xong — SSE tự tươi
+    // không được giật bước người dùng đang xem.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id, order.status, isChotDone, isCocDone, td != null]);
 
   return (
     <div
@@ -678,27 +705,18 @@ function OrderDrawer({
                 <ProductionHintEditor order={order} onSaved={onSaved} />
               )}
 
-              {/* Giao hàng (19/08/2026) — khúc SAU của đơn, nên đứng ngay trong màn đơn chứ không
-                  bắt Bán hàng nhớ mã đơn rồi sang màn khác gõ lại. Tự ẩn nếu không có ô `giao_hang`. */}
-              {order.status === "ordered" && (
-                <TaoYeuCauGiaoHang
-                  orderId={order.id}
-                  diaChiMacDinh={order.delivery_address}
-                  nguoiNhanMacDinh={order.delivery_contact_name}
-                  sdtMacDinh={order.delivery_contact_phone}
-                />
-              )}
-
               {/* Vòng đời đơn */}
               <Section title="Vòng đời đơn">
                 <div className="dhb__lifecycle-header">
                   <span className="dhb__lifecycle-subtitle">read-only · bấm chọn từng bước để xem chi tiết</span>
                 </div>
                 
-                {/* 1. Timeline — Chốt (thông tin) → Cọc (kế toán thu) → Sản xuất → Giao → Hóa đơn */}
+                <CanhBaoTre td={order.status === "ordered" && !giaoDone ? td : null} />
+
+                {/* 1. Timeline — Chốt → Cọc → Sản xuất → Nhập kho → Giao hàng → Hóa đơn */}
                 <div className="dhb__timeline">
                   <div className="dhb__timeline-track" />
-                  <div className="dhb__timeline-fill" style={{ width: `${(doneSeg / 4) * 100}%` }} />
+                  <div className="dhb__timeline-fill" style={{ width: `calc((100% - 2 * var(--dhb-tl-le)) * ${Math.min(doneSeg, 5) / 5})` }} />
                   <div
                     className={`dhb__timeline-step ${isChotDone ? "is-done" : ""} ${activeStep === "chot" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("chot")}
@@ -721,21 +739,32 @@ function OrderDrawer({
                   >
                     <div className="dhb__timeline-dot">{sxDone ? <Icon name="check" size={12} /> : "3"}</div>
                     <span className="dhb__timeline-label">Sản xuất</span>
-                    <span className="dhb__timeline-sub">{isChotDone ? sxText : "—"}</span>
+                    <span className={`dhb__timeline-sub ${baoThieuNguon && order.status !== "cancelled" ? "is-warn" : ""}`}>{isChotDone ? sxText : "—"}</span>
+                    {tt.coLenh && <ThanhNho pct={tt.sxPct} xong={sxDone} />}
                   </div>
                   <div
-                    className={`dhb__timeline-step ${activeStep === "giao" ? "is-selected" : ""}`}
+                    className={`dhb__timeline-step ${khoDone ? "is-done" : ""} ${activeStep === "nhapkho" ? "is-selected" : ""}`}
+                    onClick={() => setActiveStep("nhapkho")}
+                  >
+                    <div className="dhb__timeline-dot">{khoDone ? <Icon name="check" size={12} /> : "4"}</div>
+                    <span className="dhb__timeline-label">Nhập kho</span>
+                    <span className="dhb__timeline-sub">{isChotDone ? khoText : "—"}</span>
+                    {td && tt.soMon > 0 && <ThanhNho pct={tt.khoPct} xong={khoDone} />}
+                  </div>
+                  <div
+                    className={`dhb__timeline-step ${giaoDone ? "is-done" : ""} ${activeStep === "giao" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("giao")}
                   >
-                    <div className="dhb__timeline-dot">4</div>
+                    <div className="dhb__timeline-dot">{giaoDone ? <Icon name="check" size={12} /> : "5"}</div>
                     <span className="dhb__timeline-label">Giao hàng</span>
-                    <span className="dhb__timeline-sub">—</span>
+                    <span className="dhb__timeline-sub">{isChotDone ? giaoText : "—"}</span>
+                    {td && td.cum.length > 0 && <ThanhNho pct={tt.giaoPct} xong={giaoDone} />}
                   </div>
                   <div
                     className={`dhb__timeline-step ${invoiceStage === "full" ? "is-done" : ""} ${activeStep === "hoadon" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("hoadon")}
                   >
-                    <div className="dhb__timeline-dot">{invoiceStage === "full" ? <Icon name="check" size={12} /> : "5"}</div>
+                    <div className="dhb__timeline-dot">{invoiceStage === "full" ? <Icon name="check" size={12} /> : "6"}</div>
                     <span className="dhb__timeline-label">Hóa đơn</span>
                     <span className="dhb__timeline-sub">{invoiceStageLabel.toLowerCase()}</span>
                   </div>
@@ -855,7 +884,7 @@ function OrderDrawer({
                         )
                       ) : (
                         <div style={{ display: "grid", gap: 4 }}>
-                          <KV k="Trạng thái" v={sxText} />
+                          <KV k="Trạng thái" v={sxLenhText} />
                           <KV k="Chuyển lúc" v={<span className="dhb__mono">{fmtDate(order.san_xuat_released_at)}</span>} />
                           {lenhs.length > 0 && (
                             <KV
@@ -866,8 +895,9 @@ function OrderDrawer({
                           <p style={{ color: "var(--ash)", fontSize: 12, margin: "2px 0 0" }}>
                             {sxState === "cho_kh"
                               ? "Đang chờ Kế hoạch lên lệnh sản xuất."
-                              : "Kế hoạch đã lên lệnh — bước này XONG khi nhập kho thành phẩm."}
+                              : "Bước này XONG khi mọi lệnh của đơn xong và món không qua sản xuất có đủ hàng trong kho."}
                           </p>
+                          <BangCum td={td} buoc="sanxuat" />
                           <button
                             type="button"
                             className="link dhb__mono"
@@ -882,21 +912,35 @@ function OrderDrawer({
                   </div>
                 )}
 
-                {activeStep === "giao" && (
-                  <div className="dhb__lifecycle-box dhb__lifecycle-box--dotted">
+                {activeStep === "nhapkho" && (
+                  <div className="dhb__lifecycle-box">
                     <div className="dhb__lifecycle-box-header">
-                      <h4 className="dhb__lifecycle-box-title">Giao hàng</h4>
-                      <span className="dhb__lifecycle-badge dhb__lifecycle-badge--upcoming">SẮP CÓ - KẾ HOẠCH GIAO HÀNG</span>
+                      <h4 className="dhb__lifecycle-box-title">Nhập kho thành phẩm</h4>
+                      <span className={`dhb__lifecycle-badge ${khoDone ? "dhb__lifecycle-badge--done" : sxReleased ? "dhb__lifecycle-badge--active" : "dhb__lifecycle-badge--upcoming"}`}>
+                        {khoText === "—" ? "CHƯA TỚI" : khoText.toUpperCase()}
+                      </span>
                     </div>
-                    <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
-                      <KV k="Ngày giao cam kết (đã có ở đơn)" v={<span className="dhb__mono">{fmtDate(order.delivery_committed_date)}</span>} />
-                    </div>
-                    <p className="dhb__lifecycle-desc" style={{ opacity: 0.7, fontSize: 12, fontStyle: "italic", marginTop: 4 }}>
-                      Khi có module sẽ hiện thực tế: Lịch giao thực | Đã giao _ / 1.000 | Biên bản giao (POD)
+                    <p style={{ color: "var(--ash)", fontSize: 12, margin: 0 }}>
+                      Món có lệnh: đủ khi kho nhận đủ thành phẩm KCS gửi sang. Món không qua sản xuất: đủ khi
+                      tồn kho gánh đủ số đặt. Chỉ phần đã có trong kho mới lập yêu cầu giao được.
                     </p>
+                    <BangCum td={td} buoc="nhapkho" />
                   </div>
                 )}
- 
+
+                {activeStep === "giao" && (
+                  <div className="dhb__lifecycle-box">
+                    <div className="dhb__lifecycle-box-header">
+                      <h4 className="dhb__lifecycle-box-title">Giao hàng</h4>
+                      <span className={`dhb__lifecycle-badge ${giaoDone ? "dhb__lifecycle-badge--done" : tt.giaoPct > 0 || tt.soYeuCauMo > 0 ? "dhb__lifecycle-badge--active" : "dhb__lifecycle-badge--upcoming"}`}>
+                        {giaoText === "—" ? "CHƯA GIAO" : giaoText.toUpperCase()}
+                      </span>
+                    </div>
+                    <KV k="Hạn giao cam kết" v={<span className="dhb__mono">{fmtDate(order.delivery_committed_date)}</span>} />
+                    <BuocGiaoHang order={order} td={td} taiLai={taiTienDo} onIn={setInYc} navigate={navigate} />
+                  </div>
+                )}
+
                 {activeStep === "hoadon" && (
                   <InvoicePanel
                     order={order}
@@ -1040,6 +1084,7 @@ function OrderDrawer({
           />
         )}
         {showPrint && <DeliveryNotePrint d={order} onClose={() => setShowPrint(false)} />}
+        {inYc && <DeliveryNotePrint d={order} yc={inYc} onClose={() => setInYc(null)} />}
       </aside>
     </div>
   );
@@ -1665,60 +1710,105 @@ function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: Orde
     }
   }
 
-  if (!open)
-    return (
-      <button className="btn" style={{ marginTop: 8 }} onClick={() => setOpen(true)}>
-        <Icon name="plus" size={14} /> Lập phiếu thu cọc
-      </button>
-    );
+  const nut = (
+    <button className="btn" style={{ marginTop: 8 }} onClick={() => { setAmount(String(remaining)); setErr(null); setOpen(true); }}>
+      <Icon name="plus" size={14} /> Lập phiếu thu cọc
+    </button>
+  );
+  if (!open) return nut;
+  const soTien = Number(amount) || 0;
+  const lyDoKhoa = soTien <= 0 ? "Nhập số tiền thực thu"
+    : isBank && accounts.length > 0 && bankAccountId == null ? "Chọn tài khoản công ty nhận tiền"
+    : null;
+  const conLai = remaining - soTien;
   return (
-    <div style={{ marginTop: 8, border: "1px solid var(--rule-soft)", borderRadius: "var(--r-3)", padding: 12, display: "grid", gap: 8 }}>
-      <p style={{ margin: 0, fontSize: 12, color: "var(--ash)" }}>
-        Lập Phiếu thu THẬT bên Kế toán, gắn đơn này (bấm = đã thu).
-        {remaining > 0 && <> Còn thiếu <strong className="dhb__mono" style={{ color: "var(--ink)" }}>{vnd(remaining)}</strong>.</>}
-      </p>
-      <Field label="Hình thức thu">
-        <select value={method} onChange={(e) => setMethod(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
-          {Object.entries(RECEIPT_METHOD_LABELS).map(([v, l]) => (
-            <option key={v} value={v}>{l}</option>
-          ))}
-        </select>
-      </Field>
-      {isBank && (
-        <Field label="Tài khoản công ty nhận tiền">
-          <select
-            value={bankAccountId ?? ""}
-            onChange={(e) => setBankAccountId(e.target.value ? Number(e.target.value) : null)}
-            className="dhb__select"
-            style={{ width: "100%" }}
-            disabled={loadingAccounts}
-          >
-            <option value="">Chọn tài khoản công ty</option>
-            {accounts.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.bank_name} · {row.account_number} · {row.currency}
-              </option>
+    <>
+    {nut}
+    <DetailModal
+      kicker="Kế toán"
+      title="Lập phiếu thu cọc"
+      subtitle={[order.order_no, order.customer_name].filter(Boolean).join(" · ")}
+      width={560}
+      onClose={() => { if (!saving) setOpen(false); }}
+      footer={
+        <>
+          <span className={`dmodal__foot-note ${lyDoKhoa ? "is-warn" : ""}`}>
+            {lyDoKhoa ?? "Bấm lập = đã thu tiền, phiếu thu ghi thẳng sang Kế toán"}
+          </span>
+          <button className="btn btn--ghost" onClick={() => setOpen(false)} disabled={saving}>Hủy</button>
+          <button className="btn btn--primary" onClick={submit} disabled={saving || lyDoKhoa !== null}>
+            {saving ? "Đang lập…" : "Lập phiếu thu"}
+          </button>
+        </>
+      }
+    >
+    <div className="pform">
+      <div className="pform__stats">
+        <div><span>Cọc quy định</span><strong>{vnd(order.deposit_required)}</strong></div>
+        <div><span>Đã thu</span><strong>{vnd(order.deposit_received)}</strong></div>
+        <div className="is-due"><span>Còn thiếu</span><strong>{vnd(remaining)}</strong></div>
+      </div>
+
+      <div className="pform__grid">
+        <label className="pform__field pform__field--full">
+          Số tiền thực thu
+          <span className="pform__suffix">
+            <input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} className="dhb__input" />
+            <span>₫</span>
+          </span>
+          <span className="pform__hint">
+            {soTien > 0 ? `= ${vnd(soTien)}` : "Chưa nhập"}
+            {soTien > 0 && (conLai > 0 ? ` · sau phiếu này còn thiếu ${vnd(conLai)}` : conLai < 0 ? ` · thu dư ${vnd(-conLai)} so với phần còn thiếu` : " · thu đủ cọc")}
+          </span>
+          {remaining > 0 && soTien !== remaining && (
+            <button type="button" className="pform__link" onClick={() => setAmount(String(remaining))}>
+              Thu đủ phần còn thiếu ({vnd(remaining)})
+            </button>
+          )}
+        </label>
+        <label className="pform__field">
+          Hình thức thu
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className="dhb__select">
+            {Object.entries(RECEIPT_METHOD_LABELS).map(([v, l]) => (
+              <option key={v} value={v}>{l}</option>
             ))}
           </select>
-          {!loadingAccounts && accounts.length === 0 && (
-            <div style={{ fontSize: 12, color: "var(--ash-2)", marginTop: 2 }}>
-              Chưa có tài khoản công ty VND nào bật "dùng để thu".
-            </div>
-          )}
-        </Field>
-      )}
-      <Field label="Số tiền thực thu">
-        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="dhb__input" />
-        {Number(amount) > 0 && <div className="dhb__mono" style={{ fontSize: 12, color: "var(--ash-2)", marginTop: 2 }}>= {vnd(Number(amount))}</div>}
-      </Field>
-      <Field label="Ngày thu"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" /></Field>
-      <Field label="Ghi chú"><input value={note} onChange={(e) => setNote(e.target.value)} className="dhb__input" /></Field>
-      {err && <div className="banner banner--error">{err}</div>}
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button className="btn btn--ghost" onClick={() => setOpen(false)} disabled={saving}>Hủy</button>
-        <button className="btn btn--primary" onClick={submit} disabled={saving}>{saving ? "Đang lập…" : "Lập phiếu thu"}</button>
+        </label>
+        <label className="pform__field">
+          Ngày thu
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" />
+          {!date && <span className="pform__hint">Để trống = hôm nay</span>}
+        </label>
+        {isBank && (
+          <label className="pform__field pform__field--full">
+            Tài khoản công ty nhận tiền
+            <select
+              value={bankAccountId ?? ""}
+              onChange={(e) => setBankAccountId(e.target.value ? Number(e.target.value) : null)}
+              className="dhb__select"
+              disabled={loadingAccounts}
+            >
+              <option value="">Chọn tài khoản công ty</option>
+              {accounts.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.bank_name} · {row.account_number} · {row.currency}
+                </option>
+              ))}
+            </select>
+            {!loadingAccounts && accounts.length === 0 && (
+              <span className="pform__hint">Chưa có tài khoản công ty VND nào bật "dùng để thu".</span>
+            )}
+          </label>
+        )}
+        <label className="pform__field pform__field--full">
+          Ghi chú
+          <input value={note} onChange={(e) => setNote(e.target.value)} className="dhb__input" placeholder="Vd: khách chuyển qua Vietcombank, nội dung DH002" />
+        </label>
       </div>
+      {err && <div className="banner banner--error" style={{ margin: 0 }}>{err}</div>}
     </div>
+    </DetailModal>
+    </>
   );
 }
 

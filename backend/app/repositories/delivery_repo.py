@@ -119,6 +119,14 @@ class DeliveryRepository:
                    DeliveryRequest.trang_thai != YC_DA_HUY)
         ).scalars().all())
 
+    def requests_cua_don_ca_huy(self, order_id: int) -> list[DeliveryRequest]:
+        """MỌI yêu cầu của đơn, kể cả đã huỷ — Kinh doanh xem lại lịch sử giao của đơn."""
+        return list(self.db.execute(
+            select(DeliveryRequest)
+            .options(selectinload(DeliveryRequest.lines))
+            .where(DeliveryRequest.order_id == order_id)
+        ).scalars().all())
+
     # --- "Đã giao bao nhiêu" — SUM, không phải cột --------------------------------------
     def da_giao_theo_dong(self, order_id: int) -> dict[int, int]:
         """{order_line_id: tổng số khách đã THỰC NHẬN} của cả đơn.
@@ -170,6 +178,45 @@ class DeliveryRepository:
         self.db.add(row)
         self.db.flush()
         return row
+
+    # --- Nguồn hàng của đơn: lệnh + yêu cầu NHẬP thành phẩm từ KCS -------------------------
+    def lenh_theo_dong_don(self, order_id: int) -> dict[int, list[int]]:
+        """{order_line_id: [lsx_id]} của đơn — cụm bán có lệnh thì "kho đã nhận" đọc theo lệnh."""
+        from ..models.lsx import Lsx
+
+        out: dict[int, list[int]] = {}
+        for lid, sid in self.db.execute(
+            select(Lsx.order_line_id, Lsx.id).where(Lsx.order_id == order_id).order_by(Lsx.id)
+        ).all():
+            out.setdefault(int(lid), []).append(int(sid))
+        return out
+
+    def dong_nhap_tp_cua_lenh(self, lsx_ids) -> list:
+        """`[(yêu cầu, dòng)]` NHẬP thành phẩm do KCS gửi (`san_xuat_cong_viec_id`) mà dòng trỏ vào
+        các lệnh này. Yêu cầu NHẬP trả hàng về của giao hàng KHÔNG nằm ở đây (không có nguồn KCS)."""
+        from ..models.stock_request import StockRequest, StockRequestLine
+
+        ids = {int(i) for i in lsx_ids if i}
+        if not ids:
+            return []
+        return list(self.db.execute(
+            select(StockRequest, StockRequestLine)
+            .join(StockRequestLine, StockRequestLine.request_id == StockRequest.id)
+            .where(StockRequest.loai == "NHAP",
+                   StockRequest.san_xuat_cong_viec_id.is_not(None),
+                   StockRequestLine.lsx_id.in_(ids))
+        ).all())
+
+    def yeu_cau_kho_cua_chuyen(self, trip_id: int, loai: str):
+        """Yêu cầu kho còn sống (không huỷ/từ chối) của chuyến — đọc thẳng, không cần service kho."""
+        from ..models.stock_request import REQ_CANCELLED, REQ_REJECTED, StockRequest
+
+        return self.db.execute(
+            select(StockRequest).where(
+                StockRequest.delivery_trip_id == trip_id, StockRequest.loai == loai,
+                StockRequest.trang_thai.notin_([REQ_CANCELLED, REQ_REJECTED]),
+            ).order_by(StockRequest.id.desc())
+        ).scalars().first()
 
     def trips_cua_yeu_cau(self, request_id: int) -> list[DeliveryTrip]:
         return list(self.db.execute(

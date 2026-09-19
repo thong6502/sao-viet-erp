@@ -13,7 +13,7 @@ import { Icon } from "../../../../components/Icons";
 import { fmtDateTime } from "../../../../utils/format";
 import { nhanChuyen, toneChuyen } from "../shared/helpers";
 import { FormSoDongHo } from "./FormSoDongHo";
-import { NutCho, Pill } from "./giaoHangCells";
+import { CHUA_CAM_HANG, Pill, TraHang } from "./giaoHangCells";
 
 const CHUA_KET_QUA = ["da_len_ke_hoach", "dang_chuan_bi", "da_lay_hang", "dang_giao"];
 const so = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("vi-VN"));
@@ -43,6 +43,7 @@ export function KhoiLuot({
   onMo,
   onKetQua,
   onDaTra,
+  onDoiChuyen,
 }: {
   luot: LuotXeChiTiet;
   token: string;
@@ -55,6 +56,7 @@ export function KhoiLuot({
   onMo: (requestId: number) => void;
   onKetQua?: (t: DeliveryTrip) => void;
   onDaTra?: (t: DeliveryTrip) => Promise<unknown>;
+  onDoiChuyen?: (t: DeliveryTrip) => void;
 }) {
   const [mo, setMo] = useState<Mo>(null);
   // MẶC ĐỊNH KHÉP (chủ chốt 18/09/2026: "mặc định nó khép lại đi, muốn xem thêm thì mở rộng ra,
@@ -309,8 +311,9 @@ export function KhoiLuot({
                   {t.trang_thai === "dang_giao" && onKetQua && (
                     <Button variant="accent" onClick={() => onKetQua(t)}>Nhập kết quả</Button>
                   )}
-                  {t.trang_thai === "dang_tra_hang" && onDaTra && (
-                    <NutCho variant="ghost" bam={() => onDaTra(t)}>Kho đã nhận lại</NutCho>
+                  <TraHang t={t} onDaTra={onDaTra ? () => onDaTra(t) : undefined} />
+                  {CHUA_CAM_HANG.includes(t.trang_thai) && onDoiChuyen && (
+                    <Button variant="ghost" onClick={() => onDoiChuyen(t)}>Đổi / huỷ chuyến</Button>
                   )}
                 </span>
               </li>

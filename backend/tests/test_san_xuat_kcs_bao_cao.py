@@ -46,6 +46,7 @@ from tests.test_san_xuat_kcs import (  # noqa: F401
     _anh,
     _batch,
     _cv_kcs,
+    _ghi_tot,
     _to_kiem,
     admin,
     customer,
@@ -70,9 +71,11 @@ def _batch_voi_checklist(db, orders, lsx_svc, admin, customer, *, ma, checklist_
                           dat=90, khong_dat=10):
     """Lần kiểm CÓ gắn snapshot `cv.kcs_tieu_chi_json` TRƯỚC khi ghi — khác `_batch` (không gắn
     gì) — dùng cho test Sheet 2 (mục 3.7)."""
-    to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer, ma=ma)
+    # Tiêu chí chỉ còn ở công đoạn cuối (công đoạn giữa KCS chỉ ghi lỗi, 19/09/2026).
+    to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer, ma=ma, cuoi=True)
     cv.kcs_tieu_chi_json = _TIEU_CHI_2
     db.commit()
+    _ghi_tot(db, cv, dat + khong_dat)
     _d, nguoi = _to_kiem(db, ten=f"Tổ KCS {ma}", ma=f"{ma}-KCS")
     res = kcs.kiem_cong_doan(
         db, user=nguoi, cong_viec_id=cv.id, so_dat=dat, so_loi=khong_dat,
@@ -84,8 +87,8 @@ def _batch_voi_checklist(db, orders, lsx_svc, admin, customer, *, ma, checklist_
 
 # --- Mục 2: tỷ lệ đạt = tổng/tổng --------------------------------------------------------------
 def test_ty_le_dat_la_tong_tren_tong_khong_phai_trung_binh(db, orders, lsx_svc, admin, customer):
-    _batch(db, orders, lsx_svc, admin, customer, dat=90, khong_dat=10, ma="KCS-TY-A")
-    _batch(db, orders, lsx_svc, admin, customer, dat=1, khong_dat=9, ma="KCS-TY-B")
+    _batch(db, orders, lsx_svc, admin, customer, dat=90, khong_dat=10, ma="KCS-TY-A", cuoi=True)
+    _batch(db, orders, lsx_svc, admin, customer, dat=1, khong_dat=9, ma="KCS-TY-B", cuoi=True)
 
     out = kcs_bao_cao.bao_cao_kcs(db, admin, _authz(db))
 
@@ -93,6 +96,19 @@ def test_ty_le_dat_la_tong_tren_tong_khong_phai_trung_binh(db, orders, lsx_svc, 
     assert out["tong_dat"] == 91
     assert abs(out["ty_le_dat"] - (91 / 110)) < 1e-9   # tổng/tổng ≈ 0.827
     assert abs(out["ty_le_dat"] - 0.5) > 0.1            # KHÔNG phải trung bình (90%+10%)/2 = 50%
+
+
+def test_ty_le_dat_bo_qua_cong_doan_giua(db, orders, lsx_svc, admin, customer):
+    """Công đoạn giữa KCS chỉ ghi lỗi (đạt = 0) — lỗi vẫn cộng, nhưng nhận/đạt/tỷ lệ chỉ lấy
+    công đoạn cuối, không thì tỷ lệ đạt tụt oan (19/09/2026)."""
+    _batch(db, orders, lsx_svc, admin, customer, dat=90, khong_dat=10, ma="KCS-TY-C", cuoi=True)
+    _batch(db, orders, lsx_svc, admin, customer, dat=0, khong_dat=4, ma="KCS-TY-G")
+
+    out = kcs_bao_cao.bao_cao_kcs(db, admin, _authz(db))
+
+    assert (out["tong_nhan"], out["tong_dat"], out["tong_loi"]) == (100, 90, 14)
+    assert abs(out["ty_le_dat"] - 0.9) < 1e-9
+    assert [(d["tong_nhan"], d["tong_dat"], d["tong_loi"]) for d in out["theo_ngay"]] == [(100, 90, 14)]
 
 
 # --- Mục 3: xếp hạng theo TỔNG số lượng, không phải đếm dòng ----------------------------------
@@ -103,6 +119,7 @@ def test_xep_hang_to_theo_tong_so_luong(db, orders, lsx_svc, admin, customer):
                                  ma="KCS-XH-X")
     to_y, cv_y, res_y = _batch(db, orders, lsx_svc, admin, customer, dat=10, khong_dat=1,
                                ma="KCS-XH-Y")
+    _ghi_tot(db, cv_y, 2)
     for _ in range(2):
         kcs.kiem_cong_doan(db, user=res_y["nguoi_kcs"], cong_viec_id=cv_y.id, so_dat=0, so_loi=1,
                            loi_mo_ta="Xước nhẹ", anh=_anh())
@@ -175,7 +192,7 @@ def test_filter_tu_den_cong_doan_id_tu_khoa_thu_hep_dung(db, orders, lsx_svc, ad
     db.commit()
 
     _to_b, cv_b, res_b = _batch(db, orders, lsx_svc, admin, customer, dat=20, khong_dat=0,
-                                ma="KCS-FL-B")
+                                ma="KCS-FL-B", cuoi=True)
     cv_b.ten_cong_doan = "Be-Test-FL"
     # Dời mốc hai lần kiểm về hai ngày khác nhau (giờ VN) để soi lọc ngày.
     t0 = datetime(2026, 8, 20, 3, 0, tzinfo=timezone.utc)
@@ -217,7 +234,7 @@ def test_lich_su_kem_nguoi_kiem_va_trang_thai_gui_kho(db, orders, lsx_svc, admin
     r_g = theo_cv[cv_g.id]
     assert r_g["nguoi_ghi"] == res_g["nguoi_kcs"].name
     assert r_g["ten_cong_doan"] == cv_g.ten_cong_doan
-    assert (r_g["so_luong_dat"], r_g["so_luong_khong_dat"]) == (17, 3)
+    assert (r_g["so_luong_dat"], r_g["so_luong_khong_dat"]) == (0, 3)   # công đoạn giữa chỉ ghi lỗi
     assert r_g["trang_thai_gui_kho"] == "khong_ap_dung"   # công đoạn giữa không gửi kho
     assert r_g["nguon_ma"] == db.get(Lsx, cv_g.lsx_id).ma
     r_c = theo_cv[cv_c.id]
@@ -370,6 +387,7 @@ def test_excel_ten_sheet_va_header_dung(db, orders, lsx_svc, admin, customer):
     assert header1 == [
         "Mã kết quả", "Thời điểm", "Mã LSX", "Công đoạn", "Tổ", "Số kiểm", "Số đạt", "Số lỗi",
         "Đơn vị", "Kết luận", "Ghi chú", "Người kiểm", "Mô tả lỗi", "URL ảnh",
+        "Công đoạn chịu lỗi",
     ]
     header2 = [c.value for c in wb["Chi tiết checklist"][1]]
     assert header2 == [
@@ -402,6 +420,7 @@ def test_excel_so_dong_khop_du_lieu(db, orders, lsx_svc, admin, customer):
 
 def test_excel_url_anh_xuat_hien_dung_cot(db, orders, lsx_svc, admin, customer):
     _to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer, ma="KCS-XL-IMG")
+    _ghi_tot(db, cv, 100)
     _d, nguoi = _to_kiem(db, ma="KCS-XL-IMG-KCS")
     anh_2 = [
         {"file_name": "a.jpg", "file_url": "https://x/a.jpg", "file_type": "image/jpeg"},
@@ -420,10 +439,11 @@ def test_excel_url_anh_xuat_hien_dung_cot(db, orders, lsx_svc, admin, customer):
 
 
 def test_checklist_thieu_snapshot_khong_vo_khong_ra_dong_rac(db, orders, lsx_svc, admin, customer):
-    _to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer, ma="KCS-XL-MISS")
+    _to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer, ma="KCS-XL-MISS", cuoi=True)
     # cv.kcs_tieu_chi_json CHƯA gắn (None) — việc cũ trước module này — nhưng lần kiểm VẪN gửi
     # checklist_ket_qua (form không biết cv thiếu snapshot).
     assert cv.kcs_tieu_chi_json is None
+    _ghi_tot(db, cv, 50)
     _d, nguoi = _to_kiem(db, ma="KCS-XL-MISS-KCS")
     res = kcs.kiem_cong_doan(
         db, user=nguoi, cong_viec_id=cv.id, so_dat=50,

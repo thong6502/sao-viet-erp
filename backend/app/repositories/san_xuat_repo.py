@@ -475,6 +475,10 @@ class SanXuatRepository:
         trang: int = 1,
         co_trang: int = 20,
         chi_cong_viec_ids: set[int] | None = None,
+        trang_thai: set[str] | None = None,
+        nhan_tu: datetime | None = None,
+        nhan_den: datetime | None = None,
+        sap_xep: str = "moi_nhan",
     ) -> tuple[list[tuple[tuple[str, int | None], datetime | None, datetime | None]], int]:
         """Một TRANG các LỆNH/BÀI GHÉP mà tổ phải làm + tổng số lệnh.
 
@@ -496,6 +500,13 @@ class SanXuatRepository:
         `chi_cong_viec_ids` (ô "chờ xác nhận"): chỉ giữ lệnh chứa ít nhất một bước trong tập. Lọc
         bằng HAVING chứ không WHERE — WHERE bỏ các bước khác của lệnh nên mốc sớm/muộn (thứ tự
         trang) lệch khỏi bàn không lọc. Tập rỗng ⇒ trang rỗng.
+
+        Lọc nâng cao của bàn (19/09/2026) — cũng HAVING, cũng trước khi cắt trang:
+        · `trang_thai`: giữ lệnh có ÍT NHẤT MỘT bước của tổ ở một trong các trạng thái ấy.
+        · `nhan_tu`/`nhan_den` (UTC THẬT, nửa mở `[tu, den)`): lúc tổ NHẬN lệnh — `created_at`
+          sớm nhất của các bước của tổ, cùng mốc bàn hiện "Nhận …" ở đầu lệnh.
+        `sap_xep`: `moi_nhan` (mặc định — lệnh phát hành xuống tổ SAU nằm TRÊN), `cu_nhan`, hoặc
+        `du_kien` (giờ dự kiến bước sớm nhất của tổ, lệnh chưa xếp giờ dồn cuối).
         """
         pham_vi = self._pham_vi_to(department_ids, employee_id, rieng_ids)
         if pham_vi is None or (chi_cong_viec_ids is not None and not chi_cong_viec_ids):
@@ -505,6 +516,7 @@ class SanXuatRepository:
         loai, nid = self._khoa_lenh_cols()
         som = func.min(SanXuatCongViec.du_kien_bat_dau)
         muon = func.max(SanXuatCongViec.du_kien_ket_thuc)
+        nhan = func.min(SanXuatCongViec.created_at)
         dieu_kien = [
             pham_vi,
             SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
@@ -549,12 +561,25 @@ class SanXuatRepository:
         if chi_cong_viec_ids is not None:
             nhom = nhom.having(func.sum(sa_case(
                 (SanXuatCongViec.id.in_(chi_cong_viec_ids), 1), else_=0)) > 0)
+        if trang_thai:
+            nhom = nhom.having(func.sum(sa_case(
+                (SanXuatCongViec.trang_thai.in_(trang_thai), 1), else_=0)) > 0)
+        if nhan_tu is not None:
+            nhom = nhom.having(nhan >= nhan_tu)
+        if nhan_den is not None:
+            nhom = nhom.having(nhan < nhan_den)
         tong = self.db.scalar(sa_select(func.count()).select_from(nhom.subquery())) or 0
 
         co_trang = max(1, min(int(co_trang or 20), 100))
         trang = max(1, int(trang or 1))
+        if sap_xep == "du_kien":
+            thu_tu = (sa_case((som.is_(None), 1), else_=0), som, nid)
+        elif sap_xep == "cu_nhan":
+            thu_tu = (nhan, nid)
+        else:
+            thu_tu = (nhan.desc(), nid.desc())
         rows = self.db.execute(
-            nhom.order_by(sa_case((som.is_(None), 1), else_=0), som, nid)
+            nhom.order_by(*thu_tu)
             .limit(co_trang)
             .offset((trang - 1) * co_trang)
         ).all()

@@ -32,7 +32,7 @@ import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
 import { XepLichPage } from "../pages/XepLichPage";
 import { ThucHienSxPage } from "../pages/ThucHienSxPage";
-import { nhanDonVi } from "../pages/lsxBuoc";
+import { nhanChang, nhanDonVi } from "../pages/lsxBuoc";
 import { KcsTheoLenhPage } from "../pages/kcs/KcsTheoLenhPage";
 import { SuaChuaMayPage } from "../pages/SuaChuaMayPage";
 import { PhieuBaoTriPage } from "../pages/PhieuBaoTriPage";
@@ -913,11 +913,20 @@ export function AppShell() {
         const ai = e.nguoi_kiem ? `KCS ${e.nguoi_kiem}` : "KCS";
         const soDat = e.so_dat ?? 0;
         const soLoi = e.so_loi ?? 0;
-        const so = `đạt ${soDat.toLocaleString("vi-VN")} · lỗi ${soLoi.toLocaleString("vi-VN")}`;
-        pushToast(
-          `${soLoi > 0 ? "⚠️" : "✓"} ${ai} đã kiểm ${e.ten_cong_doan || "công đoạn"}${e.lsx_ma ? ` (${e.lsx_ma})` : ""}: ${so}`,
-          soLoi > 0 ? "warn" : "ok",
-        );
+        const lenh = e.lsx_ma ? ` (${e.lsx_ma})` : "";
+        if (e.phat_hien_o) {
+          // Lỗi của công đoạn này bị bắt ở bước SAU — KCS quy trách nhiệm về tổ.
+          pushToast(
+            `⚠️ ${ai} bắt lỗi ${e.ten_cong_doan || "công đoạn"}${lenh} ở bước ${e.phat_hien_o}: ${soLoi.toLocaleString("vi-VN")} ${nhanChang(e.don_vi)}`.trim(),
+            "warn",
+          );
+        } else {
+          const so = `đạt ${soDat.toLocaleString("vi-VN")} · lỗi ${soLoi.toLocaleString("vi-VN")}`;
+          pushToast(
+            `${soLoi > 0 ? "⚠️" : "✓"} ${ai} đã kiểm ${e.ten_cong_doan || "công đoạn"}${lenh}: ${so}`,
+            soLoi > 0 ? "warn" : "ok",
+          );
+        }
       } else if (e.type === "san_xuat_kho") {
         // Nhập kho thành phẩm là tương tác GIỮA KCS và kho — kho ghi sổ phiếu nhập thì đẩy ĐÍCH DANH
         // tới người tạo yêu cầu (kho đã nhận tới đâu). `trang_thai` = trạng thái yêu cầu kho.

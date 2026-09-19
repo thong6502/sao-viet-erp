@@ -256,6 +256,53 @@ describe("ThsxDrawer · tab Nhận (§11.5)", () => {
   });
 });
 
+// Routing lệnh (19/09/2026, `dau_vao.py`): chưa nhận hàng từ công đoạn trước thì chưa Bắt đầu được;
+// tab Nhận bày kế hoạch · thực tế (cộng mẻ) · đã giao sang · đã nhận của từng công đoạn trước.
+describe("ThsxDrawer · công đoạn trước", () => {
+  function moTruoc(thieu: string[], choXacNhan = 0) {
+    const base = chiTiet(true, true);
+    const ct = {
+      ...base,
+      cong_viec: { ...base.cong_viec, khuon: null },
+      phan_cong: [{ id: 1, employee_id: 100, ho_ten: "Thợ 1", la_luong_khoan: true, trang_thai: "active" }],
+      thieu_dau_vao: thieu,
+      cong_doan_truoc: [{
+        cong_viec_id: 9, ten_cong_doan: "In offset", phan_doan_so: 1, phan_doan_tong: 2, to_ten: "Tổ In",
+        trang_thai: "running", ke_hoach: 1200, don_vi: "to", thuc_te: 1150, da_giao: 1000 + choXacNhan,
+        da_xac_nhan: thieu.length ? 0 : 1000, cho_xac_nhan: choXacNhan, don_vi_giao: "to",
+      }],
+    } as unknown as SxWorkItemChiTiet;
+    render(
+      <ThsxDrawer chiTiet={ct} loading={false} candidates={[]} hoTroUngVien={[]}
+        mayOptions={[]} exec={{} as ThsxExec} busy={false} onGiao={vi.fn()} onRut={vi.fn()}
+        onBatDau={vi.fn()} onNhanKhuon={vi.fn()} onTraKhuon={vi.fn()} onTamDung={vi.fn()}
+        onKetThuc={vi.fn()} onClose={vi.fn()} tabDau="nhan" />,
+    );
+  }
+
+  it("chưa nhận: nút Bắt đầu khoá, chân ngăn gọi tên công đoạn trước và chỉ tab Nhận", () => {
+    moTruoc(["In offset"], 1000);
+    expect((screen.getByRole("button", { name: "Bắt đầu" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(document.body.textContent).toContain(
+      "Chưa nhận hàng từ In offset — tổ trước giao sang và tổ mình xác nhận ở tab “Nhận” rồi mới Bắt đầu được.",
+    );
+    const [dong] = Array.from(document.querySelectorAll<HTMLElement>(".thsx-x-bg"));
+    expect(dong.textContent).toContain("In offset · lần 1/2 · Tổ In");
+    expect(dong.textContent).toMatch(/Kế hoạch1\.200/);
+    expect(dong.textContent).toMatch(/Thực tế1\.150/);
+    expect(dong.textContent).toMatch(/Giao sang2\.000/);
+    expect(dong.textContent).toMatch(/Đã nhận0/);
+    expect(dong.textContent).toContain("chờ xác nhận");
+  });
+
+  it("đã nhận: Bắt đầu mở, không còn câu chưa nhận hàng", () => {
+    moTruoc([]);
+    expect((screen.getByRole("button", { name: "Bắt đầu" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(document.body.textContent).not.toContain("Chưa nhận hàng từ");
+    expect(document.body.textContent).not.toContain("chờ xác nhận");
+  });
+});
+
 describe("ThsxDrawer · chân ngăn theo trạng thái", () => {
   function moTrangThai(trangThai: string) {
     const base = chiTiet(true, true);

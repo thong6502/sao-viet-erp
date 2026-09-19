@@ -20,12 +20,14 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import (APIRouter, Depends, File, HTTPException, Query, Request, Response,
+                     UploadFile, status)
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import get_authorization_service, require_any_permission, require_permission
 from ..models.delivery import LAN_GIAO_DANG_CHAY
+from ..realtime import hub
 from ..models.role import SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from ..repositories.customer_repo import CustomerRepository
@@ -93,7 +95,16 @@ from ..services.delivery_service import (
 from ..services.rbac_service import AuthorizationService
 from ..services.thanh_pham_khai_bao import cum_ban
 
-router = APIRouter(prefix="/api/giao-hang", tags=["giao-hang"])
+def _bao_giao_hang_doi(request: Request):
+    """Mọi thao tác GHI thành công ở màn Giao hàng ⇒ đẩy một tín hiệu im lặng: drawer Đơn hàng bán
+    đang mở tự đọc lại tiến độ (real-time, không toast — chủ chốt 19/09/2026 bỏ chuông báo Sales)."""
+    yield
+    if request.method != "GET":
+        hub.broadcast({"type": "giao_hang_changed"})
+
+
+router = APIRouter(prefix="/api/giao-hang", tags=["giao-hang"],
+                   dependencies=[Depends(_bao_giao_hang_doi)])
 MODULE = "giao_hang"
 MODULE_KHO = "kho"
 
@@ -307,6 +318,7 @@ def _trip_out(db: Session, svc: DeliveryService, trip, *, tong_km: int | None = 
         kh = CustomerRepository(db).get_by_id(req.customer_id)
         khach = getattr(kh, "name", None) if kh is not None else None
     yc_kho = svc.yeu_cau_kho_cua_trip(trip.id)
+    yc_tra = svc.deliveries.yeu_cau_kho_cua_chuyen(trip.id, "NHAP")
     return TripOut(
         id=trip.id,
         request_id=trip.request_id,
@@ -340,6 +352,8 @@ def _trip_out(db: Session, svc: DeliveryService, trip, *, tong_km: int | None = 
         yeu_cau_kho_ma=getattr(yc_kho, "ma", None),
         yeu_cau_kho_trang_thai=getattr(yc_kho, "trang_thai", None),
         kho_da_lap_phieu=svc.kho_da_lap_phieu(trip.id),
+        tra_hang_ma=getattr(yc_tra, "ma", None),
+        tra_hang_trang_thai=getattr(yc_tra, "trang_thai", None),
         luot=_luot_out(svc.luot_cua_trip(trip)),
         canh_bao=list(canh_bao or []),
     )
@@ -362,10 +376,8 @@ def tao_yeu_cau(body: DeliveryRequestCreate, svc: Service, db: Db, user: Writer)
             ngay_can_giao=body.ngay_can_giao,
             lines=[l.model_dump() for l in body.lines],
             actor=user,
-            dia_chi=body.dia_chi,
-            nguoi_nhan=body.nguoi_nhan,
-            sdt_nguoi_nhan=body.sdt_nguoi_nhan,
-            ghi_chu=body.ghi_chu,
+            dia_chi_id=body.dia_chi_id,
+            lien_he_id=body.lien_he_id,
         )
     except DeliveryError as e:
         raise _err(e)
@@ -455,8 +467,11 @@ def sua_yeu_cau(request_id: int, body: DeliveryRequestUpdate, svc: Service, db: 
 
 
 @router.post("/requests/{request_id}/huy", response_model=DeliveryRequestOut)
-def huy_yeu_cau(request_id: int, body: LyDoIn, svc: Service, db: Db,
-                authz: Authz, user: Canceller):
+def huy_yeu_cau(request_id: int, body: LyDoIn, svc: Service, db: Db, authz: Authz,
+                # Người LẬP (ô Thao tác) huỷ được yêu cầu của mình khi CHƯA có chuyến — service chặn
+                # khi đã có chuyến sống; chuyến đã xếp thì phải qua quản lý huỷ chuyến trước.
+                user: Annotated[User, Depends(require_any_permission((MODULE, "create"),
+                                                                    (MODULE, "cancel")))]):
     try:
         svc.huy_yeu_cau(request_id, ly_do=body.ly_do, actor=user, scope=_scope(authz, user))
     except DeliveryError as e:

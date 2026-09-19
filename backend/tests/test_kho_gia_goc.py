@@ -116,6 +116,36 @@ def test_sua_gia_goc_lan_xuong_lo_dieu_chuyen_va_bao_cao(db, orders, lsx_svc, ad
     assert vet.target == f"stock_lot:{goc.id}" and "0 → 12.000" in vet.detail and "2 lô" in vet.detail
 
 
+def test_loc_nang_cao_theo_ngay_nhap_kho_khach(db, orders, lsx_svc, admin, customer):
+    """Lọc nâng cao của tab Giá gốc thành phẩm: khoảng ngày NHẬP (hai đầu tính), kho nhập, khách hàng —
+    ghép VÀ với nhau. Lựa chọn kho/khách chỉ gồm nơi có lô GỐC (kho chỉ nhận lô điều chuyển không có)."""
+    goc, _o_b, _px, a, b = _dung(db, orders, lsx_svc, admin, customer)
+
+    def _ds(**loc):
+        return gg.ds_chua_gia_goc(db, q=None, chi_chua_gia=False, page=1, size=20, **loc)
+
+    tat_ca = _ds()
+    assert tat_ca["cac_kho"] == [{"id": a.id, "ten": "Kho KHO-TP"}]
+    [khach] = tat_ca["cac_khach"]
+    [dong] = _mon(tat_ca, goc.ma_lo)
+    assert khach["ten"] == dong["khach_hang"]
+
+    ngay = goc.ngay_nhap
+    mot_ngay = timedelta(days=1)
+    assert _mon(_ds(tu_ngay=ngay, den_ngay=ngay), goc.ma_lo)
+    assert _mon(_ds(tu_ngay=ngay + mot_ngay), goc.ma_lo) == []
+    assert _mon(_ds(den_ngay=ngay - mot_ngay), goc.ma_lo) == []
+    assert _mon(_ds(kho_id=a.id), goc.ma_lo)
+    assert _mon(_ds(kho_id=b.id), goc.ma_lo) == []
+    assert _mon(_ds(khach_hang_id=khach["id"], kho_id=a.id, tu_ngay=ngay), goc.ma_lo)
+    loc_rong = _ds(khach_hang_id=khach["id"] + 999)
+    assert loc_rong["total"] == 0
+    # Lựa chọn lọc không co lại theo bộ lọc đang áp — bỏ một tiêu chí là quay lại được.
+    assert loc_rong["cac_kho"] == tat_ca["cac_kho"] and loc_rong["cac_khach"] == tat_ca["cac_khach"]
+    with pytest.raises(gg.GiaGocError):
+        _ds(tu_ngay=ngay, den_ngay=ngay - mot_ngay)
+
+
 def test_dong_yeu_cau_kcs_doc_gia_goc_tu_lo_va_an_khi_thieu_quyen(db, orders, lsx_svc, admin, customer):
     """Màn yêu cầu nhập: dòng KCS giữ `don_gia` 0 mãi, giá gốc thật đọc ở lô sau khi kế toán gõ. Thiếu
     `view_cost` thì không một con số tiền nào ra khỏi máy chủ."""
@@ -237,4 +267,8 @@ def test_thieu_quyen_xem_gia_von_bi_403(client):
     assert client.patch("/api/kho/phieu/lo/999999/gia-goc", headers=kt, json={"don_gia": 1}).status_code == 404
     assert client.patch("/api/kho/phieu/lo/999999/gia-goc", headers=kt, json={"don_gia": -5}).status_code == 422
     r = client.get("/api/kho/bao-cao/thanh-pham-chua-gia-goc", headers=kt, params={"page": 1, "size": 20})
-    assert r.status_code == 200 and r.json() == {"items": [], "total": 0, "page": 1, "size": 20}
+    assert r.status_code == 200 and r.json() == {"items": [], "total": 0, "page": 1, "size": 20,
+                                                 "cac_kho": [], "cac_khach": []}
+    r = client.get("/api/kho/bao-cao/thanh-pham-chua-gia-goc", headers=kt,
+                   params={"tu": "2026-09-10", "den": "2026-09-01"})
+    assert r.status_code == 400

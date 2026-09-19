@@ -6,7 +6,7 @@ import type { BangGiaoItem, DeliveryTrip } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { fmtDateTime } from "../../../../utils/format";
 import { nhanChuyen, toneChuyen } from "../shared/helpers";
-import { KhoangTrong, NutCho, Pill } from "../components/giaoHangCells";
+import { CHUA_CAM_HANG, KhoangTrong, NutCho, Pill, TraHang } from "../components/giaoHangCells";
 import { KhoiLuot } from "../components/KhoiLuot";
 
 // =============================================================================
@@ -26,6 +26,7 @@ export function BangKeHoach({
   onBatDau,
   onKetQua,
   onDaTra,
+  onDoiChuyen,
 }: {
   items: BangGiaoItem[];
   loading: boolean;
@@ -41,6 +42,7 @@ export function BangKeHoach({
   onBatDau?: (t: DeliveryTrip) => Promise<unknown>;
   onKetQua?: (t: DeliveryTrip) => void;
   onDaTra?: (t: DeliveryTrip) => Promise<unknown>;
+  onDoiChuyen?: (t: DeliveryTrip) => void;
 }) {
   if (!loading && items.length === 0)
     return (
@@ -56,11 +58,11 @@ export function BangKeHoach({
         it.luot ? (
           <KhoiLuot key={`luot-${it.luot.id}`} luot={it.luot} token={token}
             canPlan={canPlan} canWrite={canWrite} moi={it.luot.id === luotMoi}
-            onDoi={onDoi} onMo={onMo} onKetQua={onKetQua} onDaTra={onDaTra} />
+            onDoi={onDoi} onMo={onMo} onKetQua={onKetQua} onDaTra={onDaTra} onDoiChuyen={onDoiChuyen} />
         ) : it.trip ? (
           <TheChuyen key={`chuyen-${it.trip.id}`} t={it.trip} onMo={onMo}
             onGuiDeNghi={onGuiDeNghi} onDaLay={onDaLay} onBatDau={onBatDau}
-            onKetQua={onKetQua} onDaTra={onDaTra} />
+            onKetQua={onKetQua} onDaTra={onDaTra} onDoiChuyen={onDoiChuyen} />
         ) : null,
       )}
     </div>
@@ -76,6 +78,7 @@ function TheChuyen({
   onBatDau,
   onKetQua,
   onDaTra,
+  onDoiChuyen,
 }: {
   t: DeliveryTrip;
   onMo: (requestId: number) => void;
@@ -84,6 +87,7 @@ function TheChuyen({
   onBatDau?: (t: DeliveryTrip) => Promise<unknown>;
   onKetQua?: (t: DeliveryTrip) => void;
   onDaTra?: (t: DeliveryTrip) => Promise<unknown>;
+  onDoiChuyen?: (t: DeliveryTrip) => void;
 }) {
   return (
     <article className="gh-le" aria-label={`Đơn giao ${t.request_code ?? ""}`}>
@@ -120,8 +124,9 @@ function TheChuyen({
             Nhập kết quả
           </Button>
         )}
-        {t.trang_thai === "dang_tra_hang" && onDaTra && (
-          <NutCho variant="ghost" bam={() => onDaTra(t)}>Kho đã nhận lại</NutCho>
+        <TraHang t={t} onDaTra={onDaTra ? () => onDaTra(t) : undefined} />
+        {CHUA_CAM_HANG.includes(t.trang_thai) && onDoiChuyen && (
+          <Button variant="ghost" onClick={() => onDoiChuyen(t)}>Đổi / huỷ chuyến</Button>
         )}
       </div>
     </article>

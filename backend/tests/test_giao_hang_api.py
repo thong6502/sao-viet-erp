@@ -34,8 +34,34 @@ def _admin(client) -> dict[str, str]:
     return _h(r.json()["access_token"])
 
 
-def _don_da_chot(*, suffix: str, qty: int = 100) -> tuple[int, int]:
-    """Đơn hàng bán ĐÃ CHỐT + 1 dòng hàng. Trả (order_id, order_line_id)."""
+def _nap_ton(order_id: int, *, so: float | None = None) -> None:
+    """Khai thành phẩm của mọi cụm bán + nạp TỒN ở kho KTP (mặc định = SL cụm).
+
+    Từ 19/09/2026 chỉ lập yêu cầu giao được phần ĐÃ NHẬP KHO (chủ chốt "không được với phần chưa
+    nhập kho"). Đơn test không qua xưởng (không lệnh) ⇒ nguồn là tồn thật của mã — nạp sẵn ở đây
+    để các test luồng giao hàng không phải tự dựng cả chuỗi sản xuất → KCS → nhập kho."""
+    from app.models.stock_lot import StockLot
+    from app.services.thanh_pham_khai_bao import cum_ban, khai_mot_dong
+
+    kho_id, _ = _kho_va_mat_hang()
+    db = SessionLocal()
+    try:
+        order = db.get(Order, order_id)
+        for c in cum_ban(order):
+            tp = khai_mot_dong(db, order, c.dong_dau)
+            db.flush()
+            db.add(StockLot(hang_loai="vat_tu", hang_id=tp.id, kho_id=kho_id,
+                            ma_lo=f"LO-GH-{order_id}-{tp.id}-{c.dong_dau.id}", ngay_nhap=date.today(),
+                            sl_ban_dau=so if so is not None else c.so_luong,
+                            sl_con_lai=so if so is not None else c.so_luong))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _don_da_chot(*, suffix: str, qty: int = 100, nap_ton: bool = True) -> tuple[int, int]:
+    """Đơn hàng bán ĐÃ CHỐT + 1 dòng hàng (kèm tồn thành phẩm đủ giao — tắt bằng `nap_ton`).
+    Trả (order_id, order_line_id)."""
     db = SessionLocal()
     try:
         kh = Customer(code=f"KH-GH-{suffix}", name=f"Khach giao hang {suffix}")
@@ -50,9 +76,12 @@ def _don_da_chot(*, suffix: str, qty: int = 100) -> tuple[int, int]:
                                      line_total=1_000_000, vat_pct_estimate=0))
         db.add(order)
         db.commit()
-        return order.id, order.lines[0].id
+        oid, lid = order.id, order.lines[0].id
     finally:
         db.close()
+    if nap_ton:
+        _nap_ton(oid)
+    return oid, lid
 
 
 def _tai_xe(ten: str, *, phong: str = "Sản xuất") -> int:
@@ -791,6 +820,47 @@ def test_kho_LAP_PHIEU_thi_chuyen_hien_da_chuan_bi_xong(client):
         db.close()
 
     assert co_phieu() is True, "kho đã lập phiếu mà Giao hàng vẫn báo đang chuẩn bị"
+    # Drawer đơn (tiến độ) phải nói CÙNG một câu với màn Giao hàng.
+    td = client.get(f"/api/orders/{oid}/tien-do", headers=h).json()
+    assert td["yeu_cau"][0]["chuyen"]["kho_da_lap_phieu"] is True
+
+
+def test_huy_chuyen_da_gui_kho_thi_huy_luon_de_nghi_xuat(client):
+    """19/09/2026: huỷ chuyến mà để đề nghị xuất kho sống là kho vẫn soạn + xuất cho chuyến không còn.
+    Kho chưa lập phiếu ⇒ huỷ theo; đã lập phiếu ⇒ chặn, kho phải huỷ phiếu trước."""
+    from app.models.stock_request import REQ_CANCELLED, StockRequest
+    from app.models.stock_voucher import VOUCHER_DRAFT, VOUCHER_XUAT, StockVoucher
+
+    h = _admin(client)
+    oid, lid = _don_da_chot(suffix="hck")
+    nv = _tai_xe("Tai xe hck")
+
+    t1 = _len_kh(client, h, _tao_yc(client, h, oid, lid, qty=20)["id"], nv, lay=8).json()["trip"]["id"]
+    _gui_yeu_cau_xuat_kho(client, h, t1)
+    r = client.post(f"/api/giao-hang/plans/{t1}/huy", json={"ly_do": "Khách hoãn"}, headers=h)
+    assert r.status_code == 200, r.text
+    db = SessionLocal()
+    try:
+        req = db.query(StockRequest).filter(StockRequest.delivery_trip_id == t1).one()
+        assert req.trang_thai == REQ_CANCELLED and "Khách hoãn" in (req.ly_do_huy or "")
+    finally:
+        db.close()
+
+    r = _len_kh(client, h, _tao_yc(client, h, oid, lid, qty=20)["id"], _tai_xe("Tai xe hck2"), lay=8)
+    assert r.status_code == 201, r.text
+    t2 = r.json()["trip"]["id"]
+    _gui_yeu_cau_xuat_kho(client, h, t2)
+    db = SessionLocal()
+    try:
+        req = db.query(StockRequest).filter(StockRequest.delivery_trip_id == t2).one()
+        db.add(StockVoucher(ma="PX-TEST-HCK", loai=VOUCHER_XUAT, request_id=req.id,
+                            kho_id=req.kho_id, trang_thai=VOUCHER_DRAFT,
+                            ngay=date.today(), nguoi_lap_id=1))
+        db.commit()
+    finally:
+        db.close()
+    r = client.post(f"/api/giao-hang/plans/{t2}/huy", json={"ly_do": "Khách hoãn"}, headers=h)
+    assert r.status_code == 400 and "huỷ phiếu" in r.json()["detail"], r.text
 
 
 def test_lich_su_trang_thai_MOI_NHAT_LEN_DAU(client):

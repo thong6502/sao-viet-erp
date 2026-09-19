@@ -270,6 +270,9 @@ def test_chan_lsx_khac_dung_lot_diem_toa(db, orders, lsx_svc, admin, customer):
     _to2, cv_b, _cv_b2, lsx_b = _hai_cv(db, orders, lsx_svc, admin, customer, ma="TO-TOA-A2")
     _to3, cv_c, _cv_c2, lsx_c = _hai_cv(db, orders, lsx_svc, admin, customer, ma="TO-TOA-A3")
     cv_a.lsx_id, cv_b.lsx_id, cv_c.lsx_id = lsx_a, lsx_b, lsx_c
+    # Nhánh nhận CON (đúng đơn vị đích của cạnh toả) — bàn giao toả mới làm được trần ghi mẻ
+    # (`dau_vao`, 19/09/2026); để "tờ" thì 100 con toả sang không tính là đã nhận.
+    cv_a.don_vi_vao = "con"
     db.add(SanXuatPhuThuoc(
         goi_id=cv_nguon.goi_id, phien_ban_so=cv_nguon.phien_ban_so, nhom_id=cv_nguon.nhom_id,
         nguon_cong_viec_id=cv_nguon.id, dich_cong_viec_id=cv_a.id,

@@ -253,6 +253,13 @@ class SanXuatSanLuongToRepository:
                 ket[("bai_ghep", i)] = (ma or "", ten or "")
         return ket
 
+    def quy_cach_lenh(self, lsx_ids: set[int]) -> dict[int, dict]:
+        """`{lsx_id: quy_cach_json}` — bù khoá cho ảnh chụp đời cũ của công việc."""
+        if not lsx_ids:
+            return {}
+        return {i: qc or {} for i, qc in self.db.execute(
+            select(Lsx.id, Lsx.quy_cach_json).where(Lsx.id.in_(lsx_ids)))}
+
     def ten_nhan_vien(self, ids: set[int]) -> dict[int, str]:
         if not ids:
             return {}

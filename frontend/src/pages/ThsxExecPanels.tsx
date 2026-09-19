@@ -15,7 +15,7 @@ import type {
   SxBatchIn, SxBanGiaoDeXuatIn, SxBanGiaoSuaIn, SxBanGiaoDieuChinhIn,
   SxHoTroDeXuatIn, SxViecKhoanChon, SxViecPhatSinhChon,
   SxKetQuaNhanh, SxSuCoIn, SxVatTuCap, SxVatTuCapLan, SxVatTuCapDoiChieu,
-  SxVatTuDeNghiIn, SxVatTuDeNghiDongIn,
+  SxVatTuDeNghiIn, SxVatTuDeNghiDongIn, SxTranGhi, SxCongDoanTruoc,
 } from "../api/client";
 import { api } from "../api/client";
 import { Button } from "../components/Button";
@@ -28,6 +28,7 @@ import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe } from "../lib/gioNhap";
 import { num, ngayGio, ngay, gioNgan } from "./keHoachSxShared";
 import { VoucherDrawer } from "./KhoYeuCauPage";
 import { nhanDonVi } from "./lsxBuoc";
+import { KCS_CD_TRANG_THAI } from "./kcs/kcsNhan";
 import { tinhTrangChon } from "./thsxTinhTrangNguoi";
 import { useDebounced } from "../utils/useDebounced";
 
@@ -252,6 +253,7 @@ function SanLuongSection({
 
       {formOpen && (
         <BatchForm cv={cv} busy={busy} batDauMacDinh={batDauGoiY(chiTiet, nowDtLocal())}
+          tranGhi={chiTiet.tran_ghi ?? null}
           onXong={(kq) => { setFormOpen(false); setKetQuaToa(kq.length ? kq : null); }}
           exec={exec} />
       )}
@@ -285,6 +287,13 @@ function giaKhoan(v: { don_gia: number; don_vi: string; don_vi_ten: string | nul
   return `${num(v.don_gia)} đ / ${v.don_vi_ten ?? nhanDonVi(v.don_vi)}`;
 }
 
+/** "đã nhận từ In 1.000 × 2 = 2.000, đã ghi 300" — CHỈ SỐ, không đơn vị (19/09/2026: mẻ chỉ ghi
+ *  nhận con số, xưởng không muốn thấy tờ/con/cái ở form này). */
+function cauTranGhi(t: SxTranGhi): string {
+  const quyDoi = Math.abs(t.he_so - 1) > 1e-9 ? ` × ${num(t.he_so)} = ${num(t.toi_da)}` : "";
+  return `đã nhận từ ${t.nguon_ten} ${num(t.da_nhan)}${quyDoi}, đã ghi ${num(t.da_ghi)}`;
+}
+
 /** Form GHI MẺ theo CÔNG VIỆC KHOÁN (spec 2026-09-18 §7.1): chọn ĐÚNG MỘT việc của tổ (thấy đơn giá
  *  · ĐVT · ghi chú), gõ số của mẻ, rồi tick một hoặc nhiều VIỆC PHÁT SINH của chính việc đó kèm số
  *  lượng. Việc phát sinh KHÔNG cộng vào sản lượng; không có thành tiền ở đâu cả. Ô tìm hiện cho MỌI
@@ -293,9 +302,11 @@ function giaKhoan(v: { don_gia: number; don_vi: string; don_vi_ten: string | nul
  *  Số của mẻ là MỘT ô "Số lượng làm được" (18/09/2026): tổ không tự chia tổng/tốt/hỏng — hàng lỗi do
  *  KCS phát hiện và ghi. Máy chủ vẫn giữ luật `tong = tot + hong` nên gửi tong = tot = số đó, hong = 0. */
 function BatchForm({
-  cv, busy, batDauMacDinh, onXong, exec,
+  cv, busy, batDauMacDinh, tranGhi, onXong, exec,
 }: {
   cv: SxWorkItemChiTiet["cong_viec"]; busy: boolean; batDauMacDinh: string;
+  /** Trần theo routing (`dau_vao.tran_ghi`) — null = không trần (bước đầu, hệ số gõ tay…). */
+  tranGhi: SxTranGhi | null;
   onXong: (ketQua: SxKetQuaNhanh[]) => void; exec: ThsxExec;
 }) {
   const { token } = useAuth();
@@ -309,9 +320,15 @@ function BatchForm({
   const [loiDs, setLoiDs] = useState<string | null>(null);
   // Giữ NGUYÊN việc đã chọn (không chỉ id): gõ tìm việc khác thì việc đang chọn vẫn nằm trên cùng.
   const [viecChon, setViecChon] = useState<SxViecKhoanChon | null>(null);
+  // Chọn xong thì THU danh sách lại chỉ còn việc đã chọn (kèm việc phát sinh) — tổ có vài chục việc,
+  // để nguyên cả danh sách là form dài ngoằng, phải cuộn qua hết mới tới ô giờ và số lượng.
+  const [moDs, setMoDs] = useState(false);
   // Việc phát sinh đã tick → số đang gõ. Có khoá = đã tick.
   const [psSl, setPsSl] = useState<Record<number, string>>({});
   const nSoLuong = toNum(soLuong);
+  // Mẻ 0 hợp lệ — ca chỉ làm việc phát sinh (thay kẽm, lên khuôn) vẫn cần mẻ để ghi nhận; nhưng ô
+  // phải được GÕ (kể cả số 0), để trống thì chưa cho lưu.
+  const soLuongDaGo = soLuong.trim() !== "" && Number.isFinite(Number(soLuong.replace(/,/g, "")));
   const donVi = cv.don_vi_ra ?? cv.don_vi_vao ?? null;
   // Bước thuê ngoài miễn việc khoán — thợ của tổ không ăn khoán trên việc làm ở xưởng người ta.
   const thueNgoai = cv.loai_buoc === "thue_ngoai";
@@ -328,8 +345,11 @@ function BatchForm({
 
   const hienThi = dsViec == null ? []
     : viecChon && !dsViec.some((v) => v.id === viecChon.id) ? [viecChon, ...dsViec] : dsViec;
+  const thuGon = viecChon != null && !moDs;
+  const dsHien = thuGon ? [viecChon] : hienThi;
 
   function chonViec(v: SxViecKhoanChon) {
+    setMoDs(false);
     if (viecChon?.id === v.id) return;
     setViecChon(v);
     setPsSl({});   // việc phát sinh đi theo việc khoán — đổi việc là bỏ tick của việc cũ
@@ -349,8 +369,10 @@ function BatchForm({
   // là backend trả 422 mà tổ chỉ thấy "không ghi được".
   // Mẻ ghi SAU khi làm xong — máy chủ cũng từ chối giờ kết thúc ở tương lai.
   const ketThucTuongLai = gioNhapHopLe(ketThuc) && ketThuc > nowDtLocal();
+  // Máy chủ cũng chặn (`dau_vao.kiem_tran_ghi`); form báo trước để tổ khỏi gõ rồi mới bị trả về.
+  const vuotTran = tranGhi != null && nSoLuong > tranGhi.con_ghi_duoc + 0.0005;
   const hopLe = gioNhapHopLe(batDau) && gioNhapHopLe(ketThuc) && ketThuc > batDau && !ketThucTuongLai
-    && nSoLuong > 0
+    && soLuongDaGo && nSoLuong >= 0 && !vuotTran
     && (thueNgoai || viecChon != null) && psHopLe;
 
   async function luu() {
@@ -369,7 +391,6 @@ function BatchForm({
   return (
     <ThsxModal
       title="Ghi mẻ sản lượng mới" icon="activity" busy={busy} onClose={() => onXong([])}
-      badge={donVi ? nhanDonVi(donVi) : null}
       footer={<>
         <Button variant="ghost" onClick={() => onXong([])} disabled={busy}>Huỷ</Button>
         <Button variant="accent" onClick={luu} disabled={busy || !hopLe} className="thsx-glass-btn-save">
@@ -381,22 +402,29 @@ function BatchForm({
       <div className="thsx-vk">
         <div className="thsx-vk__h">
           <span className="thsx-x-fld__l">Công việc khoán{thueNgoai ? " (bước thuê ngoài — không bắt buộc)" : " — chọn một"}</span>
-          {viecChon && <span className="thsx-vk__da">Đã chọn: <b>{viecChon.ten}</b></span>}
+          {viecChon && (
+            <button type="button" className="thsx-vk__doi" onClick={() => setMoDs(!moDs)}>
+              {moDs ? "Giữ việc đã chọn" : "Đổi việc"}
+            </button>
+          )}
         </div>
-        <input type="search" className="thsx-x-in thsx-glass-in" value={tim}
-          onChange={(e) => setTim(e.target.value)} aria-label="Tìm công việc khoán"
-          placeholder="Tìm việc — gõ tên hoặc mã, không cần dấu" />
-        {dsViec == null ? (
+        {!thuGon && (
+          <input type="search" className="thsx-x-in thsx-glass-in" value={tim}
+            onChange={(e) => setTim(e.target.value)} aria-label="Tìm công việc khoán"
+            placeholder="Tìm việc — gõ tên hoặc mã, không cần dấu" />
+        )}
+        {dsViec == null && !thuGon ? (
           <p className="thsx-x-hint">Đang tải việc khoán của tổ…</p>
-        ) : hienThi.length === 0 ? (
+        ) : dsHien.length === 0 ? (
           <p className={`thsx-x-hint${tim.trim() ? "" : " thsx-x-hint--canh"}`}>
             {tim.trim()
               ? <>Không có việc nào khớp “<b>{tim.trim()}</b>”.</>
               : <>Tổ chưa có công việc khoán nào — khai ở <b>Danh mục › Công việc khoán</b> rồi mới ghi mẻ được.</>}
           </p>
         ) : (
-          <ul className="thsx-vk__list" role="radiogroup" aria-label="Công việc khoán">
-            {hienThi.map((v) => {
+          <ul className={`thsx-vk__list${thuGon ? "" : " thsx-vk__list--cuon"}`} role="radiogroup"
+            aria-label="Công việc khoán">
+            {dsHien.map((v) => {
               const on = viecChon?.id === v.id;
               return (
                 <li key={v.id}>
@@ -467,11 +495,23 @@ function BatchForm({
         <span className="thsx-x-err thsx-glass-err">Giờ kết thúc đang ở sau lúc này — chỉ ghi mẻ đã làm xong.</span>
       )}
 
-      <Field label={`Số lượng làm được${donVi ? ` (${nhanDonVi(donVi)})` : ""}`}>
+      <Field label="Số lượng làm được">
         <input type="number" min={0} className="thsx-x-in thsx-glass-in thsx-glass-in--num"
-          placeholder="0" value={soLuong} onChange={(e) => setSoLuong(e.target.value)}
+          placeholder="Gõ số — không làm được gì thì gõ 0" value={soLuong} onChange={(e) => setSoLuong(e.target.value)}
           inputMode="numeric" />
       </Field>
+      {tranGhi && (
+        <p className={`thsx-x-hint${tranGhi.con_ghi_duoc <= 0.0005 ? " thsx-x-hint--canh" : ""}`}>
+          {tranGhi.con_ghi_duoc > 0.0005
+            ? <>Còn ghi được tối đa <b>{num(tranGhi.con_ghi_duoc)}</b> — {cauTranGhi(tranGhi)}.</>
+            : <>Hết số đã nhận ({cauTranGhi(tranGhi)}) — chỉ ghi được mẻ 0 cho tới khi công đoạn trước giao thêm.</>}
+        </p>
+      )}
+      {vuotTran && tranGhi && tranGhi.con_ghi_duoc > 0.0005 && (
+        <span className="thsx-x-err thsx-glass-err">
+          Vượt số nhận từ công đoạn trước — mẻ này ghi tối đa {num(tranGhi.con_ghi_duoc)}.
+        </span>
+      )}
 
       <Field label="Ghi chú">
         <input type="text" className="thsx-x-in thsx-glass-in" value={ghiChu} onChange={(e) => setGhiChu(e.target.value)}
@@ -731,8 +771,26 @@ export function ThsxNhanVe({
   const den = chiTiet.ban_giao_den ?? [];
   const cho = den.filter((g) => g.trang_thai === "proposed");
   const xong = den.filter((g) => g.trang_thai !== "proposed");
+  const truoc = chiTiet.cong_doan_truoc ?? [];
 
   return (
+    <>
+    {truoc.length > 0 && (
+      <section className="thsx-psec thsx-x">
+        <div className="thsx-psec__h">
+          <span className="thsx-psec__title"><Icon name="layers" size={13} /> Công đoạn trước</span>
+        </div>
+        <ul className="thsx-x-list">
+          {truoc.map((c) => <CongDoanTruocRow key={c.cong_viec_id} c={c} />)}
+        </ul>
+        {(chiTiet.thieu_dau_vao ?? []).length > 0 && (chiTiet.trang_thai === "released" || chiTiet.trang_thai === "paused") && (
+          <p className="thsx-note thsx-note--warn">
+            <Icon name="alert" size={12} /> Chưa nhận hàng từ {(chiTiet.thieu_dau_vao ?? []).join(", ")} — chưa{" "}
+            {chiTiet.trang_thai === "paused" ? "tiếp tục" : "bắt đầu"} được công đoạn này.
+          </p>
+        )}
+      </section>
+    )}
     <section className="thsx-psec thsx-x">
       <div className="thsx-psec__h">
         <span className="thsx-psec__title"><Icon name="packageCheck" size={13} /> Bàn giao đến</span>
@@ -750,6 +808,52 @@ export function ThsxNhanVe({
         <p className="thsx-note">Xác nhận nhận hàng cần quyền Xác nhận sản lượng của tổ.</p>
       )}
     </section>
+    </>
+  );
+}
+
+/** Một công đoạn đứng trước theo routing lệnh (`dau_vao.cong_doan_truoc`): kế hoạch, thực tế (cộng
+ *  các mẻ), đã giao sang công đoạn này và phần tổ mình đã xác nhận nhận. */
+function CongDoanTruocRow({ c }: { c: SxCongDoanTruoc }) {
+  const dv = c.don_vi ? nhanDonVi(c.don_vi) : "";
+  const dvGiao = c.don_vi_giao ? nhanDonVi(c.don_vi_giao) : dv;
+  const lan = c.phan_doan_tong > 1 ? ` · lần ${c.phan_doan_so}/${c.phan_doan_tong}` : "";
+  const so = (v: number | null, d: string) => (
+    <span className="thsx-metric-val thsx-num">
+      {num(v)}{v != null && d ? <span className="thsx-metric-unit"> {d}</span> : null}
+    </span>
+  );
+  return (
+    <li className="thsx-x-bg">
+      <div className="thsx-x-bg__main">
+        <Icon name="layers" size={13} className="thsx-x-bg__ic" />
+        <span className="thsx-x-bg__to"><b>{c.ten_cong_doan}</b>{lan}{c.to_ten ? ` · ${c.to_ten}` : ""}</span>
+        <span className="thsx-x-item__spacer" />
+        <span className={`thsx-x-pill ${c.trang_thai === "completed" ? "thsx-x-pill--ok" : "thsx-x-pill--adj"}`}>
+          {KCS_CD_TRANG_THAI[c.trang_thai] ?? c.trang_thai}
+        </span>
+      </div>
+      <div className="thsx-batch-metric-strip">
+        <div className="thsx-batch-metric-tile">
+          <span className="thsx-metric-lbl">Kế hoạch</span>{so(c.ke_hoach, dv)}
+        </div>
+        <div className="thsx-batch-metric-tile" title="Cộng các mẻ công đoạn đó đã ghi">
+          <span className="thsx-metric-lbl">Thực tế</span>{so(c.thuc_te, dv)}
+        </div>
+        <div className="thsx-batch-metric-tile">
+          <span className="thsx-metric-lbl">Giao sang</span>{so(c.da_giao, dvGiao)}
+        </div>
+        <div className="thsx-batch-metric-tile">
+          <span className="thsx-metric-lbl">Đã nhận</span>{so(c.da_xac_nhan, dvGiao)}
+        </div>
+      </div>
+      {c.cho_xac_nhan > 0 && (
+        <div className="thsx-x-bg__sub">
+          <span className="thsx-x-pill thsx-x-pill--wait">chờ xác nhận</span>
+          <span><b className="thsx-num">{num(c.cho_xac_nhan)}</b>{dvGiao ? ` ${dvGiao}` : ""} — xác nhận ở “Bàn giao đến” bên dưới.</span>
+        </div>
+      )}
+    </li>
   );
 }
 

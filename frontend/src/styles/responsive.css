@@ -1754,38 +1754,55 @@
    vẫn đọc được qua chấm xanh có dấu tích. */
 @media screen and (max-width: 768px) {
   .dhb__timeline {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
+    display: grid;
+    grid-template-columns: 28px 76px minmax(0, 1fr) auto;
+    gap: 6px 10px;
     padding: 2px 0;
   }
   .dhb__timeline-track,
   .dhb__timeline-fill {
     display: none;
   }
+  /* Lưới 4 cột CỐ ĐỊNH "chấm · tên · thanh · trạng thái" (19/09/2026): trước là flex, thanh tiến độ
+     bám sau chữ trạng thái nên dài ngắn theo độ dài chữ, còn chữ thì gãy "0/1 lệnh · / 0%". Nay
+     tên một cột rộng cố định, thanh nằm cột giữa co giãn, trạng thái một dòng dạt phải ⇒ các thanh
+     thẳng mép nhau. Cột trạng thái dùng CHUNG cả khối (subgrid) nên mép phải các thanh cũng thẳng.
+     Bước không có thanh thì cột giữa để trống. */
   .dhb__timeline-step {
-    flex: 0 0 auto;
-    flex-direction: row;
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
     align-items: center;
-    gap: 10px;
+    column-gap: 10px;
     min-height: 40px;
     padding: 0 8px;
     text-align: left;
   }
   .dhb__timeline-dot {
-    flex: 0 0 28px;
+    grid-column: 1;
+    grid-row: 1;
     margin-bottom: 0;
   }
   .dhb__timeline-label {
-    flex: 0 0 auto;
+    grid-column: 2;
+    grid-row: 1;
     text-align: left;
+    white-space: nowrap;
     /* Đã gỡ `font-size: 13px` (luật câm): `responsive-chu.css:394` ép 12px `!important` cùng media, nạp sau (main.tsx:11). */
   }
-  .dhb__timeline-sub {
+  .dhb__timeline-step .dhb__td-mini {
+    grid-column: 3;
+    grid-row: 1;
+    width: 100%;
     margin-top: 0;
-    margin-left: auto;
-    padding-left: 8px;
+  }
+  .dhb__timeline-sub {
+    grid-column: 4;
+    grid-row: 1;
+    margin-top: 0;
     text-align: right;
+    white-space: nowrap;
+    overflow-wrap: normal;
   }
 }
 

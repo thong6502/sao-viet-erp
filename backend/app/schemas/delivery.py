@@ -25,19 +25,17 @@ class DeliveryRequestCreate(BaseModel):
     order_id: int
     ngay_can_giao: date
     lines: list[DeliveryLineIn]
-    # Bỏ trống ⇒ kéo từ đơn hàng bán (PRD §5: CHỌN, không gõ lại).
-    dia_chi: str | None = None
-    nguoi_nhan: str | None = None
-    sdt_nguoi_nhan: str | None = None
-    ghi_chu: str | None = None
+    # NƠI NHẬN KHÔNG GÕ TAY (chủ chốt 19/09/2026): chỉ CHỌN trong sổ địa chỉ / người liên hệ của
+    # KHÁCH của đơn. Bỏ trống ⇒ lấy nơi nhận của đơn (đơn kế thừa từ báo giá, báo giá chọn từ
+    # khách). Lưu ý giao hàng luôn lấy của đơn. Máy chủ chụp lại chữ lúc lập — xem `_noi_nhan`.
+    dia_chi_id: int | None = None
+    lien_he_id: int | None = None
 
 
 class DeliveryRequestUpdate(BaseModel):
     ngay_can_giao: date | None = None
-    dia_chi: str | None = None
-    nguoi_nhan: str | None = None
-    sdt_nguoi_nhan: str | None = None
-    ghi_chu: str | None = None
+    dia_chi_id: int | None = None
+    lien_he_id: int | None = None
 
 
 class LyDoIn(BaseModel):
@@ -194,6 +192,10 @@ class TripOut(BaseModel):
     #: Kho đã LẬP PHIẾU chưa ⇒ hiện "Kho đã chuẩn bị xong". Suy ra từ `stock_vouchers`, không
     #: phải cột lưu — kho thao tác trên màn của họ, cột lưu ở đây sớm muộn lệch với sổ kho.
     kho_da_lap_phieu: bool = False
+    #: Yêu cầu NHẬP trả hàng về (chuyến thất bại / giao thiếu) — máy tự lập lúc ghi kết quả, THỦ
+    #: KHO nhận bằng phiếu nhập; `done` = kho đã nhận lại đủ (19/09/2026).
+    tra_hang_ma: str | None = None
+    tra_hang_trang_thai: str | None = None
     #: Lượt xe của chuyến (PRD khoán km §14). None = chuyến ngoài lượt (đường cũ, một ô km).
     luot: "LuotXeTrongChuyenOut | None" = None
     #: Cảnh báo KHÔNG chặn của thao tác vừa làm (vd "xe chạy ngoài sổ N km").

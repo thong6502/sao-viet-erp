@@ -28,6 +28,7 @@ import { useCan } from "../../../auth/permissions";
 import { Button } from "../../../components/Button";
 import { Icon } from "../../../components/Icons";
 import { DrawerChiTiet } from "./components/DrawerChiTiet";
+import { DialogDoiChuyen } from "./modals/DialogDoiChuyen";
 import { DialogKetQua } from "./modals/DialogKetQua";
 import { DialogLenKeHoach } from "./modals/DialogLenKeHoach";
 import { DialogYeuCauXuatKho } from "./modals/DialogYeuCauXuatKho";
@@ -76,6 +77,7 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
   const [luotMoi, setLuotMoi] = useState<number | null>(null);
   const [ketQuaFor, setKetQuaFor] = useState<DeliveryTrip | null>(null);
   const [xuatKhoFor, setXuatKhoFor] = useState<DeliveryTrip | null>(null);
+  const [doiFor, setDoiFor] = useState<DeliveryTrip | null>(null);
   // Tháng đang xem ở tab Nhân viên. `YYYY-MM` theo giờ ĐỊA PHƯƠNG — `toISOString()` trả UTC nên
   // đầu/cuối tháng có thể nhảy sang tháng bên cạnh.
   const [thang, setThang] = useState(() => {
@@ -218,8 +220,9 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
             ? (t) => lam(api.giaoHang.batDauGiao(token, t.id), "Không bắt đầu giao được")
             : undefined}
           onDaTra={canWrite
-            ? (t) => lam(api.giaoHang.daTraHang(token, t.id), "Không ghi được đã trả hàng")
+            ? (t) => lam(api.giaoHang.daTraHang(token, t.id), "Không lập được phiếu trả kho")
             : undefined}
+          onDoiChuyen={canPlan ? setDoiFor : undefined}
         />
       )}
       {tabDang === "ke-hoach" && !loading && khoi.length > 0 && (
@@ -315,6 +318,18 @@ export default function GiaoHangPage({ eventTick = 0 }: { eventTick?: number }) 
           onClose={() => setXuatKhoFor(null)}
           onXong={() => {
             setXuatKhoFor(null);
+            load();
+          }}
+        />
+      )}
+
+      {doiFor && token && (
+        <DialogDoiChuyen
+          trip={doiFor}
+          token={token}
+          onClose={() => setDoiFor(null)}
+          onXong={() => {
+            setDoiFor(null);
             load();
           }}
         />

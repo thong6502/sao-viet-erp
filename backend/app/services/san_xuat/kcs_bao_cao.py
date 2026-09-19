@@ -268,19 +268,22 @@ def bao_cao_kcs(
     hang = _hang_kcs_theo_scope(db, user, authz, **filters)
     batch_ids = [kcs.id for kcs, _cv in hang]
 
-    tong_nhan = sum(float(kcs.so_luong_nhan) for kcs, _cv in hang)
-    tong_dat = sum(float(kcs.so_luong_dat) for kcs, _cv in hang)
+    # Nhận/đạt/tỷ lệ chỉ tính công đoạn CUỐI — công đoạn giữa KCS chỉ ghi lỗi (đạt = 0), gộp vào thì
+    # tỷ lệ đạt tụt oan (19/09/2026). Lỗi vẫn cộng mọi công đoạn.
+    tong_nhan = sum(float(kcs.so_luong_nhan) for kcs, cv in hang if cv.la_kcs_cuoi)
+    tong_dat = sum(float(kcs.so_luong_dat) for kcs, cv in hang if cv.la_kcs_cuoi)
     tong_loi = sum(float(kcs.so_luong_khong_dat) for kcs, _cv in hang)
     ty_le_dat = (tong_dat / tong_nhan) if tong_nhan else None  # mục 2: tổng/tổng, KHÔNG trung bình
 
     theo_ngay: dict[date, dict[str, float]] = {}
-    for kcs, _cv in hang:
+    for kcs, cv in hang:
         d = _ngay_vn(kcs.bat_dau)
         if d is None:
             continue
         acc = theo_ngay.setdefault(d, {"tong_nhan": 0.0, "tong_dat": 0.0, "tong_loi": 0.0})
-        acc["tong_nhan"] += float(kcs.so_luong_nhan)
-        acc["tong_dat"] += float(kcs.so_luong_dat)
+        if cv.la_kcs_cuoi:
+            acc["tong_nhan"] += float(kcs.so_luong_nhan)
+            acc["tong_dat"] += float(kcs.so_luong_dat)
         acc["tong_loi"] += float(kcs.so_luong_khong_dat)
     theo_ngay_list = [
         {"ngay": d, **acc} for d, acc in sorted(theo_ngay.items())
@@ -339,6 +342,10 @@ def xuat_excel_kcs(
     loi_by_batch = repo.cac_loi_nhieu(batch_ids)
     loi_ids_all = [l.id for ls in loi_by_batch.values() for l in ls]
     anh_by_loi = repo.anh_cua_loi_nhieu(loi_ids_all)
+    # Công đoạn CHỊU từng lỗi — KCS quy được lỗi bắt ở bước sau về bước trước (19/09/2026).
+    cd_chiu = repo.cong_viec_nhieu(
+        {l.cong_doan_ref_id for ls in loi_by_batch.values() for l in ls if l.cong_doan_ref_id}
+    )
 
     wb = Workbook()
     ws1 = wb.active
@@ -346,7 +353,7 @@ def xuat_excel_kcs(
     headers1 = [
         "Mã kết quả", "Thời điểm", "Mã LSX", "Công đoạn", "Tổ", "Số kiểm",
         "Số đạt", "Số lỗi", "Đơn vị", "Kết luận", "Ghi chú", "Người kiểm",
-        "Mô tả lỗi", "URL ảnh",
+        "Mô tả lỗi", "URL ảnh", "Công đoạn chịu lỗi",
     ]
     ws1.append(headers1)
     for cell in ws1[1]:
@@ -368,6 +375,10 @@ def xuat_excel_kcs(
             nguoi_ten.get(kcs.created_by, ""),
             "; ".join(loi_mo_ta_set) if loi_list else "",
             "; ".join(anh_urls),
+            "; ".join(
+                f"{cd_chiu[l.cong_doan_ref_id].ten_cong_doan} ({float(l.so_luong or 0):g})"
+                for l in loi_list if l.cong_doan_ref_id in cd_chiu
+            ),
         ])
         r = ws1.max_row
         for c in _COL_SO_LUONG_1:

@@ -269,3 +269,38 @@ def test_ngoai_pham_vi_va_khoang_ngay_sai(db, admin, xuong):
     with pytest.raises(ValueError):
         san_luong_to.san_luong(db, admin, team_id=xuong["x"].id,
                                tu=date(2026, 9, 10), den=date(2026, 9, 1))
+
+
+def test_me_mang_viec_phat_sinh_de_bay_khong_cong_vao_tong(db, admin, xuong):
+    """Mẻ 0 chỉ làm việc phát sinh (thay kẽm) vẫn hiện trong bảng, kèm việc phát sinh — số của việc
+    phát sinh KHÔNG vào dòng tổng, không kèm đơn giá."""
+    from app.models.san_xuat_san_luong import SanXuatBatchPhatSinh
+
+    cv_a = db.get(SanXuatCongViec, xuong["m1"].cong_viec_id)
+    m0 = _me(db, cv_a, _gio_xuong(2026, 9, 7), 0, 0, "tờ", "In 4 màu")
+    db.add(SanXuatBatchPhatSinh(batch_id=m0.id, phat_sinh_id=1, so_luong=2,
+                                ten_snapshot="Thay kẽm", don_vi_snapshot="kem",
+                                don_gia_snapshot=100000))
+    db.commit()
+
+    res = _xem(db, admin, xuong["x"].id)
+    me = {m["batch_id"]: m for m in _lenh(res, xuong["a"])["cong_doan"][0]["me"]}
+    assert me[m0.id]["tot"] == 0
+    assert [(p["ten"], p["so_luong"], p["don_vi"]) for p in me[m0.id]["phat_sinh"]] == [
+        ("Thay kẽm", 2.0, "kem")]
+    assert me[xuong["m1"].id]["phat_sinh"] == []
+    assert {t["don_vi"]: t["tot"] for t in res["tong"]}["tờ"] == 340
+    assert "don_gia" not in str(res)
+
+
+def test_lenh_mang_giay_va_ba_kho_tach_dai_rong(db, admin, xuong):
+    """Bảng bày giấy · định lượng · khổ tờ nguyên / tờ in / con theo ĐÚNG thẻ quy cách của công việc."""
+    cv_a = db.get(SanXuatCongViec, xuong["m1"].cong_viec_id)
+    cv_a.quy_cach_json = {"giay": "Couche", "dinh_luong": 300.0, "kho_nguyen": "790 × 1090",
+                          "kho_in": "785 × 595", "kho_tp": "200 × 150"}
+    db.commit()
+    qc = _lenh(_xem(db, admin, xuong["x"].id), xuong["a"])["quy_cach"]
+    assert qc["giay"] == "Couche" and qc["dinh_luong"] == 300
+    assert qc["to_nguyen"] == {"dai": 790, "rong": 1090}
+    assert qc["to_in"] == {"dai": 785, "rong": 595}
+    assert qc["con"] == {"dai": 200, "rong": 150}

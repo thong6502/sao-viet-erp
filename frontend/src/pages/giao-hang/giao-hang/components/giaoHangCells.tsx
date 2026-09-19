@@ -44,3 +44,25 @@ export function KhoangTrong({ title, desc }: { title: string; desc: string }) {
     </div>
   );
 }
+
+/** Chuyến tài xế CHƯA cầm hàng — còn đổi người / đổi giờ / huỷ được. */
+export const CHUA_CAM_HANG = ["da_len_ke_hoach", "dang_chuan_bi"];
+
+/** Trả hàng về kho sau giao thiếu / thất bại (19/09/2026): máy TỰ lập yêu cầu nhập, THỦ KHO ghi sổ
+ *  phiếu nhập là chuyến sang "Đã trả hàng" — tài xế không tự bấm "kho đã nhận" nữa. Chuyến cũ chưa
+ *  có yêu cầu nhập thì còn nút lập phiếu trả kho. */
+export function TraHang({
+  t,
+  onDaTra,
+}: {
+  t: { trang_thai: string; tra_hang_ma?: string | null; tra_hang_trang_thai?: string | null };
+  onDaTra?: () => Promise<unknown>;
+}) {
+  if (t.tra_hang_ma) {
+    const xong = t.tra_hang_trang_thai === "done";
+    return <Pill text={`${xong ? "Kho đã nhận lại" : "Chờ kho nhận lại"} · ${t.tra_hang_ma}`} tone={xong ? "on" : "warn"} />;
+  }
+  if (t.trang_thai === "dang_tra_hang" && onDaTra)
+    return <NutCho variant="ghost" bam={onDaTra}>Lập phiếu trả kho</NutCho>;
+  return null;
+}

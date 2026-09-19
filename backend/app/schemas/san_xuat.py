@@ -87,6 +87,8 @@ class WorkItemOut(BaseModel):
     may_id: int | None = None    # máy HIỆN TẠI — FE cần để dựng ô chọn "Đổi máy" (§7.2 mở rộng)
     du_kien_bat_dau: datetime | None = None
     du_kien_ket_thuc: datetime | None = None
+    # Lúc việc TỚI TAY tổ = lúc phát hành tạo thẻ việc (giờ xưởng) — mốc để lọc/tra về sau.
+    nhan_luc: datetime | None = None
     so_luong_vao: float | None = None
     so_luong_ra: float | None = None
     don_vi_vao: str | None = None
@@ -149,6 +151,7 @@ class LenhNhomOut(BaseModel):
     bai_ghep_id: int | None = None
     som_nhat: datetime | None = None   # giờ dự kiến bước SỚM NHẤT của tổ trong lệnh
     muon_nhat: datetime | None = None
+    nhan_luc: datetime | None = None   # lúc tổ nhận việc SỚM NHẤT của lệnh (giờ xưởng)
     so_viec: int
     digest: dict[str, int]             # released / running / paused / completed
     cong_viec: list[WorkItemOut]
@@ -268,6 +271,8 @@ class ChoXacNhanKcsLoiOut(BaseModel):
     cong_viec_id: int | None = None
     to_id: int | None = None
     ten_cong_doan: str = ""
+    # Bước KCS bắt lỗi khi lỗi quy về công đoạn trước; None = bắt ngay tại công đoạn này.
+    phat_hien_o: str | None = None
     lsx_ma: str | None = None
     mo_ta: str | None = None
     so_luong: float
@@ -461,6 +466,15 @@ class SlToMeNguoiOut(BaseModel):
     to_ten: str | None = None
 
 
+class SlToMePhatSinhOut(BaseModel):
+    """Việc phát sinh của mẻ trong tab Sản lượng — ảnh chụp lúc ghi, KHÔNG cộng vào sản lượng."""
+
+    ten: str | None = None
+    so_luong: float
+    don_vi: str | None = None
+    don_vi_ten: str | None = None
+
+
 class SlToMeOut(BaseModel):
     """Một MẺ. Không số phút của ai, không ô chia — sản xuất chỉ ghi nhận (§7.3b luật 3)."""
 
@@ -473,6 +487,7 @@ class SlToMeOut(BaseModel):
     hong: float = 0
     don_vi: str | None = None
     nguoi: list[SlToMeNguoiOut] = []
+    phat_sinh: list[SlToMePhatSinhOut] = []
 
 
 class SlToCongDoanOut(BaseModel):
@@ -488,6 +503,21 @@ class SlToCongDoanOut(BaseModel):
     me: list[SlToMeOut] = []
 
 
+class SlToKhoOut(BaseModel):
+    dai: float
+    rong: float
+
+
+class SlToQuyCachOut(BaseModel):
+    """Giấy + ba khổ (mm) của nguồn — cùng thẻ quy cách ở bàn tổ, tách số để bảng chia cột."""
+
+    giay: str | None = None
+    dinh_luong: float | None = None
+    to_nguyen: SlToKhoOut | None = None
+    to_in: SlToKhoOut | None = None
+    con: SlToKhoOut | None = None
+
+
 class SlToLenhOut(BaseModel):
     nguon_loai: str
     nguon_id: int | None = None
@@ -496,6 +526,7 @@ class SlToLenhOut(BaseModel):
     so_me: int = 0
     ngay_dau: date | None = None
     ngay_cuoi: date | None = None
+    quy_cach: SlToQuyCachOut | None = None
     san_luong: list[SlToTotHongOut] = []
     cong_doan: list[SlToCongDoanOut] = []
 
@@ -660,6 +691,35 @@ class BanGiaoChangSauOut(BaseModel):
     trang_thai: str
 
 
+class CongDoanTruocOut(BaseModel):
+    """Một công đoạn TRƯỚC theo routing (từng lần chạy) — khối "Công đoạn trước" của tab Nhận
+    (19/09/2026). Kế hoạch / thực tế theo đơn vị RA của nó; đã giao theo đơn vị bàn giao."""
+    cong_viec_id: int
+    ten_cong_doan: str
+    phan_doan_so: int = 1
+    phan_doan_tong: int = 1
+    to_ten: str | None = None
+    trang_thai: str
+    ke_hoach: float | None = None
+    don_vi: str | None = None
+    thuc_te: float = 0
+    da_giao: float = 0
+    da_xac_nhan: float = 0
+    cho_xac_nhan: float = 0
+    don_vi_giao: str | None = None
+
+
+class TranGhiOut(BaseModel):
+    """Trần Σ số làm được của công đoạn = số đã nhận × hệ số quy đổi (`dau_vao.tran_ghi`)."""
+    toi_da: float
+    da_nhan: float
+    he_so: float
+    don_vi_nhan: str
+    nguon_ten: str
+    da_ghi: float
+    con_ghi_duoc: float
+
+
 class VatTuNhanOut(BaseModel):
     voucher_id: int
     ma: str
@@ -805,6 +865,11 @@ class WorkItemChiTietOut(BaseModel):
     san_luong: SanLuongOut
     ban_giao_di: list[BanGiaoOut]
     ban_giao_den: list[BanGiaoOut]
+    # Đầu vào theo routing: công đoạn trước · trần ghi mẻ (None = không trần) · tên công đoạn
+    # trước chưa giao được gì (rỗng = bắt đầu được).
+    cong_doan_truoc: list[CongDoanTruocOut] = []
+    tran_ghi: TranGhiOut | None = None
+    thieu_dau_vao: list[str] = []
     ban_giao_chang_sau: list[BanGiaoChangSauOut]
     vat_tu: list[VatTuNhanOut]
     vat_tu_cap: VatTuCapOut = VatTuCapOut()
@@ -976,6 +1041,14 @@ class KcsChecklistKetQuaIn(BaseModel):
     ghi_chu: str | None = None
 
 
+class KcsBaoLoiNguonOut(BaseModel):
+    """Phần lỗi của lần kiểm quy về công đoạn đứng trước — báo tổ đó xem, tính trách nhiệm."""
+    cong_viec_id: int
+    department_id: int | None = None
+    ten_cong_doan: str = ""
+    so_loi: float
+
+
 class KcsKiemKetQuaOut(BaseModel):
     """Kết quả một lần kiểm công đoạn. `notify_user_ids` KHÔNG phơi FE — router đẩy SSE rồi Pydantic
     tự nuốt (không khai ở đây là cố ý)."""
@@ -990,6 +1063,7 @@ class KcsKiemKetQuaOut(BaseModel):
     so_loi: float
     ket_luan: str
     version: int
+    bao_loi_nguon: list[KcsBaoLoiNguonOut] = []
 
 
 class KcsDaXemKetQuaOut(BaseModel):
@@ -1035,6 +1109,10 @@ class KcsLanKiemLoiOut(BaseModel):
     so_luong: float
     don_vi: str | None = None
     to_chiu_id: int | None = None
+    to_chiu_ten: str | None = None
+    # Công đoạn CHỊU lỗi — khác công đoạn của lần kiểm khi KCS quy lỗi về bước trước (19/09/2026).
+    cong_doan_id: int | None = None
+    cong_doan_ten: str | None = None
     da_xem_luc: datetime | None = None
     nguoi_xem: str | None = None
     anh: list[KcsAnhOut] = []
@@ -1052,6 +1130,9 @@ class KcsChiTietTieuChiOut(BaseModel):
 
 class KcsLanKiemOut(BaseModel):
     id: int
+    # Công đoạn được kiểm (nơi KCS bắt lỗi).
+    cong_viec_id: int | None = None
+    cong_doan_ten: str | None = None
     nguoi_kiem: str | None = None
     luc: datetime | None = None
     so_dat: float
@@ -1064,12 +1145,23 @@ class KcsLanKiemOut(BaseModel):
     loi: list[KcsLanKiemLoiOut] = []
 
 
+class KcsCuoiTongOut(BaseModel):
+    tot: float = 0
+    dat: float = 0
+    da_de_nghi_kho: float = 0
+    don_vi: str | None = None
+
+
 class KcsCongViecOut(BaseModel):
     """Mục "Kết quả KCS" của một công đoạn (drawer bàn tổ)."""
     cong_viec_id: int
     la_kcs_cuoi: bool = False
+    # Chỉ công đoạn cuối: số tốt tổ ghi, KCS đạt, đã đề nghị kho (công đoạn giữa không có "đạt").
+    cuoi: KcsCuoiTongOut | None = None
     checklist: list[KcsChiTietTieuChiOut] = []
     lan_kiem: list[KcsLanKiemOut] = []
+    # Lần kiểm ở bước SAU có lỗi quy về công đoạn này — mỗi lần chỉ mang lỗi của công đoạn này.
+    lan_kiem_buoc_sau: list[KcsLanKiemOut] = []
 
 
 class KcsYeuCauKhoOut(BaseModel):
@@ -1120,6 +1212,25 @@ class KcsLenhDauOut(BaseModel):
     nhom_trang_thai: str | None = None
 
 
+class KcsMeOut(BaseModel):
+    """Một mẻ tổ đã ghi, bày trong form kiểm KCS — `so_luong` là số làm được (tốt)."""
+    id: int
+    bat_dau: datetime | None = None
+    ket_thuc: datetime | None = None
+    so_luong: float
+    don_vi: str | None = None
+    viec: str | None = None
+    nguoi_ghi: str | None = None
+    nguoi: list[str] = []
+
+
+class KcsLoiBuocSauOut(BaseModel):
+    """Lỗi KCS bắt ở bước sau mà quy về công đoạn này — gộp theo bước bắt + đơn vị của bước đó."""
+    phat_hien_o: str
+    don_vi: str | None = None
+    so_luong: float
+
+
 class KcsCongDoanOut(BaseModel):
     cong_viec_id: int
     ten: str
@@ -1140,6 +1251,13 @@ class KcsCongDoanOut(BaseModel):
     con_gui_kho: float = 0.0
     yeu_cau_kho: list[KcsYeuCauKhoOut] = []
     lan_kiem: list[KcsLanKiemOut] = []
+    loi_buoc_sau: list[KcsLoiBuocSauOut] = []
+    # Bối cảnh cho form kiểm (19/09/2026) — kế hoạch, máy, dặn dò, quy cách, mẻ tổ đã ghi.
+    so_luong_ra: float | None = None
+    may: str | None = None
+    ghi_chu_ky_thuat: str | None = None
+    quy_cach: dict | None = None
+    me: list[KcsMeOut] = []
 
 
 class KcsChuoiCongDoanOut(BaseModel):

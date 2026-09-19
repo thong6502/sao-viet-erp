@@ -49,6 +49,7 @@ from ..bai_ghep_service import BaiGhepService
 from ..may_trang_thai import NHAN as NHAN_TT_MAY
 from ..may_trang_thai import TT_RANH, trang_thai_may
 from ..quyen_to import VIEC_THUC_HIEN, gate_to
+from .dau_vao import kiem_bat_dau
 from .tinh_trang_nguoi import hom_nay, kiem_di_lam, kiem_khong_chay_viec_khac
 
 
@@ -263,6 +264,9 @@ def bat_dau(
             raise ValueError(
                 "Bước ghép chưa đủ đầu vào — cần bàn giao đã xác nhận từ mọi nhánh trước khi chạy."
             )
+    # Cổng ROUTING (19/09/2026): công đoạn sau làm trên đầu ra của công đoạn trước — chưa nhận gì
+    # từ công đoạn trước thì chưa có gì để làm. Công đoạn đầu lệnh ⇒ no-op.
+    kiem_bat_dau(sl_repo, cv)
 
     # Cổng KHUÔN/KHUNG: bước có dụng cụ lưu kho thì phải có người xác nhận dao đang nằm trên bàn.
     # Đây là ĐIỂM CHẶN DUY NHẤT của luật "bế phải có khuôn mới làm được" — ngày dự kiến có khuôn

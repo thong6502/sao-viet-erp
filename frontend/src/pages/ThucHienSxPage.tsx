@@ -22,7 +22,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { Icon } from "../components/Icons";
 import "../components/empty-state.css";
-import { BangLoi, EmptyState, ngay, ngayGio } from "./keHoachSxShared";
+import { BangLoi, EmptyState, ngay, ngayGio, thoiLuong } from "./keHoachSxShared";
 import { useNapTenDonVi } from "./tenDonVi";
 import { ngayToWall, wallMinutes } from "./gantt-time";
 import { ThsxLichNgay } from "./ThsxLichNgay";
@@ -31,6 +31,7 @@ import { ChipKcs, ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { ThsxDrawer, type ThsxDrawerTab } from "./ThsxDrawer";
 import { type ThsxExec } from "./ThsxExecPanels";
 import { ThsxChoNgoaiBan } from "./ThsxChoNgoaiBan";
+import { LOC_TRONG, ThsxLocNangCao, ThsxNutLoc, soTieuChi, thamSoLoc, type ThsxLoc } from "./ThsxLocNangCao";
 import { ChamCho, choNgoaiBan, choTheoViec, tabCho, tongCho, type SxChoCuaViec } from "./thsxChoXacNhan";
 import { ThsxSanLuongCuaToi } from "./ThsxSanLuongCuaToi";
 import { ThsxSanLuongTab } from "./ThsxSanLuongTab";
@@ -150,6 +151,11 @@ export function ThucHienSxPage({
   const [choXn, setChoXn] = useState<SxChoXacNhan | null>(null);
   // Ô "chờ xác nhận" trên thanh lọc: bật thì máy chủ chỉ trả lệnh có việc chờ (lọc TRƯỚC khi cắt trang).
   const [chiCho, setChiCho] = useState(false);
+  // Lọc nâng cao của view Bảng (trạng thái · ngày tổ nhận · cách sắp) — máy chủ lọc trước khi cắt trang.
+  const [loc, setLoc] = useState<ThsxLoc>(LOC_TRONG);
+  const [moLoc, setMoLoc] = useState(false);
+  const locMayChu = useMemo(() => thamSoLoc(loc), [loc]);
+  const khoaLoc = JSON.stringify(locMayChu);
   const [g5Tick, setG5Tick] = useState(0); // nhịp refetch riêng cho G5 sau mỗi lệnh ghi
 
   const [winTu, setWinTu] = useState<string>(() => mondayOf(new Date()));
@@ -195,7 +201,8 @@ export function ThucHienSxPage({
       nhom: phang ? "phang" : "lenh",
       // Tìm kiếm lọc Ở MÁY CHỦ, trước khi cắt trang — lọc bằng JS sau khi trang về thì ô tìm
       // kiếm chỉ soi được đúng 20 lệnh đang hiện. Chế độ phẳng kéo trọn bàn nên màn tự lọc.
-      ...(phang ? { tuNgay: winTu, denNgay: winDen } : { tim: timMayChu || undefined, trang, coTrang: CO_TRANG }),
+      ...(phang ? { tuNgay: winTu, denNgay: winDen }
+        : { tim: timMayChu || undefined, trang, coTrang: CO_TRANG, ...locMayChu }),
       choXacNhan: chiCho || undefined,
     })
       .then((r) => {
@@ -210,13 +217,14 @@ export function ThucHienSxPage({
       .catch((e: unknown) => setErr(e instanceof ApiError
         ? (e.isForbidden ? "Tổ này ngoài phạm vi của bạn." : e.message)
         : String(e)));
-  }, [token, teamId, view, timMayChu, trang, winTu, winDen, chiCho]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `khoaLoc` đại diện `locMayChu`
+  }, [token, teamId, view, timMayChu, trang, winTu, winDen, chiCho, khoaLoc]);
 
   // SSE bump (`eventTick`) nạp lại nhưng GIỮ NGUYÊN `trang` — nhảy về trang 1 giữa lúc tổ đang
   // thao tác ở trang 3 là cướp chỗ đứng của người ta.
   useEffect(() => { loadItems(); }, [loadItems, eventTick]);
   // Đổi tổ / đổi từ khoá / đổi chế độ lọc ⇒ trang cũ không còn nghĩa, về trang 1.
-  useEffect(() => { setTrang(1); }, [teamId, qd, chiCho]);
+  useEffect(() => { setTrang(1); }, [teamId, qd, chiCho, khoaLoc]);
   // Đổi tổ thì tắt ô "chờ xác nhận" — ô đó là của bàn trước.
   useEffect(() => { setChiCho(false); }, [teamId]);
   const soTrang = Math.max(1, Math.ceil(tongLenh / CO_TRANG));
@@ -736,6 +744,7 @@ export function ThucHienSxPage({
             </button>
           )}
         </div>
+        <ThsxNutLoc mo={moLoc} so={soTieuChi(loc)} onDoi={() => setMoLoc((v) => !v)} />
         <ONutCho so={soChoXn} bat={chiCho} onDoi={setChiCho} />
         <div className="thsx-subbar__spacer" />
         <div className="thsx-digest" aria-label="Tổng quan việc của tổ">
@@ -745,6 +754,7 @@ export function ThucHienSxPage({
           <span className="thsx-digest__chip thsx-digest__chip--released"><Icon name="clock" size={12} /> <b className="thsx-num">{digest.released}</b> chờ làm</span>
           <span className="thsx-digest__chip thsx-digest__chip--done"><Icon name="check" size={12} /> <b className="thsx-num">{digest.completed}</b> xong</span>
         </div>
+        <ThsxLocNangCao mo={moLoc} value={loc} onChange={setLoc} />
       </div>}
 
       {/* Việc chờ TỔ bấm (bàn giao đến, hỗ trợ chéo, lỗi KCS) gắn vào công đoạn của nó (§11.5); chỉ
@@ -830,11 +840,13 @@ export function ThucHienSxPage({
           ) : view === "danh_sach" ? (
             (lenh ?? []).length === 0 ? (
               <div className="thsx-centerempty">
-                <EmptyState icon={q ? "search" : "check"}
-                  title={q ? "Không khớp tìm kiếm" : chiCho ? "Không có lệnh nào trên bàn đang chờ xác nhận" : "Chưa có việc phát hành"}
+                <EmptyState icon={q || soTieuChi(loc) ? "search" : "check"}
+                  title={q ? "Không khớp tìm kiếm" : chiCho ? "Không có lệnh nào trên bàn đang chờ xác nhận"
+                    : soTieuChi(loc) ? "Không có lệnh nào khớp bộ lọc" : "Chưa có việc phát hành"}
                   sub={q ? "Thử đổi từ khoá."
                     : chiCho ? "Việc chờ còn lại thuộc công đoạn ngoài bàn này — xem danh sách phía trên."
-                      : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
+                      : soTieuChi(loc) ? "Nới trạng thái hoặc khoảng ngày nhận, hoặc bấm \"Xoá bộ lọc\"."
+                        : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
               </div>
             ) : (
               <>
@@ -991,8 +1003,11 @@ function ListRow({ w, selected, onPick, cho }: {
       <div className="thsx-lrow__cd">{w.ten_cong_doan || "—"}</div>
       <div className="thsx-lrow__meta">
         {w.may && <span className="thsx-lrow__may"><Icon name="printer" size={11} /> {w.may}</span>}
-        {w.du_kien_bat_dau && (
-          <span className="thsx-lrow__gio thsx-num"><Icon name="clock" size={11} /> {ngayGio(w.du_kien_bat_dau)}</span>
+        {w.chay_phut != null && w.chay_phut > 0 && (
+          <span className="thsx-lrow__gio thsx-num" title="Thời gian làm dự kiến"><Icon name="clock" size={11} /> {thoiLuong(w.chay_phut)}</span>
+        )}
+        {w.nhan_luc && (
+          <span className="thsx-lrow__gio thsx-num" title="Lúc tổ nhận việc">Nhận {ngayGio(w.nhan_luc)}</span>
         )}
         <ChipKcs so_lan={w.kcs_so_lan} loi={w.kcs_loi} />
         <ChipLoaiBuoc loai_buoc={w.loai_buoc} nha_cung_cap={w.nha_cung_cap} />

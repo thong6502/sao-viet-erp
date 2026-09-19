@@ -72,6 +72,7 @@ function KcsLoiRow({
       <p className="thsx-hopthu__mo">{l.mo_ta || "Lỗi"}</p>
       <p className="thsx-hopthu__mo">
         {[l.lsx_ma, l.ten_cong_doan].filter(Boolean).join(" · ")}
+        {l.phat_hien_o ? ` · bắt ở ${l.phat_hien_o}` : ""}
         {l.nguoi_kiem ? ` · ${l.nguoi_kiem}` : ""}{l.luc ? ` · ${ngayGio(l.luc)}` : ""}
         {l.so_anh > 0 ? ` · ${l.so_anh} ảnh` : ""}
       </p>

@@ -3,6 +3,9 @@ export const NHAN_TRANG_THAI_YC: Record<string, string> = {
   cho_len_ke_hoach: "Chờ lên kế hoạch",
   dang_thuc_hien: "Đang thực hiện",
   da_giao_du: "Đã giao đủ",
+  giao_thieu: "Giao thiếu",
+  that_bai: "Giao thất bại",
+  chuyen_da_huy: "Chuyến đã huỷ",
   da_huy: "Đã huỷ",
 };
 

@@ -31,6 +31,7 @@ from ...models.san_xuat_san_luong import (
 from ...repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ..gio_xuong import moc_tu_client
+from .dau_vao import kiem_tran_ghi
 from .thuc_thi import _gate, _moc
 from .viec_khoan import chuan_hoa_khi_ghi
 
@@ -193,8 +194,8 @@ def tao_batch(
     tong_f = _so_khong_am(tong, "Tổng số lượng")
     tot_f = _so_khong_am(tot, "Số lượng tốt")
     hong_f = _so_khong_am(hong, "Số lượng hỏng")
-    if tong_f <= 0:
-        raise ValueError("Tổng số lượng phải lớn hơn 0.")
+    # Mẻ 0 hợp lệ (19/09/2026): ca chỉ làm việc phát sinh (thay kẽm, lên khuôn…) vẫn phải có mẻ để
+    # ghi nhận ai có mặt + việc phát sinh; số 0 không cộng gì vào tiến độ/bàn giao.
     if abs(tong_f - (tot_f + hong_f)) > _EPS:
         raise ValueError("Tổng số lượng phải bằng Tốt + Hỏng.")
 
@@ -228,7 +229,6 @@ def tao_batch(
             f"Đơn vị sản lượng phải là “{nhan_don_vi(dv_ten, don_vi_cv)}” — "
             f"đúng đơn vị đầu ra của bước này."
         )
-
     # Dựng lot + kiểm việc khoán TRƯỚC khi add batch để bắt lỗi sớm (chưa chạm session cho tới khi
     # hợp lệ hết) — add nửa mẻ rồi mới báo "việc phát sinh không thuộc việc này" là để lại rác
     # trong session của request.
@@ -237,6 +237,9 @@ def tao_batch(
         _chuan_hoa_lot(repo, cv, don_vi_lot_mac_dinh, r, dv_ten)
         for r in (lot_vao or [])
     ]
+    # Trần theo số đã nhận từ công đoạn trước × hệ số quy đổi (19/09/2026) — xem `dau_vao`. Đứng
+    # SAU lot: lot trỏ đúng mẻ nguồn nên câu lỗi của lot (vượt phần đã toả…) cụ thể hơn.
+    kiem_tran_ghi(db, repo, cv, tot_f)
     o_khoan, cac_phat_sinh = chuan_hoa_khi_ghi(
         db, department_id=cv.department_id, piece_rate_id=piece_rate_id, phat_sinh=phat_sinh,
         bat_buoc=cv.loai_buoc != BUOC_THUE_NGOAI,

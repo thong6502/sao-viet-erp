@@ -580,14 +580,16 @@ def _san_luong(bc: BoiCanh, lsx_id: int) -> dict:
 def _kcs(bc: BoiCanh, lsx_id: int) -> dict:
     """Tổng nhận/đạt/không đạt + từng batch. Tỉ lệ tính THEO SỐ (Σđạt/Σnhận), không phải trung bình
     cộng các batch — batch 10 cái và batch 10.000 cái không cân nhau. Chưa kiểm cái nào ⇒ `None`,
-    KHÔNG phải 0.0: "0% đạt" là một lời báo động sai."""
+    KHÔNG phải 0.0: "0% đạt" là một lời báo động sai.
+    Nhận/đạt chỉ cộng công đoạn CUỐI — công đoạn giữa KCS chỉ ghi lỗi (19/09/2026); lỗi cộng hết."""
     ghep = {cv.id for cv in bc.cong_viec_ghep[lsx_id]}
     dong = []
     nhan = dat = khong_dat = 0.0
     for cv in bc.cong_viec_du(lsx_id):
         for k in sorted(bc.kcs[cv.id], key=lambda x: _aware(x.ket_thuc)):
-            nhan += _f(k.so_luong_nhan)
-            dat += _f(k.so_luong_dat)
+            if cv.la_kcs_cuoi:
+                nhan += _f(k.so_luong_nhan)
+                dat += _f(k.so_luong_dat)
             khong_dat += _f(k.so_luong_khong_dat)
             dong.append({
                 "id": k.id,

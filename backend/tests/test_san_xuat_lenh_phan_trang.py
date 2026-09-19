@@ -150,7 +150,8 @@ def test_gom_theo_lenh_va_cat_trang_theo_lenh(db, to_co_3_lenh_9_buoc):
 def test_sap_theo_buoc_som_nhat_cua_to_lenh_chua_xep_gio_don_cuoi(db, to_lenh_gio_lech):
     """Sắp theo giờ dự kiến của bước SỚM NHẤT của TỔ trong lệnh đó — không phải giờ của lệnh."""
     to_id, mong_doi = to_lenh_gio_lech
-    rows, _ = SanXuatRepository(db).lenh_cua_to_phan_trang({to_id}, trang=1, co_trang=50)
+    rows, _ = SanXuatRepository(db).lenh_cua_to_phan_trang(
+        {to_id}, trang=1, co_trang=50, sap_xep="du_kien")
     assert [k for k, _, _ in rows] == mong_doi
 
 
@@ -213,6 +214,7 @@ def test_loc_theo_nguoi_duoc_giao_chay_o_SQL_truoc_khi_cat_trang(
 
 # --- Tầng service: work_items gom theo LỆNH nhưng THẺ VIỆC vẫn là CÔNG ĐOẠN -------------------
 def _authz(db):
+    from app.repositories.rbac_repo import RoleRepository
     from app.repositories.rbac_repo import RoleRepository
     from app.services.rbac_service import AuthorizationService
 
@@ -359,3 +361,82 @@ def test_bai_ghep_mang_ten_khach_cac_lenh_thanh_vien(db, admin, to_co_bai_ghep_2
     assert [(l["nguon_loai"], l["khach_hang"]) for l in ban["lenh"]] == [("bai_ghep", "KH Xếp lịch")]
     assert {w["khach_hang"] for w in ban["lenh"][0]["cong_viec"]} == {"KH Xếp lịch"}
     assert board.work_items(db, admin, _authz(db), team_id=to_id, tim="xếp lịch")["trang"]["tong"] == 1
+
+
+@pytest.fixture
+def to_nhan_lech_ngay(db, to_co_3_lenh_9_buoc):
+    """Ba lệnh tổ nhận ở ba lúc khác nhau (UTC thật). Trả `(to_id, [khoá theo lúc nhận TĂNG dần])`."""
+    to_id = to_co_3_lenh_9_buoc
+    cvs = db.query(SanXuatCongViec).filter(SanXuatCongViec.department_id == to_id).all()
+    theo_lenh: dict[int, list[SanXuatCongViec]] = {}
+    for cv in cvs:
+        theo_lenh.setdefault(cv.lsx_id, []).append(cv)
+    a, b, c = sorted(theo_lenh)
+    # b nhận sớm nhất, rồi c, rồi a — lệch hẳn thứ tự id để test không đỗ nhờ trùng hợp.
+    moc = {b: datetime(2026, 9, 10, 2, 0, tzinfo=timezone.utc),
+           c: datetime(2026, 9, 12, 2, 0, tzinfo=timezone.utc),
+           a: datetime(2026, 9, 15, 2, 0, tzinfo=timezone.utc)}
+    for lid, ds in theo_lenh.items():
+        for i, cv in enumerate(ds):
+            cv.created_at = moc[lid] + timedelta(minutes=i)
+    db.commit()
+    return to_id, [("lsx", b), ("lsx", c), ("lsx", a)]
+
+
+def test_mac_dinh_lenh_nhan_sau_nam_tren(db, to_nhan_lech_ngay):
+    """Chủ xưởng 19/09/2026: cái nào phát hành sau thì nằm trên đầu."""
+    to_id, tang = to_nhan_lech_ngay
+    repo = SanXuatRepository(db)
+    rows, _ = repo.lenh_cua_to_phan_trang({to_id}, co_trang=50)
+    assert [k for k, _, _ in rows] == list(reversed(tang))
+    rows, _ = repo.lenh_cua_to_phan_trang({to_id}, co_trang=50, sap_xep="cu_nhan")
+    assert [k for k, _, _ in rows] == tang
+
+
+def test_loc_theo_luc_nhan_truoc_khi_cat_trang(db, to_nhan_lech_ngay):
+    to_id, tang = to_nhan_lech_ngay
+    repo = SanXuatRepository(db)
+    rows, tong = repo.lenh_cua_to_phan_trang(
+        {to_id}, co_trang=1,
+        nhan_tu=datetime(2026, 9, 11, tzinfo=timezone.utc),
+        nhan_den=datetime(2026, 9, 16, tzinfo=timezone.utc))
+    assert tong == 2, "đếm tổng SAU khi lọc — trang mới đúng số"
+    assert [k for k, _, _ in rows] == [tang[2]]
+
+
+def test_loc_trang_thai_giu_lenh_co_buoc_khop(db, to_co_3_lenh_9_buoc):
+    to_id = to_co_3_lenh_9_buoc
+    repo = SanXuatRepository(db)
+    assert repo.lenh_cua_to_phan_trang({to_id}, trang_thai={"running"}) == ([], 0)
+    cv = db.query(SanXuatCongViec).filter(SanXuatCongViec.department_id == to_id).first()
+    cv.trang_thai = "running"
+    db.commit()
+    rows, tong = repo.lenh_cua_to_phan_trang({to_id}, trang_thai={"running", "paused"})
+    assert tong == 1
+    assert rows[0][0] == ("lsx", cv.lsx_id)
+
+
+def test_board_loc_trang_thai_chi_bay_buoc_khop_va_ngay_la_ngay_xuong(
+        db, admin, to_co_3_lenh_9_buoc):
+    """Qua service: trong lệnh chỉ còn bước khớp trạng thái; `nhan_tu/nhan_den` là NGÀY XƯỞNG."""
+    from datetime import date
+
+    from app.repositories.rbac_repo import RoleRepository
+    from app.services.rbac_service import AuthorizationService
+    from app.services.san_xuat import board
+    from app.services.gio_xuong import ve_gio_xuong
+
+    to_id = to_co_3_lenh_9_buoc
+    cvs = db.query(SanXuatCongViec).filter(SanXuatCongViec.department_id == to_id).all()
+    chay = cvs[0]
+    chay.trang_thai = "running"
+    db.commit()
+    authz = AuthorizationService(RoleRepository(db))
+    kq = board.work_items(db, admin, authz, team_id=to_id, trang_thai={"running"})
+    assert [cv["id"] for l in kq["lenh"] for cv in l["cong_viec"]] == [chay.id]
+
+    ngay = ve_gio_xuong(chay.created_at).date()
+    kq = board.work_items(db, admin, authz, team_id=to_id, nhan_tu=ngay, nhan_den=ngay)
+    assert kq["trang"]["tong"] == 3
+    kq = board.work_items(db, admin, authz, team_id=to_id, nhan_tu=ngay + timedelta(days=1))
+    assert kq["trang"]["tong"] == 0

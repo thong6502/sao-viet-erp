@@ -54,6 +54,7 @@ from app.models.lsx import (
 )
 from app.models.order import Order, OrderLine
 from app.models.san_xuat import CV_HOAN_THANH, SanXuatCongViec
+from app.models.san_xuat_san_luong import BG_XAC_NHAN, SanXuatBanGiao
 from app.models.san_xuat_thuc_thi import (
     PC_HOAT_DONG, PHIEN_KET_THUC, SanXuatPhanCong, SanXuatPhienChay,
 )
@@ -410,6 +411,21 @@ def _dat_xong_luc(sess, cv: SanXuatCongViec, luc: datetime) -> None:
     )
     sess.commit()
     sess.expire_all()
+
+
+def _da_nhan_tu(sess, nguon: SanXuatCongViec, dich: SanXuatCongViec, so_luong: float = 1) -> None:
+    """Một lần bàn giao ĐÃ XÁC NHẬN nguồn → đích, đúng hình dạng `ban_giao.xac_nhan` để lại.
+
+    Từ 19/09/2026 bước có công đoạn trước chỉ bắt đầu được khi đã nhận hàng từ đó
+    (`dau_vao.kiem_bat_dau`). Bài nào dựng bước trước "xong" bằng `_dat_xong_luc` rồi bắt đầu bước
+    sau thì gọi hàm này để mở cửa — bàn giao không phải thứ các bài đó soi.
+    """
+    sess.add(SanXuatBanGiao(
+        nguon_cong_viec_id=nguon.id, dich_cong_viec_id=dich.id, cung_to=False,
+        so_luong=so_luong, don_vi=nguon.don_vi_ra or dich.don_vi_vao or "cai",
+        trang_thai=BG_XAC_NHAN, xac_nhan_luc=datetime.now(timezone.utc),
+    ))
+    sess.commit()
 
 
 _dem_bai_ghep = 0

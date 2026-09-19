@@ -9,7 +9,7 @@ dòng Xem · Phạm vi · 4 quyền chi tiết; bàn cấp gom gộp các tổ t
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -42,8 +42,8 @@ from ..quyen_to import (
     quyen_to_cua,
     quyen_tren_viec,
 )
-from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi
-from . import viec_khoan
+from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi, ve_utc_that
+from . import dau_vao, viec_khoan
 from .nguoi_trong_me import nguoi_theo_me
 from .thuc_thi import _aware
 from .tinh_trang_nguoi import hom_nay, tinh_trang_nhieu
@@ -249,6 +249,9 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=No
         # rồi mới trả — không thì cùng một thanh Gantt đo bằng hai cây thước lệch nhau 7 tiếng.
         "du_kien_bat_dau": lich_hien_thi(cv.du_kien_bat_dau),
         "du_kien_ket_thuc": lich_hien_thi(cv.du_kien_ket_thuc),
+        # Lúc việc tới tay tổ = lúc phát hành tạo thẻ việc (`created_at`, UTC THẬT → giờ xưởng).
+        # "Phát hành cập nhật" sửa đè tại chỗ nên mốc này giữ nguyên lần nhận đầu.
+        "nhan_luc": thuc_te_hien_thi(cv.created_at),
         # Số người dự kiến chốt lúc phát hành (§7.1) — FE so với roster để đòi lý do khi lệch.
         # Bước NGOÀI dòng giấy: đo bằng đơn vị của CHÍNH nó (ghi kẽm đếm bản, đóng thùng đếm
         # thùng) nên `so_luong_vao == so_luong_ra` và cột "SL vào → ra" phải hiện MỘT số. Cờ này
@@ -349,6 +352,13 @@ def _trong_cua_so(cv, tu_ngay: date | None, den_ngay: date | None) -> bool:
     return True
 
 
+def _dau_ngay_xuong(d: date | None) -> datetime | None:
+    """0 giờ của một NGÀY XƯỞNG → UTC THẬT, để so với `created_at` (thang thực thi)."""
+    if d is None:
+        return None
+    return ve_utc_that(datetime.combine(d, time.min, tzinfo=timezone.utc))
+
+
 def _digest(rows) -> dict[str, int]:
     """Đếm bước theo trạng thái cho nhãn của một lệnh — cùng bốn khoá mà FE `sxDigest` dùng."""
     d = {"released": 0, "running": 0, "paused": 0, "completed": 0}
@@ -366,6 +376,10 @@ def work_items(
     tu_ngay: date | None = None,
     den_ngay: date | None = None,
     cho_xac_nhan: bool = False,
+    trang_thai: set[str] | None = None,
+    nhan_tu: date | None = None,
+    nhan_den: date | None = None,
+    sap_xep: str = "moi_nhan",
 ) -> dict:
     """Việc đã phát hành của MỘT tổ. Hai hình, chọn bằng `nhom`:
 
@@ -387,7 +401,11 @@ def work_items(
 
     `cho_xac_nhan` (ô "chờ xác nhận" của bàn, §11.5): chỉ giữ lệnh có ÍT NHẤT MỘT công đoạn đang
     chờ tổ bấm (bàn giao đến · hỗ trợ chéo · lỗi KCS chưa xem) — lọc trước khi cắt trang, cả lệnh
-    vẫn hiện đủ công đoạn của tổ."""
+    vẫn hiện đủ công đoạn của tổ.
+
+    Lọc nâng cao (chỉ `nhom="lenh"`, lọc trước khi cắt trang): `trang_thai` giữ lệnh có bước ở
+    trạng thái ấy VÀ trong lệnh chỉ bày các bước khớp; `nhan_tu`/`nhan_den` là NGÀY XƯỞNG (gồm cả
+    hai đầu) của lúc tổ nhận lệnh; `sap_xep` mặc định lệnh nhận SAU nằm trên — xem repo."""
     repo = SanXuatRepository(db)
     q, _muc = _pham_vi_doc(db, user, team_id)
     tron, rieng = q.pham_vi_ban(team_id)
@@ -405,9 +423,20 @@ def work_items(
 
     khoa_trang, tong = repo.lenh_cua_to_phan_trang(
         tron, employee_id=emp_id, rieng_ids=rieng, tim=tim, trang=trang,
-        co_trang=co_trang, chi_cong_viec_ids=chi_ids)
+        co_trang=co_trang, chi_cong_viec_ids=chi_ids, trang_thai=trang_thai,
+        nhan_tu=_dau_ngay_xuong(nhan_tu),
+        nhan_den=_dau_ngay_xuong(nhan_den + timedelta(days=1) if nhan_den else None),
+        sap_xep=sap_xep)
     khoa = [k for k, _, _ in khoa_trang]
     rows = repo.cong_viec_cua_lenh(tron, khoa, employee_id=emp_id, rieng_ids=rieng)
+    # "Nhận" của lệnh tính trên MỌI bước của tổ (cùng khoá sắp của repo), trước khi lọc trạng thái.
+    nhan_lenh: dict[tuple[str, int | None], datetime] = {}
+    for cv in rows:
+        k = ("bai_ghep", cv.bai_ghep_id) if cv.bai_ghep_id else ("lsx", cv.lsx_id)
+        if cv.created_at and (k not in nhan_lenh or cv.created_at < nhan_lenh[k]):
+            nhan_lenh[k] = cv.created_at
+    if trang_thai:
+        rows = [cv for cv in rows if cv.trang_thai in trang_thai]
     item_theo_id = {it["id"]: it for it in _dung_items(db, repo, rows, _viec_chay_duoc(db, user, q, rows))}
     cv_theo_khoa: dict[tuple[str, int | None], list] = {}
     for cv in rows:
@@ -432,6 +461,7 @@ def work_items(
             "bai_ghep_id": nid if loai == "bai_ghep" else None,
             "som_nhat": lich_hien_thi(som),
             "muon_nhat": lich_hien_thi(muon),
+            "nhan_luc": thuc_te_hien_thi(nhan_lenh.get((loai, nid))),
             "so_viec": len(cvs),
             "digest": _digest(cvs),
             "cong_viec": [item_theo_id[cv.id] for cv in cvs if cv.id in item_theo_id],
@@ -511,7 +541,11 @@ def _cv_cho_xac_nhan(db: Session, q, team_id: int) -> set[int]:
     ids |= {h.cong_viec_id for h in SanXuatHoTroRepository(db).ho_tro_cho_cua_to(xn_ids)}
     kcs = SanXuatKcsRepository(db)
     loi = kcs.loi_chua_xem_nhieu_to(xn_ids)
-    ids |= {b.cong_viec_id for b in kcs.kcs_batch_nhieu({l.kcs_batch_id for l in loi}).values()}
+    # Lỗi quy về công đoạn đứng trước nằm ở công đoạn CHỊU lỗi, không phải công đoạn của lần kiểm —
+    # cùng luật với `kcs.loi_cho_xem`, không thì bàn tổ chịu lỗi lọc ra trắng.
+    batch = kcs.kcs_batch_nhieu({l.kcs_batch_id for l in loi if not l.cong_doan_ref_id})
+    ids |= {l.cong_doan_ref_id or (batch[l.kcs_batch_id].cong_viec_id if l.kcs_batch_id in batch else None)
+            for l in loi}
     return {i for i in ids if i}
 
 
@@ -1113,6 +1147,14 @@ def chi_tiet_cong_viec(
         "ban_giao_den": [
             _bg_dict(b, b.nguon_cong_viec_id, doi_tac_map, me_map, dc_map, ten_bg) for b in bg_den
         ],
+        # Đầu vào theo routing (19/09/2026, `dau_vao`): công đoạn trước + trần ghi mẻ + còn thiếu
+        # nguồn nào thì chưa bắt đầu được — cùng hàm máy chủ dùng để CHẶN, drawer chỉ bày lại.
+        "cong_doan_truoc": dau_vao.cong_doan_truoc(db, sl, cv),
+        "tran_ghi": (
+            {**t, "da_ghi": _tong_tot_cv, "con_ghi_duoc": max(0.0, t["toi_da"] - _tong_tot_cv)}
+            if (t := dau_vao.tran_ghi(db, cv, repo=sl)) else None
+        ),
+        "thieu_dau_vao": dau_vao.thieu_dau_vao(sl, cv),
         "ban_giao_chang_sau": [
             {
                 "cong_viec_id": c.id,

@@ -280,6 +280,8 @@ def test_item_dict_gio_khong_lech_khi_db_tra_aware():
         ghi_chu=None, quy_cach_json=None,
         # Tổ thật của việc (bàn nút cha gộp nhiều tổ con, mg 0302) — cùng lý do.
         department_id=None,
+        # Lúc phát hành tạo thẻ việc = lúc tổ NHẬN việc (UTC thật, như mốc phiên chạy).
+        created_at=moc_that,
     )
     phien = SimpleNamespace(bat_dau=moc_that, ket_thuc=None)
 
@@ -289,6 +291,8 @@ def test_item_dict_gio_khong_lech_khi_db_tra_aware():
     # Mốc thực tế quy về đồng hồ xưởng rồi mới rụng nhãn — viết theo múi MÁY CHỦ, không cứng +7h.
     assert item["thuc_te"][0]["bat_dau"] == moc_that.astimezone().replace(tzinfo=None)
     assert item["thuc_te"][0]["ket_thuc"] is None
+    # Lúc nhận là mốc THỰC TẾ → cùng thang với phiên chạy, không phải thang kế hoạch.
+    assert item["nhan_luc"] == moc_that.astimezone().replace(tzinfo=None)
 
 
 def test_work_items_moi_moc_gio_cung_mot_thang(db, orders, lsx_svc, admin, customer):

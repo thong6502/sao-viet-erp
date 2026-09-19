@@ -25,6 +25,7 @@ from app.models.san_xuat import (
     NHOM_DONG_THIEU,
     SanXuatCongViec,
 )
+from app.models.san_xuat_san_luong import SanXuatBatch
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.schemas.san_xuat import DongNhomDieuKienOut, DongNhomKetQuaOut
 from app.services.san_xuat import dong_nhom, kcs
@@ -197,14 +198,16 @@ def test_cong_doan_cuoi_chua_kiem_het_chan_dong_du(db, orders, lsx_svc, admin, c
 
 
 def test_cong_doan_cuoi_chua_co_so_tot_hoac_khong_xac_dinh(db, orders, lsx_svc, admin, customer):
-    _to, cv, _res = _batch(db, orders, lsx_svc, admin, customer, dat=5, khong_dat=0)
+    _to, cv, _res = _batch(db, orders, lsx_svc, admin, customer, dat=5, khong_dat=0, cuoi=True)
     for c in _cvs_nhom(db, cv.nhom_id):
         c.la_kcs_cuoi = False
     db.commit()
     dk = _dk(db, cv.nhom_id, "kcs_cuoi_kiem_het")
     assert dk["dat"] is False and "chưa xác định công đoạn cuối" in dk["chi_tiet"]
 
+    # Tổ xoá mẻ SAU khi KCS đã kiểm (hoặc dữ liệu cũ trước khi KCS phải có mẻ mới kiểm được).
     cv.la_kcs_cuoi = True
+    db.query(SanXuatBatch).filter_by(cong_viec_id=cv.id).delete()
     db.commit()
     dk = _dk(db, cv.nhom_id, "kcs_cuoi_kiem_het")
     assert dk["dat"] is False and "chưa ghi số tốt" in dk["chi_tiet"]

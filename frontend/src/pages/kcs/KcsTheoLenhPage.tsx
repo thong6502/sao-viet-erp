@@ -178,22 +178,21 @@ export function KcsTheoLenhPage({
                 <col className="kcs-col--nhom" />
                 <col className="kcs-col--kiem" />
                 <col className="kcs-col--loi" />
-                <col className="kcs-col--kho" />
               </colgroup>
               <thead>
                 <tr>
                   <th>Lệnh</th>
                   <th>Khách hàng</th>
                   <th>Nhóm</th>
-                  <th className="num">Đã kiểm</th>
+                  {/* Chỉ công đoạn cuối mới kiểm đạt (19/09/2026) — đếm "x/y công đoạn đã kiểm" báo thiếu oan. */}
+                  <th className="num">Đạt ở công đoạn cuối</th>
                   <th className="num">Lỗi</th>
-                  <th className="num">Chờ gửi kho</th>
                 </tr>
               </thead>
               <tbody>
                 {lenh.items.map((l) => {
                   const nt = l.nhom_trang_thai ? KCS_NHOM_TRANG_THAI[l.nhom_trang_thai] : null;
-                  const kiemDu = l.so_da_kiem === l.so_cong_doan && l.so_cong_doan > 0;
+                  const kiemDu = l.cuoi != null && l.cuoi.tot > 0 && l.cuoi.dat >= l.cuoi.tot;
                   return (
                     <tr key={l.lsx_id} className="kcs-row--clickable" tabIndex={0}
                       onClick={() => setLsxId(l.lsx_id)}
@@ -208,10 +207,13 @@ export function KcsTheoLenhPage({
                         {nt && <div className="rc__sub"><span className={`badge-sem ${nt.cls}`}>{nt.nhan}</span></div>}
                       </td>
                       <td className="num">
-                        <span className={`kcs-dot-pill ${kiemDu ? "kcs-dot-pill--moss" : "kcs-dot-pill--amber"}`}>
-                          <span className="kcs-dot-pill__dot" />
-                          {l.so_da_kiem}/{l.so_cong_doan} công đoạn
-                        </span>
+                        {l.cuoi && l.cuoi.tot > 0 ? (
+                          <span className={`kcs-dot-pill ${kiemDu ? "kcs-dot-pill--moss" : "kcs-dot-pill--amber"}`}
+                            title="KCS đạt / tổ ghi tốt ở công đoạn cuối">
+                            <span className="kcs-dot-pill__dot" />
+                            {num(l.cuoi.dat)}/{num(l.cuoi.tot)}
+                          </span>
+                        ) : "—"}
                       </td>
                       <td className="num">
                         {l.so_loi > 0 ? (
@@ -221,7 +223,6 @@ export function KcsTheoLenhPage({
                           </span>
                         ) : "—"}
                       </td>
-                      <td className="num">{l.cuoi && l.cuoi.con_gui_kho > 0 ? num(l.cuoi.con_gui_kho) : "—"}</td>
                     </tr>
                   );
                 })}

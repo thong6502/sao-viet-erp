@@ -52,7 +52,9 @@ from ..models.delivery import (
     YC_CHO_LEN_KE_HOACH,
     YC_DA_HUY,
 )
+from ..models.delivery import LAN_GIAO_DANG_CHAY
 from ..models.order import STATUS_ORDERED
+from ..models.stock_request import REQ_DONE
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 
 # Hai chuyến cách nhau dưới ngần này thì CẢNH BÁO (không chặn) — PRD §6.
@@ -73,6 +75,9 @@ _KHONG_GUI = object()
 # Trạng thái dẫn xuất của yêu cầu — KHÔNG lưu, chỉ trả cho FE.
 YC_DANG_THUC_HIEN = "dang_thuc_hien"
 YC_DA_GIAO_DU = "da_giao_du"
+YC_GIAO_THIEU = "giao_thieu"
+YC_THAT_BAI = "that_bai"
+YC_CHUYEN_DA_HUY = "chuyen_da_huy"
 
 
 class DeliveryError(Exception):
@@ -182,31 +187,137 @@ class DeliveryService:
     # =====================================================================================
     # Số lượng — còn phải giao
     # =====================================================================================
-    def con_phai_giao(self, order_id: int) -> dict[int, int]:
-        """{order_line_id: còn phải giao} = đặt − đã giao − đang nằm trong yêu cầu MỞ.
+    def dang_giu_hang(self, req) -> bool:
+        """Yêu cầu còn GIỮ phần chưa giao của nó không (19/09/2026).
 
-        Trừ cả phần đang nằm trong yêu cầu chưa giao xong, nếu không thì lập hai yêu cầu liên
-        tiếp là đặt vượt số đơn mà mỗi lần kiểm đều thấy "còn đủ".
+        Giữ khi: chưa có chuyến · chuyến đang chạy (kể cả đang chở hàng về) · chuyến giao thiếu mà
+        phiếu nhập trả về chưa ghi sổ xong. Còn lại — chuyến đã huỷ, thất bại đã nhận lại hàng, giao
+        thiếu đã nhận lại — thì NHẢ: phần đó quay về "giao được" để lập yêu cầu mới. Bản cũ giữ mãi
+        mọi yêu cầu chưa huỷ, nên phần hỏng của một chuyến thất bại không bao giờ giao lại được.
+        """
+        if req.trang_thai == YC_DA_HUY:
+            return False
+        trips = self.deliveries.trips_cua_yeu_cau(req.id)
+        if not trips:
+            return True
+        for t in trips:
+            if t.trang_thai in LAN_GIAO_DANG_CHAY:
+                return True
+            if t.trang_thai == LG_GIAO_THIEU:
+                tra = self.deliveries.yeu_cau_kho_cua_chuyen(t.id, "NHAP")
+                if tra is not None and tra.trang_thai != REQ_DONE:
+                    return True
+        return False
+
+    def _so_giao(self, order) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
+        """(đặt, đã giao, đang giữ) theo `order_line_id`."""
+        dat = {ln.id: int(ln.qty or 0) for ln in order.lines}
+        da_giao = self.deliveries.da_giao_theo_dong(order.id)
+        dang_giu: dict[int, int] = {}
+        for req in self.deliveries.requests_mo_cua_don(order.id):
+            if not self.dang_giu_hang(req):
+                continue
+            da_cua_req = self.deliveries.da_giao_cua_yeu_cau(req.id)
+            for ln in req.lines:
+                chua_giao = int(ln.qty) - int(da_cua_req.get(ln.order_line_id, 0))
+                if chua_giao > 0:
+                    dang_giu[ln.order_line_id] = dang_giu.get(ln.order_line_id, 0) + chua_giao
+        return dat, da_giao, dang_giu
+
+    def con_phai_giao(self, order_id: int) -> dict[int, int]:
+        """{order_line_id: còn phải giao} = đặt − đã giao − đang GIỮ (xem `dang_giu_hang`).
+
+        Trừ cả phần yêu cầu đang giữ, nếu không thì lập hai yêu cầu liên tiếp là đặt vượt số đơn
+        mà mỗi lần kiểm đều thấy "còn đủ".
         """
         order = self.orders.get_by_id(order_id)
         if order is None:
             raise DeliveryNotFound("Không tìm thấy đơn hàng bán")
-        dat = {ln.id: int(ln.qty or 0) for ln in order.lines}
-        da_giao = self.deliveries.da_giao_theo_dong(order_id)
-
-        dang_giu: dict[int, int] = {}
-        for req in self.deliveries.requests_mo_cua_don(order_id):
-            da_cua_req = self.deliveries.da_giao_cua_yeu_cau(req.id)
-            for ln in req.lines:
-                # Phần của yêu cầu này CHƯA tới tay khách vẫn đang bị giữ chỗ.
-                chua_giao = int(ln.qty) - int(da_cua_req.get(ln.order_line_id, 0))
-                if chua_giao > 0:
-                    dang_giu[ln.order_line_id] = dang_giu.get(ln.order_line_id, 0) + chua_giao
-
+        dat, da_giao, dang_giu = self._so_giao(order)
         return {
             lid: max(0, so - int(da_giao.get(lid, 0)) - int(dang_giu.get(lid, 0)))
             for lid, so in dat.items()
         }
+
+    def nguon_giao_theo_cum(self, order) -> list[dict]:
+        """Mỗi cụm bán: đặt · đã giao · đang giữ · kho đã nhận · tồn thật · GIAO ĐƯỢC (19/09/2026).
+
+        Luật chủ chốt: "không được giao phần chưa nhập kho". Giao được =
+          · cụm CÓ lệnh: kho ĐÃ NHẬN từ yêu cầu nhập của lệnh CHÍNH ĐƠN NÀY − đã giao − đang giữ.
+            Không đọc tồn chung của mã: hai đơn trùng tên hàng dùng chung một mã Thành phẩm, đọc tồn
+            chung là đơn này giao lấn hàng của đơn kia;
+          · cụm KHÔNG có lệnh (hàng có sẵn, không qua xưởng): tồn thật của mã − đang giữ;
+        rồi kẹp bởi còn phải giao và tồn thật của mã. Hai cụm cùng một mã dùng CHUNG phần kho — số
+        `giao_duoc` của từng cụm là trần riêng, `tao_yeu_cau` kiểm tổng theo mã.
+        """
+        from ..models.stock_request import REQ_CANCELLED, REQ_REJECTED
+        from ..repositories.stock_lot_repo import StockLotRepository
+        from .thanh_pham_khai_bao import tim_theo_ten
+
+        db = self.deliveries.db
+        cums = cum_ban(order)
+        dat, da_giao, dang_giu = self._so_giao(order)
+        lenh = self.deliveries.lenh_theo_dong_don(order.id)
+
+        tp_cua_cum = {c.khoa: tim_theo_ten(db, c.ten) for c in cums}
+        tp_ids = {tp.id for tp in tp_cua_cum.values() if tp is not None}
+        ton_kho = StockLotRepository(db).on_hand_by_kho([("vat_tu", i) for i in tp_ids])
+        ton = {i: sum(ton_kho.get(("vat_tu", i), {}).values()) for i in tp_ids}
+
+        lsx_ids = [s for ds in lenh.values() for s in ds]
+        de_nghi: dict[int, float] = {}
+        da_nhan: dict[int, float] = {}
+        for req, ln in self.deliveries.dong_nhap_tp_cua_lenh(lsx_ids):
+            nhan = float(ln.sl_da_ung or 0)
+            song = req.trang_thai not in (REQ_CANCELLED, REQ_REJECTED)
+            de_nghi[ln.hang_id] = de_nghi.get(ln.hang_id, 0.0) + (
+                StockRequestService.muc_tieu_hieu_luc(ln) if song else nhan)
+            da_nhan[ln.hang_id] = da_nhan.get(ln.hang_id, 0.0) + nhan
+
+        # Phần kho CÒN DÙNG ĐƯỢC của mỗi mã = nguồn − Σ(đã giao + đang giữ) mọi cụm dùng mã đó.
+        dung: dict[int, float] = {}
+        co_lenh_theo_tp: dict[int, bool] = {}
+        for c in cums:
+            tp = tp_cua_cum[c.khoa]
+            if tp is None:
+                continue
+            d = c.dong_dau.id
+            dung[tp.id] = dung.get(tp.id, 0.0) + da_giao.get(d, 0) + dang_giu.get(d, 0)
+            co_lenh_theo_tp[tp.id] = co_lenh_theo_tp.get(tp.id, False) or any(
+                lenh.get(od.id) for od in c.dong)
+        con_kho: dict[int, float] = {}
+        for i in tp_ids:
+            if co_lenh_theo_tp.get(i):
+                nguon = da_nhan.get(i, 0.0) - dung.get(i, 0.0)
+                con_kho[i] = max(0.0, min(nguon, ton[i]))
+            else:
+                # Hàng có sẵn: tồn thật đã trừ phần xuất rồi, chỉ trừ phần đang giữ chưa xuất.
+                giu = sum(dang_giu.get(c.dong_dau.id, 0) for c in cums
+                          if tp_cua_cum[c.khoa] is not None and tp_cua_cum[c.khoa].id == i)
+                con_kho[i] = max(0.0, ton[i] - giu)
+
+        ra: list[dict] = []
+        for c in cums:
+            tp = tp_cua_cum[c.khoa]
+            d = c.dong_dau.id
+            con = min(max(0, dat[od.id] - da_giao.get(od.id, 0) - dang_giu.get(od.id, 0))
+                      for od in c.dong)
+            ra.append({
+                "cum": c,
+                "tp_id": tp.id if tp is not None else None,
+                "co_lenh": any(lenh.get(od.id) for od in c.dong),
+                "lsx_ids": sorted({s for od in c.dong for s in lenh.get(od.id, [])}),
+                "dat": int(c.so_luong),
+                "da_giao": int(da_giao.get(d, 0)),
+                "dang_giu": int(dang_giu.get(d, 0)),
+                "con_phai_giao": int(con),
+                "kho_de_nghi": de_nghi.get(tp.id, 0.0) if tp is not None else 0.0,
+                "kho_da_nhan": da_nhan.get(tp.id, 0.0) if tp is not None else 0.0,
+                "ton_that": ton.get(tp.id, 0.0) if tp is not None else 0.0,
+                "con_kho": con_kho.get(tp.id, 0.0) if tp is not None else 0.0,
+                "giao_duoc": int(min(con, con_kho.get(tp.id, 0.0))) if tp is not None else 0,
+            })
+        return ra
 
     def da_giao_du(self, order_id: int) -> bool:
         """Cờ cho kế toán: đơn đã giao đủ ⇒ đủ điều kiện xuất hoá đơn (PRD §16)."""
@@ -226,10 +337,17 @@ class DeliveryService:
         da_giao = self.deliveries.da_giao_cua_yeu_cau(request.id)
         if all(int(da_giao.get(ln.order_line_id, 0)) >= int(ln.qty) for ln in request.lines):
             return YC_DA_GIAO_DU
-        if self.deliveries.trip_dang_chay(request.id) is not None:
+        if any(t.trang_thai in LAN_GIAO_DANG_CHAY for t in trips):
             return YC_DANG_THUC_HIEN
-        # Mọi chuyến đã đóng mà chưa giao đủ ⇒ chờ quản lý xếp chuyến mới.
-        return YC_CHO_LEN_KE_HOACH
+        # Mọi chuyến đã đóng mà chưa giao đủ. Bản cũ trả "chờ lên kế hoạch" — nhưng unique index
+        # mg 0229 cấm chuyến thứ hai, nên yêu cầu treo ở hàng chờ mãi. Nay nói đúng kết cục; phần
+        # chưa giao đã nhả về "giao được", giao lại = lập yêu cầu mới.
+        cuoi = trips[-1].trang_thai
+        if cuoi == LG_GIAO_THIEU:
+            return YC_GIAO_THIEU
+        if cuoi == LG_DA_HUY:
+            return YC_CHUYEN_DA_HUY
+        return YC_THAT_BAI
 
     # =====================================================================================
     # Yêu cầu giao hàng
@@ -246,8 +364,37 @@ class DeliveryService:
         """
         return khai_mot_dong(self.deliveries.db, order, order_line)
 
+    def _noi_nhan(self, order, dia_chi_id=None, lien_he_id=None) -> tuple[str, str | None, str | None]:
+        """Nơi nhận của một yêu cầu giao — (địa chỉ, người nhận, SĐT), CHỌN từ khách, không gõ tay.
+
+        Không chọn gì ⇒ nơi nhận của đơn (đơn kế thừa từ báo giá, báo giá chọn từ sổ của khách).
+        Chọn ⇒ id phải thuộc ĐÚNG khách của đơn, rồi chụp lại chữ: khách đổi địa chỉ sau này
+        không làm phiếu giao cũ đổi theo.
+        """
+        from ..models.customer import CustomerAddress, CustomerContact
+
+        db = self.deliveries.db
+        dia_chi = order.delivery_address or ""
+        nguoi = order.delivery_contact_name
+        sdt = order.delivery_contact_phone
+        if dia_chi_id is not None:
+            a = db.get(CustomerAddress, dia_chi_id)
+            if a is None or a.customer_id != order.customer_id:
+                raise DeliveryError("Địa chỉ giao không thuộc khách hàng của đơn")
+            dia_chi = a.address
+            sdt = a.phone or sdt
+        if lien_he_id is not None:
+            c = db.get(CustomerContact, lien_he_id)
+            if c is None or c.customer_id != order.customer_id:
+                raise DeliveryError("Người nhận không thuộc khách hàng của đơn")
+            nguoi, sdt = c.name, c.phone or sdt
+        if not (dia_chi or "").strip():
+            raise DeliveryError(
+                "Khách chưa có địa chỉ giao — thêm địa chỉ ở hồ sơ khách hàng rồi chọn lại")
+        return dia_chi, nguoi, sdt
+
     def tao_yeu_cau(self, *, order_id, ngay_can_giao, lines, actor,
-                    dia_chi=None, nguoi_nhan=None, sdt_nguoi_nhan=None, ghi_chu=None) -> dict:
+                    dia_chi_id=None, lien_he_id=None) -> dict:
         order = self.orders.get_by_id(order_id)
         if order is None:
             raise DeliveryNotFound("Không tìm thấy đơn hàng bán")
@@ -283,6 +430,7 @@ class DeliveryService:
                         f"Vượt số còn phải giao: «{cum.ten}» chỉ còn {con_lai.get(od.id, 0)}, "
                         f"đang yêu cầu {qty}"
                     )
+        self._chan_vuot_giao_duoc(order, [(cum, qty) for cum, qty in theo_cum.values()])
 
         # CHẶN CỨNG, không phải cảnh báo (chủ chốt 20/08/2026: "nay ngày 20 tôi lập phiếu yêu
         # cầu thì sao mà chọn được ngày 19"). Bản đầu chỉ cảnh báo với lý do "nhập bù đơn hôm
@@ -290,6 +438,7 @@ class DeliveryService:
         # khỏi kho thì không có gì để nhập bù. Ngày quá khứ ở đây chỉ có thể là gõ nhầm, mà gõ
         # nhầm thì kéo lệch cả hàng chờ giao lẫn thống kê trễ hạn.
         self._chan_ngay_qua_khu(ngay_can_giao)
+        dia_chi, nguoi_nhan, sdt_nguoi_nhan = self._noi_nhan(order, dia_chi_id, lien_he_id)
         canh_bao: list[str] = []
 
         code = self._sinh_ma("YCGH", self.deliveries.get_request_by_code)
@@ -299,12 +448,11 @@ class DeliveryService:
             customer_id=getattr(order, "customer_id", None),
             department_id=getattr(actor, "department_id", None),
             ngay_can_giao=ngay_can_giao,
-            # SNAPSHOT: điền sẵn từ đơn nếu người lập không sửa. Đông lại ngay, không đọc-sống.
-            dia_chi=(dia_chi if dia_chi is not None else (order.delivery_address or "")),
-            nguoi_nhan=(nguoi_nhan if nguoi_nhan is not None else order.delivery_contact_name),
-            sdt_nguoi_nhan=(sdt_nguoi_nhan if sdt_nguoi_nhan is not None
-                            else order.delivery_contact_phone),
-            ghi_chu=(ghi_chu if ghi_chu is not None else order.delivery_note),
+            # SNAPSHOT: đông lại ngay, không đọc-sống. Lưu ý giao luôn là của đơn.
+            dia_chi=dia_chi,
+            nguoi_nhan=nguoi_nhan,
+            sdt_nguoi_nhan=sdt_nguoi_nhan,
+            ghi_chu=order.delivery_note,
             trang_thai=YC_CHO_LEN_KE_HOACH,
             created_by=getattr(actor, "id", None),
         )
@@ -321,6 +469,27 @@ class DeliveryService:
                     self.deliveries.add_request_line(req.id, od.id, qty)
         return {"request": req, "canh_bao": canh_bao}
 
+    def _chan_vuot_giao_duoc(self, order, cum_qty: list[tuple]) -> None:
+        """Chủ chốt 19/09/2026: "không được với phần chưa nhập kho" — xem `nguon_giao_theo_cum`."""
+        nguon = {n["cum"].khoa: n for n in self.nguon_giao_theo_cum(order)}
+        tong_tp: dict[int, int] = {}
+        for cum, qty in cum_qty:
+            n = nguon[cum.khoa]
+            if qty > n["giao_duoc"]:
+                goc = (f"kho đã nhận {n['kho_da_nhan']:g} từ sản xuất" if n["co_lenh"]
+                       else f"tồn kho {n['ton_that']:g}")
+                raise DeliveryError(
+                    f"«{cum.ten}» mới giao được {n['giao_duoc']} ({goc}, đã giao {n['da_giao']}, "
+                    f"đang chờ giao {n['dang_giu']}) — đang yêu cầu {qty}. "
+                    "Phần chưa nhập kho chưa lập yêu cầu giao được."
+                )
+            tong_tp[n["tp_id"]] = tong_tp.get(n["tp_id"], 0) + qty
+            if tong_tp[n["tp_id"]] > n["con_kho"]:
+                raise DeliveryError(
+                    f"Các sản phẩm cùng mã với «{cum.ten}» chỉ còn {n['con_kho']:g} trong kho "
+                    f"để giao, đang yêu cầu tổng {tong_tp[n['tp_id']]}."
+                )
+
     def huy_yeu_cau(self, request_id: int, *, ly_do: str, actor, scope=None) -> None:
         req = self.deliveries.get_request(request_id)
         if req is None:
@@ -328,7 +497,9 @@ class DeliveryService:
         self.chan_ngoai_pham_vi_yeu_cau(req, scope=scope, actor=actor)
         if req.trang_thai == YC_DA_HUY:
             raise DeliveryError("Yêu cầu đã huỷ rồi")
-        if self.deliveries.trips_cua_yeu_cau(request_id):
+        # Chuyến đã HUỶ thì yêu cầu huỷ được — không thì nó kẹt: unique index mg 0229 cấm lên chuyến
+        # thứ hai, mà chặn huỷ vì "còn chuyến" thì không còn đường nào đóng nó.
+        if any(t.trang_thai != LG_DA_HUY for t in self.deliveries.trips_cua_yeu_cau(request_id)):
             raise DeliveryError("Đã lên kế hoạch — phải huỷ kế hoạch trước khi huỷ yêu cầu")
         if not (ly_do or "").strip():
             raise DeliveryError("Phải nhập lý do huỷ")
@@ -380,9 +551,11 @@ class DeliveryService:
         # Cửa vào THỨ HAI của ngày cần giao — chặn ở đây nữa, xem `_chan_ngay_qua_khu`.
         if thay_doi.get("ngay_can_giao") is not None:
             self._chan_ngay_qua_khu(thay_doi["ngay_can_giao"])
-        for truong in ("ngay_can_giao", "dia_chi", "nguoi_nhan", "sdt_nguoi_nhan", "ghi_chu"):
-            if truong in thay_doi and thay_doi[truong] is not None:
-                setattr(req, truong, thay_doi[truong])
+            req.ngay_can_giao = thay_doi["ngay_can_giao"]
+        if "dia_chi_id" in thay_doi or "lien_he_id" in thay_doi:
+            order = self.orders.get_by_id(req.order_id)
+            req.dia_chi, req.nguoi_nhan, req.sdt_nguoi_nhan = self._noi_nhan(
+                order, thay_doi.get("dia_chi_id"), thay_doi.get("lien_he_id"))
 
     def chan_huy_don_khi_con_yeu_cau_mo(self, order_id: int) -> None:
         """Nghiệm thu #12 — huỷ đơn bán khi còn yêu cầu giao chưa đóng thì bị chặn.
@@ -390,12 +563,12 @@ class DeliveryService:
         Thông báo nêu ĐÚNG mã yêu cầu đang mở; bắt người ta đi mò là lỗi giao diện."""
         con_mo = [
             r.code for r in self.deliveries.requests_mo_cua_don(order_id)
-            if self.trang_thai_yeu_cau(r) != YC_DA_GIAO_DU
+            if self.dang_giu_hang(r)
         ]
         if con_mo:
             raise DeliveryError(
-                "Đơn còn yêu cầu giao hàng chưa đóng: " + ", ".join(sorted(con_mo))
-                + ". Huỷ các yêu cầu đó trước."
+                "Đơn còn yêu cầu giao hàng đang chạy: " + ", ".join(sorted(con_mo))
+                + ". Huỷ các yêu cầu / chuyến đó trước."
             )
 
     # =====================================================================================
@@ -1104,8 +1277,11 @@ class DeliveryService:
         lúc đó thì muộn rồi.
 
         Phiếu đã HUỶ không tính — huỷ là quay về chưa chuẩn bị.
+
+        Đọc qua repo giao hàng chứ không qua service kho: tiến độ đơn dựng service KHÔNG kèm kho,
+        đi đường kia thì drawer đơn luôn báo "đang chuẩn bị" trong khi màn Giao hàng báo "xong".
         """
-        yc = self.yeu_cau_kho_cua_trip(trip_id)
+        yc = self.deliveries.yeu_cau_kho_cua_chuyen(trip_id, "XUAT")
         if yc is None:
             return False
         from ..models.stock_voucher import VOUCHER_CANCELLED, StockVoucher
@@ -1187,6 +1363,7 @@ class DeliveryService:
             raise DeliveryError(f"Chuyến này đã có yêu cầu xuất kho {dang_co.ma}")
 
         lines = self.hang_can_xuat(trip)
+        self._chan_thieu_ton(lines, kho_id)
         req = self.stock_requests.create(
             user=actor,
             loai="XUAT",
@@ -1210,6 +1387,27 @@ class DeliveryService:
             self.bao_tai_xe(trip, f"Đã gửi yêu cầu xuất kho {req.ma} — chờ kho soạn hàng.",
                             viec="gui_kho")
         return req
+
+    def _chan_thieu_ton(self, lines: list[dict], kho_id) -> None:
+        """Kiểm lại TỒN THẬT ở kho được chọn lúc gửi xuất (19/09/2026). Lúc lập yêu cầu hàng đã có,
+        nhưng từ đó tới lúc xếp chuyến kho có thể đã xuất cho việc khác — gửi yêu cầu xuất mà kho
+        không có hàng là để thủ kho và tài xế tự phát hiện ở cửa kho."""
+        from ..repositories.stock_lot_repo import StockLotRepository
+        from ..models.vat_lieu_kho import VatTuInAn
+
+        ton = StockLotRepository(self.deliveries.db).on_hand_by_kho(
+            [(ln["hang_loai"], ln["hang_id"]) for ln in lines])
+        for ln in lines:
+            theo_kho = ton.get((ln["hang_loai"], ln["hang_id"]), {})
+            # Kho để trống (thủ kho chọn kho lúc lập phiếu) ⇒ so với tổng mọi kho.
+            co = (float(theo_kho.get(int(kho_id), 0.0)) if kho_id is not None
+                  else float(sum(theo_kho.values())))
+            if co + 1e-9 < float(ln["sl_de_nghi"]):
+                h = self.deliveries.db.get(VatTuInAn, ln["hang_id"]) if ln["hang_loai"] == "vat_tu" else None
+                ten = getattr(h, "ten", None) or f"mặt hàng #{ln['hang_id']}"
+                raise DeliveryError(
+                    f"Kho chỉ còn {co:g} «{ten}», chuyến cần {float(ln['sl_de_nghi']):g}. "
+                    "Chọn kho khác hoặc chờ nhập kho thêm.")
 
     def doi_ke_hoach(self, trip_id, *, actor, scope=None, employee_id=None,
                      gio_lay_hang=None, gio_du_kien_giao=None, ghi_chu_phan_cong=None,
@@ -1297,6 +1495,14 @@ class DeliveryService:
             raise DeliveryError("Tài xế đã nhận hàng — không huỷ kế hoạch được nữa")
         if not (ly_do or "").strip():
             raise DeliveryError("Phải nhập lý do huỷ kế hoạch")
+        # Đề nghị xuất kho đã gửi thì huỷ theo — để sống là kho vẫn soạn và xuất hàng cho một
+        # chuyến không còn. Kho đã lập phiếu (hàng đã soạn) thì kho phải tự huỷ phiếu trước.
+        yc_kho = self.yeu_cau_kho_cua_trip(trip.id)
+        if yc_kho is not None:
+            if self.kho_da_lap_phieu(trip.id):
+                raise DeliveryError(
+                    "Kho đã lập phiếu xuất cho chuyến này — báo kho huỷ phiếu trước rồi mới huỷ chuyến")
+            self.stock_requests.cancel_by_kho(yc_kho, f"Chuyến giao đã huỷ: {ly_do.strip()}")
         self._doi_trang_thai(trip, LG_DA_HUY, actor=actor, ly_do=ly_do.strip())
         # Chuyến huỷ thì xe không ghé điểm đó ⇒ rút khỏi lượt; lượt không còn điểm nào thì xoá.
         diem = self.deliveries.diem_cua_trip(trip.id)
@@ -1523,7 +1729,51 @@ class DeliveryService:
         # Ca giao thiếu nhận lại hàng thẳng từ trạng thái `giao_thieu` (xem `kho_nhan_lai_hang`).
         if ket_qua == LG_THAT_BAI and huong_xu_ly == XU_LY_TRA_VE:
             self._doi_trang_thai(trip, LG_DANG_TRA_HANG, actor=actor)
+        # Hàng không tới tay khách ⇒ máy TỰ lập yêu cầu NHẬP trả về ngay (19/09/2026). Người xác
+        # nhận "kho đã nhận lại" là THỦ KHO — bằng phiếu nhập ghi sổ trên màn Kho
+        # (`sau_ghi_so_tra_hang`), không còn là tài xế tự bấm hộ kho.
+        if ket_qua in (LG_THAT_BAI, LG_GIAO_THIEU):
+            self._lap_yeu_cau_tra_hang(trip, actor=actor)
         return {"trip": trip, "canh_bao": canh_bao}
+
+    def _lap_yeu_cau_tra_hang(self, trip, *, actor):
+        """Yêu cầu NHẬP trả hàng về ĐÚNG kho đã xuất. Không có gì để trả (chưa xuất / khách nhận
+        đủ phần đã xuất) thì chuyến thất bại đi thẳng tới "đã trả hàng"."""
+        if self.stock_requests is None or self.yeu_cau_tra_hang_cua_trip(trip.id) is not None:
+            return None
+        # Dòng thực nhận vừa ghi cùng nhịp (`_ghi_dong_thuc_nhan`) chưa có trong `trip.lines` đã
+        # nạp — không nạp lại là giao thiếu 80/100 mà trả về kho cả 100.
+        self.deliveries.db.flush()
+        self.deliveries.db.expire(trip, ["lines"])
+        lines = self.hang_tra_ve(trip)
+        if not lines:
+            if trip.trang_thai == LG_DANG_TRA_HANG:
+                self._doi_trang_thai(trip, LG_DA_TRA_HANG, actor=actor)
+            return None
+        yc_xuat = self.yeu_cau_kho_cua_trip(trip.id)
+        return self.stock_requests.create(
+            user=actor,
+            loai="NHAP",
+            lines=lines,
+            kho_id=getattr(yc_xuat, "kho_id", None),
+            ghi_chu=f"Trả hàng về — chuyến giao {trip.id}",
+            delivery_trip_id=trip.id,
+        )
+
+    def sau_ghi_so_tra_hang(self, stock_request, *, actor) -> bool:
+        """Kho ghi sổ phiếu nhập trả hàng xong (yêu cầu `done`) ⇒ chuyến thất bại sang "đã trả
+        hàng". Giao thiếu giữ nguyên `giao_thieu` (kết cục, căn cứ cộng "đã giao"); dấu "kho đã nhận
+        lại" của nó là yêu cầu nhập `done`. Trả True nếu có đổi gì."""
+        if (getattr(stock_request, "loai", None) != "NHAP"
+                or not getattr(stock_request, "delivery_trip_id", None)
+                or stock_request.trang_thai != REQ_DONE):
+            return False
+        trip = self.deliveries.get_trip(int(stock_request.delivery_trip_id))
+        if trip is None or trip.trang_thai != LG_DANG_TRA_HANG:
+            return False
+        self._doi_trang_thai(trip, LG_DA_TRA_HANG, actor=actor,
+                             ghi_chu=f"Kho nhận lại hàng — {stock_request.ma}")
+        return True
 
     def _ghi_dong_thuc_nhan(self, trip, req, *, ket_qua, so_thuc_nhan) -> None:
         """ĐIỀN LUÔN LUÔN — thành công thì bằng đúng số còn phải giao của yêu cầu.
@@ -1673,25 +1923,12 @@ class DeliveryService:
 
         da_co = self.yeu_cau_tra_hang_cua_trip(trip.id)
         if da_co is not None:
-            raise DeliveryError(f"Chuyến này đã có phiếu nhập trả hàng {da_co.ma}")
+            raise DeliveryError(
+                f"Đã có yêu cầu nhập trả hàng {da_co.ma} — thủ kho nhận lại bằng phiếu nhập bên Kho.")
 
-        lines = self.hang_tra_ve(trip)
-        if lines and self.stock_requests is not None:
-            yc_xuat = self.yeu_cau_kho_cua_trip(trip.id)
-            self.stock_requests.create(
-                user=actor,
-                loai="NHAP",
-                lines=lines,
-                # ĐÚNG kho đã xuất — đây là đảo lại một phiếu cụ thể, không cho chọn kho khác.
-                kho_id=getattr(yc_xuat, "kho_id", None),
-                ghi_chu=f"Trả hàng về — chuyến giao {trip.id}",
-                delivery_trip_id=trip.id,
-            )
-
-        # Chỉ ca thất bại mới có nhãn "đã trả hàng" để đi tới. Ca giao thiếu giữ nguyên
-        # `giao_thieu`; dấu hiệu đã trả hàng là PHIẾU NHẬP tồn tại, không phải trạng thái.
-        if trip.trang_thai == LG_DANG_TRA_HANG:
-            self._doi_trang_thai(trip, LG_DA_TRA_HANG, actor=actor)
+        # Đường CŨ: chỉ còn cho chuyến ghi kết quả trước 19/09/2026 (chưa tự lập yêu cầu nhập).
+        # Chuyến sang "đã trả hàng" khi THỦ KHO ghi sổ phiếu nhập (`sau_ghi_so_tra_hang`).
+        self._lap_yeu_cau_tra_hang(trip, actor=actor)
         return trip
 
     # =====================================================================================

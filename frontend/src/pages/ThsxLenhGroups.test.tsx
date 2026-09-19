@@ -10,6 +10,7 @@ const lenh: SxLenhNhom[] = [
     nguon_loai: "lsx", nguon_ma: "LSX26-0012", nguon_ten: "Hộp bánh 500g",
     lsx_id: 12, bai_ghep_id: null,
     som_nhat: "2026-09-11T07:30:00", muon_nhat: "2026-09-11T15:00:00",
+    nhan_luc: "2026-09-10T16:05:00",
     so_viec: 2,
     digest: { released: 1, running: 1, paused: 0, completed: 0 },
     cong_viec: [
@@ -63,9 +64,11 @@ describe("ThsxLenhGroups", () => {
     expect(screen.getByRole("button", { name: /BG26-0004/ })).toContainElement(cham[0]);
   });
 
-  it("lệnh chưa xếp giờ nói rõ là chưa xếp, không hiện ô giờ trống", () => {
+  it("dòng lệnh hiện lúc tổ nhận việc, không hiện ngày giờ dự kiến", () => {
     render(<ThsxLenhGroups lenh={lenh} selectedId={null}
       render={() => null} />);
-    expect(screen.getByText("chưa xếp giờ")).toBeInTheDocument();
+    expect(screen.getByText(/^Nhận /)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Nhận /)).toHaveLength(1);
+    expect(screen.queryByText("chưa xếp giờ")).toBeNull();
   });
 });

@@ -215,9 +215,33 @@ def _phat_sse_kcs(res: dict) -> None:
                 "lsx_ma": res.get("lsx_ma"),
                 "ten_cong_doan": res.get("ten_cong_doan"),
                 "so_dat": res.get("so_dat"),
-                "so_loi": res.get("so_loi"),
+                "so_loi": res.get("so_loi_cua_to", res.get("so_loi")),
                 "nguoi_kiem": res.get("nguoi_kiem"),
             })
+    # Lỗi KCS quy về công đoạn TRƯỚC (bắt ở bước sau) — tổ đó cũng phải biết NGAY.
+    for m in res.get("bao_loi_nguon") or []:
+        hub.broadcast({
+            "type": "san_xuat_kcs_changed",
+            "cong_viec_id": m.get("cong_viec_id"),
+            "kcs_batch_id": res.get("kcs_batch_id"),
+            "loi_id": m.get("loi_id"),
+            "team_id": m.get("department_id"),
+            "lsx_id": res.get("lsx_id"),
+        })
+        for uid in m.get("notify_user_ids") or []:
+            if uid:
+                hub.publish(uid, {
+                    "type": "san_xuat_kcs_ket_qua",
+                    "team_id": m.get("department_id"),
+                    "cong_viec_id": m.get("cong_viec_id"),
+                    "loi_id": m.get("loi_id"),
+                    "lsx_ma": res.get("lsx_ma"),
+                    "ten_cong_doan": m.get("ten_cong_doan"),
+                    "phat_hien_o": res.get("ten_cong_doan"),
+                    "so_loi": m.get("so_loi"),
+                    "don_vi": res.get("don_vi"),
+                    "nguoi_kiem": res.get("nguoi_kiem"),
+                })
 
 
 def _phat_sse_dong_nhom(ket: dict) -> None:
@@ -371,6 +395,10 @@ def work_items(
     tu_ngay: date | None = Query(None),
     den_ngay: date | None = Query(None),
     cho_xac_nhan: bool = Query(False),
+    trang_thai: list[Literal["released", "running", "paused", "completed"]] | None = Query(None),
+    nhan_tu: date | None = Query(None),
+    nhan_den: date | None = Query(None),
+    sap_xep: Literal["moi_nhan", "cu_nhan", "du_kien"] = Query("moi_nhan"),
 ) -> WorkItemsOut:
     """Việc đã phát hành của MỘT tổ (§18 /work-items).
 
@@ -386,12 +414,16 @@ def work_items(
 
     `cho_xac_nhan=true` (ô "chờ xác nhận" của bàn): chỉ lệnh có công đoạn đang chờ tổ bấm.
 
+    Lọc nâng cao (view Bảng): `trang_thai` (lặp tham số), `nhan_tu`/`nhan_den` (ngày xưởng tổ
+    nhận lệnh, gồm cả hai đầu), `sap_xep` (mặc định `moi_nhan`: lệnh phát hành sau nằm trên).
+
     403 nếu tổ ngoài phạm vi quyền."""
     try:
         return WorkItemsOut.model_validate(
             board.work_items(db, user, authz, team_id=team_id, nhom=nhom, tim=tim,
                              trang=trang, co_trang=co_trang, tu_ngay=tu_ngay, den_ngay=den_ngay,
-                             cho_xac_nhan=cho_xac_nhan)
+                             cho_xac_nhan=cho_xac_nhan, trang_thai=set(trang_thai or ()) or None,
+                             nhan_tu=nhan_tu, nhan_den=nhan_den, sap_xep=sap_xep)
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
@@ -961,21 +993,45 @@ def kiem_cong_doan(
     checklist_json: str | None = Form(default=None),
     ghi_chu: str | None = Form(default=None),
     loi_mo_ta: str | None = Form(default=None),
+    # Lỗi theo DÒNG: JSON `[{cong_viec_id, so_luong, mo_ta, so_anh}]` — `files` nối theo đúng thứ
+    # tự dòng, dòng i lấy `so_anh` tệp kế tiếp. Có trường này thì `loi_mo_ta` bị bỏ qua.
+    loi_json: str | None = Form(default=None),
+    lsx_id: int | None = Form(default=None),
     files: list[UploadFile] | None = File(default=None),
 ) -> dict:
     """Ghi MỘT lần kiểm công đoạn (multipart vì lỗi đi kèm ảnh). Không trừ số, không đổi trạng thái
-    công việc. Đẩy SSE tới người Xác nhận sản lượng của tổ bị kiểm."""
+    công việc. Đẩy SSE tới người Xác nhận sản lượng của tổ bị kiểm và của tổ công đoạn trước bị
+    quy lỗi."""
     try:
         checklist = json.loads(checklist_json) if checklist_json else None
+        dong_loi = json.loads(loi_json) if loi_json else None
     except (ValueError, TypeError):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Kết quả tiêu chí không hợp lệ.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Kết quả tiêu chí hoặc dòng lỗi không hợp lệ.")
+    if dong_loi is not None and (
+        not isinstance(dong_loi, list) or not all(isinstance(r, dict) for r in dong_loi)
+        or not all(isinstance(r.get("so_anh", 0), int) and r.get("so_anh", 0) >= 0 for r in dong_loi)
+    ):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Dòng lỗi không hợp lệ.")
+    if dong_loi is not None and sum(int(r.get("so_anh") or 0) for r in dong_loi) != len(files or []):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Số ảnh gửi lên không khớp các dòng lỗi.")
     # Cổng quyền TRƯỚC khi ghi ảnh — người ngoài tổ KCS không được để lại tệp rác trong kho lưu.
     _chay(lambda: kcs.gate_kcs(db, user))
     anh, keys = _luu_anh_kcs(cong_viec_id, files) if files else ([], [])
+    cac_loi = None
+    if dong_loi is not None:
+        cac_loi, i = [], 0
+        for r in dong_loi:
+            n = int(r.get("so_anh") or 0)
+            cac_loi.append({
+                "cong_viec_id": r.get("cong_viec_id"), "so_luong": r.get("so_luong"),
+                "mo_ta": r.get("mo_ta"), "anh": anh[i:i + n],
+            })
+            i += n
     try:
         res = kcs.kiem_cong_doan(
             db, user=user, cong_viec_id=cong_viec_id, so_dat=so_dat, so_loi=so_loi,
             checklist_ket_qua=checklist, ghi_chu=ghi_chu, loi_mo_ta=loi_mo_ta, anh=anh,
+            cac_loi=cac_loi, lsx_id=lsx_id,
         )
     except PermissionError as exc:
         _don_anh(keys)
