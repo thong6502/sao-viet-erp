@@ -792,54 +792,6 @@ def test_san_sang_bi_chan_khi_con_thieu_va_mo_khi_du(db, orders, lsx_svc, admin,
     assert lsx_svc.set_trang_thai(lsx_id=hop.id, trang_thai=TT_SAN_SANG, actor=admin).trang_thai == TT_SAN_SANG
 
 
-def test_to_CHUA_CO_viec_khoan_thi_khong_san_sang_duoc(db, orders, lsx_svc, admin, customer):
-    """⭐ §5.4 (chủ chốt 18/09/2026): *"tổ chưa có công việc khoán thì không nhấn được nút sẵn sàng
-    lập kế hoạch đâu"*. Thợ mở bàn tổ ra mà danh sách việc rỗng thì không ghi nổi một mẻ nào.
-
-    Soi CẢ bước MÁY (tổ đứng máy cũng ghi mẻ ở bàn tổ); chỉ THUÊ NGOÀI miễn.
-    """
-    from app.models.piece_work import PieceRate
-
-    ptg = _ptg_2_san_pham(db)
-    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
-    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
-    hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
-    _gan_dao_cho_buoc_can(db, hop)
-    hop = lsx_svc.get(hop.id)
-    assert lsx_svc.thieu_cua(hop) == []
-
-    # Ngừng dùng mọi việc khoán của tổ ⇒ cổng đóng, kể cả khi mọi bước đều là MÁY.
-    for r in db.query(PieceRate).all():
-        r.active = False
-    db.commit()
-    lsx_svc._rates_cache = None
-    hop = lsx_svc.get(hop.id)
-    assert {cd.loai_buoc for cd in hop.cong_doans} == {"may"}
-    assert "thieu_viec_khoan_to" in lsx_svc.thieu_cua(hop)
-    # Màn lệnh gọi ĐÍCH DANH tổ thiếu (mỗi tổ một lần, theo thứ tự bước), không câu chung chung.
-    ten_to = lsx_svc.to_thieu_viec_khoan(hop)
-    assert ten_to and len(ten_to) == len(set(ten_to))
-    assert lsx_svc.detail_dict(hop)["to_thieu_viec_khoan"] == ten_to
-    with pytest.raises(LsxConflict):
-        lsx_svc.set_trang_thai(lsx_id=hop.id, trang_thai=TT_SAN_SANG, actor=admin)
-
-    # THUÊ NGOÀI miễn: việc làm ở xưởng người ta, thợ của tổ không ghi mẻ theo việc khoán.
-    for cd in hop.cong_doans:
-        cd.loai_buoc = "thue_ngoai"
-    db.commit()
-    assert "thieu_viec_khoan_to" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
-
-    # Bật lại việc khoán ⇒ cổng mở cho bước TỔ.
-    for cd in hop.cong_doans:
-        cd.loai_buoc = "to"
-    for r in db.query(PieceRate).all():
-        r.active = True
-    db.commit()
-    lsx_svc._rates_cache = None
-    assert "thieu_viec_khoan_to" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
-    assert lsx_svc.to_thieu_viec_khoan(lsx_svc.get(hop.id)) == []
-
-
 def _khai_ct_gio(db, lsx_svc, cong_doan_id, may_id, ct: str) -> None:
     """Khai công thức GIỜ CHẠY ở cặp (công đoạn × máy) — chỗ mới từ 06/09/2026.
 

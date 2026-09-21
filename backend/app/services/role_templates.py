@@ -158,13 +158,6 @@ TEMPLATES: list[dict] = [
             # Tạo NV kèm tài khoản có vai đi qua kiểm `nguoi_dung:assign_role` (C6, 07/09/2026) —
             # HCNS là người tạo hồ sơ + nối tài khoản nên mẫu phải kèm ô này, nếu không tạo NV → 403.
             "nguoi_dung": {"can_read": True, "can_assign_role": True, "scope": SCOPE_ALL},
-            # Bảng ĐƠN GIÁ KHOÁN — ô quyền riêng từ 17/08/2026 (trước đi ké khoá `luong`, khai trong
-            # một tab của màn Lương). HCNS vẫn là người khai nó, nên mẫu phải kèm khoá mới: thiếu thì
-            # vai cấp lại từ mẫu mở được màn Lương mà mất chỗ khai đơn giá.
-            "dm_cong_viec_khoan": {
-                "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
-                "scope": SCOPE_ALL,
-            },
             "noi_quy": {"can_read": True, "can_create": True, "can_delete": True, "scope": SCOPE_ALL},
         },
     },

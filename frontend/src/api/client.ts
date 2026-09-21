@@ -592,7 +592,6 @@ export const LSX_THIEU_LABELS: Record<string, NhanMa> = {
   thieu_khuon: "Có công đoạn cần khuôn / khung mà chưa chọn",
   // Bước Máy/Tổ giao cho một tổ chưa khai công việc khoán nào (18/09/2026, spec §5.4): thợ mở bàn
   // tổ ra không có việc nào để ghi mẻ ⇒ cả lệnh đứng ở tổ đó. Thuê ngoài miễn.
-  thieu_viec_khoan_to: "Có tổ chưa có công việc khoán nào — khai ở danh mục Công việc khoán",
   // Hệ số quy đổi nay do server suy, không ai khai — chỉ thiếu NGUỒN của nó mới là lỗi thật.
   // Ba cầu, ba nguồn KHÁC NHAU: đổi mức lấy Con/tờ, xả giấy lấy số mảnh xả, còn sách thì lấy
   // số trang / trang mỗi tay (KHÔNG dùng con/tờ) — nên lệnh sách thiếu ở chỗ khác lệnh tờ rời.
@@ -1676,14 +1675,13 @@ export interface SxMeDanhMucDoi {
 export interface SxViecPhatSinhChon {
   id: number; ten: string; don_gia: number; don_vi: string; don_vi_ten: string | null;
 }
-export interface SxViecKhoanChon {
+/** Cấu hình Khoán cố định của công đoạn. Không có thao tác chọn nguồn trong lúc ghi mẻ. */
+export interface SxKhoanCongDoan {
   id: number;
-  ma: string | null;
   ten: string;
   don_gia: number;
   don_vi: string;
   don_vi_ten: string | null;
-  ghi_chu: string | null;
   phat_sinh: SxViecPhatSinhChon[];
 }
 export interface SxNguoiThamGiaBatch {
@@ -1902,6 +1900,7 @@ export interface SxWorkItemChiTiet {
   /** Mức của từng quyền đó ở tổ của việc ("all" | "own"; thiếu khoá = không được cấp). Nút tắt vì
    *  "Của tôi" mà việc chưa giao cho mình thì drawer nói đúng lý do đó, không bảo đi xin quyền. */
   quyen_muc: Partial<Record<Exclude<SxViecTo, "read">, "all" | "own">>;
+  khoan?: SxKhoanCongDoan | null;
   phan_cong: SxPhanCongItem[];
   phien_chay: SxPhienChay[];
   khoang_tham_gia: SxKhoangThamGia[];
@@ -2010,8 +2009,6 @@ export interface SxBatchIn {
   mo_ta_loi?: string | null;
   ghi_chu?: string | null;
   lot_vao?: SxLotVaoIn[];
-  /** Công việc khoán của tổ — chọn ĐÚNG MỘT (§7.2); máy chủ báo câu tiếng Việt nếu thiếu. */
-  piece_rate_id?: number | null;
   /** Việc phát sinh đã làm trong mẻ — KHÔNG cộng vào sản lượng. */
   phat_sinh?: { phat_sinh_id: number; so_luong: number }[];
 }
@@ -2625,7 +2622,7 @@ export interface LsxXemTruocRoutingRow {
 }
 
 /* `LsxDauViecOption` GỠ 18/09/2026 (mg `0320`) cùng ô "Đầu việc thợ làm" của bước và endpoint
-   `dau-viec-options`. Việc khoán của tổ: `SxViecKhoanChon` (form Ghi mẻ). */
+   `dau-viec-options`. */
 export interface LsxListItem {
   id: number; ma: string; loai: string; ten: string; trang_thai: LsxTrangThai;
   /** Nhãn nhóm của dòng đơn — cho biết lệnh "Bìa" thuộc "Catalogue A4 - 32 trang". */
@@ -2702,8 +2699,6 @@ export interface LsxDetail {
   /** Mã CHẶN nút "Sẵn sàng lập kế hoạch" (dịch bằng `LSX_THIEU_LABELS`). Rổ cảnh báo mềm
    *  `canh_bao` đã gỡ cả hai đầu 25/08/2026 — không màn nào hiện nó. */
   thieu: string[];
-  /** Tên tổ đứng sau mã `thieu_viec_khoan_to` (chưa có công việc khoán nào) — để gọi đích danh. */
-  to_thieu_viec_khoan?: string[];
   lead_time: LsxLeadTime | null;
   /* `khoan_tien_tong` (Σ "Công thợ dự kiến" của lệnh) GỠ 11/09/2026. */
   /** Chừa tách chiều do server tính (`chua_theo_chieu`) — đừng cộng lại ở FE. */
@@ -5643,41 +5638,6 @@ export interface MyPayslip {
   cho_phat: ChoPhat | null;
 }
 
-// --- Lương khoán (nhịp 2) ---------------------------------------------------
-/** Một dòng danh mục "Công việc khoán" (`/api/cong-viec-khoan`).
- *
- *  Tên field đi theo cột thật sau mg `0210`: `ma` · `ten` · `active` (trước là `code`/`name`/
- *  `is_active`) — bảng vào nền danh mục dùng chung nên phải cùng bộ tên với 10 màn kia.
- *  `unit` lưu MÃ đơn vị (`to`, `kg`); `don_vi_ten` là tên đọc được do server gán, `null` khi mã
- *  không có trong danh mục Đơn vị. */
-export interface PieceRate {
-  id: number;
-  /** Các TỔ làm việc này (17/09/2026, bảng nối `cong_viec_khoan_to`) — một việc nhiều tổ, chung giá. */
-  department_ids: number[];
-  /** Mã · tên từng tổ do server tra sẵn; tổ đã xoá khỏi cây tổ chức thì `ma`/`ten` = null. */
-  tos: { id: number; ma: string | null; ten: string | null }[];
-  ma: string | null;
-  ten: string;
-  unit: string;
-  don_vi_ten?: string | null;
-  unit_price: number;
-  note: string | null;
-  active: boolean;
-}
-
-/** Thân POST/PUT của danh mục Công việc khoán.
- *
- *  `department_ids` VẮNG = giữ nguyên danh sách tổ; gửi mảng rỗng = lỗi (việc không tổ nào là mồ
- *  côi — thôi dùng thì Ngừng dùng). `ma` bỏ trống ⇒ server cấp `KH-####`. */
-export interface PieceRateInput {
-  department_ids?: number[];
-  ma?: string | null;
-  ten: string;
-  unit: string;
-  unit_price: number;
-  note?: string | null;
-  active?: boolean;
-}
 /** Một HẠNG MỤC KIỂM của MỘT công đoạn (danh mục Tiêu chí KCS sau mg `0285`). */
 export interface KcsHangMuc {
   id: number;
@@ -11150,12 +11110,6 @@ export const api = {
       const q = ky ? `?year=${ky.year}&month=${ky.month}` : "";
       return authed<MyPayslip>(`/api/luong/payslip/me${q}`, token);
     },
-    // --- Lương khoán (nhịp 2) ---
-    //
-    // ⚠️ `khoanRates` · `khoanUnits` · `createKhoanRate` · `updateKhoanRate` · `deleteKhoanRate`
-    // GỠ 17/08/2026: bảng đơn giá thành danh mục "Công việc khoán". Ai cần nó thì dùng
-    // `crud("/api/cong-viec-khoan")` của `api/rebuildCatalog` — cùng một cửa với 10 màn danh mục
-    // kia, nên có nhật ký, xoá mềm và mã tự sinh mà không phải khai lại đường API thứ hai.
   },
 
   // --- Giao hàng (module `giao_hang`) ---------------------------------------
@@ -12113,12 +12067,6 @@ export const api = {
       return authed<SxSanLuongKetQua>(`/api/san-xuat/work-items/${congViecId}/outputs`, token, {
         method: "POST", body: JSON.stringify(body),
       });
-    },
-    /** Việc khoán của TỔ cho form Ghi mẻ (§7.1): đơn giá · ĐVT · ghi chú + việc phát sinh.
-     *  `tim` lọc TƯƠNG ĐỐI ở máy chủ (bỏ dấu, khớp một phần, cả mã lẫn tên). */
-    viecKhoanCuaTo(token: string, teamId: number, tim?: string): Promise<{ items: SxViecKhoanChon[] }> {
-      return authed<{ items: SxViecKhoanChon[] }>(
-        `/api/san-xuat/teams/${teamId}/viec-khoan${qs({ tim: tim?.trim() || undefined })}`, token);
     },
     /** Băng "Danh mục đã đổi" của mẻ (§7.2b): bấm thì ảnh chụp lấy số MỚI. Không bấm = giữ số cũ. */
     capNhatDanhMucMe(token: string, batchId: number): Promise<SxSanLuongKetQua> {

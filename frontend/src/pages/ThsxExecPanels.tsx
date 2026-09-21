@@ -13,11 +13,10 @@ import type { ReactNode } from "react";
 import type {
   SxWorkItemChiTiet, SxBatch, SxBanGiao, SxBanGiaoChangSau, SxHoTro, SxHoTroUngVien,
   SxBatchIn, SxBanGiaoDeXuatIn, SxBanGiaoSuaIn, SxBanGiaoDieuChinhIn,
-  SxHoTroDeXuatIn, SxViecKhoanChon, SxViecPhatSinhChon,
+  SxHoTroDeXuatIn, SxKhoanCongDoan, SxViecPhatSinhChon,
   SxKetQuaNhanh, SxSuCoIn, SxVatTuCap, SxVatTuCapLan, SxVatTuCapDoiChieu,
   SxVatTuDeNghiIn, SxVatTuDeNghiDongIn, SxTranGhi, SxCongDoanTruoc,
 } from "../api/client";
-import { api } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import type { IconName } from "../components/Icons";
@@ -30,7 +29,6 @@ import { VoucherDrawer } from "./KhoYeuCauPage";
 import { nhanDonVi } from "./lsxBuoc";
 import { KCS_CD_TRANG_THAI } from "./kcs/kcsNhan";
 import { tinhTrangChon } from "./thsxTinhTrangNguoi";
-import { useDebounced } from "../utils/useDebounced";
 
 // ============================ hợp đồng hành động (controller cấp) ============================
 export interface ThsxExec {
@@ -252,7 +250,7 @@ function SanLuongSection({
       )}
 
       {formOpen && (
-        <BatchForm cv={cv} busy={busy} batDauMacDinh={batDauGoiY(chiTiet, nowDtLocal())}
+        <BatchForm cv={cv} khoan={chiTiet.khoan ?? null} busy={busy} batDauMacDinh={batDauGoiY(chiTiet, nowDtLocal())}
           tranGhi={chiTiet.tran_ghi ?? null}
           onXong={(kq) => { setFormOpen(false); setKetQuaToa(kq.length ? kq : null); }}
           exec={exec} />
@@ -301,28 +299,19 @@ function cauTranGhi(t: SxTranGhi): string {
  *
  *  Số của mẻ là MỘT ô "Số lượng làm được" (18/09/2026): tổ không tự chia tổng/tốt/hỏng — hàng lỗi do
  *  KCS phát hiện và ghi. Máy chủ vẫn giữ luật `tong = tot + hong` nên gửi tong = tot = số đó, hong = 0. */
-function BatchForm({
-  cv, busy, batDauMacDinh, tranGhi, onXong, exec,
+export function BatchForm({
+  cv, khoan, busy, batDauMacDinh, tranGhi, onXong, exec,
 }: {
   cv: SxWorkItemChiTiet["cong_viec"]; busy: boolean; batDauMacDinh: string;
+  khoan: SxKhoanCongDoan | null;
   /** Trần theo routing (`dau_vao.tran_ghi`) — null = không trần (bước đầu, hệ số gõ tay…). */
   tranGhi: SxTranGhi | null;
   onXong: (ketQua: SxKetQuaNhanh[]) => void; exec: ThsxExec;
 }) {
-  const { token } = useAuth();
   const [batDau, setBatDau] = useState(batDauMacDinh);
   const [ketThuc, setKetThuc] = useState(nowDtLocal);
   const [soLuong, setSoLuong] = useState("");
   const [ghiChu, setGhiChu] = useState("");
-  const [tim, setTim] = useState("");
-  const timTre = useDebounced(tim, 250);
-  const [dsViec, setDsViec] = useState<SxViecKhoanChon[] | null>(null);
-  const [loiDs, setLoiDs] = useState<string | null>(null);
-  // Giữ NGUYÊN việc đã chọn (không chỉ id): gõ tìm việc khác thì việc đang chọn vẫn nằm trên cùng.
-  const [viecChon, setViecChon] = useState<SxViecKhoanChon | null>(null);
-  // Chọn xong thì THU danh sách lại chỉ còn việc đã chọn (kèm việc phát sinh) — tổ có vài chục việc,
-  // để nguyên cả danh sách là form dài ngoằng, phải cuộn qua hết mới tới ô giờ và số lượng.
-  const [moDs, setMoDs] = useState(false);
   // Việc phát sinh đã tick → số đang gõ. Có khoá = đã tick.
   const [psSl, setPsSl] = useState<Record<number, string>>({});
   const nSoLuong = toNum(soLuong);
@@ -330,30 +319,6 @@ function BatchForm({
   // phải được GÕ (kể cả số 0), để trống thì chưa cho lưu.
   const soLuongDaGo = soLuong.trim() !== "" && Number.isFinite(Number(soLuong.replace(/,/g, "")));
   const donVi = cv.don_vi_ra ?? cv.don_vi_vao ?? null;
-  // Bước thuê ngoài miễn việc khoán — thợ của tổ không ăn khoán trên việc làm ở xưởng người ta.
-  const thueNgoai = cv.loai_buoc === "thue_ngoai";
-  const teamId = cv.department_id;
-
-  useEffect(() => {
-    if (!token || teamId == null) { setDsViec([]); return; }
-    let bo = false;
-    api.sanXuat.viecKhoanCuaTo(token, teamId, timTre)
-      .then((r) => { if (!bo) { setDsViec(r.items); setLoiDs(null); } })
-      .catch(() => { if (!bo) { setDsViec([]); setLoiDs("Không tải được việc khoán của tổ — đóng form rồi mở lại."); } });
-    return () => { bo = true; };
-  }, [token, teamId, timTre]);
-
-  const hienThi = dsViec == null ? []
-    : viecChon && !dsViec.some((v) => v.id === viecChon.id) ? [viecChon, ...dsViec] : dsViec;
-  const thuGon = viecChon != null && !moDs;
-  const dsHien = thuGon ? [viecChon] : hienThi;
-
-  function chonViec(v: SxViecKhoanChon) {
-    setMoDs(false);
-    if (viecChon?.id === v.id) return;
-    setViecChon(v);
-    setPsSl({});   // việc phát sinh đi theo việc khoán — đổi việc là bỏ tick của việc cũ
-  }
   function tickPs(p: SxViecPhatSinhChon) {
     setPsSl((cu) => {
       const moi = { ...cu };
@@ -373,7 +338,7 @@ function BatchForm({
   const vuotTran = tranGhi != null && nSoLuong > tranGhi.con_ghi_duoc + 0.0005;
   const hopLe = gioNhapHopLe(batDau) && gioNhapHopLe(ketThuc) && ketThuc > batDau && !ketThucTuongLai
     && soLuongDaGo && nSoLuong >= 0 && !vuotTran
-    && (thueNgoai || viecChon != null) && psHopLe;
+    && psHopLe;
 
   async function luu() {
     const body: SxBatchIn = {
@@ -381,7 +346,6 @@ function BatchForm({
       don_vi: donVi,
       mo_ta_loi: null,
       ghi_chu: ghiChu.trim() || null,
-      piece_rate_id: viecChon?.id ?? null,
       phat_sinh: psTick.map(([id, s]) => ({ phat_sinh_id: Number(id), so_luong: toNum(s) })),
     };
     const ketQua = await exec.taoBatch(body);
@@ -398,87 +362,56 @@ function BatchForm({
         </Button>
       </>}
     >
-      {/* ── CÔNG VIỆC KHOÁN: chọn đúng một ── */}
+      {/* Khoán là cấu hình cố định của công đoạn — không còn radio/tìm/đổi nguồn lúc ghi mẻ. */}
       <div className="thsx-vk">
         <div className="thsx-vk__h">
-          <span className="thsx-x-fld__l">Công việc khoán{thueNgoai ? " (bước thuê ngoài — không bắt buộc)" : " — chọn một"}</span>
-          {viecChon && (
-            <button type="button" className="thsx-vk__doi" onClick={() => setMoDs(!moDs)}>
-              {moDs ? "Giữ việc đã chọn" : "Đổi việc"}
-            </button>
-          )}
+          <span className="thsx-x-fld__l">Khoán công đoạn</span>
         </div>
-        {!thuGon && (
-          <input type="search" className="thsx-x-in thsx-glass-in" value={tim}
-            onChange={(e) => setTim(e.target.value)} aria-label="Tìm công việc khoán"
-            placeholder="Tìm việc — gõ tên hoặc mã, không cần dấu" />
-        )}
-        {dsViec == null && !thuGon ? (
-          <p className="thsx-x-hint">Đang tải việc khoán của tổ…</p>
-        ) : dsHien.length === 0 ? (
-          <p className={`thsx-x-hint${tim.trim() ? "" : " thsx-x-hint--canh"}`}>
-            {tim.trim()
-              ? <>Không có việc nào khớp “<b>{tim.trim()}</b>”.</>
-              : <>Tổ chưa có công việc khoán nào — khai ở <b>Danh mục › Công việc khoán</b> rồi mới ghi mẻ được.</>}
-          </p>
+        {khoan ? (
+          <div className="thsx-vk__fixed">
+            <div className="thsx-vk__opt is-on">
+              <span className="thsx-vk__main">
+                <span className="thsx-vk__ten">{khoan.ten}</span>
+                {khoan.phat_sinh.length > 0 && (
+                  <span className="thsx-vk__psn">{khoan.phat_sinh.length} việc phát sinh</span>
+                )}
+              </span>
+              <span className="thsx-vk__gia thsx-num">{giaKhoan(khoan)}</span>
+            </div>
+            {khoan.phat_sinh.length > 0 && (
+              <div className="thsx-vk__psbox">
+                <span className="thsx-vk__psh">Việc phát sinh — không cộng vào sản lượng</span>
+                <ul className="thsx-vk__list" aria-label={`Việc phát sinh của ${khoan.ten}`}>
+                  {khoan.phat_sinh.map((p) => {
+                    const tick = p.id in psSl;
+                    const sai = tick && psSl[p.id] !== "" && toNum(psSl[p.id]) <= 0;
+                    return (
+                      <li key={p.id} className={`thsx-vk__ps${tick ? " is-on" : ""}`}>
+                        <label className="thsx-vk__opt thsx-vk__opt--ps">
+                          <input type="checkbox" checked={tick} onChange={() => tickPs(p)} />
+                          <span className="thsx-vk__main"><span className="thsx-vk__ten">{p.ten}</span></span>
+                          <span className="thsx-vk__gia thsx-num">{giaKhoan(p)}</span>
+                        </label>
+                        {tick && (
+                          <div className="thsx-vk__sl">
+                            <input type="number" min={0} step="any" inputMode="decimal" autoFocus
+                              className="thsx-x-in thsx-glass-in thsx-glass-in--num" placeholder="Số lượng"
+                              aria-label={`Số lượng ${p.ten}`} value={psSl[p.id]}
+                              onChange={(e) => setPsSl((cu) => ({ ...cu, [p.id]: e.target.value }))} />
+                            <span className="thsx-vk__dv">{p.don_vi_ten ?? nhanDonVi(p.don_vi)}</span>
+                            {sai && <span className="thsx-x-err thsx-glass-err">Phải lớn hơn 0</span>}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          </div>
         ) : (
-          <ul className={`thsx-vk__list${thuGon ? "" : " thsx-vk__list--cuon"}`} role="radiogroup"
-            aria-label="Công việc khoán">
-            {dsHien.map((v) => {
-              const on = viecChon?.id === v.id;
-              return (
-                <li key={v.id}>
-                  <label className={`thsx-vk__opt${on ? " is-on" : ""}`}>
-                    <input type="radio" name="viec-khoan" checked={on} onChange={() => chonViec(v)} />
-                    <span className="thsx-vk__main">
-                      <span className="thsx-vk__ten">
-                        {v.ten}{v.ma && <span className="thsx-vk__ma">{v.ma}</span>}
-                      </span>
-                      {v.ghi_chu && <span className="thsx-vk__gc">{v.ghi_chu}</span>}
-                      {v.phat_sinh.length > 0 && (
-                        <span className="thsx-vk__psn">{v.phat_sinh.length} việc phát sinh</span>
-                      )}
-                    </span>
-                    <span className="thsx-vk__gia thsx-num">{giaKhoan(v)}</span>
-                  </label>
-                  {/* Việc phát sinh của CHÍNH việc đang chọn — tick một hoặc nhiều, mỗi việc một số.
-                      Không cộng vào sản lượng, không nhân ra tiền. */}
-                  {on && v.phat_sinh.length > 0 && (
-                    <div className="thsx-vk__psbox">
-                      <span className="thsx-vk__psh">Việc phát sinh — không cộng vào sản lượng</span>
-                      <ul className="thsx-vk__list" aria-label={`Việc phát sinh của ${v.ten}`}>
-                        {v.phat_sinh.map((p) => {
-                          const tick = p.id in psSl;
-                          const sai = tick && psSl[p.id] !== "" && toNum(psSl[p.id]) <= 0;
-                          return (
-                            <li key={p.id} className={`thsx-vk__ps${tick ? " is-on" : ""}`}>
-                              <label className="thsx-vk__opt thsx-vk__opt--ps">
-                                <input type="checkbox" checked={tick} onChange={() => tickPs(p)} />
-                                <span className="thsx-vk__main"><span className="thsx-vk__ten">{p.ten}</span></span>
-                                <span className="thsx-vk__gia thsx-num">{giaKhoan(p)}</span>
-                              </label>
-                              {tick && (
-                                <div className="thsx-vk__sl">
-                                  <input type="number" min={0} step="any" inputMode="decimal" autoFocus
-                                    className="thsx-x-in thsx-glass-in thsx-glass-in--num" placeholder="Số lượng"
-                                    aria-label={`Số lượng ${p.ten}`} value={psSl[p.id]}
-                                    onChange={(e) => setPsSl((cu) => ({ ...cu, [p.id]: e.target.value }))} />
-                                  <span className="thsx-vk__dv">{p.don_vi_ten ?? nhanDonVi(p.don_vi)}</span>
-                                  {sai && <span className="thsx-x-err thsx-glass-err">Phải lớn hơn 0</span>}
-                                </div>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          <p className="thsx-x-hint">Công đoạn chưa cấu hình Khoán — vẫn có thể ghi mẻ sản lượng.</p>
         )}
-        {loiDs && <p className="thsx-x-hint thsx-x-hint--err">{loiDs}</p>}
       </div>
 
       <div className="thsx-glass-time-grid thsx-x-grid2">

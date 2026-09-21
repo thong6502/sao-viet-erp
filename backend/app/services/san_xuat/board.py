@@ -933,6 +933,7 @@ def chi_tiet_cong_viec(
 
     # --- Sản lượng · bàn giao · vật tư (Giai đoạn 3) -----------------------------------------
     sl = SanXuatSanLuongRepository(db)
+    khoan_hien_tai, ten_cong_doan_khoan = sl.khoan_cua_cong_viec(cv)
     batches = sl.cac_batch(cv.id)
     _tong_tot_cv = sl.tong_tot(cv.id)
     # Lượng tổ này THẬT SỰ nhận được (bàn giao đã xác nhận về đây) — mốc chấm rút theo nó, xem
@@ -1028,6 +1029,21 @@ def chi_tiet_cong_viec(
         # vì hai lý do khác nhau — không được cấp, hoặc chỉ "Của tôi" mà việc chưa giao cho mình —
         # và drawer phải nói đúng lý do nào, không thì người đã bật quyền đọc thấy "cần quyền".
         "quyen_muc": {v: m for v in VIEC_CHI_TIET if (m := q.muc(v, cv.department_id))},
+        "khoan": ({
+            "id": khoan_hien_tai.id,
+            "ten": ten_cong_doan_khoan or cv.ten_cong_doan,
+            "don_gia": float(khoan_hien_tai.unit_price),
+            "don_vi": khoan_hien_tai.unit,
+            "don_vi_ten": nhan_don_vi(dv_me_ten, khoan_hien_tai.unit),
+            "phat_sinh": [
+                {
+                    "id": ps.id, "ten": ps.ten, "don_gia": float(ps.don_gia),
+                    "don_vi": ps.don_vi,
+                    "don_vi_ten": nhan_don_vi(dv_me_ten, ps.don_vi),
+                }
+                for ps in khoan_hien_tai.viec_phat_sinh
+            ],
+        } if khoan_hien_tai else None),
         "phan_cong": [
             {
                 "id": pc.id,
@@ -1104,7 +1120,7 @@ def chi_tiet_cong_viec(
                     # Việc khoán của mẻ = ẢNH CHỤP lúc ghi, KHÔNG tra danh mục sống: mẻ là chứng
                     # từ, phải đọc lại đúng bối cảnh của nó. Danh mục đổi thì băng dưới nói, và
                     # chỉ đổi khi NGƯỜI bấm (§7.2b).
-                    "viec_khoan_id": b.piece_rate_id,
+                    "viec_khoan_id": b.khoan_cong_doan_id or b.piece_rate_id,
                     "viec_khoan_ten": b.ten_khoan_snapshot,
                     "viec_khoan_don_vi": b.don_vi_khoan_snapshot,
                     "viec_khoan_don_vi_ten": nhan_don_vi(dv_me_ten, b.don_vi_khoan_snapshot)

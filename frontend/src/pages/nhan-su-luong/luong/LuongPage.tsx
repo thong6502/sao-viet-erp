@@ -211,7 +211,6 @@ export function LuongPage({
           token={token!}
           readOnly={!canManage}
           onDirtyChange={setCfgDirty}
-          navigate={navigate}
         />
       )}
       {tab === "phieu" && tuPhucVu && <PhieuLuongTab token={token!} />}

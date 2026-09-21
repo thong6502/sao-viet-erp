@@ -6,6 +6,7 @@ export { ChuanBiKhoanField, tongChuanBi } from "./ChuanBiKhoan";
 export { DonViTocDoField } from "./DonViTocDo";
 export { FormulaField } from "./FormulaField";
 export { LichBaoTriField } from "./LichBaoTri";
+export { KhoanCongDoanField } from "./KhoanCongDoan";
 export { MayCuaCongDoanField } from "./MayCuaCongDoan";
 export { NhomMayField, NhomMayMultiField } from "./NhomMay";
 export { RefMultiField, RefSearchField } from "./RefFields";

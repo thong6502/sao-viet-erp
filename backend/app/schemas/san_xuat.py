@@ -859,6 +859,8 @@ class WorkItemChiTietOut(BaseModel):
     # Mức của từng quyền đó ở tổ ("all" | "own") — để drawer phân biệt "không được cấp" với
     # "Của tôi nhưng việc chưa giao cho mình".
     quyen_muc: dict[str, str] = {}
+    # Cấu hình Khoán hiện tại của công đoạn. None = công đoạn chưa cấu hình; vẫn ghi mẻ được.
+    khoan: "KhoanCongDoanThucThiOut | None" = None
     phan_cong: list[PhanCongItemOut]
     phien_chay: list[PhienChayOut]
     khoang_tham_gia: list[KhoangThamGiaOut]
@@ -900,10 +902,6 @@ class BatchIn(BaseModel):
     mo_ta_loi: str | None = None
     ghi_chu: str | None = None
     lot_vao: list[LotVaoIn] = []
-    # CÔNG VIỆC KHOÁN của tổ, chọn ĐÚNG MỘT (§7.2). Để `None` ở đây (không phải bắt buộc ở schema)
-    # vì câu chặn phải là câu tiếng Việt của service ("Mẻ phải chọn một công việc khoán của tổ."),
-    # không phải `422` của Pydantic mà màn xưởng không biết bày ở đâu.
-    piece_rate_id: int | None = None
     # Việc phát sinh — không cộng vào sản lượng, xem `SanXuatBatchPhatSinh`.
     phat_sinh: list[MePhatSinhIn] = []
 
@@ -924,22 +922,15 @@ class ViecPhatSinhChonOut(BaseModel):
     don_vi_ten: str | None = None
 
 
-class ViecKhoanChonOut(BaseModel):
-    """Một công việc khoán của tổ bày trong form Ghi mẻ (§7.1): đơn giá · ĐVT · ghi chú + việc
-    phát sinh của chính nó. KHÔNG có ô thành tiền — bàn tổ không nhân gì."""
+class KhoanCongDoanThucThiOut(BaseModel):
+    """Cấu hình cố định của công đoạn bày trong form Ghi mẻ — không có thao tác chọn nguồn."""
 
     id: int
-    ma: str | None = None
     ten: str
     don_gia: float
     don_vi: str
     don_vi_ten: str | None = None
-    ghi_chu: str | None = None
     phat_sinh: list[ViecPhatSinhChonOut] = []
-
-
-class ViecKhoanChonListOut(BaseModel):
-    items: list[ViecKhoanChonOut] = []
 
 
 class KetQuaNhanhOut(BaseModel):

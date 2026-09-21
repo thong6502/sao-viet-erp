@@ -536,7 +536,24 @@ def _con_cua_cong_doan(obj: Any) -> dict[str, dict[str, Any]]:
     for v in vts:
         vt[f"{_ten_con(ten_vt.get(v.vat_tu_id), 'vật tư', v.vat_tu_id)} › "
            f"{NHAN['cong_thuc_luong']}"] = getattr(v, "cong_thuc_luong", None)
-    return {"to_phu_trach": to_phu_trach, "may_lam_duoc": may, "vat_tus": vt}
+    # Khoán là aggregate 1–1 của công đoạn (mg 0326). Chụp cả công thức lẫn từng việc phát sinh;
+    # nếu không, người sửa đơn giá trong tab Khoán mà Nhật ký chỉ báo "đã sửa Công đoạn" trống.
+    khoan_obj = getattr(obj, "khoan", None)
+    khoan: dict[str, Any] = {}
+    if khoan_obj is not None:
+        bang_dv = DonViDoRepository(s).ten_theo_ma() if s is not None else {}
+        khoan = {
+            "Đơn vị tính khoán": nhan_don_vi(bang_dv, khoan_obj.unit),
+            "Đơn giá khoán": f"{_so(khoan_obj.unit_price)} đ",
+            "Công thức khoán": khoan_obj.cong_thuc_khoan,
+        }
+        for ps in getattr(khoan_obj, "viec_phat_sinh", None) or []:
+            khoan[f"Việc phát sinh › {ps.ten}"] = (
+                f"{_so(ps.don_gia)} đ/{nhan_don_vi(bang_dv, ps.don_vi)}"
+            )
+    return {
+        "to_phu_trach": to_phu_trach, "may_lam_duoc": may, "vat_tus": vt, "khoan": khoan,
+    }
 
 
 def _ten_con(ban_ghi: Any, loai: str, id_: int) -> str:

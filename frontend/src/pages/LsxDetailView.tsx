@@ -844,9 +844,7 @@ export function LsxDetailView({
                   <ul>
                     {d.thieu.map((code) => (
                       <li key={code}>
-                        <span>• {code === "thieu_viec_khoan_to" && d.to_thieu_viec_khoan?.length
-                          ? `${d.to_thieu_viec_khoan.join(", ")} chưa có công việc khoán nào — khai ở danh mục Công việc khoán`
-                          : nhanMa(LSX_THIEU_LABELS, code, dvChuoi)}</span>
+                        <span>• {nhanMa(LSX_THIEU_LABELS, code, dvChuoi)}</span>
                         {code === "thieu_routing" && (
                           <button type="button" className="khsx-xlink" onClick={() => setTab("routing")}>Sửa →</button>
                         )}

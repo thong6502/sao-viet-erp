@@ -4,7 +4,10 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from ..models.cong_doan import CongDoan, CongDoanMay, CongDoanTo, CongDoanVatTu
+from ..models.cong_doan import (
+    CongDoan, CongDoanKhoan, CongDoanKhoanPhatSinh, CongDoanMay, CongDoanTo, CongDoanVatTu,
+)
+from ..models.don_vi_do import DonViDo
 from ..models.may_thiet_bi import MayThietBi
 from ..models.piece_work import CongViecKhoanTo
 from ..models.vat_lieu_kho import VatTuInAn
@@ -37,6 +40,7 @@ class CongDoanRepository(CatalogRepo):
             selectinload(CongDoan.vat_tus),
             selectinload(CongDoan.may_lam_duoc),
             selectinload(CongDoan.to_phu_trach),
+            selectinload(CongDoan.khoan).selectinload(CongDoanKhoan.viec_phat_sinh),
         )
 
     def extra_conds(self, *, nhom: str | None = None, **_) -> list:
@@ -92,6 +96,12 @@ class CongDoanRepository(CatalogRepo):
         rows = self.db.execute(select(VatTuInAn).where(VatTuInAn.id.in_(ids))).scalars()
         return {r.id: r for r in rows}
 
+    def don_vi_theo_ma(self, mas: set[str]) -> dict[str, DonViDo]:
+        if not mas:
+            return {}
+        rows = self.db.execute(select(DonViDo).where(DonViDo.ma.in_(mas))).scalars()
+        return {r.ma: r for r in rows}
+
     def dem_theo_nhom(self, *, q: str | None = None, active: bool | None = None) -> dict[str, int]:
         """Số công đoạn của TỪNG giai đoạn — số hiện trên tab lọc. Không áp điều kiện `nhom`
         (tab nào cũng phải có số của nó), nhưng CÓ áp `q` và `active`."""
@@ -108,6 +118,34 @@ class CongDoanRepository(CatalogRepo):
     def _sau_gan(self, cd: CongDoan, data: dict) -> None:
         self._replace_vat_tu(cd, data.get("vat_tus") or [])
         self._replace_may(cd, data.get("may_lam_duoc") or [])
+        if "khoan" in data:
+            self._replace_khoan(cd, data.get("khoan"))
+
+    def _replace_khoan(self, cd: CongDoan, raw: dict | None) -> None:
+        """Thay aggregate Khoán nhưng giữ id các dòng phát sinh mà client gửi ngược lên."""
+        if not raw:
+            cd.khoan = None
+            return
+        k = cd.khoan
+        if k is None:
+            k = CongDoanKhoan()
+            cd.khoan = k
+        k.unit = raw["unit"]
+        k.unit_price = raw["unit_price"]
+        k.cong_thuc_khoan = raw.get("cong_thuc_khoan")
+        cu = {v.id: v for v in k.viec_phat_sinh if v.id is not None}
+        moi: list[CongDoanKhoanPhatSinh] = []
+        for i, dong in enumerate(raw.get("viec_phat_sinh") or []):
+            vid = dong.get("id")
+            v = cu.get(int(vid)) if vid else None
+            if v is None:
+                v = CongDoanKhoanPhatSinh()
+            v.ten = dong["ten"]
+            v.don_gia = dong["don_gia"]
+            v.don_vi = dong["don_vi"]
+            v.thu_tu = i
+            moi.append(v)
+        k.viec_phat_sinh = moi
 
     def _replace_may(self, cd: CongDoan, rows: list[dict]) -> None:
         """Thay TRỌN danh sách máy của công đoạn.
@@ -144,4 +182,3 @@ class CongDoanRepository(CatalogRepo):
                 vat_tu_id=int(r["vat_tu_id"]), thu_tu=i,
                 cong_thuc_luong=((r.get("cong_thuc_luong") or "").strip() or None),
             ))
-

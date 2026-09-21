@@ -158,6 +158,12 @@ class CongDoan(Base):
         "CongDoanTo", back_populates="cong_doan", order_by="CongDoanTo.thu_tu",
         cascade="all, delete-orphan",
     )
+    # Cấu hình KHOÁN là phần tùy chọn 1–1 của công đoạn. Không có dòng = chưa cấu hình; đơn giá 0
+    # vẫn là một cấu hình hợp lệ, nên không dùng giá trị rỗng/0 để suy trạng thái.
+    khoan: Mapped["CongDoanKhoan | None"] = relationship(
+        "CongDoanKhoan", back_populates="cong_doan", uselist=False,
+        cascade="all, delete-orphan", single_parent=True,
+    )
 
     @property
     def department_ids(self) -> list[int]:
@@ -200,6 +206,50 @@ class CongDoanTo(Base):
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="to_phu_trach")
+
+
+class CongDoanKhoan(Base):
+    """Một cấu hình khoán chính của Công đoạn; công thức mới chỉ lưu, chưa được thực thi."""
+
+    __tablename__ = "cong_doan_khoan"
+    __table_args__ = (
+        UniqueConstraint("cong_doan_id", name="uq_cong_doan_khoan_cong_doan"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cong_doan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("cong_doan.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    unit: Mapped[str] = mapped_column(String(24), nullable=False)
+    unit_price: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    cong_thuc_khoan: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False,
+    )
+
+    cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="khoan")
+    viec_phat_sinh: Mapped[list["CongDoanKhoanPhatSinh"]] = relationship(
+        "CongDoanKhoanPhatSinh", back_populates="khoan", order_by="CongDoanKhoanPhatSinh.thu_tu",
+        cascade="all, delete-orphan",
+    )
+
+
+class CongDoanKhoanPhatSinh(Base):
+    """Việc phát sinh có thể chọn khi ghi mẻ của đúng Công đoạn cha."""
+
+    __tablename__ = "cong_doan_khoan_phat_sinh"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cong_doan_khoan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("cong_doan_khoan.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    ten: Mapped[str] = mapped_column(String(255), nullable=False)
+    don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    don_vi: Mapped[str] = mapped_column(String(24), nullable=False)
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
+
+    khoan: Mapped["CongDoanKhoan"] = relationship("CongDoanKhoan", back_populates="viec_phat_sinh")
 
 
 class CongDoanVatTu(Base):
@@ -271,5 +321,4 @@ class CongDoanMay(Base):
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="may_lam_duoc")
-
 

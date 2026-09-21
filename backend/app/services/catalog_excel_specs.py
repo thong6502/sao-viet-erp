@@ -1,4 +1,4 @@
-"""Hợp đồng workbook Excel của ĐỦ 13 màn Cấu hình danh mục.
+"""Hợp đồng workbook Excel của các màn Cấu hình danh mục đang hoạt động.
 
 Cơ chế nằm ở `services/catalog_excel.py`; file này chỉ KHAI: sheet nào, cột nào, kiểu gì, dịch mã
 bằng resolver nào, và field nào cố ý KHÔNG đi qua Excel (`loai_tru`, kèm lý do ngay tại chỗ).
@@ -29,7 +29,6 @@ from ..models.vat_lieu_kho import ChungLoaiGiay, VatTuInAn
 from ..models.xe import MucKhoanKm
 from ..repositories.bu_hao_repo import BuHaoRepository
 from ..repositories.cong_doan_repo import CongDoanRepository
-from ..repositories.cong_viec_khoan_repo import CongViecKhoanRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.khuon_be_repo import KhuonBeRepository
@@ -81,7 +80,7 @@ class _Tra:
                     ma_theo_id[i] = str(ma)
                 if self.cot_ten and hang[2]:
                     ten_theo_id[i] = str(hang[2])
-                    # Nhận CẢ TÊN khi nhập: file đời cũ của Công đoạn / Công việc khoán ghi tên tổ,
+                    # Nhận CẢ TÊN khi nhập: file đời cũ của Công đoạn ghi tên tổ,
                     # và người khai quen gõ tên hơn mã. Mã thắng khi trùng nhau.
                     theo_ma.setdefault(str(hang[2]).strip().lower(), i)
             return theo_ma, ma_theo_id, ten_theo_id
@@ -267,30 +266,6 @@ LOAI_SAN_PHAM = CatalogExcelSpec(
     # `imposition_rule_id` trỏ tới `quy_tac_binh_bai` — bảng đó KHÔNG tồn tại trong hệ (không model,
     # không màn khai). Đưa vào Excel là bắt người ta gõ một id không tra được ở đâu.
     loai_tru=frozenset({"imposition_rule_id"}),
-)
-
-
-# ======================================================================================
-# 5 · Công việc khoán (`piece_rates`)
-# ======================================================================================
-
-CONG_VIEC_KHOAN = CatalogExcelSpec(
-    loai="cong_viec_khoan", tieu_de="Công việc khoán", repo_cls=CongViecKhoanRepository,
-    cot=(
-        Cot("Mã", "ma"),
-        Cot("Tên", "ten", rong=32),
-        # Một việc làm ở NHIỀU tổ (17/09/2026): ô ghi "PB015, PB020". `nhan_cu="Tổ"`: file đời cũ
-        # ghi TÊN một tổ trong cột "Tổ" — `_Tra` nhận cả tên lẫn mã.
-        *_cot_nhieu_to(nhan_cu=("Tổ",)),
-        Cot("Đơn vị", "unit", rong=14),
-        Cot("Đơn giá", "unit_price", kieu="so", rong=16),
-        # CÔNG THỨC KHOÁN (mg `0317`) — cách ra TIỀN của việc này khi kế toán tính lương về sau.
-        # Ô chữ thuần, không validate ở tầng Excel: cùng bộ biến với các ô công thức khác nên nếu
-        # gõ sai biến thì engine tính lương báo, còn chặn ở đây là chặn cả bản khai đang làm dở.
-        Cot("Công thức khoán", "cong_thuc_khoan", rong=36),
-        Cot("Ghi chú", "note", rong=32),
-        CO_ACTIVE,
-    ),
 )
 
 
@@ -809,7 +784,7 @@ XE = CatalogExcelSpec(
 
 SPECS: dict[str, CatalogExcelSpec] = {
     s.loai: s for s in (
-        KHO_HANG, BU_HAO, KHUON_BE, LOAI_SAN_PHAM, CONG_VIEC_KHOAN,
+        KHO_HANG, BU_HAO, KHUON_BE, LOAI_SAN_PHAM,
         DON_VI_DO, CHUNG_LOAI_GIAY, GIAY, VAT_TU, THANH_PHAM, CONG_DOAN, MAY_THIET_BI, XE,
     )
 }

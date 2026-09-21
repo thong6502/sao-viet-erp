@@ -10,9 +10,10 @@ bằng các hàm tổng ở đây — không cache cột (precedent `lsx_service
 from __future__ import annotations
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
-from ..models.bai_ghep_cong_doan import BaiGhepCongDoanMap
+from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
+from ..models.cong_doan import CongDoan, CongDoanKhoan
 from ..models.lsx import LsxCongDoan, LsxCongDoanPhuThuoc
 from ..models.san_xuat import SanXuatCongViec, SanXuatPhuThuoc
 from ..models.san_xuat_san_luong import (
@@ -54,6 +55,42 @@ class SanXuatSanLuongRepository:
     # --- Công việc (đọc lại để gate/nối) -----------------------------------------------------
     def cong_viec(self, cong_viec_id: int) -> SanXuatCongViec | None:
         return self.db.get(SanXuatCongViec, cong_viec_id)
+
+    def khoan_cua_cong_viec(self, cv: SanXuatCongViec) -> tuple[CongDoanKhoan | None, str | None]:
+        """Cấu hình Khoán SỐNG của công đoạn nguồn và tên công đoạn để chụp vào mẻ.
+
+        Công việc thực thi chỉ neo vào bước lệnh/bài ghép; truy vấn nguồn nằm ở repository để
+        service không biết chi tiết DB. Không tìm được công đoạn hoặc công đoạn chưa cấu hình thì
+        trả ``(None, tên nếu có)`` — ghi sản lượng vẫn hợp lệ.
+        """
+        if cv.bai_ghep_cong_doan_id is not None:
+            source = self.db.get(BaiGhepCongDoan, cv.bai_ghep_cong_doan_id)
+        elif cv.lsx_cong_doan_id is not None:
+            source = self.db.get(LsxCongDoan, cv.lsx_cong_doan_id)
+        else:
+            source = None
+        cong_doan_id = getattr(source, "cong_doan_id", None)
+        if not cong_doan_id:
+            return None, None
+        cd = self.db.get(CongDoan, int(cong_doan_id))
+        if cd is None:
+            return None, None
+        khoan = self.db.scalar(
+            select(CongDoanKhoan)
+            .options(selectinload(CongDoanKhoan.viec_phat_sinh))
+            .where(CongDoanKhoan.cong_doan_id == cd.id)
+        )
+        return khoan, cd.ten
+
+    def khoan_cong_doan(self, khoan_id: int) -> CongDoanKhoan | None:
+        return self.db.scalar(
+            select(CongDoanKhoan)
+            .options(
+                joinedload(CongDoanKhoan.cong_doan),
+                selectinload(CongDoanKhoan.viec_phat_sinh),
+            )
+            .where(CongDoanKhoan.id == int(khoan_id))
+        )
 
     def cong_viec_nhieu(self, ids) -> dict[int, SanXuatCongViec]:
         """`{id: công việc}` — MỘT truy vấn cho cả tập (vòng sửa 1, Minor 4: N+1 hình dạng ở

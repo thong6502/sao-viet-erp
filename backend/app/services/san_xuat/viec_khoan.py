@@ -68,8 +68,7 @@ def danh_sach_cua_to(db: Session, *, department_id: int | None, tim: str | None 
     vòng SQL chỉ để lọc 17 dòng thì đắt hơn phép lọc. Khớp cả MÃ và TÊN — xưởng gọi việc bằng mã
     (`KH-0013`) nhiều như gọi bằng tên.
 
-    Tổ chưa khai việc nào ⇒ rỗng. Không có nhánh "để trống" ở form: cổng "Sẵn sàng lập kế hoạch"
-    (`lsx_service.thieu_cua` → `thieu_viec_khoan_to`) đã chặn từ lúc lập lệnh.
+    Đường này chỉ giữ để đọc dữ liệu mẻ cũ; form ghi mẻ mới dùng cấu hình Khoán của Công đoạn.
     """
     rates = CongViecKhoanRepository(db).theo_to(department_id)
     if not rates:
@@ -95,45 +94,33 @@ def danh_sach_cua_to(db: Session, *, department_id: int | None, tim: str | None 
 
 
 def chuan_hoa_khi_ghi(
-    db: Session, *, department_id: int | None, piece_rate_id, phat_sinh: list[dict] | None,
-    bat_buoc: bool = True,
+    db: Session, *, khoan, ten_cong_doan: str | None, phat_sinh: list[dict] | None,
 ) -> tuple[dict, list[SanXuatBatchPhatSinh]]:
-    """Kiểm việc khoán + việc phát sinh của một mẻ ĐANG GHI → `(ô snapshot của mẻ, dòng phát sinh)`.
+    """Chụp cấu hình Khoán của công đoạn vào mẻ đang ghi.
 
-    BẮT BUỘC có việc khoán (§7.2) — cột nullable chỉ để đỡ mẻ ghi trước bản này, mẻ mới thì không.
-    Chặn: id lạ · việc không thuộc tổ của bước · `active = false` · việc phát sinh không thuộc
-    chính việc khoán đã chọn · số lượng ≤ 0.
-
-    `bat_buoc=False` CHỈ cho bước THUÊ NGOÀI: việc làm ở xưởng người ta, thợ của tổ không ăn khoán
-    trên đó, và cổng "Sẵn sàng lập kế hoạch" cũng miễn loại bước này. Bước MÁY thì vẫn bắt buộc —
-    tổ đứng máy ghi mẻ ở bàn tổ y như bước tổ (ví dụ của chính chủ xưởng: "Bình bài & ra kẽm ·
-    15.000 đ / bản kẽm" là việc của máy CTP).
-
-    KHÔNG add vào session (caller làm, sau khi có `batch.id`).
+    Không có cấu hình vẫn ghi sản lượng bình thường. Chỉ khi gửi việc phát sinh mà công đoạn chưa
+    cấu hình Khoán mới từ chối, vì không có danh mục nguồn để kiểm và chụp giá.
     """
-    if not piece_rate_id:
-        if bat_buoc:
-            raise ValueError("Mẻ phải chọn một công việc khoán của tổ.")
+    if khoan is None:
         if any(r.get("phat_sinh_id") for r in (phat_sinh or [])):
-            raise ValueError("Việc phát sinh đi theo một công việc khoán — chọn việc khoán trước.")
-        return ({"piece_rate_id": None, "ten_khoan_snapshot": None,
-                 "don_vi_khoan_snapshot": None, "don_gia_khoan_snapshot": None}, [])
-    repo = CongViecKhoanRepository(db)
-    # Đọc theo TỔ rồi mới tìm id: một câu truy vấn trả lời cả "có thật không" lẫn "có thuộc tổ này
-    # không". Tra `db.get` trước rồi so tổ sau là hai vòng cho cùng một câu hỏi.
-    rate = next((r for r in repo.theo_to(department_id) if r.id == int(piece_rate_id)), None)
-    if rate is None:
-        raise ValueError("Công việc khoán không thuộc tổ của bước này, hoặc đã ngừng dùng.")
+            raise ValueError("Công đoạn chưa cấu hình Khoán nên không thể ghi việc phát sinh.")
+        return ({
+            "piece_rate_id": None,
+            "khoan_cong_doan_id": None,
+            "ten_khoan_snapshot": None,
+            "don_vi_khoan_snapshot": None,
+            "don_gia_khoan_snapshot": None,
+        }, [])
 
-    anh = _anh_khoan_song(rate)
     o_snapshot = {
-        "piece_rate_id": rate.id,
-        "ten_khoan_snapshot": anh["ten"],
-        "don_vi_khoan_snapshot": anh["don_vi"],
-        "don_gia_khoan_snapshot": anh["don_gia"],
+        "piece_rate_id": None,
+        "khoan_cong_doan_id": khoan.id,
+        "ten_khoan_snapshot": (ten_cong_doan or "").strip() or None,
+        "don_vi_khoan_snapshot": khoan.unit,
+        "don_gia_khoan_snapshot": float(khoan.unit_price),
     }
 
-    hop_le = {ps.id: ps for ps in rate.viec_phat_sinh}
+    hop_le = {ps.id: ps for ps in khoan.viec_phat_sinh}
     rows: list[SanXuatBatchPhatSinh] = []
     da_co: set[int] = set()
     for r in (phat_sinh or []):
@@ -142,7 +129,7 @@ def chuan_hoa_khi_ghi(
             continue
         ps = hop_le.get(int(psid))
         if ps is None:
-            raise ValueError(f'Việc phát sinh không thuộc công việc khoán "{rate.ten}".')
+            raise ValueError("Việc phát sinh không thuộc cấu hình Khoán của công đoạn này.")
         if int(psid) in da_co:
             raise ValueError(f'Việc phát sinh "{ps.ten}" bị chọn hai lần.')
         try:
@@ -196,6 +183,31 @@ def danh_muc_doi(
     nó, không thì mẻ cũ báo "đã xoá" oan. Việc phát sinh vắng hẳn trong danh mục thì báo *"đã xoá
     khỏi danh mục"* — KHÔNG tự gỡ khỏi mẻ. `nap` = kết quả `nap_doi_chieu` khi gọi cho nhiều mẻ.
     """
+    if b.khoan_cong_doan_id:
+        from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
+
+        khoan = SanXuatSanLuongRepository(db).khoan_cong_doan(b.khoan_cong_doan_id)
+        if khoan is None:
+            return [{
+                "nhan": f'{b.ten_khoan_snapshot or "Cấu hình Khoán"} — đã xoá khỏi công đoạn',
+                "truong": "khoan_cong_doan", "cu": None, "moi": None, "mat": True,
+            }]
+        ra: list[dict] = []
+        anh_song = _anh_chup(khoan.cong_doan.ten, khoan.unit, khoan.unit_price)
+        for o in o_lech(_anh_khoan_cua_me(b), anh_song, _O_SO):
+            ra.append({**o, "nhan": f'{khoan.cong_doan.ten} · {o["nhan"]}', "mat": False})
+        song = {int(ps.id): ps for ps in khoan.viec_phat_sinh}
+        for r in ps_rows:
+            ps = song.get(int(r.phat_sinh_id))
+            if ps is None:
+                ra.append({
+                    "nhan": f'{r.ten_snapshot or "Việc phát sinh"} — đã xoá khỏi cấu hình Khoán',
+                    "truong": "phat_sinh", "cu": None, "moi": None, "mat": True,
+                })
+                continue
+            for o in o_lech(_anh_ps_cua_me(r), _anh_ps_song(ps), _O_SO):
+                ra.append({**o, "nhan": f'{ps.ten} · {o["nhan"]}', "mat": False})
+        return ra
     if not b.piece_rate_id:
         return []
     rates, song = nap or nap_doi_chieu(db, department_id=department_id, ps_rows=ps_rows)
@@ -238,6 +250,41 @@ def cap_nhat_theo_danh_muc(db: Session, *, user, batch_id: int) -> dict:
     if cv is None:
         raise ValueError("Không tìm thấy công việc của mẻ.")
     _gate(db, user, cv)
+    if b.khoan_cong_doan_id:
+        khoan = sl.khoan_cong_doan(b.khoan_cong_doan_id)
+        if khoan is None:
+            raise ValueError("Cấu hình Khoán của công đoạn không còn tồn tại.")
+        doi: list[str] = []
+        moi = _anh_chup(khoan.cong_doan.ten, khoan.unit, khoan.unit_price)
+        if o_lech(_anh_khoan_cua_me(b), moi, _O_SO):
+            b.ten_khoan_snapshot = moi["ten"]
+            b.don_vi_khoan_snapshot = moi["don_vi"]
+            b.don_gia_khoan_snapshot = moi["don_gia"]
+            doi.append(f"khoan_cong_doan={khoan.id}")
+        ps_rows = sl.phat_sinh_cua_batch(b.id)
+        song = {int(ps.id): ps for ps in khoan.viec_phat_sinh}
+        for r in ps_rows:
+            ps = song.get(int(r.phat_sinh_id))
+            if ps is None:
+                continue
+            anh_ps = _anh_ps_song(ps)
+            if o_lech(_anh_ps_cua_me(r), anh_ps, _O_SO):
+                r.ten_snapshot = anh_ps["ten"]
+                r.don_vi_snapshot = anh_ps["don_vi"]
+                r.don_gia_snapshot = anh_ps["don_gia"]
+                doi.append(f"phat_sinh={ps.id}")
+        AuditLogRepository(db).create(
+            actor_user_id=getattr(user, "id", None),
+            action="san_xuat_me_cap_nhat_danh_muc",
+            target=f"san_xuat_batch:{b.id}",
+            detail=f"cong_viec={cv.id} " + (" ".join(doi) if doi else "khong_co_gi_lech"),
+        )
+        db.commit()
+        return {
+            "cong_viec_id": cv.id, "department_id": cv.department_id,
+            "trang_thai": cv.trang_thai, "version": cv.version,
+            "batch_id": b.id, "ket_qua_lsx": [],
+        }
     if not b.piece_rate_id:
         raise ValueError("Mẻ này chưa khai công việc khoán — không có gì để cập nhật.")
 

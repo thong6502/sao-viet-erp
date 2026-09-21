@@ -466,8 +466,6 @@ class LsxOut(BaseModel):
     # `thieu` CHẶN nút "Sẵn sàng lập kế hoạch" (§12). Rổ cảnh báo MỀM §14 (`canh_bao`) đã gỡ
     # 25/08/2026 — server vẫn tính mỗi lần mở lệnh mà không màn nào đọc.
     thieu: list[str] = Field(default_factory=list)
-    # Tên tổ đứng sau mã `thieu_viec_khoan_to` — màn lệnh gọi đích danh tổ nào chưa có việc khoán.
-    to_thieu_viec_khoan: list[str] = Field(default_factory=list)
     lead_time: LeadTimeOut | None = None
     # `khoan_tien_tong` gỡ 11/09/2026 cùng tiền khoán ở tầng lệnh — tổng công thợ là số của kế toán
     # lương, tính theo bảng giá TẠI KỲ TÍNH LƯƠNG, không phải Σ ảnh chụp lúc bung lệnh.

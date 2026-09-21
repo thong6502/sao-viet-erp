@@ -315,7 +315,6 @@ def _xe(db: Session, obj) -> ThamChieu:
 
 DEM_THEO_LOAI = {
     "cong_doan": _cong_doan,
-    "cong_viec_khoan": _cong_viec_khoan,
     "may_thiet_bi": _may_thiet_bi,
     "don_vi_do": _don_vi_do,
     "bu_hao": _bu_hao,

@@ -93,7 +93,9 @@ from .plate_die_rate import PlateDieRate
 from .norm import Norm
 from .may_thiet_bi import MayThietBi, NhomMay
 from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
-from .cong_doan import CongDoan, CongDoanMay, CongDoanTo, CongDoanVatTu
+from .cong_doan import (
+    CongDoan, CongDoanKhoan, CongDoanKhoanPhatSinh, CongDoanMay, CongDoanTo, CongDoanVatTu,
+)
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang, KhoViTri
@@ -293,6 +295,8 @@ __all__ = [
     "LsxCongDoanPhuThuoc",
     "LsxDinhKem",
     "CongDoanMay",
+    "CongDoanKhoan",
+    "CongDoanKhoanPhatSinh",
     "CongDoanVatTu",
     "CongDoanTo",
     "BaiGhep",

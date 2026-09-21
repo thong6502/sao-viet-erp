@@ -81,7 +81,6 @@ from ..schemas.san_xuat import (
     TamDungIn,
     TeamsOut,
     ThemLotIn,
-    ViecKhoanChonListOut,
     VatTuDeNghiIn,
     VatTuNhanKetQuaOut,
     VatTuXacNhanIn,
@@ -342,24 +341,6 @@ def nhan_vien_cua_to(
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-
-
-@router.get("/teams/{team_id}/viec-khoan", response_model=ViecKhoanChonListOut)
-def viec_khoan_cua_to(
-    team_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_quyen_to("read"))],
-    tim: str | None = None,
-) -> ViecKhoanChonListOut:
-    """Việc khoán của tổ cho form Ghi mẻ (§7.1) — đơn giá · ĐVT · ghi chú + việc phát sinh.
-
-    Gác bằng Xem của dòng tổ như ô "Giao người": mở form là đọc, ghi thật vẫn do
-    `/work-items/{id}/outputs` gác Thực hiện lệnh đúng tổ ở service. `tim` lọc TƯƠNG ĐỐI (bỏ dấu,
-    khớp một phần) trên cả mã và tên, và ô tìm HIỆN CHO MỌI TỔ kể cả tổ một việc (chốt ý 10).
-    """
-    return ViecKhoanChonListOut(
-        items=viec_khoan.danh_sach_cua_to(db, department_id=team_id, tim=tim)
-    )
 
 
 @router.get("/teams/{team_id}/ho-tro-ung-vien", response_model=HoTroUngVienListOut)
@@ -736,15 +717,14 @@ def tao_batch(
 ) -> dict:
     """Ghi một mẻ sản lượng + lot đầu vào (§11.1) + việc khoán & việc phát sinh (§7.1).
 
-    Ràng buộc tổng = tốt + hỏng. `piece_rate_id` bắt buộc (§7.2); việc phát sinh KHÔNG cộng vào
-    sản lượng nên không đụng gì tới ba con số trên."""
+    Ràng buộc tổng = tốt + hỏng. Cấu hình Khoán tự lấy từ công đoạn; việc phát sinh KHÔNG cộng
+    vào sản lượng nên không đụng gì tới ba con số trên."""
     res = _chay(lambda: san_luong.tao_batch(
         db, user=user, cong_viec_id=cong_viec_id,
         bat_dau=body.bat_dau, ket_thuc=body.ket_thuc,
         tong=body.tong, tot=body.tot, hong=body.hong, don_vi=body.don_vi,
         mo_ta_loi=body.mo_ta_loi, ghi_chu=body.ghi_chu,
         lot_vao=[lot.model_dump() for lot in body.lot_vao],
-        piece_rate_id=body.piece_rate_id,
         phat_sinh=[ps.model_dump() for ps in body.phat_sinh],
     ))
     _phat_sse(res)

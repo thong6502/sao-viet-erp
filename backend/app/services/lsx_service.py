@@ -461,7 +461,6 @@ class LsxService:
         self.audit = audit
         self.sequence = sequence
         self._tram_cache: dict | None = None     # cờ trạm dòng giấy (xem `_tram`)
-        self._rates_cache: list | None = None   # bảng đơn giá khoán (xem `_piece_rates`)
         self._dv_cache: dict | None = None      # danh mục đơn vị (xem `_don_vis`)
         self._cap_cache: dict | None = None     # đồ thị cặp quy đổi (xem `_cap_quy_doi`)
         self._ma_dv_cache: dict | None = None   # tên đơn vị → mã (xem `_ma_don_vi`)
@@ -511,21 +510,6 @@ class LsxService:
         # ngừng dùng sau khi lệnh chạy mà lọc ở đây thì số tờ hao đổi ⇒ lệnh cũ tự nhiên lệch.
         # Ô CHỌN mã bù hao lọc ở router danh mục, không phải ở đây.
         return [_bu_hao_to_dict(b) for b in self.db.execute(select(BuHao)).scalars()]
-
-    # --- Khoán theo đầu việc (bảng giá của tổ) + đơn vị quy đổi ---------------
-    # Cache theo INSTANCE service (1 request = 1 instance): bung lệnh gọi mỗi bước một lần, mà hai
-    # bảng này nhỏ và không đổi trong một request — query lại từng bước là N+1 vô ích.
-
-    def _piece_rates(self) -> list:
-        if self._rates_cache is None:
-            from ..models.piece_work import PieceRate
-
-            # Nạp kèm danh sách tổ: cổng `thieu_viec_khoan_to` đọc `department_ids` của MỌI dòng.
-            self._rates_cache = list(self.db.execute(
-                select(PieceRate).where(PieceRate.active.is_(True))
-                .options(selectinload(PieceRate.to_lam))
-            ).scalars())
-        return self._rates_cache
 
     def _don_vis(self) -> dict:
         if self._dv_cache is None:
@@ -1604,33 +1588,6 @@ class LsxService:
             raise LsxNotFound("Không tìm thấy lệnh sản xuất")
         return lsx
 
-    def _to_thieu_viec_khoan_ids(self, lsx: Lsx) -> list[int]:
-        """Tổ (theo thứ tự bước, không lặp) được giao bước Máy/Tổ mà chưa có công việc khoán nào
-        còn dùng — nội dung của mã `thieu_viec_khoan_to`.
-
-        Soi CẢ bước MÁY: tổ đứng máy cũng ghi mẻ ở bàn tổ (`snapshot` chép `department_id` cho mọi
-        loại bước). Chỉ THUÊ NGOÀI miễn — mẻ của nó không bắt việc khoán. Không query thêm:
-        `_piece_rates` có cache, màn danh sách gọi `thieu_cua` cho cả chục lệnh một lượt.
-        """
-        to_an_khoan = {int(x) for r in self._piece_rates() for x in (r.department_ids or [])}
-        ids: list[int] = []
-        for cd in lsx.cong_doans:
-            dep = int(cd.department_id) if cd.department_id else None
-            if (cd.loai_buoc in (LB_MAY, LB_TO) and dep is not None
-                    and dep not in to_an_khoan and dep not in ids):
-                ids.append(dep)
-        return ids
-
-    def to_thieu_viec_khoan(self, lsx: Lsx) -> list[str]:
-        """TÊN các tổ của `_to_thieu_viec_khoan_ids` — màn lệnh gọi đích danh tổ nào thiếu thay vì
-        câu chung "có tổ chưa có việc" (spec §5.4: *"Bước Cán màng mờ giao cho Tổ cán phủ mà tổ
-        này chưa khai công việc khoán nào"*). Chỉ màn chi tiết gọi — thêm một query tên tổ."""
-        ids = self._to_thieu_viec_khoan_ids(lsx)
-        if not ids:
-            return []
-        ten = self._dept_names(set(ids))
-        return [ten.get(i) or f"Tổ #{i}" for i in ids]
-
     def thieu_cua(self, lsx: Lsx) -> list[str]:
         """Checklist CHẶN — còn mã nào thì không cho đánh dấu "Sẵn sàng lập kế hoạch" (§12)."""
         order = self.db.get(Order, lsx.order_id)
@@ -1686,13 +1643,6 @@ class LsxService:
             if can_chot_khuon(can_dc, loai_dc) and cd.khuon_be_id is None:
                 if "thieu_khuon" not in thieu:
                     thieu.append("thieu_khuon")
-        # Bước giao cho một TỔ mà tổ ấy chưa có công việc khoán nào ⇒ CHẶN (chủ chốt 18/09/2026:
-        # *"tổ chưa có công việc khoán thì không nhấn được nút sẵn sàng lập kế hoạch đâu"*). Từ
-        # ngày ghi mẻ theo CÔNG VIỆC KHOÁN (§7.1), thợ mở bàn tổ ra mà danh sách việc rỗng thì
-        # không ghi nổi một mẻ nào — cả lệnh đứng im ở tổ đó. Chặn ở đây, ngay chỗ hậu quả xảy
-        # ra, thay vì chặn lúc gỡ tổ khỏi danh mục Công việc khoán (danh mục phải sửa được).
-        if self._to_thieu_viec_khoan_ids(lsx):
-            thieu.append("thieu_viec_khoan_to")
         # Thiếu NGUỒN của hệ số quy đổi — hai cầu, hai nguồn khác nhau. KHÔNG kiểm `he_so <= 1`
         # như bản cũ: hệ số 1 HỢP LỆ ở cả hai cầu (1 tờ nguyên ra 1 tờ in là chuyện thường; 1
         # con/tờ hiếm nhưng có — poster bằng khổ tờ). Chỉ 0/thiếu mới là chưa khai.
@@ -2224,7 +2174,6 @@ class LsxService:
             "may_ten": may_names.get(lsx.may_id),
             "nguoi_phu_trach_ten": self._user_name(lsx.nguoi_phu_trach_id),
             "thieu": self.thieu_cua(lsx),
-            "to_thieu_viec_khoan": self.to_thieu_viec_khoan(lsx),
             "lead_time": self.lead_time(lsx),
             "cong_doans": buoc_dicts,
             # KHÔNG có `khoan_tien_tong` (gỡ 11/09/2026). Tổng công thợ của lệnh là số của kế toán

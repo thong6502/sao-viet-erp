@@ -1,6 +1,6 @@
-"""Bảy màn danh mục: số truy vấn KHÔNG được chạy theo số dòng (rà 14/09/2026).
+"""Các màn danh mục: số truy vấn KHÔNG được chạy theo số dòng (rà 14/09/2026).
 
-Công việc khoán · Khuôn & khung · Thành phẩm · Vật tư khác · Giấy (+ chủng loại) · Công đoạn ·
+Khuôn & khung · Thành phẩm · Vật tư khác · Giấy (+ chủng loại) · Công đoạn ·
 Thiết bị & Máy móc. Đo thật lúc rà: mọi đường đọc của màn và drawer (danh sách, chi tiết, tab Nhật
 ký, kiểm-tra-trước-khi-xoá, lịch sử công thức, cột Trạng thái máy, các ô chọn tham chiếu) đều ra số
 truy vấn KHÔNG ĐỔI khi dữ liệu tăng gấp bốn — không có N+1.
@@ -22,7 +22,6 @@ from app.models.customer import Customer
 from app.models.department import Department
 from app.models.khuon_be import KhuonBe
 from app.models.may_thiet_bi import MayThietBi
-from app.models.piece_work import PieceRate
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 
 from .test_work_shifts_api import _admin_token
@@ -31,7 +30,6 @@ from .test_work_shifts_api import _admin_token
 _dot = iter(range(1, 100))
 
 DANH_SACH = [
-    "/api/cong-viec-khoan?size=200",
     "/api/khuon-be?size=200",
     "/api/vat-lieu-kho/thanh-pham?size=200",
     "/api/vat-lieu-kho/vat-tu-in-an?size=200",
@@ -74,12 +72,10 @@ def _dung_danh_muc(n: int) -> dict[str, int]:
         khs = [Customer(code=f"STKH{d}-{i}", name=f"ST Khach {d}-{i}") for i in range(n)]
         db.add_all([to, cl, *khs])
         db.flush()
-        rates = [PieceRate(department_ids=[to.id], ma=f"STR{d}-{i}",
-                           ten=f"ST viec {d}-{i}", unit="to", unit_price=100) for i in range(n)]
         vts = [VatTuInAn(ma=f"STVT{d}-{i}", ten=f"ST vt {d}-{i}", don_vi_gia="kg") for i in range(n)]
         mays = [MayThietBi(ma=f"STM{d}-{i}", ten=f"ST may {d}-{i}", loai_may="press_offset_sheet")
                 for i in range(n)]
-        db.add_all([*rates, *vts, *mays])
+        db.add_all([*vts, *mays])
         for i in range(n):
             db.add(VatTuInAn(ma=f"STTP{d}-{i}", ten=f"ST tp {d}-{i}", don_vi_gia="kg",
                              la_thanh_pham=True, customer_id=khs[i].id))
@@ -100,7 +96,7 @@ def _dung_danh_muc(n: int) -> dict[str, int]:
                                      cong_thuc_luong="sl_vao / 1000"))
                 db.add(CongDoanMay(cong_doan_id=cd.id, may_id=mays[(i + j) % n].id, thu_tu=j))
         db.commit()
-        return {"cong_doan": cd_dau.id, "may_thiet_bi": mays[0].id, "cong_viec_khoan": rates[0].id}
+        return {"cong_doan": cd_dau.id, "may_thiet_bi": mays[0].id}
     finally:
         db.close()
 
@@ -149,7 +145,6 @@ def test_drawer_khong_chay_theo_nhat_ky_va_con(client):
     ids = _dung_danh_muc(12)
     urls = [
         f"/api/cong-doan/{ids['cong_doan']}",
-        f"/api/cong-viec-khoan/{ids['cong_viec_khoan']}",
         f"/api/may-thiet-bi/{ids['may_thiet_bi']}",
         f"/api/nhat-ky-danh-muc/cong_doan/{ids['cong_doan']}",
         *(f"/api/danh-muc/{loai}/{i}/kiem-xoa" for loai, i in ids.items()),

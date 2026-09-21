@@ -17,9 +17,7 @@ from app.models.cong_doan import CongDoan
 from app.models.don_vi_do import DonViDo
 from app.models.khuon_be import KhuonBe
 from app.models.loai_san_pham import LoaiSanPham
-from app.models.department import Department
 from app.models.may_thiet_bi import MayThietBi
-from app.models.piece_work import PieceRate
 from app.models.san_xuat_kcs import SanXuatKcsTieuChi
 from app.models.xe import Xe
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
@@ -40,8 +38,7 @@ def _mau(db):
     """Một bản ghi cho mỗi loại — DB trắng, chưa ai dùng gì."""
     cl = ChungLoaiGiay(ma="ZZCL", ten="ZZ Chủng loại")
     dv = DonViDo(ma="zzkg", ten="ZZ Ký")
-    to = Department(name="ZZ Tổ mẫu", code="ZZTOM", la_san_xuat=True)
-    db.add_all([cl, dv, to])
+    db.add_all([cl, dv])
     db.commit()
     # Công đoạn phải có ID TRƯỚC: hạng mục kiểm KCS neo vào nó (`cong_doan_id` NOT NULL, mg `0285`).
     cd = CongDoan(ma="ZZCD", ten="ZZ Công đoạn", nhom="finishing")
@@ -59,9 +56,6 @@ def _mau(db):
         "chung_loai_giay": cl,
         "giay": GiayNguyen(ma="ZZG", ten="ZZ Giấy", chung_loai_giay_id=cl.id, gsm=100),
         "vat_tu": VatTuInAn(ma="ZZVT", ten="ZZ Vật tư"),
-        # Công việc khoán (17/08/2026): cùng bảng `piece_rates` mà Lương khoán tra.
-        "cong_viec_khoan": PieceRate(department_ids=[to.id],
-                                     ma="ZZKH", ten="ZZ Việc khoán", unit="zzkg", unit_price=100),
         # Hạng mục kiểm KCS — không ai trỏ ngược về nó (mg `0285` gỡ bảng nối) ⇒ xoá hẳn được.
         "san_xuat_kcs_tieu_chi": SanXuatKcsTieuChi(ma="ZZTC", ten="ZZ Tiêu chí", cong_doan_id=cd.id),
         # Xe giao hàng (12/09/2026) — `_xe` đếm CHUYẾN đã chạy xe này. Xe mẫu chưa chạy chuyến nào

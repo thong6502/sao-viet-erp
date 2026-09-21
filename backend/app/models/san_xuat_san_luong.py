@@ -78,6 +78,9 @@ class SanXuatBatch(Base):
     # "— chưa khai việc khoán", không đoán. Cổng "Sẵn sàng lập kế hoạch" đã chặn bước giao cho tổ
     # chưa khai việc khoán nào, nên mẻ mới luôn có việc để chọn.
     piece_rate_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # Nguồn KHOÁN mới của mẻ. Soft-ref để khi người quản trị gỡ cấu hình, ảnh chụp lịch sử vẫn
+    # nguyên vẹn; `piece_rate_id` ở trên tiếp tục dành cho các mẻ legacy.
+    khoan_cong_doan_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     # ẢNH CHỤP việc khoán lúc ghi mẻ. Chụp CẢ ĐƠN GIÁ (chốt 18/09/2026, đảo đề xuất ban đầu): mai
     # danh mục lên giá thì mẻ vẫn đọc lại được đúng bối cảnh của nó, và mẻ hiện băng "Danh mục đã
     # đổi" kèm nút đồng ý — hệ KHÔNG tự đổi số dưới chân mẻ đã ghi.
