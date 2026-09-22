@@ -58,14 +58,10 @@ export function CauHinhLuongTab({
   token,
   readOnly,
   onDirtyChange,
-  navigate,
 }: {
   token: string;
   readOnly: boolean;
   onDirtyChange?: (dirty: boolean) => void;
-  /** Chỉ dùng cho một đường: panel "Đơn giá khoán của tổ" → màn danh mục Công việc khoán. Bỏ trống
-   *  thì panel vẫn khai được, chỉ mất đường dẫn (xem `KhoanRatesEditor.onMoDanhMuc`). */
-  navigate?: (id: string) => void;
 }) {
   const [sub, setSub] = useState<SubTab>("cochE");
   const [loading, setLoading] = useState(true);
@@ -458,7 +454,6 @@ export function CauHinhLuongTab({
           loading={compsLoading}
           readOnly={readOnly}
           busy={saving}
-          navigate={navigate}
           khoanDaLuu={
             comps.find((c) => c.component_key === "luong_khoan")?.is_enabled ?? false
           }

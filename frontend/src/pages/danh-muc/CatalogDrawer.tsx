@@ -13,7 +13,7 @@ import { crud, type Row } from "../../api/rebuildCatalog";
 import { Drawer } from "./components/Drawer";
 import {
   BandsField, ChuanBiKhoanField, DonViTocDoField, FormulaField,
-  LichBaoTriField, MayCuaCongDoanField, NhomMayField, NhomMayMultiField, RefMultiField,
+  KhoanCongDoanField, LichBaoTriField, MayCuaCongDoanField, NhomMayField, NhomMayMultiField, RefMultiField,
   RefSearchField,
   SelfRefMultiField, ToMultiField, VatTuCongDoanField, ViecPhatSinhField,
 } from "./fields";
@@ -23,7 +23,7 @@ import { NhatKyTab } from "./nhat-ky/NhatKyTab";
 import { DieuHuongDanhMuc, useDieuHuongDanhMuc } from "./dieuHuong";
 import type { NavigateFn } from "../../components/AppShell";
 import type {
-  BacRow, CatalogConfig, ChuanBiKhoanRow, FieldDef, LichBaoTriRow, MayCongDoanRow,
+  BacRow, CatalogConfig, ChuanBiKhoanRow, FieldDef, KhoanCongDoanValue, LichBaoTriRow, MayCongDoanRow,
   VatTuCongDoanRow, ViecPhatSinhRow,
 } from "./types";
 
@@ -68,7 +68,7 @@ function locConDung(rows: Row[], dangChon: unknown, nhan = true): Row[] {
 
 const KIEU_CO_THAM_CHIEU = new Set<string>([
   "ref", "ref-multi", "self-ref-multi", "ref-search", "ref-search-ma",
-  "may-cua-cong-doan", "don_vi_toc_do", "nhom_may", "nhom_may-multi", "viec-phat-sinh", "to-multi",
+  "may-cua-cong-doan", "don_vi_toc_do", "nhom_may", "nhom_may-multi", "viec-phat-sinh", "khoan-cong-doan", "to-multi",
 ]);
 
 /** Danh mục nguồn cần nạp cho các ô chọn của drawer: `{prefix: query}`. Gộp `refParams` theo
@@ -279,13 +279,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
     const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
     const laDonVi = config.prefix.includes("don-vi");
-    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "vat-tu-cong-doan" || f.type === "may-cua-cong-doan" || f.type === "viec-phat-sinh" || f.type === "to-multi" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "vat-tu-cong-doan" || f.type === "may-cua-cong-doan" || f.type === "viec-phat-sinh" || f.type === "khoan-cong-doan" || f.type === "to-multi" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
-    const Tag = f.type === "formula" || f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "viec-phat-sinh" ? "div" : "label";
+    const Tag = f.type === "formula" || f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "viec-phat-sinh" || f.type === "khoan-cong-doan" ? "div" : "label";
     return (
       <Tag className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}${isFullWidth ? " rc-field--full" : ""}`} key={f.key}>
-        <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
+        {cleanLabel && <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>}
         {f.type === "lich_bao_tri" ? (
           <LichBaoTriField value={Array.isArray(form[f.key]) ? (form[f.key] as LichBaoTriRow[]) : []}
             mayId={isEdit && existing ? Number(existing.id) : null}
@@ -293,6 +293,16 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
         ) : f.type === "chuan_bi_khoan" ? (
           <ChuanBiKhoanField value={Array.isArray(form[f.key]) ? (form[f.key] as ChuanBiKhoanRow[]) : []}
             onChange={(v) => set(f.key, v)} />
+        ) : f.type === "khoan-cong-doan" ? (
+          <KhoanCongDoanField
+            value={form[f.key] && typeof form[f.key] === "object"
+              ? form[f.key] as KhoanCongDoanValue : null}
+            donViOptions={locConDung(
+              refData[f.refPrefix ?? ""] ?? [],
+              [(form[f.key] as KhoanCongDoanValue | null)?.unit ?? ""],
+            )}
+            onChange={(v) => set(f.key, v)}
+          />
         ) : f.type === "viec-phat-sinh" ? (
           <ViecPhatSinhField value={Array.isArray(form[f.key]) ? (form[f.key] as ViecPhatSinhRow[]) : []}
             // Giữ lại đơn vị ĐANG được các dòng chọn dù đã ngừng dùng (xem `locConDung`).

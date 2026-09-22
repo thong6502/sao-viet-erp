@@ -20,7 +20,6 @@ from app.models.don_vi_do import DonViDo
 from app.models.khuon_be import KhuonBe
 from app.models.loai_san_pham import LoaiSanPham
 from app.models.may_thiet_bi import MayThietBi
-from app.models.piece_work import PieceRate
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from app.routers.nhat_ky_danh_muc import LOAI_MODULE
 from app.seed import MODULES
@@ -32,8 +31,6 @@ from app.services.role_service import SCOPELESS_MODULES
 #: `role_service.SCOPELESS_MODULES` bản cũ — 11 khoá danh mục + Kỹ thuật máy, cộng 4 màn khối
 #: Sản xuất tách khoá riêng ngày 17/08/2026 (đã soi: không router nào của chúng đọc scope).
 #: `san_xuat` KHÔNG có mặt — `lsx.py` đọc scope thật để thợ chỉ thấy lệnh của mình.
-#: `dm_cong_viec_khoan` (17/08/2026): màn danh mục nên scopeless như 10 màn kia — bảng đơn giá là
-#: dữ liệu GỐC của cả xưởng, không có khái niệm "đơn giá của tôi".
 #: `bai_ghep` (màn cũ) rời danh sách 18/08/2026: mg `0216` chép quyền sang `bai_ghep_2` rồi xoá khoá.
 #: `xep_lich` (màn cũ) rời danh sách 19/08/2026: mg `0219` chép quyền sang `xep_lich_2` rồi xoá khoá.
 #: `yeu_cau_sua_chua` (20/08/2026): ô báo máy hỏng cho người NGOÀI tổ kỹ thuật. Scopeless là CHỦ Ý —
@@ -42,7 +39,7 @@ from app.services.role_service import SCOPELESS_MODULES
 #: `dm_kcs_tieu_chi` (31/08/2026, Task 3 KCS kiêm nhiệm): danh mục Tiêu chí KCS — checklist chuẩn
 #: dùng chung cả xưởng, không có khái niệm "tiêu chí của tôi", scopeless như mọi màn danh mục khác.
 SCOPELESS_CU = frozenset({
-    "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_cong_viec_khoan", "dm_bu_hao",
+    "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_bu_hao",
     "dm_don_vi", "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
     # Thành phẩm (19/08/2026, mg 0203): danh mục thì KHÔNG có phạm vi — bỏ sót ở đây là màn mọc
     # ra dropdown Phạm vi, rồi scope `own` bó âm thầm quyền vừa cấp.
@@ -66,9 +63,6 @@ LOAI_MODULE_CU = {
     "machine": "dm_thiet_bi",
     "cong_doan": "dm_cong_doan",
     "operation": "dm_cong_doan",
-    # Đơn giá khoán vào Cấu hình danh mục 17/08/2026 — trước đó bảng `piece_rates` KHÔNG ghi nhật ký
-    # dòng nào (CRUD của nó nằm ở router Lương, ngoài nền danh mục).
-    "cong_viec_khoan": "dm_cong_viec_khoan",
     "bu_hao": "dm_bu_hao",
     "don_vi_do": "dm_don_vi",
     "don_vi_quy_doi": "dm_don_vi",
@@ -100,9 +94,6 @@ MODEL_CU = {
     # Máy vào bản đồ 15/08/2026 cùng cột `active` (mg `0202`): trước đó nó `model=None`
     # nên `kiem-xoa` trả 404 và hộp thoại xoá của màn Máy rơi vào ngõ cụt.
     "may_thiet_bi": MayThietBi,
-    # Công việc khoán vào bản đồ 17/08/2026: `kiem-xoa` đếm định mức đầu việc + bước lệnh/bài ghép
-    # đang ghim đơn giá này.
-    "cong_viec_khoan": PieceRate,
 }
 
 
@@ -149,10 +140,9 @@ def test_khuon_be_giu_nguyen_chuoi_quyen():
 def test_khong_trung_loai_khong_trung_module():
     loai = [d.loai for d in DANH_MUC] + [a for d in DANH_MUC for a in d.alias_loai]
     assert len(loai) == len(set(loai)), "trùng `loai` giữa tên chính và tên đời cũ"
-    # 13 từ 10/09/2026: 10 màn gốc + Công việc khoán + Thành phẩm + Tiêu chí KCS. (14 trước đó —
-    # màn "Lý do & lỗi SX" GỠ HẲN cùng danh mục `san_xuat_ly_do`, mg 0288.) Con số phải ĐỔI chứ
+    # 13 sau khi Công việc khoán được hợp nhất vào Công đoạn (21/09/2026). Con số phải ĐỔI chứ
     # không được bỏ — nó bắt cả trường hợp lỡ tay khai trùng một màn thành hai dòng.
-    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 14
+    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 13
 
 
 def test_dem_theo_loai_phu_dung_cac_man_co_model():
@@ -172,7 +162,7 @@ def test_dang_ky_tra_du_cac_man(client):
     r = client.get("/api/danh-muc/dang-ky", headers=_admin(client))
     assert r.status_code == 200, r.text
     items = r.json()["items"]
-    assert len(items) == 14
+    assert len(items) == 13
 # `test_dang_ky_tra_du_11_man` GỠ 21/08/2026 — trùng việc với `test_dang_ky_tra_du_cac_man`
 # ngay trên (cả hai đếm số màn của endpoint đăng ký). Con số 14 (31/08/2026) rút còn 13
 # (10/09/2026) khi màn "Lý do & lỗi SX" gỡ hẳn.

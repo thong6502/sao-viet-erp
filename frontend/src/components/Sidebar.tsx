@@ -257,13 +257,6 @@ export const NAV: NavSection[] = [
       { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_loai_san_pham" },
       { id: "may-thiet-bi", label: "Thiết bị & Máy móc", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
-      // Công việc khoán: đơn giá khoán theo tổ. Đứng cạnh Công đoạn vì đó là chỗ nó được dùng (ô
-      // "Đầu việc và định mức của tổ" ở form Công đoạn, rồi bước lệnh chọn lại). Trước 17/08/2026
-      // khai trong một tab của màn Lương — sai chỗ: bảng này là dữ liệu GỐC của sản xuất, kế toán
-      // lương chỉ đọc ra tiền.
-      // Icon `calculator` giữ đúng cái người dùng đang quen: tab "Lương khoán" cũ cũng mang icon máy
-      // tính. Trong nhóm danh mục nó là duy nhất nên không lẫn với ba mục dùng `clipboard`.
-      { id: "cong-viec-khoan", label: "Công việc khoán", icon: "calculator", module: "dm_cong_viec_khoan" },
       { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_bu_hao" },
       // Đơn vị & quy đổi: dùng chung cho khoán · kho · mua hàng, nên nằm ở danh mục chứ không
       // chôn trong màn Lương. MỘT mục cho hai bảng (đơn vị · cặp "1 tấn = 1.000 kg") — tách hai

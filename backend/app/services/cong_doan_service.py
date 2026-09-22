@@ -55,12 +55,34 @@ class CongDoanService(CatalogService):
                 data.pop("department_ids")
             else:
                 data["department_ids"] = list(dict.fromkeys(int(i) for i in ids if i))
+        if "khoan" in data and data.get("khoan") is not None:
+            k = dict(data["khoan"])
+            k["unit"] = (str(k.get("unit") or "").strip().lower()) or None
+            k["cong_thuc_khoan"] = (str(k.get("cong_thuc_khoan") or "").strip()) or None
+            k["viec_phat_sinh"] = [
+                {
+                    **dict(r),
+                    "ten": " ".join(str(r.get("ten") or "").split()),
+                    "don_vi": (str(r.get("don_vi") or "").strip().lower()) or None,
+                }
+                for r in (k.get("viec_phat_sinh") or [])
+            ]
+            data["khoan"] = k
         return data
 
     def _anh_chup_nhan_ban(self, goc) -> dict:
         """Bản sao mang theo danh sách tổ — ảnh chụp nhật ký chỉ có chúng dưới dạng chữ."""
         data = super()._anh_chup_nhan_ban(goc)
         data["department_ids"] = list(goc.department_ids)
+        data["khoan"] = None if goc.khoan is None else {
+            "unit": goc.khoan.unit,
+            "unit_price": float(goc.khoan.unit_price),
+            "cong_thuc_khoan": goc.khoan.cong_thuc_khoan,
+            "viec_phat_sinh": [
+                {"ten": v.ten, "don_gia": float(v.don_gia), "don_vi": v.don_vi}
+                for v in goc.khoan.viec_phat_sinh
+            ],
+        }
         return data
 
     def _kiem_to(self, data: dict, obj: CongDoan | None) -> list[int]:
@@ -121,6 +143,7 @@ class CongDoanService(CatalogService):
                 self._kiem_o(r.get("cong_thuc_gia"), nhan=f"Công thức giá{o}",
                              loai=LOAI_CONG_DOAN)
         self._kiem_to(data, obj)
+        self._kiem_khoan(data.get("khoan"))
         # ⚠️ Khối validate "định mức đầu việc" (năng suất người-giờ · kíp chuẩn · công thức tiền
         #    công · cách đo giờ) GỠ 18/09/2026 (mg `0320`): công đoạn thôi khai đầu việc. Việc khoán
         #    nay chọn LÚC GHI MẺ ở bàn tổ, còn thời lượng bước tổ do người lập lệnh gõ tay
@@ -180,6 +203,44 @@ class CongDoanService(CatalogService):
         # công đoạn bị soi ở server. Kiểm cuối cùng để câu lỗi cú pháp không chen trước những câu
         # lỗi nghiệp vụ cụ thể hơn (chiều dòng giấy) — người khai cần nghe cái bệnh nặng trước.
         self._kiem_o(data.get("cong_thuc_gia"), nhan="Công thức tính giá", loai=LOAI_CONG_DOAN)
+
+    def _kiem_khoan(self, k: dict | None) -> None:
+        """Kiểm aggregate Khoán; `None`/rỗng là yêu cầu chưa cấu hình hoặc gỡ cấu hình."""
+        if not k:
+            return
+        unit = k.get("unit")
+        gia = k.get("unit_price")
+        if not unit or gia is None:
+            raise CongDoanValidationError("Cấu hình khoán cần đủ đơn vị tính và đơn giá.")
+        try:
+            if float(gia) < 0:
+                raise CongDoanValidationError("Đơn giá khoán không được âm.")
+        except (TypeError, ValueError) as e:
+            raise CongDoanValidationError("Đơn giá khoán không hợp lệ.") from e
+        rows = k.get("viec_phat_sinh") or []
+        mas = {str(unit), *(str(r.get("don_vi")) for r in rows if r.get("don_vi"))}
+        co = self.repo.don_vi_theo_ma(mas)
+        if unit not in co:
+            raise CongDoanValidationError(
+                f'Đơn vị tính khoán "{unit}" không có trong danh mục Đơn vị & quy đổi.')
+        da_co: set[str] = set()
+        for i, r in enumerate(rows, start=1):
+            ten = r.get("ten") or ""
+            if not ten:
+                raise CongDoanValidationError(f"Tên việc phát sinh (dòng {i}) không được trống.")
+            khoa = " ".join(ten.casefold().split())
+            if khoa in da_co:
+                raise CongDoanValidationError(f'Việc phát sinh "{ten}" bị trùng tên.')
+            da_co.add(khoa)
+            if r.get("don_gia") is None:
+                raise CongDoanValidationError(f'Chưa nhập đơn giá cho việc phát sinh "{ten}".')
+            if float(r["don_gia"]) < 0:
+                raise CongDoanValidationError(f'Đơn giá của việc phát sinh "{ten}" không được âm.')
+            if not r.get("don_vi") or r["don_vi"] not in co:
+                raise CongDoanValidationError(
+                    f'Đơn vị tính của việc phát sinh "{ten}" không có trong danh mục Đơn vị & quy đổi.')
+        # Chỉ soi cú pháp để không lưu rác; chưa có luồng nào thực thi công thức này.
+        self._kiem_o(k.get("cong_thuc_khoan"), nhan="Công thức khoán", loai=LOAI_QUY_DOI)
 
     @staticmethod
     def _kiem_o(cong_thuc: str | None, *, nhan: str, loai: str) -> None:

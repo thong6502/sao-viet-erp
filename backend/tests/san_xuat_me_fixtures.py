@@ -1,9 +1,7 @@
-"""Dàn cảnh MẺ dùng chung cho test bàn tổ (18/09/2026).
+"""Dàn cảnh MẺ dùng chung cho test bàn tổ.
 
-Từ ngày ghi mẻ theo CÔNG VIỆC KHOÁN (spec 2026-09-18 §7.1), `san_luong.tao_batch` bắt
-`piece_rate_id` của một việc thuộc tổ của bước. Test nào chỉ cần "có một mẻ" thì gọi `tao_me` — nó
-tự tìm/tạo một việc khoán cho tổ của công việc rồi ghi; test soi luật việc khoán thì gọi thẳng
-`tao_batch`.
+Mẻ mới tự lấy cấu hình Khoán từ công đoạn. Test nào chỉ cần "có một mẻ" gọi `tao_me`; không phải
+tạo hay chọn một Công việc khoán độc lập.
 
 Thay các helper của `test_san_xuat_phan_bo` (xoá cùng engine chia sản lượng, mg 0322): chấm công,
 khoảng tham gia, dàn cảnh "công việc đang chạy + một mẻ tốt".
@@ -48,17 +46,8 @@ def viec_phat_sinh(db, rate: PieceRate, *, ten="Lên khuôn", don_gia=5000, don_
     return ps
 
 
-def tao_me(db, *, user, cong_viec_id: int, piece_rate_id: int | None = None, **kw) -> dict:
-    """`san_luong.tao_batch` kèm sẵn việc khoán của tổ công việc (khi test không tự truyền)."""
-    if piece_rate_id is None:
-        from app.models.san_xuat import SanXuatCongViec
-
-        cv = db.get(SanXuatCongViec, cong_viec_id)
-        if cv is not None and cv.department_id:
-            piece_rate_id = viec_khoan_cua_to(db, cv.department_id).id
-    return san_luong.tao_batch(
-        db, user=user, cong_viec_id=cong_viec_id, piece_rate_id=piece_rate_id, **kw,
-    )
+def tao_me(db, *, user, cong_viec_id: int, **kw) -> dict:
+    return san_luong.tao_batch(db, user=user, cong_viec_id=cong_viec_id, **kw)
 
 
 def tao_user(db, username) -> User:

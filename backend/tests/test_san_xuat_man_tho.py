@@ -109,7 +109,8 @@ def test_cac_me_toi_tham_gia_tra_ca_me_va_nguoi_cung_lam(db, orders, lsx_svc, ad
     assert b2 not in [m["batch_id"] for m in d["me"]]
     m = d["me"][0]
     assert m["tot"] == 100.0                                   # số của CẢ mẻ, không "phần của tôi"
-    assert m["viec_khoan_ten"] == "Việc khoán test"
+    # Công đoạn chưa cấu hình Khoán vẫn ghi mẻ bình thường; ảnh chụp Khoán vì thế để trống.
+    assert m["viec_khoan_ten"] is None
     assert {n["ho_ten"] for n in m["nguoi_tham_gia"]} == {"tôi", b.full_name}
     assert "tien" not in str(d) and "don_gia" not in str(d) and "phut" not in str(d)
 

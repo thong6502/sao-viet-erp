@@ -3330,6 +3330,29 @@ dùng cho bình bài.
 
 `nhom_may_cho_phep` (JSON list, nullable, mg 0168): tên nhóm máy (`may_thiet_bi.loai_may`) làm được công đoạn này — chặn gán máy sai loại ở bước bài ghép (vd Ghi kẽm CTP không cho gán máy Bế). NULL/`[]` = chưa khai = không ràng buộc. Trục `loai_may` mịn hơn `nhom(3)` nên phân biệt được Bế với Cán màng.
 
+### `cong_doan_khoan`
+
+**Purpose:** cấu hình Khoán tùy chọn quan hệ 1–1 với Công đoạn (mg `0326`). Không có dòng nghĩa là
+công đoạn chưa cấu hình; `unit_price = 0` vẫn là một cấu hình hợp lệ. Công thức chỉ được lưu, chưa
+có luồng nào thực thi.
+
+**Tất cả cột:** `id`, `cong_doan_id`, `unit`, `unit_price`, `cong_thuc_khoan`, `created_at`, `updated_at`.
+
+`cong_doan_id` là FK `cong_doan.id` ON DELETE CASCADE và UNIQUE. `unit` là mã trong danh mục
+`don_vi_do`; `unit_price` không âm. Không chép dữ liệu từ `piece_rates` vì mô hình cũ nhiều việc
+theo nhiều tổ không có quan hệ 1–1 đáng tin cậy với Công đoạn.
+
+### `cong_doan_khoan_phat_sinh`
+
+**Purpose:** các việc phát sinh được chọn khi ghi mẻ của Công đoạn cha. Mỗi dòng gồm tên, đơn vị,
+đơn giá và thứ tự hiển thị.
+
+**Tất cả cột:** `id`, `cong_doan_khoan_id`, `ten`, `don_gia`, `don_vi`, `thu_tu`.
+
+`cong_doan_khoan_id` là FK `cong_doan_khoan.id` ON DELETE CASCADE. Tên không được trùng trong
+cùng cấu hình sau khi chuẩn hóa hoa/thường và khoảng trắng; service kiểm đơn vị có thật và giá
+không âm.
+
 ### `cong_doan_vat_tu`
 
 **Purpose:** VẬT TƯ mà một CÔNG ĐOẠN tiêu thụ, kèm ĐỊNH MỨC của riêng dòng đó (18/09/2026, mg
@@ -4766,6 +4789,7 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | `hong` | `Numeric(18,3)` | — | no | `0` | Sản lượng hỏng. |
 | `don_vi` | `String(24)` | — | no | — | Đơn vị (mặc định đơn vị ra của công việc). |
 | `piece_rate_id` | `Integer` | IX | yes | — | **CÔNG VIỆC KHOÁN của mẻ** (18/09/2026, mg `0318`) — soft-ref `piece_rates.id`. Chủ xưởng: *"ghi mẻ đó nhưng cho công việc chứ không phải công đoạn nữa"*. Thợ chọn ĐÚNG MỘT trong các công việc khoán của tổ sở hữu bước (`san_xuat_cong_viec.department_id`). Nullable vì mẻ ghi trước bản này không suy ngược được; mẻ MỚI thì service BẮT BUỘC (`viec_khoan.chuan_hoa_khi_ghi`), và cổng "Sẵn sàng lập kế hoạch" đã chặn bước giao cho tổ chưa có việc khoán nào (`thieu_viec_khoan_to`). |
+| `khoan_cong_doan_id` | `Integer` | IX | yes | — | Soft-ref `cong_doan_khoan.id` của mẻ theo mô hình mới (mg `0326`). Mẻ mới tự lấy từ Công đoạn; mẻ legacy tiếp tục dùng `piece_rate_id`. Nullable để cấu hình có thể bị gỡ mà ảnh chụp lịch sử vẫn còn. |
 | `ten_khoan_snapshot` | `String(150)` | — | yes | — | Ảnh chụp tên công việc khoán lúc ghi mẻ. |
 | `don_vi_khoan_snapshot` | `String(24)` | — | yes | — | Ảnh chụp ĐVT (mã `don_vi_do`) của công việc khoán lúc ghi mẻ. |
 | `don_gia_khoan_snapshot` | `Numeric(14,2)` | — | yes | — | Ảnh chụp đơn giá lúc ghi mẻ — để kế toán nhân SAU, tầng sản xuất KHÔNG nhân gì. Danh mục đổi sau đó thì màn mẻ hiện băng "Danh mục đã đổi" (so NỘI DUNG, không so `updated_at`) và chỉ cập nhật khi tổ bấm xác nhận (`POST /san-xuat/outputs/{id}/cap-nhat-danh-muc`). |
@@ -4776,7 +4800,7 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | onupdate = now. |
 
-**Tất cả cột:** `id`, `cong_viec_id`, `bat_dau`, `ket_thuc`, `tong`, `tot`, `hong`, `don_vi`, `piece_rate_id`, `ten_khoan_snapshot`, `don_vi_khoan_snapshot`, `don_gia_khoan_snapshot`, `mo_ta_loi`, `ghi_chu`, `version`, `created_by`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `cong_viec_id`, `bat_dau`, `ket_thuc`, `tong`, `tot`, `hong`, `don_vi`, `piece_rate_id`, `khoan_cong_doan_id`, `ten_khoan_snapshot`, `don_vi_khoan_snapshot`, `don_gia_khoan_snapshot`, `mo_ta_loi`, `ghi_chu`, `version`, `created_by`, `created_at`, `updated_at`.
 
 **MỘT CHỦ** — tổ của bước. Mẻ hiện ở tab Sản lượng của MỌI tổ có người trong mẻ, CÙNG MỘT CON SỐ, chia hai mục: "Mẻ của tổ" (cộng vào tổng) và "Người của tổ đi làm ở tổ khác" (không cộng). Tầng chia sản lượng cho từng người (`san_xuat_phan_bo*`) ĐÃ DROP (mg `0322`).
 
@@ -4790,7 +4814,7 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | --- | --- | --- | --- | --- | --- |
 | `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
 | `batch_id` | `Integer` FK→`san_xuat_batch.id` (CASCADE) | IX, **UQ**(batch_id, phat_sinh_id) | no | — | Mẻ. |
-| `phat_sinh_id` | `Integer` | IX, **UQ**(batch_id, phat_sinh_id) | no | — | Soft-ref `cong_viec_khoan_phat_sinh.id`. Service chặn việc phát sinh không thuộc `piece_rate_id` của chính mẻ, và chặn trùng. |
+| `phat_sinh_id` | `Integer` | IX, **UQ**(batch_id, phat_sinh_id) | no | — | ID nguồn phụ thuộc loại mẻ: soft-ref `cong_viec_khoan_phat_sinh.id` khi mẻ có `piece_rate_id`, hoặc `cong_doan_khoan_phat_sinh.id` khi mẻ có `khoan_cong_doan_id`. Service chặn dòng không thuộc đúng cấu hình nguồn và chặn trùng. |
 | `so_luong` | `Numeric(14,3)` | — | no | — | Số lượng (> 0). |
 | `ten_snapshot` | `String(150)` | — | yes | — | Ảnh chụp tên việc phát sinh lúc ghi mẻ. |
 | `don_vi_snapshot` | `String(24)` | — | yes | — | Ảnh chụp ĐVT (mã `don_vi_do`). |

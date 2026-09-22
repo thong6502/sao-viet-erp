@@ -175,14 +175,13 @@ def tao_batch(
     mo_ta_loi: str | None = None,
     ghi_chu: str | None = None,
     lot_vao: list[dict] | None = None,
-    piece_rate_id: int | None = None,
     phat_sinh: list[dict] | None = None,
 ) -> dict:
     """Ghi MỘT batch sản lượng (§11.1) + lot đầu vào (§10.3) + việc khoán & phát sinh (§7.1).
 
     Ràng buộc: `tong = tot + hong`. Đơn vị bỏ trống ⇒ lấy `don_vi_ra` của công việc (đơn vị bản
-    địa công đoạn). `piece_rate_id` BẮT BUỘC (§7.2) — mẻ là chứng từ của một VIỆC, không của một
-    công đoạn. `phat_sinh` là `[{phat_sinh_id, so_luong}]`, cho phép rỗng."""
+    địa công đoạn). Khoán được tự lấy theo công đoạn nguồn. `phat_sinh` là
+    `[{phat_sinh_id, so_luong}]`, cho phép rỗng."""
     repo = SanXuatSanLuongRepository(db)
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
@@ -240,9 +239,9 @@ def tao_batch(
     # Trần theo số đã nhận từ công đoạn trước × hệ số quy đổi (19/09/2026) — xem `dau_vao`. Đứng
     # SAU lot: lot trỏ đúng mẻ nguồn nên câu lỗi của lot (vượt phần đã toả…) cụ thể hơn.
     kiem_tran_ghi(db, repo, cv, tot_f)
+    khoan, ten_cong_doan = repo.khoan_cua_cong_viec(cv)
     o_khoan, cac_phat_sinh = chuan_hoa_khi_ghi(
-        db, department_id=cv.department_id, piece_rate_id=piece_rate_id, phat_sinh=phat_sinh,
-        bat_buoc=cv.loai_buoc != BUOC_THUE_NGOAI,
+        db, khoan=khoan, ten_cong_doan=ten_cong_doan, phat_sinh=phat_sinh,
     )
 
     batch = SanXuatBatch(
@@ -273,7 +272,8 @@ def tao_batch(
         action="san_xuat_tao_batch",
         target=f"san_xuat_batch:{batch.id}",
         detail=(f"cong_viec={cv.id} tot={tot_f} hong={hong_f} "
-                f"khoan={o_khoan['piece_rate_id']} phat_sinh={len(cac_phat_sinh)}"),
+                f"khoan_cong_doan={o_khoan['khoan_cong_doan_id']} "
+                f"phat_sinh={len(cac_phat_sinh)}"),
     )
     ket_qua_lsx = _toa_san_luong(db, repo, cv=cv, batch=batch, tot=tot_f, actor=user)
     db.commit()

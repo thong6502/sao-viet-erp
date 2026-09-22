@@ -202,14 +202,13 @@ const FINE_ACTIONS: Record<
   // (Trước đây bày 5 ô `manage_price` / `clone` / `toggle_active` nhưng KHÔNG endpoint nào kiểm
   //  → tick vào không đổi gì, mà người cấp quyền lại tưởng đã siết được việc sửa giá.)
   // `can_clone` nối THẬT 26/08/2026 (`POST /{id}/clone`, xem `routers/catalog_base.py`) cho 5 màn
-  // Giấy · Vật tư khác · Máy thiết bị · Công đoạn · Đầu việc khoán — nên RIÊNG 5 khoá này bày ô
+  // Giấy · Vật tư khác · Máy thiết bị · Công đoạn — nên RIÊNG 4 khoá này bày ô
   // "Nhân bản". Không gộp vào `can_create`: vai được TẠO MỚI (gõ tay) chưa chắc nên NHÂN BẢN hàng
   // cũ (nhân đôi cả giá/công thức đang chạy mà không soát lại từng ô).
   dm_giay: [{ key: "can_clone", label: "Nhân bản" }],
   dm_vat_tu: [{ key: "can_clone", label: "Nhân bản" }],
   dm_thiet_bi: [{ key: "can_clone", label: "Nhân bản" }],
   dm_cong_doan: [{ key: "can_clone", label: "Nhân bản" }],
-  dm_cong_viec_khoan: [{ key: "can_clone", label: "Nhân bản" }],
   nhan_su: [
     { key: "can_view_salary", label: "Xem lương & BHXH (dữ liệu nhạy cảm)" },
     {
@@ -572,9 +571,6 @@ const MODULE_GROUPS: {
       "dm_loai_san_pham",
       "dm_thiet_bi",
       "dm_cong_doan",
-      // Công việc khoán (17/08/2026): tách khỏi ô quyền `luong`. Nay cấp được "khai đơn giá khoán"
-      // mà không phải mở cả bảng lương cho người ta.
-      "dm_cong_viec_khoan",
       "dm_bu_hao",
       "dm_don_vi",
       "dm_chung_loai_giay",

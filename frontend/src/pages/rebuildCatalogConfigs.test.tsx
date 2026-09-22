@@ -9,7 +9,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  CFG_CONG_DOAN, CFG_CONG_VIEC_KHOAN, CFG_DON_VI, CFG_GIAY, CFG_MAY, CFG_THANH_PHAM, CFG_VAT_TU,
+  CFG_CONG_DOAN, CFG_DON_VI, CFG_GIAY, CFG_MAY, CFG_THANH_PHAM, CFG_VAT_TU,
+  REBUILD_CONFIGS,
 } from "./rebuildCatalogConfigs";
 import type { CatalogConfig, FieldDef } from "./RebuildCatalogPage";
 import type { Row } from "../api/rebuildCatalog";
@@ -81,62 +82,34 @@ describe("ô ĐVT lấy từ danh mục Đơn vị", () => {
   });
 });
 
-describe("màn Công việc khoán (đơn giá khoán theo tổ)", () => {
-  it("cột Đơn vị hiện TÊN khi mã có trong danh mục", () => {
-    render(<>{cot(CFG_CONG_VIEC_KHOAN, "unit")(row({ unit: "to", don_vi_ten: "tờ" }))}</>);
-    expect(screen.getByText("tờ")).toBeInTheDocument();
-  });
-
-  it("mã lạ thì hiện NGUYÊN mã kèm dấu hiệu — không bỏ trắng như thể chưa khai", () => {
-    // Dòng đời cũ mang đơn vị ngoài danh mục ("mét tới"): server không tra ra tên nên `don_vi_ten`
-    // rỗng. Bỏ trắng ô thì người khai tưởng chưa chọn gì và giá trị hỏng vẫn nằm nguyên đó.
-    render(<>{cot(CFG_CONG_VIEC_KHOAN, "unit")(row({ unit: "mét tới", don_vi_ten: null }))}</>);
-    const o = screen.getByText("mét tới");
-    expect(o).toBeInTheDocument();
-    expect(o).toHaveAttribute("title", expect.stringContaining("không có trong danh mục"));
-  });
-
-  it("cột Tổ liệt kê MỌI tổ làm việc này, tổ đã xoá hiện dấu hiệu", () => {
-    render(<>{cot(CFG_CONG_VIEC_KHOAN, "tos")(row({ tos: [
-      { id: 1, ma: "PB015", ten: "Tổ Bế" }, { id: 2, ma: "PB020", ten: "Tổ Thành phẩm" },
-      { id: 9, ma: null, ten: null },
-    ] }))}</>);
-    expect(screen.getByText("Tổ Bế")).toBeInTheDocument();
-    expect(screen.getByText("Tổ Thành phẩm")).toBeInTheDocument();
-    expect(screen.getByText("Tổ #9 đã xoá")).toHaveAttribute("title", expect.stringContaining("không còn"));
-  });
-
-  it("đi đúng nền danh mục: mã tự sinh · xoá mềm · có tab Nhật ký · gác quyền riêng", () => {
-    expect(CFG_CONG_VIEC_KHOAN.autoCode).toBe(true);        // KH-#### do server cấp
-    expect(CFG_CONG_VIEC_KHOAN.softDelete).toBe(true);      // còn nơi dùng ⇒ chỉ ngừng dùng
-    expect(CFG_CONG_VIEC_KHOAN.nhatKyLoai).toBe("cong_viec_khoan");
-    expect(CFG_CONG_VIEC_KHOAN.moduleQuyen).toBe("dm_cong_viec_khoan");
-    expect(CFG_CONG_VIEC_KHOAN.prefix).toBe("/api/cong-viec-khoan");
-  });
-
-  it("ô Đơn vị dùng CÙNG cách khai với Giấy · Vật tư (lưu mã, lọc ngừng-dùng ở drawer)", () => {
-    const f = truong(CFG_CONG_VIEC_KHOAN, "unit");
-    expect(f.type).toBe("ref-search-ma");
+describe("Khoán được hợp nhất vào Công đoạn", () => {
+  it("gỡ màn độc lập và đặt tab Khoán giữa Thông tin với Vật tư", () => {
+    expect(REBUILD_CONFIGS).not.toHaveProperty("cong-viec-khoan");
+    expect(CFG_CONG_DOAN.tabsKhai?.map((t) => t.label)).toEqual(["Thông tin", "Khoán", "Vật tư"]);
+    const f = truong(CFG_CONG_DOAN, "khoan");
+    expect(f.type).toBe("khoan-cong-doan");
     expect(f.refPrefix).toBe("/api/don-vi");
-    expect(f.refParams?.active).toBeUndefined();
   });
 
-  it("ô Tổ chọn NHIỀU tổ (`department_ids`), bắt buộc", () => {
-    const keys = CFG_CONG_VIEC_KHOAN.fields.map((f) => f.key);
-    expect(keys).not.toContain("group_name");
-    expect(keys).not.toContain("department_id");
-    const f = truong(CFG_CONG_VIEC_KHOAN, "department_ids");
-    expect(f.type).toBe("to-multi");
-    expect(f.refPrefix).toBe("/api/cong-doan/phong-ban");
-    expect(f.required).toBe(true);
+  it("gửi một aggregate Khoán và dùng null khi chưa cấu hình", () => {
+    const rong = CFG_CONG_DOAN.transformSubmit?.({ khoan: {} }, {}, null);
+    expect(rong?.khoan).toBeNull();
+    const body = CFG_CONG_DOAN.transformSubmit?.({ khoan: {
+      unit: "to", unit_price: 0, cong_thuc_khoan: "sl_ra",
+      viec_phat_sinh: [{ ten: "Thay kẽm", don_gia: 100000, don_vi: "kem" }],
+    } }, {}, null);
+    expect(body?.khoan).toEqual({
+      unit: "to", unit_price: 0, cong_thuc_khoan: "sl_ra",
+      viec_phat_sinh: [{ ten: "Thay kẽm", don_gia: 100000, don_vi: "kem" }],
+    });
   });
 });
 
-describe("ô Cách đo lượng ĐÃ GỠ khỏi Máy · Công việc khoán · Vật tư khác (06/09/2026)", () => {
-  it("ba màn không còn ô `cong_thuc_luong`", () => {
+describe("ô Cách đo lượng ĐÃ GỠ khỏi Máy · Vật tư khác (06/09/2026)", () => {
+  it("hai màn không còn ô `cong_thuc_luong`", () => {
     // Cách đo nay khai ở drawer Công đoạn: theo CẶP (công đoạn × máy) cho giờ chạy, theo dòng đầu
     // việc cho tiền công, theo dòng vật tư cho định mức. Giữ ô cũ song song là hai nguồn một câu.
-    for (const cfg of [CFG_MAY, CFG_CONG_VIEC_KHOAN, CFG_VAT_TU]) {
+    for (const cfg of [CFG_MAY, CFG_VAT_TU]) {
       expect(cfg.fields.some((f) => f.key === "cong_thuc_luong")).toBe(false);
     }
   });
@@ -144,7 +117,6 @@ describe("ô Cách đo lượng ĐÃ GỠ khỏi Máy · Công việc khoán · 
   it("hết ô công thức thì bỏ luôn nhãn tab công thức", () => {
     // Nhãn của một tab không còn ô nào là nhãn chết — đọc code tưởng màn vẫn có chỗ khai.
     expect(CFG_MAY.nhanTabCongThuc).toBeUndefined();
-    expect(CFG_CONG_VIEC_KHOAN.nhanTabCongThuc).toBeUndefined();
     expect(CFG_VAT_TU.nhanTabCongThuc).toBeUndefined();
   });
 

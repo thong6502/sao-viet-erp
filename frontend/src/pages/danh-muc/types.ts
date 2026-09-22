@@ -15,7 +15,7 @@ export interface FieldDef {
   // mã như `don_vi_gia` (quy đổi làm việc trên mã `kg`/`to`, không trên id).
   // `self-ref-multi` = như `ref-multi` nhưng nguồn chọn là CHÍNH danh mục đang mở (NVL thay thế) —
   // CatalogDrawer tự loại dòng đang sửa khỏi danh sách, người khai không tự chọn được chính mình.
-  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "self-ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "vat-tu-cong-doan" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do" | "may-cua-cong-doan" | "viec-phat-sinh" | "to-multi";
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "self-ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "vat-tu-cong-doan" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do" | "may-cua-cong-doan" | "viec-phat-sinh" | "khoan-cong-doan" | "to-multi";
   /** Ô `select`: danh sách chọn. Nhận cả HÀM (như `hint`/`an`) cho menu mà nhãn đến MUỘN hơn
    *  lúc khai config — 5 chặng dòng giấy nạp từ `/api/don-vi/tram`, mảng dựng sẵn ở tầm module sẽ
    *  đóng băng lúc bảng còn rỗng. Hàm được gọi MỖI lần vẽ, nên vẽ lại là menu tự đầy. */
@@ -239,6 +239,14 @@ export interface ChuanBiKhoanRow { ten?: string; phut?: number }
 /** Một VIỆC PHÁT SINH của công việc khoán (Thay kẽm · 100 đ · bản kẽm). `id` có khi dòng đã lưu —
  *  gửi ngược lên để server sửa đúng dòng đó thay vì đẻ dòng mới. `don_vi` là MÃ đơn vị. */
 export interface ViecPhatSinhRow { id?: number; ten?: string; don_gia?: number | null; don_vi?: string }
+
+export interface KhoanCongDoanValue {
+  id?: number;
+  unit?: string;
+  unit_price?: number | null;
+  cong_thuc_khoan?: string | null;
+  viec_phat_sinh?: ViecPhatSinhRow[];
+}
 
 /** Việc con bên trong một gói bảo trì. */
 export interface HangMucConRow { id?: string; ten?: string }

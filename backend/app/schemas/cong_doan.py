@@ -41,6 +41,34 @@ class CongDoanMayRow(CongDoanMayIn):
     id: int
 
 
+class CongDoanKhoanPhatSinhIn(BaseModel):
+    id: int | None = None
+    ten: str = Field(default="", max_length=255)
+    don_gia: float | None = None
+    don_vi: str | None = Field(default=None, max_length=24)
+
+
+class CongDoanKhoanPhatSinhRow(CongDoanKhoanPhatSinhIn):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+
+
+class CongDoanKhoanIn(BaseModel):
+    unit: str | None = Field(default=None, max_length=24)
+    unit_price: float | None = None
+    cong_thuc_khoan: str | None = None
+    viec_phat_sinh: list[CongDoanKhoanPhatSinhIn] = Field(default_factory=list)
+
+
+class CongDoanKhoanRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    unit: str
+    unit_price: float
+    cong_thuc_khoan: str | None = None
+    viec_phat_sinh: list[CongDoanKhoanPhatSinhRow] = Field(default_factory=list)
+
+
 class CongDoanIn(BaseModel):
     ma: str = Field(min_length=1, max_length=30)
     ten: str = Field(min_length=1, max_length=150)
@@ -87,6 +115,8 @@ class CongDoanIn(BaseModel):
     active: bool = True
     # Vật tư công đoạn tiêu thụ, đúng thứ tự chọn (§3.1) — `[]` = gỡ hết.
     vat_tus: list[CongDoanVatTuIn] = Field(default_factory=list)
+    # Vắng = giữ nguyên khi cập nhật; null/khối rỗng = gỡ cấu hình; object đủ = thay cấu hình.
+    khoan: CongDoanKhoanIn | None = None
 
 
 class CongDoanRow(BaseModel):
@@ -129,6 +159,7 @@ class CongDoanRow(BaseModel):
     active: bool
     vat_tus: list[CongDoanVatTuRow] = Field(default_factory=list)
     may_lam_duoc: list[CongDoanMayRow] = Field(default_factory=list)
+    khoan: CongDoanKhoanRow | None = None
     updated_at: datetime | None = None
 
 

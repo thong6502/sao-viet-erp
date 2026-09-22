@@ -15170,3 +15170,63 @@ def _migrate_yeu_cau_mua_nguon_lenh(db: Session) -> None:
 
 
 MIGRATIONS.append(("0325_yeu_cau_mua_nguon_lenh", _migrate_yeu_cau_mua_nguon_lenh))
+
+
+def _migrate_hop_nhat_khoan_vao_cong_doan(db: Session) -> None:
+    """mg 0326 — cấu hình Khoán trở thành aggregate 1–1 của Công đoạn.
+
+    Không chép `piece_rates`: mô hình cũ là nhiều việc theo nhiều tổ, không có quan hệ 1–1 đáng
+    tin cậy với Công đoạn. Hai bảng cũ được giữ nguyên để đọc mẻ lịch sử.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    if "cong_doan" not in tables:
+        return
+    pk = "INTEGER PRIMARY KEY AUTOINCREMENT" if bind.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS cong_doan_khoan ("
+        f"id {pk}, "
+        "cong_doan_id INTEGER NOT NULL REFERENCES cong_doan(id) ON DELETE CASCADE, "
+        "unit VARCHAR(24) NOT NULL, unit_price NUMERIC(18,2) NOT NULL, "
+        "cong_thuc_khoan TEXT, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL, "
+        "CONSTRAINT uq_cong_doan_khoan_cong_doan UNIQUE (cong_doan_id))"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_cong_doan_khoan_cong_doan_id "
+        "ON cong_doan_khoan (cong_doan_id)"
+    ))
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS cong_doan_khoan_phat_sinh ("
+        f"id {pk}, "
+        "cong_doan_khoan_id INTEGER NOT NULL "
+        "  REFERENCES cong_doan_khoan(id) ON DELETE CASCADE, "
+        "ten VARCHAR(255) NOT NULL, don_gia NUMERIC(18,2) NOT NULL, "
+        "don_vi VARCHAR(24) NOT NULL, thu_tu INTEGER NOT NULL DEFAULT 0)"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_cong_doan_khoan_phat_sinh_cong_doan_khoan_id "
+        "ON cong_doan_khoan_phat_sinh (cong_doan_khoan_id)"
+    ))
+    # Inspector không tự refresh sau DDL, nên soi mới trước khi thêm cột.
+    insp = inspect(bind)
+    if ("san_xuat_batch" in set(insp.get_table_names())
+            and "khoan_cong_doan_id" not in _existing_columns(insp, "san_xuat_batch")):
+        db.execute(text("ALTER TABLE san_xuat_batch ADD COLUMN khoan_cong_doan_id INTEGER"))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_san_xuat_batch_khoan_cong_doan_id "
+            "ON san_xuat_batch (khoan_cong_doan_id)"
+        ))
+    # Module độc lập đã được hợp nhất vào quyền Công đoạn. Chỉ gỡ metadata/quyền công khai;
+    # giữ nguyên bảng `piece_rates` để mẻ lịch sử còn đối chiếu được.
+    tables = set(inspect(bind).get_table_names())
+    if "role_permissions" in tables:
+        db.execute(text(
+            "DELETE FROM role_permissions WHERE module_key = 'dm_cong_viec_khoan'"
+        ))
+    if "modules" in tables:
+        db.execute(text("DELETE FROM modules WHERE key = 'dm_cong_viec_khoan'"))
+    db.commit()
+
+
+MIGRATIONS.append(("0326_hop_nhat_khoan_vao_cong_doan", _migrate_hop_nhat_khoan_vao_cong_doan))

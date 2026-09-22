@@ -52,11 +52,6 @@ DANH_MUC: tuple[DanhMuc, ...] = (
             alias_loai=("machine",), model="models.may_thiet_bi:MayThietBi"),
     DanhMuc("cong_doan", "dm_cong_doan", "Công đoạn", "cong-doan",
             alias_loai=("operation",), model="models.cong_doan:CongDoan"),
-    # Đơn giá khoán theo tổ. Đứng ngay sau Công đoạn vì đó là chỗ nó được dùng (ô "Định mức đầu
-    # việc" của bước). Trước 17/08/2026 khai ở một tab của màn Lương — bảng `piece_rates` giữ
-    # nguyên tên, chỉ đổi CHỖ KHAI và ba tên cột mà nền danh mục đọc (mg `0210`).
-    DanhMuc("cong_viec_khoan", "dm_cong_viec_khoan", "Công việc khoán", "cong-viec-khoan",
-            model="models.piece_work:PieceRate"),
     DanhMuc("bu_hao", "dm_bu_hao", "Bù hao", "bu-hao", model="models.bu_hao:BuHao"),
     # `don_vi_quy_doi` là BẢNG RIÊNG, đánh số riêng — nhưng nằm trong drawer của màn Đơn vị nên
     # ăn chung ô quyền, vì thế đứng ở `alias_loai` chứ không thành một dòng riêng.

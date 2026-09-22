@@ -364,6 +364,7 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   // định mức của từng món (mg `0316`). Nhóm nào không liệt kê thì drawer tự dồn vào tab đầu.
   tabsKhai: [
     { id: "info", label: "Thông tin", groups: ["Thông tin"] },
+    { id: "khoan", label: "Khoán", groups: ["Khoán"] },
     { id: "vat-tu", label: "Vật tư", groups: ["Vật tư"] },
   ],
   // Bề rộng đo theo chữ dài nhất đang có (18/09/2026, bảng 1150px): Giai đoạn "Gia công sau in"
@@ -409,6 +410,7 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "department_ids", label: "Phòng ban / Tổ phụ trách", type: "to-multi", refPrefix: "/api/cong-doan/phong-ban",
       group: "Thông tin", nhanDau: "mặc định",
       hint: "Chọn được nhiều tổ — lệnh sản xuất chọn một trong số này cho từng bước. Tổ chọn đầu tiên là tổ mặc định." },
+    { key: "khoan", label: "", type: "khoan-cong-doan", refPrefix: "/api/don-vi", group: "Khoán" },
 
     // ── Nguồn nuôi thẳng thời lượng bước ở Lệnh sản xuất ──────────────────────────────────────
     { key: "requires_tooling", label: "Bước này cần khuôn", type: "checkbox",
@@ -468,6 +470,14 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // Vắng khoá = server GIỮ nguyên — nhưng drawer luôn mở với đủ danh sách, nên gửi mảng rỗng là
     // đúng ý "đã gỡ hết" chứ không phải "không đụng tới".
     body.vat_tus = body.vat_tus ?? [];
+    const khoan = body.khoan && typeof body.khoan === "object"
+      ? body.khoan as Record<string, unknown> : {};
+    const phatSinh = Array.isArray(khoan.viec_phat_sinh) ? khoan.viec_phat_sinh : [];
+    const coCauHinh = !!String(khoan.unit ?? "").trim()
+      || (khoan.unit_price !== null && khoan.unit_price !== undefined && khoan.unit_price !== "")
+      || !!String(khoan.cong_thuc_khoan ?? "").trim()
+      || phatSinh.length > 0;
+    body.khoan = coCauHinh ? { ...khoan, viec_phat_sinh: phatSinh } : null;
     // Bỏ tick "cần khuôn" thì ô Loại dụng cụ bị `showIf` ẩn ⇒ không nằm trong body ⇒ backend giữ
     // giá trị cũ. Xoá thẳng ở đây, không thì công đoạn hiện "không cần khuôn" mà vẫn đeo nhãn
     // "Khuôn bế" trong dữ liệu.
@@ -479,88 +489,6 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     body.size_tiers = [];
     return body;
   },
-};
-
-export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
-  title: "Công việc khoán",
-  moduleQuyen: "dm_cong_viec_khoan",
-  enableClone: true,
-  enableImport: true,
-  prefix: "/api/cong-viec-khoan",
-  nhatKyLoai: "cong_viec_khoan",
-  // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì xoá
-  // hẳn, còn mẻ nào đã ghi bằng việc này thì chỉ ngừng dùng (mẻ giữ ảnh chụp, nhưng mất dòng gốc là
-  // hết đường tra ngược). Mục đã ngừng xem lại ở công tắc trên dải lọc.
-  softDelete: true,
-  // Mã do MÁY cấp (`KH-####`) ⇒ ẩn ô Mã lúc tạo. Xưởng gọi việc khoán bằng TÊN ("bế tay", "vào keo
-  // gáy vuông"), chưa ai từng gọi bằng mã — bắt gõ mã là thêm một ô không ai đọc lại.
-  autoCode: true,
-  // Tab "Công thức khoán" (18/09/2026, mg `0317`) — ô `cong_thuc_khoan` tự khai `nhanTab` nên KHÔNG
-  // cần `nhanTabCongThuc` ở tầng màn.
-  // Tab lọc = TỔ. Không khai `values` cứng: tổ do người dùng dựng ở cây tổ chức, mọi giá trị đều
-  // đến từ dữ liệu (`dynamic`) — khai cứng là bỏ sót đúng những tổ xưởng mới mở.
-  facet: { key: "to", values: [], dynamic: true },
-  columns: [
-    // Một việc làm ở NHIỀU tổ (17/09/2026) — server trả `tos` (id · mã · tên) đã tra sẵn. Tổ bị xoá
-    // khỏi cây tổ chức thì `ten` rỗng: hiện dấu hiệu, đó là việc người khai phải gỡ.
-    { key: "tos", label: "Tổ", render: (r) => {
-        const tos = Array.isArray(r.tos) ? (r.tos as { id: number; ten?: string | null }[]) : [];
-        if (tos.length === 0) return "—";
-        return tos.map((t, i) => (
-          <span key={t.id}>
-            {i > 0 && ", "}
-            {t.ten ? <span>{t.ten}</span> : (
-              <span className="badge-sem badge-sem--muted" title="Tổ này không còn trong cây tổ chức — mở ra gỡ đi">
-                Tổ #{t.id} đã xoá
-              </span>
-            )}
-          </span>
-        ));
-      } },
-    // Đơn vị lưu MÃ, hiện TÊN (server gán `don_vi_ten`) — `m2` không ai đọc thành "m²". Mã lạ (dòng
-    // cũ mang đơn vị ngoài danh mục) thì hiện nguyên mã kèm dấu hiệu: nó là việc phải sửa, không
-    // phải chuyện im lặng bỏ qua.
-    { key: "unit", label: "Đơn vị", render: (r) => {
-        const ma = r.unit ? String(r.unit) : "";
-        if (!ma) return "";
-        if (r.don_vi_ten) return <span className="rc__formula-pill">{String(r.don_vi_ten)}</span>;
-        return (
-          <span className="badge-sem badge-sem--muted" title="Đơn vị này không có trong danh mục Đơn vị & quy đổi">
-            {ma}
-          </span>
-        );
-      } },
-    { key: "unit_price", label: "Đơn giá",
-      render: (r) => (Number(r.unit_price) ? `${Number(r.unit_price).toLocaleString("vi-VN")} đ` : "") },
-    // Việc phát sinh chỉ hiện TÊN — giá và đơn vị xem trong drawer, dồn cả vào ô là cột phình ngang.
-    { key: "viec_phat_sinh", label: "Việc phát sinh",
-      render: (r) => (Array.isArray(r.viec_phat_sinh)
-        ? (r.viec_phat_sinh as { ten?: string }[]).map((v) => v.ten).filter(Boolean).join(", ")
-        : "") },
-    { key: "note", label: "Ghi chú", render: (r) => (r.note ? String(r.note) : "") },
-  ],
-  fields: [
-    // Tổ lấy từ CÙNG endpoint với ô "Tổ phụ trách" của Công đoạn — nút LÁ trong khối Sản xuất. Một
-    // nguồn thì đầu việc khoán và công đoạn không bao giờ trỏ hai danh sách tổ khác nhau (mà lệch
-    // là bước lệnh không tìm thấy đầu việc nào của tổ mình). Chọn NHIỀU tổ từ 17/09/2026.
-    { key: "department_ids", label: "Tổ làm việc này", type: "to-multi",
-      refPrefix: "/api/cong-doan/phong-ban", required: true, group: "Thông tin"},
-    { key: "unit", label: "Đơn vị tính khoán", ...F_DON_VI, required: true, group: "Đơn giá" },
-    { key: "unit_price", label: "Đơn giá (đ)", type: "number", required: true, group: "Đơn giá" },
-    { key: "note", label: "Ghi chú", type: "text", group: "Thông tin" },
-    // CÔNG THỨC KHOÁN (18/09/2026, mg `0317`) — trước ở dòng đầu việc trong drawer Công đoạn, nay
-    // về đúng chủ: việc khoán của tổ. CHỈ KHAI BÁO — bàn tổ không nhân gì ra tiền, số này để kế
-    // toán lương dùng về sau (vd cán màng tính đơn giá theo m², còn mẻ ghi số tờ).
-    { key: "cong_thuc_khoan", label: "Công thức khoán", type: "formula", loaiO: "quy_doi",
-      nhanTab: "Công thức khoán",
-      hint: "Ra LƯỢNG theo đơn vị tính khoán — vd cán màng: sl_ra * kho_tp_dai * kho_tp_rong / 1000000 (m²). Bỏ trống = chưa khai." },
-    // Thứ bậc: tổ → công đoạn → công việc khoán → VIỆC PHÁT SINH. Tổ đã có ở trên nên mỗi dòng chỉ
-    // ba ô. Đợt đầu chỉ khai báo — sản xuất chưa đọc danh sách này.
-    // Không khai `hint`: gợi ý nằm DƯỚI bảng bị menu đơn vị của dòng cuối trùm lên — ví dụ đã chuyển
-    // vào dòng "chưa có gì" và chữ mờ trong ô. Trùng tên thì server báo đích danh việc nào.
-    { key: "viec_phat_sinh", label: "", type: "viec-phat-sinh",
-      refPrefix: "/api/don-vi", group: "Việc phát sinh" },
-  ],
 };
 
 export const CFG_BU_HAO: CatalogConfig = {
@@ -1155,7 +1083,6 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "khai-bao-kho": CFG_KHO_HANG,
   "may-thiet-bi": CFG_MAY,
   "cong-doan": CFG_CONG_DOAN,
-  "cong-viec-khoan": CFG_CONG_VIEC_KHOAN,
   "bu-hao": CFG_BU_HAO,
   "don-vi": CFG_DON_VI,
   "chung-loai-giay": CFG_CHUNG_LOAI_GIAY,

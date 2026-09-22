@@ -12,6 +12,8 @@ from __future__ import annotations
 from datetime import timedelta
 
 from app.models.attendance import WorkShift
+from app.models.cong_doan import CongDoanKhoan, CongDoanKhoanPhatSinh
+from app.models.lsx import LsxCongDoan
 from app.models.may_thiet_bi import MayThietBi
 from app.models.san_xuat import CV_TAM_DUNG
 from app.models.san_xuat_thuc_thi import SanXuatPhienChay
@@ -21,7 +23,7 @@ from app.services.san_xuat.thuc_thi import _aware
 
 # Fixtures + helper luồng thật.
 from tests.san_xuat_me_fixtures import T0 as _T0
-from tests.san_xuat_me_fixtures import canh_me, khoang, tao_me, viec_khoan_cua_to, viec_phat_sinh
+from tests.san_xuat_me_fixtures import canh_me, khoang, tao_me
 from tests.test_san_xuat_thuc_thi import (  # noqa: F401
     _emp,
     admin,
@@ -147,15 +149,21 @@ def test_dung_may_chua_chay_lai_de_trong_gio_het(db, orders, lsx_svc, admin, cus
 def test_me_mang_viec_khoan_va_phat_sinh_da_chup_khong_co_thanh_tien(
     db, orders, lsx_svc, admin, customer,
 ):
-    """Mẻ ghi theo CÔNG VIỆC KHOÁN (§7.1): drawer đọc ẢNH CHỤP tên · ĐVT · đơn giá lúc ghi, kèm
+    """Mẻ tự lấy KHOÁN CÔNG ĐOẠN: drawer đọc ẢNH CHỤP tên · ĐVT · đơn giá lúc ghi, kèm
     việc phát sinh đã tích. Không có ô THÀNH TIỀN nào — sản xuất chỉ ghi nhận số lượng (chốt ý 4)."""
     _to, cv, batch = canh_me(db, orders, lsx_svc, admin, customer, ma="TO-ME-DV")
-    vk = viec_khoan_cua_to(db, cv.department_id)
-    ps = viec_phat_sinh(db, vk, ten="Thay bản kẽm", don_gia=15000, don_vi="ban")
+    buoc = db.get(LsxCongDoan, cv.lsx_cong_doan_id)
+    khoan_cfg = CongDoanKhoan(cong_doan_id=buoc.cong_doan_id, unit="to", unit_price=100)
+    khoan_cfg.viec_phat_sinh.append(CongDoanKhoanPhatSinh(
+        ten="Thay bản kẽm", don_gia=15000, don_vi="ban", thu_tu=0,
+    ))
+    db.add(khoan_cfg)
+    db.flush()
+    ps = khoan_cfg.viec_phat_sinh[0]
     e = _emp(db, cv_to(db, cv), "NV-ME-1", ten="Thợ Mẻ")
     db.commit()
     b2 = tao_me(
-        db, user=admin, cong_viec_id=cv.id, piece_rate_id=vk.id,
+        db, user=admin, cong_viec_id=cv.id,
         bat_dau=_T0 + timedelta(hours=2), ket_thuc=_T0 + timedelta(hours=3), tong=30, tot=30,
         phat_sinh=[{"phat_sinh_id": ps.id, "so_luong": 2}],
     )["batch_id"]
@@ -165,7 +173,8 @@ def test_me_mang_viec_khoan_va_phat_sinh_da_chup_khong_co_thanh_tien(
     mes = {m["id"]: m for m in _mes(db, admin, cv)}
     m1, m2 = mes[batch.id], mes[b2]
     assert (m1["viec_khoan_id"], m1["viec_khoan_ten"], m1["viec_khoan_don_gia"]) == (
-        vk.id, "Việc khoán test", 100.0)
+        None, None, None)
+    assert (m2["viec_khoan_id"], m2["viec_khoan_don_gia"]) == (khoan_cfg.id, 100.0)
     assert m1["phat_sinh"] == [] and m1["so_nguoi"] == 1
     assert [(p["ten"], p["so_luong"], p["don_gia"]) for p in m2["phat_sinh"]] == [
         ("Thay bản kẽm", 2.0, 15000.0)]

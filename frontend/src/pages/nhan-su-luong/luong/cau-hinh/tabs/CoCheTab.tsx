@@ -7,7 +7,6 @@ import type {
   PayrollParams,
   SalaryComponentKey,
 } from "../../../../../api/client";
-import { KhoanRatesEditor } from "../../../../../components/KhoanRatesEditor";
 import { KhoanKmEditor } from "../components/KhoanKmEditor";
 import { ChiTieuNgayEditor } from "../components/ChiTieuNgayEditor";
 import { ToTruongEditor } from "../components/ToTruongEditor";
@@ -15,12 +14,6 @@ import { DeptChips } from "../components/DeptChips";
 import { NumInput, ParamField, Switch } from "../components/fields";
 import { COMPONENT_ROWS, OT_FIELDS } from "../shared/constants";
 import { toGio, toPct } from "../shared/helpers";
-
-/** ẨN panel "Đơn giá khoán — <tổ>" khỏi màn này (04/09/2026, chủ dự án yêu cầu). Nó là khung nhìn
- *  theo tổ của CÙNG dữ liệu với `Cấu hình danh mục → Công việc khoán` — nơi có đủ xoá hẳn, nhật ký
- *  đổi giá và mục đã ngừng dùng — nên hai cửa cho một bảng chỉ làm người khai phân vân sửa ở đâu.
- *  Giữ nguyên code thay vì xoá: bật lại chỉ cần đổi cờ này, không phải dựng lại panel. */
-const HIEN_DON_GIA_KHOAN = false;
 
 export function CoCheTab({
   token,
@@ -34,7 +27,6 @@ export function CoCheTab({
   loading,
   readOnly,
   busy,
-  navigate,
   khoanDaLuu = false,
 }: {
   token: string;
@@ -48,7 +40,6 @@ export function CoCheTab({
   loading: boolean;
   readOnly: boolean;
   busy: boolean;
-  navigate?: (id: string) => void;
   /** Công tắc Lương khoán của tổ đã BẬT VÀ ĐÃ LƯU — backend chỉ nhận chỉ tiêu ngày cho tổ đó.
    *  Khác `khoanOn` (bản nháp): gạt bật mà chưa bấm Lưu thì chưa khai chỉ tiêu được. */
   khoanDaLuu?: boolean;
@@ -433,29 +424,6 @@ export function CoCheTab({
           <b>chỉ tiêu ngày</b> và <b>chế độ tổ trưởng</b> của tổ ở ngay khối này.
         </div>
       ))}
-
-      {HIEN_DON_GIA_KHOAN && khoanOn && deptId != null && (
-        <div className="cl-card">
-          <h3 className="cl-card__title">Đơn giá khoán — {deptName}</h3>
-          {/* Mô tả nói ĐÚNG những gì khai được ở ĐÂY. Từ 17/08/2026 bảng đơn giá là danh mục
-              "Công việc khoán" (Cấu hình danh mục) — panel này là một khung nhìn theo tổ của cùng
-              dữ liệu, nên phải nói rõ chỗ nào làm được gì, không thì người dùng đi tìm nút Xoá và
-              tab Nhật ký ngay tại đây. */}
-          <p className="cl-card__desc">
-            Khai công việc + đơn giá khoán của tổ này (vd “dán bìa các tông” = 170đ/tờ). Cùng dữ liệu
-            với <b>Cấu hình danh mục → Công việc khoán</b>; xoá hẳn, nhật ký ai đổi giá và mục đã
-            ngừng dùng thì xem ở màn đó.
-          </p>
-          <div className="cl-card__body">
-            <KhoanRatesEditor
-              token={token}
-              departmentId={deptId}
-              deptName={deptName}
-              onMoDanhMuc={navigate ? () => navigate("cong-viec-khoan") : undefined}
-            />
-          </div>
-        </div>
-      )}
 
       {/* % chia tiền chuyến cho kíp xe — dữ liệu CỦA PHÒNG (`departments.pct_*`), nên ở lại màn
           theo bộ phận và chỉ hiện khi phòng bật cờ Giao hàng. Bảng GIÁ (Mức khoán km) là cấu hình
