@@ -48,7 +48,7 @@ class NoiQuyRecord(Base):
     file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     uploaded_by: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=False
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, index=True, nullable=False
@@ -136,7 +136,7 @@ class NoiQuyVersion(Base):
         DateTime(timezone=True), index=True, nullable=True
     )
     published_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -174,7 +174,7 @@ class NoiQuyAttachment(Base):
         Boolean, nullable=False, default=False, server_default=sa_false()
     )
     uploaded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

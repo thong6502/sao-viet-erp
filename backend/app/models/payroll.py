@@ -288,7 +288,7 @@ class EmployeeSalary(Base):
         Numeric(6, 4), nullable=False, default=0, server_default="0"
     )
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -311,10 +311,10 @@ class SalaryAdvance(Base):
     # Loại phiếu: `tam_ung` (ad-hoc) | `luong_dot_1` (thanh toán lương đợt 1, số cố định theo hồ sơ).
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default=ADV_KIND_TAM_UNG, server_default=ADV_KIND_TAM_UNG)
     status: Mapped[str] = mapped_column(String(12), index=True, nullable=False, default=ADV_PENDING, server_default=ADV_PENDING)
-    decided_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    decided_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decision_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -330,10 +330,10 @@ class PayrollPeriod(Base):
     status: Mapped[str] = mapped_column(String(8), nullable=False, default=PERIOD_DRAFT, server_default=PERIOD_DRAFT)
     standard_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=26, server_default="26")
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    locked_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    locked_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)   # Pha 4c: đã chi
-    paid_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    paid_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     #: Lần CHẠY ENGINE gần nhất cho kỳ này (mỗi lần "Tính lại" ghi đè). So với
     #: `attendance_periods.locked_at` để biết bảng lương có đang là số tính TRƯỚC lúc chốt công không.
@@ -573,7 +573,7 @@ class KhoanChiTieuNgay(Base):
     so_tien: Mapped[float] = mapped_column(_MONEY, nullable=False)
     ghi_chu: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
@@ -616,7 +616,7 @@ class KhoanToTruong(Base):
     ty_le: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=0, server_default="0")
     ghi_chu: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 

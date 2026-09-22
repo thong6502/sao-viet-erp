@@ -127,7 +127,7 @@ class TaiSan(Base):
     ngay_giam: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     created_by_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -223,7 +223,7 @@ class TaiSanBienDong(Base):
     so_luong_giam: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ly_do: Mapped[str | None] = mapped_column(String(255), nullable=True)
     nguoi_tao_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

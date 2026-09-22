@@ -253,6 +253,27 @@ class _BuocThu:
         return getattr(object.__getattribute__(self, "_goc"), ten)
 
 
+class _BuocAo:
+    """Bước CHƯA LƯU, dựng từ bộ số đang hiện trên drawer — dùng cho `xem_truoc_buoc`.
+
+    Khác `_BuocThu` ở chỗ không có bước gốc nào để đọc ké: người dùng vừa chèn công đoạn, chưa bấm
+    "Lưu công đoạn", nên trong DB không có dòng `lsx_cong_doan` tương ứng. Chỉ khai đúng những
+    thuộc tính mà `thoi_luong_buoc` + `sl_tinh_cua_buoc` đọc; thiếu cái nào là 0 / None chứ không
+    lùi về số của một bước khác.
+
+    `phat_sinh_phut` để 0: bước mới chèn chưa có khoản phát sinh nào, và số ấy cộng THẲNG vào thời
+    gian chiếm máy nên đoán bừa là bày sai.
+    """
+
+    phat_sinh_phut = 0.0
+    department_id = None
+    khoan_json: dict | None = None
+
+    def __init__(self, **kw) -> None:
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
 def thoi_luong_buoc(cd, may=None, sl_tinh=None) -> dict:
     """Thời lượng 1 bước, tính TẠI CHỖ (không lưu cột) — nguồn số cho Gantt.
 
@@ -778,6 +799,8 @@ class LsxService:
         self, *, lsx_id: int, step_key: str, may_id: int | None,
         loai_buoc: str | None = None, so_luot_chay: int | None = None,
         so_gio_ke_hoach: float | None = None,
+        so_luong_vao: float | None = None, so_luong_ra: float | None = None,
+        cong_doan_id: int | None = None, don_vi_vao: str | None = None,
     ) -> dict:
         """Giờ chạy của MỘT bước theo ĐÚNG những gì đang hiện trên form — KHÔNG ghi DB.
 
@@ -793,13 +816,25 @@ class LsxService:
             dưới nhãn "Tổ";
           · `so_luot_chay` — chip dùng được trong ô đo giờ của máy (`sl_ra * so_luot_chay`);
           · `so_gio_ke_hoach` — số giờ người lập lệnh vừa gõ cho bước TỔ (§5.1). Nhận đè vì nó là
-            TOÀN BỘ giờ chạy của bước tổ: không đè thì xem trước bày số của lần lưu trước.
+            TOÀN BỘ giờ chạy của bước tổ: không đè thì xem trước bày số của lần lưu trước;
+          · `so_luong_vao` / `so_luong_ra` — hai ô "Dòng chảy số lượng" người dùng đang gõ, vào
+            THẲNG hai chip `sl_vao` / `sl_ra` của cách đo giờ (20/09/2026). Trước đó cửa này không
+            nhận chúng: máy khai đo bằng `sl_ra` mà số ra mới gõ không được gửi lên, nên engine
+            chạy công thức với số ra của LẦN LƯU TRƯỚC — số đó là 0 thì bậc công thức riêng bị bỏ
+            (luật `gt <= 0` của `_ct_rieng`), engine tụt xuống cầu quy đổi từ SL VÀO rồi báo "chưa
+            quy đổi được" trong khi cặp (công đoạn × máy) đã khai cách đo đầy đủ. Ô trống = 0.
+          · `cong_doan_id` / `don_vi_vao` — chỉ dùng cho bước CHƯA LƯU (xem dưới).
+
+        Bước chưa lưu cũng tính được (20/09/2026): người dùng vừa chèn "Cắt cuộn", gõ số ra, mở tab
+        Tiến độ — trước đây màn không hỏi cửa này vì bước chưa có trong DB, nên tab bày 0′ kèm đúng
+        câu "chưa quy đổi". Không tìm thấy `step_key` trong lệnh thì dựng bước ẢO từ tham số gửi
+        lên; `cong_doan_id` là thứ bắt buộc vì cách đo giờ treo ở CẶP (công đoạn × máy).
 
         ⚠️ `piece_rate_id` GỠ 18/09/2026 (mg `0320`) — bước thôi chọn đầu việc.
         """
         lsx = self.get(lsx_id)
         cd = next((r for r in lsx.cong_doans if r.step_key == step_key), None)
-        if cd is None:
+        if cd is None and not cong_doan_id:
             raise LsxNotFound("Không tìm thấy bước trong lệnh")
         may = self.db.get(MayThietBi, may_id) if may_id else None
         if may_id and may is None:
@@ -813,7 +848,25 @@ class LsxService:
             thay["so_luot_chay"] = max(int(so_luot_chay), 1)
         if so_gio_ke_hoach is not None:
             thay["so_gio_ke_hoach"] = max(float(so_gio_ke_hoach), 0.0)
-        thu = _BuocThu(cd, **thay)
+        # Ô trống = 0, KHÔNG phải "giữ số đã lưu": người dùng xoá số ra thì giờ chạy phải về 0 ngay,
+        # chứ không được âm thầm tính bằng số cũ. Router đã đổi ô trống thành 0 trước khi tới đây.
+        if so_luong_vao is not None:
+            thay["so_luong_vao"] = max(float(so_luong_vao), 0.0)
+        if so_luong_ra is not None:
+            thay["so_luong_ra"] = max(float(so_luong_ra), 0.0)
+        if cd is None:
+            thu = _BuocAo(
+                cong_doan_id=cong_doan_id,
+                don_vi_vao=don_vi_vao,
+                so_luong_vao=thay.get("so_luong_vao", 0.0),
+                so_luong_ra=thay.get("so_luong_ra", 0.0),
+                loai_buoc=thay.get("loai_buoc") or LB_MAY,
+                may_id=may_id,
+                so_luot_chay=thay.get("so_luot_chay", 1),
+                so_gio_ke_hoach=thay.get("so_gio_ke_hoach", 0.0),
+            )
+        else:
+            thu = _BuocThu(cd, **thay)
         quy_cach = quy_cach_bien(lsx)
         t = thoi_luong_buoc(thu, may, self.sl_tinh_cua_buoc(thu, may, quy_cach))
         return {
@@ -2467,6 +2520,26 @@ class LsxService:
                 "don_vi_to": don_vi_chuoi(r.cong_doans, tram)["to"],
             })
         return out, total
+
+    def nguon_bo_loc(self, **kw) -> dict:
+        """Hai danh sách cho ô lọc của bảng lệnh: đơn nào đang có lệnh, và khách của chúng."""
+        rows = self.repo.nguon_bo_loc(**kw)
+        khach = self._customer_names({cid for _, _, cid in rows if cid})
+        return {
+            "orders": [
+                {"id": i, "order_no": no, "customer_id": cid, "customer_name": khach.get(cid) if cid else None}
+                for i, no, cid in rows
+            ],
+            # Khách hiện MỘT lần dù ôm bao nhiêu đơn; bỏ khách chưa có hồ sơ (`customer_id` rỗng)
+            # vì không có gì để lọc theo.
+            "customers": [
+                {"id": cid, "name": ten}
+                for cid, ten in sorted(
+                    {cid: khach.get(cid) or f"#{cid}" for _, _, cid in rows if cid}.items(),
+                    key=lambda kv: kv[1],
+                )
+            ],
+        }
 
     def dem_trang_thai(self, **kw) -> dict[str, int]:
         """Số trên TAB lọc — đếm ở máy chủ theo cùng bộ lọc trừ chính `trang_thai`.

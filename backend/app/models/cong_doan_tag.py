@@ -42,7 +42,7 @@ class CongDoanTag(Base):
     buoc_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     label: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -64,7 +64,7 @@ class CongDoanTagCatalog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     label: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

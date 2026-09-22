@@ -86,7 +86,7 @@ class Quote(Base):
     phieu_tinh_gia_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     salesperson_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=STATUS_DRAFT)
@@ -113,7 +113,7 @@ class Quote(Base):
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -160,7 +160,7 @@ class QuoteVersion(Base):
     pdf_file_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -251,7 +251,7 @@ class QuoteAttachment(Base):
     file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
     uploaded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
@@ -271,7 +271,7 @@ class QuoteActivityLog(Base):
     new_value_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     
     actor_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     actor_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -303,7 +303,7 @@ class QuoteApproval(Base):
     high_value_threshold: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     decided_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     decided_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

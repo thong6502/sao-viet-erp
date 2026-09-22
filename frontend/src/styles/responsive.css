@@ -620,7 +620,10 @@
   /* Thẻ "Live Sync" ở đầu ba màn kế hoạch/bài ghép — 11px */
   .shell__content .bg2-sync-badge,
   .shell__content .khsx-sync-badge,
-  .shell__content .khvt-header__sync,
+  .shell__content .khvt-header__sync {
+    font-size: 12px !important;
+  }
+}
 
 /* ---- 23. Vỏ máy: thanh trên và ngăn kéo điều hướng ----------------------- */
 /* Mọi mục §8-§22 đều mở đầu bằng `.shell__content`, mà thanh trên với ngăn kéo nằm NGOÀI khối

@@ -187,7 +187,9 @@ export function LsxBuocDrawer({
   }, [napDv]);
   // Đơn vị để DÁN CẠNH SỐ — cùng hàm bảng routing dùng. Lối lùi về đơn vị sản lượng của danh mục
   // GỠ 18/09/2026 (mg `0324`): bước ngoài dòng chỉ có đơn vị khi người lập lệnh tự khai.
-  const dvNhan = (dv: string | null | undefined) => dvNhanChung(dv, row);
+  // Thôi truyền `row` từ 20/09/2026: nhãn giờ chỉ phụ thuộc MÃ đơn vị, không còn bị nhóm công
+  // đoạn của bước bịt lại (xem `dvNhan` ở LsxRoutingTable).
+  const dvNhan = dvNhanChung;
   // Dòng "Số vào = ra ÷ hệ số × (1 + hao%) + hao" của bước ngoài dòng GỠ 18/09/2026 (mg `0324`)
   // cùng `LsxService.buoc_ngoai_dong` nó diễn giải — server thôi suy số vào từ số ra cho bước ấy.
 

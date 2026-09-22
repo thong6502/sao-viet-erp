@@ -184,12 +184,12 @@ export function DagNodeCard({
         <div className="dag-node__flow">
           <span>
             {n(row.so_luong_vao) > 0 ? n(row.so_luong_vao).toLocaleString("vi-VN") : "—"}{" "}
-            <small>{dvNhan(row.don_vi_vao, row)}</small>
+            <small>{dvNhan(row.don_vi_vao)}</small>
           </span>
           <span className="dag-node__flow-arrow">➔</span>
           <span>
             {n(row.so_luong_ra) > 0 ? n(row.so_luong_ra).toLocaleString("vi-VN") : "—"}{" "}
-            <small>{dvNhan(row.don_vi_ra, row)}</small>
+            <small>{dvNhan(row.don_vi_ra)}</small>
           </span>
         </div>
 

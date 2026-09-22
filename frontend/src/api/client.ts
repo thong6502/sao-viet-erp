@@ -2646,6 +2646,11 @@ export interface LsxListOut {
    *  được chọn vẫn khoe đúng số của nó. Khoá `all` = tổng mọi trạng thái. */
   facets: Record<string, number>;
 }
+/** Nguồn hai ô lọc "Đơn hàng" / "Khách hàng" — chỉ gồm đơn ĐANG có lệnh. */
+export interface LsxBoLocOut {
+  orders: { id: number; order_no: string; customer_id: number | null; customer_name: string | null }[];
+  customers: { id: number; name: string }[];
+}
 /** Một chấm trên hàng đèn tổng quan của bảng lệnh (Đợt 1 redesign 18/08/2026).
  *  `ok` = **không vẽ chấm** — 20 lệnh × 3 chấm mà đa số xanh thì mắt không bắt được cái đỏ. */
 export interface LsxDenItem {
@@ -11385,16 +11390,29 @@ export const api = {
     },
     list(
       token: string,
-      params: { order_id?: number; trang_thai?: string; q?: string; page?: number; size?: number } = {},
+      params: {
+        order_id?: number; customer_id?: number; trang_thai?: string; q?: string;
+        page?: number; size?: number;
+      } = {},
     ): Promise<LsxListOut> {
       const qs = new URLSearchParams();
       if (params.order_id) qs.set("order_id", String(params.order_id));
+      if (params.customer_id) qs.set("customer_id", String(params.customer_id));
       if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
       if (params.q) qs.set("q", params.q);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<LsxListOut>(`/api/lsx${suffix}`, token);
+    },
+    /** Đơn / khách để đổ vào hai ô lọc của bảng lệnh. KHÔNG truyền `order_id`/`customer_id`:
+     *  danh sách chọn phải đứng yên khi đang lọc, không thì chọn xong là hết đường đổi. */
+    boLoc(token: string, params: { trang_thai?: string; q?: string } = {}): Promise<LsxBoLocOut> {
+      const qs = new URLSearchParams();
+      if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<LsxBoLocOut>(`/api/lsx/bo-loc${suffix}`, token);
     },
     /** Hàng 3 đèn cho ĐÚNG các lệnh đang hiện trên bảng. Gọi RỜI sau `list`: bên trong máy chủ
      *  chạy engine cân đối vật tư + bộ dò vấn đề cho cả bàn xếp lịch. Bảng lệnh phải hiện ngay,
@@ -11446,13 +11464,20 @@ export const api = {
     xemTruocBuoc(
       token: string, id: number, stepKey: string,
       dang: { mayId?: number | null; loaiBuoc?: string | null;
-              soLuotChay?: number | null; soGioKeHoach?: number | null } = {},
+              soLuotChay?: number | null; soGioKeHoach?: number | null;
+              soLuongVao?: number | null; soLuongRa?: number | null;
+              congDoanId?: number | null; donViVao?: string | null } = {},
     ): Promise<LsxXemTruocBuoc> {
       const q = new URLSearchParams({ step_key: stepKey });
       if (dang.mayId != null) q.set("may_id", String(dang.mayId));
       if (dang.loaiBuoc) q.set("loai_buoc", dang.loaiBuoc);
       if (dang.soLuotChay != null) q.set("so_luot_chay", String(dang.soLuotChay));
       if (dang.soGioKeHoach != null) q.set("so_gio_ke_hoach", String(dang.soGioKeHoach));
+      // Hai ô số lượng gửi cả khi bằng 0 — ô TRỐNG là 0 thật, không phải "không có ý kiến".
+      if (dang.soLuongVao != null) q.set("so_luong_vao", String(dang.soLuongVao));
+      if (dang.soLuongRa != null) q.set("so_luong_ra", String(dang.soLuongRa));
+      if (dang.congDoanId != null) q.set("cong_doan_id", String(dang.congDoanId));
+      if (dang.donViVao) q.set("don_vi_vao", dang.donViVao);
       return authed<LsxXemTruocBuoc>(`/api/lsx/${id}/xem-truoc-buoc?${q}`, token);
     },
     update(token: string, id: number, body: LsxUpdateBody): Promise<LsxDetail> {

@@ -263,16 +263,29 @@ export function getPosition(): Promise<GeolocationPosition> {
     const timeoutErr = Object.assign(new Error("Lấy vị trí quá lâu."), {
       code: 3,
     });
-    const watchdog = setTimeout(() => finish(() => reject(timeoutErr)), 14000);
+    const watchdog = setTimeout(() => finish(() => reject(timeoutErr)), 22000);
     navigator.geolocation.getCurrentPosition(
-      (pos) => finish(() => resolve(pos)),
+      (pos) => finish(() => {
+        const accuracy = pos.coords.accuracy;
+        if (!Number.isFinite(accuracy)) {
+          reject(new Error("Thiết bị không cung cấp được độ chính xác GPS. Hãy bật Vị trí chính xác rồi thử lại."));
+          return;
+        }
+        if (accuracy > 50) {
+          reject(new Error(
+            `Độ chính xác GPS hiện chỉ khoảng ${Math.round(accuracy)} m. Hãy bật Vị trí chính xác, ra gần cửa sổ hoặc ngoài trời rồi thử lại.`,
+          ));
+          return;
+        }
+        resolve(pos);
+      }),
       (err) => finish(() => reject(err)),
       {
-        // Máy bàn không có chip GPS → định vị mạng (WiFi/IP): nhanh, đỡ treo, đủ cho geofence 150 m.
-        // Trong xưởng (indoor) GPS còn kém hơn network → cũng hợp use-case công nhân chấm công.
-        enableHighAccuracy: false,
-        timeout: 12000,
-        maximumAge: 30000, // fix ≤30s được tái dùng → preview→chấm không phải dò lại
+        // Chấm công bị chặn cứng theo geofence 150 m nên không được dùng vị trí mạng/cache cũ:
+        // yêu cầu cảm biến chính xác nhất và buộc trình duyệt lấy một fix mới cho mỗi lần gọi.
+        enableHighAccuracy: true,
+        timeout: 20000,
+        maximumAge: 0,
       },
     );
   });

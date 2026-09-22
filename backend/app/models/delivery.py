@@ -135,7 +135,7 @@ class DeliveryRequest(Base):
     ly_do_huy: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -270,7 +270,7 @@ class DeliveryTrip(Base):
     pct_phu_xe: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
 
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -332,7 +332,7 @@ class DeliveryStatusHistory(Base):
     tu_trang_thai: Mapped[str | None] = mapped_column(String(20), nullable=True)
     den_trang_thai: Mapped[str] = mapped_column(String(20), nullable=False)
     nguoi_thao_tac_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     luc: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -384,7 +384,7 @@ class LuotXe(Base):
     )
 
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -452,7 +452,7 @@ class DeliveryTripAttachment(Base):
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
     file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     uploaded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

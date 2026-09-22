@@ -171,7 +171,7 @@ class SanXuatPhienBan(Base):
     loai: Mapped[str] = mapped_column(String(16), nullable=False, default=PB_PHAT_HANH)
     ly_do: Mapped[str | None] = mapped_column(String(500), nullable=True)
     phat_hanh_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 

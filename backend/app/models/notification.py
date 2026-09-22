@@ -28,7 +28,7 @@ class Notification(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Người NHẬN thông báo.
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=False
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     # Phân loại nghiệp vụ (vd 'kho_moi', 'kho_hoan_tat', 'kho_huy') — FE có thể chọn icon/màu.
     loai: Mapped[str] = mapped_column(String(40), nullable=False)

@@ -24,7 +24,7 @@ class RefreshToken(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=False
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     # SHA-256 hex digest (64 chars) of the opaque token. The plaintext is never stored.
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)

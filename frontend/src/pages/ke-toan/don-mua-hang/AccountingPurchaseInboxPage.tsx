@@ -243,8 +243,9 @@ export function AccountingPurchaseInboxPage({
   /** DUYỆT đơn mua — một bước riêng, không kèm lập phiếu chi.
    *
    * Gọi thẳng API của Thu mua (`/purchase-requests/{id}/approve`) chứ không đẻ endpoint kế toán
-   * riêng: thứ đang duyệt là PHIẾU MUA, chỉ khác chỗ đứng bấm. Nhờ vậy chốt chống tự duyệt ở
-   * service (người lập không duyệt phiếu của chính mình) vẫn chạy nguyên. */
+   * riêng: thứ đang duyệt là PHIẾU MUA, chỉ khác chỗ đứng bấm — một đường duy nhất thì luật
+   * trạng thái và nhật ký cũng chỉ có một chỗ để sai. Người lập TỰ DUYỆT được phiếu của mình
+   * (chủ chốt 20/09/2026); ai bấm được nút này là do phân quyền quyết. */
   async function approve(row: PurchaseRequestRow) {
     if (!token) return;
     setBusy(`approve-${row.id}`);

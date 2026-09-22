@@ -330,12 +330,13 @@ def _requester_token() -> str:
 def _nguoi_duyet_token() -> str:
     """Tài khoản DUYỆT phiếu mua — KHÁC người lập.
 
-    Từ 04/08/2026 người lập phiếu không tự duyệt được phiếu của mình (tách vai: ai đề xuất chi tiền
-    thì không được là người đồng ý chi). Test nào lập rồi duyệt bằng cùng một tài khoản là đang mô
-    tả một tình huống không được phép xảy ra ngoài đời.
+    Từ 20/09/2026 người lập TỰ DUYỆT được phiếu của mình, nên tài khoản này không còn bắt buộc.
+    Giữ lại vì nó là cách duy nhất chứng minh nhánh "người KHÁC duyệt": phải có `approved_by` khác
+    `created_by` thì mới đo được tên người duyệt trả về đúng, và đó vẫn là luồng thật ngoài đời
+    (thu mua lập, giám đốc duyệt).
 
     Đặt ở BAN GIÁM ĐỐC chứ không ở Mua hàng — vai thuộc bộ phận Mua hàng bị migration 0159 gỡ
-    quyền duyệt, để ở đó là test tự mâu thuẫn với luật vừa đặt.
+    quyền duyệt, để ở đó là test không duyệt nổi vì thiếu quyền.
     """
     db = SessionLocal()
     try:
@@ -933,12 +934,12 @@ def test_yeu_cau_chi_xong_khi_moi_phieu_da_ve_hang(client, auth_headers):
     assert _trang_thai_yeu_cau() == "done", "cả hai phiếu về rồi thì phải Xong"
 
 
-def test_nguoi_lap_khong_duoc_tu_duyet(client, auth_headers):
-    """⭐ TÁCH VAI: ai đề xuất chi tiền thì không được là người đồng ý chi.
+def test_nguoi_lap_duyet_duoc_phieu_cua_minh(client, auth_headers):
+    """⭐ Người lập TỰ DUYỆT được phiếu của mình (chủ chốt 20/09/2026, gỡ luật tách vai 04/08).
 
-    Dùng admin — người CÓ ĐỦ quyền duyệt — để chứng minh chốt này chặn theo *ai lập phiếu*, chứ
-    không phải chỉ nhờ thiếu quyền. Chốt ở service mới là khoá thật: phân quyền là cấu hình, ai
-    cũng bật lại được ở màn Phân quyền mà không ai hay.
+    Quyền duyệt nay CHỈ do phân quyền quyết: có ô "Duyệt" của module Kế toán là bấm được, không
+    phân biệt ai lập phiếu. Dùng admin vì admin vừa lập vừa đủ quyền duyệt — đúng tình huống
+    trước đây bị chặn.
     """
     supplier = _supplier(client, auth_headers)
     pr = _create_purchase_request(client, auth_headers, supplier["id"])
@@ -946,15 +947,14 @@ def test_nguoi_lap_khong_duoc_tu_duyet(client, auth_headers):
                        headers=auth_headers).status_code == 200
 
     tu_duyet = client.post(f"/api/purchase-requests/{pr['id']}/approve", headers=auth_headers)
-    assert tu_duyet.status_code == 403, tu_duyet.text
+    assert tu_duyet.status_code == 200, tu_duyet.text
+    assert tu_duyet.json()["status"] == "approved"
 
-    # Phiếu KHÔNG được đổi trạng thái sau cú bấm bị chặn.
+    # Vết phải còn đủ để truy: người duyệt vẫn ghi riêng, trùng người lập thì nhìn là thấy.
     con = client.get(f"/api/purchase-requests/{pr['id']}", headers=auth_headers).json()
-    assert con["status"] == "pending_approval"
-
-    # Người khác duyệt thì được.
-    assert client.post(f"/api/purchase-requests/{pr['id']}/approve",
-                       headers=_h_duyet()).status_code == 200
+    assert con["status"] == "approved"
+    assert con["approved_at"] is not None
+    assert con["approved_by_name"] == con["created_by_name"], con
 
 
 def test_tu_TU_CHOI_phieu_cua_minh_van_duoc(client, auth_headers):

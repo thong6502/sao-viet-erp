@@ -362,24 +362,45 @@
   min-width: 220px;
 }
 
-.khsx__filterpill {
+/* Hai ô lọc "Khách" / "Đơn" — cùng chiều cao 34px với ô tìm bên phải, nhãn nằm TRONG khung để
+   thanh công cụ không mọc thêm một hàng chữ. */
+.khsx__filtersel {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 3px var(--sp-2) 3px var(--sp-3);
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  height: 34px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+}
+.khsx__filtersel-label {
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  white-space: nowrap;
+}
+.khsx__filtersel select {
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: var(--fs-md);
+  color: var(--ink);
+  cursor: pointer;
+  /* Tên khách dài ("Công ty TNHH Thực phẩm Minh Long") không được đẩy ô tìm xuống hàng dưới. */
+  max-width: 190px;
+}
+.khsx__filterclear {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 var(--sp-3);
   font-size: var(--fs-xs);
   background: var(--rust-soft);
   color: var(--rust-deep);
-  border-radius: var(--r-pill);
-}
-.khsx__filterpill button {
-  display: inline-flex;
-  align-items: center;
   border: 0;
-  background: transparent;
-  color: inherit;
+  border-radius: 6px;
   cursor: pointer;
-  padding: 2px;
 }
 
 /* --- bảng ----------------------------------------------------------------- */
@@ -6140,6 +6161,15 @@ td.khsx-num > .khsx-unit {
 @media (max-width: 640px) {
   .khsx .khvt-drawer-kpi-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  /* Chân drawer có 3 nút (Đóng · Chọn dòng thiếu · Đề nghị mua ngay) từ 20/09/2026. Trên điện
+     thoại `space-between` không đủ chỗ ⇒ cho XUỐNG DÒNG thay vì bóp nhãn nút thành hai chữ trên
+     ba hàng. Khối phải giãn hết bề ngang để hai nút chia đều, nút chính vẫn nằm cuối. */
+  .khsx .khvt-drawer__foot { flex-wrap: wrap; }
+  .khsx .khvt-drawer__foot-right {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
 }
 

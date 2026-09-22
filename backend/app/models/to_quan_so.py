@@ -45,7 +45,7 @@ class ToQuanSoNgay(Base):
     #: do thì tháng sau không ai giải thích nổi vì sao hôm đó lịch tính ra như vậy.
     ly_do: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     nguoi_sua_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False

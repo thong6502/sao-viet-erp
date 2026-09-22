@@ -569,7 +569,7 @@ function OrderDrawer({
             <div className="dhb__drawer-cust"><Icon name="users" size={13} /> {order.customer_name ?? "—"}</div>
           </div>
           <button className="btn btn--secondary" style={{ height: 32 }} onClick={() => setShowPrint(true)}><Icon name="printer" size={14} /> Xem bản in</button>
-          {isDraft && canUpdate && !editing && (
+          {isDraft && canUpdate && (
             <button className="btn btn--secondary" style={{ height: 32 }} onClick={() => setEditing(true)}><Icon name="pencil" size={14} /> Sửa</button>
           )}
           {canCancel && (
@@ -693,11 +693,6 @@ function OrderDrawer({
                   </div>
                 </div>
 
-                {editing && (
-                  <div style={{ marginTop: 12 }}>
-                    <EditForm order={order} onCancel={() => setEditing(false)} onSaved={(d) => { setEditing(false); onSaved(d); }} />
-                  </div>
-                )}
               </Section>
 
               {/* Lưu ý sản xuất — sửa được cả khi đã chốt (đường hẹp D3 → realtime bàn Kế hoạch) */}
@@ -1076,6 +1071,13 @@ function OrderDrawer({
             </>
           )}
         </div>
+        {editing && (
+          <EditDialog
+            order={order}
+            onCancel={() => setEditing(false)}
+            onSaved={(d) => { setEditing(false); onSaved(d); }}
+          />
+        )}
         {cancelling && (
           <CancelDialog
             order={order}
@@ -1520,7 +1522,8 @@ function KV({ k, v, right }: { k: string; v: React.ReactNode; right?: boolean })
 }
 
 // --- Form sửa đặt-hàng --------------------------------------------------------
-function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: () => void; onSaved: (d: OrderDetail) => void }) {
+// Popup sửa đơn nháp — bấm "Sửa" ở đầu drawer là mở ngay, không phải cuộn tìm form dưới thân.
+function EditDialog({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: () => void; onSaved: (d: OrderDetail) => void }) {
   const { token } = useAuth();
   const [po, setPo] = useState(order.customer_po_no ?? "");
   const [date, setDate] = useState(order.delivery_committed_date ?? "");
@@ -1553,7 +1556,9 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   }
 
   return (
-    <div style={{ display: "grid", gap: 8 }}>
+    <div onClick={onCancel} className="dhb__modal-overlay" style={{ zIndex: 70 }}>
+      <div onClick={(e) => e.stopPropagation()} className="dhb__modal-content" style={{ width: 480, display: "grid", gap: 8 }}>
+      <h3 className="dhb__modal-title" style={{ fontSize: 18, margin: 0 }}>Sửa đơn {order.order_no}</h3>
       <Field label="Số PO khách"><input value={po} onChange={(e) => setPo(e.target.value)} className="dhb__input" /></Field>
       <Field label="% cọc">
         <input
@@ -1587,9 +1592,10 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
       </label>
       {/* 3 ô "Bản chất đơn" · "Pháp nhân xuất HĐ" · "MST xuất HĐ" đã gỡ (2026-08-04). */}
       {err && <div className="banner banner--error">{err}</div>}
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
         <button className="btn btn--ghost" onClick={onCancel} disabled={saving}>Hủy</button>
         <button className="btn btn--primary" onClick={save} disabled={saving}>{saving ? "Đang lưu…" : "Lưu"}</button>
+      </div>
       </div>
     </div>
   );

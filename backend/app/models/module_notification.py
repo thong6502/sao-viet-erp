@@ -25,7 +25,7 @@ class ModuleNotification(Base):
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     source_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     actor_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     # NULL = gửi cho mọi người có quyền đọc kênh; có id = gửi đích danh (vd quyết định PMH chỉ
     # báo cho người lập, không làm badge của mọi nhân viên mua hàng cùng nhảy).

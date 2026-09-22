@@ -127,7 +127,7 @@ class Order(Base):
 
     # NV kinh doanh phụ trách + RBAC data-scope owner.
     sale_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
 
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=STATUS_DRAFT)
@@ -176,7 +176,7 @@ class Order(Base):
     # --- Chốt (P4) --------------------------------------------------------------
     ordered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ordered_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
 
     # --- Chuyển xuống sản xuất (handoff Đơn→Kế hoạch) ---------------------------
@@ -189,7 +189,7 @@ class Order(Base):
     # --- Hủy (P5) ---------------------------------------------------------------
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     cancelled_at_state: Mapped[str | None] = mapped_column(String(16), nullable=True)  # dormant
-    cancel_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    cancel_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     cancel_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancel_fault: Mapped[str | None] = mapped_column(String(16), nullable=True)  # khach/xuong
 
@@ -286,7 +286,7 @@ class OrderApproval(Base):
 
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     decided_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     decided_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -315,7 +315,7 @@ class OrderAttachment(Base):
     content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     uploaded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

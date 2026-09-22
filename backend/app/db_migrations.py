@@ -15172,6 +15172,83 @@ def _migrate_yeu_cau_mua_nguon_lenh(db: Session) -> None:
 MIGRATIONS.append(("0325_yeu_cau_mua_nguon_lenh", _migrate_yeu_cau_mua_nguon_lenh))
 
 
+def _migrate_phan_cong_chi_unique_active(db: Session) -> None:
+    """mg 0326 — một người chỉ có MỘT phân công active, nhưng được rút nhiều lần.
+
+    Constraint cũ UNIQUE(`cong_viec_id`, `employee_id`, `trang_thai`) vô tình chỉ cho phép đúng
+    MỘT dòng `removed`. Chuỗi hợp lệ giao → rút → giao lại → rút vì thế nổ 23505 ở lần rút thứ hai.
+    PostgreSQL live đổi sang partial unique index chỉ phủ dòng active; mọi dòng removed tiếp tục
+    được giữ làm lịch sử. SQLite test/dev trắng nhận index mới từ `create_all`; SQLite dev cũ theo
+    quy ước dự án được tạo lại DB thay vì ALTER constraint.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "san_xuat_phan_cong" not in set(insp.get_table_names()):
+        return
+    if bind.dialect.name == "postgresql":
+        db.execute(text(
+            "ALTER TABLE san_xuat_phan_cong "
+            "DROP CONSTRAINT IF EXISTS uq_phan_cong_cv_nv_tt"
+        ))
+    db.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_phan_cong_cv_nv_active "
+        "ON san_xuat_phan_cong (cong_viec_id, employee_id) "
+        "WHERE trang_thai = 'active'"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0326_phan_cong_chi_unique_active", _migrate_phan_cong_chi_unique_active))
+
+
+def _migrate_user_fks_delete_cascade(db: Session) -> None:
+    """mg 0327 — mọi FK trỏ tới `users.id` đều ON DELETE CASCADE.
+
+    Đây là chủ ý phá huỷ: xoá cứng một tài khoản sẽ xoá mọi dòng tham chiếu trực tiếp và có thể
+    lan tiếp qua cascade của bảng con. Model của DB trắng dùng cùng luật; migration này đổi toàn bộ
+    constraint hiện có trên PostgreSQL mà vẫn giữ nguyên tên, cột, MATCH/DEFERRABLE và ON UPDATE.
+    SQLite dev cũ tạo lại DB theo quy ước dự án vì SQLite không ALTER được action của FK.
+    """
+    bind = db.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
+    rows = list(db.execute(text("""
+        SELECT ns.nspname AS schema_name,
+               cls.relname AS table_name,
+               con.conname AS constraint_name,
+               pg_get_constraintdef(con.oid) AS definition
+        FROM pg_constraint con
+        JOIN pg_class cls ON cls.oid = con.conrelid
+        JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+        WHERE con.contype = 'f'
+          AND con.confrelid = 'users'::regclass
+          AND con.confdeltype <> 'c'
+        ORDER BY ns.nspname, cls.relname, con.conname
+    """)).mappings())
+    prep = bind.dialect.identifier_preparer
+    for row in rows:
+        bang = f"{prep.quote_schema(row['schema_name'])}.{prep.quote(row['table_name'])}"
+        ten = prep.quote(row["constraint_name"])
+        dinh_nghia = re.sub(
+            r"\s+ON DELETE\s+(?:NO ACTION|RESTRICT|CASCADE|SET NULL|SET DEFAULT)",
+            "", row["definition"], flags=re.IGNORECASE,
+        )
+        # DEFERRABLE/INITIALLY thuộc cuối constraint; action phải đứng trước cụm đó.
+        moc = re.search(r"\s+(?:NOT\s+)?DEFERRABLE\b|\s+INITIALLY\b", dinh_nghia, re.IGNORECASE)
+        if moc:
+            dinh_nghia = (
+                dinh_nghia[:moc.start()] + " ON DELETE CASCADE" + dinh_nghia[moc.start():]
+            )
+        else:
+            dinh_nghia += " ON DELETE CASCADE"
+        db.execute(text(f"ALTER TABLE {bang} DROP CONSTRAINT {ten}"))
+        db.execute(text(f"ALTER TABLE {bang} ADD CONSTRAINT {ten} {dinh_nghia}"))
+    db.commit()
+
+
+MIGRATIONS.append(("0327_user_fks_delete_cascade", _migrate_user_fks_delete_cascade))
+
+
 def _migrate_hop_nhat_khoan_vao_cong_doan(db: Session) -> None:
     """mg 0326 — cấu hình Khoán trở thành aggregate 1–1 của Công đoạn.
 

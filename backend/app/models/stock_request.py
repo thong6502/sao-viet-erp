@@ -77,7 +77,7 @@ class StockRequest(Base):
     loai: Mapped[str] = mapped_column(String(8), index=True, nullable=False)
 
     nguoi_tao_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=False
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     # Bộ phận yêu cầu — dùng cho scope `department` và cho ô "Bộ phận" trên bản in.
     bo_phan_id: Mapped[int | None] = mapped_column(
@@ -132,7 +132,7 @@ class StockRequest(Base):
         String(16), index=True, nullable=False, server_default=REQ_DRAFT, default=REQ_DRAFT
     )
     nguoi_duyet_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     duyet_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ly_do_tu_choi: Mapped[str | None] = mapped_column(String(500), nullable=True)

@@ -32,13 +32,16 @@ lại lúc mở màn. Muốn một món nợ biến mất chỉ có hai đườn
 |---|---|---|
 | Xin mua hàng | Bộ phận cần hàng | |
 | Lập phiếu mua | Thu mua | |
-| **Duyệt** phiếu mua | Giám đốc / người được trao quyền | **Người lập phiếu** — kể cả giám đốc tự lập |
+| **Duyệt** phiếu mua | Giám đốc / người được trao quyền | |
 | Lập phiếu chi | Kế toán | |
 | Xác nhận tiền ra | Người giữ quỹ | |
 
-Chốt "người lập không tự duyệt" nằm ở **tầng nghiệp vụ**, không phải chỉ ở phân quyền. Lý do: phân
-quyền là cấu hình — ai vào màn Phân quyền bật lại cũng được mà không ai hay. Chốt ở tầng nghiệp vụ
-thì bật quyền cũng không lách được.
+**Người lập TỰ DUYỆT được phiếu của mình** (chủ chốt 20/09/2026). Trước đó tầng nghiệp vụ chặn
+cứng theo người lập, kể cả với giám đốc; nay ai duyệt được là do **phân quyền** quyết — có ô
+"Duyệt" của module Kế toán là bấm được. Muốn giữ tách vai thì đừng cấp ô đó cho người lập phiếu.
+
+Vết truy vẫn đủ: phiếu lưu riêng *người lập* và *người duyệt*, cộng dòng nhật ký `approve` — trùng
+người thì mở phiếu ra là thấy.
 
 ## 3. Trạng thái là **SUY RA**, không phải gán
 

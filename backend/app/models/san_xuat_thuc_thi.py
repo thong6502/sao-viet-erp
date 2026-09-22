@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, String, UniqueConstraint,
+    DateTime, ForeignKey, Index, Integer, String, text,
     false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -55,9 +55,15 @@ class SanXuatPhanCong(Base):
 
     __tablename__ = "san_xuat_phan_cong"
     __table_args__ = (
-        # Một người chỉ có MỘT dòng đang hoạt động trên một công việc (rút rồi giao lại đẻ dòng mới).
-        UniqueConstraint("cong_viec_id", "employee_id", "trang_thai",
-                         name="uq_phan_cong_cv_nv_tt"),
+        # Một người chỉ có MỘT dòng ĐANG HOẠT ĐỘNG trên một công việc. Dòng `removed` là lịch sử:
+        # giao → rút → giao lại → rút phải giữ được nhiều dòng, nên unique cả `trang_thai` là sai.
+        Index(
+            "uq_phan_cong_cv_nv_active",
+            "cong_viec_id", "employee_id",
+            unique=True,
+            postgresql_where=text("trang_thai = 'active'"),
+            sqlite_where=text("trang_thai = 'active'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -74,7 +80,7 @@ class SanXuatPhanCong(Base):
     trang_thai: Mapped[str] = mapped_column(String(16), nullable=False, default=PC_HOAT_DONG)
     ly_do_rut: Mapped[str | None] = mapped_column(String(255), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
@@ -109,7 +115,7 @@ class SanXuatPhienChay(Base):
     #    *nên* mấy người nên không có gì để "lệch" mà hỏi lý do.
     ly_do: Mapped[str | None] = mapped_column(String(255), nullable=True)  # lý do tạm dừng (phiên Kết thúc cũ có thể còn lý do trễ)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow

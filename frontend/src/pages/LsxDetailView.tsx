@@ -535,7 +535,9 @@ export function LsxDetailView({
     async (
       stepKey: string,
       dang: { mayId?: number | null; loaiBuoc?: string | null;
-              soLuotChay?: number | null; soGioKeHoach?: number | null },
+              soLuotChay?: number | null; soGioKeHoach?: number | null;
+              soLuongVao?: number | null; soLuongRa?: number | null;
+              congDoanId?: number | null; donViVao?: string | null },
     ) => {
       if (!token || !d) throw new Error("chưa sẵn sàng");
       return api.lsx.xemTruocBuoc(token, d.id, stepKey, dang);

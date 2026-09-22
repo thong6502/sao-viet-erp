@@ -257,9 +257,15 @@ export function VatTuKeHoachView({
     }
   }
 
-  async function deNghiMua() {
-    if (!token || chon.size === 0) return;
-    const dong: CanDoiKhoaDong[] = [...chon]
+  /** Mở form mua cho tập dòng thiếu — mặc định là tập đang tick trên bảng.
+   *
+   *  `theo` nhận tập TƯỜNG MINH để drawer chi tiết gọi được trong CÙNG một cái bấm: nó vừa tick
+   *  các dòng đỏ của mặt hàng vừa đề nghị mua, mà `setChon` chưa kịp vào state ở lượt render ấy —
+   *  đọc `chon` trong closure thì gửi thiếu đúng mấy dòng người ta vừa tick. */
+  async function deNghiMua(theo?: Iterable<string>) {
+    const tap = theo ? [...theo] : [...chon];
+    if (!token || tap.length === 0) return;
+    const dong: CanDoiKhoaDong[] = tap
       .map((k) => dongDo.get(k))
       .filter((x): x is { nhom: CanDoiNhom; dong: CanDoiDong } => !!x)
       .map(({ nhom, dong: d }) => ({
@@ -285,6 +291,9 @@ export function VatTuKeHoachView({
       // buộc" — đúng, vì hệ không được tự điền ngày thay người.
       const r = await api.keHoachVatTu.deNghiMua(token, dong);
       setChon(new Set());
+      // Đóng drawer chi tiết: băng thông báo mã phiếu nằm ở màn CHÍNH, drawer che mất nó. Bấm từ
+      // trong drawer rồi không thấy gì báo lại là đúng cái bẫy khiến người dùng tưởng nút vô tác dụng.
+      setSelectedNhomId(null);
       setFlash(
         `Đã lập yêu cầu mua ${r.code}. Mở màn Mua hàng để xem lại số lượng rồi gửi — hệ thống KHÔNG tự gửi.`,
       );
@@ -691,7 +700,9 @@ export function VatTuKeHoachView({
               <Button variant="secondary" onClick={() => setChon(new Set())}>
                 Bỏ chọn
               </Button>
-              <Button onClick={deNghiMua} disabled={dangGui} className="khvt-btn-action">
+              {/* Bọc lambda, KHÔNG đưa thẳng `deNghiMua` làm handler: tham số đầu của nó nay là
+                  tập khoá, mà `onClick` sẽ nhét MouseEvent vào đúng chỗ đó. */}
+              <Button onClick={() => deNghiMua()} disabled={dangGui} className="khvt-btn-action">
                 <Icon name="packageCheck" size={15} />
                 {dangGui ? "Đang mở form…" : `Đề nghị mua ngay (${chon.size})`}
               </Button>
@@ -708,6 +719,8 @@ export function VatTuKeHoachView({
           canDeNghiMua={canDeNghiMua}
           onToggle={toggle}
           onTickNhom={tickCaNhom}
+          onDeNghiMua={deNghiMua}
+          dangGui={dangGui}
           onClose={() => setSelectedNhomId(null)}
           onOpenLsx={onOpenLsx}
         />
@@ -725,6 +738,8 @@ function VatTuDetailDrawer({
   canDeNghiMua,
   onToggle,
   onTickNhom,
+  onDeNghiMua,
+  dangGui,
   onClose,
   onOpenLsx,
 }: {
@@ -733,11 +748,18 @@ function VatTuDetailDrawer({
   canDeNghiMua: boolean;
   onToggle: (k: string) => void;
   onTickNhom: (nhom: CanDoiNhom, bat: boolean) => void;
+  /** Mở form yêu cầu mua cho tập khoá TRUYỀN VÀO — xem `deNghiMua` ở màn cha. */
+  onDeNghiMua: (keys: Iterable<string>) => void;
+  dangGui: boolean;
   onClose: () => void;
   onOpenLsx?: (id: number) => void;
 }) {
   const keysDo = nhom.dong.filter((d) => d.trang_thai === "do").map((d) => khoa(nhom, d));
   const daTickHet = keysDo.length > 0 && keysDo.every((k) => chon.has(k));
+  // Bấm "Đề nghị mua ngay" trong drawer gửi CẢ dòng thiếu của mặt hàng này LẪN những dòng đã tick
+  // ở bảng: người dùng gom mấy mặt hàng rồi mở drawer xem lại một cái, không được để cái mở sau
+  // xoá công gom trước đó.
+  const tapGui = [...new Set([...chon, ...keysDo])];
 
   const ton = nhom.ton ?? 0;
   const tongCan = nhom.tong_can ?? 0;
@@ -1021,15 +1043,35 @@ function VatTuDetailDrawer({
           <Button variant="secondary" onClick={onClose}>
             Đóng
           </Button>
+          {/* HAI đường, vì hai ý muốn khác nhau:
+              · "Chọn N dòng thiếu" — gom thêm mặt hàng này vào tập đang tick rồi đi xem tiếp mặt
+                hàng khác, lát nữa gửi một phiếu cho cả lô (băng nổi dưới chân bảng lo việc gửi);
+              · "Đề nghị mua ngay" — làm luôn tại đây. Trước 20/09/2026 chỉ có nút đầu, mà băng nổi
+                thì nằm SAU drawer: tick xong nút tự xám đi, người dùng đọc ra "màn này không tạo
+                được yêu cầu mua" (đúng câu chủ hỏi). */}
           {canDeNghiMua && keysDo.length > 0 && (
-            <Button
-              className="khvt-btn-action"
-              onClick={() => onTickNhom(nhom, true)}
-              disabled={daTickHet}
-            >
-              <Icon name="packageCheck" size={15} />
-              {daTickHet ? "Đã chọn dòng thiếu" : `Chọn ${keysDo.length} dòng thiếu để mua`}
-            </Button>
+            /* Bọc chung một khối: chân drawer là `space-between`, để ba nút rời nhau thì "Chọn…"
+               dạt ra giữa như thể nó là một nhóm thứ ba. */
+            <div className="khvt-drawer__foot-right">
+              <Button
+                variant="secondary"
+                onClick={() => onTickNhom(nhom, true)}
+                disabled={daTickHet || dangGui}
+              >
+                {daTickHet ? "Đã chọn dòng thiếu" : `Chọn ${keysDo.length} dòng thiếu`}
+              </Button>
+              <Button
+                className="khvt-btn-action"
+                onClick={() => {
+                  onTickNhom(nhom, true);
+                  onDeNghiMua(tapGui);
+                }}
+                disabled={dangGui}
+              >
+                <Icon name="packageCheck" size={15} />
+                {dangGui ? "Đang mở form…" : `Đề nghị mua ngay (${tapGui.length})`}
+              </Button>
+            </div>
           )}
         </footer>
       </aside>

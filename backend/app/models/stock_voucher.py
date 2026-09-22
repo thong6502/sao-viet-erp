@@ -69,7 +69,7 @@ class StockVoucher(Base):
     )
     ngay: Mapped[date] = mapped_column(Date, nullable=False)
     nguoi_lap_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=False
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     # Ô "Họ tên người giao hàng" (01-VT) / "người nhận hàng" (02-VT) trên bản in. Text tự
     # do vì người giao có thể là tài xế NCC — không phải user của hệ thống.
@@ -83,7 +83,7 @@ class StockVoucher(Base):
     # Ai GHI SỔ (duyệt/chốt) phiếu — người có quyền `post` (Kế toán kho / QL kho). Null khi chưa
     # ghi sổ. Tách khỏi `nguoi_lap_id` (người lập nháp) theo SoD.
     nguoi_ghi_so_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -194,7 +194,7 @@ class StockVoucherAttachment(Base):
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
     file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     uploaded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
