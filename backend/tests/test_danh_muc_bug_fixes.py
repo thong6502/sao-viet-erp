@@ -7,7 +7,9 @@ Cả bốn đều là lỗi CÂM: không ai thấy stack trace, chỉ thấy mà
   2. Tab Nhật ký của LOẠI SẢN PHẨM luôn rỗng — service không nhận `audit` nên không ghi dòng nào,
      trong khi router nhật ký đã map sẵn loại này.
   3. Ô chọn BÙ HAO ở màn Công đoạn rỗng trơn — router bù hao khoá chặt `dm_bu_hao:read`, frontend
-     nuốt 403 thành danh sách rỗng.
+     nuốt 403 thành danh sách rỗng. (22/09/2026: bug này TUYỆT CHỦNG theo thiết kế — mg `0327`
+     đưa bậc bù hao vào chính bản ghi công đoạn nên không còn danh mục thứ hai để hỏi quyền.
+     Bài kiểm đổi thành lưới chặn đúng cái đó: bậc phải về cùng payload công đoạn.)
   4. Xem được DANH SÁCH nhưng mở CHI TIẾT ăn 403 — list dùng OR-gate, detail dùng quyền chặt.
 """
 from __future__ import annotations
@@ -68,14 +70,29 @@ def test_loai_san_pham_co_nhat_ky(client):
     assert any(x["action"] == "dm_sua" for x in items), items
 
 
-# ── 3. Người khai Công đoạn phải ĐỌC được bù hao (nhưng không khai được) ─────────
-def test_bu_hao_doc_duoc_boi_nguoi_khai_cong_doan(client):
-    """`cong_doan.bu_hao_id` trỏ thẳng sang bù hao — không đọc được thì ô chọn rỗng IM LẶNG."""
+# ── 3. Bậc bù hao đi CÙNG công đoạn, không cần quyền thứ hai ─────────────────────
+def test_bac_bu_hao_ve_cung_payload_cong_doan(client):
+    """Vai chỉ có `dm_cong_doan` phải khai VÀ đọc lại được bậc bù hao, không hỏi quyền nào khác.
+
+    Đây là bản thay cho bug #3: ô chọn rỗng câm vì thiếu quyền ở danh mục thứ hai. Từ mg `0327`
+    bậc nằm trên chính bản ghi công đoạn — cách duy nhất để lỗi ấy quay lại là ai đó tách bậc ra
+    một cổng riêng, và lúc đó bài này đỏ.
+    """
+    bac = [{"sl_den": 3000, "gia_tri": 150, "don_vi": "to"},
+           {"sl_den": None, "gia_tri": 2, "don_vi": "pct"}]
+    r = client.post("/api/cong-doan",
+                    json={"ma": "ZZCD3", "ten": "ZZ CĐ bậc", "nhom": "finishing",
+                          "pricing_basis": "per_finished_qty",
+                          "kieu_bu_hao": "theo_bac", "bac_bu_hao": bac}, headers=_admin(client))
+    assert r.status_code == 201, r.text
+
+    # Vai CHỈ ĐỌC công đoạn: bậc phải về theo payload, không hỏi thêm quyền nào.
     token = _token_for_role("cd-only", [("dm_cong_doan", "all")])
-    assert client.get("/api/bu-hao", headers=_h(token)).status_code == 200
-    # GHI thì vẫn phải đúng quyền của chính danh mục bù hao.
-    assert client.post("/api/bu-hao", json={"ma": "ZZBH", "ten": "ZZ"},
-                       headers=_h(token)).status_code == 403
+    doc = client.get(f"/api/cong-doan/{r.json()['id']}", headers=_h(token))
+    assert doc.status_code == 200, doc.text
+    assert doc.json()["bac_bu_hao"] == bac
+    # Cổng riêng của danh mục Bù hao đã gỡ hẳn — còn sống là còn đường cấp quyền lẻ.
+    assert client.get("/api/bu-hao", headers=_h(token)).status_code == 404
 
 
 # ── 4. Ai LIỆT KÊ được thì phải MỞ được chi tiết ─────────────────────────────────
@@ -154,30 +171,37 @@ def test_doi_ten_don_vi_kho_KHONG_doi_nhan_chang(client):
 def test_kiem_xoa_tra_du_thu_hop_thoai_can(client):
     """Một endpoint chung cho 8 màn — hộp thoại xoá tự quyết bằng số, không đoán."""
     h = _admin(client)
-    bh = client.post("/api/bu-hao", json={"ma": "ZZBH9", "ten": "ZZ Bù hao"}, headers=h)
-    assert bh.status_code == 201, bh.text
-    bh_id = bh.json()["id"]
+    # Khuôn bế: từ mg `0203` không ai trỏ về nó ⇒ hỏi xong là xoá hẳn được.
+    kb = client.post("/api/khuon-be", json={"ten": "ZZ Dao 9", "loai": "khuon_be"}, headers=h)
+    assert kb.status_code == 201, kb.text
 
-    r = client.get(f"/api/danh-muc/bu_hao/{bh_id}/kiem-xoa", headers=h)
+    r = client.get(f"/api/danh-muc/khuon_be/{kb.json()['id']}/kiem-xoa", headers=h)
     assert r.status_code == 200, r.text
     assert r.json() == {"xoa_han_duoc": True, "chan": [], "keo_theo": []}
 
-    # Gắn một công đoạn tra mã này ⇒ hết xoá hẳn được, và câu trả lời phải nêu SỐ.
-    cd = client.post("/api/cong-doan",
-                     json={"ma": "ZZCD9", "ten": "ZZ CĐ", "nhom": "finishing",
-                           "pricing_basis": "per_finished_qty",
-                           "kieu_bu_hao": "tra_bang", "bu_hao_id": bh_id}, headers=h)
-    assert cd.status_code == 201, cd.text
+    # Chủng loại giấy đang có một loại giấy thuộc nó ⇒ hết xoá hẳn được, và câu trả lời nêu SỐ.
+    cl = client.post("/api/vat-lieu-kho/chung-loai-giay",
+                     json={"ma": "ZZCL9", "ten": "ZZ Couché"}, headers=h)
+    assert cl.status_code == 201, cl.text
+    cl_id = cl.json()["id"]
 
-    sau = client.get(f"/api/danh-muc/bu_hao/{bh_id}/kiem-xoa", headers=h).json()
+    truoc = client.get(f"/api/danh-muc/chung_loai_giay/{cl_id}/kiem-xoa", headers=h).json()
+    assert truoc == {"xoa_han_duoc": True, "chan": [], "keo_theo": []}
+
+    giay = client.post("/api/vat-lieu-kho/giay",
+                       json={"ma": "ZZG9", "ten": "ZZ Giấy 9", "gsm": 250, "don_vi_gia": "kg",
+                             "don_gia": 28000, "chung_loai_giay_id": cl_id}, headers=h)
+    assert giay.status_code == 201, giay.text
+
+    sau = client.get(f"/api/danh-muc/chung_loai_giay/{cl_id}/kiem-xoa", headers=h).json()
     assert sau["xoa_han_duoc"] is False
-    assert sau["chan"] == ["1 công đoạn tra mã này"], sau
+    assert sau["chan"] == ["1 loại giấy thuộc chủng loại này"], sau
 
 
 @pytest.mark.parametrize("prefix,payload", [
     ("/api/cong-doan", {"ma": "ZZCD8", "ten": "ZZ CĐ8", "nhom": "finishing",
                         "pricing_basis": "per_finished_qty"}),
-    ("/api/bu-hao", {"ma": "ZZBH8", "ten": "ZZ BH8"}),
+    ("/api/khuon-be", {"ten": "ZZ Dao 8", "loai": "khuon_be"}),
     ("/api/loai-san-pham", {"ma": "ZZSP8", "ten": "ZZ SP8", "structural_type": "flat"}),
 ])
 def test_ngung_dung_va_bat_lai_khong_can_gui_ca_ban_ghi(client, prefix, payload):
@@ -210,10 +234,10 @@ def test_ngung_dung_va_bat_lai_khong_can_gui_ca_ban_ghi(client, prefix, payload)
 def test_dat_active_can_quyen_ghi(client):
     """Vai chỉ ĐỌC không được tắt một dòng danh mục — nút kia gác quyền, cổng này cũng phải gác."""
     h = _admin(client)
-    r = client.post("/api/bu-hao", json={"ma": "ZZBH7", "ten": "ZZ BH7"}, headers=h)
+    r = client.post("/api/khuon-be", json={"ten": "ZZ Dao 7", "loai": "khuon_be"}, headers=h)
     assert r.status_code == 201, r.text
     token = _token_for_role("chi-doc-tg", [("tinh_gia_thanh", "all")])
-    assert client.patch(f"/api/bu-hao/{r.json()['id']}/active",
+    assert client.patch(f"/api/khuon-be/{r.json()['id']}/active",
                         json={"active": False}, headers=_h(token)).status_code == 403
 
 
@@ -222,4 +246,4 @@ def test_kiem_xoa_loai_la_tra_404_va_can_quyen_xoa(client):
     assert client.get("/api/danh-muc/khong_co/1/kiem-xoa", headers=h).status_code == 404
     # Vai chỉ ĐỌC được danh mục thì không được hỏi câu này (nó lộ số liệu nghiệp vụ).
     token = _token_for_role("chi-doc-bh", [("tinh_gia_thanh", "all")])
-    assert client.get("/api/danh-muc/bu_hao/1/kiem-xoa", headers=_h(token)).status_code == 403
+    assert client.get("/api/danh-muc/khuon_be/1/kiem-xoa", headers=_h(token)).status_code == 403

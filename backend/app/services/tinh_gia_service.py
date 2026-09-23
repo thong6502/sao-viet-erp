@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan, CongDoanMay
 from ..models.may_thiet_bi import MayThietBi
 from ..models.vat_lieu_kho import GiayNguyen, VatTuInAn
@@ -39,7 +38,7 @@ def _cong_doan_to_dict(cd: CongDoan, tram: dict[str, str] | None = None,
         "ten_hien_thi": cd.ten_hien_thi,
         "nhom": cd.nhom,
         "kieu_bu_hao": cd.kieu_bu_hao,
-        "bu_hao_id": cd.bu_hao_id,
+        "bac_bu_hao": cd.bac_bu_hao,
         "so_to_bu_hao": cd.so_to_bu_hao,
         "che_do_tinh": cd.che_do_tinh,
         "pricing_basis": cd.pricing_basis,
@@ -70,10 +69,6 @@ def _cong_doan_to_dict(cd: CongDoan, tram: dict[str, str] | None = None,
         "tram_vao": tram.get(cd.don_vi_vao) if tram else None,
         "tram_ra": tram.get(cd.don_vi_ra) if tram else None,
     }
-
-
-def _bu_hao_to_dict(b: BuHao) -> dict:
-    return {"id": b.id, "ma": b.ma, "bac": b.bac}
 
 
 # ============================ Mô hình THEO THÀNH PHẦN ============================
@@ -235,10 +230,7 @@ def compute_phieu_snapshot(db: Session, phieu) -> dict:
     so_luong = int(phieu.so_luong or 0)
     tps = sorted(phieu.thanh_phans, key=lambda t: (t.thu_tu or 0, t.id or 0))
     resolved = [_resolve_thanh_phan(db, tp) for tp in tps]
-    # KHÔNG lọc `active`: phiếu đã lưu chạy lại engine mỗi lần Lưu. Ẩn một mã bù hao mà lọc ở đây
-    # thì số tờ hao và giá vốn của phiếu cũ nhảy ngay lần sửa kế tiếp, không ai được báo.
-    bu_hao_rows = [_bu_hao_to_dict(b) for b in db.execute(select(BuHao)).scalars()]
-    result = compute_phieu(so_luong=so_luong, thanh_phans=resolved, bu_hao_rows=bu_hao_rows)
+    result = compute_phieu(so_luong=so_luong, thanh_phans=resolved)
 
     # gán giá vốn từng thành phần + ghi ngược SỐ BÀI IN dẫn xuất (so_trang / trang_moi_tay) để
     # bản lệnh và báo giá đọc được mà không phải tính lại.
@@ -329,17 +321,10 @@ def danh_muc_doi_sau_khi_tinh(db: Session, phieu) -> dict | None:
             if vt.vat_tu_id:
                 vt_ids.add(int(vt.vat_tu_id))
 
-    # Bù hao KHÔNG nằm trên phiếu: công đoạn trỏ tới nó (`cong_doan.bu_hao_id`), engine tra bậc
-    # theo SL. Sửa bậc bù hao là số tờ hao đổi ⇒ TIỀN đổi — im lặng ở đây thì người dùng chỉnh bù
-    # hao xong mở phiếu thấy y như cũ, không có lấy một chữ báo phải tính lại (lỗi 8, 25/08/2026).
-    bh_ids: set[int] = set()
-    if cd_ids:
-        for (bid,) in db.execute(
-            select(CongDoan.bu_hao_id)
-            .where(CongDoan.id.in_(cd_ids), CongDoan.bu_hao_id.is_not(None))
-        ).all():
-            bh_ids.add(int(bid))
-
+    # Bậc bù hao NAY nằm trên chính công đoạn (22/09/2026) nên đã được soi cùng dòng Công đoạn
+    # ngay dưới — sửa bậc là `cong_doan.updated_at` nhảy. Trước đây bù hao là danh mục riêng, công
+    # đoạn chỉ trỏ bằng `bu_hao_id`, nên phải bắc thêm một cầu đếm sang đó mới thấy (lỗi 8,
+    # 25/08/2026): chỉnh bù hao xong mở phiếu thấy y như cũ, không một chữ báo phải tính lại.
     sua: list[str] = []
     ngung: list[str] = []
     xoa: list[str] = []
@@ -348,7 +333,6 @@ def danh_muc_doi_sau_khi_tinh(db: Session, phieu) -> dict | None:
         (GiayNguyen, giay_ids, "Giấy", {}),
         (MayThietBi, may_ids, "Máy", {}),
         (VatTuInAn, vt_ids, "Vật tư", {}),
-        (BuHao, bh_ids, "Bù hao", {}),
     ):
         if not ids:
             continue

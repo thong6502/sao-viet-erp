@@ -9,12 +9,12 @@ nó thì test luôn xanh kể cả khi registry sai.
 
 Thêm màn danh mục MỚI thì các bảng dưới phải thêm ĐÚNG một dòng, kèm ghi chú vì sao — đừng nới
 lỏng phép so sánh cho nó xanh, làm thế là giết đúng cái tác dụng của file này. Đã thêm:
-`dm_thanh_pham` (19/08/2026, mg 0203 · docs/prd-thanh-pham.md).
+`dm_thanh_pham` (19/08/2026, mg 0203 · docs/prd-thanh-pham.md). Gỡ một màn thì cũng bớt ĐÚNG một
+dòng kèm ghi chú — đã gỡ: `dm_bu_hao` (22/09/2026, mg 0327 · bậc bù hao về thẳng Công đoạn).
 """
 from __future__ import annotations
 
 from app.catalog_registry import DANH_MUC, MODULE_KEYS, MODULE_THEO_LOAI, dang_ky_json
-from app.models.bu_hao import BuHao
 from app.models.cong_doan import CongDoan
 from app.models.don_vi_do import DonViDo
 from app.models.khuon_be import KhuonBe
@@ -39,7 +39,9 @@ from app.services.role_service import SCOPELESS_MODULES
 #: `dm_kcs_tieu_chi` (31/08/2026, Task 3 KCS kiêm nhiệm): danh mục Tiêu chí KCS — checklist chuẩn
 #: dùng chung cả xưởng, không có khái niệm "tiêu chí của tôi", scopeless như mọi màn danh mục khác.
 SCOPELESS_CU = frozenset({
-    "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_bu_hao",
+    # `dm_bu_hao` rời danh sách 22/09/2026: mg `0327` xoá khoá khỏi `modules` + `role_permissions`,
+    # bậc bù hao nay khai trong chính màn Công đoạn nên không còn màn riêng để cấp quyền.
+    "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan",
     "dm_don_vi", "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
     # Thành phẩm (19/08/2026, mg 0203): danh mục thì KHÔNG có phạm vi — bỏ sót ở đây là màn mọc
     # ra dropdown Phạm vi, rồi scope `own` bó âm thầm quyền vừa cấp.
@@ -54,7 +56,7 @@ SCOPELESS_CU = frozenset({
     "dm_xe",
 })
 
-#: `nhat_ky_danh_muc.LOAI_MODULE` — 18 khoá: 12 tên chính, 3 tên đời cũ
+#: `nhat_ky_danh_muc.LOAI_MODULE` — 17 khoá: 11 tên chính, 3 tên đời cũ
 #: (`product_type`/`machine`/`operation`), bảng phụ `don_vi_quy_doi`, 2 khoá Kỹ thuật máy.
 LOAI_MODULE_CU = {
     "loai_san_pham": "dm_loai_san_pham",
@@ -63,7 +65,6 @@ LOAI_MODULE_CU = {
     "machine": "dm_thiet_bi",
     "cong_doan": "dm_cong_doan",
     "operation": "dm_cong_doan",
-    "bu_hao": "dm_bu_hao",
     "don_vi_do": "dm_don_vi",
     "don_vi_quy_doi": "dm_don_vi",
     "chung_loai_giay": "dm_chung_loai_giay",
@@ -86,9 +87,9 @@ LOAI_MODULE_CU = {
     "san_xuat_kcs_tieu_chi": "dm_kcs_tieu_chi",
 }
 
-#: `danh_muc_tham_chieu.model_cua` bản cũ — đúng 8 loại có model.
+#: `danh_muc_tham_chieu.model_cua` bản cũ — đúng 8 loại có model (`bu_hao` gỡ 22/09/2026).
 MODEL_CU = {
-    "cong_doan": CongDoan, "don_vi_do": DonViDo, "bu_hao": BuHao, "khuon_be": KhuonBe,
+    "cong_doan": CongDoan, "don_vi_do": DonViDo, "khuon_be": KhuonBe,
     "loai_san_pham": LoaiSanPham, "chung_loai_giay": ChungLoaiGiay,
     "giay": GiayNguyen, "vat_tu": VatTuInAn,
     # Máy vào bản đồ 15/08/2026 cùng cột `active` (mg `0202`): trước đó nó `model=None`
@@ -109,12 +110,12 @@ def test_loai_module_y_nguyen_ban_cu():
 
 
 def test_model_cua_y_nguyen_ban_cu():
-    """Đúng 9 loại có model. Tên đời cũ (`machine`…) và màn chưa có bộ đếm phải trả None —
+    """Đúng 8 loại có model. Tên đời cũ (`machine`…) và màn chưa có bộ đếm phải trả None —
     trả model theo tên lạ là mở thêm một đường vào luồng xoá bằng khoá không ai khai."""
     for loai, lop in MODEL_CU.items():
         assert model_cua(loai) is lop, f"{loai}: model_cua trả sai lớp"
     for loai in ("kho_hang", "machine", "product_type", "operation",
-                 "don_vi_quy_doi", "khong_co_loai_nay"):
+                 "don_vi_quy_doi", "bu_hao", "khong_co_loai_nay"):
         assert model_cua(loai) is None, f"{loai}: phải là None, không được suy ra model"
 
 
@@ -140,9 +141,10 @@ def test_khuon_be_giu_nguyen_chuoi_quyen():
 def test_khong_trung_loai_khong_trung_module():
     loai = [d.loai for d in DANH_MUC] + [a for d in DANH_MUC for a in d.alias_loai]
     assert len(loai) == len(set(loai)), "trùng `loai` giữa tên chính và tên đời cũ"
-    # 13 sau khi Công việc khoán được hợp nhất vào Công đoạn (21/09/2026). Con số phải ĐỔI chứ
-    # không được bỏ — nó bắt cả trường hợp lỡ tay khai trùng một màn thành hai dòng.
-    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 13
+    # 12 sau khi Bù hao được hợp nhất vào Công đoạn (22/09/2026; trước đó 13, từ đợt hợp nhất
+    # Công việc khoán 21/09). Con số phải ĐỔI chứ không được bỏ — nó bắt cả trường hợp lỡ tay
+    # khai trùng một màn thành hai dòng.
+    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 12
 
 
 def test_dem_theo_loai_phu_dung_cac_man_co_model():
@@ -162,10 +164,10 @@ def test_dang_ky_tra_du_cac_man(client):
     r = client.get("/api/danh-muc/dang-ky", headers=_admin(client))
     assert r.status_code == 200, r.text
     items = r.json()["items"]
-    assert len(items) == 13
+    assert len(items) == 12
 # `test_dang_ky_tra_du_11_man` GỠ 21/08/2026 — trùng việc với `test_dang_ky_tra_du_cac_man`
 # ngay trên (cả hai đếm số màn của endpoint đăng ký). Con số 14 (31/08/2026) rút còn 13
-# (10/09/2026) khi màn "Lý do & lỗi SX" gỡ hẳn.
+# (10/09/2026) khi màn "Lý do & lỗi SX" gỡ hẳn, rồi còn 12 (22/09/2026) khi màn Bù hao gỡ.
 
 
 def test_dang_ky_khong_bi_nuot_vao_route_co_tham_so(client):

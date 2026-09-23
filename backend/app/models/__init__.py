@@ -96,7 +96,6 @@ from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .cong_doan import (
     CongDoan, CongDoanKhoan, CongDoanKhoanPhatSinh, CongDoanMay, CongDoanTo, CongDoanVatTu,
 )
-from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang, KhoViTri
 from .cong_no_khoa_so import CongNoKhoaSo, CongNoKyChot

@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
-from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan, CongDoanMay
 from ..models.customer import Customer
 from ..models.loai_san_pham import LoaiSanPham
@@ -69,7 +68,7 @@ from ..services.quy_doi_service import (
 )
 from ..services.thanh_phan_engine import safe_eval
 from ..services.thanh_phan_engine import cau_to_sang_cai, chua_theo_chieu, compute_phieu
-from ..services.tinh_gia_service import _bu_hao_to_dict, _resolve_thanh_phan
+from ..services.tinh_gia_service import _resolve_thanh_phan
 
 # Công đoạn sau xén → đếm bằng CON (thành phẩm); còn lại đếm bằng TỜ. Heuristic theo tên để điền
 # MẶC ĐỊNH cho kế hoạch, không phải luật — mọi dòng sửa được.
@@ -525,12 +524,6 @@ class LsxService:
         mục công đoạn được — nó chỉ vào bước qua cửa người lập lệnh tự chọn.
         """
         return [m for (hl, _i), m in self._mon_active().items() if hl == HANG_VAT_TU]
-
-    def _bu_hao_rows(self) -> list[dict]:
-        # KHÔNG lọc `active`: bảng bù hao ở đây là để DỰNG LẠI số của lệnh đã có. Mã bù hao bị
-        # ngừng dùng sau khi lệnh chạy mà lọc ở đây thì số tờ hao đổi ⇒ lệnh cũ tự nhiên lệch.
-        # Ô CHỌN mã bù hao lọc ở router danh mục, không phải ở đây.
-        return [_bu_hao_to_dict(b) for b in self.db.execute(select(BuHao)).scalars()]
 
     def _don_vis(self) -> dict:
         if self._dv_cache is None:
@@ -1229,9 +1222,7 @@ class LsxService:
         sl_ptg = int(resolved.get("so_luong") or 0)
         # ÉP số lượng theo ĐƠN: engine ưu tiên `tp["so_luong"]` nếu > 0, nên phải ghi đè.
         resolved["so_luong"] = qty
-        result = compute_phieu(
-            so_luong=qty, thanh_phans=[resolved], bu_hao_rows=self._bu_hao_rows()
-        )
+        result = compute_phieu(so_luong=qty, thanh_phans=[resolved])
         comps = result.get("meta", {}).get("components") or []
         comp = comps[0] if comps else {}
 
@@ -1858,7 +1849,6 @@ class LsxService:
 
     def tinh_nguoc_routing(
         self, lsx: Lsx, *, so_con: int | None = None, bo_hao_step_keys: set[str] | None = None,
-        bu_hao_rows: list[dict] | None = None,
     ) -> list[dict]:
         """Chạy NGƯỢC chuỗi công đoạn từ SL thành phẩm → SL vào/ra của từng bước.
 
@@ -1885,12 +1875,6 @@ class LsxService:
         idx = [i for i, c in enumerate(buoc)
                if tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram)]
         he_so = self._he_so_cau(lsx, so_con=so_con)
-        # KHÔNG lọc `active`: chuỗi tính này chạy MỖI LẦN ĐỌC chi tiết lệnh. Lọc ở đây thì ẩn một
-        # mã bù hao là cả loạt lệnh cũ hiện nhãn "tính lại" dù chẳng ai đụng vào chúng.
-        # Bài ghép gọi hàm này cho TỪNG thành viên nên truyền sẵn bảng đã nạp — hỏi lại mỗi lần
-        # là mỗi thành viên thêm một câu.
-        if bu_hao_rows is None:
-            bu_hao_rows = [_bu_hao_to_dict(b) for b in self.db.execute(select(BuHao)).scalars()]
         cd_cache: dict[int, dict] = {}
 
         def _quy_tac_bu_hao(cong_doan_id) -> dict:
@@ -1901,7 +1885,7 @@ class LsxService:
                 obj = self.db.get(CongDoan, cong_doan_id)
                 cd_cache[cong_doan_id] = {} if obj is None else {
                     "kieu_bu_hao": obj.kieu_bu_hao,
-                    "bu_hao_id": obj.bu_hao_id,
+                    "bac_bu_hao": obj.bac_bu_hao,
                     "so_to_bu_hao": obj.so_to_bu_hao,
                 }
             return cd_cache[cong_doan_id]
@@ -1931,7 +1915,7 @@ class LsxService:
                 # để hao ở đây nữa là mỗi lệnh trong bài cộng thêm một bộ hao cho cùng lượt in đó.
                 fixed, pct = 0.0, 0.0
             else:
-                fixed, pct = hao_buoc(_quy_tac_bu_hao(cd.cong_doan_id), rows=bu_hao_rows, sl=can_ra)
+                fixed, pct = hao_buoc(_quy_tac_bu_hao(cd.cong_doan_id), sl=can_ra)
             hs = he_so.get((tram_vao, tram_ra), 1.0) if tram_vao != tram_ra else 1.0
             pct = max(pct, 0.0)
             vao = float(ceil(can_ra / hs * (1.0 + pct / 100.0) + fixed))
@@ -1950,7 +1934,6 @@ class LsxService:
 
     def tinh_xuoi_tu_to(
         self, lsx: Lsx, *, tu_step_key: str, so_to: float, so_con: int | None = None,
-        bu_hao_rows: list[dict] | None = None,
     ) -> list[dict]:
         """Chạy XUÔI từ số tờ THẬT giao cho lệnh → sản lượng thật ở từng bước sau đó.
 
@@ -1977,10 +1960,6 @@ class LsxService:
             return []
 
         he_so = self._he_so_cau(lsx, so_con=so_con)
-        # KHÔNG lọc `active`: chuỗi tính này chạy MỖI LẦN ĐỌC chi tiết lệnh. Lọc ở đây thì ẩn một
-        # mã bù hao là cả loạt lệnh cũ hiện nhãn "tính lại" dù chẳng ai đụng vào chúng.
-        if bu_hao_rows is None:
-            bu_hao_rows = [_bu_hao_to_dict(b) for b in self.db.execute(select(BuHao)).scalars()]
         cd_cache: dict[int, dict] = {}
 
         def _quy_tac(cong_doan_id) -> dict:
@@ -1990,7 +1969,7 @@ class LsxService:
                 obj = self.db.get(CongDoan, cong_doan_id)
                 cd_cache[cong_doan_id] = {} if obj is None else {
                     "kieu_bu_hao": obj.kieu_bu_hao,
-                    "bu_hao_id": obj.bu_hao_id,
+                    "bac_bu_hao": obj.bac_bu_hao,
                     "so_to_bu_hao": obj.so_to_bu_hao,
                 }
             return cd_cache[cong_doan_id]
@@ -2006,7 +1985,7 @@ class LsxService:
         for pos in range(bat_dau + 1, len(idx)):
             i = idx[pos]
             cd = buoc[i]
-            fixed, pct = hao_buoc(_quy_tac(cd.cong_doan_id), rows=bu_hao_rows, sl=dang_co)
+            fixed, pct = hao_buoc(_quy_tac(cd.cong_doan_id), sl=dang_co)
             pct = max(pct, 0.0)
             hs = _hs(cd)
             ra = (dang_co - fixed) / (1.0 + pct / 100.0) * hs

@@ -144,7 +144,7 @@ NHAN: dict[str, str] = {
     # Công đoạn
     "ten_hien_thi": "Tên hiển thị",
     "kieu_bu_hao": "Bù hao",
-    "bu_hao_id": "Mã bù hao",
+    "bac_bu_hao": "Bậc bù hao",
     "so_to_bu_hao": "Số lượng cộng cố định",
     "don_vi_vao": "Đơn vị đầu vào",
     "don_vi_ra": "Đơn vị đầu ra",
@@ -301,7 +301,10 @@ GIA_TRI_NHAN: dict[str, dict[str, str]] = {
     "tooling_type": _DUNG_CU,
     "nhom": {"prepress": "Trước In", "print": "In", "finishing": "Gia công sau in",
              "other": "Dịch vụ khác"},
-    "kieu_bu_hao": {"khong": "Không bù hao", "tra_bang": "Tra bảng theo mã bù hao",
+    # `tra_bang` giữ lại để đọc dòng nhật ký CŨ — 22/09/2026 nó đổi thành `theo_bac` và bảng
+    # bậc về nằm ngay trên công đoạn (mg `0327`).
+    "kieu_bu_hao": {"khong": "Không bù hao", "theo_bac": "Theo bậc số lượng",
+                    "tra_bang": "Tra bảng theo mã bù hao",
                     "co_dinh": "Cộng cố định (số tờ)"},
 }
 
@@ -334,6 +337,9 @@ SUB_NHAN: dict[str, str] = {
     "ep_kim": "Ép kim",
     # Khoá nằm BÊN TRONG một dòng của danh sách (một gói bảo trì): viết thường vì chúng đi làm
     # phụ chú trong ngoặc — "Bảo trì tuần máy in (mỗi 1 tuần, từ 09/08/2026, 4 việc)".
+    # Một dòng bậc bù hao: "đến 3.000, giá trị 150, đơn vị to" — bậc cuối bỏ trống "đến" là vô hạn.
+    "sl_den": "đến",
+    "gia_tri": "giá trị",
     "ngay_bat_dau": "từ",
     "ghi_chu": "ghi chú",
     "so": "số",

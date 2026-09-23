@@ -38,7 +38,7 @@ class DanhMuc:
     #: tên `loai` ĐỜI CŨ còn nằm trong `audit_logs` (hoặc bảng phụ đi ké ô quyền của màn này).
     #: Phải tra ra đúng module thì lịch sử cũ mới còn đọc được.
     alias_loai: tuple[str, ...] = ()
-    #: "models.bu_hao:BuHao" — để CHUỖI chứ không phải lớp, vì import lớp ở đây là kéo cả cây
+    #: "models.cong_doan:CongDoan" — để CHUỖI chứ không phải lớp, vì import lớp ở đây là kéo cả cây
     #: model vào mọi nơi chỉ cần biết tên màn. `None` = màn chưa có bộ đếm "còn ai dùng không".
     model: str | None = None
 
@@ -52,7 +52,6 @@ DANH_MUC: tuple[DanhMuc, ...] = (
             alias_loai=("machine",), model="models.may_thiet_bi:MayThietBi"),
     DanhMuc("cong_doan", "dm_cong_doan", "Công đoạn", "cong-doan",
             alias_loai=("operation",), model="models.cong_doan:CongDoan"),
-    DanhMuc("bu_hao", "dm_bu_hao", "Bù hao", "bu-hao", model="models.bu_hao:BuHao"),
     # `don_vi_quy_doi` là BẢNG RIÊNG, đánh số riêng — nhưng nằm trong drawer của màn Đơn vị nên
     # ăn chung ô quyền, vì thế đứng ở `alias_loai` chứ không thành một dòng riêng.
     DanhMuc("don_vi_do", "dm_don_vi", "Đơn vị & quy đổi", "don-vi",

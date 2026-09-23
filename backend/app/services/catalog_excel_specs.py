@@ -20,14 +20,12 @@ from typing import Any, Callable
 
 from sqlalchemy import select
 
-from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan, NHOM
 from ..models.customer import Customer
 from ..models.department import Department
 from ..models.may_thiet_bi import MayThietBi
 from ..models.vat_lieu_kho import ChungLoaiGiay, VatTuInAn
 from ..models.xe import MucKhoanKm
-from ..repositories.bu_hao_repo import BuHaoRepository
 from ..repositories.cong_doan_repo import CongDoanRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
@@ -112,7 +110,6 @@ class _Tra:
 
 TRA_TO = _Tra(Department, "code", "tổ/phòng ban", cot_ten="name", man="Phòng ban")
 TRA_KHACH = _Tra(Customer, "code", "khách hàng", cot_ten="name", man="Khách hàng")
-TRA_BU_HAO = _Tra(BuHao, "ma", "mã bù hao", cot_ten="ten", man="Bù hao")
 TRA_CONG_DOAN = _Tra(CongDoan, "ma", "mã công đoạn", cot_ten="ten", man="Công đoạn")
 # ⚠️ `TRA_DAU_VIEC` GỠ 18/09/2026 (mg `0320`): chỉ sheet "Đầu việc định mức" của Công đoạn tra
 #    theo mã công việc khoán, mà sheet đó đã bay cùng bảng `cong_doan_dau_viec`.
@@ -186,34 +183,6 @@ KHO_HANG = CatalogExcelSpec(
         Cot("Vị trí", "vi_tri", rong=28),
         Cot("Ghi chú", "ghi_chu", rong=32),
         CO_ACTIVE,
-    ),
-)
-
-
-# ======================================================================================
-# 2 · Bù hao — bảng tra số tờ theo bậc số lượng
-# ======================================================================================
-
-BU_HAO = CatalogExcelSpec(
-    loai="bu_hao", tieu_de="Bù hao", repo_cls=BuHaoRepository,
-    cot=(
-        Cot("Mã", "ma"),
-        Cot("Tên", "ten", rong=32),
-        Cot("Ghi chú", "ghi_chu", rong=32),
-        CO_ACTIVE,
-    ),
-    sheets_con=(
-        # Bậc bù hao là TOÀN BỘ nội dung nghiệp vụ của màn này — nén vào một ô JSON thì không ai
-        # sửa nổi, mà đó chính là thứ người ta mở file Excel ra để sửa.
-        SheetCon(
-            "Bậc bù hao", field="bac",
-            cot=(
-                Cot("SL từ", "sl_tu", kieu="nguyen", rong=14),
-                Cot("SL đến", "sl_den", kieu="nguyen", rong=14),
-                Cot("Giá trị", "gia_tri", kieu="so", rong=14),
-                Cot("Đơn vị", "don_vi", rong=12),
-            ),
-        ),
     ),
 )
 
@@ -481,6 +450,18 @@ def _giu_vat_tu_cong_doan(obj, _ctx: NguCanh) -> list[dict]:
             for v in (getattr(obj, "vat_tus", None) or [])]
 
 
+def _giu_bac_bu_hao(obj, _ctx: NguCanh) -> list[dict]:
+    """Bậc bù hao ĐANG CÓ — gán lại khi file KHÔNG có sheet đó (22/09/2026).
+
+    Khác hai hàm dưới: cột JSON này không bị `_sau_gan` xoá, nhưng `kieu_bu_hao` thì được
+    `_mac_dinh_tu_ban_ghi` mồi lại (ô vô hướng) còn danh sách bậc thì không — thành ra payload nói
+    "theo bậc" mà không kèm bậc nào, và `_kiem_bac_bu_hao` chặn đúng như nó phải chặn. Nhập một
+    file chỉ sửa TÊN công đoạn mà ăn lỗi "phải khai ít nhất một bậc" là vô lý với người dùng.
+    """
+    return [{"sl_den": b.get("sl_den"), "gia_tri": b.get("gia_tri"), "don_vi": b.get("don_vi")}
+            for b in (getattr(obj, "bac_bu_hao", None) or [])]
+
+
 def _giu_may_cong_doan(obj, _ctx: NguCanh) -> list[dict]:
     """Máy của công đoạn ĐANG CÓ — cùng lý do với `_giu_vat_tu_cong_doan`: `_sau_gan` cũng thay
     TRỌN bảng `cong_doan_may`, sheet vắng mà không gán lại là xoá sạch công thức giờ/giá của
@@ -513,7 +494,6 @@ CONG_DOAN = CatalogExcelSpec(
         Cot("Đơn vị ra", "don_vi_ra", rong=14),
         Cot("Công thức giá", "cong_thuc_gia", rong=36),
         Cot("Kiểu bù hao", "kieu_bu_hao", rong=16),
-        Cot("Mã bù hao", "bu_hao_id", doc=TRA_BU_HAO.doc, ghi=TRA_BU_HAO.ghi),
         Cot("Số tờ bù hao", "so_to_bu_hao", kieu="nguyen", rong=16),
         # NHIỀU tổ (mg `0312`): "PB012, PB013" — tổ đầu là mặc định của bước lệnh.
         *_cot_nhieu_to(nhan="Mã tổ phụ trách", nhan_ten="Tên tổ phụ trách",
@@ -549,6 +529,18 @@ CONG_DOAN = CatalogExcelSpec(
                 Cot("Kiểu", "kieu", rong=14),
                 Cot("Theo biến", "driver", rong=18),
             ),
+        ),
+        # Bậc bù hao: SHEET CON chứ không nén vào một ô JSON — đây chính là thứ người ta mở
+        # file Excel ra để sửa. Mỗi bậc chỉ khai MỐC TRÊN; "Đến SL" để TRỐNG = bậc vô hạn, và nó
+        # phải là dòng CUỐI (`cong_doan_service._kiem_bac_bu_hao` soi lại y như khi lưu ở màn).
+        SheetCon(
+            "Bậc bù hao", field="bac_bu_hao",
+            cot=(
+                Cot("Đến SL", "sl_den", kieu="nguyen", rong=14),
+                Cot("Giá trị", "gia_tri", kieu="so", rong=14),
+                Cot("Đơn vị", "don_vi", rong=12),
+            ),
+            giu_khi_vang=_giu_bac_bu_hao,
         ),
         SheetCon(
             "Bậc theo khổ", field="size_tiers",
@@ -784,7 +776,7 @@ XE = CatalogExcelSpec(
 
 SPECS: dict[str, CatalogExcelSpec] = {
     s.loai: s for s in (
-        KHO_HANG, BU_HAO, KHUON_BE, LOAI_SAN_PHAM,
+        KHO_HANG, KHUON_BE, LOAI_SAN_PHAM,
         DON_VI_DO, CHUNG_LOAI_GIAY, GIAY, VAT_TU, THANH_PHAM, CONG_DOAN, MAY_THIET_BI, XE,
     )
 }

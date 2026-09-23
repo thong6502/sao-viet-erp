@@ -245,8 +245,7 @@ def test_hai_nguon_khop_tren_moi_hinh_routing(db, orders, lsx_svc, admin, custom
 
     resolved = _resolve_thanh_phan(db, ptg.thanh_phans[0])
     resolved["so_luong"] = lsx.so_luong_dat
-    phieu = compute_phieu(so_luong=lsx.so_luong_dat, thanh_phans=[resolved],
-                          bu_hao_rows=lsx_svc._bu_hao_rows())["meta"]["components"][0]
+    phieu = compute_phieu(so_luong=lsx.so_luong_dat, thanh_phans=[resolved])["meta"]["components"][0]
     lenh = ngu_canh_lenh(quy_cach_bien(lsx))
     doi = {"so_con": "con", "so_luong": "so_luong", "to_dau_vao": "to_dau_vao",
            "to_sau_in": "to_sau_in", "to_nguyen": "to_nguyen", "so_kem": "so_kem",
@@ -291,8 +290,7 @@ def test_hai_nguon_bien_ra_cung_so_khi_lenh_chua_ai_sua(db, orders, lsx_svc, adm
     # Bên PHIẾU: đúng đường `tao` chạy — engine thuần với SL ép theo đơn.
     resolved = _resolve_thanh_phan(db, ptg.thanh_phans[0])
     resolved["so_luong"] = lsx.so_luong_dat
-    phieu = compute_phieu(so_luong=lsx.so_luong_dat, thanh_phans=[resolved],
-                          bu_hao_rows=lsx_svc._bu_hao_rows())["meta"]["components"][0]
+    phieu = compute_phieu(so_luong=lsx.so_luong_dat, thanh_phans=[resolved])["meta"]["components"][0]
 
     # Bên LỆNH: qua đúng cửa mà quy đổi động đi.
     lenh = ngu_canh_lenh(quy_cach_bien(lsx))
@@ -317,8 +315,7 @@ def test_hai_nguon_bien_ra_cung_so_khi_lenh_chua_ai_sua(db, orders, lsx_svc, adm
     db.commit()
     khong_gia = compute_phieu(so_luong=lsx.so_luong_dat,
                               thanh_phans=[{**_resolve_thanh_phan(db, ptg.thanh_phans[0]),
-                                            "so_luong": lsx.so_luong_dat}],
-                              bu_hao_rows=lsx_svc._bu_hao_rows())["meta"]["components"][0]
+                                            "so_luong": lsx.so_luong_dat}])["meta"]["components"][0]
     assert khong_gia["to_dau_vao"] == phieu["to_dau_vao"] == 20_500, (
         "có hay không có đơn giá phẳng thì số giấy phải như nhau — giá và bù hao là hai chuyện")
 

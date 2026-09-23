@@ -155,13 +155,6 @@ def _cong_viec_khoan(db: Session, obj) -> ThamChieu:
     ))
 
 
-def _bu_hao(db: Session, obj) -> ThamChieu:
-    from ..models.cong_doan import CongDoan
-
-    return ThamChieu(chan=_gom(_cau(
-        _dem(db, CongDoan, CongDoan.bu_hao_id == obj.id), "công đoạn tra mã này")))
-
-
 def _san_xuat_kcs_tieu_chi(db: Session, obj) -> ThamChieu:
     """Hạng mục kiểm KHÔNG có ai tham chiếu ngược ⇒ xoá không bị chặn.
 
@@ -317,7 +310,6 @@ DEM_THEO_LOAI = {
     "cong_doan": _cong_doan,
     "may_thiet_bi": _may_thiet_bi,
     "don_vi_do": _don_vi_do,
-    "bu_hao": _bu_hao,
     "khuon_be": _khuon_be,
     "loai_san_pham": _loai_san_pham,
     "chung_loai_giay": _chung_loai_giay,

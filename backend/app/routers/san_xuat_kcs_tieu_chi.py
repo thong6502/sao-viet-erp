@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/san-xuat-kcs-tieu-chi", tags=["san-xuat-kcs-tieu
 MODULE = "dm_kcs_tieu_chi"
 
 # Ai ĐỌC được danh mục này: người khai tiêu chí + Sản xuất (board KCS Task 4/5 cần hiển thị
-# checklist) — cùng lý do `bu_hao.py:35-37` mở đọc cho Tính giá/Sản xuất.
+# checklist) — cùng lý do router Bù hao (nay đã gỡ) từng mở đọc cho Tính giá/Sản xuất.
 _DOC = require_quyen_to("read", (MODULE, "read"), ("san_xuat", "read"))
 
 

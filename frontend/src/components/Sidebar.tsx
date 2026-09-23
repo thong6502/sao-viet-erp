@@ -257,7 +257,6 @@ export const NAV: NavSection[] = [
       { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_loai_san_pham" },
       { id: "may-thiet-bi", label: "Thiết bị & Máy móc", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
-      { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_bu_hao" },
       // Đơn vị & quy đổi: dùng chung cho khoán · kho · mua hàng, nên nằm ở danh mục chứ không
       // chôn trong màn Lương. MỘT mục cho hai bảng (đơn vị · cặp "1 tấn = 1.000 kg") — tách hai
       // mục thì hai cái tên gần trùng nhau, không ai đoán được vào đâu làm gì.

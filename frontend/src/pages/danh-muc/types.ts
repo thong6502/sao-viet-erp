@@ -231,7 +231,9 @@ export const isMayIn = (val: unknown) => {
 // import từ barrel rồi — gom kiểu về một chỗ thì đường import không phải rẽ theo từng ô.
 
 /** Một bậc số lượng: Từ SL · Đến SL · Giá trị · Đơn vị (tờ hay %). */
-export interface BacRow { sl_tu?: number | null; sl_den?: number | null; gia_tri?: number; don_vi?: string }
+/** Một bậc bù hao của công đoạn — chỉ khai MỐC TRÊN; `sl_den = null` là bậc vô hạn (luôn cuối).
+ *  Cận dưới suy từ bậc liền trước nên ô `sl_tu` đã bỏ (22/09/2026). */
+export interface BacRow { sl_den?: number | null; gia_tri?: number; don_vi?: string }
 
 /** Một khoản chuẩn bị của máy (thay giấy 15p · thay mực 18p). Tổng là ô CHỈ ĐỌC, tự cộng. */
 export interface ChuanBiKhoanRow { ten?: string; phut?: number }

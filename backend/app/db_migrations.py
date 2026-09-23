@@ -1223,18 +1223,19 @@ def _migrate_vat_tu_simplify(db: Session) -> None:
 
 
 def _migrate_bu_hao_dynamic_bands(db: Session) -> None:
-    """Bù hao mô hình MỞ: bỏ bảng `bu_hao` 7-cột-cứng (nếu có), tạo lại bảng bậc-động
-    (truc/key_tu/key_den/bac JSON). Chỉ dev từng tạo bảng cũ (module chưa deploy) → drop an toàn.
-    create_all chạy TRƯỚC migration nên bảng cũ không bị sửa; ở đây drop rồi tạo lại đúng shape mới."""
-    bind = db.get_bind()
-    insp = inspect(bind)
+    """Bù hao mô hình MỞ: bỏ bảng `bu_hao` 7-cột-cứng (nếu có). Chỉ dev từng tạo bảng cũ (module
+    chưa deploy) → drop an toàn.
+
+    Bản gốc còn `BuHao.__table__.create(...)` để dựng lại bảng bậc-động. Model ấy GỠ 22/09/2026
+    (mg `0327` đưa bậc lên chính công đoạn) nên import đó làm CẢ chuỗi migration ném
+    `ModuleNotFoundError` — một migration đã chạy xong từ lâu không được phép phụ thuộc vào model
+    còn sống. Nay chỉ còn phần drop, viết bằng raw SQL. DB nào chưa có bảng `bu_hao` thì mg `0327`
+    tự hiểu là "không còn mã nguồn" và để `bac_bu_hao` rỗng, đúng §7.4 của thiết kế.
+    """
+    insp = inspect(db.get_bind())
     if "bu_hao" in insp.get_table_names() and "to_le_3000" in _existing_columns(insp, "bu_hao"):
         db.execute(text("DROP TABLE bu_hao"))
         db.commit()
-    # Tạo bảng theo model hiện tại (no-op nếu đã đúng shape).
-    from .models.bu_hao import BuHao
-    BuHao.__table__.create(bind, checkfirst=True)
-    db.commit()
 
 
 def _migrate_cong_doan_bu_hao_fields(db: Session) -> None:
@@ -15307,3 +15308,71 @@ def _migrate_hop_nhat_khoan_vao_cong_doan(db: Session) -> None:
 
 
 MIGRATIONS.append(("0326_hop_nhat_khoan_vao_cong_doan", _migrate_hop_nhat_khoan_vao_cong_doan))
+
+
+def _migrate_hop_nhat_bu_hao_vao_cong_doan(db: Session) -> None:
+    """mg 0327 — bảng bậc bù hao chuyển vào thẳng Công đoạn, module Bù hao độc lập gỡ.
+
+    Mỗi công đoạn `tra_bang` nhận một BẢN SAO ĐỘC LẬP của bảng bậc đang trỏ tới, rồi đổi chế độ
+    sang `theo_bac`. Hai công đoạn từng dùng chung một mã nay sửa được riêng.
+
+    Bậc chỉ giữ `sl_den | gia_tri | don_vi` — `sl_tu` cũ bỏ vì cận dưới suy từ bậc liền trước.
+    Mã nguồn đã mất (bu_hao_id NULL / dòng bị xoá) thì để bảng RỖNG và vẫn `theo_bac`, để người
+    khai thấy "Chưa khai bậc bù hao" mà đi sửa — tự hạ về `khong` là che mất lỗi dữ liệu.
+
+    Bảng `bu_hao` và cột `cong_doan.bu_hao_id` KHÔNG bị DROP: giữ làm dữ liệu mồ côi để đối chiếu.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "cong_doan" not in set(insp.get_table_names()):
+        return
+    if "bac_bu_hao" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN bac_bu_hao JSON"))
+        # PHẢI commit NGAY: `inspect()` bên dưới mở một connection KHÁC từ pool, mà ALTER chưa
+        # commit thì nó ôm `ACCESS EXCLUSIVE` trên `cong_doan` — connection mới nằm chờ khoá vĩnh
+        # viễn. Postgres không báo deadlock vì đây là hai connection của cùng tiến trình: uvicorn
+        # đứng im ở "Waiting for application startup." không một dòng lỗi. (SQLite không dính vì
+        # test dùng chung một connection.)
+        db.commit()
+    pg = bind.dialect.name == "postgresql"
+    sql_up = ("UPDATE cong_doan SET bac_bu_hao = CAST(:v AS JSON), kieu_bu_hao = 'theo_bac' "
+              "WHERE id = :i" if pg else
+              "UPDATE cong_doan SET bac_bu_hao = :v, kieu_bu_hao = 'theo_bac' WHERE id = :i")
+
+    def _bac_sach(raw) -> list[dict]:
+        """Chuẩn hoá bậc cũ: bỏ `sl_tu`, xếp tăng dần, bậc vô hạn xuống cuối."""
+        if isinstance(raw, str):
+            raw = json.loads(raw or "[]")
+        if not isinstance(raw, list):
+            return []
+        sach = [b for b in raw if isinstance(b, dict)]
+        sach.sort(key=lambda b: (b.get("sl_den") is None, b.get("sl_den") or 0))
+        return [{"sl_den": b.get("sl_den"), "gia_tri": b.get("gia_tri") or 0,
+                 "don_vi": b.get("don_vi") or "to"} for b in sach]
+
+    # Cột `bu_hao_id` có thể đã vắng trên DB dựng mới từ model MỚI — khi ấy không có gì để chuyển.
+    insp = inspect(bind)
+    cols = _existing_columns(insp, "cong_doan")
+    if "bu_hao_id" in cols:
+        co_bang_bu_hao = "bu_hao" in set(insp.get_table_names())
+        bac_theo_id: dict[int, list[dict]] = {}
+        if co_bang_bu_hao:
+            for bh_id, bac in db.execute(text("SELECT id, bac FROM bu_hao")).all():
+                bac_theo_id[int(bh_id)] = _bac_sach(bac)
+        rows = db.execute(text(
+            "SELECT id, bu_hao_id FROM cong_doan WHERE kieu_bu_hao = 'tra_bang'"
+        )).all()
+        for cd_id, bh_id in rows:
+            bac = bac_theo_id.get(int(bh_id)) if bh_id is not None else None
+            db.execute(text(sql_up), {"v": json.dumps(bac or [], ensure_ascii=False), "i": cd_id})
+
+    # Module độc lập đã hợp nhất vào quyền Công đoạn: gỡ metadata/quyền công khai, giữ bảng cũ.
+    tables = set(inspect(bind).get_table_names())
+    if "role_permissions" in tables:
+        db.execute(text("DELETE FROM role_permissions WHERE module_key = 'dm_bu_hao'"))
+    if "modules" in tables:
+        db.execute(text("DELETE FROM modules WHERE key = 'dm_bu_hao'"))
+    db.commit()
+
+
+MIGRATIONS.append(("0327_hop_nhat_bu_hao_vao_cong_doan", _migrate_hop_nhat_bu_hao_vao_cong_doan))

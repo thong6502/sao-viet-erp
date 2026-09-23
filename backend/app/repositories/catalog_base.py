@@ -1,4 +1,4 @@
-"""Nền chung cho các repository DANH MỤC (`kho_hang`, `bu_hao`, `khuon_be`, `don_vi_do`,
+"""Nền chung cho các repository DANH MỤC (`kho_hang`, `khuon_be`, `don_vi_do`,
 `loai_san_pham`, `may_thiet_bi`, `cong_doan`…).
 
 Vì sao có file này: tám repo danh mục viết đi viết lại đúng một khuôn — `list()` (đếm + lọc +
@@ -22,7 +22,7 @@ Ba điểm mở rộng, dùng khi danh mục có nét riêng — KHÔNG nhồi t
 * `_sau_gan(obj, data)` — chạy sau khi gán xong `fields`, trước khi commit; dành cho bảng con
   (ví dụ định mức đầu việc của công đoạn).
 
-⚠️ HOA/THƯỜNG CỦA MÃ: mỗi danh mục có quy ước RIÊNG và cả hai đều đúng — `kho_hang`/`bu_hao`/
+⚠️ HOA/THƯỜNG CỦA MÃ: mỗi danh mục có quy ước RIÊNG và cả hai đều đúng — `kho_hang`/`khuon_be`/
 `khuon_be` ghi mã HOA và tra bằng `upper()`, `don_vi_do` ghi mã thường và tra bằng `lower()`.
 Cờ `ma_case` giữ nguyên quy ước của từng cái. ĐỪNG "đồng bộ" chúng về một kiểu: mã đơn vị đã
 nằm trong dữ liệu sống (`cong_doan.don_vi_vao/ra`, công thức tính giá) dưới dạng chữ thường.

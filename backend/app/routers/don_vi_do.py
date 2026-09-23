@@ -3,7 +3,7 @@
 HAI danh mục trên MỘT router, cả hai sinh từ `routers/catalog_base.make_catalog_router`:
 `/api/don-vi` (đơn vị) và `/api/don-vi/quy-doi` (cặp quy đổi).
 
-Dependency INLINE (bám `routers/bu_hao.py`). MODULE quyền = "dm_don_vi" — quyền RIÊNG. Trước đây
+Dependency INLINE (khuôn đi theo router Bù hao, module ấy gỡ 22/09/2026). MODULE quyền = "dm_don_vi" — quyền RIÊNG. Trước đây
 đi ké `dm_cong_doan`, nghĩa là muốn cho kế toán khai "1 thùng = 24 hộp" thì phải mở luôn cho họ
 danh mục công đoạn. Đơn vị dùng chung cho kho · mua hàng · khoán lương, không thuộc riêng ai.
 

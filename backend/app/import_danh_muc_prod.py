@@ -26,7 +26,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import SessionLocal, init_db
-from .models.bu_hao import BuHao
 from .models.cong_doan import CongDoan
 from .models.don_vi_do import DonViDo, DonViQuyDoi
 from .models.khuon_be import KhuonBe
@@ -275,39 +274,29 @@ def _import_may(db: Session) -> int:
 
 
 # ---------------------------------------------------------------------------------------------
-# 5) Bù hao (thêm 10 bảng). 6 bậc số tờ (theo SL) + 1 bậc % cho SL > 30.000.
+# 5) Bảng bậc bù hao dùng chung cho các công đoạn dưới. 6 bậc số tờ + 1 bậc % cho SL > 30.000.
+#    Từ 22/09/2026 bậc khai NGAY TRÊN công đoạn (chỉ MỐC TRÊN), module Bù hao độc lập đã gỡ.
 # ---------------------------------------------------------------------------------------------
-_SL_BAC = [(0, 3000), (3000, 7000), (7000, 10000), (10000, 15000), (15000, 20000), (20000, 30000)]
+_MOC_BAC = [3000, 7000, 10000, 15000, 20000, 30000]
 
 
 def _bac(sau_to: list[int], pct: float) -> list[dict]:
-    b = [{"sl_tu": t, "sl_den": d, "gia_tri": v, "don_vi": "to"}
-         for (t, d), v in zip(_SL_BAC, sau_to)]
-    b.append({"sl_tu": 30000, "sl_den": None, "gia_tri": pct, "don_vi": "pct"})
+    b = [{"sl_den": d, "gia_tri": v, "don_vi": "to"} for d, v in zip(_MOC_BAC, sau_to)]
+    b.append({"sl_den": None, "gia_tri": pct, "don_vi": "pct"})
     return b
 
 
-_BU_HAO = [
-    dict(ma="BH-CAN-MANG", ten="Cán màng", bac=_bac([30, 50, 80, 100, 120, 150], 0.8)),
-    dict(ma="BH-UV", ten="Phủ UV", bac=_bac([50, 80, 100, 130, 160, 200], 1.0)),
-    dict(ma="BH-BE-TU-DONG", ten="Bế tự động", bac=_bac([80, 120, 150, 200, 250, 300], 1.5)),
-    dict(ma="BH-BE-TAY", ten="Bế tay", bac=_bac([50, 70, 100, 120, 150, 180], 1.2)),
-    dict(ma="BH-GAP", ten="Gấp", bac=_bac([40, 60, 80, 100, 120, 150], 1.0)),
-    dict(ma="BH-XEN", ten="Xén / cắt", bac=_bac([20, 30, 40, 50, 60, 80], 0.5)),
-    dict(ma="BH-EP-KIM", ten="Ép kim / ép nhũ", bac=_bac([60, 90, 120, 150, 180, 220], 1.3)),
-    dict(ma="BH-DECAL", ten="In decal", bac=_bac([180, 230, 280, 330, 380, 430], 2.0)),
-    dict(ma="BH-IN-7-8", ten="In 7-8 màu", bac=_bac([300, 350, 400, 500, 550, 650], 3.0)),
-    dict(ma="BH-DONG-CUON", ten="Đóng cuốn", bac=_bac([30, 40, 60, 80, 100, 120], 0.8)),
-]
-
-
-def _import_bu_hao(db: Session) -> int:
-    return _them_thieu(db, BuHao, _BU_HAO)
+BAC_IN_1_2 = _bac([120, 150, 200, 250, 300, 350], 1.5)
+BAC_IN_3_4 = _bac([150, 200, 250, 300, 350, 400], 1.7)
+BAC_IN_5 = _bac([200, 250, 300, 350, 400, 450], 2.0)
+BAC_DECAL = _bac([180, 230, 280, 330, 380, 430], 2.0)
+BAC_GAP = _bac([40, 60, 80, 100, 120, 150], 1.0)
+BAC_DONG_CUON = _bac([30, 40, 60, 80, 100, 120], 0.8)
 
 
 # ---------------------------------------------------------------------------------------------
 # 6) Công đoạn (thêm 20). pricing_basis=per_other, đơn giá NHÉT vào công thức (không có biến giá).
-#    tra_bang → nối `bu_hao_id` sau khi bù hao đã có (bảng _LINK_BU_HAO).
+#    Công đoạn tra bậc thì mang thẳng bảng bậc của riêng nó (`bac_bu_hao`).
 # ---------------------------------------------------------------------------------------------
 def _cd(ma, ten, nhom, ct, **extra):
     return dict(ma=ma, ten=ten, nhom=nhom, che_do_tinh="theo_san_luong",
@@ -323,18 +312,23 @@ _CONG_DOAN = [
         nhom_may_cho_phep=[_CB], run_rate=25000),
     _cd("CD-1003", "Xuất film / ghi phim", "prepress", "so_kem * 40000",
         nhom_may_cho_phep=[_CB], run_rate=40000),
-    # --- In (đơn vị to→to; kieu_bu_hao tra_bang → nối mã bù hao) ---
+    # --- In (đơn vị to→to; kieu_bu_hao theo_bac → bảng bậc của chính công đoạn) ---
     _cd("CD-1004", "In offset 1 mặt (1-2 màu)", "print", "to_dau_vao * so_mat * 300",
-        kieu_bu_hao="tra_bang", nhom_may_cho_phep=_MAY_IN, don_vi_vao="to", don_vi_ra="to", run_rate=300),
+        kieu_bu_hao="theo_bac", bac_bu_hao=BAC_IN_1_2,
+        nhom_may_cho_phep=_MAY_IN, don_vi_vao="to", don_vi_ra="to", run_rate=300),
     _cd("CD-1005", "In offset 4 màu", "print", "to_dau_vao * so_mat * 380",
-        kieu_bu_hao="tra_bang", nhom_may_cho_phep=_MAY_IN, don_vi_vao="to", don_vi_ra="to", run_rate=380),
+        kieu_bu_hao="theo_bac", bac_bu_hao=BAC_IN_3_4,
+        nhom_may_cho_phep=_MAY_IN, don_vi_vao="to", don_vi_ra="to", run_rate=380),
     _cd("CD-1006", "In offset 5-6 màu", "print", "to_dau_vao * so_mat * 450",
-        kieu_bu_hao="tra_bang", nhom_may_cho_phep=_MAY_IN, don_vi_vao="to", don_vi_ra="to", run_rate=450),
+        kieu_bu_hao="theo_bac", bac_bu_hao=BAC_IN_5,
+        nhom_may_cho_phep=_MAY_IN, don_vi_vao="to", don_vi_ra="to", run_rate=450),
     _cd("CD-1007", "In UV (mực UV)", "print", "to_dau_vao * so_mat * 520",
-        kieu_bu_hao="tra_bang", nhom_may_cho_phep=[_IN], don_vi_vao="to", don_vi_ra="to", run_rate=520),
+        kieu_bu_hao="theo_bac", bac_bu_hao=BAC_IN_3_4,
+        nhom_may_cho_phep=[_IN], don_vi_vao="to", don_vi_ra="to", run_rate=520),
     _cd("CD-1008", "In decal", "print", "to_dau_vao * so_mat * 600",
-        kieu_bu_hao="tra_bang", nhom_may_cho_phep=[_IN], don_vi_vao="to", don_vi_ra="to", run_rate=600),
-    # --- Gia công máy (co_dinh / tra_bang) ---
+        kieu_bu_hao="theo_bac", bac_bu_hao=BAC_DECAL,
+        nhom_may_cho_phep=[_IN], don_vi_vao="to", don_vi_ra="to", run_rate=600),
+    # --- Gia công máy (co_dinh / theo_bac) ---
     _cd("CD-1009", "Cán màng mờ", "finishing",
         "max(dai_in * rong_in * 10000 * so_mat * to_dau_vao * 2.0, 100000)",
         kieu_bu_hao="co_dinh", so_to_bu_hao=50, nhom_may_cho_phep=[_CM],
@@ -351,7 +345,7 @@ _CONG_DOAN = [
         kieu_bu_hao="co_dinh", so_to_bu_hao=50, nhom_may_cho_phep=[_BOI],
         don_vi_vao="to", don_vi_ra="to", run_rate=350),
     _cd("CD-1013", "Gấp máy", "finishing", "to_dau_vao * 120",
-        kieu_bu_hao="tra_bang", nhom_may_cho_phep=[_GAP],
+        kieu_bu_hao="theo_bac", bac_bu_hao=BAC_GAP, nhom_may_cho_phep=[_GAP],
         don_vi_vao="to", don_vi_ra="to", run_rate=120),
     _cd("CD-1014", "Xén thành phẩm (máy)", "finishing", "to_dau_vao * 80",
         kieu_bu_hao="co_dinh", so_to_bu_hao=20, nhom_may_cho_phep=[_XEN],
@@ -368,32 +362,14 @@ _CONG_DOAN = [
     _cd("CD-1018", "Dán hộp thủ công", "finishing", "so_luong * 120",
         khoan_ghi_theo="nguoi", don_vi_vao="to", don_vi_ra="cai", run_rate=120),
     _cd("CD-1019", "Đóng cuốn (keo nhiệt)", "finishing", "so_luong * 200",
-        kieu_bu_hao="tra_bang", khoan_ghi_theo="nguoi", don_vi_vao="to", don_vi_ra="cai", run_rate=200),
+        kieu_bu_hao="theo_bac", bac_bu_hao=BAC_DONG_CUON,
+        khoan_ghi_theo="nguoi", don_vi_vao="to", don_vi_ra="cai", run_rate=200),
     _cd("CD-1020", "Luồn dây / xỏ quai túi", "finishing", "so_luong * 80",
         khoan_ghi_theo="nguoi", don_vi_vao="to", don_vi_ra="cai", run_rate=80),
 ]
 
-# Công đoạn tra_bang → mã bù hao mặc định (nối sau khi cả hai đã có).
-_LINK_BU_HAO = [
-    ("CD-1004", "BH-IN-1-2"), ("CD-1005", "BH-IN-3-4"), ("CD-1006", "BH-IN-5"),
-    ("CD-1007", "BH-IN-3-4"), ("CD-1008", "BH-DECAL"), ("CD-1013", "BH-GAP"),
-    ("CD-1019", "BH-DONG-CUON"),
-]
-
-
 def _import_cong_doan(db: Session) -> int:
-    n = _them_thieu(db, CongDoan, _CONG_DOAN)
-    # Nối bù hao cho công đoạn tra_bang chưa có bu_hao_id (idempotent).
-    bh = {b.ma: b.id for b in db.execute(select(BuHao)).scalars()}
-    doi = False
-    for cd_ma, bh_ma in _LINK_BU_HAO:
-        cd = db.execute(select(CongDoan).where(CongDoan.ma == cd_ma)).scalars().first()
-        if cd is not None and cd.kieu_bu_hao == "tra_bang" and cd.bu_hao_id is None and bh.get(bh_ma):
-            cd.bu_hao_id = bh[bh_ma]
-            doi = True
-    if doi:
-        db.commit()
-    return n
+    return _them_thieu(db, CongDoan, _CONG_DOAN)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -503,7 +479,6 @@ def run(db: Session) -> dict[str, int]:
     kq["vat_tu"] = _import_vat_tu(db)
     kq["may"] = _import_may(db)
     seed_nhom_may(db)          # bắt 4 nhóm máy MỚI (Chế bản/Xén/Gấp-Dán/Đóng gói)
-    kq["bu_hao"] = _import_bu_hao(db)
     kq["cong_doan"] = _import_cong_doan(db)
     kq["khuon"] = _import_khuon(db)
 

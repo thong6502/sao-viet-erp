@@ -80,7 +80,9 @@ class CongDoanIn(BaseModel):
     # GỠ 18/09/2026 (mg `0324`): `cong_thuc_san_luong` + `don_vi_san_luong` — số của bước ngoài dòng
     # giấy nay do người lập lệnh tự khai ở bước.
     kieu_bu_hao: str = "khong"
-    bu_hao_id: int | None = None
+    # Bảng bậc của CHÍNH công đoạn (22/09/2026 — module Bù hao độc lập đã gỡ, hết `bu_hao_id`).
+    # Mỗi bậc `{sl_den, gia_tri, don_vi}`; luật khai do `cong_doan_service._kiem_bac_bu_hao` soi.
+    bac_bu_hao: list[dict] | None = None
     so_to_bu_hao: int = Field(default=50, ge=0)
     nhom: str
     # Nhóm máy (tên ở danh mục `nhom_may`) làm được công đoạn này — chặn gán máy sai loại ở bài
@@ -132,7 +134,7 @@ class CongDoanRow(BaseModel):
     # `models/don_vi_do.TRAM_NHAN`, hằng trong code, không phải thứ tra ở danh mục. Lý do đầy đủ:
     # xem khối chú thích chỗ `cong_doan_service.gan_ten_don_vi` cũ.
     kieu_bu_hao: str = "khong"
-    bu_hao_id: int | None = None
+    bac_bu_hao: list[dict] | None = None
     so_to_bu_hao: int = 50
     nhom: str
     nhom_may_cho_phep: list[str] | None = None

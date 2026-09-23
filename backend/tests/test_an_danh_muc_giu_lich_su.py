@@ -5,8 +5,9 @@ Danh mục (đơn vị · bù hao · vật tư · giấy…) là dữ liệu G�
 và không ai được báo:
 
   * ẩn một ĐƠN VỊ  → `_ma_don_vi()` mất khoá → cầu TÊN→MÃ đứt;
-  * ẩn một BÙ HAO  → `tinh_nguoc_routing` (chạy MỖI LẦN đọc chi tiết lệnh) ra số khác → cả loạt
-    lệnh cũ hiện nhãn "tính lại" dù chẳng ai đụng vào;
+  * ẩn một CÔNG ĐOẠN → `tinh_nguoc_routing` (chạy MỖI LẦN đọc chi tiết lệnh) ra số khác → cả
+    loạt lệnh cũ hiện nhãn "tính lại" dù chẳng ai đụng vào. (Trước 22/09/2026 chỗ này là "ẩn một
+    BÙ HAO" — bậc bù hao nay nằm TRÊN công đoạn nên ẩn công đoạn mới là đường gây hại.);
   * ẩn một VẬT TƯ  → `replace_routing` ném lỗi → lệnh cũ KHÔNG LƯU LẠI ĐƯỢC routing nữa, kể cả
     khi người ta chỉ sửa một thứ khác hẳn.
 
@@ -17,7 +18,6 @@ from __future__ import annotations
 
 import pytest
 
-from app.models.bu_hao import BuHao
 from app.models.cong_doan import CongDoan
 from app.models.don_vi_do import DonViDo
 from app.models.lsx import LsxCongDoan
@@ -60,23 +60,20 @@ def _lenh_co_khoan(db, orders, lsx_svc, admin, customer):
     return _chon_loai_buoc(lsx_svc, lsx, admin, {"Dán hộp": "to"})
 
 
-def test_an_bu_hao_khong_lam_so_to_lenh_cu_doi(db, orders, lsx_svc, admin, customer):
-    """Ẩn mã bù hao xong, số lượng vào/ra của lệnh cũ phải y nguyên.
+def test_an_cong_doan_co_bu_hao_khong_lam_so_to_lenh_cu_doi(db, orders, lsx_svc, admin, customer):
+    """Ẩn công đoạn đang gánh bù hao xong, số lượng vào/ra của lệnh cũ phải y nguyên.
 
     `tinh_nguoc_routing` chạy mỗi lần MỞ chi tiết lệnh. Lọc `active` ở đó thì lệnh cũ tự đổi số
     và màn hiện nhãn "tính lại" — báo động giả hàng loạt trên dữ liệu không ai đụng vào.
 
-    Seed không có sẵn mã bù hao nào nên phải tự khai, và phải khai TRƯỚC khi bung lệnh thì số
-    của lệnh mới thật sự ăn theo nó — không thì test xanh mà chẳng chứng minh gì.
+    Bậc bù hao phải khai TRƯỚC khi bung lệnh thì số của lệnh mới thật sự ăn theo nó — không thì
+    test xanh mà chẳng chứng minh gì.
     """
     ptg = _ptg_2_san_pham(db)
-    bh = BuHao(ma="BH-TEST", ten="Bù hao thử",
-               bac=[{"sl_tu": 0, "sl_den": None, "gia_tri": 200, "don_vi": "to"}])
-    db.add(bh)
-    db.commit()
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").first()
-    cd_dan.kieu_bu_hao = "tra_bang"
-    cd_dan.bu_hao_id = bh.id
+    cd_dan.kieu_bu_hao = "theo_bac"
+    cd_dan.bac_bu_hao = [{"sl_den": None, "gia_tri": 200, "don_vi": "to"}]
+    db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     lines = lsx_svc.preview(d.id)["lines"]
@@ -85,7 +82,7 @@ def test_an_bu_hao_khong_lam_so_to_lenh_cu_doi(db, orders, lsx_svc, admin, custo
     truoc = {b["ten"]: (b["so_luong_vao"], b["so_luong_ra"])
              for b in lsx_svc.detail_dict(lsx)["cong_doans"]}
 
-    bh.active = False
+    cd_dan.active = False
     db.commit()
 
     sau = {b["ten"]: (b["so_luong_vao"], b["so_luong_ra"])

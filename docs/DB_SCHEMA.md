@@ -3325,9 +3325,9 @@ dùng cho bình bài.
 
 `setup_time` và `may_id` là mặc định khi bung LSX. `nang_suat` là cột legacy chỉ giữ để bảo toàn/backfill dữ liệu cũ: LSX mới lấy tốc độ bước Máy từ `may_thiet_bi.toc_do`, còn bước Tổ lấy SỐ GIỜ KẾ HOẠCH người lập lệnh gõ tay (`lsx_cong_doan.so_gio_ke_hoach`, mg `0319`) — năng suất/người đi theo bảng đầu việc định mức đã gỡ ở mg `0320`.
 
-`spoilage_pct` là cột CŨ, chỉ `routing_engine` của hệ tính giá cũ dùng; không có ô nhập và Lệnh SX KHÔNG đọc — hao hụt đi qua module `bu_hao` (mỗi bậc tự chọn `to`|`pct`).
+`spoilage_pct` là cột CŨ, chỉ `routing_engine` của hệ tính giá cũ dùng; không có ô nhập và Lệnh SX KHÔNG đọc — hao hụt đi qua bảng bậc `bac_bu_hao` của chính công đoạn (mỗi bậc tự chọn `to`|`pct`).
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `nhom_may_cho_phep`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `kieu_bu_hao`, `bac_bu_hao`, `nhom`, `nhom_may_cho_phep`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 🔴 **GỠ 18/09/2026 (mg `0324`): `cong_thuc_san_luong` · `don_vi_san_luong` · `he_so_ngoai_dong`.** Ba cột của bước NGOÀI dòng giấy: công thức sản lượng RA (mg `0214`, vd Ghi kẽm CTP `so_kem` ⇒ 4 bản, rồi engine suy ngược vế VÀO qua cầu quy đổi + bù hao), đơn vị của số ấy (mg `0289`, `kem`) và hệ số vào→ra khai tay (mg `0196`, ngưng dùng từ 20/08/2026). Theo yêu cầu chủ xưởng: số bản kẽm đổi theo từng đơn nên bước ngoài dòng giấy nay chỉ có số khi người lập lệnh TỰ KHAI đơn vị + số ở bước (`lsx_service.tu_khai_don_vi`); không khai thì bước đứng ở 0. Migration xoá luôn dòng `cong_thuc_lich_su` của trường `cong_thuc_san_luong`. Không khôi phục được.
 
@@ -3460,7 +3460,7 @@ Ca **một đầu trống một đầu có** và ca **mã ngoài 5 chặng** đ�
 
 `khoan_ghi_theo`: công đoạn có tính khoán không — `nguoi` (ghi Phiếu sản lượng theo từng người → cột Khoán bảng lương) / `khong`. `allowed_defect_pct`/`allowed_defect_abs`: ngưỡng hao cho phép (max của 2), phần vượt mới trừ lỗi.
 
-`kieu_bu_hao`: nối bù hao — `khong` / `tra_bang` (trỏ 1 mã bù hao qua `bu_hao_id` → tra bậc theo SL) / `co_dinh` (cộng `so_to_bu_hao` tờ). `bu_hao_id`: soft int → `bu_hao.id` (dùng khi `kieu_bu_hao='tra_bang'`).
+`kieu_bu_hao`: cách góp hao — `khong` / `theo_bac` (tra bảng bậc của CHÍNH công đoạn theo SL) / `co_dinh` (cộng `so_to_bu_hao` tờ). `bac_bu_hao`: JSON `[{sl_den(None=∞), gia_tri, don_vi(to|pct)}]`, mỗi bậc chỉ khai MỐC TRÊN — cận dưới là mốc của bậc liền trước. **Module Bù hao độc lập GỠ 22/09/2026 (mg `0327`)**: bảng `bu_hao` và cột `cong_doan.bu_hao_id` nằm lại **orphan** trên DB đã chạy (không Alembic ⇒ không drop), không còn code nào đọc/ghi.
 
 > 🔴 **`department_id` GỠ 18/09/2026 (mg `0312`)** — MỘT tổ phụ trách. Một công đoạn nay do NHIỀU
 > tổ làm ⇒ danh sách ở bảng nối `cong_doan_to`. Migration chép cột sang bảng nối (thứ tự 0) rồi mới gỡ.
@@ -3537,12 +3537,6 @@ là mặc định lúc tạo lệnh / đổi công đoạn. Định mức đầu
 
 - Primary key: `id`. Unique: (`department_id`, `ngay`). Index: `department_id`, `ngay`.
 - FK: `nguoi_sua_id FK→users.id` (CASCADE). `department_id` **soft-ref** — FK cứng sẽ chặn xoá phòng vì một dòng quân số của ngày nào đó năm ngoái.
-
-### `bu_hao`
-
-**Purpose:** danh mục Bù hao — mỗi mã = danh sách BẬC số lượng → số tờ / %. Mô hình MỞ: bậc là dữ liệu JSON (`bac`), không phải cột cứng. Công đoạn TRỎ THẲNG 1 mã bù hao (qua `cong_doan.bu_hao_id`); engine tra bậc theo SL (bỏ trục số màu/số con). `bac` = `[{sl_tu, sl_den, gia_tri, don_vi(to|pct)}]`.
-
-**Tất cả cột:** `id`, `ma`, `ten`, `bac`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 ### `don_vi_do`
 

@@ -1367,9 +1367,10 @@
     flex: 0 0 auto;
   }
 
-  /* Bảng bậc số lượng (Bù hao, Công đoạn…) cũng nằm trong lưới đó. Bốn cột — Từ SL / Đến SL /
-     Giá trị + công tắc đơn vị / nút xoá — cần ~330px; lưới một cột ở 375px chỉ cho ~264px nên
-     ô nhập bị bóp còn ~30px và CON SỐ RƠI DỌC mỗi dòng một chữ số (đã chụp ở "In 1-2 màu").
+  /* Bảng bậc số lượng (bậc bù hao của Công đoạn, khoản chuẩn bị của Máy…) cũng nằm trong
+     lưới đó. Ba cột dữ liệu — khoảng số lượng (nhãn + ô mốc) / giá trị / công tắc đơn vị — cộng
+     nút xoá cần ~330px; lưới một cột ở 375px chỉ cho ~264px nên ô nhập bị bóp còn ~30px và CON SỐ
+     RƠI DỌC mỗi dòng một chữ số (đã chụp ở danh mục Bù hao cũ, trước khi nó gộp vào Công đoạn).
      Cho khung bảng cuộn ngang và đặt sàn bề ngang cho ô nhập. */
   .rc-bands {
     overflow-x: auto;

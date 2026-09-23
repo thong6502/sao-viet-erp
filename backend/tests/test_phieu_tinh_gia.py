@@ -261,7 +261,6 @@ def _lui_moc(pid: int, gio: int = 2) -> None:
     """
     from datetime import datetime, timedelta, timezone
 
-    from app.models.bu_hao import BuHao
     from app.models.may_thiet_bi import MayThietBi
     from app.models.phieu_tinh_gia import PhieuTinhGia
     from app.models.vat_lieu_kho import VatTuInAn
@@ -270,7 +269,7 @@ def _lui_moc(pid: int, gio: int = 2) -> None:
     db = SessionLocal()
     try:
         db.get(PhieuTinhGia, pid).updated_at = bay_gio - timedelta(hours=gio)
-        for model in (CongDoan, GiayNguyen, MayThietBi, VatTuInAn, BuHao):
+        for model in (CongDoan, GiayNguyen, MayThietBi, VatTuInAn):
             for row in db.query(model).all():
                 row.updated_at = bay_gio - timedelta(hours=gio + 1)
         db.commit()
@@ -376,23 +375,21 @@ def test_khong_nhac_khi_danh_muc_khong_lien_quan_doi(client, auth_headers):
     assert client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"] is None
 
 
-def test_nhac_khi_bu_hao_doi_sau_lan_tinh(client, auth_headers):
-    """Sửa BẬC BÙ HAO là số tờ hao đổi ⇒ tiền đổi — phiếu cũ phải nhắc, dù bù hao không nằm trên phiếu."""
-    from datetime import datetime, timezone
+def test_nhac_khi_bac_bu_hao_doi_sau_lan_tinh(client, auth_headers):
+    """Sửa BẬC BÙ HAO là số tờ hao đổi ⇒ tiền đổi — phiếu cũ phải nhắc.
 
-    from app.models.bu_hao import BuHao
+    Từ 22/09/2026 (mg `0327`) bậc nằm TRÊN công đoạn, nên lời nhắc đi bằng chính dòng công đoạn
+    đã có trong danh sách đối chiếu — không còn bảng thứ hai để dò riêng. Bài này canh đúng chỗ
+    đó: đổi mỗi `bac_bu_hao` (không đụng tên, giá, công thức) vẫn phải bật nhắc.
+    """
+    from datetime import datetime, timezone
 
     giay_id, cd_id = _seed_catalog()
     db = SessionLocal()
     try:
-        bh = BuHao(ma="BH-TEST", ten="In 3-4 màu (test)",
-                   bac=[{"sl_tu": 0, "sl_den": None, "gia_tri": 150, "don_vi": "to"}])
-        db.add(bh)
-        db.flush()
-        bh_id = bh.id
         cd = db.get(CongDoan, cd_id)
-        cd.kieu_bu_hao = "theo_bang"
-        cd.bu_hao_id = bh_id
+        cd.kieu_bu_hao = "theo_bac"
+        cd.bac_bu_hao = [{"sl_den": None, "gia_tri": 150, "don_vi": "to"}]
         db.commit()
     finally:
         db.close()
@@ -405,8 +402,8 @@ def test_nhac_khi_bu_hao_doi_sau_lan_tinh(client, auth_headers):
 
     db = SessionLocal()
     try:
-        row = db.get(BuHao, bh_id)
-        row.bac = [{"sl_tu": 0, "sl_den": None, "gia_tri": 300, "don_vi": "to"}]
+        row = db.get(CongDoan, cd_id)
+        row.bac_bu_hao = [{"sl_den": None, "gia_tri": 300, "don_vi": "to"}]
         row.updated_at = datetime.now(timezone.utc)
         db.commit()
     finally:
@@ -414,7 +411,7 @@ def test_nhac_khi_bu_hao_doi_sau_lan_tinh(client, auth_headers):
 
     doi = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"]
     assert doi is not None
-    assert doi["ten"] == ["In 3-4 màu (test)"]
+    assert doi["ten"] == ["Cán màng test"]
 
 
 def test_nhac_ro_cong_doan_ngung_dung(client, auth_headers):

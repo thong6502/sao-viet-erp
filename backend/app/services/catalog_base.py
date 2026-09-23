@@ -1,4 +1,4 @@
-"""Nền chung cho các SERVICE danh mục (`kho_hang`, `bu_hao`, `khuon_be`, `don_vi_do`,
+"""Nền chung cho các SERVICE danh mục (`kho_hang`, `khuon_be`, `don_vi_do`,
 `loai_san_pham`, `may_thiet_bi`, `cong_doan`).
 
 Vì sao có file này: bảy service danh mục viết đi viết lại đúng một khuôn — `get()` (không thấy

@@ -1,13 +1,17 @@
 """Bù hao engine — hàm THUẦN tra số tờ bù hao. Không I/O, không ORM.
 
-Nối Công đoạn ↔ module Bù hao. Mỗi công đoạn khai `kieu_bu_hao`:
-  - `tra_bang` → TRỎ 1 mã bù hao (`bu_hao_id`) ở module Bù hao; engine tra bậc số lượng:
-      chọn bậc [sl_tu..sl_den] chứa SL → giá trị (tờ | %).
+Cấu hình bù hao nằm NGAY TRÊN công đoạn (22/09/2026 — module Bù hao độc lập đã gỡ). Mỗi công
+đoạn khai `kieu_bu_hao`:
+  - `theo_bac` → bảng bậc của CHÍNH nó (`bac_bu_hao`); engine tra bậc theo SL → giá trị (tờ | %).
   - `co_dinh` → cộng thẳng `so_to_bu_hao` tờ (ép kim, UV… — không theo bảng).
   - `khong` → 0.
 
-Bậc số lượng theo quy ước "X trở xuống / X–Y" ⇒ chặn trên bao gồm: dòng chứa SL khi
-`sl_tu < SL ≤ sl_den` (bậc cuối `sl_den = None` ⇒ SL > sl_tu). `don_vi='pct'` ⇒ giá trị %×SL.
+Một bậc = `{"sl_den": 3000, "gia_tri": 150, "don_vi": "to"}` — chỉ khai MỐC TRÊN. Cận dưới là mốc
+của bậc LIỀN TRƯỚC (bậc đầu: 0), bậc cuối `sl_den=None` là vô hạn. Chặn trên BAO GỒM: bậc chứa SL
+khi `mốc_trước < SL ≤ sl_den`. `don_vi='pct'` ⇒ giá trị %×SL.
+
+Trước 22/09/2026 mỗi bậc còn khai kèm `sl_tu` vì bảng bậc là một danh mục riêng và công đoạn chỉ
+trỏ tới bằng `bu_hao_id`; ô ấy cho phép khai khoảng hở/khoảng chồng nên đã bỏ.
 """
 from __future__ import annotations
 
@@ -19,20 +23,30 @@ def _f(v, d: float = 0.0) -> float:
         return d
 
 
+def _bac_cua(cd: dict) -> list[dict]:
+    """Bảng bậc khai trên công đoạn. Chưa khai (migration mất mã nguồn) ⇒ danh sách rỗng."""
+    return cd.get("bac_bu_hao") or []
+
+
 def tra_bac_raw(bac: list[dict], sl: float) -> dict | None:
     """Bậc KHỚP với `sl`, trả nguyên dict để đọc được `don_vi`. None nếu không bậc nào chứa."""
     sl = _f(sl)
+    lo = 0.0
     for b in (bac or []):
-        lo = _f(b.get("sl_tu"))
         hi = b.get("sl_den")
-        in_band = sl > lo if hi in (None, "") else (lo < sl <= _f(hi))
-        if in_band:
+        if hi in (None, ""):
+            if sl > lo:
+                return b
+            continue
+        hi = _f(hi)
+        if lo < sl <= hi:
             return b
+        lo = hi
     return None
 
 
 def tra_bac(bac: list[dict], sl: float) -> float:
-    """Tra giá trị bù hao từ danh sách bậc số lượng của 1 dòng bù hao. Trả 0.0 nếu không khớp."""
+    """Tra giá trị bù hao từ bảng bậc của 1 công đoạn. Trả 0.0 nếu không khớp."""
     b = tra_bac_raw(bac, sl)
     if b is None:
         return 0.0
@@ -40,31 +54,23 @@ def tra_bac(bac: list[dict], sl: float) -> float:
     return gt * _f(sl) / 100.0 if b.get("don_vi") == "pct" else gt
 
 
-def bu_hao_cong_doan(cd: dict, *, rows: list[dict], sl: float) -> float:
-    """Số tờ bù hao của 1 công đoạn theo `kieu_bu_hao`.
-
-    rows = danh sách dòng bù hao [{id, ma, bac:[…]}] (toàn bộ danh mục Bù hao).
-    """
+def bu_hao_cong_doan(cd: dict, *, sl: float) -> float:
+    """Số tờ bù hao của 1 công đoạn theo `kieu_bu_hao`."""
     kieu = cd.get("kieu_bu_hao", "khong")
     if kieu == "co_dinh":
         return _f(cd.get("so_to_bu_hao"))
-    if kieu == "tra_bang":
-        bid = cd.get("bu_hao_id")
-        if bid is None:
-            return 0.0
-        row = next((r for r in rows if r.get("id") == bid), None)
-        return tra_bac(row.get("bac") or [], sl) if row else 0.0
+    if kieu == "theo_bac":
+        return tra_bac(_bac_cua(cd), sl)
     return 0.0
 
 
-def tong_bu_hao(cong_doans: list[dict], *, rows: list[dict], sl: float,
-                pct_yeu_cau: float = 0.0) -> float:
+def tong_bu_hao(cong_doans: list[dict], *, sl: float, pct_yeu_cau: float = 0.0) -> float:
     """Tổng số tờ bù hao 1 đơn = Σ bù hao mỗi công đoạn + %_yêu_cầu × SL (nếu đơn yêu cầu)."""
-    total = sum(bu_hao_cong_doan(cd, rows=rows, sl=sl) for cd in cong_doans)
+    total = sum(bu_hao_cong_doan(cd, sl=sl) for cd in cong_doans)
     return total + _f(sl) * _f(pct_yeu_cau) / 100.0
 
 
-def hao_buoc(cd: dict, *, rows: list[dict], sl: float) -> tuple[float, float]:
+def hao_buoc(cd: dict, *, sl: float) -> tuple[float, float]:
     """Hao của 1 công đoạn ở mức thông lượng `sl`, TÁCH ĐÔI: `(số tờ cố định, tỷ lệ %)`.
 
     Đi ngược cần hai thứ này riêng vì chúng áp khác nhau: % NHÂN trên số ra, tờ cố định thì CỘNG
@@ -73,12 +79,8 @@ def hao_buoc(cd: dict, *, rows: list[dict], sl: float) -> tuple[float, float]:
     kieu = cd.get("kieu_bu_hao", "khong")
     if kieu == "co_dinh":
         return _f(cd.get("so_to_bu_hao")), 0.0
-    if kieu == "tra_bang":
-        bid = cd.get("bu_hao_id")
-        if bid is None:
-            return 0.0, 0.0
-        row = next((r for r in rows if r.get("id") == bid), None)
-        b = tra_bac_raw(row.get("bac") or [], sl) if row else None
+    if kieu == "theo_bac":
+        b = tra_bac_raw(_bac_cua(cd), sl)
         if b is None:
             return 0.0, 0.0
         gt = _f(b.get("gia_tri"))
@@ -86,7 +88,7 @@ def hao_buoc(cd: dict, *, rows: list[dict], sl: float) -> tuple[float, float]:
     return 0.0, 0.0
 
 
-def chuoi_nguoc(cong_doans: list[dict], *, rows: list[dict], to_can: float) -> list[dict]:
+def chuoi_nguoc(cong_doans: list[dict], *, to_can: float) -> list[dict]:
     """ĐI NGƯỢC chuỗi công đoạn: từ số tờ tốt cần ở CUỐI, lần ngược ra số tờ phải vào ĐẦU.
 
     Mỗi bước hỏi đúng một câu "để nhả ra `ra` tờ tốt thì phải nhận vào bao nhiêu?":
@@ -100,12 +102,10 @@ def chuoi_nguoc(cong_doans: list[dict], *, rows: list[dict], to_can: float) -> l
     Trả về theo thứ tự XUÔI, cùng chỉ số với `cong_doans`: `[{vao, ra, hao}]` (số thực, chưa
     làm tròn — caller tự `ceil` khi cần số tờ nguyên).
     """
-    return chuoi_nguoc_dv(
-        [{"cd": cd} for cd in (cong_doans or [])], rows=rows, to_can=to_can
-    )[0]
+    return chuoi_nguoc_dv([{"cd": cd} for cd in (cong_doans or [])], to_can=to_can)[0]
 
 
-def chuoi_nguoc_dv(buoc: list[dict], *, rows: list[dict], to_can: float,
+def chuoi_nguoc_dv(buoc: list[dict], *, to_can: float,
                    he_so: dict | None = None) -> tuple[list[dict], list[str]]:
     """Như `chuoi_nguoc` nhưng CÓ QUY ĐỔI ĐƠN VỊ ở từng bước — bản engine thật dùng.
 
@@ -164,7 +164,7 @@ def chuoi_nguoc_dv(buoc: list[dict], *, rows: list[dict], to_can: float,
                     f"quy đổi — tạm tính 1."
                 )
         ra_quy = ra / hs
-        fixed, pct = hao_buoc(b.get("cd") or {}, rows=rows, sl=ra)
+        fixed, pct = hao_buoc(b.get("cd") or {}, sl=ra)
         pct = max(pct, 0.0)                     # chặn hao âm
         # `fixed` khai ở ĐƠN VỊ VÀO của bước — bước "Xả giấy" (`to_nguyen → to`) thì hao xả là số
         # TỜ NGUYÊN phí khi pha, cộng thẳng (KHÔNG chia hs). Đừng "sửa" thành fixed/hs: mô hình tách

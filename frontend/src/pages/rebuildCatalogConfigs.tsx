@@ -81,10 +81,11 @@ const tramVaoRa = (vao: unknown, ra: unknown) => {
   return <span title={day}>{`${tramNgan(vao)} → ${tramNgan(ra)}`}</span>;
 };
 
-// Cách công đoạn góp bù hao — trỏ 1 mã bù hao (tra bảng theo SL), hoặc cộng cố định.
+// Cách công đoạn góp bù hao. Bậc nằm TRÊN CHÍNH công đoạn (22/09/2026) — danh mục Bù hao riêng
+// cùng mã `tra_bang` đã gỡ, migration `0327` đổi dữ liệu cũ sang `theo_bac`.
 const KIEU_BU_HAO: Lbls = {
   khong: "Không bù hao",
-  tra_bang: "Tra bảng theo mã bù hao",
+  theo_bac: "Theo bậc số lượng",
   co_dinh: "Cộng cố định (số tờ)",
 };
 
@@ -368,7 +369,7 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { id: "vat-tu", label: "Vật tư", groups: ["Vật tư"] },
   ],
   // Bề rộng đo theo chữ dài nhất đang có (18/09/2026, bảng 1150px): Giai đoạn "Gia công sau in"
-  // 97px · Đơn vị "Con → Thành phẩm" 122 · Bù hao "Tra bảng theo mã bù hao" 158 · Ràng buộc
+  // 97px · Đơn vị "Con → Thành phẩm" 122 · Bù hao "Theo bậc — chưa khai" 158 · Ràng buộc
   // "Cần khuôn ép kim" 112, còn Tên dài nhất chỉ "Cắt thành phẩm" 105. Để mặc định (Tên 24%,
   // Ghi chú 22%) thì bốn cột kia chỉ còn 92px, đọc ra "Gia côn…" / "Tra bản…". Ghi chú không
   // khai ⇒ ăn phần còn lại; chữ dài cắt "…", rê chuột xem đủ.
@@ -382,8 +383,16 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // bước hiện "con → cái" ở danh sách nhưng "Con (mảnh bế ra) → Thành phẩm" trong drawer.
     // Chưa khai thì hiện "—", đúng nghĩa "bước không chạm giấy", chứ không bịa tên.
     { key: "don_vi_vao", label: "Đơn vị", width: "12%", render: (r) => tramVaoRa(r.don_vi_vao, r.don_vi_ra) },
-    { key: "kieu_bu_hao", label: "Bù hao", width: "15%", render: (r) =>
-        r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
+    // Đọc ra NGAY mức khai, không phải chỉ tên chế độ: "Theo bậc" mà rỗng bậc là công đoạn khai
+    // dở (migration mất mã nguồn để lại đúng trạng thái này) — phải lộ ở danh sách.
+    { key: "kieu_bu_hao", label: "Bù hao", width: "15%", render: (r) => {
+        if (r.kieu_bu_hao === "co_dinh") return `Cố định ${r.so_to_bu_hao ?? 50} tờ`;
+        if (r.kieu_bu_hao === "theo_bac") {
+          const n = Array.isArray(r.bac_bu_hao) ? r.bac_bu_hao.length : 0;
+          return n > 0 ? `Theo ${n} bậc` : "Theo bậc — chưa khai";
+        }
+        return lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong");
+      } },
     // Nhìn ra công đoạn nào chưa khai số cho Lệnh sản xuất (giống cột Tốc độ bên màn Máy).
     // Ba thứ ĐI CÙNG NHAU ở một cột vì chúng cùng trả lời "bước này ăn bao nhiêu thời gian, và có
     // vướng dụng cụ không" — tách ba cột thì bảng dài mà vẫn phải đọc cả ba mới hiểu.
@@ -457,8 +466,10 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // GỠ 18/09/2026 (mg `0324`): "Công thức sản lượng ra" + "Đơn vị sản lượng" của bước ngoài dòng
     // giấy (cùng `he_so_ngoai_dong` đã ngưng từ 20/08) — số của bước ấy nay khai tay ở bước lệnh.
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
-    { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
-      showIf: (f) => f.kieu_bu_hao === "tra_bang" },
+    // Nhãn KHÔNG được kết thúc bằng "(…)": `parseLabelAndSuffix` cắt phần trong ngoặc ra làm hậu
+    // tố đơn vị dán vào ô nhập — `bands` không có ô đơn nào để dán nên chữ đó biến mất im lặng.
+    { key: "bac_bu_hao", label: "Bậc số lượng → giá trị hao", type: "bands", group: "Bù hao",
+      showIf: (f) => f.kieu_bu_hao === "theo_bac" },
     { key: "so_to_bu_hao", label: "Số lượng cộng cố định", type: "number", group: "Bù hao", default: 50,
       showIf: (f) => f.kieu_bu_hao === "co_dinh" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
@@ -490,54 +501,6 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     return body;
   },
 };
-
-export const CFG_BU_HAO: CatalogConfig = {
-  title: "Bù hao",
-  moduleQuyen: "dm_bu_hao",
-  enableImport: true,
-  prefix: "/api/bu-hao",
-  nhatKyLoai: "bu_hao",
-  // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
-  // xoá hẳn, còn nơi dùng thì chỉ ngừng dùng. Mục đã ngừng xem lại ở công tắc trên dải lọc.
-  softDelete: true,
-  columns: [
-    {
-      key: "bac",
-      label: "Bậc số lượng & Mức bù hao",
-      render: (r) => {
-        const arr = (r.bac ?? []) as { sl_tu?: number; sl_den?: number | null; den_cm?: number | null; gia_tri?: number; don_gia?: number; don_vi?: string }[];
-        if (!Array.isArray(arr) || arr.length === 0) {
-          return <span style={{ color: "var(--ash, #8a8577)", fontSize: "12.5px" }}>Chưa khai báo</span>;
-        }
-        return (
-          <div className="rc__formula-chips">
-            {arr.slice(0, 3).map((item, idx) => {
-              const cap = item.sl_den ?? item.den_cm;
-              const capStr = cap != null && cap > 0 ? `≤${Number(cap).toLocaleString("vi-VN")}` : `>${Number(item.sl_tu ?? 0).toLocaleString("vi-VN")}`;
-              const val = item.gia_tri ?? item.don_gia ?? 0;
-              const unitStr = item.don_vi === "pct" || item.don_vi === "%" ? "%" : " tờ";
-              return (
-                <span key={idx} className="rc__formula-pill">
-                  {capStr}: {val}{unitStr}
-                </span>
-              );
-            })}
-            {arr.length > 3 && (
-              <span className="badge-sem badge-sem--muted">+{arr.length - 3} bậc</span>
-            )}
-          </div>
-        );
-      },
-    },
-    { key: "so_bac", label: "Số bậc", render: (r) => `${Array.isArray(r.bac) ? r.bac.length : 0} bậc` },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
-  ],
-  fields: [
-    { key: "bac", label: "Bậc số lượng → giá trị (tờ / %)", type: "bands", group: "Bậc số lượng" },
-    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Bậc số lượng" },
-  ],
-};
-
 
 export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
   title: "Chủng loại giấy",
@@ -1083,7 +1046,6 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "khai-bao-kho": CFG_KHO_HANG,
   "may-thiet-bi": CFG_MAY,
   "cong-doan": CFG_CONG_DOAN,
-  "bu-hao": CFG_BU_HAO,
   "don-vi": CFG_DON_VI,
   "chung-loai-giay": CFG_CHUNG_LOAI_GIAY,
   "giay": CFG_GIAY,

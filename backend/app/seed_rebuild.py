@@ -8,7 +8,6 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models.bu_hao import BuHao
 from .models.cong_doan import CongDoan
 from .models.don_vi_do import DonViDo, DonViQuyDoi
 from .models.khuon_be import KhuonBe
@@ -341,7 +340,14 @@ def seed_rebuild_catalog(db: Session) -> None:
         ])
         db.commit()
 
-    # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 3 kiểu bù hao (khong/tra_bang/cố định) ---
+    # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 3 kiểu bù hao (khong/theo_bac/cố định) ---
+    # Bảng bậc khai NGAY TRÊN công đoạn (22/09/2026) — mỗi bậc chỉ có MỐC TRÊN, bậc cuối vô hạn.
+    def _bac(sau_to, pct):     # 6 bậc đầu = số tờ, bậc >30.000 = %
+        moc = [3000, 7000, 10000, 15000, 20000, 30000]
+        b = [{"sl_den": d, "gia_tri": v, "don_vi": "to"} for d, v in zip(moc, sau_to)]
+        b.append({"sl_den": None, "gia_tri": pct, "don_vi": "pct"})
+        return b
+
     if _empty(db, CongDoan):
         # ĐƠN VỊ VÀO/RA phải khai NGAY Ở ĐÂY (sửa 12/08/2026). Trước nay chúng do MIGRATION gán, mà
         # trên DB TRẮNG migration chạy TRƯỚC seed nên không có dòng nào để gán → 11/13 công đoạn ra
@@ -359,7 +365,8 @@ def seed_rebuild_catalog(db: Session) -> None:
                      pricing_basis="per_other", run_rate=95000, nhom_may_cho_phep=["Chế bản"],
                      cong_thuc_gia="so_kem * 95000", setup_time=10, kieu_bu_hao="khong"),
             CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_other", run_rate=350, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
+                     pricing_basis="per_other", run_rate=350, kieu_bu_hao="theo_bac",
+                     bac_bu_hao=_bac([150, 200, 250, 300, 350, 400], 1.7),   # In 3-4 màu
                      nhom_may_cho_phep=["Máy in", "In ngoài"],
                      don_vi_vao="to", don_vi_ra="to",
                      cong_thuc_gia="to_dau_vao * so_mat * 350"),
@@ -369,7 +376,8 @@ def seed_rebuild_catalog(db: Session) -> None:
                      don_vi_vao="to", don_vi_ra="to",
                      cong_thuc_gia="max(dai_in * rong_in * 10000 * so_mat * to_dau_vao * 2.2, 110000)"),
             CongDoan(ma="CD-0004", ten="Bồi sóng", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_other", run_rate=200, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
+                     pricing_basis="per_other", run_rate=200, kieu_bu_hao="theo_bac",
+                     bac_bu_hao=_bac([70, 100, 150, 170, 200, 250], 1),      # Sóng — 1 con
                      nhom_may_cho_phep=["Bồi"],
                      don_vi_vao="to", don_vi_ra="to",
                      cong_thuc_gia="to_dau_vao * 200"),
@@ -387,35 +395,6 @@ def seed_rebuild_catalog(db: Session) -> None:
                      cong_thuc_gia="so_luong * 20"),
         ])
         db.commit()
-
-    # --- Bù hao (mã bù hao × bậc SL động) — số THẬT của xưởng ---
-    if _empty(db, BuHao):
-        _SL = [(0, 3000), (3000, 7000), (7000, 10000), (10000, 15000), (15000, 20000), (20000, 30000)]
-
-        def _bac(sau_to, pct):  # 6 bậc đầu = số tờ, bậc >30.000 = %
-            b = [{"sl_tu": t, "sl_den": d, "gia_tri": v, "don_vi": "to"} for (t, d), v in zip(_SL, sau_to)]
-            b.append({"sl_tu": 30000, "sl_den": None, "gia_tri": pct, "don_vi": "pct"})
-            return b
-
-        db.add_all([
-            BuHao(ma="BH-KHONG-IN", ten="Hàng không in", bac=_bac([50, 70, 100, 130, 150, 200], 1)),
-            BuHao(ma="BH-IN-1-2", ten="In 1-2 màu", bac=_bac([120, 150, 200, 250, 300, 350], 1.5)),
-            BuHao(ma="BH-IN-3-4", ten="In 3-4 màu", bac=_bac([150, 200, 250, 300, 350, 400], 1.7)),
-            BuHao(ma="BH-IN-5", ten="In 5 màu", bac=_bac([200, 250, 300, 350, 400, 450], 2)),
-            BuHao(ma="BH-IN-6", ten="In 6 màu", bac=_bac([250, 300, 350, 450, 500, 600], 2.5)),
-            BuHao(ma="BH-SONG-1CON", ten="Sóng — 1 con",
-                  bac=_bac([70, 100, 150, 170, 200, 250], 1), ghi_chu="Sóng E, B, BC, BE — lưu ý chiều sóng trước"),
-            BuHao(ma="BH-SONG-NHIEU", ten="Sóng — nhiều con", bac=_bac([50, 70, 120, 150, 170, 200], 0.7)),
-        ])
-        db.commit()
-
-    # --- Nối công đoạn 'tra_bang' → 1 mã bù hao mặc định (mô hình MỚI: công đoạn trỏ thẳng mã) ---
-    for cd_ma, bh_ma in (("CD-0002", "BH-IN-3-4"), ("CD-0004", "BH-SONG-1CON")):
-        cd = db.execute(select(CongDoan).where(CongDoan.ma == cd_ma)).scalars().first()
-        bh = db.execute(select(BuHao).where(BuHao.ma == bh_ma)).scalars().first()
-        if cd is not None and bh is not None and cd.kieu_bu_hao == "tra_bang" and cd.bu_hao_id is None:
-            cd.bu_hao_id = bh.id
-    db.commit()
 
     # --- Loại sản phẩm (spec-san-pham §7) ---
     if _empty(db, LoaiSanPham):
