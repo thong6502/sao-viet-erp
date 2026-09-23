@@ -63,11 +63,11 @@ class YeuCauHuy(Base):
     den_ngay_cu: Mapped[date | None] = mapped_column(Date, nullable=True)
     ly_do_quyet: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow,
                                                  nullable=False)
     decided_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1194,7 +1194,7 @@ def test_TU_CHOI_phieu_thi_dau_TU_BIEN_MAT(client):
     assert _o_luoi(client, token, emp["id"], 2026, 9, 11)["leave_name"]
 
     # Không từ chối được đơn đã duyệt ⇒ huỷ, đó mới là đường thật của nghiệp vụ.
-    assert client.post(f"/api/leaves/{rid}/cancel", json={},
+    assert client.post(f"/api/leaves/{rid}/cancel", json={"ly_do": "đổi lịch"},
                        headers=_h(token)).status_code in (200, 204)
     assert _o_luoi(client, token, emp["id"], 2026, 9, 11)["leave_name"] is None, \
         "huỷ phiếu rồi mà dấu vẫn còn = lưới nói dối"

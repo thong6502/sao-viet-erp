@@ -1846,9 +1846,9 @@ Yêu cầu HỦY đơn nghỉ phép / phiếu tăng ca **ĐÃ DUYỆT** (chủ c
 | `huy_tu_ngay` | `Date` → `DATE` | — | yes | — | Đơn nghỉ ĐANG DỞ: hủy từ ngày này (ngày gửi xin hủy), giữ các ngày trước. NULL = hủy cả đơn. |
 | `den_ngay_cu` | `Date` → `DATE` | — | yes | — | `end_date` gốc của đơn nghỉ, ghi khi đồng ý rút ngắn. |
 | `ly_do_quyet` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú người quyết — bắt buộc khi giữ nguyên. |
-| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người gửi (SET NULL khi xoá tài khoản). |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người gửi (CASCADE khi xoá tài khoản — luật chung mg 0327). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi gửi. |
-| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết (SET NULL khi xoá tài khoản). |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết (CASCADE khi xoá tài khoản — luật chung mg 0327). |
 | `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Khi quyết / khi rút lại. |
 
 **Keys & indexes**
