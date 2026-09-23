@@ -137,6 +137,31 @@ class TrangOut(BaseModel):
     tong: int
 
 
+class RoutingBuocOut(BaseModel):
+    """Một BƯỚC trên dải routing của thẻ lệnh (`docs/design-dai-routing-tren-ban-to.md`).
+
+    Bước của tổ KHÁC chỉ mang bấy nhiêu: tên · tổ · trạng thái · số · đã giao sang tôi.
+    `cong_viec_id` để None có chủ đích — FE không được có đường mở drawer việc của tổ khác."""
+    thu_tu: int
+    step_key: str | None = None
+    ten_cong_doan: str
+    to_id: int | None = None
+    to_ten: str | None = None
+    la_cua_toi: bool
+    la_kcs_cuoi: bool
+    trang_thai: str
+    phan_doan_tong: int = 1
+    chay_chung: bool = False          # bước chạy chung của bài ghép
+    ke_hoach: float | None = None
+    thuc_te: float = 0.0
+    don_vi: str | None = None
+    # Bước NGUỒN: đã giao sang tổ đang xem bao nhiêu (chỉ bàn giao đã chốt).
+    da_giao_sang_toi: float | None = None
+    # Bước CỦA TỔ ĐANG XEM: đã nhận bao nhiêu, theo đúng đơn vị đầu vào của bước.
+    da_nhan: float | None = None
+    cong_viec_id: int | None = None
+
+
 class LenhNhomOut(BaseModel):
     """Một LỆNH SX (hoặc BÀI GHÉP) trên bàn tổ, kèm các công đoạn CỦA TỔ trong lệnh ấy.
 
@@ -154,6 +179,8 @@ class LenhNhomOut(BaseModel):
     nhan_luc: datetime | None = None   # lúc tổ nhận việc SỚM NHẤT của lệnh (giờ xưởng)
     so_viec: int
     digest: dict[str, int]             # released / running / paused / completed
+    # Chuỗi công đoạn ĐẦY ĐỦ của lệnh (mọi tổ, chỉ đọc). Rỗng khi lệnh chỉ có một bước.
+    routing: list[RoutingBuocOut] = []
     cong_viec: list[WorkItemOut]
 
 

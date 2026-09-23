@@ -115,3 +115,27 @@ def test_gop_trang_thai_lay_yeu_nhat(sess):
     assert _gop_trang_thai(["completed", "completed"]) == "completed"
     assert _gop_trang_thai(["paused", "completed"]) == "paused"
     assert _gop_trang_thai([]) == "released"
+
+
+def test_work_items_tra_ve_dai_routing(sess, lenh_that):
+    """Dải đi CÙNG response work-items, không tách endpoint riêng — nhờ vậy nó nằm sẵn trong
+    đường refetch theo tick SSE của bàn tổ."""
+    from app.models.user import User
+    from app.repositories.rbac_repo import RoleRepository
+    from app.services.rbac_service import AuthorizationService
+    from app.services.san_xuat import board
+    from tests.quyen_to_fixtures import cap_quyen_to
+
+    cvs = _cvs(sess, lenh_that)
+    to_khac = _to_moi(sess, "Tổ CTP dải 4", "TO-DAI-CTP4")
+    cvs[0].department_id = to_khac.id
+    to_toi = sess.get(Department, cvs[1].department_id)
+    u = sess.query(User).filter(User.username == "admin").one()
+    cap_quyen_to(sess, u, to_toi)
+    sess.commit()
+
+    ra = board.work_items(sess, u, AuthorizationService(RoleRepository(sess)),
+                          team_id=to_toi.id, nhom="lenh")
+    l = next(x for x in ra["lenh"] if x["lsx_id"] == lenh_that)
+    assert [o["ten_cong_doan"] for o in l["routing"]] == [cv.ten_cong_doan for cv in cvs]
+    assert [o["la_cua_toi"] for o in l["routing"]] == [False, True, True]
