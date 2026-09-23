@@ -7,6 +7,7 @@ import {
 } from "../../../../api/client";
 import { Navigation } from "lucide-react";
 import { getPosition, geoErrText } from "../shared/helpers";
+import { LocationMapPicker } from "../components/LocationMapPicker";
 
 export function LocationForm({
   token,
@@ -38,16 +39,20 @@ export function LocationForm({
     setForm((f) => ({ ...f, [k]: v }));
   }
 
+  function setCoordinates(latitude: number, longitude: number) {
+    setForm((f) => ({
+      ...f,
+      latitude: Number(latitude.toFixed(7)),
+      longitude: Number(longitude.toFixed(7)),
+    }));
+  }
+
   async function useMyLocation() {
     setLocating(true);
     setError(null);
     try {
       const pos = await getPosition();
-      setForm((f) => ({
-        ...f,
-        latitude: Number(pos.coords.latitude.toFixed(7)),
-        longitude: Number(pos.coords.longitude.toFixed(7)),
-      }));
+      setCoordinates(pos.coords.latitude, pos.coords.longitude);
     } catch (e) {
       setError(geoErrText(e));
     } finally {
@@ -118,7 +123,9 @@ export function LocationForm({
               disabled={locating}
             >
               <Navigation size={14} />
-              <span>{locating ? "Đang lấy tọa độ GPS..." : "Lấy vị trí GPS hiện tại của tôi"}</span>
+              <span>
+                {locating ? "Đang lấy vị trí…" : "Lấy vị trí GPS hiện tại của tôi"}
+              </span>
             </button>
           </div>
 
@@ -144,6 +151,13 @@ export function LocationForm({
               />
             </label>
           </div>
+
+          <LocationMapPicker
+            latitude={form.latitude}
+            longitude={form.longitude}
+            radiusM={form.radius_m}
+            onChange={setCoordinates}
+          />
 
           <label className="ns-field" style={{ marginTop: 14 }}>
             <span className="cc-field-label">Bán kính cho phép (mét) *</span>

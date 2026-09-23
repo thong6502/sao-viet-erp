@@ -243,51 +243,26 @@ export function fmtElapsed(fromIso: string | null | undefined, now: number): str
   return `${p(h)}:${p(m)}:${p(s)}`;
 }
 
-/** Promise wrapper quanh navigator.geolocation. */
+// Fix vừa lấy trong vòng 30 giây được dùng lại: bấm liên tiếp không phải dò lại từ đầu.
+const GPS_MAX_AGE_MS = 30_000;
+const GPS_TIMEOUT_MS = 15_000;
+
+/**
+ * Lấy vị trí hiện tại và dùng ngay mẫu đầu tiên trình duyệt trả về.
+ * Không chặn theo sai số: máy bàn định vị bằng Wi-Fi nên sai số luôn vài chục mét
+ * và chờ thêm cũng không cải thiện. Việc so với bán kính geofence là của máy chủ.
+ */
 export function getPosition(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
-    if (!("geolocation" in navigator)) {
+    if (!navigator.geolocation) {
       reject(new Error("Trình duyệt không hỗ trợ định vị GPS."));
       return;
     }
-    // Backstop: trên máy bàn Windows (không có GPS, Location service tắt) getCurrentPosition
-    // có thể TREO mà không bắn timeout riêng của nó → nút "Đang lấy vị trí…" quay vô hạn.
-    // Watchdog tự reject để lời gọi LUÔN kết thúc, UI kịp hiện lỗi + nút thử lại.
-    let settled = false;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(watchdog);
-      fn();
-    };
-    const timeoutErr = Object.assign(new Error("Lấy vị trí quá lâu."), {
-      code: 3,
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: GPS_TIMEOUT_MS,
+      maximumAge: GPS_MAX_AGE_MS,
     });
-    const watchdog = setTimeout(() => finish(() => reject(timeoutErr)), 22000);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => finish(() => {
-        const accuracy = pos.coords.accuracy;
-        if (!Number.isFinite(accuracy)) {
-          reject(new Error("Thiết bị không cung cấp được độ chính xác GPS. Hãy bật Vị trí chính xác rồi thử lại."));
-          return;
-        }
-        if (accuracy > 50) {
-          reject(new Error(
-            `Độ chính xác GPS hiện chỉ khoảng ${Math.round(accuracy)} m. Hãy bật Vị trí chính xác, ra gần cửa sổ hoặc ngoài trời rồi thử lại.`,
-          ));
-          return;
-        }
-        resolve(pos);
-      }),
-      (err) => finish(() => reject(err)),
-      {
-        // Chấm công bị chặn cứng theo geofence 150 m nên không được dùng vị trí mạng/cache cũ:
-        // yêu cầu cảm biến chính xác nhất và buộc trình duyệt lấy một fix mới cho mỗi lần gọi.
-        enableHighAccuracy: true,
-        timeout: 20000,
-        maximumAge: 0,
-      },
-    );
   });
 }
 

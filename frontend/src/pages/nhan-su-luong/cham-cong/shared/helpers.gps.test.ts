@@ -23,39 +23,68 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function stubGeolocation(getCurrentPosition: Geolocation["getCurrentPosition"]): void {
+function stubGeolocation(
+  getCurrentPosition: Geolocation["getCurrentPosition"],
+): { watchPosition: ReturnType<typeof vi.fn> } {
+  const watchPosition = vi.fn(() => {
+    throw new Error("không được dò nhiều mẫu nữa");
+  });
   vi.stubGlobal("navigator", {
     ...navigator,
-    geolocation: {
-      getCurrentPosition,
-      watchPosition: vi.fn(),
-      clearWatch: vi.fn(),
-    },
+    geolocation: { getCurrentPosition, watchPosition, clearWatch: vi.fn() },
   });
+  return { watchPosition };
 }
 
 describe("lấy vị trí chấm công", () => {
-  it("yêu cầu tọa độ mới với độ chính xác cao nhất", async () => {
-    const getCurrentPosition = vi.fn((ok: PositionCallback) => ok(position(12)));
-    stubGeolocation(getCurrentPosition);
+  it("dùng ngay mẫu đầu tiên, không chờ dò thêm", async () => {
+    const getCurrentPosition = vi.fn((ok: PositionCallback) => ok(position(76)));
+    const { watchPosition } = stubGeolocation(getCurrentPosition);
 
-    await expect(getPosition()).resolves.toMatchObject({ coords: { accuracy: 12 } });
+    await expect(getPosition()).resolves.toMatchObject({
+      coords: { accuracy: 76 },
+    });
+    expect(watchPosition).not.toHaveBeenCalled();
     expect(getCurrentPosition).toHaveBeenCalledWith(
       expect.any(Function),
       expect.any(Function),
-      expect.objectContaining({
-        enableHighAccuracy: true,
-        maximumAge: 0,
-      }),
+      expect.objectContaining({ enableHighAccuracy: true }),
     );
   });
 
-  it("không dùng tọa độ có sai số lớn hơn 50 m để quyết định geofence", async () => {
-    const getCurrentPosition = vi.fn((ok: PositionCallback) => ok(position(120)));
+  it("không từ chối tọa độ vì sai số lớn", async () => {
+    stubGeolocation(vi.fn((ok: PositionCallback) => ok(position(420))));
+
+    await expect(getPosition()).resolves.toMatchObject({
+      coords: { accuracy: 420 },
+    });
+  });
+
+  it("cho dùng lại fix vừa lấy nên bấm liên tiếp không phải dò lại", async () => {
+    const getCurrentPosition = vi.fn((ok: PositionCallback) => ok(position(50)));
     stubGeolocation(getCurrentPosition);
 
-    await expect(getPosition()).rejects.toThrow(
-      "Độ chính xác GPS hiện chỉ khoảng 120 m",
+    await getPosition();
+
+    const options = getCurrentPosition.mock.calls[0][2] as PositionOptions;
+    expect(options.maximumAge).toBeGreaterThan(0);
+    expect(options.timeout).toBeGreaterThan(0);
+  });
+
+  it("trả nguyên lỗi của trình duyệt để hiện đúng lý do", async () => {
+    const denied = { code: 1, message: "User denied" } as GeolocationPositionError;
+    stubGeolocation(
+      vi.fn((_ok: PositionCallback, fail?: PositionErrorCallback | null) =>
+        fail?.(denied),
+      ),
     );
+
+    await expect(getPosition()).rejects.toBe(denied);
+  });
+
+  it("báo lỗi khi trình duyệt không hỗ trợ định vị", async () => {
+    vi.stubGlobal("navigator", {});
+
+    await expect(getPosition()).rejects.toThrow("không hỗ trợ định vị");
   });
 });
