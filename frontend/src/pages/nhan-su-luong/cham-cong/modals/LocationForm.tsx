@@ -9,6 +9,16 @@ import { Navigation } from "lucide-react";
 import { getPosition, geoErrText } from "../shared/helpers";
 import { LocationMapPicker } from "../components/LocationMapPicker";
 
+/** Tách cặp "vĩ độ, kinh độ" copy từ Google Maps ("21.047563, 105.784361"). Không phải cặp ⇒ null.
+ *  Bắt buộc dấu CHẤM thập phân ở cả hai số: "21,04" là MỘT số gõ kiểu Việt, không phải cặp (21; 4). */
+export function tachCapToaDo(s: string): [number, number] | null {
+  const m = s.trim().match(/^\(?\s*(-?\d+\.\d+)\s*[,;\s]\s*(-?\d+\.\d+)\s*\)?$/);
+  if (!m) return null;
+  const lat = Number(m[1]);
+  const lon = Number(m[2]);
+  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? [lat, lon] : null;
+}
+
 export function LocationForm({
   token,
   location,
@@ -45,6 +55,16 @@ export function LocationForm({
       latitude: Number(latitude.toFixed(7)),
       longitude: Number(longitude.toFixed(7)),
     }));
+  }
+
+  // Dán CẢ CẶP toạ độ vào ô vĩ độ hoặc kinh độ ⇒ điền cả hai ô. Không có bước này, ô `type="number"`
+  // bỏ dấu phẩy rồi dính hai số làm một ("21.047563105.784361"…) và ô kia GIỮ số cũ ⇒ điểm lưu lệch
+  // vài chục – cả trăm mét mà không báo gì (chủ báo 23/09/2026).
+  function danCapToaDo(e: React.ClipboardEvent<HTMLInputElement>) {
+    const cap = tachCapToaDo(e.clipboardData.getData("text"));
+    if (!cap) return; // một số lẻ ⇒ để ô nhận như thường
+    e.preventDefault();
+    setCoordinates(cap[0], cap[1]);
   }
 
   async function useMyLocation() {
@@ -137,6 +157,7 @@ export function LocationForm({
                 step="0.0000001"
                 className="cc-input-text"
                 value={form.latitude}
+                onPaste={danCapToaDo}
                 onChange={(e) => set("latitude", Number(e.target.value))}
               />
             </label>
@@ -147,10 +168,14 @@ export function LocationForm({
                 step="0.0000001"
                 className="cc-input-text"
                 value={form.longitude}
+                onPaste={danCapToaDo}
                 onChange={(e) => set("longitude", Number(e.target.value))}
               />
             </label>
           </div>
+          <span className="cc-field-subtext" style={{ display: "block", marginTop: 4 }}>
+            Google Maps: chuột phải vào đúng chỗ → bấm dòng toạ độ để copy → dán vào ô nào cũng được, tự tách ra hai ô.
+          </span>
 
           <LocationMapPicker
             latitude={form.latitude}

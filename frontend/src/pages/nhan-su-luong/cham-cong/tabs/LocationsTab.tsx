@@ -168,8 +168,9 @@ export function LocationsTab({ token }: { token: string }) {
                     <div className="cc-loc-coord-badge">
                       <Navigation size={12} style={{ opacity: 0.7 }} />
                       <span>
-                        {Number(l.latitude).toFixed(6)},{" "}
-                        {Number(l.longitude).toFixed(6)}
+                        {/* Hiện ĐÚNG số đang lưu (tới 7 chữ lẻ), không làm tròn — trước đây cắt còn 6
+                            nên thẻ và form Sửa lệch chữ số cuối, người khai tưởng toạ độ bị đổi. */}
+                        {Number(l.latitude)}, {Number(l.longitude)}
                       </span>
                     </div>
 
