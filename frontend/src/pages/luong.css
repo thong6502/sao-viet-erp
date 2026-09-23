@@ -1034,9 +1034,12 @@
     flex-direction: column;
     align-items: stretch;
   }
+  /* Ô chọn chiếm PHẦN CÒN LẠI sau chữ "Đổi bộ phận:" — để 100% là cộng thêm bề rộng chữ đó, tràn
+     ra ngoài thẻ và kéo cả khung trang cuộn ngang. */
   .cl-dept-bar__select-wrap {
-    min-width: 100%;
-    max-width: 100%;
+    flex: 1;
+    min-width: 0;
+    max-width: none;
   }
 }
 
@@ -1337,6 +1340,8 @@
 .cl-chitieu__now {
   flex: none;
   text-align: right;
+  /* Màn hẹp: đầu thẻ xuống dòng thì khối số vẫn bám mép phải, không rớt lệch về bên trái. */
+  margin-left: auto;
 }
 .cl-chitieu__now-val {
   font-family: var(--ff-num);
