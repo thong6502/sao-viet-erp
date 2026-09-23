@@ -75,7 +75,7 @@ class Customer(Base):
     # Owning Sale (RBAC scope owner). Nullable so a customer can exist unassigned;
     # indexed because every scoped list query filters on it.
     sale_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     # DORMANT (redesign spec-06 v2): trạng thái lead/active/inactive đã BỎ khỏi UI + logic
     # (không còn ô chọn / tab lọc). Cột giữ lại default 'active' để dữ liệu cũ không vỡ; đừng
@@ -191,7 +191,7 @@ class CustomerTag(Base):
     )
     label: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -226,7 +226,7 @@ class CustomerTagCatalog(Base):
     # chữ trong SQL không chạy đúng cho tiếng Việt trên SQLite (xem `ids_with_label`).
     label: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -262,7 +262,7 @@ class CustomerCareEvent(Base):
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -297,7 +297,7 @@ class CustomerCareTask(Base):
     )
     # Người phụ trách việc — mặc định Sale phụ trách khách (panel "Cần chăm sóc" lọc theo đây).
     assignee_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # --- Lịch hẹn calendar (redesign-lich-hen-cham-soc): luật lặp + chuỗi ngoại lệ ---
@@ -310,7 +310,7 @@ class CustomerCareTask(Base):
     series_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     occurrence_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -338,7 +338,7 @@ class CustomerNote(Base):
         Boolean, nullable=False, default=False, server_default="false"
     )
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -366,7 +366,7 @@ class CustomerAttachment(Base):
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
     file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)  # MIME
     uploaded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

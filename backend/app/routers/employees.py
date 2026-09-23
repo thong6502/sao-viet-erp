@@ -330,6 +330,7 @@ def mau_nhap_xlsx(
 @router.post("/import-excel", response_model=ImportExcelOut)
 def import_employees_xlsx(
     svc: Service,
+    payroll_svc: Payroll,
     authz: Authz,
     user: Annotated[User, Depends(require_all_permissions((MODULE, "create"), (MODULE, "update")))],
     file: UploadFile = File(...),
@@ -351,6 +352,8 @@ def import_employees_xlsx(
             co_sua_luong=authz.can(user, MODULE, "edit_salary"),
             co_dieu_chuyen=authz.can(user, MODULE, "transfer"),
             ghi=(mode == "commit"),
+            # Ba ô lương ghi thành MỐC LƯƠNG mới — qua đúng `set_salary` của màn Sửa lương.
+            payroll=payroll_svc,
         )
     except ExcelSaiMan as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
@@ -455,6 +458,9 @@ def create_employee(
             )
         initial_salary["effective_from"] = effective_from
     try:
+        # Kiểm tài khoản TRƯỚC khi lưu hồ sơ — xem `kiem_tai_khoan_moi`.
+        if account and account.get("username"):
+            svc.kiem_tai_khoan_moi(username=account["username"], password=account["password"])
         employee, dup_nid, dup_si = svc.create_employee(
             actor=user, department_id=department_id, status=status_in,
             hire_date=hire_date, fields=data,

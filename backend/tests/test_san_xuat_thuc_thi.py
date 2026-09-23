@@ -219,6 +219,29 @@ def test_khong_giao_trung_mot_nguoi(db, orders, lsx_svc, admin, customer):
         thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=e.id)
 
 
+def test_giao_go_nhieu_lan_giu_day_du_lich_su(db, orders, lsx_svc, admin, customer):
+    """Một người được giao lại nhiều lượt; mỗi lần gỡ phải giữ thành một dòng lịch sử riêng."""
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-GO-LAI")
+    e = _emp(db, to, "NV-GO-LAI")
+
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=e.id)
+    pc1 = db.query(SanXuatPhanCong).filter_by(
+        cong_viec_id=cv.id, employee_id=e.id, trang_thai=PC_HOAT_DONG,
+    ).one()
+    thuc_thi.go_phan_cong(db, user=admin, phan_cong_id=pc1.id)
+
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=e.id)
+    pc2 = db.query(SanXuatPhanCong).filter_by(
+        cong_viec_id=cv.id, employee_id=e.id, trang_thai=PC_HOAT_DONG,
+    ).one()
+    thuc_thi.go_phan_cong(db, user=admin, phan_cong_id=pc2.id)
+
+    lich_su = db.query(SanXuatPhanCong).filter_by(
+        cong_viec_id=cv.id, employee_id=e.id, trang_thai=PC_DA_RUT,
+    ).order_by(SanXuatPhanCong.id).all()
+    assert [pc.id for pc in lich_su] == [pc1.id, pc2.id]
+
+
 # --- Cổng ghi theo dòng quyền của tổ (mg 0302) ---------------------------------------------
 def _user(db, username, dept=None) -> User:
     u = User(username=username, name=username, password_hash="x",

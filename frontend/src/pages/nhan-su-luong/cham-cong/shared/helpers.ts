@@ -243,38 +243,26 @@ export function fmtElapsed(fromIso: string | null | undefined, now: number): str
   return `${p(h)}:${p(m)}:${p(s)}`;
 }
 
-/** Promise wrapper quanh navigator.geolocation. */
+// Fix vừa lấy trong vòng 30 giây được dùng lại: bấm liên tiếp không phải dò lại từ đầu.
+const GPS_MAX_AGE_MS = 30_000;
+const GPS_TIMEOUT_MS = 15_000;
+
+/**
+ * Lấy vị trí hiện tại và dùng ngay mẫu đầu tiên trình duyệt trả về.
+ * Không chặn theo sai số: máy bàn định vị bằng Wi-Fi nên sai số luôn vài chục mét
+ * và chờ thêm cũng không cải thiện. Việc so với bán kính geofence là của máy chủ.
+ */
 export function getPosition(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
-    if (!("geolocation" in navigator)) {
+    if (!navigator.geolocation) {
       reject(new Error("Trình duyệt không hỗ trợ định vị GPS."));
       return;
     }
-    // Backstop: trên máy bàn Windows (không có GPS, Location service tắt) getCurrentPosition
-    // có thể TREO mà không bắn timeout riêng của nó → nút "Đang lấy vị trí…" quay vô hạn.
-    // Watchdog tự reject để lời gọi LUÔN kết thúc, UI kịp hiện lỗi + nút thử lại.
-    let settled = false;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(watchdog);
-      fn();
-    };
-    const timeoutErr = Object.assign(new Error("Lấy vị trí quá lâu."), {
-      code: 3,
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: GPS_TIMEOUT_MS,
+      maximumAge: GPS_MAX_AGE_MS,
     });
-    const watchdog = setTimeout(() => finish(() => reject(timeoutErr)), 14000);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => finish(() => resolve(pos)),
-      (err) => finish(() => reject(err)),
-      {
-        // Máy bàn không có chip GPS → định vị mạng (WiFi/IP): nhanh, đỡ treo, đủ cho geofence 150 m.
-        // Trong xưởng (indoor) GPS còn kém hơn network → cũng hợp use-case công nhân chấm công.
-        enableHighAccuracy: false,
-        timeout: 12000,
-        maximumAge: 30000, // fix ≤30s được tái dùng → preview→chấm không phải dò lại
-      },
-    );
   });
 }
 

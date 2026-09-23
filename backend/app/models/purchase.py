@@ -241,11 +241,11 @@ class PurchaseRequest(Base):
         BigInteger, nullable=False, default=0, server_default="0"
     )
     created_by_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_by_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -367,7 +367,7 @@ class PurchaseStatusHistory(Base):
     to_status: Mapped[str] = mapped_column(String(24), nullable=False)
     # NULL = MÁY tự suy, không ai bấm.
     changed_by_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     source: Mapped[str] = mapped_column(String(8), nullable=False, default=CHANGE_BY_NGUOI)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -426,7 +426,7 @@ class PurchaseDelivery(Base):
     # FK) vì module Kho có thể chưa có bảng lúc migration chạy. Đợt này luôn NULL.
     stock_voucher_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_by_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -506,7 +506,7 @@ class PurchaseAttachment(Base):
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
     file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     uploaded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -529,7 +529,7 @@ class DepartmentPurchaseRequest(Base):
         Integer, ForeignKey("departments.id", ondelete="SET NULL"), index=True, nullable=True
     )
     requested_by_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     related_document_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     related_document_code: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
@@ -592,7 +592,7 @@ class DepartmentPurchaseRequestLine(Base):
     # có thể còn trỏ tới qua `department_request_line_id`.
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_by_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 

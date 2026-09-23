@@ -356,6 +356,25 @@ class LsxListOut(BaseModel):
     facets: dict[str, int] = {}
 
 
+class BoLocDonItem(BaseModel):
+    id: int
+    order_no: str
+    customer_id: int | None = None
+    customer_name: str | None = None
+
+
+class BoLocKhachItem(BaseModel):
+    id: int
+    name: str
+
+
+class LsxBoLocOut(BaseModel):
+    """Nguồn của hai ô lọc "Đơn hàng" / "Khách hàng" trên bảng lệnh — chỉ những đơn ĐANG có lệnh."""
+
+    orders: list[BoLocDonItem] = []
+    customers: list[BoLocKhachItem] = []
+
+
 # ⚠️ `BoDauViecOut` GỠ 18/09/2026 (mg `0320`): bước thôi ghim đầu việc nên không có gì mồ côi.
 
 

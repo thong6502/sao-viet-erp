@@ -79,19 +79,14 @@ export interface RefRow {
  *  Đảo thứ tự là `to` đọc ra "tờ" ở đây trong khi màn Công đoạn nói "Tờ in" — cùng một bước, hai
  *  chữ. Chưa nạp xong ⇒ rơi về MÃ TRẦN, không bịa tên.
  *
- *  Bộ lọc legacy hẹp lại (12/08/2026): trước đây cứ `nhom === "prepress"` là trả “—”, bất kể bước
- *  khai đơn vị gì. Từ khi công đoạn khai đơn vị TỰ DO, bước ghi kẽm khai `m² → bài in` cho tử tế
- *  vẫn bị nuốt sạch nhãn — trong khi thẻ trên sơ đồ DAG (không đi qua hàm này) lại hiện đúng
- *  "m² → bài in". Cùng một bước, hai màn hai kiểu.
- *
- *  Thứ ĐÁNG giấu chỉ là ảnh chụp cũ `to → to` còn sót ở bước chế bản — nhận ra nó bằng "prepress
- *  MÀ lại đứng trên dòng giấy", chứ không phải bằng mỗi `nhom`. Bước khai đơn vị ngoài dòng giấy
- *  (`m² → bài in`) là dữ liệu THẬT, phải hiện. */
-export function dvNhan(
-  dv: string | null | undefined,
-  buoc?: { nhom?: string | null; tren_dong_giay?: boolean } | null,
-): string {
-  if (buoc?.nhom === "prepress" && buoc?.tren_dong_giay) return "—";
+ *  CHỈ MỘT luật: có mã thì đọc tên, không có thì “—”. Bộ lọc "bước `prepress` mà đứng trên dòng
+ *  giấy ⇒ giấu nhãn" GỠ 20/09/2026 (chủ: *"thì hiển thị lên UI đi, giấu làm gì"*). Nó dựng từ hồi
+ *  đơn vị của bước là ảnh chụp kế thừa, giấu mấy cặp `to → to` còn sót ở chế bản. Từ khi đơn vị
+ *  khai ở danh mục Công đoạn thì giả định ấy sai: `CD-0188 Tề giấy` nằm nhóm `prepress` nhưng khai
+ *  `to_nguyen → to` hẳn hoi, vậy mà drawer với bảng đều bày “—” ở cả hai đầu — người lập lệnh đọc
+ *  ra "bước này chưa khai đơn vị" rồi đi khai lại thứ đã có. Muốn che dữ liệu cũ thì phải nhận ra
+ *  nó bằng CHÍNH nội dung cũ, đừng nhận bằng nhóm công đoạn. */
+export function dvNhan(dv: string | null | undefined): string {
   if (dv) return nhanTram(dv) ?? tenDonVi(dv) ?? dv;
   return "—";
 }
@@ -155,7 +150,9 @@ export function LsxRoutingTable({
   onXemTruocBuoc: (
     stepKey: string,
     dang: { mayId?: number | null; loaiBuoc?: string | null;
-            soLuotChay?: number | null; soGioKeHoach?: number | null },
+            soLuotChay?: number | null; soGioKeHoach?: number | null;
+            soLuongVao?: number | null; soLuongRa?: number | null;
+            congDoanId?: number | null; donViVao?: string | null },
   ) => Promise<import("../api/client").LsxXemTruocBuoc>;
   /** Đổi/chèn công đoạn → hỏi server SỐ VÀO–RA + đơn vị của CẢ CHUỖI (chỉ backend chạy chuỗi
    *  ngược + bảng cầu quy đổi). Cùng lẽ với `onXemTruocBuoc`: số nhảy ngay, khỏi bấm Lưu. */
@@ -405,16 +402,23 @@ export function LsxRoutingTable({
    *
    *  Khoá phụ thuộc là CHUỖI các ô server quan tâm, KHÔNG phải cả `row`: `patch` bên dưới ghi
    *  `thoi_luong_dien_giai` vào chính hàng đó, lấy cả hàng làm phụ thuộc là vòng lặp vô tận.
-   *  Bước chưa lưu (`id == null`) thì server chưa có `step_key` để tra ⇒ bỏ qua, giữ số cũ.
+   *
+   *  Gồm cả SỐ LƯỢNG RA (20/09/2026): máy khai đo giờ bằng chip `sl_ra` (vd Cắt cuộn × Máy cắt
+   *  cuộn 1700) thì số ra CHÍNH LÀ số đem chia cho tốc độ — không gửi lên thì server chạy công
+   *  thức với số ra của lần lưu trước, ra 0, rồi báo "chưa quy đổi được" trong khi cách đo đã khai
+   *  đủ. Bước CHƯA LƯU cũng hỏi, miễn đã chọn công đoạn: cách đo treo ở cặp (công đoạn × máy) nên
+   *  `cong_doan_id` là thứ duy nhất server cần để tra, không cần bước có mặt trong DB.
    */
   const buocMo = moBuoc != null ? rows[moBuoc] : null;
-  const khoaXemTruoc = buocMo?.id != null
+  const khoaXemTruoc = (buocMo?.id != null || buocMo?.cong_doan_id != null)
     ? [buocMo.key, buocMo.loai_buoc, buocMo.may_id ?? "", buocMo.so_gio_ke_hoach,
-       buocMo.so_luot_chay, buocMo.so_luong_vao].join("|")
+       buocMo.so_luot_chay, buocMo.so_luong_vao, buocMo.so_luong_ra,
+       buocMo.cong_doan_id ?? "", buocMo.don_vi_vao ?? ""].join("|")
     : null;
   useEffect(() => {
     if (!khoaXemTruoc) return;
-    const [key, loaiBuoc, mayId, soGio, soLuot] = khoaXemTruoc.split("|");
+    const [key, loaiBuoc, mayId, soGio, soLuot, slVao, slRa, cdId, dvVao] =
+      khoaXemTruoc.split("|");
     const seq = ++doiMaySeq.current;
     void (async () => {
       try {
@@ -423,6 +427,11 @@ export function LsxRoutingTable({
           loaiBuoc,
           soLuotChay: Math.max(Math.trunc(Number(soLuot)) || 1, 1),
           soGioKeHoach: Math.max(Number(soGio) || 0, 0),
+          // Ô trống ⇒ 0 (`n`), không phải "bỏ field": xoá số ra thì giờ chạy phải về 0 ngay.
+          soLuongVao: Math.max(n(slVao), 0),
+          soLuongRa: Math.max(n(slRa), 0),
+          congDoanId: cdId === "" ? null : Number(cdId),
+          donViVao: dvVao || null,
         });
         if (seq !== doiMaySeq.current) return;
         patch(key, { thoi_luong_dien_giai: xt.thoi_luong_dien_giai });
@@ -794,7 +803,7 @@ export function LsxRoutingTable({
                         <span className="khsx-num">
                           {num(r.so_luong_vao_moi ?? n(r.so_luong_vao))}
                         </span>
-                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_vao, r)}</span>
+                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_vao)}</span>
                         <span className="khsx-rt__arrow" aria-label="ra">→</span>
                         {r.so_luong_ra_moi != null && (
                           <s className="khsx-rt__cu">{num(n(r.so_luong_ra))}</s>
@@ -802,7 +811,7 @@ export function LsxRoutingTable({
                         <span className="khsx-num">
                           {num(r.so_luong_ra_moi ?? n(r.so_luong_ra))}
                         </span>
-                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_ra, r)}</span>
+                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_ra)}</span>
                         {(r.so_luong_vao_moi != null || r.so_luong_ra_moi != null) && (
                           <span className="khsx-rt__sub2 khsx-rt__lech">
                             danh mục đã đổi — bấm Lưu công đoạn để chốt số mới

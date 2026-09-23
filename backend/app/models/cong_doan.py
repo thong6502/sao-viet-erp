@@ -44,9 +44,11 @@ PRICING_BASIS = (
 # gán một dòng khuôn có thật, và hai lệnh mượn cùng một khuôn không được xếp trùng giờ.
 #
 TOOLING_TYPE = ("khuon_be", "khuon_ep", "khung_lua")
-# Cách công đoạn tính bù hao: không / tra bảng (trỏ 1 mã bù hao ở module Bù hao → tra bậc SL) /
-# cộng cố định `so_to_bu_hao` tờ (ép kim, UV… — không theo bảng).
-KIEU_BU_HAO = ("khong", "tra_bang", "co_dinh")
+# Cách công đoạn tính bù hao: không / theo bậc số lượng (bảng bậc khai ngay trên công đoạn →
+# tra bậc theo SL) / cộng cố định `so_to_bu_hao` tờ (ép kim, UV… — không theo bảng).
+# 22/09/2026: `tra_bang` (trỏ 1 mã ở module Bù hao) đổi thành `theo_bac`, module Bù hao đã gỡ.
+KIEU_BU_HAO = ("khong", "theo_bac", "co_dinh")
+DON_VI_BAC = ("to", "pct")            # giá trị một bậc = số tờ | % trên sản lượng ra của bước
 
 
 def _utcnow() -> datetime:
@@ -60,10 +62,13 @@ class CongDoan(Base):
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
     ten_hien_thi: Mapped[str | None] = mapped_column(String(150), nullable=True)  # tên in cho thợ sản xuất
-    # Bù hao: cách công đoạn này góp hao. tra_bang → trỏ 1 mã bù hao (`bu_hao_id`) rồi tra bậc theo
+    # Bù hao: cách công đoạn này góp hao. theo_bac → tra bảng bậc của CHÍNH nó (`bac_bu_hao`) theo
     # SL; co_dinh → cộng `so_to_bu_hao` tờ; khong → không góp.
     kieu_bu_hao: Mapped[str] = mapped_column(String(16), nullable=False, server_default="khong", default="khong")
-    bu_hao_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → bu_hao.id (soft) khi kieu=tra_bang
+    # Bậc số lượng ĐỘNG, mỗi bậc chỉ khai MỐC TRÊN: [{sl_den(None=∞), gia_tri, don_vi(to|pct)}].
+    # Cận dưới là mốc của bậc liền trước — không khai `sl_tu` nữa, khai hai đầu thì đẻ khoảng hở
+    # và khoảng chồng (xem `services/bu_hao_engine.py`).
+    bac_bu_hao: Mapped[list | None] = mapped_column(JSON, nullable=True)
     so_to_bu_hao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="50", default=50)  # +tờ hao khi kieu_bu_hao=co_dinh
     # Đơn vị VÀO / RA của công đoạn — KHAI, không đoán theo tên. Từ 06/09/2026 đây là MENU ĐÓNG
     # đúng 5 CHẶNG của dòng giấy (`don_vi_do.TRAM_DONG_GIAY`), KHÔNG còn trỏ vào danh mục đơn vị:

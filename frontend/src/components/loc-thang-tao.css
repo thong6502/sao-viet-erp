@@ -1,0 +1,37 @@
+/* Ô lọc theo tháng tạo đơn — xem LocThangTao.tsx. */
+.loc-thang-tao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.loc-thang-tao__nhan {
+  font-size: 12.5px;
+  color: var(--ash);
+  white-space: nowrap;
+}
+.loc-thang-tao__bo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Rộng theo cao (tròn đều): màn hẹp có luật chung nút cảm ứng tối thiểu 44px — giữ luật đó, chỉ
+     đừng để nút thành hình bầu dục 28×44. */
+  height: 28px;
+  width: auto;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  flex: none;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ash);
+  font-size: 12px;
+  cursor: pointer;
+}
+.loc-thang-tao__bo:hover {
+  color: var(--ink);
+  border-color: var(--rust);
+}
+.loc-thang-tao__bo:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}

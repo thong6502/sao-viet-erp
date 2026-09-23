@@ -8,6 +8,11 @@ import react from "@vitejs/plugin-react";
 // backend only through src/api/client.ts using VITE_API_BASE_URL.
 export default defineConfig({
   plugins: [react()],
+  // MapLibre tạo web worker riêng. Vite dep optimizer có thể sinh URL tới
+  // `maplibre-gl-worker.mjs` không tồn tại, làm style bản đồ kẹt ở trạng thái tải.
+  optimizeDeps: {
+    exclude: ["maplibre-gl"],
+  },
   server: {
     port: 5173,
     strictPort: true,

@@ -2339,6 +2339,14 @@ select.rc-input:focus {
   background: var(--paper, #f5f1e8);
 }
 
+/* Ô bậc bù hao (22/09/2026): cột 1 gộp NHÃN khoảng + ô mốc vì ô "Từ SL" đã bỏ, nên bảng còn
+   3 cột dữ liệu — cột Đơn vị lùi từ vị trí 4 về 3. Chỉ đè riêng cho bảng này: luật nth-child ở trên
+   dùng chung với bảng Khoản chuẩn bị. Ô mốc đẩy SÁT PHẢI để các bậc thẳng cột dù nhãn dài ngắn khác nhau. */
+.rc-bands--bac .rc-bands__table th:nth-child(3) { text-align: center; }
+.rc-bands__range { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.rc-bands__range-lbl { color: var(--ash, #8a8676); font-size: 12px; white-space: nowrap; }
+.rc-bands__range .rc-input { width: 96px; }
+
 /* Unit toggle styling (Segmented control) */
 .rc-bands__unit-toggle {
   display: inline-flex;

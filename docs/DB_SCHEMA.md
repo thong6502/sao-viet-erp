@@ -1,4 +1,4 @@
-﻿# DB_SCHEMA.md — Data Dictionary
+# DB_SCHEMA.md — Data Dictionary
 
 > **Single source of truth for the DATABASE SCHEMA.** Every table, what it is for, the
 > meaning of each column, primary keys, foreign keys, and indexes live here.
@@ -33,6 +33,9 @@ Whenever you **add / change / remove** a table, column, key, or index:
   **Relationships**.
 - Mark keys in the `Key` column: `PK` (primary), `FK→table.col` (foreign), `U` (unique),
   `IX` (indexed).
+- Mọi foreign key trỏ tới `users.id` dùng **ON DELETE CASCADE** (mg `0327`). Xóa cứng một tài
+  khoản sẽ xóa mọi dòng tham chiếu trực tiếp và có thể lan tiếp qua cascade của bảng con; quy tắc
+  này áp dụng kể cả khi mô tả lịch sử ở từng bảng chưa nhắc lại action.
 
 ---
 
@@ -598,7 +601,7 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `customer_id` | `Integer` | **FK→customers.id** (SET NULL), **IX** | yes | — | Khách hàng (SEAM-14 CRM read). |
 | `customer_name_snapshot` | `String(255)` | — | yes | — | Tên KH chốt tại thời điểm tạo (copy-on-write hiển thị). |
 | `phieu_tinh_gia_id` | `Integer` → `INTEGER` | **IX** (soft) | yes | — | **BG-1**: nguồn MỚI = 1 Phiếu tính giá (PTG). Soft link (plain int). 1 PTG → 1 BG đang hiệu lực — guard ở service (KHÔNG unique cứng; cancelled/rejected/expired nhả chỗ). Migration 0051. |
-| `salesperson_id` | `Integer` | **FK→users.id** (SET NULL), **IX** | yes | — | Sale phụ trách — RBAC data-scope owner. |
+| `salesperson_id` | `Integer` | **FK→users.id** (CASCADE), **IX** | yes | — | Sale phụ trách — RBAC data-scope owner. |
 | `status` | `String(20)` | — | no | `draft` | draft/**pending_approval**/sent/accepted/rejected/expired/converted_to_order/cancelled (redesign-bao-gia §3). |
 | `current_version_id` | `Integer` | **IX** | yes | — | Phiên bản đang hiệu lực (con trỏ, không FK để tránh vòng). |
 | `valid_until` | `Date` | — | yes | — | Hạn hiệu lực; quá hạn → expired (chặn duyệt). |
@@ -611,7 +614,7 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `customer_note` | `String(1000)` | — | yes | — | Ghi chú hiện cho khách. |
 | `internal_note` | `String(1000)` | — | yes | — | Ghi chú nội bộ. |
 | `cancel_reason` | `String(500)` | — | yes | — | Lý do hủy (bắt buộc khi cancelled). |
-| `created_by` | `Integer` | **FK→users.id** (SET NULL) | yes | — | Người tạo. |
+| `created_by` | `Integer` | **FK→users.id** (CASCADE) | yes | — | Người tạo. |
 | `created_at` | `DateTime(tz)` | — | no | now (UTC) | Tạo lúc. |
 | `updated_at` | `DateTime(tz)` | — | no | now (UTC) | Sửa lần cuối (onupdate). |
 | `decision_seen_at` | `DateTime(tz)` | — | yes | — | Mốc người soạn đã xem quyết định GĐ gần nhất (real-time gửi duyệt); NULL = có quyết định mới chưa xem. |
@@ -642,7 +645,7 @@ copy-on-write: `internal_cost_snapshot_json` (phân rã giá vốn theo các dò
 | `vat_amount`                    | `Numeric(15,2)` | —                                  | no   | `0`     | Tiền VAT.                                                               |
 | `final_amount`                  | `Numeric(15,2)` | —                                  | no   | `0`     | Tổng cộng (đã VAT).                                                     |
 | `pdf_file_url`                  | `String(255)`   | —                                  | yes  | —       | File PDF đối ngoại đã xuất (nếu có).                                    |
-| `created_by`                    | `Integer`       | **FK→users.id** (SET NULL)         | yes  | —       | Người tạo version.                                                      |
+| `created_by`                    | `Integer`       | **FK→users.id** (CASCADE)         | yes  | —       | Người tạo version.                                                      |
 | `created_at`                    | `DateTime(tz)`  | —                                  | no   | now     | Tạo lúc.                                                                |
 | `sent_at`                       | `DateTime(tz)`  | —                                  | yes  | —       | Gửi khách lúc (tính tuổi phiếu "đã gửi N ngày").                        |
 | `accepted_at`                   | `DateTime(tz)`  | —                                  | yes  | —       | Khách chốt lúc.                                                         |
@@ -694,7 +697,7 @@ Phiếu tính giá nguồn** (báo giá không soạn tay). Giá vốn đóng b�
 | `file_name`        | `String(255)`  | —                                          | no   | —       | Tên file.                    |
 | `file_url`         | `String(500)`  | —                                          | no   | —       | Đường dẫn lưu trữ.           |
 | `file_type`        | `String(100)`  | —                                          | yes  | —       | MIME/loại file.              |
-| `uploaded_by`      | `Integer`      | **FK→users.id** (SET NULL)                 | yes  | —       | Người upload.                |
+| `uploaded_by`      | `Integer`      | **FK→users.id** (CASCADE)                 | yes  | —       | Người upload.                |
 | `uploaded_at`      | `DateTime(tz)` | —                                          | no   | now     | Upload lúc.                  |
 
 ### `quote_activity_logs`
@@ -710,7 +713,7 @@ liệu cho khung timeline trên UI detail.
 | `action`              | `String(50)`   | —                                          | no   | —       | Động từ sự kiện (create_quote, send_quote…). |
 | `old_value_json`      | `JSON`         | —                                          | yes  | —       | Giá trị trước (diff).                        |
 | `new_value_json`      | `JSON`         | —                                          | yes  | —       | Giá trị sau (diff).                          |
-| `actor_id`            | `Integer`      | **FK→users.id** (SET NULL)                 | yes  | —       | Người thao tác.                              |
+| `actor_id`            | `Integer`      | **FK→users.id** (CASCADE)                 | yes  | —       | Người thao tác.                              |
 | `actor_name_snapshot` | `String(255)`  | —                                          | yes  | —       | Tên người thao tác chốt lúc ghi.             |
 | `created_at`          | `DateTime(tz)` | —                                          | no   | now     | Xảy ra lúc.                                  |
 
@@ -776,7 +779,7 @@ data. Duyệt bản in + tiến độ SX = luồng NGOÀI hệ thống (không l
 
 - Primary key: `id`.
 - Indexes: `ix_orders_order_no` (U), `ix_orders_customer_id`, `ix_orders_quotation_id`, `ix_orders_parent_order_id`, `ix_orders_sale_user_id` (scope filter).
-- Foreign keys: `customer_id FK→customers.id` (ON DELETE SET NULL), `parent_order_id FK→orders.id` (ON DELETE SET NULL, self-FK), `sale_user_id FK→users.id`. `quotation_id` is deliberately NOT a FK (SEAM-04; báo giá versioned — the (id, version) pin is the reference).
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE CASCADE), `parent_order_id FK→orders.id` (ON DELETE CASCADE, self-FK), `sale_user_id FK→users.id`. `quotation_id` is deliberately NOT a FK (SEAM-04; báo giá versioned — the (id, version) pin is the reference).
 
 ### `payments`
 
@@ -801,7 +804,7 @@ data. Duyệt bản in + tiến độ SX = luồng NGOÀI hệ thống (không l
 
 - Primary key: `id`.
 - Indexes: `ix_payments_order_id`, `ix_payments_customer_id`.
-- Foreign keys: `order_id FK→orders.id` (ON DELETE CASCADE), `customer_id FK→customers.id` (ON DELETE SET NULL), `created_by FK→users.id`.
+- Foreign keys: `order_id FK→orders.id` (ON DELETE CASCADE), `customer_id FK→customers.id` (ON DELETE CASCADE), `created_by FK→users.id`.
 
 **Relationships**
 
@@ -864,7 +867,7 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 | `min_margin_pct` | `Integer` → `INTEGER` | — | yes | — | Ngưỡng biên đang HIỆU LỰC lúc GĐ ký (đổi hằng số sau vẫn còn căn cứ audit). |
 | `high_value_threshold` | `BigInteger` → `BIGINT` | — | yes | — | Ngưỡng giá-trị-cao đang HIỆU LỰC lúc GĐ ký. |
 | `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Lý do GĐ (khuyến nghị khi từ chối). |
-| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết định (GĐ). ON DELETE SET NULL. |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết định (GĐ). ON DELETE CASCADE. |
 | `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm quyết định (tie-break cho "bản gần nhất"). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
 
@@ -872,7 +875,7 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 
 - Primary key: `id`.
 - Indexes: `ix_order_approvals_order_id`.
-- Foreign keys: `order_id FK→orders.id` (ON DELETE CASCADE), `decided_by FK→users.id` (ON DELETE SET NULL).
+- Foreign keys: `order_id FK→orders.id` (ON DELETE CASCADE), `decided_by FK→users.id` (ON DELETE CASCADE).
 
 **Relationships**
 
@@ -893,12 +896,12 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 | `file_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Tên file gốc. |
 | `content_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
 | `size_bytes` | `Integer` → `INTEGER` | — | no | `0` | Kích thước file (byte). |
-| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tải lên. ON DELETE SET NULL. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tải lên. ON DELETE CASCADE. |
 | `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When uploaded. |
 
 **Keys & indexes**
 
-- Primary key: `id`. Indexes: `ix_order_attachments_order_id`. Foreign keys: `order_id`→orders.id (CASCADE), `uploaded_by`→users.id (SET NULL).
+- Primary key: `id`. Indexes: `ix_order_attachments_order_id`. Foreign keys: `order_id`→orders.id (CASCADE), `uploaded_by`→users.id (CASCADE).
 
 ---
 
@@ -919,14 +922,14 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 | `min_markup_pct` | `Integer` → `INTEGER` | — | yes | — | Sàn **MARKUP** của khách đang HIỆU LỰC lúc GĐ ký (đổi rào sau vẫn còn căn cứ audit). Tên cũ `min_margin_pct`, đổi tên qua migration 0242. |
 | `high_value_threshold` | `BigInteger` → `BIGINT` | — | yes | — | Ngưỡng giá-trị-cao đang HIỆU LỰC lúc GĐ ký. |
 | `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Lý do GĐ (khuyến nghị khi từ chối). |
-| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết định (GĐ). ON DELETE SET NULL. |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết định (GĐ). ON DELETE CASCADE. |
 | `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm quyết định (tie-break "bản gần nhất"). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
 
 **Keys & indexes**
 
 - Primary key: `id`. Indexes: `ix_quote_approvals_quote_id`.
-- Foreign keys: `quote_id FK→quotes.id` (ON DELETE CASCADE), `decided_by FK→users.id` (ON DELETE SET NULL).
+- Foreign keys: `quote_id FK→quotes.id` (ON DELETE CASCADE), `decided_by FK→users.id` (ON DELETE CASCADE).
 
 **Relationships**
 
@@ -1095,8 +1098,8 @@ client's httpOnly cookie.
 | `overhead_included`                | `Boolean` → `BOOLEAN`                                  | —             | no   | `true`         | Overhead xưởng đã gồm trong đơn giá giờ.                                                                    |
 | `operator_included`                | `Boolean` → `BOOLEAN`                                  | —             | no   | `true`         | Nhân công vận hành đã gồm trong đơn giá giờ (hourly_rate_includes_operator).                                |
 | `used_count`                       | `Integer` → `INTEGER`                                  | —             | no   | `0`            | Số báo giá snapshot đã dùng máy. `>0` ⇒ khóa sửa thông số ảnh hưởng giá; không xóa.                         |
-| `created_by`                       | `Integer` → `INTEGER`                                  | **FK**        | yes  | —              | Người tạo → `users.id` (ON DELETE SET NULL).                                                                |
-| `updated_by`                       | `Integer` → `INTEGER`                                  | **FK**        | yes  | —              | Người sửa → `users.id` (ON DELETE SET NULL).                                                                |
+| `created_by`                       | `Integer` → `INTEGER`                                  | **FK**        | yes  | —              | Người tạo → `users.id` (ON DELETE CASCADE).                                                                |
+| `updated_by`                       | `Integer` → `INTEGER`                                  | **FK**        | yes  | —              | Người sửa → `users.id` (ON DELETE CASCADE).                                                                |
 | `is_active`                        | `Boolean` → `BOOLEAN`                                  | —             | no   | `true`         | Active status of machine (suy từ `status == active`).                                                       |
 | `created_at`                       | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | Creation timestamp.                                                                                         |
 | `updated_at`                       | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | Last updated timestamp.                                                                                     |
@@ -1268,8 +1271,8 @@ client's httpOnly cookie.
 | `effective_to`         | `Date` → `DATE`                                        | —               | yes  | —              | Rate effective end date. Null means current.                                                         |
 | `is_active`            | `Boolean` → `BOOLEAN`                                  | —               | no   | `true`         | Active status flag.                                                                                  |
 | `used_count`           | `Integer` → `INTEGER`                                  | —               | no   | `0`            | Số phiếu/công đoạn đã dùng.                                                                          |
-| `created_by`           | `Integer` → `INTEGER`                                  | **FK→users.id** | yes  | —              | Người tạo; `ON DELETE SET NULL`.                                                                     |
-| `updated_by`           | `Integer` → `INTEGER`                                  | **FK→users.id** | yes  | —              | Người sửa cuối; `ON DELETE SET NULL`.                                                                |
+| `created_by`           | `Integer` → `INTEGER`                                  | **FK→users.id** | yes  | —              | Người tạo; `ON DELETE CASCADE`.                                                                     |
+| `updated_by`           | `Integer` → `INTEGER`                                  | **FK→users.id** | yes  | —              | Người sửa cuối; `ON DELETE CASCADE`.                                                                |
 | `created_at`           | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —               | no   | now (UTC)      | Creation timestamp.                                                                                  |
 | `updated_at`           | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —               | no   | now (UTC)      | Last updated timestamp.                                                                              |
 
@@ -1278,7 +1281,7 @@ client's httpOnly cookie.
 - Primary key: `id`.
 - Index: `ix_plate_die_rates_plate_type` on `plate_type`; `ix_plate_die_rates_code` on `code`.
 - Unique index: `uix_plate_die_rates_current` on `(code) WHERE effective_to IS NULL`.
-- Foreign keys: `created_by` / `updated_by` → `users.id` (`ON DELETE SET NULL`).
+- Foreign keys: `created_by` / `updated_by` → `users.id` (`ON DELETE CASCADE`).
 - Referenced by `operations.tooling_rate_id` (plain Integer, no FK).
 
 ---
@@ -1827,6 +1830,34 @@ Phiếu tăng ca (module `tang_ca`): NV tự gửi → tổ trưởng duyệt, H
 
 ---
 
+### `yeu_cau_huy`
+
+Yêu cầu HỦY đơn nghỉ phép / phiếu tăng ca **ĐÃ DUYỆT** (chủ chốt 23/09/2026 — `docs/prd-xin-huy-don-da-duyet.md`). Người lao động không tự hủy thẳng đơn đã duyệt nữa, chỉ XIN hủy; ai có quyền duyệt đơn (trong phạm vi) thì đồng ý hoặc giữ nguyên. Một bảng cho cả hai loại đơn (`loai`). Đơn gốc GIỮ `approved` tới khi được đồng ý — bảng công / quỹ phép / cổng chấm tăng ca không đọc bảng này. Người duyệt hủy thẳng đơn đã duyệt cũng ghi một dòng (`truc_tiep = true`) để lưu lý do. Bảng mới do `create_all` tạo (không migration).
+
+| Column | Type (Py → SQL) | Key | Null | Default | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` | **PK** | no | auto | Khóa chính. |
+| `loai` | `String(12)` → `VARCHAR(12)` | **IX(loai, request_id)** | no | — | `nghi_phep` (leave_requests) · `tang_ca` (overtime_requests). |
+| `request_id` | `Integer` → `INTEGER` | **IX(loai, request_id)** | no | — | Id đơn gốc trong bảng theo `loai` (hai bảng nên không đặt FK). |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id, IX** | no | — | Người đứng tên đơn (chép từ đơn) — lọc phạm vi người duyệt. ON DELETE CASCADE. |
+| `ly_do` | `String(500)` → `VARCHAR(500)` | — | no | — | Lý do xin hủy (hoặc lý do hủy thẳng). |
+| `trang_thai` | `String(12)` → `VARCHAR(12)` | **IX** | no | `cho` | `cho` · `dong_y` · `giu_nguyen` · `rut_lai`. Tối đa một dòng `cho` mỗi đơn (service giữ). |
+| `truc_tiep` | `Boolean` → `BOOLEAN` | — | no | `false` | Người duyệt / HCNS hủy thẳng, không qua bước xin. |
+| `huy_tu_ngay` | `Date` → `DATE` | — | yes | — | Đơn nghỉ ĐANG DỞ: hủy từ ngày này (ngày gửi xin hủy), giữ các ngày trước. NULL = hủy cả đơn. |
+| `den_ngay_cu` | `Date` → `DATE` | — | yes | — | `end_date` gốc của đơn nghỉ, ghi khi đồng ý rút ngắn. |
+| `ly_do_quyet` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú người quyết — bắt buộc khi giữ nguyên. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người gửi (CASCADE khi xoá tài khoản — luật chung mg 0327). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi gửi. |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết (CASCADE khi xoá tài khoản — luật chung mg 0327). |
+| `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Khi quyết / khi rút lại. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_yeu_cau_huy_don (loai, request_id)`, `employee_id`, `trang_thai`.
+
+---
+
 ### `late_early_requests`
 
 Phiếu xin **ĐI MUỘN / VỀ SỚM / NGHỈ NỬA BUỔI** (module `di_muon`): NV tự gửi → **tổ trưởng duyệt**, HOẶC tổ trưởng khai hộ (duyệt luôn) — cùng luồng phiếu tăng ca. Cố ý KHÔNG dùng chung `leave_requests`: đây là **phiếu chấm công ngoại lệ**, người duyệt khác (tổ trưởng vs HCNS), và gộp chung thì phải nhớ lọc nó ra ở 7 chỗ đọc đơn nghỉ (badge, chuông, lịch nghỉ, 2 danh sách, chặn chốt công, quota). **Hai nhánh tiền** phân biệt bằng `leave_type_id`: NULL = mất công phần vắng, không đụng quỹ phép; khác NULL = tiêu `leave_cong` ngày phép và phần vắng vẫn được trả theo **lương vị trí**. Cả hai nhánh đều được **miễn phạt** đi muộn/về sớm đúng số phút đã xin. Bảng mới do `create_all` tạo (không migration).
@@ -2160,7 +2191,7 @@ có gì báo lỗi.
 
 - Primary key: `id`. Unique index on `code`.
 - Indexes on `status`, `source_type`, `requesting_department_id`, `requested_by_user_id`, `related_document_code`.
-- Foreign keys: `requesting_department_id FK→departments.id` (set null), `requested_by_user_id FK→users.id` (set null).
+- Foreign keys: `requesting_department_id FK→departments.id` (CASCADE), `requested_by_user_id FK→users.id` (CASCADE).
 
 **Relationships**
 
@@ -2186,7 +2217,7 @@ có gì báo lỗi.
 | `expected_unit_price`   | `BigInteger` → `BIGINT`               | —                                              | no   | `0`            | Luôn bằng 0 ở yêu cầu phòng ban; phòng ban chỉ nhập số lượng, Thu mua mới nhập giá trên PMH. |
 | `note`                  | `Text` → `TEXT`                       | —                                              | yes  | —              | Ghi chú dòng.                                                                                |
 | `cancelled_at`          | `DateTime(tz)` → `TIMESTAMPTZ`        | —                                              | yes  | —              | Mốc HUỶ RIÊNG DÒNG NÀY (mg 0233). `NULL` = dòng còn sống. Trạng thái phiếu cha dẫn xuất từ các dòng CÒN SỐNG; huỷ hết dòng thì phiếu mới `cancelled`. Dòng huỷ không bị xoá (giữ vết + `purchase_request_lines.department_request_line_id` có thể còn trỏ tới). |
-| `cancelled_by_user_id`  | `Integer` → `INTEGER`                 | **FK→users.id** (SET NULL)                     | yes  | —              | Ai bấm huỷ dòng. `NULL` = dòng chưa huỷ, hoặc người huỷ đã bị xoá.                            |
+| `cancelled_by_user_id`  | `Integer` → `INTEGER`                 | **FK→users.id** (CASCADE)                     | yes  | —              | Ai bấm huỷ dòng. `NULL` = dòng chưa huỷ; xoá người huỷ sẽ cascade xoá dòng.                   |
 | `cancel_reason`         | `Text` → `TEXT`                       | —                                              | yes  | —              | Lý do huỷ dòng — BẮT BUỘC nhập ở API, hiện ngay dưới tên vật tư đã gạch ngang.                 |
 
 **Keys & indexes**
@@ -2194,7 +2225,7 @@ có gì báo lỗi.
 - Primary key: `id`.
 - Index on `department_request_id`.
 - Foreign key: `department_request_id FK→department_purchase_requests.id` (cascade).
-- Foreign key: `cancelled_by_user_id FK→users.id` (SET NULL). ⚠️ Khoá ngoại CHỈ có trên DB dựng bằng `create_all`; mg 0233 chỉ ADD COLUMN.
+- Foreign key: `cancelled_by_user_id FK→users.id` (CASCADE). ⚠️ Khoá ngoại CHỈ có trên DB dựng bằng `create_all`; mg 0233 chỉ ADD COLUMN.
 
 **Relationships**
 
@@ -2259,7 +2290,7 @@ duyệt trực tiếp trên phiếu này trước khi Thu mua mua hàng.
 - Primary key: `id`.
 - Unique index on `code`.
 - Indexes on `status`, `supplier_id`, `created_by_user_id`, `approved_by_user_id`.
-- Foreign keys: `supplier_id FK→suppliers.id` (set null), `created_by_user_id FK→users.id` (set null), `approved_by_user_id FK→users.id` (set null).
+- Foreign keys: `supplier_id FK→suppliers.id` (CASCADE), `created_by_user_id FK→users.id` (CASCADE), `approved_by_user_id FK→users.id` (CASCADE).
 
 **Relationships**
 
@@ -2474,10 +2505,10 @@ giá trị đơn đã chốt. One row = 1 hóa đơn bán.
 | `due_date`                   | `Date` → `DATE`                                        | —                                 | yes  | —          | Hạn thanh toán của hóa đơn.                                     |
 | `customer_name_snapshot`     | `String(255)` → `VARCHAR(255)`                         | —                                 | no   | —          | Tên khách hàng tại lúc phát hành.                               |
 | `status`                     | `String(16)` → `VARCHAR(16)`                           | **IX**                            | no   | `issued`   | `issued` hoặc `cancelled`.                                      |
-| `created_by_user_id`         | `Integer` → `INTEGER`                                  | **FK→users.id**                   | yes  | —          | Người ghi nhận hóa đơn; `ON DELETE SET NULL`.                   |
+| `created_by_user_id`         | `Integer` → `INTEGER`                                  | **FK→users.id**                   | yes  | —          | Người ghi nhận hóa đơn; `ON DELETE CASCADE`.                   |
 | `created_at`                 | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                                 | no   | now (UTC)  | Khi tạo.                                                        |
 | `updated_at`                 | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                                 | no   | now (UTC)  | Cập nhật cuối.                                                  |
-| `cancelled_by_user_id`       | `Integer` → `INTEGER`                                  | **FK→users.id**                   | yes  | —          | Người hủy hóa đơn; `ON DELETE SET NULL`.                         |
+| `cancelled_by_user_id`       | `Integer` → `INTEGER`                                  | **FK→users.id**                   | yes  | —          | Người hủy hóa đơn; `ON DELETE CASCADE`.                         |
 | `cancelled_at`               | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                                 | yes  | —          | Thời điểm hủy.                                                  |
 | `cancel_reason`              | `Text` → `TEXT`                                        | —                                 | yes  | —          | Lý do hủy.                                                      |
 
@@ -2661,7 +2692,7 @@ là phiếu 2 tiếng lại chặn chốt công / vẽ thành nghỉ trọn ngà
 
 - Primary key: `id`.
 - Indexes: `ix_leave_requests_employee_id`, `ix_leave_requests_leave_type_id`, `ix_leave_requests_start_date`, `ix_leave_requests_status`.
-- Foreign keys: `employee_id FK→employees.id` (CASCADE), `leave_type_id FK→leave_types.id` (SET NULL), `decided_by`/`created_by FK→users.id`.
+- Foreign keys: `employee_id FK→employees.id` (CASCADE), `leave_type_id FK→leave_types.id` (CASCADE), `decided_by`/`created_by FK→users.id`.
 
 **Relationships**
 
@@ -2804,12 +2835,12 @@ tiêu hiệu lực tại ngày D = mốc có `ap_dung_tu` lớn nhất ≤ D. **
 | `ap_dung_tu`    | `Date`          | **U(department_id, ap_dung_tu)**   | no   | —       | Áp dụng từ ngày. Khai lại CÙNG ngày = sửa số của mốc đó.  |
 | `so_tien`       | `Numeric(14,2)` | —                                  | no   | —       | Chỉ tiêu: tiền sản lượng một thợ phải làm ra / 1 công (> 0). |
 | `ghi_chu`       | `String(255)`   | —                                  | yes  | —       | Ghi chú tự do (lý do đổi chỉ tiêu…).                      |
-| `created_by`    | `Integer`       | **FK→users.id**                    | yes  | —       | Người khai mốc (SET NULL khi xoá tài khoản).              |
+| `created_by`    | `Integer`       | **FK→users.id**                    | yes  | —       | Người khai mốc; xoá tài khoản sẽ cascade xoá dòng.        |
 | `updated_at`    | `DateTime(tz)`  | —                                  | no   | now     | Lần ghi gần nhất.                                         |
 
 **Keys & indexes**
 
-- Primary key: `id`. Foreign keys: `department_id FK→departments.id` (CASCADE), `created_by FK→users.id` (SET NULL).
+- Primary key: `id`. Foreign keys: `department_id FK→departments.id` (CASCADE), `created_by FK→users.id` (CASCADE).
 - Unique: `(department_id, ap_dung_tu)` — `uq_khoan_chi_tieu_ngay_to_ngay`.
 - Index: `ix_khoan_chi_tieu_ngay_department_id`.
 
@@ -2834,12 +2865,12 @@ dụng từ ngày" như `khoan_chi_tieu_ngay`. Chế độ hiệu lực ngày D 
 | `che_do`        | `String(10)`    | —                                  | no   | —       | `khong` (không áp dụng) · `thuong` (ăn thưởng) · `chia` (ăn chia). |
 | `ty_le`         | `Numeric(5,2)`  | —                                  | no   | `0`     | % trên sản lượng tổ (5 = 5%). `khong` lưu 0; `chia` phải < 100. |
 | `ghi_chu`       | `String(255)`   | —                                  | yes  | —       | Ghi chú tự do.                                                 |
-| `created_by`    | `Integer`       | **FK→users.id**                    | yes  | —       | Người khai mốc (SET NULL khi xoá tài khoản).                   |
+| `created_by`    | `Integer`       | **FK→users.id**                    | yes  | —       | Người khai mốc; xoá tài khoản sẽ cascade xoá dòng.             |
 | `updated_at`    | `DateTime(tz)`  | —                                  | no   | now     | Lần ghi gần nhất.                                              |
 
 **Keys & indexes**
 
-- Primary key: `id`. Foreign keys: `department_id FK→departments.id` (CASCADE), `created_by FK→users.id` (SET NULL).
+- Primary key: `id`. Foreign keys: `department_id FK→departments.id` (CASCADE), `created_by FK→users.id` (CASCADE).
 - Unique: `(department_id, ap_dung_tu)` — `uq_khoan_to_truong_to_ngay`.
 - Index: `ix_khoan_to_truong_department_id`.
 
@@ -3322,9 +3353,9 @@ dùng cho bình bài.
 
 `setup_time` và `may_id` là mặc định khi bung LSX. `nang_suat` là cột legacy chỉ giữ để bảo toàn/backfill dữ liệu cũ: LSX mới lấy tốc độ bước Máy từ `may_thiet_bi.toc_do`, còn bước Tổ lấy SỐ GIỜ KẾ HOẠCH người lập lệnh gõ tay (`lsx_cong_doan.so_gio_ke_hoach`, mg `0319`) — năng suất/người đi theo bảng đầu việc định mức đã gỡ ở mg `0320`.
 
-`spoilage_pct` là cột CŨ, chỉ `routing_engine` của hệ tính giá cũ dùng; không có ô nhập và Lệnh SX KHÔNG đọc — hao hụt đi qua module `bu_hao` (mỗi bậc tự chọn `to`|`pct`).
+`spoilage_pct` là cột CŨ, chỉ `routing_engine` của hệ tính giá cũ dùng; không có ô nhập và Lệnh SX KHÔNG đọc — hao hụt đi qua bảng bậc `bac_bu_hao` của chính công đoạn (mỗi bậc tự chọn `to`|`pct`).
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `nhom_may_cho_phep`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `kieu_bu_hao`, `bac_bu_hao`, `nhom`, `nhom_may_cho_phep`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 🔴 **GỠ 18/09/2026 (mg `0324`): `cong_thuc_san_luong` · `don_vi_san_luong` · `he_so_ngoai_dong`.** Ba cột của bước NGOÀI dòng giấy: công thức sản lượng RA (mg `0214`, vd Ghi kẽm CTP `so_kem` ⇒ 4 bản, rồi engine suy ngược vế VÀO qua cầu quy đổi + bù hao), đơn vị của số ấy (mg `0289`, `kem`) và hệ số vào→ra khai tay (mg `0196`, ngưng dùng từ 20/08/2026). Theo yêu cầu chủ xưởng: số bản kẽm đổi theo từng đơn nên bước ngoài dòng giấy nay chỉ có số khi người lập lệnh TỰ KHAI đơn vị + số ở bước (`lsx_service.tu_khai_don_vi`); không khai thì bước đứng ở 0. Migration xoá luôn dòng `cong_thuc_lich_su` của trường `cong_thuc_san_luong`. Không khôi phục được.
 
@@ -3457,7 +3488,7 @@ Ca **một đầu trống một đầu có** và ca **mã ngoài 5 chặng** đ�
 
 `khoan_ghi_theo`: công đoạn có tính khoán không — `nguoi` (ghi Phiếu sản lượng theo từng người → cột Khoán bảng lương) / `khong`. `allowed_defect_pct`/`allowed_defect_abs`: ngưỡng hao cho phép (max của 2), phần vượt mới trừ lỗi.
 
-`kieu_bu_hao`: nối bù hao — `khong` / `tra_bang` (trỏ 1 mã bù hao qua `bu_hao_id` → tra bậc theo SL) / `co_dinh` (cộng `so_to_bu_hao` tờ). `bu_hao_id`: soft int → `bu_hao.id` (dùng khi `kieu_bu_hao='tra_bang'`).
+`kieu_bu_hao`: cách góp hao — `khong` / `theo_bac` (tra bảng bậc của CHÍNH công đoạn theo SL) / `co_dinh` (cộng `so_to_bu_hao` tờ). `bac_bu_hao`: JSON `[{sl_den(None=∞), gia_tri, don_vi(to|pct)}]`, mỗi bậc chỉ khai MỐC TRÊN — cận dưới là mốc của bậc liền trước. **Module Bù hao độc lập GỠ 22/09/2026 (mg `0327`)**: bảng `bu_hao` và cột `cong_doan.bu_hao_id` nằm lại **orphan** trên DB đã chạy (không Alembic ⇒ không drop), không còn code nào đọc/ghi.
 
 > 🔴 **`department_id` GỠ 18/09/2026 (mg `0312`)** — MỘT tổ phụ trách. Một công đoạn nay do NHIỀU
 > tổ làm ⇒ danh sách ở bảng nối `cong_doan_to`. Migration chép cột sang bảng nối (thứ tự 0) rồi mới gỡ.
@@ -3533,13 +3564,7 @@ là mặc định lúc tạo lệnh / đổi công đoạn. Định mức đầu
 **Keys & indexes**
 
 - Primary key: `id`. Unique: (`department_id`, `ngay`). Index: `department_id`, `ngay`.
-- FK: `nguoi_sua_id FK→users.id` (SET NULL). `department_id` **soft-ref** — FK cứng sẽ chặn xoá phòng vì một dòng quân số của ngày nào đó năm ngoái.
-
-### `bu_hao`
-
-**Purpose:** danh mục Bù hao — mỗi mã = danh sách BẬC số lượng → số tờ / %. Mô hình MỞ: bậc là dữ liệu JSON (`bac`), không phải cột cứng. Công đoạn TRỎ THẲNG 1 mã bù hao (qua `cong_doan.bu_hao_id`); engine tra bậc theo SL (bỏ trục số màu/số con). `bac` = `[{sl_tu, sl_den, gia_tri, don_vi(to|pct)}]`.
-
-**Tất cả cột:** `id`, `ma`, `ten`, `bac`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+- FK: `nguoi_sua_id FK→users.id` (CASCADE). `department_id` **soft-ref** — FK cứng sẽ chặn xoá phòng vì một dòng quân số của ngày nào đó năm ngoái.
 
 ### `don_vi_do`
 
@@ -4720,7 +4745,9 @@ Chỉ chép ba thứ đổi được qua một lần cập nhật lịch: máy +
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | onupdate = now. |
 
-**Ràng buộc:** UNIQUE(`cong_viec_id`, `employee_id`, `trang_thai`) — một người chỉ một dòng đang hoạt động trên một công việc.
+**Ràng buộc:** partial UNIQUE INDEX `uq_phan_cong_cv_nv_active` trên
+(`cong_viec_id`, `employee_id`) WHERE `trang_thai='active'` — một người chỉ có một phân công đang
+hoạt động trên một công việc; cho phép nhiều dòng `removed` để giữ đủ lịch sử giao/rút/giao lại.
 
 **Tất cả cột:** `id`, `cong_viec_id`, `employee_id`, `la_luong_khoan`, `trang_thai`, `ly_do_rut`, `version`, `created_by`, `created_at`, `updated_at`.
 
@@ -5844,13 +5871,13 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file gốc người dùng tải lên. |
 | `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn phục vụ file. |
 | `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
-| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** (SET NULL) | yes | — | Ai tải lên. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** (CASCADE) | yes | — | Ai tải lên. |
 | `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tải lên. |
 
 **Keys & indexes**
 
 - Primary key: `id`. Index trên `stock_voucher_id`.
-- Foreign keys: `stock_voucher_id FK→stock_vouchers.id` (ON DELETE CASCADE), `uploaded_by FK→users.id` (ON DELETE SET NULL).
+- Foreign keys: `stock_voucher_id FK→stock_vouchers.id` (ON DELETE CASCADE), `uploaded_by FK→users.id` (ON DELETE CASCADE).
 
 **Relationships**
 
@@ -6130,7 +6157,7 @@ tài xế chụp mờ/chụp nhầm là chuyện thường, khoá lại là bu�
 | `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file đã làm sạch (`storage.safe_name`). |
 | `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường đọc lại qua `/api/files/...`. |
 | `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME lúc tải lên. |
-| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** (SET NULL) | yes | — | Ai tải lên. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** (CASCADE) | yes | — | Ai tải lên. |
 | `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` | Lúc nào. |
 
 ### `muc_khoan_km`
@@ -6229,7 +6256,7 @@ cho mọi người có quyền đọc màn đó, không nhân bản theo ngườ
 **Keys & indexes**
 
 - Primary key: `id`.
-- Foreign keys: `actor_user_id FK→users.id` (`SET NULL`), `recipient_user_id FK→users.id` (`CASCADE`).
+- Foreign keys: `actor_user_id FK→users.id` (`CASCADE`), `recipient_user_id FK→users.id` (`CASCADE`).
 - Indexes: `channel`, `actor_user_id`, `recipient_user_id`, `created_at`.
 
 **Relationships**
@@ -6350,7 +6377,7 @@ su = 1 dòng, `so_luong` = 12). Phân biệt bằng `loai`, KHÔNG tách bảng 
 | `ghi_chu`               | `Text` → `TEXT`                                        | —                            | yes  | —              | Ghi chú tự do — kể cả định khoản. Hệ KHÔNG đọc nội dung.                                      |
 | `trang_thai`            | `String(12)` → `VARCHAR(12)`                           | **IX**                       | no   | `dang_dung`    | `dang_dung`; `da_giam` chỉ còn ở dòng CŨ (nghiệp vụ ghi giảm bỏ 08/09/2026).                                                                     |
 | `ngay_giam`             | `Date` → `DATE`                                        | —                            | yes  | —              | Chỉ dòng CŨ đã ghi giảm trước 08/09/2026 — engine vẫn ngừng trích từ đây; không mã nào ghi vào cột này nữa. |
-| `created_by_user_id`    | `Integer` → `INTEGER`                                  | FK→`users.id`                | yes  | —              | Người lập phiếu ghi tăng. `ON DELETE SET NULL`.                                               |
+| `created_by_user_id`    | `Integer` → `INTEGER`                                  | FK→`users.id`                | yes  | —              | Người lập phiếu ghi tăng. `ON DELETE CASCADE`.                                               |
 | `created_at`            | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                            | no   | now (UTC)      | Lúc tạo.                                                                                      |
 | `updated_at`            | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                            | no   | now (UTC)      | Lúc sửa gần nhất.                                                                             |
 
@@ -6358,7 +6385,7 @@ su = 1 dòng, `so_luong` = 12). Phân biệt bằng `loai`, KHÔNG tách bảng 
 
 - Primary key: `id`. Unique + index: `ma`. Index: `loai`, `trang_thai`, `bo_phan_id`.
 - Foreign keys: `bo_phan_id FK→departments.id` (SET NULL), `nguoi_quan_ly_id FK→employees.id` (SET NULL),
-  `created_by_user_id FK→users.id` (SET NULL).
+  `created_by_user_id FK→users.id` (CASCADE).
 
 **Relationships**
 
@@ -6414,14 +6441,14 @@ ba nghiệp vụ dùng chung phần lớn cột và luôn được đọc chung 
 | `so_thang_con_lai`  | `Integer` → `INTEGER`                                  | —                        | yes  | —              | Chỉ nâng cấp: số tháng còn dùng kể từ kỳ áp dụng.                        |
 | `so_luong_giam`     | `Integer` → `INTEGER`                                  | —                        | yes  | —              | Chỉ dòng ghi giảm CŨ theo lô (nghiệp vụ đã bỏ). |
 | `ly_do`             | `String(255)` → `VARCHAR(255)`                         | —                        | yes  | —              | Lý do (thanh lý, nhượng bán, mất, hỏng, góp vốn…).                       |
-| `nguoi_tao_id`      | `Integer` → `INTEGER`                                  | FK→`users.id`            | yes  | —              | Người lập. `ON DELETE SET NULL`.                                         |
+| `nguoi_tao_id`      | `Integer` → `INTEGER`                                  | FK→`users.id`            | yes  | —              | Người lập. `ON DELETE CASCADE`.                                         |
 | `created_at`        | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                        | no   | now (UTC)      | Lúc lập.                                                                  |
 
 **Keys & indexes**
 
 - Primary key: `id`. Index: `tai_san_id`, `loai`, `ngay`.
 - Foreign keys: `tai_san_id FK→tai_san.id` (RESTRICT), `bo_phan_moi_id FK→departments.id` (SET NULL),
-  `nguoi_tao_id FK→users.id` (SET NULL).
+  `nguoi_tao_id FK→users.id` (CASCADE).
 
 **Relationships**
 

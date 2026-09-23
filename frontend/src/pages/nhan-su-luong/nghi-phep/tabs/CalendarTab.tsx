@@ -33,6 +33,7 @@ export function CalendarTab({ token }: { token: string }) {
     leaveTypeName: string;
     isPaid: boolean;
     status: string;
+    dangXinHuy?: boolean;
     rect: DOMRect;
   } | null>(null);
 
@@ -318,7 +319,15 @@ export function CalendarTab({ token }: { token: string }) {
 
                       if (cell.status === "approved") {
                         const badgeClass = cell.is_paid ? "cc-calendar-grid-cell-badge--paid" : "cc-calendar-grid-cell-badge--unpaid";
-                        cellContent = <span className={`cc-calendar-grid-cell-badge ${badgeClass}`}>{cell.is_paid ? "P" : "KL"}</span>;
+                        // Đơn đã duyệt đang có yêu cầu hủy chờ quyết (23/09/2026): VẪN là ngày nghỉ,
+                        // viền đứt để tổ trưởng xếp người biết người này có thể đi làm lại.
+                        cellContent = (
+                          <span
+                            className={`cc-calendar-grid-cell-badge ${badgeClass}${cell.dang_xin_huy ? " cc-calendar-grid-cell-badge--xin-huy" : ""}`}
+                          >
+                            {cell.is_paid ? "P" : "KL"}
+                          </span>
+                        );
                       } else {
                         cellContent = <span className="cc-calendar-grid-cell-dot" title="Chờ duyệt" />;
                       }
@@ -343,6 +352,7 @@ export function CalendarTab({ token }: { token: string }) {
                               leaveTypeName: cell.leave_type_name,
                               isPaid: cell.is_paid,
                               status: cell.status,
+                              dangXinHuy: !!cell.dang_xin_huy,
                               rect: event.currentTarget.getBoundingClientRect()
                             });
                           }
@@ -407,7 +417,11 @@ export function CalendarTab({ token }: { token: string }) {
               <div className="cc-calendar-tooltip-row">
                 <span className="cc-calendar-tooltip-label">Trạng thái</span>
                 <span className={`cc-calendar-tooltip-status cc-calendar-tooltip-status--${hoveredCell.status}`}>
-                  {hoveredCell.status === "approved" ? "✓ Đã duyệt" : "⏳ Chờ duyệt"}
+                  {hoveredCell.status === "approved"
+                    ? hoveredCell.dangXinHuy
+                      ? "✓ Đã duyệt · đang xin hủy"
+                      : "✓ Đã duyệt"
+                    : "⏳ Chờ duyệt"}
                 </span>
               </div>
             </div>

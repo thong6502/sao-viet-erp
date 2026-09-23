@@ -39,7 +39,7 @@ class KhoKhoaSo(Base):
         String(8), nullable=False, server_default="khoa", default="khoa"
     )
     nguoi_khoa_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     khoa_luc: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

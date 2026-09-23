@@ -5,7 +5,7 @@ Thân CRUD dùng chung ở `services/catalog_base.CatalogService`; ở đây ch�
 from __future__ import annotations
 
 from ..models.cong_doan import (
-    CHE_DO_TINH, KIEU_BU_HAO, NHOM, PRICING_BASIS, TOOLING_TYPE, CongDoan,
+    CHE_DO_TINH, DON_VI_BAC, KIEU_BU_HAO, NHOM, PRICING_BASIS, TOOLING_TYPE, CongDoan,
 )
 from ..models.don_vi_do import TRAM_DONG_GIAY, tram_chay_xuoi
 from ..repositories.cong_doan_repo import CongDoanRepository
@@ -84,6 +84,68 @@ class CongDoanService(CatalogService):
             ],
         }
         return data
+
+    def _kiem_bac_bu_hao(self, data: dict) -> None:
+        """Soi bảng bậc bù hao khai trên công đoạn (chỉ khi `kieu_bu_hao = theo_bac`).
+
+        Người khai chỉ gõ MỐC TRÊN, giao diện tự nối khoảng — nên luật ở đây chặn đúng những gì
+        cái nối ấy không tự lo được: bảng rỗng, mốc không tăng, bậc vô hạn lạc chỗ. Cận dưới KHÔNG
+        có trong dữ liệu (xem `bu_hao_engine.tra_bac_raw`) nên khoảng hở/chồng không thể xảy ra.
+
+        Dọn luôn khoá lạ: chỉ giữ `sl_den | gia_tri | don_vi`. Client cũ còn gửi `sl_tu` thì bỏ im
+        lặng, không nổ — ô ấy đã hết nghĩa.
+        """
+        if data.get("kieu_bu_hao") != "theo_bac":
+            return
+        bac = data.get("bac_bu_hao") or []
+        if not isinstance(bac, list) or not bac:
+            raise CongDoanValidationError(
+                "Chọn “Theo bậc số lượng” thì phải khai ít nhất một bậc. [E-CD-BUHAO-BAC]")
+        sach: list[dict] = []
+        moc_truoc: float | None = None
+        for i, b in enumerate(bac):
+            if not isinstance(b, dict):
+                raise CongDoanValidationError("Bậc bù hao không hợp lệ. [E-CD-BUHAO-BAC]")
+            don_vi = b.get("don_vi") or "to"
+            if don_vi not in DON_VI_BAC:
+                raise CongDoanValidationError(
+                    f"Bậc {i + 1}: đơn vị chỉ nhận Tờ hoặc %. [E-CD-BUHAO-BAC]")
+            try:
+                gia_tri = float(b.get("gia_tri") or 0)
+            except (TypeError, ValueError):
+                raise CongDoanValidationError(
+                    f"Bậc {i + 1}: giá trị phải là số. [E-CD-BUHAO-BAC]") from None
+            if gia_tri < 0:
+                raise CongDoanValidationError(
+                    f"Bậc {i + 1}: giá trị bù hao không được âm. [E-CD-BUHAO-BAC]")
+            sl_den = b.get("sl_den")
+            if sl_den in (None, ""):
+                if i != len(bac) - 1:
+                    raise CongDoanValidationError(
+                        "Bậc vô hạn phải nằm CUỐI bảng — bậc khai sau nó không bao giờ được tra "
+                        "tới. [E-CD-BUHAO-BAC]")
+                sach.append({"sl_den": None, "gia_tri": gia_tri, "don_vi": don_vi})
+                continue
+            try:
+                sl_den = float(sl_den)
+            except (TypeError, ValueError):
+                raise CongDoanValidationError(
+                    f"Bậc {i + 1}: mốc số lượng phải là số. [E-CD-BUHAO-BAC]") from None
+            if sl_den <= 0:
+                raise CongDoanValidationError(
+                    f"Bậc {i + 1}: mốc số lượng phải lớn hơn 0. [E-CD-BUHAO-BAC]")
+            if moc_truoc is not None and sl_den <= moc_truoc:
+                raise CongDoanValidationError(
+                    f"Bậc {i + 1}: mốc phải lớn hơn mốc của bậc trên ({moc_truoc:,.0f}). "
+                    f"[E-CD-BUHAO-BAC]")
+            moc_truoc = sl_den
+            sach.append({"sl_den": int(sl_den) if sl_den.is_integer() else sl_den,
+                         "gia_tri": gia_tri, "don_vi": don_vi})
+        if sach[-1]["sl_den"] is not None:
+            raise CongDoanValidationError(
+                "Bậc cuối phải để trống mốc (vô hạn) — nếu không, đơn vượt mốc cuối sẽ không tra "
+                "được bù hao. [E-CD-BUHAO-BAC]")
+        data["bac_bu_hao"] = sach
 
     def _kiem_to(self, data: dict, obj: CongDoan | None) -> list[int]:
         """Danh sách tổ SẼ LƯU (vắng = giữ của bản ghi). Tổ MỚI thêm phải có thật trong cây tổ chức;
@@ -165,6 +227,7 @@ class CongDoanService(CatalogService):
             raise CongDoanValidationError("Loại dụng cụ không hợp lệ.")
         if data.get("kieu_bu_hao", "khong") not in KIEU_BU_HAO:
             raise CongDoanValidationError("Kiểu bù hao không hợp lệ. [E-CD-BUHAO]")
+        self._kiem_bac_bu_hao(data)
         # Đơn vị vào/ra là MENU ĐÓNG 5 CHẶNG dòng giấy (06/09/2026) — không còn trỏ vào danh mục
         # Đơn vị & quy đổi. Hai ca hợp lệ, không có ca thứ ba:
         #   - cùng để TRỐNG        → bước NGOÀI dòng giấy (ghi kẽm, đóng thùng): đứng ngoài chuỗi bù

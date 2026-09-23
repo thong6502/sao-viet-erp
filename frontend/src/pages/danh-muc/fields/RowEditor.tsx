@@ -14,7 +14,7 @@ import { TrashIcon } from "../icons";
 
 export function RowEditor<T>({
   rows, cot, trong, themNhan, onThem, onXoa, xoaTitle = "Xoá dòng",
-  lopHang, khoa, chan, veHang,
+  lopHang, khoaXoa, khoa, chan, veHang,
 }: {
   rows: T[];
   /** Nhãn các cột DỮ LIỆU. Cột nút xoá tự mọc thêm ở cuối, đừng khai. */
@@ -27,6 +27,8 @@ export function RowEditor<T>({
   xoaTitle?: string;
   /** Class thêm cho `<tr>` (vd đánh dấu hàng khai sai khoảng). */
   lopHang?: (r: T, i: number) => string | undefined;
+  /** Hàng KHÔNG cho xoá (vd bậc vô hạn luôn phải ở cuối) — ô nút để trống thay vì bày nút mờ. */
+  khoaXoa?: (r: T, i: number) => boolean;
   /** Class thêm cho khung ngoài cùng. */
   khoa?: string;
   /** `<tfoot>` tuỳ chọn — vd dòng "Tổng (tự cộng)". */
@@ -48,9 +50,11 @@ export function RowEditor<T>({
             <tr key={i} className={lopHang?.(r, i) || undefined}>
               {veHang(r, i)}
               <td style={{ textAlign: "center" }}>
-                <button type="button" className="rc-bands__del" onClick={() => onXoa(i)} title={xoaTitle}>
-                  <TrashIcon />
-                </button>
+                {!khoaXoa?.(r, i) && (
+                  <button type="button" className="rc-bands__del" onClick={() => onXoa(i)} title={xoaTitle}>
+                    <TrashIcon />
+                  </button>
+                )}
               </td>
             </tr>
           ))}

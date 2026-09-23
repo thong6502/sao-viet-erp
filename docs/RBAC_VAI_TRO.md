@@ -58,8 +58,11 @@ ngoài Giám đốc, tức người làm kế toán không mở nổi màn của
 `ke_toan` trong `services/role_templates.py` — thứ ma trận đang chào admin khi tạo vai mới.
 
 ⚠️ **Kế toán tổng hợp KHÔNG duyệt được PMH.** Ô *Duyệt / từ chối PMH* (`ke_toan:approve`) vẫn
-chỉ Giám đốc giữ — cùng luật tách vai với phân hệ Mua hàng ở §2.1: người đề xuất không tự duyệt,
-người ghi sổ không tự quyết chi.
+chỉ Giám đốc giữ — cùng cách chia việc với phân hệ Mua hàng ở §2.1: người ghi sổ không tự quyết chi.
+
+Từ 20/09/2026 tách vai chỉ còn nằm ở **phân quyền**: tầng nghiệp vụ không chặn người lập tự duyệt
+phiếu của mình nữa. Ai cầm ô *Duyệt* là duyệt được, kể cả phiếu chính mình lập — muốn tách vai thì
+đừng cấp ô đó cho người lập phiếu.
 
 ### 2.3 Nhân sự & Lương
 

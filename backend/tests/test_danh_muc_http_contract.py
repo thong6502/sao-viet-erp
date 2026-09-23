@@ -51,8 +51,6 @@ DANH_MUC = [
     ("/api/loai-san-pham", "dm_loai_san_pham",
      lambda c, h, i: {"ma": f"ZZSP{i}", "ten": f"ZZ SP {i}", "structural_type": "flat"},
      False, False),
-    ("/api/bu-hao", "dm_bu_hao",
-     lambda c, h, i: {"ma": f"ZZBH{i}", "ten": f"ZZ Bù hao {i}"}, False, False),
     ("/api/don-vi", "dm_don_vi",
      lambda c, h, i: {"ma": f"zzdv{i}", "ten": f"ZZ Đơn vị {i}"}, False, False),
     ("/api/khuon-be", "khuon_be",
@@ -189,9 +187,9 @@ def test_openapi_dung_duoc(client):
 def test_items_khong_con_list_tran_trong_openapi(client):
     """`items: list` TRẦN làm OpenAPI mất type ⇒ client sinh code ra `any[]`.
 
-    Bốn schema từng phạm: `khuon_be.py:39` · `kho_hang.py:29` · `bu_hao.py:41` ·
-    `vat_lieu_kho.py:136`. Cả bốn đã khai kiểu dòng ở đợt B5 (15/08/2026) nên test này ASSERT
-    thật, không còn xfail.
+    Bốn schema từng phạm: `khuon_be.py:39` · `kho_hang.py:29` · `bu_hao.py:41` (schema này gỡ
+    hẳn 22/09/2026) · `vat_lieu_kho.py:136`. Cả bốn đã khai kiểu dòng ở đợt B5 (15/08/2026)
+    nên test này ASSERT thật, không còn xfail.
 
     ⚠️ BỘ DÒ CŨ KHÔNG BẮT ĐƯỢC GÌ — nó tìm schema THIẾU HẲN khoá `items`, trong khi Pydantic
     sinh cho `list` trần ra `{"type": "array", "items": {}}`: khoá CÓ mặt nhưng RỖNG. Vì thế
@@ -221,7 +219,7 @@ CO_MA_GOI_Y = [
 ]
 # Danh mục KHÔNG có "mã kế tiếp": mã là chữ có nghĩa (`kg`, `COUCHE`, `MUC-CMYK`) hoặc đánh theo
 # LOẠI (`IN-01`, `CM-03`) ⇒ cố ý không mở route, chứ không phải quên.
-KHONG_MA_GOI_Y = ["/api/don-vi", "/api/bu-hao", "/api/may-thiet-bi",
+KHONG_MA_GOI_Y = ["/api/don-vi", "/api/may-thiet-bi",
                   "/api/vat-lieu-kho/giay", "/api/vat-lieu-kho/vat-tu-in-an"]
 
 

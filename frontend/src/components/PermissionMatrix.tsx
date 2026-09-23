@@ -564,14 +564,14 @@ const MODULE_GROUPS: {
     key: "danh_muc",
     label: "Danh mục",
     // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Cấu hình danh mục" để người cấp quyền dò theo
-    // màn hình. 13 mục menu → 13 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
-    // (Màn "Lý do & lỗi SX" + ô quyền `dm_ly_do_san_xuat` ĐÃ GỠ HẲN — mg 0288: chủ bỏ luôn yêu
-    // cầu nêu lý do ở mọi khâu SX, nên chỗ này khớp lại đúng 13/13.)
+    // màn hình. 12 mục menu → 12 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
+    // (Màn "Lý do & lỗi SX" + ô quyền `dm_ly_do_san_xuat` ĐÃ GỠ HẲN — mg 0288. Màn "Bù hao" +
+    // `dm_bu_hao` GỠ 22/09/2026 — mg 0327: bậc bù hao nay khai trong chính Công đoạn, không còn
+    // màn riêng để cấp quyền. Vậy 12/12.)
     modules: [
       "dm_loai_san_pham",
       "dm_thiet_bi",
       "dm_cong_doan",
-      "dm_bu_hao",
       "dm_don_vi",
       "dm_chung_loai_giay",
       "dm_giay",

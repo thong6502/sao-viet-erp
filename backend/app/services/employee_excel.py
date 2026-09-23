@@ -25,6 +25,11 @@ BA THỨ EXCEL KHÔNG LÀM THAY ĐƯỢC — cố ý, đừng "mở cho tiện":
   đổi trạng thái phải bấm trên màn. Lúc TẠO MỚI thì ghi được, vì đó là trạng thái ban đầu.
 * **Tài khoản đăng nhập.** File không tạo tài khoản, không đặt mật khẩu, không gán vai trò —
   và từ 10/09/2026 cũng không xuất kèm tên tài khoản / vai trò nữa. Việc đó ở Tài khoản & Quyền.
+* **Ba ô lương (Lương cơ bản · Lương trách nhiệm · Mức đóng BHXH) KHÔNG sửa đè** — chúng nằm
+  trên MỐC LƯƠNG (`employee_salaries`, có lịch sử), không phải trên hồ sơ. Số khác mốc hiện hành
+  ⇒ thêm MỘT mốc mới hiệu lực HÔM NAY, chép nguyên các ô lương khác từ mốc cũ — y như bấm Lưu ở
+  Lương → Sửa lương. Người mới tạo thì mốc đầu hiệu lực từ ngày vào, y như màn Thêm nhân viên.
+  Ô lương để TRỐNG = GIỮ NGUYÊN (khác luật 2): lương không có nghĩa "xoá về rỗng".
 * **Đổi Phòng/Tổ của người đã có** đi qua ĐÚNG luồng điều chuyển
   (`apply_transition`) chứ không ghi thẳng cột: luồng đó còn đồng bộ phòng xuống tài khoản, gỡ
   chức trưởng phòng cũ, gỡ vai trò thuộc phòng cũ và ghi mốc Quá trình công tác. Ghi thẳng cột là
@@ -39,6 +44,7 @@ from typing import Any
 
 from .catalog_excel import ExcelSaiMan, mot_giao_dich
 from .employee_service import EDITABLE_FIELDS, SENSITIVE_FIELDS, EmployeeError
+from .payroll_service import PayrollError
 
 #: Sheet dữ liệu. Không dấu — vài bản Excel cũ đặt tên sheet có dấu là hỏng công thức tham chiếu.
 SHEET_CHINH = "Nhan su"
@@ -81,7 +87,7 @@ MAU_KE_NHOM = "FF8A97A8"
 MAU_SOC = "FFF7F9FC"
 
 #: Cột MỞ ĐẦU mỗi nhóm — chỉ dùng để kẻ vạch dọc phân nhóm, không đụng gì tới dữ liệu.
-DAU_NHOM = ("Mã", "Ngày sinh", "Số sổ BHXH", "Số tài khoản NH")
+DAU_NHOM = ("Mã", "Ngày sinh", "Lương cơ bản", "Số sổ BHXH", "Số tài khoản NH")
 
 #: Cột phải giữ nguyên chuỗi: số 0 đứng đầu của CCCD / số điện thoại / số tài khoản mà để Excel
 #: đoán thành kiểu Số là mất sạch.
@@ -114,6 +120,7 @@ class Cot:
       * `nguyen` — số nguyên ≥ 0.
       * `chon`   — tập nhãn cố định (`chon`), nhận cả mã lẫn nhãn khi đọc.
       * `dm`     — tra danh mục theo TÊN (`dm` = phong | bac).
+      * `tien`   — số tiền ≥ 0; đọc vào nhận cả "5.000.000" / "5,000,000" gõ tay.
     """
 
     nhan: str
@@ -129,6 +136,8 @@ class Cot:
     #: MẶC ĐỊNH, không phải ghi NULL — ghi NULL là 500 trắng từ tầng DB, người khai không hiểu gì.
     mac_dinh: Any = None
     rong: int = 18
+    #: Ô nằm trên MỐC LƯƠNG hiện hành (`employee_salaries`), không phải trên `employees`.
+    luong: bool = False
 
 
 COT: tuple[Cot, ...] = (
@@ -151,6 +160,11 @@ COT: tuple[Cot, ...] = (
     Cot("Chỗ ở hiện tại", "current_address", rong=32),
     Cot("Người liên hệ khẩn", "emergency_contact_name", rong=22),
     Cot("SĐT liên hệ khẩn", "emergency_contact_phone", rong=16),
+    # Ba ô trên MỐC LƯƠNG (23/09/2026) — xem đầu file: khác mốc hiện hành thì thêm mốc mới.
+    Cot("Lương cơ bản", "luong_vi_tri", kieu="tien", nhay_cam=True, luong=True, rong=16),
+    Cot("Lương trách nhiệm", "luong_trach_nhiem", kieu="tien", nhay_cam=True, luong=True,
+        rong=16),
+    Cot("Mức đóng BHXH", "insurance_base", kieu="tien", nhay_cam=True, luong=True, rong=16),
     Cot("Số sổ BHXH", "social_insurance_no", nhay_cam=True, rong=16),
     Cot("MST cá nhân", "pit_tax_code", nhay_cam=True, rong=16),
     Cot("Số người phụ thuộc", "dependents_count", kieu="nguyen", mac_dinh=0, rong=16),
@@ -166,6 +180,7 @@ COT: tuple[Cot, ...] = (
 )
 
 COT_THEO_NHAN = {c.nhan: c for c in COT}
+COT_LUONG = tuple(c.field for c in COT if c.luong)
 
 #: Ô ghi thẳng lúc TẠO nhưng KHÔNG nằm trong `EDITABLE_FIELDS` (sửa hồ sơ thường không đụng tới).
 #: `prior_seniority_months` chỉ là một con số nền, không kéo theo hệ quả nào ⇒ nhập sửa được.
@@ -187,6 +202,8 @@ class NguCanh:
 
     ten: dict[str, dict[int, str]] = dc_field(default_factory=dict)
     id_theo_ten: dict[str, dict[str, int]] = dc_field(default_factory=dict)
+    #: {employee_id → mốc lương hiện hành} — một query cho cả file, xem `dung_ngu_canh`.
+    luong: dict[int, Any] = dc_field(default_factory=dict)
 
     def ten_cua(self, nhom: str, gia_tri: int | None) -> str:
         if gia_tri is None:
@@ -212,7 +229,20 @@ def dung_ngu_canh(svc) -> NguCanh:
     for khoa, cap in nhom.items():
         nc.ten[khoa] = {i: t for i, t in cap}
         nc.id_theo_ten[khoa] = {t.strip().casefold(): i for i, t in cap}
+    nc.luong = moc_luong_hien_hanh(db)
     return nc
+
+
+def moc_luong_hien_hanh(db) -> dict[int, Any]:
+    """{employee_id → mốc lương hiện hành}: mốc hiệu lực muộn nhất ≤ hôm nay. Người chỉ có mốc
+    TƯƠNG LAI (ngày vào chưa tới) thì lấy mốc sớm nhất trong số đó — không thì cột lương của
+    người sắp vào ra trống dù đã khai lúc tạo."""
+    from ..repositories.payroll_repo import PayrollRepository
+
+    repo = PayrollRepository(db)
+    out = repo.latest_salaries_map(date.max)
+    out.update(repo.latest_salaries_map(date.today()))
+    return out
 
 
 # --------------------------------------------------------------------------------------
@@ -252,12 +282,34 @@ def _doc_ngay(v: Any) -> date | None:
     raise GiaTriSai(f"Không đọc được ngày {chu!r} — ghi dạng dd/mm/yyyy.")
 
 
+def _doc_tien(v: Any) -> float:
+    """Ô tiền → số. Ô kiểu Số của Excel ra thẳng float; gõ tay kiểu "5.000.000", "5,000,000",
+    "5 000 000 đ" thì bỏ dấu phân cách nghìn — lương VN không có phần lẻ đồng."""
+    if isinstance(v, bool):
+        raise GiaTriSai("Phải là số tiền.")
+    if isinstance(v, (int, float)):
+        so = float(v)
+    else:
+        chu = str(v).strip().lower().replace("đ", "").replace("vnd", "")
+        for k in (".", ",", " ", " "):   # cuối là khoảng trắng không ngắt (dán từ web)
+            chu = chu.replace(k, "")
+        try:
+            so = float(chu)
+        except ValueError:
+            raise GiaTriSai(f"{str(v).strip()!r} không phải số tiền.") from None
+    if so < 0:
+        raise GiaTriSai("Không được là số âm.")
+    return so
+
+
 def doc_o(cot: Cot, gia_tri: Any, nc: NguCanh) -> Any:
     """Ô Excel → giá trị field. Ném `GiaTriSai` kèm câu tiếng Việt nói rõ phải sửa thế nào."""
     if cot.kieu == "ngay":
         return _doc_ngay(gia_tri)
     if _rong(gia_tri):
         return cot.mac_dinh
+    if cot.kieu == "tien":
+        return _doc_tien(gia_tri)
     if cot.kieu == "nguyen":
         try:
             so = int(float(_ra_chuoi(gia_tri)))
@@ -282,6 +334,11 @@ def doc_o(cot: Cot, gia_tri: Any, nc: NguCanh) -> Any:
 
 
 def _ghi_o(cot: Cot, employee, nc: NguCanh) -> Any:
+    if cot.luong:
+        moc = nc.luong.get(employee.id)
+        so = getattr(moc, cot.field, None) if moc is not None else None
+        # Chưa có mốc / mốc cũ chưa khai Mức đóng BHXH ⇒ ô TRỐNG, đừng bịa số 0.
+        return "" if so is None else int(round(float(so)))
     gia_tri = getattr(employee, cot.field, None)
     if cot.kieu == "dm":
         return nc.ten_cua(cot.dm, gia_tri)
@@ -365,7 +422,8 @@ def _to_dinh_dang(ws, nc: NguCanh, *, so_dong: int) -> None:
         o.fill = nen_nhay if c.nhay_cam else nen
         o.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         o.border = Border(left=trai, right=ke, top=ke, bottom=ke)
-        ngang = "center" if c.kieu in ("nguyen", "ngay") else "left"
+        ngang = ("center" if c.kieu in ("nguyen", "ngay")
+                 else "right" if c.kieu == "tien" else "left")
         for hang in range(2, so_dong + 2):
             o = ws.cell(row=hang, column=i)
             o.alignment = Alignment(horizontal=ngang, vertical="center")
@@ -376,6 +434,8 @@ def _to_dinh_dang(ws, nc: NguCanh, *, so_dong: int) -> None:
                 o.number_format = "@"
             elif c.kieu == "nguyen":
                 o.number_format = "0"
+            elif c.kieu == "tien":
+                o.number_format = "#,##0"
 
     ws.freeze_panes = "C2"          # giữ luôn Mã + Họ tên khi kéo ngang 27 cột
     ws.auto_filter.ref = f"A1:{get_column_letter(len(COT))}{max(so_dong + 1, 2)}"
@@ -428,6 +488,11 @@ def _dung_workbook(nc: NguCanh, *, kem_huong_dan: bool):
                                          "không phải để nguyên giá trị cũ."])
         hd.append(["Khối tô nâu", "Lương · BHXH · Ngân hàng: chỉ người có quyền xem lương mới "
                                   "thấy dữ liệu; thiếu quyền thì cả khối xuất ra trống."])
+        hd.append(["Lương cơ bản · Lương trách nhiệm · Mức đóng BHXH",
+                   "Số tiền, ví dụ 5000000 hoặc 5.000.000. Để TRỐNG là GIỮ NGUYÊN mức đang có. "
+                   "Người đã có: số khác mức hiện hành thì máy thêm mốc lương mới hiệu lực HÔM "
+                   "NAY (như bấm Lưu ở Lương → Sửa lương). Người mới: phải có Lương cơ bản > 0, "
+                   "Mức đóng BHXH bỏ trống thì lấy bằng cơ bản + trách nhiệm."])
         _to_huong_dan(hd)
 
     meta = wb.create_sheet(SHEET_META)
@@ -516,7 +581,8 @@ def _bang_nhau(cu: Any, moi: Any) -> bool:
 
 
 def nhap_excel(du_lieu: bytes, *, svc, nc: NguCanh, actor, scope: str,
-               co_sua_luong: bool, co_dieu_chuyen: bool, ghi: bool) -> KetQua:
+               co_sua_luong: bool, co_dieu_chuyen: bool, ghi: bool,
+               payroll=None) -> KetQua:
     """Đọc file → dựng kế hoạch → chạy trong MỘT giao dịch. `ghi=False` = xem trước (rollback)."""
     from openpyxl import load_workbook
 
@@ -572,7 +638,7 @@ def nhap_excel(du_lieu: bytes, *, svc, nc: NguCanh, actor, scope: str,
                 diem = db.begin_nested()
                 try:
                     da_doi = _chay_mot_dong(
-                        svc, nc, gia_tri, actor=actor, scope=scope,
+                        svc, nc, gia_tri, actor=actor, scope=scope, payroll=payroll,
                         co_sua_luong=co_sua_luong, co_dieu_chuyen=co_dieu_chuyen, kq=kq,
                         hang=hang, sheet=ws.title,
                     )
@@ -585,7 +651,7 @@ def nhap_excel(du_lieu: bytes, *, svc, nc: NguCanh, actor, scope: str,
                         kq.cap_nhat += 1
                     else:
                         kq.khong_doi += 1
-                except EmployeeError as e:
+                except (EmployeeError, PayrollError) as e:
                     diem.rollback()
                     kq.loi.append(Loi(sheet=ws.title, dong=hang, cot="", ly_do=str(e)))
         kq.hop_le = not kq.loi
@@ -618,15 +684,31 @@ class _im_lang_neu_xem_truoc:
 
 
 def _chay_mot_dong(svc, nc: NguCanh, gia_tri: dict, *, actor, scope: str, co_sua_luong: bool,
-                   co_dieu_chuyen: bool, kq: KetQua, hang: int, sheet: str) -> str | None:
+                   co_dieu_chuyen: bool, kq: KetQua, hang: int, sheet: str,
+                   payroll=None) -> str | None:
     """Ghi một dòng. Trả 'tao' | 'sua' | 'nguyen' (không đổi), hoặc None nếu dòng có lỗi."""
     gia_tri = dict(gia_tri)
     ma = gia_tri.pop("code", None)
+    # Ô lương tách khỏi hồ sơ: ghi vào MỐC LƯƠNG sau khi có người. Ô trống (None) = giữ nguyên.
+    luong = {f: gia_tri.pop(f) for f in COT_LUONG if f in gia_tri}
+    luong = {f: v for f, v in luong.items() if v is not None}
+    if not co_sua_luong or payroll is None:
+        luong = {}
+    emp = svc.employees.find_by_code(str(ma).strip()) if ma else None
+    if emp is not None and not svc.employees.can_access(employee=emp, scope=scope, actor=actor):
+        kq.loi.append(Loi(sheet, hang, "Mã", f"Mã {ma!r} nằm ngoài phạm vi dữ liệu của bạn."))
+        return None
+    # Kiểm lương TRƯỚC khi đụng hồ sơ — sai thì dòng này không ghi gì.
+    moc_cu = nc.luong.get(emp.id) if emp is not None else None
+    ke_hoach_luong = _ke_hoach_luong(luong, moc_cu, kq=kq, hang=hang, sheet=sheet)
+    if ke_hoach_luong is False:
+        return None
+
     if not ma:
-        _tao_moi(svc, gia_tri, actor=actor, co_sua_luong=co_sua_luong)
+        moi = _tao_moi(svc, gia_tri, actor=actor, co_sua_luong=co_sua_luong)
+        _ghi_luong(payroll, moi, ke_hoach_luong, moc_cu=None, actor=actor)
         return "tao"
 
-    emp = svc.employees.find_by_code(str(ma).strip())
     if emp is None:
         # Mã chưa có ⇒ TẠO MỚI GIỮ NGUYÊN MÃ ĐÓ, không phải báo lỗi.
         # Bản đầu 10/09/2026 báo lỗi ở đây để chặn gõ nhầm mã. Nhưng thử nạp chính file xuất vào
@@ -634,26 +716,93 @@ def _chay_mot_dong(svc, nc: NguCanh, gia_tri: dict, *, actor, scope: str, co_sua
         # Cách duy nhất còn lại là xoá tay cả cột Mã, mà xoá xong máy cấp lại mã từ đầu ⇒ lệch
         # mã của cả công ty. Mã NV nằm trên hợp đồng / thẻ / bảng lương nên phải giữ.
         # Gõ nhầm mã vẫn thấy được: bản xem trước đếm dòng đó vào "tạo mới", không phải "cập nhật".
-        _tao_moi(svc, gia_tri, actor=actor, co_sua_luong=co_sua_luong, ma=str(ma).strip())
+        moi = _tao_moi(svc, gia_tri, actor=actor, co_sua_luong=co_sua_luong,
+                       ma=str(ma).strip())
+        _ghi_luong(payroll, moi, ke_hoach_luong, moc_cu=None, actor=actor)
         return "tao"
-    if not svc.employees.can_access(employee=emp, scope=scope, actor=actor):
-        kq.loi.append(Loi(sheet, hang, "Mã", f"Mã {ma!r} nằm ngoài phạm vi dữ liệu của bạn."))
+    kq_ho_so = _cap_nhat(svc, nc, emp, gia_tri, actor=actor, scope=scope,
+                         co_sua_luong=co_sua_luong, co_dieu_chuyen=co_dieu_chuyen,
+                         kq=kq, hang=hang, sheet=sheet)
+    if kq_ho_so is None:
         return None
-    return _cap_nhat(svc, nc, emp, gia_tri, actor=actor, scope=scope,
-                     co_sua_luong=co_sua_luong, co_dieu_chuyen=co_dieu_chuyen,
-                     kq=kq, hang=hang, sheet=sheet)
+    if _ghi_luong(payroll, emp, ke_hoach_luong, moc_cu=moc_cu, actor=actor):
+        return "sua"
+    return kq_ho_so
 
 
-def _tao_moi(svc, gia_tri: dict, *, actor, co_sua_luong: bool, ma: str | None = None) -> None:
+def _ke_hoach_luong(luong: dict, moc_cu, *, kq: KetQua, hang: int, sheet: str):
+    """Ba ô lương của một dòng → bộ số của mốc MỚI; `None` nếu không phải ghi gì; `False` nếu
+    sai (đã ghi lỗi vào `kq`). Cùng luật với màn Thêm nhân viên / Sửa lương:
+
+    * Lương cơ bản > 0 (người chưa có mốc lương thì bắt buộc khai).
+    * Mức đóng BHXH không được 0, trừ người tick "BH đóng ở nơi khác". Người MỚI bỏ trống ô này
+      thì lấy bằng cơ bản + trách nhiệm, y như ô điền sẵn trên màn Thêm nhân viên.
+    """
+    if not luong:
+        return None
+    nhan = {c.field: c.nhan for c in COT if c.luong}
+
+    def cu(f):
+        return getattr(moc_cu, f, None) if moc_cu is not None else None
+
+    vi_tri = luong.get("luong_vi_tri", cu("luong_vi_tri"))
+    trach_nhiem = luong.get("luong_trach_nhiem", cu("luong_trach_nhiem")) or 0
+    muc_bh = luong.get("insurance_base", cu("insurance_base"))
+    if not vi_tri or float(vi_tri) <= 0:
+        kq.loi.append(Loi(sheet, hang, nhan["luong_vi_tri"],
+                          "Phải lớn hơn 0." if moc_cu is not None or "luong_vi_tri" in luong
+                          else "Người này chưa có mức lương — phải khai Lương cơ bản > 0."))
+        return False
+    if moc_cu is None and muc_bh is None:
+        muc_bh = float(vi_tri) + float(trach_nhiem)
+    noi_khac = bool(cu("insurance_elsewhere"))
+    if "insurance_base" in luong and float(luong["insurance_base"]) <= 0 and not noi_khac:
+        kq.loi.append(Loi(sheet, hang, nhan["insurance_base"],
+                          "Không được để 0 — mỗi người một mức. Người đóng BH ở nơi khác thì "
+                          "tick ở Lương → Sửa lương."))
+        return False
+    moi = {"luong_vi_tri": float(vi_tri), "luong_trach_nhiem": float(trach_nhiem),
+           "insurance_base": None if muc_bh is None else float(muc_bh)}
+    if moc_cu is not None and all(_bang_nhau(cu(f), v) for f, v in moi.items()):
+        return None
+    return moi
+
+
+#: Ô của mốc lương CHÉP NGUYÊN từ mốc cũ khi file chỉ đổi ba ô lương — y như Sửa lương lưu lại
+#: mọi ô đang hiện trên màn.
+_CHEP_TU_MOC_CU = ("allowance", "chuyen_can", "phu_cap_ca", "phu_cap_tham_nien",
+                   "insurance_elsewhere", "union_member", "luong_dot_1", "apply_self_deduction",
+                   "commission_pct")
+
+
+def _ghi_luong(payroll, emp, moi: dict | None, *, moc_cu, actor) -> bool:
+    """Thêm MỘT mốc lương mới (không sửa đè mốc cũ). Người mới: hiệu lực từ ngày vào như màn
+    Thêm nhân viên; người đã có: từ HÔM NAY như Sửa lương (ngày vào còn ở tương lai thì từ ngày
+    vào — mốc lương không được trước ngày vào làm)."""
+    if not moi or payroll is None:
+        return False
+    hom_nay = date.today()
+    if moc_cu is None:
+        hieu_luc = emp.hire_date or hom_nay
+    else:
+        hieu_luc = max(hom_nay, emp.hire_date) if emp.hire_date else hom_nay
+    chep = {f: getattr(moc_cu, f) for f in _CHEP_TU_MOC_CU} if moc_cu is not None else {}
+    payroll.set_salary(employee_id=emp.id, actor=actor, effective_from=hieu_luc,
+                       note="Nhập Excel", **chep, **moi)
+    return True
+
+
+def _tao_moi(svc, gia_tri: dict, *, actor, co_sua_luong: bool, ma: str | None = None):
     fields = dict(gia_tri)
     department_id = fields.pop("department_id", None)
     # Cột Trạng thái vắng khỏi file ⇒ mặc định Thử việc, y như bấm "Thêm nhân viên" trên màn.
     trang_thai = fields.pop("status", None) or "probation"
     hire_date = fields.pop("hire_date", None)
-    svc.create_employee(
+    employee, _, _ = svc.create_employee(
         actor=actor, department_id=department_id, status=trang_thai, hire_date=hire_date,
         fields=fields, can_edit_salary=co_sua_luong, code=ma,
     )
+    return employee
 
 
 def _cap_nhat(svc, nc: NguCanh, emp, gia_tri: dict, *, actor, scope: str, co_sua_luong: bool,

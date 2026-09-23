@@ -452,3 +452,68 @@ def test_cong_thuc_vat_tu_sai_cu_phap_bi_chan_goi_ten_mon():
         svc.create(dict(ma="CD-CTG2", ten="Xén 2", nhom="finishing", department_ids=[to.id],
                         pricing_basis="per_finished_qty",
                         vat_tus=[{"vat_tu_id": muc.id, "cong_thuc_luong": "sl_vao * *"}]))
+
+
+# ---- bù hao khai ngay trên công đoạn (22/09/2026) ----
+def _bac(sl_den, gia_tri, don_vi="to"):
+    return {"sl_den": sl_den, "gia_tri": gia_tri, "don_vi": don_vi}
+
+
+def _tao_bu_hao(svc, bac, ma="IN-BH"):
+    return svc.create(dict(ma=ma, ten="In offset", nhom="print",
+                           pricing_basis="per_sheet", kieu_bu_hao="theo_bac", bac_bu_hao=bac))
+
+
+def test_bac_bu_hao_luu_tren_chinh_cong_doan():
+    """Bảng bậc là của RIÊNG công đoạn — không còn `bu_hao_id` trỏ sang danh mục khác."""
+    db, svc = _svc()
+    cd = _tao_bu_hao(svc, [_bac(3000, 150), _bac(None, 2, "pct")])
+    assert cd.kieu_bu_hao == "theo_bac"
+    assert cd.bac_bu_hao == [_bac(3000, 150), _bac(None, 2, "pct")]
+    assert not hasattr(cd, "bu_hao_id")
+    assert "bu_hao_id" not in CongDoanIn.model_fields
+
+
+def test_theo_bac_phai_co_it_nhat_mot_bac():
+    db, svc = _svc()
+    with pytest.raises(CongDoanValidationError):          # E-CD-BUHAO-BAC
+        _tao_bu_hao(svc, [])
+
+
+def test_moc_bac_phai_tang_dan():
+    db, svc = _svc()
+    with pytest.raises(CongDoanValidationError):
+        _tao_bu_hao(svc, [_bac(7000, 150), _bac(3000, 200), _bac(None, 2, "pct")])
+    with pytest.raises(CongDoanValidationError):          # trùng mốc = khoảng rỗng
+        _tao_bu_hao(svc, [_bac(3000, 150), _bac(3000, 200), _bac(None, 2, "pct")])
+
+
+def test_chi_mot_bac_vo_han_va_phai_nam_cuoi():
+    db, svc = _svc()
+    with pytest.raises(CongDoanValidationError):          # vô hạn đứng đầu → bậc sau chết
+        _tao_bu_hao(svc, [_bac(None, 2, "pct"), _bac(3000, 150)])
+    with pytest.raises(CongDoanValidationError):          # hai bậc vô hạn
+        _tao_bu_hao(svc, [_bac(None, 2, "pct"), _bac(None, 3, "pct")])
+    with pytest.raises(CongDoanValidationError):          # thiếu bậc vô hạn → SL lớn rơi ra ngoài
+        _tao_bu_hao(svc, [_bac(3000, 150), _bac(7000, 200)])
+
+
+def test_gia_tri_bac_khong_duoc_am_va_don_vi_chi_to_hoac_pct():
+    db, svc = _svc()
+    with pytest.raises(CongDoanValidationError):
+        _tao_bu_hao(svc, [_bac(3000, -1), _bac(None, 2, "pct")])
+    with pytest.raises(CongDoanValidationError):
+        _tao_bu_hao(svc, [_bac(3000, 150, "kg"), _bac(None, 2, "pct")])
+    with pytest.raises(CongDoanValidationError):          # mốc âm
+        _tao_bu_hao(svc, [_bac(-5, 150), _bac(None, 2, "pct")])
+
+
+def test_kieu_khac_thi_khong_doi_hoi_bac():
+    """`khong` / `co_dinh` không đụng tới bảng bậc — chỉ `theo_bac` mới bị soi."""
+    db, svc = _svc()
+    assert svc.create(dict(ma="KEM", ten="Ghi kẽm", nhom="prepress",
+                           pricing_basis="per_other", kieu_bu_hao="khong")).bac_bu_hao in (None, [])
+    cd = svc.create(dict(ma="EPKIM", ten="Ép kim", nhom="finishing",
+                         pricing_basis="per_finished_qty",
+                         kieu_bu_hao="co_dinh", so_to_bu_hao=80))
+    assert cd.so_to_bu_hao == 80

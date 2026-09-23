@@ -5,11 +5,12 @@
 // SẢN XUẤT sửa routing/số lượng → đánh dấu "Sẵn sàng lập kế hoạch".
 //
 // Lát này DỪNG ở trạng thái "sẵn sàng": chưa ghép bài, chưa xếp lịch, chưa phát xuống xưởng.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   api,
   type HangChoItem,
+  type LsxBoLocOut,
   type LsxListItem,
   type LsxTongQuanOut,
 } from "../api/client";
@@ -79,6 +80,8 @@ export function KeHoachSXPage({
   const [tab, setTab] = useState<"hang-cho" | "lenh">("hang-cho");
   const [previewOrderId, setPreviewOrderId] = useState<number | null>(null);
   const [orderFilter, setOrderFilter] = useState<{ id: number; code: string } | null>(null);
+  const [khachFilter, setKhachFilter] = useState<{ id: number; name: string } | null>(null);
+  const [nguonLoc, setNguonLoc] = useState<LsxBoLocOut>({ orders: [], customers: [] });
   const [flash, setFlash] = useState<string | null>(null);
 
   const [queue, setQueue] = useState<HangChoItem[] | null>(null);
@@ -113,17 +116,24 @@ export function KeHoachSXPage({
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
   }, [token, queuePage]);
 
+  // Số thứ tự lượt tải bảng lệnh. Không có nó thì một lượt gọi CŨ về muộn sẽ ghi đè kết quả
+  // mới: bấm "Tạo lệnh" xong màn đặt lọc theo đơn vừa tạo, nhưng lượt tải không-lọc bắn trước đó
+  // về sau và trả lại cả bảng — chip "Đơn DHxxx" vẫn sáng mà dưới là lệnh của mọi đơn.
+  const luotLenh = useRef(0);
   const loadLenhs = useCallback(() => {
     if (!token) return;
+    const luot = ++luotLenh.current;
     api.lsx
       .list(token, {
         order_id: orderFilter?.id,
+        customer_id: khachFilter?.id,
         trang_thai: ttFilter === "all" ? undefined : ttFilter,
         q: q.trim() || undefined,
         page,
         size: SIZE_TRANG,
       })
       .then((r) => {
+        if (luot !== luotLenh.current) return;   // đã có lượt mới hơn — bỏ kết quả này
         setLenhs(r.items);
         setTotal(r.total);
         setFacets(r.facets);
@@ -131,17 +141,38 @@ export function KeHoachSXPage({
         const ve = trangHopLe(page, r.total, SIZE_TRANG);
         if (ve) setPage(ve);
       })
-      .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
-  }, [token, orderFilter, ttFilter, q, page]);
+      .catch((e: unknown) => {
+        if (luot !== luotLenh.current) return;
+        setErr(e instanceof ApiError ? e.message : String(e));
+      });
+  }, [token, orderFilter, khachFilter, ttFilter, q, page]);
+
+  // Nguồn hai ô lọc — theo tab trạng thái + ô tìm đang áp, KHÔNG theo chính hai ô lọc đó.
+  const loadNguonLoc = useCallback(() => {
+    if (!token) return;
+    api.lsx
+      .boLoc(token, {
+        trang_thai: ttFilter === "all" ? undefined : ttFilter,
+        q: q.trim() || undefined,
+      })
+      .then(setNguonLoc)
+      // Ô chọn hỏng thì bảng vẫn phải dùng được — giữ danh sách cũ, KHÔNG chặn cả màn bằng `err`.
+      .catch(() => undefined);
+  }, [token, ttFilter, q]);
 
   // Đổi bộ lọc thì về trang 1 — giữ nguyên trang cũ là rơi vào vùng trống của kết quả mới.
-  useEffect(() => setPage(1), [ttFilter, q, orderFilter]);
+  useEffect(() => setPage(1), [ttFilter, q, orderFilter, khachFilter]);
 
   useEffect(() => loadQueue(), [loadQueue, eventTick]);
   useEffect(() => {
     const t = setTimeout(loadLenhs, q ? 250 : 0);   // debounce ô tìm
     return () => clearTimeout(t);
   }, [loadLenhs, eventTick, q]);
+  useEffect(() => {
+    if (tab !== "lenh") return;      // chỉ bảng lệnh mới có hai ô này
+    const t = setTimeout(loadNguonLoc, q ? 250 : 0);
+    return () => clearTimeout(t);
+  }, [loadNguonLoc, eventTick, q, tab]);
 
   // Hỏi đèn cho MỌI lệnh đang hiện, kể cả Nháp. Trước 07/09/2026 chỗ này bỏ Nháp ra vì ba đèn cũ
   // đọc thứ lệnh nháp chưa có; nhưng đèn Danh mục thì lệnh nháp mới là lệnh sửa được, bỏ ra là
@@ -191,10 +222,13 @@ export function KeHoachSXPage({
     const dh = queue?.find((o) => o.order_id === orderId);
     setPreviewOrderId(null);
     setOrderFilter({ id: orderId, code: dh?.order_no ?? `#${orderId}` });
+    setKhachFilter(null);
     setTab("lenh");
     if (maList.length) setFlash(`Đã tạo ${maList.length} lệnh: ${maList.join(", ")}`);
     loadQueue();
-    loadLenhs();
+    // KHÔNG gọi `loadLenhs()` ở đây: hàm đang cầm là bản của lần render TRƯỚC, tức chưa biết
+    // `orderFilter` vừa đặt ⇒ nó hỏi cả bảng. Đặt lọc xong effect tự chạy lượt ĐÚNG; số thứ tự
+    // lượt trong `loadLenhs` lo nốt trường hợp lượt cũ về muộn.
     onBadgeStale?.();
   }
 
@@ -298,6 +332,19 @@ export function KeHoachSXPage({
           onQ={setQ}
           orderFilter={orderFilter}
           onClearOrderFilter={() => setOrderFilter(null)}
+          khachFilter={khachFilter}
+          nguonLoc={nguonLoc}
+          onOrderFilter={setOrderFilter}
+          onKhachFilter={(k) => {
+            setKhachFilter(k);
+            // Đơn đang lọc mà không thuộc khách vừa chọn thì bỏ, không thì bảng trống mà nhìn
+            // hai ô vẫn thấy "hợp lý".
+            setOrderFilter((cu) => {
+              if (!cu || !k) return cu;
+              const dh = nguonLoc.orders.find((o) => o.id === cu.id);
+              return dh && dh.customer_id === k.id ? cu : null;
+            });
+          }}
           onOpen={(id) => setView({ mode: "detail", id })}
           onGoQueue={() => setTab("hang-cho")}
           tq={tq}
@@ -460,6 +507,10 @@ function LenhTable({
   onQ,
   orderFilter,
   onClearOrderFilter,
+  khachFilter,
+  nguonLoc,
+  onOrderFilter,
+  onKhachFilter,
   onOpen,
   onGoQueue,
   tq,
@@ -476,6 +527,10 @@ function LenhTable({
   onQ: (v: string) => void;
   orderFilter: { id: number; code: string } | null;
   onClearOrderFilter: () => void;
+  khachFilter: { id: number; name: string } | null;
+  nguonLoc: LsxBoLocOut;
+  onOrderFilter: (o: { id: number; code: string } | null) => void;
+  onKhachFilter: (k: { id: number; name: string } | null) => void;
   /** TỔNG lệnh khớp bộ lọc trên máy chủ. */
   total: number;
   page: number;
@@ -487,7 +542,11 @@ function LenhTable({
   onNhay?: (nhay: { man: string; id: number }, ma: string) => void;
   dem: (key: string) => number;
 }) {
-  const coLoc = ttFilter !== "all" || q.trim() !== "" || orderFilter != null;
+  const coLoc = ttFilter !== "all" || q.trim() !== "" || orderFilter != null || khachFilter != null;
+  // Chọn khách rồi thì ô đơn chỉ chào đơn của khách đó — hai ô đi cùng nhau chứ không đá nhau.
+  const donChonDuoc = khachFilter
+    ? nguonLoc.orders.filter((o) => o.customer_id === khachFilter.id)
+    : nguonLoc.orders;
   return (
     <>
       <div className="khsx__toolbar">
@@ -497,20 +556,60 @@ function LenhTable({
           tabs={TRANG_THAI_TABS.map((t) => ({ ...t, count: dem(t.key) }))}
         />
         <div className="khsx__spacer" />
-        {orderFilter && (
-          <span className="khsx__filterpill">
-            Đơn {orderFilter.code}
-            <button type="button" onClick={onClearOrderFilter} aria-label="Bỏ lọc theo đơn">
-              <Icon name="x" size={12} />
-            </button>
-          </span>
+        <label className="khsx__filtersel">
+          <span className="khsx__filtersel-label">Khách</span>
+          <select
+            value={khachFilter?.id ?? ""}
+            aria-label="Lọc theo khách hàng"
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              const kh = nguonLoc.customers.find((c) => c.id === id);
+              onKhachFilter(kh ? { id: kh.id, name: kh.name } : null);
+            }}
+          >
+            <option value="">Tất cả khách</option>
+            {nguonLoc.customers.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="khsx__filtersel">
+          <span className="khsx__filtersel-label">Đơn</span>
+          <select
+            value={orderFilter?.id ?? ""}
+            aria-label="Lọc theo đơn hàng"
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              const dh = nguonLoc.orders.find((o) => o.id === id);
+              onOrderFilter(dh ? { id: dh.id, code: dh.order_no } : null);
+            }}
+          >
+            <option value="">Tất cả đơn</option>
+            {donChonDuoc.map((o) => (
+              <option key={o.id} value={o.id}>{o.order_no}</option>
+            ))}
+            {/* Đơn đang lọc mà rơi khỏi danh sách (đổi tab trạng thái, gõ ô tìm) vẫn phải hiện,
+                không thì ô chọn trống trơn trong khi bảng đang lọc theo nó. */}
+            {orderFilter && !donChonDuoc.some((o) => o.id === orderFilter.id) && (
+              <option value={orderFilter.id}>{orderFilter.code}</option>
+            )}
+          </select>
+        </label>
+        {(orderFilter || khachFilter) && (
+          <button
+            type="button"
+            className="khsx__filterclear"
+            onClick={() => { onClearOrderFilter(); onKhachFilter(null); }}
+          >
+            <Icon name="x" size={12} /> Bỏ lọc
+          </button>
         )}
         <label className="khsx__search">
           <Icon name="search" size={14} />
           <input
             value={q}
             onChange={(e) => onQ(e.target.value)}
-            placeholder="Tìm mã lệnh / tên sản phẩm"
+            placeholder="Tìm mã lệnh / mã đơn / tên sản phẩm"
             aria-label="Tìm lệnh sản xuất"
           />
         </label>
@@ -528,6 +627,7 @@ function LenhTable({
                   onTtFilter("all");
                   onQ("");
                   onClearOrderFilter();
+                  onKhachFilter(null);
                 }}
               >
                 Xoá bộ lọc

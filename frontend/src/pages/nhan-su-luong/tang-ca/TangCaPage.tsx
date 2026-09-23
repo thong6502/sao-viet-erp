@@ -6,17 +6,25 @@
 // nên màn này KHÔNG nhập giờ làm thực — chỉ khai khoảng được phép tăng ca.
 // (tách từ pages/TangCaPage.tsx).
 import { useCallback, useEffect, useState } from "react";
-import { api, type OvertimeRequest } from "../../../api/client";
+import { api, type OvertimeRequest, type XinHuyChoDuyet } from "../../../api/client";
 import { useCan, useSelfService } from "../../../auth/permissions";
 import { useAuth } from "../../../auth/useAuth";
 import { Button } from "../../../components/Button";
 import { Pager, trangHopLe } from "../../../components/Pager";
+import { LocThangTao } from "../../../components/LocThangTao";
+import { ChevronDown } from "lucide-react";
 import { RowActionButton } from "../../../components/RowActionButton";
 import { RequestTable } from "./components/RequestTable";
 import { OvertimeFormModal } from "./modals/OvertimeFormModal";
 import { RejectModal } from "./modals/RejectModal";
 import { PAGE_SIZE } from "./shared/constants";
-import { errText } from "./shared/helpers";
+import { errText, minToHhmm } from "./shared/helpers";
+import { dangXinHuy, homNayYmd, LyDoDialog, XinHuyHangDoi } from "../xin-huy/XinHuy";
+import { fmtDateISO } from "../../../utils/format";
+
+/** Tóm tắt một phiếu cho hàng đợi xin hủy / hộp thoại: "06/10/2026 · 18:00 → 20:00". */
+const tomTat = (r: OvertimeRequest) =>
+  `${fmtDateISO(r.work_date)} · ${minToHhmm(r.from_minute)} → ${minToHhmm(r.to_minute)}`;
 import type { Tab } from "./shared/types";
 import "../../nhan-su.css";
 import "../../tang-ca.css";
@@ -52,6 +60,15 @@ export function TangCaPage({
   const [queue, setQueue] = useState<OvertimeRequest[]>([]);
   const [queueTotal, setQueueTotal] = useState(0);
   const [queuePage, setQueuePage] = useState(1);
+  // Bộ lọc (23/09/2026): tháng TẠO phiếu cho cả hai tab + trạng thái cho tab Duyệt phiếu. Trạng thái
+  // mặc định "Chờ duyệt" — việc chính của người duyệt; đổi sang "Tất cả" mới thấy phiếu đã xử lý.
+  const [mineThang, setMineThang] = useState("");
+  const [queueThang, setQueueThang] = useState("");
+  const [queueStatus, setQueueStatus] = useState("pending");
+  // Người duyệt hủy thẳng phiếu ĐÃ DUYỆT — bắt buộc lý do (23/09/2026).
+  const [huyPhieu, setHuyPhieu] = useState<OvertimeRequest | null>(null);
+  const [huyBusy, setHuyBusy] = useState(false);
+  const [huyErr, setHuyErr] = useState<string | null>(null);
   /** Số phiếu CHỜ DUYỆT trong phạm vi — đếm ở DB qua `/api/overtime/summary`, KHÔNG đếm mảng
    *  `queue` đã tải. Sau phân trang mảng đó chỉ còn 20 dòng của trang, đếm nó ra số của trang
    *  và cái nhãn "Duyệt phiếu (N)" thành nói dối (badge sidebar báo 47, tab báo 20). */
@@ -68,12 +85,17 @@ export function TangCaPage({
   const [errMine, setErrMine] = useState<string | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(true);
   const [errQueue, setErrQueue] = useState<string | null>(null);
+  // XIN HỦY phiếu ĐÃ DUYỆT (23/09/2026): thợ chỉ xin, người duyệt quyết; phiếu vẫn hiệu lực tới lúc đó.
+  const [xinHuyPhieu, setXinHuyPhieu] = useState<OvertimeRequest | null>(null);
+  const [xinHuyBusy, setXinHuyBusy] = useState(false);
+  const [xinHuyErr, setXinHuyErr] = useState<string | null>(null);
+  const [xinHuyQueue, setXinHuyQueue] = useState<XinHuyChoDuyet<OvertimeRequest>[]>([]);
 
   const load = useCallback(() => {
     setLoadingMine(true);
     setErrMine(null);
     api.overtime
-      .mine(token, { page: minePage, size: PAGE_SIZE })
+      .mine(token, { page: minePage, size: PAGE_SIZE, thang: mineThang || undefined })
       .then((r) => {
         setHasEmployee(r.has_employee);
         setMine(r.items ?? []);
@@ -87,7 +109,7 @@ export function TangCaPage({
     if (canApprove) {
       setLoadingQueue(true);
       setErrQueue(null);
-      // ⚠️ PHẢI truyền `statusFilter: "pending"` — bỏ ra là hàng đợi này VÔ DỤNG.
+      // Mặc định lọc `pending` (bộ lọc trạng thái từ 23/09/2026). Chuyện cũ: không lọc là hàng đợi VÔ DỤNG.
       //
       // Backend sắp xếp theo `status` tăng dần, mà giá trị là CHUỖI THƯỜNG nên thứ tự chữ cái là
       // approved < cancelled < pending < rejected: phiếu ĐÃ DUYỆT đứng trước, phiếu CHỜ DUYỆT bị
@@ -97,7 +119,8 @@ export function TangCaPage({
       // Tổ trưởng mở ra thấy toàn phiếu đã duyệt, tưởng hết việc rồi bỏ đi.
       api.overtime
         .list(token, {
-          statusFilter: "pending",
+          statusFilter: queueStatus || undefined,
+          thang: queueThang || undefined,
           page: queuePage,
           size: PAGE_SIZE,
         })
@@ -109,6 +132,10 @@ export function TangCaPage({
         })
         .catch((e) => setErrQueue(errText(e)))
         .finally(() => setLoadingQueue(false));
+      api.overtime
+        .xinHuyChoDuyet(token)
+        .then((r) => setXinHuyQueue(r.items))
+        .catch(() => setXinHuyQueue([]));
       // Số trên nút tab lấy từ CÙNG nguồn với badge sidebar ⇒ hai chỗ không bao giờ vênh nhau.
       api.overtime
         .summary(token)
@@ -117,7 +144,7 @@ export function TangCaPage({
     }
     api.overtime.markSeen(token).catch(() => undefined);
     onChanged?.(); // badge sidebar + chuông cập nhật ngay sau mỗi thao tác
-  }, [token, canApprove, onChanged, minePage, queuePage]);
+  }, [token, canApprove, onChanged, minePage, queuePage, mineThang, queueThang, queueStatus]);
 
   // `eventTick` đổi = có sự kiện real-time → tải lại bảng, khỏi bắt người dùng F5.
   useEffect(() => {
@@ -131,6 +158,36 @@ export function TangCaPage({
       else next.add(id);
       return next;
     });
+  }
+
+  async function guiXinHuy(lyDo: string) {
+    if (!xinHuyPhieu) return;
+    setXinHuyBusy(true);
+    setXinHuyErr(null);
+    try {
+      await api.overtime.xinHuy(token, xinHuyPhieu.id, lyDo);
+      setXinHuyPhieu(null);
+      load();
+    } catch (e) {
+      setXinHuyErr(errText(e));
+    } finally {
+      setXinHuyBusy(false);
+    }
+  }
+
+  async function huyThang(lyDo: string) {
+    if (!huyPhieu) return;
+    setHuyBusy(true);
+    setHuyErr(null);
+    try {
+      await api.overtime.cancel(token, huyPhieu.id, lyDo);
+      setHuyPhieu(null);
+      load();
+    } catch (e) {
+      setHuyErr(errText(e));
+    } finally {
+      setHuyBusy(false);
+    }
   }
 
   async function run(fn: () => Promise<unknown>) {
@@ -187,6 +244,14 @@ export function TangCaPage({
             <h4 className="ns-section__title" style={{ margin: 0, flex: 1 }}>
               Phiếu tăng ca của tôi
             </h4>
+            {/* Đổi tháng ⇒ về trang 1 NGAY trong handler — không thì đứng trang 3 của tháng khác là rỗng. */}
+            <LocThangTao
+              value={mineThang}
+              onChange={(v) => {
+                setMineThang(v);
+                setMinePage(1);
+              }}
+            />
             {/* Hành động chính của tab → cam. Hai tab không bao giờ hiện cùng lúc nên màn
                 vẫn chỉ có ĐÚNG một nút cam. */}
             {hasEmployee && tuPhucVuGhi && (
@@ -212,20 +277,21 @@ export function TangCaPage({
               loading={loadingMine}
               listError={errMine}
               onRetry={load}
-              emptyTitle="Chưa có phiếu tăng ca nào"
-              emptySub="Bấm “+ Gửi phiếu” để xin khoảng được phép tăng ca."
+              emptyTitle={mineThang ? "Tháng này bạn chưa gửi phiếu nào" : "Chưa có phiếu tăng ca nào"}
+              emptySub={
+                mineThang
+                  ? "Bỏ lọc tháng (nút ✕) để xem mọi phiếu."
+                  : "Bấm “+ Gửi phiếu” để xin khoảng được phép tăng ca."
+              }
               actions={(r) =>
-                r.status === "pending" || r.status === "approved" ? (
+                r.status === "pending" ? (
                   <>
-                    {r.status === "pending" && (
-                      <RowActionButton
-                        dense
-                        label="Sửa phiếu"
-                        icon="pencil"
-                        onClick={() => setEditing(r)}
-                      />
-                    )}
-                    {/* GIỮ `danger`: hủy phiếu đã duyệt là mất luôn giấy phép tăng ca. */}
+                    <RowActionButton
+                      dense
+                      label="Sửa phiếu"
+                      icon="pencil"
+                      onClick={() => setEditing(r)}
+                    />
                     <RowActionButton
                       dense
                       danger
@@ -234,6 +300,26 @@ export function TangCaPage({
                       onClick={() => run(() => api.overtime.cancel(token, r.id))}
                     />
                   </>
+                ) : r.status === "approved" && dangXinHuy(r.yeu_cau_huy) ? (
+                  <RowActionButton
+                    dense
+                    label="Rút lại yêu cầu hủy"
+                    icon="rotateCcw"
+                    onClick={() => run(() => api.overtime.rutLaiXinHuy(token, r.yeu_cau_huy!.id))}
+                  />
+                ) : r.status === "approved" && r.work_date >= homNayYmd() ? (
+                  // Phiếu ĐÃ DUYỆT chỉ được XIN hủy (23/09/2026) — người duyệt quyết. Đã chấm vào tăng
+                  // ca thì máy chủ chặn, câu lỗi hiện trong hộp thoại.
+                  <RowActionButton
+                    dense
+                    danger
+                    label="Xin hủy phiếu"
+                    icon="x"
+                    onClick={() => {
+                      setXinHuyErr(null);
+                      setXinHuyPhieu(r);
+                    }}
+                  />
                 ) : null
               }
             />
@@ -257,11 +343,42 @@ export function TangCaPage({
         <>
           <div className="cc-toolbar">
             <h4 className="ns-section__title" style={{ margin: 0, flex: 1 }}>
-              Phiếu chờ duyệt trong phạm vi của bạn
+              {queueStatus === "pending" ? "Phiếu chờ duyệt trong phạm vi của bạn" : "Phiếu trong phạm vi của bạn"}
             </h4>
             <Button variant="accent" onClick={() => setCreating("for")}>
               + Tạo hộ thợ
             </Button>
+          </div>
+          {/* Bộ lọc ở HÀNG RIÊNG dưới tiêu đề: xếp chung một hàng với tiêu đề + nút "Tạo hộ thợ" thì màn
+              hẹp vỡ hàng lộn xộn (ô trạng thái có luật chung chiếm trọn hàng ở màn hẹp). */}
+          <div className="tc-loc">
+            <div className="ns-select-wrapper">
+              {/* Đổi bộ lọc ⇒ về trang 1 NGAY trong handler, và bỏ các ô đã tick (chúng thuộc danh sách cũ). */}
+              <select
+                aria-label="Lọc theo trạng thái"
+                value={queueStatus}
+                onChange={(e) => {
+                  setQueueStatus(e.target.value);
+                  setQueuePage(1);
+                  setSelected(new Set());
+                }}
+              >
+                <option value="pending">Chờ duyệt</option>
+                <option value="approved">Đã duyệt</option>
+                <option value="rejected">Từ chối</option>
+                <option value="cancelled">Đã hủy</option>
+                <option value="">Tất cả</option>
+              </select>
+              <ChevronDown size={14} className="ns-select-chevron" />
+            </div>
+            <LocThangTao
+              value={queueThang}
+              onChange={(v) => {
+                setQueueThang(v);
+                setQueuePage(1);
+                setSelected(new Set());
+              }}
+            />
           </div>
           {selected.size > 0 && (
             <div className="tc-bulkbar">
@@ -282,6 +399,18 @@ export function TangCaPage({
               </button>
             </div>
           )}
+          <XinHuyHangDoi
+            donVi="phiếu"
+            dong={xinHuyQueue.map((x) => ({
+              yc: x.yeu_cau,
+              ten: x.don.employee_name ?? `NV#${x.don.employee_id}`,
+              don: tomTat(x.don),
+            }))}
+            onQuyet={async (yc, dongY, ghiChu) => {
+              await api.overtime.quyetXinHuy(token, yc.id, dongY, ghiChu || undefined);
+              load();
+            }}
+          />
           <RequestTable
             rows={queue}
             showEmployee
@@ -291,10 +420,30 @@ export function TangCaPage({
             loading={loadingQueue}
             listError={errQueue}
             onRetry={load}
-            emptyTitle="Chưa có phiếu nào trong phạm vi của bạn"
-            emptySub="Thợ gửi phiếu tăng ca thì việc sẽ hiện ở đây."
+            emptyTitle={
+              queueStatus === "pending" && !queueThang
+                ? "Chưa có phiếu nào trong phạm vi của bạn"
+                : "Không có phiếu nào khớp bộ lọc"
+            }
+            emptySub={
+              queueStatus === "pending" && !queueThang
+                ? "Thợ gửi phiếu tăng ca thì việc sẽ hiện ở đây."
+                : "Đổi trạng thái hoặc bỏ lọc tháng (nút ✕) để xem thêm."
+            }
             actions={(r) =>
-              r.status === "pending" ? (
+              r.status === "approved" ? (
+                // Người duyệt hủy thẳng phiếu ĐÃ DUYỆT — phải ghi lý do, thợ được báo ngay (23/09/2026).
+                <RowActionButton
+                  dense
+                  danger
+                  label="Hủy phiếu đã duyệt"
+                  icon="x"
+                  onClick={() => {
+                    setHuyErr(null);
+                    setHuyPhieu(r);
+                  }}
+                />
+              ) : r.status === "pending" ? (
                 <>
                   <RowActionButton
                     dense
@@ -330,6 +479,40 @@ export function TangCaPage({
         </>
       )}
 
+      <LyDoDialog
+        open={huyPhieu !== null}
+        title="Hủy phiếu tăng ca đã duyệt"
+        message={
+          huyPhieu
+            ? `${huyPhieu.employee_name ?? `NV#${huyPhieu.employee_id}`} · ${tomTat(huyPhieu)}. Người lao động được báo ngay kèm lý do.`
+            : undefined
+        }
+        label="Lý do hủy"
+        placeholder="vd: đơn gấp đã xong, tối đó không cần tăng ca"
+        confirmLabel="Hủy phiếu"
+        danger
+        busy={huyBusy}
+        error={huyErr}
+        onConfirm={huyThang}
+        onCancel={() => setHuyPhieu(null)}
+      />
+      <LyDoDialog
+        open={xinHuyPhieu !== null}
+        title="Xin hủy phiếu tăng ca đã duyệt"
+        message={
+          xinHuyPhieu
+            ? `${tomTat(xinHuyPhieu)}. Phiếu vẫn hiệu lực cho tới khi người duyệt đồng ý hủy.`
+            : undefined
+        }
+        label="Lý do xin hủy"
+        placeholder="vd: con ốm, tối nay không ở lại được"
+        confirmLabel="Gửi yêu cầu hủy"
+        danger
+        busy={xinHuyBusy}
+        error={xinHuyErr}
+        onConfirm={guiXinHuy}
+        onCancel={() => setXinHuyPhieu(null)}
+      />
       {creating && (
         <OvertimeFormModal
           token={token}

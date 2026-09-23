@@ -24,10 +24,10 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401 — đăng ký metadata mọi bảng
 from app.db import Base
 from app.models.kho_hang import KhoHang
-from app.repositories.bu_hao_repo import BuHaoRepository
 from app.repositories.don_vi_do_repo import DonViDoRepository
 from app.repositories.kho_hang_repo import KhoHangRepository
 from app.repositories.khuon_be_repo import KhuonBeRepository
+from app.repositories.xe_repo import XeRepository
 
 
 def _db():
@@ -104,9 +104,10 @@ def test_next_ma_loc_o_sql_chu_khong_keo_ca_cot_ve():
 
 
 def test_next_ma_bao_loi_khi_danh_muc_khai_ma_tay():
-    """Bù hao không có tiền tố mã tự sinh — gọi `next_ma` là lập trình sai, phải nổ rõ ràng."""
+    """Xe khai mã TAY (mã xe là biển số) nên không có tiền tố mã tự sinh — gọi `next_ma` là lập
+    trình sai, phải nổ rõ ràng. (Trước 22/09/2026 chỗ này lấy Bù hao làm ví dụ; màn ấy đã gỡ.)"""
     with pytest.raises(NotImplementedError):
-        BuHaoRepository(_db()).next_ma()
+        XeRepository(_db()).next_ma()
 
 
 # ── 2. Hoa/thường của mã: mỗi danh mục một quy ước, nền giữ nguyên cả hai ────────

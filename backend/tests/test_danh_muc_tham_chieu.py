@@ -12,7 +12,6 @@ import pytest
 
 from app.db import Base, SessionLocal, engine
 from app.db_migrations import run_migrations
-from app.models.bu_hao import BuHao
 from app.models.cong_doan import CongDoan
 from app.models.don_vi_do import DonViDo
 from app.models.khuon_be import KhuonBe
@@ -47,7 +46,6 @@ def _mau(db):
     rows = {
         "cong_doan": cd,
         "don_vi_do": dv,
-        "bu_hao": BuHao(ma="ZZBH", ten="ZZ Bù hao"),
         "khuon_be": KhuonBe(ma="ZZKB", ten="ZZ Khuôn"),
         "loai_san_pham": LoaiSanPham(ma="ZZSP", ten="ZZ SP", structural_type="flat"),
         # Nhóm máy đặt tên RIÊNG: `_may_thiet_bi` chặn khi đây là máy CUỐI của nhóm mà có
@@ -99,12 +97,14 @@ def test_dem_duoc_tham_chieu_bang_CHUOI_MA(db):
     assert any("công đoạn" in c for c in tc.chan), tc.chan
 
 
-def test_bu_hao_bi_cong_doan_giu_lai(db):
-    rows = _mau(db)
-    rows["cong_doan"].bu_hao_id = rows["bu_hao"].id
-    db.commit()
-    tc = tham_chieu(db, "bu_hao", rows["bu_hao"])
-    assert tc.chan == ["1 công đoạn tra mã này"], tc.chan
+def test_bu_hao_khong_con_la_mot_loai_danh_muc(db):
+    """Bù hao GỠ 22/09/2026 (mg `0327`) — bậc về thẳng công đoạn, không còn mục nào để trỏ tới.
+
+    Bản đồ tham chiếu mà vẫn nhận loại đã gỡ là mở một đường vào luồng xoá bằng khoá không ai khai.
+    """
+    assert "bu_hao" not in DEM_THEO_LOAI
+    tc = tham_chieu(db, "bu_hao", _mau(db)["cong_doan"])
+    assert tc.chan == ["chưa rà được nơi dùng của danh mục này"] and not tc.xoa_han_duoc
 
 
 def test_chung_loai_giay_bi_giay_con_giu_lai(db):

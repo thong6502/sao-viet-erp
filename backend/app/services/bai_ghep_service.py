@@ -21,7 +21,6 @@ from ..models.bai_ghep_cong_doan import (
     BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu,
     NGUON_SL_DINH_MUC, NGUON_SL_THU_CONG,
 )
-from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
 from ..models.customer import Customer
 from ..models.lsx import (
@@ -45,7 +44,6 @@ from .thanh_phan_engine import (
     cau_to_sang_cai, la_gap_tay, so_kem_moi_tay, so_mau_dan_xuat, so_tay_moi_cuon, tap_muc,
     tap_muc_tu_so,
 )
-from .tinh_gia_service import _bu_hao_to_dict
 
 NHOM_PRINT = "print"
 LECH_HAN_NGAY = 7  # chênh hạn in > ngưỡng này → cảnh báo "lệch hạn xa"
@@ -121,7 +119,6 @@ class BaiGhepService:
         self.audit = audit
         self.sequence = sequence
         self._lsx_service = None   # dựng trễ, xem `_lsx_svc`
-        self._bu_hao_cache: list[dict] | None = None
         self._tram_cache: dict[str, str] | None = None
         # Nạp lô cho đường ĐỌC nhiều bài (xem `nap_truoc`). None = chưa nạp ⇒ hỏi DB từng bài.
         self._chung_nap: dict[int, list[BaiGhepCongDoan]] | None = None
@@ -984,20 +981,11 @@ class BaiGhepService:
 
     # ================= ENGINE (thuần) =================
 
-    def _bu_hao_rows(self) -> list[dict]:
-        if self._bu_hao_cache is None:
-            # KHÔNG lọc `active`: bài ghép tính lại số tờ của bản ĐÃ CÓ. Ẩn một mã bù hao mà lọc
-            # ở đây thì bài ghép cũ tự đổi số, không ai đụng vào mà vẫn lệch.
-            self._bu_hao_cache = [
-                _bu_hao_to_dict(b) for b in self.db.execute(select(BuHao)).scalars()
-            ]
-        return self._bu_hao_cache
-
     def _quy_tac_hao(self, cong_doan_id: int | None) -> dict:
         """Quy tắc bù hao của DANH MỤC công đoạn — `hao_buoc` chỉ cần 3 khoá này."""
         dm = self.db.get(CongDoan, cong_doan_id) if cong_doan_id else None
         return {} if dm is None else {
-            "kieu_bu_hao": dm.kieu_bu_hao, "bu_hao_id": dm.bu_hao_id,
+            "kieu_bu_hao": dm.kieu_bu_hao, "bac_bu_hao": dm.bac_bu_hao,
             "so_to_bu_hao": dm.so_to_bu_hao,
         }
 
@@ -1010,7 +998,7 @@ class BaiGhepService:
         qt = self._quy_tac_hao(cong_doan_id)
         if not qt:
             return 0.0, 0.0
-        fixed, pct = hao_buoc(qt, rows=self._bu_hao_rows(), sl=float(sl))
+        fixed, pct = hao_buoc(qt, sl=float(sl))
         return fixed, min(max(pct, 0.0), 99.0)
 
     @staticmethod
@@ -1078,7 +1066,6 @@ class BaiGhepService:
             return 0
         rows = {r["idx"]: r for r in self._lsx_svc().tinh_nguoc_routing(
             lsx, so_con=so_con, bo_hao_step_keys=set(bo_hao) if bo_hao else None,
-            bu_hao_rows=self._bu_hao_rows(),
         )}
         buoc = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
         # Bước đếm TỜ IN = bước có đơn vị đứng ở TRẠM `to`, không phải bước có mã bằng "to":
@@ -1147,8 +1134,7 @@ class BaiGhepService:
             if l is None or con <= 0 or not toa:
                 r["san_luong_du_kien"] = so_to_tot * con if con > 0 else 0
             else:
-                xuoi = svc.tinh_xuoi_tu_to(l, tu_step_key=toa, so_to=so_to_tot, so_con=con,
-                                           bu_hao_rows=self._bu_hao_rows())
+                xuoi = svc.tinh_xuoi_tu_to(l, tu_step_key=toa, so_to=so_to_tot, so_con=con)
                 r["san_luong_du_kien"] = int(xuoi[-1]["so_luong_ra"]) if xuoi else so_to_tot * con
             r["du"] = r["san_luong_du_kien"] - r["can"]
             # Dư TỜ ngay tại điểm toả — đại lượng có nghĩa ở nút thắt, khác hẳn dư con ở cuối chuỗi.
@@ -1299,12 +1285,10 @@ class BaiGhepService:
             xuoi = {
                 x["step_key"]: x for x in svc.tinh_xuoi_tu_to(
                     l, tu_step_key=toa, so_to=so_to["so_to_tot"], so_con=con or None,
-                    bu_hao_rows=self._bu_hao_rows(),
                 )
             } if toa else {}
             nguoc_rows = svc.tinh_nguoc_routing(
                 l, so_con=con or None, bo_hao_step_keys=bo_hao or None,
-                bu_hao_rows=self._bu_hao_rows(),
             )
             nguoc = {buoc[x["idx"]].step_key: x for x in nguoc_rows if x["idx"] < len(buoc)}
 
@@ -1439,9 +1423,7 @@ class BaiGhepService:
         tram_cuoi = buoc[-1]["tram_ra"]
         to_can = float(so_to_tot) * (
             1.0 if tram_cuoi == TRAM_TO else _f(cau.get((TRAM_TO, tram_cuoi))) or 1.0)
-        hang, canh_bao = chuoi_nguoc_dv(
-            buoc, rows=self._bu_hao_rows(), to_can=to_can, he_so=cau,
-        )
+        hang, canh_bao = chuoi_nguoc_dv(buoc, to_can=to_can, he_so=cau)
         # Bồi thêm `he_so` + `ra_quy` và làm tròn Y HỆT `bu_hao_chi_tiet` của tính giá. Thiếu hai
         # số đó thì dòng đổi đơn vị đọc lên vô lý ("20.500 tờ → 2.050 cuốn" mà không nói 10 tờ =
         # 1 cuốn), và hao phải là `ceil(vào) − ceil(ra_quy)` chứ không phải hiệu số thô — nếu

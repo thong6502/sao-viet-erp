@@ -67,7 +67,7 @@ def test_anh_chup_bo_qua_cot_ky_thuat():
 
 
 def test_o_chon_in_nhan_khong_in_ma():
-    """Ô chọn lưu MÃ (`dang_dat_lam`, `khuon_ep`, `tra_bang`). In thẳng thì nhật ký ra
+    """Ô chọn lưu MÃ (`dang_dat_lam`, `khuon_ep`, `theo_bac`). In thẳng thì nhật ký ra
     "Tình trạng dang_dat_lam → dang_dung" — đúng dòng người ta đọc được sau khi tổ bế tích nhận
     khuôn. Chữ phải khớp ô chọn trên màn; mã lạ (giá trị cũ còn sót) thì giữ nguyên, không đoán."""
     assert mo_ta_thay_doi({"tinh_trang": "dang_dat_lam"}, {"tinh_trang": "dang_dung"}) == [
@@ -75,9 +75,9 @@ def test_o_chon_in_nhan_khong_in_ma():
     assert mo_ta_thay_doi({"loai": None}, {"loai": "khung_lua"}) == ["Loại — → Khung lụa"]
     assert mo_ta_thay_doi(
         {"nhom": "print", "tooling_type": "khuon_be", "kieu_bu_hao": "khong"},
-        {"nhom": "finishing", "tooling_type": "khuon_ep", "kieu_bu_hao": "tra_bang"},
+        {"nhom": "finishing", "tooling_type": "khuon_ep", "kieu_bu_hao": "theo_bac"},
     ) == ["Nhóm In → Gia công sau in", "Loại dụng cụ Khuôn bế → Khuôn ép kim",
-          "Bù hao Không bù hao → Tra bảng theo mã bù hao"]
+          "Bù hao Không bù hao → Theo bậc số lượng"]
     assert mo_ta_thay_doi({"tinh_trang": "dang_dung"}, {"tinh_trang": "zz_la"}) == [
         "Tình trạng Đang dùng → zz_la"]
 

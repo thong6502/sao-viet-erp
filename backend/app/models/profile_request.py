@@ -37,7 +37,7 @@ class ProfileUpdateRequest(Base):
     status: Mapped[str] = mapped_column(
         String(12), index=True, nullable=False, default=REQ_PENDING, server_default=REQ_PENDING
     )
-    decided_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    decided_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decision_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

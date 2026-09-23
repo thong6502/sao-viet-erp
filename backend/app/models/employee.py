@@ -119,7 +119,7 @@ class Employee(Base):
     # Optional 1–1 login account. UNIQUE ⇒ one user account backs at most one employee;
     # nullable ⇒ a factory worker who never logs in still has a hồ sơ.
     user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), unique=True, index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True, nullable=True
     )
     position: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Thâm niên ĐÃ CÓ trước khi vào làm (tháng) — người từng làm nơi khác chuyển sang phải khai.
@@ -205,7 +205,7 @@ class EmployeeShiftAssignment(Base):
     # shift from this date onward.
     shift_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     effective_from: Mapped[date] = mapped_column(Date, index=True, nullable=False)
-    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -246,7 +246,7 @@ class EmployeeShiftDay(Base):
     is_off: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=sa_false(), nullable=False
     )
-    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -329,7 +329,7 @@ class EmployeeShiftChangeLog(Base):
         Boolean, nullable=False, default=False, server_default=sa_false()
     )
     actor_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), index=True, nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, index=True, nullable=False
@@ -361,7 +361,7 @@ class EmployeeEvent(Base):
     to_value: Mapped[str | None] = mapped_column(String(255), nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)  # lý do / ghi chú
     actor_user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -387,7 +387,7 @@ class EmployeeAttachment(Base):
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
     file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)  # MIME
     uploaded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

@@ -120,10 +120,10 @@ class PlateDieRate(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     used_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     updated_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(

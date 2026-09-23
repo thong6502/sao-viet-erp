@@ -32,6 +32,7 @@ class LsxRepository:
         self,
         *,
         order_id: int | None = None,
+        customer_id: int | None = None,
         trang_thai: str | None = None,
         q: str | None = None,
         owner_ids: set[int] | None = None,
@@ -41,6 +42,13 @@ class LsxRepository:
         conds = []
         if order_id is not None:
             conds.append(Lsx.order_id == order_id)
+        if customer_id is not None:
+            # Khách nằm ở ĐƠN, không có trên lệnh — lọc bằng subquery thay vì join, để `list` và
+            # `dem_theo_trang_thai` (một cái select Lsx, một cái group_by) dùng chung đúng một
+            # điều kiện mà không ai phải tự nhớ thêm join.
+            conds.append(
+                Lsx.order_id.in_(select(Order.id).where(Order.customer_id == customer_id))
+            )
         if trang_thai:
             # Nhận NHIỀU trạng thái ngăn bằng dấu phẩy: tab "Nháp" của màn kế hoạch gửi
             # `nhap,cho_bo_sung` (hai cái nay chung một mặt), gửi một mã lẻ vẫn chạy như cũ.
@@ -48,7 +56,13 @@ class LsxRepository:
             conds.append(Lsx.trang_thai.in_(ma_tt))
         if q:
             like = f"%{q.strip()}%"
-            conds.append(or_(Lsx.ma.ilike(like), Lsx.ten.ilike(like)))
+            # Gõ "DH017" phải ra lệnh của đơn đó: mã đơn là thứ người điều độ cầm trên tay, còn
+            # mã lệnh thì họ đang đi tìm. Subquery vì `order_no` nằm ở bảng đơn.
+            conds.append(or_(
+                Lsx.ma.ilike(like),
+                Lsx.ten.ilike(like),
+                Lsx.order_id.in_(select(Order.id).where(Order.order_no.ilike(like))),
+            ))
         if owner_ids is not None:
             conds.append(
                 or_(Lsx.nguoi_phu_trach_id.in_(owner_ids), Lsx.created_by.in_(owner_ids))
@@ -74,6 +88,21 @@ class LsxRepository:
         # thứ tự đổi giữa hai lượt gọi ⇒ dòng nhảy qua lại giữa các trang.
         base = base.order_by(Lsx.created_at.desc(), Lsx.id.desc())
         return list(self.db.execute(base.offset((page - 1) * size).limit(size)).scalars()), total
+
+    def nguon_bo_loc(self, **kw) -> list[tuple[int, str, int | None]]:
+        """`(order_id, order_no, customer_id)` của MỌI đơn đang có lệnh — nguồn cho hai ô lọc.
+
+        Bỏ `order_id`/`customer_id` ra khỏi bộ lọc là cố ý: đang lọc đơn A mà danh sách chỉ còn
+        đơn A thì không đổi sang đơn B được nữa. Các lọc còn lại (`q`, `trang_thai`, scope) vẫn
+        giữ, để ô chọn không chào những đơn mà bấm vào là bảng trống.
+        """
+        conds = self._dieu_kien(**{**kw, "order_id": None, "customer_id": None})
+        stmt = (
+            select(Order.id, Order.order_no, Order.customer_id)
+            .where(Order.id.in_(select(Lsx.order_id).where(*conds)))
+            .order_by(Order.order_no.desc())
+        )
+        return [(i, no, cid) for i, no, cid in self.db.execute(stmt).all()]
 
     def dem_theo_trang_thai(self, **kw) -> dict[str, int]:
         """Số lệnh của TỪNG trạng thái, cùng bộ lọc nhưng BỎ `trang_thai`.

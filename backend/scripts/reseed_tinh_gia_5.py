@@ -16,7 +16,6 @@ from sqlalchemy import delete
 
 sys.path.insert(0, ".")
 from app.db import Base, SessionLocal, engine  # noqa: E402
-from app.models.bu_hao import BuHao  # noqa: E402
 from app.models.cong_doan import CongDoan  # noqa: E402
 from app.models.loai_san_pham import LoaiSanPham  # noqa: E402
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn  # noqa: E402
@@ -38,7 +37,7 @@ def wipe(db):
     # Con → cha (FK cascade thật ở phiếu); catalog xoá thẳng (soft-FK).
     for model in (PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia,
                   GiayNguyen, ChungLoaiGiay, VatTuInAn,
-                  CongDoan, BuHao, LoaiSanPham):
+                  CongDoan, LoaiSanPham):
         db.execute(delete(model))
     db.commit()
 
@@ -102,35 +101,25 @@ def seed_vat_tu(db):
     return {o.ma: o.id for o in objs}
 
 
-def seed_bu_hao(db):
-    _SL = [(0, 3000), (3000, 7000), (7000, 10000), (10000, 15000), (15000, 20000), (20000, 30000)]
-
-    def _bac(sau_to, pct):
-        b = [{"sl_tu": t, "sl_den": d, "gia_tri": v, "don_vi": "to"} for (t, d), v in zip(_SL, sau_to)]
-        b.append({"sl_tu": 30000, "sl_den": None, "gia_tri": pct, "don_vi": "pct"})
-        return b
-
-    B = [
-        BuHao(ma="BH-KHONG-IN", ten="Hàng không in", bac=_bac([50, 70, 100, 130, 150, 200], 1)),
-        BuHao(ma="BH-IN-1-2", ten="In 1-2 màu", bac=_bac([120, 150, 200, 250, 300, 350], 1.5)),
-        BuHao(ma="BH-IN-3-4", ten="In 3-4 màu", bac=_bac([150, 200, 250, 300, 350, 400], 1.7)),
-        BuHao(ma="BH-IN-5", ten="In 5 màu", bac=_bac([200, 250, 300, 350, 400, 450], 2)),
-        BuHao(ma="BH-IN-6", ten="In 6 màu", bac=_bac([250, 300, 350, 450, 500, 600], 2.5)),
-        BuHao(ma="BH-SONG-1CON", ten="Bồi sóng — 1 con", bac=_bac([70, 100, 150, 170, 200, 250], 1)),
-    ]
-    db.add_all(B)
-    db.flush()
-    return {b.ma: b.id for b in B}
+#: Mốc TRÊN của 6 bậc đầu; bậc thứ 7 là vô hạn (`sl_den=None`). Bậc bù hao nay nằm TRÊN chính
+#: công đoạn (22/09/2026, mg `0327`) nên không còn danh mục Bù hao để seed riêng.
+_MOC = [3000, 7000, 10000, 15000, 20000, 30000]
 
 
-def seed_cong_doan(db, bh):
+def _bac(sau_to, pct):
+    b = [{"sl_den": d, "gia_tri": v, "don_vi": "to"} for d, v in zip(_MOC, sau_to)]
+    b.append({"sl_den": None, "gia_tri": pct, "don_vi": "pct"})
+    return b
+
+
+def seed_cong_doan(db):
     # Mọi công đoạn: theo_san_luong + per_other + cong_thuc_gia tường minh; don_gia (trong CT) = run_rate.
     C = [
         dict(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress",
              cong_thuc_gia="so_kem * don_gia", run_rate=95000, kieu_bu_hao="khong"),
         dict(ma="CD-0002", ten="In offset", nhom="print",
              cong_thuc_gia="to_dau_vao * so_mat * don_gia", run_rate=280,
-             kieu_bu_hao="tra_bang", bu_hao_ma="BH-IN-3-4"),
+             kieu_bu_hao="theo_bac", bac_bu_hao=_bac([150, 200, 250, 300, 350, 400], 1.7)),
         dict(ma="CD-0003", ten="Cán màng bóng", nhom="finishing",
              cong_thuc_gia="to_sau_in * dai_in * rong_in * so_mat * don_gia", run_rate=2500,
              kieu_bu_hao="co_dinh", so_to_bu_hao=50),
@@ -139,7 +128,7 @@ def seed_cong_doan(db, bh):
              kieu_bu_hao="co_dinh", so_to_bu_hao=50),
         dict(ma="CD-0005", ten="Bồi sóng", nhom="finishing",
              cong_thuc_gia="to_sau_in * don_gia", run_rate=350,
-             kieu_bu_hao="tra_bang", bu_hao_ma="BH-SONG-1CON"),
+             kieu_bu_hao="theo_bac", bac_bu_hao=_bac([70, 100, 150, 170, 200, 250], 1)),
         dict(ma="CD-0006", ten="Bế thành phẩm", nhom="finishing",
              cong_thuc_gia="to_sau_in * don_gia", run_rate=250, requires_tooling=True,
              tooling_type="khuon_be", kieu_bu_hao="co_dinh", so_to_bu_hao=30),
@@ -155,13 +144,7 @@ def seed_cong_doan(db, bh):
         dict(ma="CD-0011", ten="Khuôn ép kim (một lần)", nhom="finishing",
              cong_thuc_gia="don_gia", run_rate=450000, kieu_bu_hao="khong"),
     ]
-    objs = []
-    for c in C:
-        bh_ma = c.pop("bu_hao_ma", None)
-        cd = CongDoan(che_do_tinh="theo_san_luong", pricing_basis="per_other", **c)
-        if bh_ma:
-            cd.bu_hao_id = bh[bh_ma]
-        objs.append(cd)
+    objs = [CongDoan(che_do_tinh="theo_san_luong", pricing_basis="per_other", **c) for c in C]
     db.add_all(objs)
     db.flush()
     return {c.ma: c.id for c in objs}
@@ -342,8 +325,7 @@ def main():
         wipe(db)
         giay = seed_giay(db)
         vt = seed_vat_tu(db)
-        bh = seed_bu_hao(db)
-        cd = seed_cong_doan(db, bh)
+        cd = seed_cong_doan(db)
         lsp = seed_loai_sp(db, cd)
         db.commit()
         phieus = seed_phieu(db, giay, vt, cd, lsp)

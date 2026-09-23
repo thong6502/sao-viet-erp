@@ -17,12 +17,18 @@ from sqlalchemy.orm import sessionmaker
 from app.db import Base
 import app.models  # noqa: F401 — đăng ký metadata
 from app.repositories.audit_repo import AuditLogRepository
-from app.repositories.bu_hao_repo import BuHaoRepository
 from app.repositories.kho_hang_repo import KhoHangRepository
 from app.repositories.khuon_be_repo import KhuonBeRepository
-from app.services.bu_hao_service import BuHaoDuplicate, BuHaoNotFound, BuHaoService
+from app.repositories.don_vi_do_repo import DonViDoRepository
+from app.repositories.xe_repo import XeRepository
 from app.services.kho_hang_service import KhoHangInUse, KhoHangNotFound, KhoHangService
 from app.services.khuon_be_service import KhuonBeNotFound, KhuonBeService
+from app.services.don_vi_do_service import (
+    DonViDoDuplicate,
+    DonViDoService,
+    DonViDoValidationError,
+)
+from app.services.xe_service import XeNotFound, XeService
 
 
 @pytest.fixture
@@ -123,8 +129,8 @@ def test_moi_danh_muc_nem_dung_lop_exception_cua_no(hai_session):
         KhoHangService(KhoHangRepository(db)).get(9999)
     with pytest.raises(KhuonBeNotFound):
         KhuonBeService(KhuonBeRepository(db)).get(9999)
-    with pytest.raises(BuHaoNotFound):
-        BuHaoService(BuHaoRepository(db)).get(9999)
+    with pytest.raises(XeNotFound):
+        XeService(XeRepository(db)).get(9999)
 
 
 def test_cau_bao_loi_giu_nguyen_chu_cua_tung_man(hai_session):
@@ -141,10 +147,10 @@ def test_cau_bao_loi_giu_nguyen_chu_cua_tung_man(hai_session):
 
 def test_trung_ma_nem_lop_duplicate_cua_danh_muc(hai_session):
     db = hai_session()
-    svc = BuHaoService(BuHaoRepository(db))
-    svc.create({"ma": "BH-GIAY", "ten": "Bù hao giấy"})
-    with pytest.raises(BuHaoDuplicate):
-        svc.create({"ma": "bh-giay", "ten": "Trùng, khác hoa thường"})
+    svc = DonViDoService(DonViDoRepository(db))
+    svc.create({"ma": "zzkg", "ten": "ZZ Ký"})
+    with pytest.raises(DonViDoDuplicate):
+        svc.create({"ma": "ZZKG", "ten": "Trùng, khác hoa thường"})
 
 
 # --- Hai nét riêng mà nền phải giữ: mã tự sinh + xoá mềm ----------------------------------
@@ -183,9 +189,10 @@ def test_chan_xoa_khi_con_rang_buoc(hai_session, monkeypatch):
 
 
 def test_danh_muc_khai_ma_tay_khong_tu_cap_ma(hai_session):
-    """Bù hao KHÔNG có `ma_prefix` — gửi thiếu mã thì phải báo lỗi khai thiếu, chứ không im lặng
-    cấp một mã bịa."""
+    """Đơn vị đo KHÔNG có `ma_prefix` (mã là chữ người khai tự đặt: `kg`, `to`…) — gửi thiếu mã
+    thì phải báo lỗi khai thiếu, chứ không im lặng cấp một mã bịa. (Trước 22/09/2026 chỗ này lấy
+    Bù hao làm ví dụ; màn ấy đã gỡ.)"""
     db = hai_session()
-    with pytest.raises(Exception) as e:
-        BuHaoService(BuHaoRepository(db)).create({"ten": "Thiếu mã"})
+    with pytest.raises(DonViDoValidationError) as e:
+        DonViDoService(DonViDoRepository(db)).create({"ten": "Thiếu mã"})
     assert "Mã" in str(e.value)

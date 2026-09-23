@@ -10,7 +10,7 @@ trả ĐỦ mức nền (cơ bản + trách nhiệm), cùng đơn giá với cô
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from ..models.leave import (
     STATUS_APPROVED,
@@ -21,10 +21,18 @@ from ..models.leave import (
     LeaveType,
 )
 from ..models.role import SCOPE_ALL
+from ..models.yeu_cau_huy import (
+    LOAI_NGHI_PHEP,
+    TT_CHO,
+    TT_DONG_Y,
+    TT_GIU_NGUYEN,
+    TT_RUT_LAI,
+)
 from .bien_che import ly_do_ngoai_bien_che
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.leave_repo import LeaveRepository
+from .khoang_thang import khoang_tao_theo_thang
 from .ky_cong_guard import ly_do_ky_cong_da_chot
 
 
@@ -55,6 +63,15 @@ def _clean(v: str | None) -> str | None:
     return v or None
 
 
+# Giờ Việt Nam cố định +7 (không có giờ mùa hè) — "hôm nay" của luật xin hủy phải là ngày ở xưởng,
+# không phải ngày UTC của máy chủ (7h sáng VN mới sang ngày UTC).
+_VN = timezone(timedelta(hours=7))
+
+
+def hom_nay_vn() -> date:
+    return datetime.now(_VN).date()
+
+
 def _working_days(start: date, end: date) -> int:
     """Số NGÀY LÀM VIỆC trong [start, end] (loại Thứ Bảy + Chủ Nhật). Là đơn vị TRỪ hạn
     mức phép năm (theo quyết định: cuối tuần không trừ phép; ngày lễ + ca cuối tuần → P2).
@@ -80,6 +97,7 @@ class LeaveService:
         late_early=None,
         attendance=None,
         payroll=None,
+        yeu_cau_huy=None,
     ) -> None:
         self.leaves = leaves
         self.employees = employees
@@ -98,6 +116,9 @@ class LeaveService:
         # phép CÓ LƯƠNG của người khoán / tài xế (khách chốt 15/09/2026). Không có dây này (unit
         # test dựng tối giản) ⇒ không chặn, y như trước.
         self._payroll = payroll
+        # YeuCauHuyRepository | None — xin hủy đơn ĐÃ DUYỆT (23/09/2026). None (unit test dựng tối
+        # giản) ⇒ không có đường xin hủy, đường hủy thẳng vẫn siết như dưới.
+        self._yc = yeu_cau_huy
 
     def _chan_phep_co_luong_khoan(self, emp, lt) -> None:
         """Người ăn khoán sản lượng / khoán km KHÔNG được dùng loại nghỉ CÓ LƯƠNG.
@@ -275,31 +296,49 @@ class LeaveService:
                           detail=f"{emp.code} {lt.name} {start_date}→{end_date} ({days}n)")
         return r
 
-    def my_requests(self, *, user, page: int = 1, size: int = 20) -> tuple[list[LeaveRequest], int]:
-        """Trả `(rows, total)` — `total` là TỔNG đơn của NV, không phải số dòng của trang."""
+    @staticmethod
+    def _khoang_thang(thang):
+        """`thang` (YYYY-MM, theo NGÀY TẠO đơn) → (tu, den) UTC, hoặc (None, None) = không lọc."""
+        try:
+            k = khoang_tao_theo_thang(thang)
+        except ValueError as exc:
+            raise LeaveValidationError(str(exc)) from None
+        return k if k is not None else (None, None)
+
+    def my_requests(self, *, user, page: int = 1, size: int = 20,
+                    thang: str | None = None) -> tuple[list[LeaveRequest], int]:
+        """Trả `(rows, total)` — `total` là TỔNG đơn của NV (trong tháng tạo nếu lọc), không phải
+        số dòng của trang. Mới tạo nhất lên đầu."""
         emp = self._employee_for_user(user)
-        total = self.leaves.count_by_employee(emp.id)
-        rows = self.leaves.list_by_employee(emp.id, limit=size, offset=max(0, (page - 1) * size))
+        tu, den = self._khoang_thang(thang)
+        total = self.leaves.count_by_employee(emp.id, tao_tu=tu, tao_den=den)
+        rows = self.leaves.list_by_employee(emp.id, limit=size, offset=max(0, (page - 1) * size),
+                                            tao_tu=tu, tao_den=den)
         return rows, total
 
     def list_requests(self, *, scope: str, actor, status: str | None = None,
                       employee_id: int | None = None, page: int = 1,
-                      size: int = 20) -> tuple[list[LeaveRequest], int]:
+                      size: int = 20, thang: str | None = None) -> tuple[list[LeaveRequest], int]:
         """Danh sách đơn theo DATA-SCOPE người gọi (own = của mình / department = của phòng /
         all = tất cả). Duyệt tập trung: HCNS/Admin scope=all thấy mọi đơn.
 
         `employee_id` chỉ THU HẸP thêm bên trong phạm vi đã có — không mở rộng quyền: gõ id của
         người ngoài phạm vi thì `_scope_condition` vẫn cắt, kết quả rỗng chứ không lộ đơn."""
+        tu, den = self._khoang_thang(thang)
         total = self.leaves.count_scoped(scope=scope, actor=actor, status=status,
-                                         employee_id=employee_id)
+                                         employee_id=employee_id, tao_tu=tu, tao_den=den)
         rows = self.leaves.list_scoped(scope=scope, actor=actor, status=status,
                                        employee_id=employee_id, limit=size,
-                                       offset=max(0, (page - 1) * size))
+                                       offset=max(0, (page - 1) * size), tao_tu=tu, tao_den=den)
         return rows, total
 
     def count_pending(self, *, scope: str, actor) -> int:
-        """Số đơn chờ duyệt trong scope — nuôi badge sidebar."""
-        return self.leaves.count_pending_scoped(scope=scope, actor=actor)
+        """Số việc chờ duyệt trong scope — nuôi badge sidebar: đơn mới + yêu cầu HỦY đơn đã duyệt
+        (23/09/2026). Người duyệt nhìn một con số là biết còn bao nhiêu việc phải quyết."""
+        n = self.leaves.count_pending_scoped(scope=scope, actor=actor)
+        if self._yc is not None:
+            n += self._yc.count_cho_scoped(LOAI_NGHI_PHEP, scope=scope, actor=actor)
+        return n
 
     def my_unseen_count(self, *, user) -> int:
         """Số đơn của tôi vừa được quyết mà tôi chưa xem — nuôi chuông Topbar."""
@@ -466,27 +505,217 @@ class LeaveService:
                 skipped.append(i)
         return {"done": done, "skipped": skipped}
 
-    def cancel(self, *, actor, request_id, is_hr: bool = False, scope: str = "own") -> LeaveRequest:
+    # --- hủy / xin hủy (chủ chốt 23/09/2026 — docs/prd-xin-huy-don-da-duyet.md) -------------
+    #
+    # Đơn ĐÃ DUYỆT là cam kết trong kế hoạch của tổ ⇒ người lao động KHÔNG tự hủy thẳng nữa, chỉ
+    # được XIN hủy; ai có quyền duyệt đơn (trong phạm vi) thì quyết. Không hạn chót. Đơn đang chờ
+    # duyệt vẫn tự hủy thoải mái — nó chưa vào kế hoạch nào.
+
+    def _la_cua_minh(self, r: LeaveRequest, actor) -> bool:
+        """Đơn của CHÍNH người gọi: người đứng tên đơn, hoặc người đã tạo nó."""
+        if r.created_by == actor.id:
+            return True
+        me = self.employees.get_by_user_id(actor.id)
+        return me is not None and me.id == r.employee_id
+
+    def _quan_ly_duoc(self, r: LeaveRequest, actor, *, is_hr: bool, scope: str) -> bool:
+        """Người gọi có quyền QUYẾT trên đơn này không: có ô duyệt, người đứng tên nằm trong phạm vi,
+        và không tự quyết đơn của mình khi phạm vi chỉ là tổ (cùng luật với `_decide`)."""
+        if not is_hr:
+            return False
+        try:
+            self._guard_scope(r.employee_id, scope=scope, actor=actor)
+        except LeaveForbidden:
+            return False
+        if scope != SCOPE_ALL:
+            me = self.employees.get_by_user_id(actor.id)
+            if me is not None and me.id == r.employee_id:
+                return False
+        return True
+
+    def cancel(self, *, actor, request_id, is_hr: bool = False, scope: str = "own",
+               ly_do=None) -> LeaveRequest:
+        """Hủy THẲNG. Đơn đang chờ: người đứng tên / người tạo tự hủy, hoặc người duyệt hủy hộ.
+        Đơn ĐÃ DUYỆT: chỉ người có quyền duyệt (trong phạm vi), và phải ghi lý do — người lao động
+        đi đường XIN hủy (`xin_huy`)."""
         r = self.leaves.get_request(request_id)
         if r is None:
             raise LeaveNotFound("Không tìm thấy đơn nghỉ.")
-        # Người tạo hủy đơn của mình, hoặc người có quyền duyệt hủy đơn TRONG PHẠM VI của họ.
-        # Trước 29/07/2026 `is_hr` nghĩa là "hủy BẤT KỲ" — an toàn khi chỉ HCNS (scope `all`) có
-        # cờ đó. Nay tổ trưởng cũng có `approve` ⇒ để nguyên là tổ trưởng hủy được đơn cả công ty.
-        if not is_hr and r.created_by != actor.id:
+        quan_ly = self._quan_ly_duoc(r, actor, is_hr=is_hr, scope=scope)
+        if not quan_ly and not self._la_cua_minh(r, actor):
+            if is_hr:
+                self._guard_scope(r.employee_id, scope=scope, actor=actor)   # nói đúng lý do 403
             raise LeaveForbidden("Bạn chỉ hủy được đơn của mình.")
-        if is_hr and r.created_by != actor.id:
-            self._guard_scope(r.employee_id, scope=scope, actor=actor)
         if r.status in (STATUS_REJECTED, STATUS_CANCELLED):
             raise LeaveValidationError("Đơn đã kết thúc, không hủy được.")
-        # Hủy một đơn ĐÃ DUYỆT của tháng đã chốt = GỠ công đã đóng băng ⇒ hai màn lệch nhau, y hệt
-        # chiều duyệt. Đơn còn chờ thì hủy thoải mái, nó chưa vào bảng công.
-        if r.status == STATUS_APPROVED:
+        ly_do = _clean(ly_do)
+        da_duyet = r.status == STATUS_APPROVED
+        if da_duyet:
+            if not quan_ly:
+                raise LeaveValidationError(
+                    "Đơn đã được duyệt nên không tự hủy được. Bấm “Xin hủy” và ghi lý do — người "
+                    "duyệt đồng ý thì đơn mới hủy."
+                )
+            if not ly_do:
+                raise LeaveValidationError("Hủy đơn đã duyệt phải ghi lý do để người lao động biết.")
+            # Hủy một đơn ĐÃ DUYỆT của tháng đã chốt = GỠ công đã đóng băng ⇒ hai màn lệch nhau.
             self._chan_neu_ky_cong_da_chot(r, "hủy đơn nghỉ đã duyệt")
         self.leaves.update_request(r, status=STATUS_CANCELLED)
+        if da_duyet and self._yc is not None:
+            # Lý do hủy thẳng có chỗ lưu + người lao động đọc được. Yêu cầu xin hủy đang chờ (nếu có)
+            # coi như được đồng ý bằng chính lần hủy này.
+            cho = self._yc.get_cho(LOAI_NGHI_PHEP, r.id)
+            bay_gio = datetime.now(timezone.utc)
+            if cho is not None:
+                self._yc.update(cho, trang_thai=TT_DONG_Y, decided_by=actor.id, decided_at=bay_gio,
+                                ly_do_quyet=ly_do)
+            else:
+                self._yc.create(loai=LOAI_NGHI_PHEP, request_id=r.id, employee_id=r.employee_id,
+                                ly_do=ly_do, trang_thai=TT_DONG_Y, truc_tiep=True,
+                                created_by=actor.id, decided_by=actor.id, decided_at=bay_gio,
+                                ly_do_quyet=ly_do)
         self.audit.create(actor_user_id=actor.id, action="leave_cancelled",
-                          target=f"leave_request:{r.id}", detail="hủy đơn")
+                          target=f"leave_request:{r.id}",
+                          detail="hủy đơn" + (f" — {ly_do}" if ly_do else ""))
         return r
+
+    def get_request(self, request_id) -> LeaveRequest | None:
+        return self.leaves.get_request(request_id)
+
+    def _can_yc(self):
+        if self._yc is None:
+            raise LeaveValidationError("Chưa bật chức năng xin hủy.")
+        return self._yc
+
+    def xin_huy(self, *, actor, request_id, ly_do, hom_nay: date | None = None):
+        """Người lao động XIN hủy đơn ĐÃ DUYỆT. Đơn vẫn hiệu lực tới khi người duyệt đồng ý.
+
+        Đơn nghỉ ĐANG DỞ (đã tới ngày bắt đầu) — chủ chốt *"tính nghỉ 1 ngày"*: đồng ý thì đơn
+        được RÚT NGẮN, giữ các ngày TRƯỚC ngày gửi xin hủy, hủy từ ngày gửi trở đi. Đơn đã qua hết
+        (quá ngày kết thúc) thì không xin hủy được — việc đã xảy ra, sai sót thì báo HCNS."""
+        yc_repo = self._can_yc()
+        r = self.leaves.get_request(request_id)
+        if r is None:
+            raise LeaveNotFound("Không tìm thấy đơn nghỉ.")
+        if not self._la_cua_minh(r, actor):
+            raise LeaveForbidden("Bạn chỉ xin hủy được đơn của mình.")
+        if r.status == STATUS_PENDING:
+            raise LeaveValidationError("Đơn đang chờ duyệt — bấm “Hủy đơn” để hủy thẳng, không cần xin.")
+        if r.status != STATUS_APPROVED:
+            raise LeaveValidationError("Đơn đã kết thúc, không hủy được.")
+        ly_do = _clean(ly_do)
+        if not ly_do:
+            raise LeaveValidationError("Cần ghi lý do xin hủy để người duyệt cân nhắc.")
+        hom_nay = hom_nay or hom_nay_vn()
+        if r.end_date < hom_nay:
+            raise LeaveValidationError(
+                "Đơn nghỉ này đã qua nên không xin hủy được. Có sai sót thì báo HCNS."
+            )
+        if yc_repo.get_cho(LOAI_NGHI_PHEP, r.id) is not None:
+            raise LeaveValidationError("Đơn này đã có yêu cầu hủy đang chờ duyệt.")
+        huy_tu = max(r.start_date, hom_nay)
+        # Phần bị hủy nằm ở tháng đã chốt công thì yêu cầu này là ngõ cụt — chặn ngay lúc gửi.
+        if self._attendance is not None:
+            loi = ly_do_ky_cong_da_chot(self._attendance, huy_tu, r.end_date, viec="xin hủy đơn nghỉ")
+            if loi:
+                raise LeaveValidationError(loi)
+        dang_do = huy_tu > r.start_date
+        yc = yc_repo.create(loai=LOAI_NGHI_PHEP, request_id=r.id, employee_id=r.employee_id,
+                            ly_do=ly_do, trang_thai=TT_CHO,
+                            huy_tu_ngay=huy_tu if dang_do else None, created_by=actor.id)
+        self.audit.create(actor_user_id=actor.id, action="leave_cancel_requested",
+                          target=f"leave_request:{r.id}",
+                          detail=(f"xin hủy từ {huy_tu:%d/%m/%Y}" if dang_do else "xin hủy cả đơn")
+                          + f" — {ly_do}")
+        return r, yc
+
+    def rut_lai_xin_huy(self, *, actor, yc_id):
+        """Người lao động rút lại yêu cầu hủy khi chưa ai quyết — đơn giữ nguyên như đã duyệt."""
+        yc_repo = self._can_yc()
+        yc = yc_repo.get(yc_id)
+        if yc is None or yc.loai != LOAI_NGHI_PHEP:
+            raise LeaveNotFound("Không tìm thấy yêu cầu hủy.")
+        if yc.created_by != actor.id:
+            raise LeaveForbidden("Bạn chỉ rút lại được yêu cầu của mình.")
+        if yc.trang_thai != TT_CHO:
+            raise LeaveValidationError("Yêu cầu này đã được xử lý, không rút lại được.")
+        yc_repo.update(yc, trang_thai=TT_RUT_LAI, decided_at=datetime.now(timezone.utc))
+        self.audit.create(actor_user_id=actor.id, action="leave_cancel_request_withdrawn",
+                          target=f"leave_request:{yc.request_id}", detail="rút lại yêu cầu hủy")
+        return self.leaves.get_request(yc.request_id), yc
+
+    def quyet_xin_huy(self, *, actor, yc_id, dong_y: bool, ghi_chu=None, scope: str):
+        """Người có quyền duyệt (trong phạm vi) ĐỒNG Ý hủy hoặc GIỮ NGUYÊN đơn. Giữ nguyên phải ghi
+        lý do để người lao động biết vì sao vẫn nghỉ / vẫn phải đi làm như đã duyệt."""
+        yc_repo = self._can_yc()
+        yc = yc_repo.get(yc_id)
+        if yc is None or yc.loai != LOAI_NGHI_PHEP:
+            raise LeaveNotFound("Không tìm thấy yêu cầu hủy.")
+        r = self.leaves.get_request(yc.request_id)
+        if r is None:
+            raise LeaveNotFound("Không tìm thấy đơn nghỉ.")
+        self._guard_scope(r.employee_id, scope=scope, actor=actor)
+        if scope != SCOPE_ALL:
+            me = self.employees.get_by_user_id(actor.id)
+            if me is not None and me.id == r.employee_id:
+                raise LeaveForbidden("Không tự duyệt yêu cầu hủy đơn của chính mình — nhờ cấp trên.")
+        if yc.trang_thai != TT_CHO:
+            raise LeaveValidationError("Yêu cầu hủy này đã được xử lý.")
+        ghi_chu = _clean(ghi_chu)
+        bay_gio = datetime.now(timezone.utc)
+        if not dong_y:
+            if not ghi_chu:
+                raise LeaveValidationError("Giữ nguyên đơn phải ghi lý do để người lao động biết.")
+            yc_repo.update(yc, trang_thai=TT_GIU_NGUYEN, decided_by=actor.id, decided_at=bay_gio,
+                           ly_do_quyet=ghi_chu)
+            self.audit.create(actor_user_id=actor.id, action="leave_cancel_request_rejected",
+                              target=f"leave_request:{r.id}", detail=f"giữ nguyên đơn — {ghi_chu}")
+            return r, yc
+        if r.status != STATUS_APPROVED:
+            raise LeaveValidationError("Đơn không còn ở trạng thái đã duyệt — không cần hủy nữa.")
+        huy_tu = yc.huy_tu_ngay
+        giu_den = (huy_tu - timedelta(days=1)) if huy_tu is not None and huy_tu > r.start_date else None
+        # Phần giữ lại rơi hết vào ngày nghỉ (vd nghỉ từ T7, xin hủy từ T2) thì chẳng còn ngày phép
+        # nào để giữ ⇒ hủy cả đơn cho sạch, đừng để lại một đơn "nghỉ" toàn ngày không đi làm.
+        if giu_den is not None and self._wd(r.start_date, giu_den) == 0:
+            giu_den = None
+        if self._attendance is not None:
+            loi = ly_do_ky_cong_da_chot(self._attendance, huy_tu if giu_den else r.start_date,
+                                        r.end_date, viec="đồng ý hủy đơn nghỉ")
+            if loi:
+                raise LeaveValidationError(loi)
+        if giu_den is not None:
+            den_cu = r.end_date
+            self.leaves.update_request(r, end_date=giu_den, days=(giu_den - r.start_date).days + 1)
+            yc_repo.update(yc, trang_thai=TT_DONG_Y, decided_by=actor.id, decided_at=bay_gio,
+                           ly_do_quyet=ghi_chu, den_ngay_cu=den_cu)
+            viec = f"rút ngắn đơn còn {r.start_date:%d/%m}–{giu_den:%d/%m/%Y} (gốc tới {den_cu:%d/%m/%Y})"
+        else:
+            self.leaves.update_request(r, status=STATUS_CANCELLED)
+            yc_repo.update(yc, trang_thai=TT_DONG_Y, decided_by=actor.id, decided_at=bay_gio,
+                           ly_do_quyet=ghi_chu)
+            viec = "hủy cả đơn"
+        self.audit.create(actor_user_id=actor.id, action="leave_cancel_request_approved",
+                          target=f"leave_request:{r.id}",
+                          detail=viec + (f" — {ghi_chu}" if ghi_chu else ""))
+        return r, yc
+
+    def xin_huy_cho_duyet(self, *, scope: str, actor) -> list:
+        """Yêu cầu hủy đang chờ trong phạm vi người duyệt, kèm đơn gốc: [(yc, đơn)]."""
+        if self._yc is None:
+            return []
+        out = []
+        for yc in self._yc.list_cho_scoped(LOAI_NGHI_PHEP, scope=scope, actor=actor):
+            r = self.leaves.get_request(yc.request_id)
+            if r is not None:
+                out.append((yc, r))
+        return out
+
+    def yeu_cau_huy_moi_nhat(self, request_ids) -> dict:
+        """{request_id: yêu cầu hủy mới nhất} — nuôi nhãn trên bảng đơn."""
+        if self._yc is None:
+            return {}
+        return self._yc.moi_nhat_theo_don(LOAI_NGHI_PHEP, request_ids)
 
     # --- lịch nghỉ (toàn công ty) ------------------------------------------
 
@@ -512,6 +741,10 @@ class LeaveService:
                 return trong_tam[emp_id]
             reqs = [r for r in reqs if _duoc_xem(r.employee_id)]
         types = {t.id: t for t in self.leaves.list_types()}
+        # Đơn đã duyệt đang có yêu cầu hủy chờ quyết: VẪN là ngày nghỉ (đơn còn hiệu lực), chỉ gắn dấu
+        # để tổ trưởng xếp người biết có thể người này sẽ đi làm lại (23/09/2026).
+        yc_moi = self.yeu_cau_huy_moi_nhat([r.id for r in reqs if r.status == STATUS_APPROVED])
+        dang_xin_huy = {rid for rid, yc in yc_moi.items() if yc.trang_thai == TT_CHO}
         out: dict[int, dict] = {}
         for r in reqs:
             lt = types.get(r.leave_type_id)
@@ -531,6 +764,7 @@ class LeaveService:
                         "status": r.status,
                         "leave_type_name": lt.name if lt is not None else "Nghỉ",
                         "is_paid": lt.is_paid if lt is not None else True,
+                        "dang_xin_huy": r.id in dang_xin_huy,
                     }
                 d = date.fromordinal(d.toordinal() + 1)
         return {

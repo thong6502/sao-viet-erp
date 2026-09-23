@@ -30,6 +30,7 @@ from ..schemas.lsx import (
     HangChoOut,
     LsxActivityItem,
     LsxActivityOut,
+    LsxBoLocOut,
     LsxDinhKemListOut,
     LsxDinhKemOut,
     LsxGiaoNhanIn,
@@ -176,6 +177,7 @@ def list_items(
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     order_id: int | None = Query(default=None),
+    customer_id: int | None = Query(default=None),
     trang_thai: str | None = Query(default=None),
     q: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
@@ -185,7 +187,7 @@ def list_items(
 ) -> LsxListOut:
     svc = _svc(db)
     loc = {
-        "order_id": order_id, "trang_thai": trang_thai, "q": q,
+        "order_id": order_id, "customer_id": customer_id, "trang_thai": trang_thai, "q": q,
         "owner_ids": _owner_ids_for_scope(db, user, authz),
     }
     rows, total = svc.list_rows(page=page, size=size, **loc)
@@ -196,6 +198,21 @@ def list_items(
         # `trang_thai` bị bỏ ở tầng repo, không phải ở đây.
         facets=svc.dem_trang_thai(**loc),
     )
+
+
+@router.get("/bo-loc", response_model=LsxBoLocOut)
+def bo_loc(
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    trang_thai: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+) -> LsxBoLocOut:
+    """Đơn / khách để đổ vào hai ô lọc. Cùng scope với `list` — người chỉ thấy lệnh của mình thì
+    ô chọn cũng chỉ chào đơn của mình."""
+    return LsxBoLocOut.model_validate(_svc(db).nguon_bo_loc(
+        trang_thai=trang_thai, q=q, owner_ids=_owner_ids_for_scope(db, user, authz),
+    ))
 
 
 # --- Hàng đèn tổng quan -------------------------------------------------------
@@ -333,6 +350,14 @@ def xem_truoc_buoc(
     loai_buoc: str | None = None,
     so_luot_chay: int | None = None,
     so_gio_ke_hoach: float | None = None,
+    # Hai ô "Dòng chảy số lượng" đang gõ → thẳng vào chip `sl_vao`/`sl_ra` của cách đo giờ. Ô
+    # TRỐNG là 0: client gửi 0, không gửi thì engine dùng số của lần lưu trước (hành vi cũ).
+    so_luong_vao: float | None = None,
+    so_luong_ra: float | None = None,
+    # Chỉ cần cho bước CHƯA LƯU: cách đo giờ treo ở cặp (công đoạn × máy) nên không có
+    # `cong_doan_id` thì chẳng tra được gì.
+    cong_doan_id: int | None = None,
+    don_vi_vao: str | None = None,
 ) -> dict:
     """Giờ chạy của bước theo bộ số ĐANG SỬA trên drawer — không ghi gì.
 
@@ -341,7 +366,9 @@ def xem_truoc_buoc(
     không quy đổi gì (giờ là số gõ tay) nhưng vẫn hỏi qua đây, để một màn chỉ có MỘT nguồn số.
     Tên cũ `xem-truoc-may` đổi 07/09/2026: cửa này nhận cả loại bước · số lượt · số giờ kế hoạch,
     giữ tên cũ là dạy người đọc sau tin rằng chỉ đổi máy mới phải hỏi lại — đúng cái nhầm đã sinh
-    ra lỗi. `piece_rate_id` GỠ 18/09/2026 (mg `0320`) cùng ô đầu việc của bước.
+    ra lỗi. Từ 20/09/2026 nhận thêm SỐ LƯỢNG VÀO / RA đang gõ (chip `sl_vao`/`sl_ra`) và, cho bước
+    chưa lưu, `cong_doan_id` + `don_vi_vao`. `piece_rate_id` GỠ 18/09/2026 (mg `0320`) cùng ô đầu
+    việc của bước.
     Trả `dict` trần, KHÔNG bọc response_model: thêm khoá vào diễn giải mà quên khai schema là bị
     nuốt im lặng, mà khối này chính là thứ drawer đọc từng khoá.
     """
@@ -352,6 +379,8 @@ def xem_truoc_buoc(
             lsx_id=lsx_id, step_key=step_key, may_id=may_id,
             loai_buoc=loai_buoc, so_luot_chay=so_luot_chay,
             so_gio_ke_hoach=so_gio_ke_hoach,
+            so_luong_vao=so_luong_vao, so_luong_ra=so_luong_ra,
+            cong_doan_id=cong_doan_id, don_vi_vao=don_vi_vao,
         )
     except Exception as exc:
         raise _map(exc)

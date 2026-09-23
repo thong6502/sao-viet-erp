@@ -189,7 +189,8 @@ def test_huy_ho_phieu_da_duyet_dem_vao_chua_xem_cua_nv(client):
                     "to_minute": 1200, "reason": "x"}, headers=h)
     assert r.status_code == 201 and r.json()["status"] == "approved", r.text
     rid = r.json()["id"]
-    assert client.post(f"/api/overtime/{rid}/cancel", headers=h).status_code == 200
+    assert client.post(f"/api/overtime/{rid}/cancel", json={"ly_do": "Hết đơn gấp"},
+                       headers=h).status_code == 200  # 23/09/2026: hủy đơn ĐÃ DUYỆT phải ghi lý do
     db = SessionLocal()
     try:
         assert OvertimeRepository(db).count_my_unseen(e) == 1

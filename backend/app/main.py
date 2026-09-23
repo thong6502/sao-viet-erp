@@ -40,7 +40,6 @@ from .routers import (
     may_thiet_bi,
     vat_lieu_kho,
     cong_doan,
-    bu_hao,
     xe,
     don_vi_do,
     bien_cong_thuc,
@@ -172,7 +171,6 @@ app.include_router(may_thiet_bi.nhom_may_router)   # danh mục Nhóm máy (cùn
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(san_xuat_kcs_tieu_chi.router)   # danh mục Tiêu chí KCS (module quyền `dm_kcs_tieu_chi`)
-app.include_router(bu_hao.router)
 app.include_router(xe.router)
 app.include_router(don_vi_do.router)
 app.include_router(bien_cong_thuc.router)

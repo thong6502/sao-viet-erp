@@ -676,7 +676,7 @@ def _step_cost_safe(cd: dict, ctx: dict, warnings: list[str], ten: str) -> tuple
     return _f(res.get("total")), ghi
 
 
-def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: dict, bu_hao_rows: list[dict]) -> dict:
+def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: dict) -> dict:
     """Tính chi phí 1 SẢN PHẨM → 2 nhóm (nvl · cong_doan). Trả {name, rows, total, meta}."""
     name = tp.get("ten") or ""
     sl = _i(tp.get("so_luong")) or _i(so_luong_mac_dinh)   # SL của sản phẩm này; 0 → SL mặc định phiếu
@@ -837,8 +837,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     # thì là số con, kết ở tờ thì là số tờ. Một công thức chung với lệnh sản xuất, xem `dich_chuoi`.
     tram_cuoi = buoc_in[-1]["tram_ra"] if buoc_in else None
     to_can = dich_chuoi(sl, tram_ra_cuoi=tram_cuoi, cai_moi_to=cai_moi_to, he_so=he_so_dv)
-    buoc_giay, canh_bao_dv = chuoi_nguoc_dv(
-        buoc_in, rows=bu_hao_rows, to_can=to_can, he_so=he_so_dv)
+    buoc_giay, canh_bao_dv = chuoi_nguoc_dv(buoc_in, to_can=to_can, he_so=he_so_dv)
     for _c in canh_bao_dv:
         warnings.append(f"Thành phần '{name}': {_c}")
 
@@ -1254,7 +1253,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     }
 
 
-def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[dict] | None = None, warnings: list[str] | None = None) -> dict:
+def compute_phieu(*, so_luong: int, thanh_phans: list[dict], warnings: list[str] | None = None) -> dict:
     """Tính giá vốn 1 phiếu theo thành phần → 2 nhóm (nvl · cong_doan).
 
     Returns:
@@ -1268,10 +1267,8 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
     grouped: dict[str, list[dict]] = {k: [] for k in _NHOM}
     components: list[dict] = []
 
-    bu_hao_list = bu_hao_rows or []
-
     for i, tp in enumerate(thanh_phans or []):
-        one = _compute_one(tp, so_luong, warns, flags, bu_hao_list)
+        one = _compute_one(tp, so_luong, warns, flags)
         for idx in _NHOM:
             grouped[idx].extend(one["rows"][idx])
         components.append({

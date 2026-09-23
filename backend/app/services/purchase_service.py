@@ -2230,16 +2230,12 @@ class PurchaseService:
         row = self._request_ghi(request_id, actor)
         if row.status != PR_PENDING:
             raise PurchaseConflict("Chỉ phiếu đang chờ duyệt mới được duyệt.")
-        # TÁCH VAI (chủ 04/08/2026: "thu mua làm gì có quyền duyệt"): ai đề xuất chi tiền thì
-        # không được là người đồng ý chi. Chốt ở ĐÂY chứ không chỉ ở phân quyền, vì phân quyền là
-        # cấu hình — bật lại lúc nào cũng được ở màn Phân quyền mà không ai hay.
-        #
-        # KHÔNG miễn cho giám đốc (chủ chốt). Hệ quả: giám đốc tự lập phiếu thì phải người khác
-        # duyệt. Muốn nới thì thêm một ô miễn trừ, đừng gỡ chốt.
-        if row.created_by_user_id is not None and row.created_by_user_id == actor.id:
-            raise PurchaseForbidden(
-                "Nguoi lap phieu khong duoc tu duyet phieu cua chinh minh."
-            )
+        # TỰ DUYỆT PHIẾU CỦA MÌNH ĐƯỢC PHÉP (chủ chốt 20/09/2026, gỡ luật tách vai 04/08/2026).
+        # Trước đây chỗ này chặn cứng theo `created_by_user_id`, kể cả với giám đốc — ai lập phiếu
+        # thì phải người khác duyệt. Nay quyền duyệt CHỈ do phân quyền quyết: có ô "Duyệt" của
+        # module Kế toán (`ke_toan:approve`) là duyệt được, không phân biệt ai lập.
+        # Vết vẫn còn đủ để truy: `created_by_user_id` và `approved_by_user_id` lưu riêng, cộng
+        # dòng nhật ký `approve_purchase_request` ngay dưới — trùng người thì nhìn là thấy.
         self._dat_trang_thai(row, PR_APPROVED, doc_type=DOC_PMH, actor=actor)
         row.approved_by_user_id = actor.id
         row.approved_at = _now()

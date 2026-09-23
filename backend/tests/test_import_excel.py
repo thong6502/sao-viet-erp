@@ -134,7 +134,6 @@ def _to() -> tuple[int, str, str]:
 
 PREFIX = {
     "kho_hang": "/api/kho",
-    "bu_hao": "/api/bu-hao",
     "khuon_be": "/api/khuon-be",
     "loai_san_pham": "/api/loai-san-pham",
     "don_vi_do": "/api/don-vi",
@@ -149,7 +148,7 @@ PREFIX = {
 assert set(PREFIX) == set(SPECS), "PREFIX và SPECS phải phủ đúng ngần ấy màn như nhau."
 
 MA = {
-    "kho_hang": "KHO-T1", "bu_hao": "BH-T1", "khuon_be": "KB-T1", "loai_san_pham": "LSP-T1",
+    "kho_hang": "KHO-T1", "khuon_be": "KB-T1", "loai_san_pham": "LSP-T1",
     "don_vi_do": "dvt1",
     "chung_loai_giay": "CL-T1", "giay": "GI-T1", "vat_tu": "VT-T1", "thanh_pham": "TP-T1",
     "cong_doan": "CD-T1", "may_thiet_bi": "MAY-T1", "xe": "51K-99999",
@@ -185,10 +184,6 @@ def _dung_nen(client, h) -> dict[str, dict]:
     ra: dict[str, dict] = {}
     ra["kho_hang"] = _tao(client, h, "kho_hang", {
         "ma": MA["kho_hang"], "ten": "Kho thử", "vi_tri": "Dãy A", "ghi_chu": "ghi chú kho"})
-    ra["bu_hao"] = _tao(client, h, "bu_hao", {
-        "ma": MA["bu_hao"], "ten": "Bù hao thử", "ghi_chu": "gc",
-        "bac": [{"sl_tu": 0, "sl_den": 1000, "gia_tri": 150, "don_vi": "to"},
-                {"sl_tu": 1000, "sl_den": None, "gia_tri": 3, "don_vi": "pct"}]})
     ra["khuon_be"] = _tao(client, h, "khuon_be", {
         "ma": MA["khuon_be"], "ten": "Khuôn thử", "loai": "khuon_be", "so_ke": "K1",
         "tinh_trang": "dang_dung", "ghi_chu": "gc"})
@@ -215,7 +210,12 @@ def _dung_nen(client, h) -> dict[str, dict]:
     ra["cong_doan"] = _tao(client, h, "cong_doan", {
         "ma": MA["cong_doan"], "ten": "Công đoạn thử", "ten_hien_thi": "CĐ thử",
         "nhom": "finishing", "don_vi_vao": "to", "don_vi_ra": "con",
-        "cong_thuc_gia": "to_dau_vao * 100", "kieu_bu_hao": "khong",
+        "cong_thuc_gia": "to_dau_vao * 100",
+        # Bậc bù hao nay là SHEET CON của chính Công đoạn (22/09/2026, mg `0327`) — trước đó nền
+        # phải dựng một dòng danh mục Bù hao riêng rồi trỏ sang bằng `bu_hao_id`.
+        "kieu_bu_hao": "theo_bac",
+        "bac_bu_hao": [{"sl_den": 1000, "gia_tri": 150, "don_vi": "to"},
+                       {"sl_den": None, "gia_tri": 3, "don_vi": "pct"}],
         "che_do_tinh": "theo_san_luong", "pricing_basis": "per_other",
         "department_ids": [to_id], "khoan_ghi_theo": "khong",
         "nhom_may_cho_phep": ["Bế"], "setup_cost": 50000, "setup_time": 15,
@@ -406,11 +406,11 @@ def test_xuat_bang_con_ra_sheet_doc_duoc_khong_phai_json(client, seed_credential
     h = _login(client, **seed_credentials)
     nen = _dung_nen(client, h)
 
-    tieu_de, dong = _bang(_xuat(client, h, PREFIX["bu_hao"])["Bậc bù hao"])
-    assert tieu_de == ["Mã", "Thứ tự", "SL từ", "SL đến", "Giá trị", "Đơn vị"]
-    assert [d[2:] for d in dong] == [[0, 1000, 150.0, "to"], [1000, None, 3.0, "pct"]]
-
     wb = _xuat(client, h, PREFIX["cong_doan"])
+    tieu_de, dong = _bang(wb["Bậc bù hao"])
+    assert tieu_de == ["Mã", "Thứ tự", "Đến SL", "Giá trị", "Đơn vị"]
+    assert [d[2:] for d in dong] == [[1000, 150.0, "to"], [None, 3.0, "pct"]]
+
     assert [d[2:] for d in _bang(wb["Bậc theo khổ"])[1]] == [[50.0, 1000.0], [80.0, 1500.0]]
     assert [d[2] for d in _bang(wb["Nhóm máy cho phép"])[1]] == ["Bế"]
     assert [d[2:] for d in _bang(wb["Vật tư công đoạn"])[1]] == [[nen["vat_tu"]["ma"], None]]
@@ -483,37 +483,45 @@ def test_sua_cong_thuc_o_sheet_chinh(client, seed_credentials):
 
 
 def test_sua_bac_bu_hao_va_xoa_mot_bac(client, seed_credentials):
-    """Sheet con CÓ MẶT ⇒ thay TRỌN tập con: xoá dòng khỏi file là xoá cấu hình con đó."""
+    """Sheet con CÓ MẶT ⇒ thay TRỌN tập con: xoá dòng khỏi file là xoá cấu hình con đó.
+
+    Xoá bậc HỮU HẠN chứ không xoá bậc vô hạn: bậc cuối luôn phải là vô hạn (§6 thiết kế), bỏ nó
+    đi thì cổng lưu chặn — đó là ca của `test_cong_doan.py`, không phải của import.
+    """
     h = _login(client, **seed_credentials)
     nen = _dung_nen(client, h)
-    prefix = PREFIX["bu_hao"]
+    prefix = PREFIX["cong_doan"]
 
     wb = _xuat(client, h, prefix)
     ws = wb["Bậc bù hao"]
-    ws.cell(row=2, column=5).value = 180          # bậc 1: 150 → 180 tờ
-    ws.delete_rows(3)                             # xoá bậc 2
+    ws.cell(row=3, column=4).value = 4            # bậc vô hạn: 3% → 4%
+    ws.delete_rows(2)                             # xoá bậc ≤ 1.000
 
     kq = _nhap(client, h, prefix, _bytes(wb), mode="commit").json()
     assert kq["hop_le"] and kq["cap_nhat"] == 1, kq
-    bac = client.get(f"{prefix}/{nen['bu_hao']['id']}", headers=h).json()["bac"]
-    assert [(b["sl_tu"], b["gia_tri"]) for b in bac] == [(0, 180.0)]
+    bac = client.get(f"{prefix}/{nen['cong_doan']['id']}", headers=h).json()["bac_bu_hao"]
+    assert [(b["sl_den"], b["gia_tri"], b["don_vi"]) for b in bac] == [(None, 4.0, "pct")]
 
 
 def test_thu_tu_o_sheet_con_quyet_dinh_thu_tu_luu(client, seed_credentials):
-    """Cột `Thứ tự` quyết định, KHÔNG phải vị trí dòng — người ta chèn dòng mới ở cuối file."""
+    """Cột `Thứ tự` quyết định, KHÔNG phải vị trí dòng — người ta chèn dòng mới ở cuối file.
+
+    Soi trên "Bậc theo khổ" chứ không phải "Bậc bù hao": bậc bù hao bắt mốc TĂNG DẦN nên đảo thứ
+    tự là bị cổng lưu chặn, không đọc ra được thứ tự đã lưu.
+    """
     h = _login(client, **seed_credentials)
     nen = _dung_nen(client, h)
-    prefix = PREFIX["bu_hao"]
+    prefix = PREFIX["cong_doan"]
 
     wb = _xuat(client, h, prefix)
-    ws = wb["Bậc bù hao"]
+    ws = wb["Bậc theo khổ"]
     ws.cell(row=2, column=2).value = 2
     ws.cell(row=3, column=2).value = 1
 
     kq = _nhap(client, h, prefix, _bytes(wb), mode="commit").json()
     assert kq["hop_le"], kq
-    bac = client.get(f"{prefix}/{nen['bu_hao']['id']}", headers=h).json()["bac"]
-    assert [b["sl_tu"] for b in bac] == [1000, 0]
+    cd = client.get(f"{prefix}/{nen['cong_doan']['id']}", headers=h).json()
+    assert [t["den_cm"] for t in cd["size_tiers"]] == [80, 50]
 
 
 def test_them_dong_con_moi_cho_ma_da_co(client, seed_credentials):
@@ -631,7 +639,7 @@ def test_file_cua_man_khac_bi_tu_choi_422(client, seed_credentials):
     h = _login(client, **seed_credentials)
     noi_dung = _wb_tu(["Mã", "Tên"], [["KHO-X", "Kho"]],
                       ten_sheet=SPECS["kho_hang"].tieu_de[:31], loai="kho_hang")
-    r = _nhap(client, h, PREFIX["bu_hao"], noi_dung)
+    r = _nhap(client, h, PREFIX["cong_doan"], noi_dung)
     assert r.status_code == 422, r.text
     assert "kho_hang" in r.json()["detail"]
 

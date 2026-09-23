@@ -834,6 +834,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     # xuất chi tiền thì không được là người đồng ý chi. Duyệt là việc của giám đốc / người được
     # trao quyền. Trước đây vai này có `can_approve: True` nên trưởng bộ phận tự duyệt được.
     # DB đang chạy không tự nhận seed ⇒ có migration 0159 gỡ luôn cờ đó.
+    #
+    # ⚠️ Từ 20/09/2026 đây là chỗ DUY NHẤT giữ luật: `purchase_service.approve` đã gỡ chốt chặn
+    # người lập tự duyệt (chủ chốt). Bật `can_approve` lại cho vai này là trưởng bộ phận duyệt
+    # được phiếu của chính mình, không còn tầng nào đỡ.
     (
         "Mua hàng",
         "Trưởng bộ phận mua hàng",

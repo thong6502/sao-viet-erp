@@ -28,6 +28,7 @@ from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
 from .late_early import LateEarlyRequest
 from .overtime import OvertimeRequest
+from .yeu_cau_huy import YeuCauHuy
 from .work_calendar import SpecialDay, WorkCalendarConfig
 from .machine import Machine, MachineRate
 from .module import Module
@@ -96,7 +97,6 @@ from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .cong_doan import (
     CongDoan, CongDoanKhoan, CongDoanKhoanPhatSinh, CongDoanMay, CongDoanTo, CongDoanVatTu,
 )
-from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang, KhoViTri
 from .cong_no_khoa_so import CongNoKhoaSo, CongNoKyChot
@@ -207,6 +207,7 @@ __all__ = [
     "LeaveType",
     "LeaveRequest",
     "OvertimeRequest",
+    "YeuCauHuy",
     "LateEarlyRequest",
     "WorkCalendarConfig",
     "SpecialDay",
