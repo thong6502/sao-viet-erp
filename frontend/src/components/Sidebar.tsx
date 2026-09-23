@@ -28,6 +28,10 @@ export interface NavItem {
   children?: NavChild[];
   /** Mức thụt lề (item ĐỘNG theo cây, vd bàn tổ dưới xưởng) — 0/undefined = thẳng hàng. */
   indent?: number;
+  /** Id item CHA trong cây ĐỘNG (vd "Nhóm in máy 5 màu" nằm dưới "Tổ in"). Khai nó thì hàng cha
+   *  mọc nút ▾ để GẬP cả nhánh — cây xưởng 11 tổ + nhóm in kéo menu dài quá màn hình. Khác
+   *  `children`: con ở đây vẫn là item đầy đủ (icon, badge, bấm vào mở bàn của chính nó). */
+  parentId?: string;
 }
 
 // Ô `self_service` ĐÃ BỎ 15/08/2026 — phần "của tôi" là quyền đương nhiên, không phải ô cấp.
@@ -374,9 +378,41 @@ interface SidebarProps {
   onClose?: () => void;
 }
 
+/** Nhánh cây ĐỘNG đang GẬP — nhớ qua lần vào, nếu không thì mỗi lần F5 lại bung cả 11 tổ và
+ *  việc gập thành vô nghĩa. Chế độ riêng tư chặn localStorage ⇒ bọc try, mất nhớ chứ không vỡ màn. */
+const GAP_KEY = "sidebar.gapNhanh";
+
+/** Cắt những item bị nhánh GẬP che: leo chuỗi cha, gặp một nút đang gập là ẩn. Cha bị bộ lọc
+ *  quyền loại mất thì chuỗi đứt ngay đó (coi như gốc) — không ẩn oan tổ mà người này xem được. */
+function locGap(items: NavItem[], gap: ReadonlySet<string>): NavItem[] {
+  if (!gap.size) return items;
+  const cha = new Map(items.map((i) => [i.id, i.parentId]));
+  return items.filter((i) => {
+    for (let p = i.parentId; p && cha.has(p); p = cha.get(p)) {
+      if (gap.has(p)) return false;
+    }
+    return true;
+  });
+}
+
+function docGap(): Set<string> {
+  try {
+    const raw = localStorage.getItem(GAP_KEY);
+    const xs = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(xs) ? xs.filter((x) => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
 export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicItems, badges, hiddenIds, onClose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [gap, setGap] = useState<Set<string>>(docGap);
+
+  useEffect(() => {
+    try { localStorage.setItem(GAP_KEY, JSON.stringify([...gap])); } catch { /* riêng tư/đầy */ }
+  }, [gap]);
 
   function toggle(set: Set<string>, id: string): Set<string> {
     const next = new Set(set);
@@ -389,9 +425,7 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
   const sections = NAV.map((s) => {
     // Gộp item tĩnh + item ĐỘNG của section (vd kho đã khai báo dưới "Kho hàng"), rồi lọc theo quyền.
     const merged = [...s.items, ...(dynamicItems?.[s.id] ?? [])];
-    return {
-      ...s,
-      items: merged
+    const duoc = merged
         .filter((i) => !hiddenIds?.has(i.id))
         .filter((i) =>
           AUTHENTICATED_NAV_IDS.has(i.id) ||
@@ -407,8 +441,11 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
             ...i,
             children: i.children.filter((c) => !c.module || readable.has(c.module)),
           };
-        }),
-    };
+        });
+    // Nút cha phải tính TRƯỚC khi cắt nhánh gập — cắt xong thì cha không còn con nào để nhận ra
+    // mình là cha, nút ▾ biến mất và nhánh gập rồi không mở lại được.
+    const coCon = new Set(duoc.map((i) => i.parentId).filter((x): x is string => !!x));
+    return { ...s, coCon, items: locGap(duoc, gap) };
   }).filter((s) => s.items.length > 0);
 
   // Auto-mở item cha khi một menu con của nó đang active (mở lại trang / deep-link).
@@ -419,6 +456,25 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
     if (host) setExpanded((prev) => (prev.has(host.id) ? prev : new Set(prev).add(host.id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, itemChildren]);
+
+  // Đi thẳng tới một tổ nằm trong nhánh đang GẬP (bấm toast "có việc mới", mở lại link cũ) → bung
+  // chuỗi cha ra cho thấy hàng đang đứng. Chỉ bám `activeId`: tự tay gập trong lúc đang đứng ở một
+  // nút con thì nhánh KHÔNG bung lại — đó là ý người dùng.
+  useEffect(() => {
+    const cha = new Map(
+      Object.values(dynamicItems ?? {}).flat().map((i) => [i.id, i.parentId]),
+    );
+    const chuoi: string[] = [];
+    for (let p = cha.get(activeId); p; p = cha.get(p)) chuoi.push(p);
+    if (!chuoi.length) return;
+    setGap((prev) => {
+      if (!chuoi.some((x) => prev.has(x))) return prev;
+      const next = new Set(prev);
+      for (const x of chuoi) next.delete(x);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, dynamicItems]);
 
   return (
     <aside className="sidebar">
@@ -470,8 +526,11 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
                       activeId={activeId}
                       isOpen={expanded.has(item.id)}
                       badge={badges?.[item.id] ?? 0}
+                      coCon={section.coCon.has(item.id)}
+                      dangGap={gap.has(item.id)}
                       onSelect={onSelect}
                       onToggle={() => setExpanded((s) => toggle(s, item.id))}
+                      onGap={() => setGap((s) => toggle(s, item.id))}
                     />
                   ))}
                 </ul>
@@ -489,17 +548,22 @@ interface NavRowProps {
   activeId: string;
   isOpen: boolean;
   badge?: number;
+  /** Có item khác nhận mình làm `parentId` → mọc nút ▾ gập nhánh. */
+  coCon?: boolean;
+  dangGap?: boolean;
   onSelect: (id: string) => void;
   onToggle: () => void;
+  onGap?: () => void;
 }
 
-function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowProps) {
+function NavRow({ item, activeId, isOpen, badge, coCon, dangGap, onSelect, onToggle, onGap }: NavRowProps) {
   const hasChildren = !!item.children?.length;
   const childActive = item.children?.some((c) => c.id === activeId) ?? false;
   const active = activeId === item.id || (childActive && !isOpen);
 
   return (
     <li>
+      <div className={`sidebar__row${coCon ? " has-twisty" : ""}${active ? " is-active" : ""}`}>
       <button
         type="button"
         className={`sidebar__link${active ? " is-active" : ""}`}
@@ -530,6 +594,21 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
           />
         )}
       </button>
+      {/* Nút gập RIÊNG, không gộp vào hàng: bấm vào tên tổ vẫn phải MỞ BÀN của tổ đó — cha ở cây
+          này là một tổ thật có việc, không phải cái nhãn nhóm. */}
+      {coCon && (
+        <button
+          type="button"
+          className={`sidebar__twisty${dangGap ? " is-collapsed" : ""}`}
+          aria-expanded={!dangGap}
+          aria-label={`${dangGap ? "Mở" : "Thu gọn"} các tổ trong ${item.label}`}
+          title={dangGap ? "Mở các tổ bên trong" : "Thu gọn các tổ bên trong"}
+          onClick={onGap}
+        >
+          <Icon name="chevron" size={14} />
+        </button>
+      )}
+      </div>
 
       {hasChildren && isOpen && (
         <ul className="sidebar__sub">

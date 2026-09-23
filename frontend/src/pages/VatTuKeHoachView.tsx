@@ -390,24 +390,12 @@ export function VatTuKeHoachView({
 
       {err && <BangLoi text={err} onRetry={load} />}
 
-      {/* ── 2. ALERT STRIP: Cảnh báo lệnh bỏ qua gọn gàng ── */}
-      {(data?.bo_qua.length ?? 0) > 0 && (
-        <div className="khvt-alert-inline" role="status">
-          <Icon name="help" size={14} />
-          <div className="khvt-alert-inline__content">
-            <strong>{data!.bo_qua.length} lệnh/bài chưa thể cân đối vật tư:</strong>
-            <span className="khvt-alert-inline__items">
-              {data!.bo_qua.map((b) => (
-                <span key={b.ma} className="khvt-alert-inline__item" title={b.ly_do}>
-                  <code>{b.ma}</code> ({b.ly_do})
-                </span>
-              ))}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* ── 3. MASTER TABLE: Bảng tổng hợp các mặt hàng ── */}
+      {/* ── 2. MASTER TABLE: Bảng tổng hợp các mặt hàng ──
+          Băng "N lệnh/bài chưa thể cân đối vật tư" (đọc `data.bo_qua`) ĐÃ GỠ 23/09/2026: màn này
+          chỉ cân đối thứ ĐÃ được khai. Lệnh chưa khai vật tư nào thì đơn giản là không có mặt,
+          không phải một cảnh báo phải đọc ở đầu mỗi lần mở màn — cửa chặn thật vẫn nằm ở xếp
+          lịch (`xep_lich_service._chan_chua_giu_du`: giữ chỗ đủ mới cho xếp). BE vẫn trả
+          `bo_qua` vì panel một-lệnh/một-bài (LenhSxHoSoView, BaiGhep2Page) dùng nó. ── */}
       {data === null ? (
         <div className="khsx__tablewrap khvt-master-tablewrap">
           <table className="khsx__table khvt-master-table">
@@ -661,7 +649,7 @@ export function VatTuKeHoachView({
                     <td className="khsx__col--opt">
                       {ngayCanSomNhat ? (
                         <span
-                          className="khvt-date-badge"
+                          className={`khvt-date-badge ${classHan(ngayCanSomNhat)}`}
                           title="Ngày cần hàng ghi trên yêu cầu mua đã lập (sớm nhất)"
                         >
                           <Icon name="clock" size={11} /> {ngay(ngayCanSomNhat)}
@@ -808,29 +796,31 @@ function VatTuDetailDrawer({
           <div className="khvt-drawer-kpi-grid">
             <div className="khvt-bento-kpi">
               <span className="khvt-bento-kpi__label">Tồn khả dụng</span>
-              <span className="khvt-bento-kpi__val">
-                {soGoc(nhom.ton)} {nhanDonVi(nhom.don_vi_goc)}
-              </span>
+              <div className="khvt-bento-kpi__val-wrap">
+                <span className="khvt-bento-kpi__val">{soGoc(nhom.ton)}</span>
+                <span className="khvt-bento-kpi__unit">{nhanDonVi(nhom.don_vi_goc)}</span>
+              </div>
             </div>
             <div className="khvt-bento-kpi">
               <span className="khvt-bento-kpi__label">Tổng nhu cầu</span>
-              <span className="khvt-bento-kpi__val">
-                {soGoc(nhom.tong_can)} {nhanDonVi(nhom.don_vi_goc)}
-              </span>
+              <div className="khvt-bento-kpi__val-wrap">
+                <span className="khvt-bento-kpi__val">{soGoc(nhom.tong_can)}</span>
+                <span className="khvt-bento-kpi__unit">{nhanDonVi(nhom.don_vi_goc)}</span>
+              </div>
             </div>
-            <div className="khvt-bento-kpi">
+            <div className={`khvt-bento-kpi ${tongThieuNhom > 0 ? "khvt-bento-kpi--deficit" : "khvt-bento-kpi--ok"}`}>
               <span className="khvt-bento-kpi__label">Cân đối</span>
-              <span className="khvt-bento-kpi__val">
+              <div className="khvt-bento-kpi__val-wrap">
                 {tongThieuNhom > 0 ? (
-                  <span className="khvt-bento-kpi__val--deficit">
-                    -{soGoc(tongThieuNhom)} {nhanDonVi(nhom.don_vi_goc)}
+                  <span className="khvt-bento-kpi__val khvt-bento-kpi__val--deficit">
+                    -{soGoc(tongThieuNhom)} <span className="khvt-bento-kpi__unit">{nhanDonVi(nhom.don_vi_goc)}</span>
                   </span>
                 ) : (
-                  <span className="khvt-bento-kpi__val--ok">
-                    0 {nhanDonVi(nhom.don_vi_goc)}
+                  <span className="khvt-bento-kpi__val khvt-bento-kpi__val--ok">
+                    0 <span className="khvt-bento-kpi__unit">{nhanDonVi(nhom.don_vi_goc)}</span>
                   </span>
                 )}
-              </span>
+              </div>
             </div>
             <div className="khvt-bento-kpi">
               <span className="khvt-bento-kpi__label">Độ phủ kho</span>
@@ -850,7 +840,7 @@ function VatTuDetailDrawer({
               Bày ĐỦ danh sách (không cắt như trên bảng): drawer là chỗ tra, và hai phiếu cùng số
               lượng nằm cạnh nhau chính là dấu hiệu ai đó đã đề nghị trùng. */}
           {(nhom.phieu_mua ?? []).length > 0 && (
-            <div className="khvt-recommend-box">
+            <div className="khvt-recommend-box khvt-recommend-box--warn">
               <div className="khvt-recommend-box__badge khvt-recommend-box__badge--warn">
                 <Icon name="cart" size={16} />
               </div>
@@ -880,7 +870,7 @@ function VatTuDetailDrawer({
 
           {/* Công cụ khuôn bế ghi chú */}
           {nhom.loai_nhom === "cong_cu" && (
-            <div className="khvt-recommend-box">
+            <div className="khvt-recommend-box khvt-recommend-box--warn">
               <div className="khvt-recommend-box__badge khvt-recommend-box__badge--warn">
                 <Icon name="help" size={16} />
               </div>
@@ -900,7 +890,7 @@ function VatTuDetailDrawer({
           <div className="khvt-drawer-breakdown">
             <div className="khvt-drawer-breakdown__head">
               <h3 className="khvt-drawer-breakdown__title">
-                Phân bổ tiêu thụ theo thứ tự hạn sản xuất ({nhom.dong.length} lệnh)
+                Phân bổ tiêu thụ theo thứ tự hạn sản xuất <span className="khvt-count-badge">({nhom.dong.length} lệnh)</span>
               </h3>
               {canDeNghiMua && keysDo.length > 0 && (
                 <label className="khvt-tickall">
@@ -927,6 +917,15 @@ function VatTuDetailDrawer({
                       Ngày cần
                     </th>
                     <th scope="col">Lệnh / Công đoạn</th>
+                    {/* Khách + ngày giao là CỘT chứ không còn là dòng phụ dưới mã lệnh: dòng phụ
+                        phải cắt tên công ty bằng ellipsis, mà tên khách chính là thứ người đọc
+                        dùng để quyết mua cho ai trước. Drawer đã nới rộng để chứa hai cột này. */}
+                    <th scope="col" style={{ width: 200 }}>
+                      Khách hàng
+                    </th>
+                    <th scope="col" style={{ width: 110 }}>
+                      Ngày giao
+                    </th>
                     <th scope="col" className="khsx-th--num" style={{ width: 130 }}>
                       Nhu cầu
                     </th>
@@ -943,7 +942,9 @@ function VatTuDetailDrawer({
                     const k = khoa(nhom, d);
                     const meta = metaCua(d.trang_thai);
                     const chonDuoc = canDeNghiMua && d.trang_thai === "do";
-                    const isConLaiAm = (d.con_lai_sau ?? 0) < 0;
+                    const valThieu = d.thieu ?? 0;
+                    // Chỉ xem là thiếu thực sự nếu trạng thái là "do" và số thiếu lớn hơn 0
+                    const isThietSuThieu = d.trang_thai === "do" && valThieu > 0.001;
 
                     return (
                       <tr key={k} className={`khsx__row ${chon.has(k) ? "khvt-row--chon" : ""}`}>
@@ -963,10 +964,16 @@ function VatTuDetailDrawer({
                         )}
 
                         <td
-                          className={`khvt-cell-date ${classHan(d.ngay_can)}`}
+                          className="khvt-cell-date"
                           title={d.ngay_can ? "Ngày cần hàng ghi trên yêu cầu mua đã lập" : "Chưa lập yêu cầu mua cho lệnh này"}
                         >
-                          <span className="khvt-date-val">{ngay(d.ngay_can)}</span>
+                          {d.ngay_can ? (
+                            <span className={`khvt-date-text ${classHan(d.ngay_can)}`}>
+                              {ngay(d.ngay_can)}
+                            </span>
+                          ) : (
+                            <span className="khvt-date-null">—</span>
+                          )}
                         </td>
 
                         <td>
@@ -988,6 +995,25 @@ function VatTuDetailDrawer({
                           {d.ten_viec && <div className="khvt-lsx-sub">{d.ten_viec}</div>}
                         </td>
 
+                        <td>
+                          <span className="khvt-khach" title={d.khach_ten ?? "Đơn chưa gắn khách hàng"}>
+                            {d.khach_ten ?? "—"}
+                          </span>
+                        </td>
+
+                        <td>
+                          {d.han_giao_khach ? (
+                            <span
+                              className={`khvt-date-text ${classHan(d.han_giao_khach)}`}
+                              title="Hạn giao hàng cho khách"
+                            >
+                              {ngay(d.han_giao_khach)}
+                            </span>
+                          ) : (
+                            <span className="khvt-date-null">—</span>
+                          )}
+                        </td>
+
                         <td className="khsx-num khvt-num-cell">
                           <div className="khvt-num-primary">{d.nhu_cau_hien_thi}</div>
                           <div className="khvt-sub-pills">
@@ -1005,16 +1031,13 @@ function VatTuDetailDrawer({
                         </td>
 
                         <td className="khsx-num khvt-num-cell">
-                          {isConLaiAm ? (() => {
-                            const valThieu = d.thieu ?? (d.con_lai_sau != null ? Math.abs(d.con_lai_sau) : 0);
-                            return (
-                              <div className="khvt-deficit-pill" title={`Thiếu ${soGoc(valThieu)} ${nhanDonVi(nhom.don_vi_goc)}`}>
-                                <b>Thiếu -{soGoc(valThieu)}</b>
-                                <small>{nhanDonVi(nhom.don_vi_goc)}</small>
-                              </div>
-                            );
-                          })() : (
-                            <span className="khvt-num-primary">{soGoc(d.con_lai_sau)}</span>
+                          <div className={`khvt-balance-val ${(d.con_lai_sau ?? 0) < 0 ? "is-negative" : ""}`}>
+                            {soGoc(d.con_lai_sau ?? 0)} <small className="khvt-unit-sm">{nhanDonVi(nhom.don_vi_goc)}</small>
+                          </div>
+                          {isThietSuThieu && (
+                            <div className="khvt-sub-deficit-note" title={`Thiếu ${soGoc(valThieu)} ${nhanDonVi(nhom.don_vi_goc)}`}>
+                              thiếu -{soGoc(valThieu)} {nhanDonVi(nhom.don_vi_goc)}
+                            </div>
                           )}
                         </td>
 
@@ -1043,15 +1066,7 @@ function VatTuDetailDrawer({
           <Button variant="secondary" onClick={onClose}>
             Đóng
           </Button>
-          {/* HAI đường, vì hai ý muốn khác nhau:
-              · "Chọn N dòng thiếu" — gom thêm mặt hàng này vào tập đang tick rồi đi xem tiếp mặt
-                hàng khác, lát nữa gửi một phiếu cho cả lô (băng nổi dưới chân bảng lo việc gửi);
-              · "Đề nghị mua ngay" — làm luôn tại đây. Trước 20/09/2026 chỉ có nút đầu, mà băng nổi
-                thì nằm SAU drawer: tick xong nút tự xám đi, người dùng đọc ra "màn này không tạo
-                được yêu cầu mua" (đúng câu chủ hỏi). */}
           {canDeNghiMua && keysDo.length > 0 && (
-            /* Bọc chung một khối: chân drawer là `space-between`, để ba nút rời nhau thì "Chọn…"
-               dạt ra giữa như thể nó là một nhóm thứ ba. */
             <div className="khvt-drawer__foot-right">
               <Button
                 variant="secondary"

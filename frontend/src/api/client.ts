@@ -925,7 +925,6 @@ export interface BaiGhep2VatTuNhom {
 export interface BaiGhep2VatTuHieuLuc {
   bai_ghep_id: number;
   items: BaiGhep2VatTuNhom[];
-  bo_qua: { ma: string; ly_do: string }[];
 }
 export interface BaiGhep2Activity {
   at: string | null;
@@ -1777,6 +1776,8 @@ export interface SxCongDoanTruoc {
   phan_doan_so: number;
   phan_doan_tong: number;
   to_ten: string | null;
+  /** Bước trước cùng tổ + cùng lệnh: không cổng, không cần bàn giao (`dau_vao.cung_to_cung_lsx`). */
+  cung_to: boolean;
   trang_thai: string;
   ke_hoach: number | null;
   don_vi: string | null;
@@ -1793,6 +1794,8 @@ export interface SxTranGhi {
   he_so: number;
   don_vi_nhan: string;
   nguon_ten: string;
+  /** Nguồn cùng tổ ⇒ `da_nhan` là SẢN LƯỢNG bước trước, không phải số đã bàn giao. */
+  cung_to: boolean;
   da_ghi: number;
   con_ghi_duoc: number;
 }
@@ -8273,6 +8276,11 @@ export interface CanDoiDong {
   /** "Ngày cần hàng" người lập gõ trên yêu cầu mua đã lập cho lệnh/bài này (sớm nhất) — đọc ngược,
    *  KHÔNG suy. Chưa lập yêu cầu mua nào (vd tồn đủ) ⇒ `null`, hiện trống. */
   ngay_can: string | null;
+  /** Khách của lệnh. Dòng BÀI GHÉP gom nhiều lệnh: một khách thì là tên, nhiều khách thì server
+   *  trả thẳng chuỗi `"3 khách"` — FE in nguyên, không tự diễn giải. */
+  khach_ten: string | null;
+  /** Hạn giao KHÁCH — khác hạn nội bộ mà bảng dùng xếp thứ tự ăn tồn. */
+  han_giao_khach: string | null;
   /** Mọi số theo ĐƠN VỊ GỐC của mặt hàng. null ở dòng công cụ. */
   nhu_cau: number | null;
   /** Hai đơn vị cùng lúc: "2.961 tờ ≈ 116 kg". */
@@ -8333,15 +8341,10 @@ export interface CanDoiNhom {
   dong: CanDoiDong[];
 }
 
-/** Lệnh/bài KHÔNG cân đối được — hiện thẳng ra thay vì im lặng bỏ. */
-export interface CanDoiBoQua {
-  ma: string;
-  ly_do: string;
-}
-
+/** `bo_qua` (lệnh/bài không cân đối được) GỠ 23/09/2026 — chưa khai vật tư thì vắng mặt, không
+ *  cảnh báo; cửa chặn nằm ở xếp lịch. */
 export interface CanDoiOut {
   items: CanDoiNhom[];
-  bo_qua: CanDoiBoQua[];
   /** Số lệnh giữ lâu chưa vào kế hoạch — toàn xưởng, không theo `q` (cùng nghĩa `TheoLenhOut`). */
   so_giu_lau: number;
 }
@@ -8424,6 +8427,9 @@ export interface TheoLenhRow {
   is_rush: boolean;
   /** Ngày cần hàng SỚM NHẤT trên các yêu cầu mua đã lập cho lệnh. Lệnh không phải mua ⇒ `null`. */
   ngay_can: string | null;
+  /** Khách + hạn giao khách — xem `CanDoiDong.khach_ten` / `.han_giao_khach`. */
+  khach_ten: string | null;
+  han_giao_khach: string | null;
   /** Còn giữ chỗ nhưng ĐÃ RƠI khỏi bảng cân đối (lệnh bị kéo về nháp…). Vẫn trừ vào tồn tự do của
    *  mọi người khác, nên phải bày ra để có đường nhả. */
   ngoai_pham_vi: boolean;
@@ -8715,22 +8721,11 @@ export interface LenhSxVatTuMuc {
   dong: LenhSxVatTuDong[];
 }
 
+/** `bo_qua` GỠ 23/09/2026 cùng lúc với `CanDoiOut.bo_qua` — ba mục dưới là toàn bộ khối vật tư. */
 export interface LenhSxVatTu {
   hien_tai: LenhSxVatTuMuc;
   canh_bao_sau: LenhSxVatTuDong[];
   da_cap: LenhSxVatTuDong[];
-  /** Dòng engine KHÔNG đối chiếu được (thiếu công thức lượng, đơn vị lạ). Phải bày ra: một bảng
-   *  vật tư im lặng bỏ sót vài món trông y hệt một bảng đủ. */
-  bo_qua: LenhSxVatTuBoQua[];
-}
-
-/** Schema khai `list[dict]` (hình dạng do engine vật tư quyết), nên hai khoá dưới đây khai
- *  OPTIONAL và chừa cửa cho khoá lạ — engine thêm trường thì màn không gãy, chỉ không hiện. */
-export interface LenhSxVatTuBoQua {
-  /** Mã LỆNH hoặc mã BÀI GHÉP — hai loại, đừng giả định chỉ có một. */
-  ma?: string | null;
-  ly_do?: string | null;
-  [k: string]: unknown;
 }
 
 export interface LenhSxNhanLucBuoc {

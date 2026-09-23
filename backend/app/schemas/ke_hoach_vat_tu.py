@@ -29,6 +29,12 @@ class CanDoiDong(BaseModel):
     #: NGÀY CẦN HÀNG người lập gõ trên yêu cầu mua hàng đã lập cho lệnh/bài này (sớm nhất nếu có
     #: nhiều) — đọc ngược qua `yeu_cau_mua_nguon_lenh`, KHÔNG suy (18/09/2026). Chưa mua gì thì `None`.
     ngay_can: date | None = None
+    #: Khách của lệnh (qua `orders.customer_id`). Dòng BÀI GHÉP gom nhiều lệnh: một khách thì là
+    #: tên khách, nhiều khách thì là chuỗi `"3 khách"` — cố ý không bốc một tên làm đại diện.
+    khach_ten: str | None = None
+    #: Hạn giao KHÁCH (`lsx.han_giao_khach`), KHÁC hạn nội bộ `han_hoan_thanh_sx` mà bảng dùng để
+    #: xếp thứ tự ăn tồn. Bài ghép lấy hạn sớm nhất trong các thành viên.
+    han_giao_khach: date | None = None
 
     #: Mọi số dưới đây theo ĐƠN VỊ GỐC của mặt hàng (kho đếm theo đơn vị đó). `None` ở dòng công cụ.
     nhu_cau: float | None = None
@@ -104,20 +110,11 @@ class CanDoiNhom(BaseModel):
     dong: list[CanDoiDong] = Field(default_factory=list)
 
 
-class CanDoiBoQua(BaseModel):
-    """Lệnh/bài KHÔNG cân đối được — hiện thẳng ra thay vì im lặng bỏ.
-
-    Bỏ im lặng là kiểu lỗi tệ nhất ở màn này: bảng xanh hết, người dùng yên tâm, còn lệnh thiếu
-    giấy thì không xuất hiện ở đâu cả.
-    """
-
-    ma: str
-    ly_do: str
-
-
 class CanDoiOut(BaseModel):
+    """`bo_qua` (danh sách lệnh/bài không cân đối được) GỠ 23/09/2026 — bảng chỉ cân đối thứ ĐÃ
+    khai; chưa khai thì vắng mặt. Cửa chặn nằm ở xếp lịch, xem `_gom_nhu_cau`."""
+
     items: list[CanDoiNhom] = Field(default_factory=list)
-    bo_qua: list[CanDoiBoQua] = Field(default_factory=list)
     #: Cùng nghĩa `TheoLenhOut.so_giu_lau`, đếm trên TOÀN XƯỞNG (không theo `q`). Đi kèm ở đây để
     #: badge trên nút "Theo lệnh" khỏi phải gọi `/theo-lenh` — lời gọi đó dựng lại cả bảng cân đối.
     so_giu_lau: int = 0
@@ -190,6 +187,10 @@ class TheoLenhRow(BaseModel):
     is_rush: bool = False
     #: Ngày cần hàng SỚM NHẤT trên các YCMH đã lập cho lệnh này. Lệnh không phải mua (tồn đủ) ⇒ `None`.
     ngay_can: date | None = None
+    #: Khách + hạn giao khách của lệnh — xem `CanDoiDong.khach_ten` / `.han_giao_khach`, thẻ lệnh
+    #: chỉ nhặt lại giá trị đã có trên dòng chứ không tự tra thêm.
+    khach_ten: str | None = None
+    han_giao_khach: date | None = None
     #: Còn giữ chỗ nhưng ĐÃ RƠI khỏi bảng cân đối (lệnh bị kéo về nháp…). Chỗ giữ vẫn trừ vào tồn
     #: tự do của mọi người khác, nên phải bày ra để có đường nhả — không thì nó vô hình.
     ngoai_pham_vi: bool = False

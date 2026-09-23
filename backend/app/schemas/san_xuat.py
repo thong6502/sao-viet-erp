@@ -726,6 +726,8 @@ class CongDoanTruocOut(BaseModel):
     phan_doan_so: int = 1
     phan_doan_tong: int = 1
     to_ten: str | None = None
+    # Bước trước cùng tổ + cùng lệnh: không cổng, không cần bàn giao (`dau_vao.cung_to_cung_lsx`).
+    cung_to: bool = False
     trang_thai: str
     ke_hoach: float | None = None
     don_vi: str | None = None
@@ -743,6 +745,8 @@ class TranGhiOut(BaseModel):
     he_so: float
     don_vi_nhan: str
     nguon_ten: str
+    # Nguồn cùng tổ ⇒ `da_nhan` là SẢN LƯỢNG bước trước, không phải số bàn giao — đổi cả câu chữ.
+    cung_to: bool = False
     da_ghi: float
     con_ghi_duoc: float
 

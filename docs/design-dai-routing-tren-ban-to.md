@@ -83,9 +83,15 @@ giờ thì mốc trống, dải sẽ nhảy lung tung.
 
 ## 3. Ba hình dạng routing phải xử đúng
 
-**Dải dài.** Lệnh 8–10 công đoạn không vừa bề ngang. Luật: bày tối đa 5 ô quanh bước của mình
-(2 trước · mình · 2 sau); thừa ở đầu/cuối gom thành ô "+N" đọc được tên khi hover. Không cuộn ngang
-— màn xưởng thao tác bằng tay, cuộn ngang là bẫy.
+**Dải dài.** Chuỗi thật có thể tới mười mấy công đoạn, không vừa bề ngang. Luật (sửa 23/09/2026):
+**hiện ĐỦ mọi bước**, hết chỗ thì XUỐNG DÒNG. Không cuộn ngang — màn xưởng thao tác bằng tay, cuộn
+ngang là bẫy. Không gom "+N" nữa: bản đầu cắt cửa sổ 5 ô quanh bước của mình rồi gom hai đầu, nên
+chuỗi 6 bước là giấu mất bước cuối — đúng thứ tổ cần thấy nhất ("hàng của tôi rồi đi đâu").
+
+Lưới là **cột đều** (`repeat(auto-fit, minmax(150px, 1fr))`), không cho ô co theo chữ: co theo chữ
+thì một hàng trông gọn hơn thật, nhưng vừa xuống dòng là hàng dưới lệch cột hẳn so với hàng trên,
+đọc thành hai dải rời. Mốc nằm ở mép TRÁI ô, nên ô cuối sẽ thừa một quãng trống bên phải — quãng
+đó giải bằng **đuôi + chốt** (mục 6), không bằng bề rộng ô.
 
 **Bước tách lần chạy** (`phan_doan_so` / `phan_doan_tong`, mg `0254`). Một ô cho MỘT BƯỚC, không
 phải một lần chạy — đúng luật `dau_vao._khoa:38` đã gom các lần chạy của cùng bước. Ô ghi "lần k/N"
@@ -185,10 +191,18 @@ Hình mới bám đúng thứ nó mô tả: lệnh là giấy chảy **một chi
 Mọi màu lấy từ `tokens.css`. Bản đầu gõ hex thẳng (`#0369a1`, `#ccfbf1`, `#eef2f7`…) — đó là lý
 do nó lạc khỏi hệ màu chung của phần mềm.
 
+**Cuối chuyền có chốt.** Mốc ở mép trái ô nên nếu ray dừng ngay tại mốc cuối thì nhãn bước cuối
+còn chạy tiếp sang phải — băng chuyền trông như cụt giữa thẻ. Luật: ô cuối vẫn vẽ đoạn ray chạy hết
+bề ngang ô, kết thúc bằng một vạch chặn (`.thsx-ray__chot`). Thiếu vạch chặn thì cái đuôi đó lại
+đọc ra "còn bước nữa chưa hiện" — ngược hẳn ý cần nói. Đuôi và chốt ăn theo trạng thái bước cuối:
+xong thì liền nét màu rêu, chưa tới thì đứt nét xám. Chuỗi xuống dòng thì chốt nằm ở chỗ chuỗi thật
+sự hết, giữa hàng cuối, không phải ở mép phải.
+
 Bẫy màn xưởng phải né (theo `bay-giao-dien-dien-thoai-svn`): không `space-between` bóp chữ, không
 ellipsis nuốt tên công đoạn, không lưới chia đều đè chữ ở bề ngang hẹp. **Dưới 900px ray DỰNG
-ĐỨNG** (mốc trái, chữ phải) chứ không xuống dòng: ray ngang mà wrap thì đứt mạch đọc, dựng đứng
-vẫn giữ nguyên chiều chảy. Ở bề ngang hẹp khoảng hở giữa hai hàng chỉ ~12px nên số bàn giao
+ĐỨNG** (mốc trái, chữ phải) chứ không xếp cột: ray ngang ở bề ngang đó thì mỗi ô chỉ còn vài chục
+pixel, dựng đứng vẫn giữ nguyên chiều chảy và dài bao nhiêu bước cũng chứa được. Đuôi và chốt lật
+theo: đuôi chạy xuống dưới mốc cuối, chốt là vạch NGANG chặn đáy. Ở bề ngang hẹp khoảng hở giữa hai hàng chỉ ~12px nên số bàn giao
 **không** treo lên đoạn ray nữa mà về hàng, đứng ngay trên tên bước nhận hàng.
 
 Màn hình đọc được khi không có dải: lệnh một bước (`routing` đúng 1 phần tử) thì ẩn dải hẳn, khỏi
@@ -222,9 +236,9 @@ tổ này, không đáng một toast.
 
 ## 9. Ba điểm còn mở
 
-1. **Dải dài**: mục 3 đang chốt "5 ô + gom +N". Nếu chủ dự án muốn thấy đủ 10 bước thì phải đổi
-   sang hai hàng, không cuộn ngang.
+1. ~~**Dải dài**~~ — ĐÃ CHỐT 23/09/2026: hiện đủ mọi bước, hết chỗ thì xuống dòng, lưới cột đều
+   (mục 3). Không gom "+N", không cuộn ngang.
 2. **Bước tách lần chạy**: đang chốt gộp một ô. Nếu tổ cần biết đích danh "lần 2 của In đang chạy"
-   thì tách N ô, dải dài thêm và luật gom ở mục 3 phải viết lại.
+   thì tách N ô và dải dài thêm — chỗ này nay chịu được vì đã cho xuống dòng.
 3. **Mức đọc chéo tổ**: mục 4 đang chốt không lộ người/tiền/mẻ. Nếu muốn tổ thấy "ai đang chạy máy
    bước trước" thì đó là quyết định riêng, không suy ra từ luật hiện có.

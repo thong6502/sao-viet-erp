@@ -36,89 +36,114 @@ function chuTrangThai(tt: string): string | null {
 
 const DA_QUA = new Set(["completed"]);
 
-/** Cửa sổ 5 bước quanh bước của mình; thừa hai đầu gom thành mốc "+N".
- *  Không cuộn ngang: màn xưởng thao tác bằng tay, cuộn ngang là bẫy. */
-function cuaSo(dai: SxRoutingBuoc[]): { truoc: number; hien: SxRoutingBuoc[]; sau: number } {
-  if (dai.length <= 5) return { truoc: 0, hien: dai, sau: 0 };
-  const i = Math.max(0, dai.findIndex((b) => b.la_cua_toi));
-  let dau = Math.max(0, i - 2);
-  if (dau + 5 > dai.length) dau = dai.length - 5;
-  return { truoc: dau, hien: dai.slice(dau, dau + 5), sau: dai.length - dau - 5 };
+/** Bước ĐANG TỚI TAY tổ — chỉ MỘT, để dải còn một chỗ nhấn mạnh duy nhất.
+ *
+ * Một tổ thường giữ NHIỀU bước của cùng một lệnh (Tổ cắt ôm cả Cắt cuộn · Tề giấy · Cắt thành
+ * phẩm). Bản đầu lấy `findIndex(la_cua_toi)` — bước ĐẦU TIÊN — nên khi tổ đã làm xong bước đầu,
+ * dải vẫn chỉ vào đó và tổ không biết việc đang nằm ở bước nào.
+ *
+ * Thứ tự ưu tiên: đang chạy → tạm dừng → chờ làm sớm nhất → bước cuối của tổ (đã xong hết).
+ */
+function buocTrongTam(dai: SxRoutingBuoc[]): number {
+  const cua = dai.map((b, i) => [b, i] as const).filter(([b]) => b.la_cua_toi);
+  if (!cua.length) return -1;
+  for (const tt of ["running", "paused", "released"]) {
+    const v = cua.find(([b]) => b.trang_thai === tt);
+    if (v) return v[1];
+  }
+  return cua[cua.length - 1][1];
 }
 
 export function ThsxDaiRouting({ dai }: { dai: SxRoutingBuoc[] }) {
   // Lệnh một bước: vẽ một mốc lẻ trên một đoạn ray là nhiễu, không phải thông tin.
   if (!dai || dai.length < 2) return null;
-  const { truoc, hien, sau } = cuaSo(dai);
-  const iToi = dai.findIndex((b) => b.la_cua_toi);
-  const keSau = iToi >= 0 && iToi + 1 < dai.length ? dai[iToi + 1].step_key : null;
-  const toi = iToi >= 0 ? dai[iToi] : undefined;
-  // Số hàng ĐÃ VỀ TAY tổ, gắn lên đoạn ray ngay trước bước của mình. `da_nhan` là số đã lọc đúng
-  // đơn vị đầu vào (luật `board._thuc_nhan`); không có thì lùi về tổng bàn giao đã chốt của bước
-  // liền trước. MỘT số, đặt đúng chỗ nó xảy ra — không in lại ở dòng dưới như bản cũ.
-  const nhan = toi?.da_nhan ?? (iToi > 0 ? dai[iToi - 1].da_giao_sang_toi : null) ?? null;
+  // HIỆN ĐỦ MỌI CÔNG ĐOẠN (sửa 23/09/2026). Bản trước cắt cửa sổ 5 ô rồi gom hai đầu thành mốc
+  // "+N", nên chuỗi 6 bước là bước cuối biến mất — đúng thứ tổ cần thấy nhất ("hàng của tôi rồi
+  // đi tới đâu") lại bị giấu. Dải hẹp thì để lưới tự xuống dòng (xem `thuc-hien-sx.css`), còn
+  // dưới 900px ray đã dựng đứng nên dài bao nhiêu cũng chứa được.
+  const iTam = buocTrongTam(dai);
+  const tamKey = iTam >= 0 ? dai[iTam].step_key : null;
+  // BÀN GIAO chỉ tồn tại khi hàng ĐỔI TỔ. Hai bước liền nhau cùng tổ + cùng lệnh không có cổng,
+  // không có bàn giao (`dau_vao.cung_to_cung_lsx`) — dán "chờ giao" vào giữa chúng là bịa ra một
+  // việc tổ không phải làm, mà bản đầu dán đúng như thế.
+  const doiTo = (i: number) =>
+    i > 0 && i < dai.length && dai[i - 1].la_cua_toi !== dai[i].la_cua_toi;
+  // …và chỉ khi bước của tổ ĐÃ XONG mà bước nhận VẪN CHƯA ĐỘNG VÀO. Bước của tổ còn đang chạy thì
+  // chưa có gì để giao; còn bước nhận đã chạy/đã xong thì hàng rõ ràng đã sang rồi — dán "chờ
+  // giao" lên đó là nói ngược với chính cái dấu ✓ nằm ngay cạnh.
+  const raNgoai = (i: number) =>
+    doiTo(i) && dai[i - 1].la_cua_toi && DA_QUA.has(dai[i - 1].trang_thai)
+    && dai[i].trang_thai === "released";
+  const choGiao = new Set(              // step_key của bước NHẬN hàng từ tổ mình
+    dai.map((b, i) => (raNgoai(i) ? b.step_key : null)).filter(Boolean),
+  );
+  // Số hàng ĐÃ VỀ TAY tổ, gắn lên đoạn ray ngay trước bước nhận. `da_nhan` là số đã lọc đúng đơn
+  // vị đầu vào (luật `board._thuc_nhan`); không có thì lùi về tổng bàn giao đã chốt của bước liền
+  // trước. Chỉ ở chỗ ĐỔI TỔ — MỘT số, đặt đúng chỗ nó xảy ra, không in lại ở dòng dưới.
+  const soNhan = (i: number): number | null =>
+    (doiTo(i) && dai[i].la_cua_toi
+      ? dai[i].da_nhan ?? dai[i - 1].da_giao_sang_toi ?? null
+      : null);
 
   return (
     <ol className="thsx-ray" aria-label="Chuỗi công đoạn của lệnh">
-      {truoc > 0 && (
-        <li className="thsx-ray__b thsx-ray__b--gom">
-          <span className="thsx-ray__moc" aria-hidden="true">+{truoc}</span>
-          <span className="thsx-ray__ten">{truoc} công đoạn trước</span>
-        </li>
-      )}
-      {hien.map((b, i) => {
-        const laCuoiRay = i === hien.length - 1 && sau === 0;
+      {dai.map((b, iDai) => {
+        const laCuoiRay = iDai === dai.length - 1;
         const chu = chuTrangThai(b.trang_thai);
+        const nhan = soNhan(iDai);
         return (
           <li
             key={b.step_key ?? b.thu_tu}
             className="thsx-ray__b"
             data-toi={b.la_cua_toi || undefined}
+            data-tam={(tamKey != null && b.step_key === tamKey) || undefined}
             data-qua={DA_QUA.has(b.trang_thai) || undefined}
             data-cuoi={laCuoiRay || undefined}
-            data-cho-giao={(b.la_cua_toi && keSau != null) || undefined}
+            data-cho-giao={raNgoai(iDai + 1) || undefined}
           >
             <span className={`thsx-ray__moc thsx-ray__moc--${b.trang_thai}`} aria-hidden="true">
               <Icon name={mocIcon(b.trang_thai)} size={11} />
             </span>
-            {b.la_cua_toi && iToi > 0 && nhan != null && (
+            {nhan != null && (
               <span className="thsx-ray__giao" title="Đã nhận từ công đoạn trước">
                 {so(nhan)}
               </span>
             )}
-            {b.step_key != null && b.step_key === keSau && (
+            {b.step_key != null && choGiao.has(b.step_key) && (
               <span className="thsx-ray__giao thsx-ray__giao--cho">chờ giao</span>
             )}
-            <span className="thsx-ray__ten">
-              {b.ten_cong_doan}
-              {/* Trạng thái "xong"/"chờ làm" chỉ vẽ bằng mốc + nét ray, nên trình đọc màn hình
-                  phải được nói thành chữ ở đây, không thì mất hẳn thông tin. */}
-              <span className="thsx-ray__sr"> — {ttMeta(b.trang_thai).label}</span>
-            </span>
-            <span className="thsx-ray__to">
-              {b.la_cua_toi ? "Tổ của bạn" : (b.to_ten ?? "chưa rõ tổ")}
-            </span>
-            <span className="thsx-ray__so">
-              <b>{b.thuc_te > 0 ? so(b.thuc_te) : (b.ke_hoach != null ? so(b.ke_hoach) : "—")}</b>
-              {b.don_vi ? <i>{nhanChang(b.don_vi) ?? b.don_vi}</i> : null}
-            </span>
-            {(chu || b.phan_doan_tong > 1 || b.chay_chung || b.la_kcs_cuoi) && (
-              <span className="thsx-ray__ghi">
-                {chu && <em className={`thsx-ray__tt thsx-ray__tt--${b.trang_thai}`}>{chu}</em>}
-                {b.phan_doan_tong > 1 && <em>{b.phan_doan_tong} lần chạy</em>}
-                {b.chay_chung && <em>chạy chung</em>}
-                {b.la_kcs_cuoi && <em className="thsx-ray__kcs">KCS cuối</em>}
-              </span>
-            )}
+            {/* Chốt cuối chuyền — xem `.thsx-ray__chot`. Đường ray chạy hết bề ngang ô cuối rồi
+                đụng vạch chặn này; thiếu nó thì ray hoặc cụt ngay tại mốc cuối (bản trước), hoặc
+                thành một đường lửng đọc ra "còn bước nữa chưa hiện". */}
+            {laCuoiRay && <span className="thsx-ray__chot" aria-hidden="true" />}
+            <div className="thsx-ray__content">
+              <div className="thsx-ray__row-h">
+                <span className="thsx-ray__ten">
+                  {b.ten_cong_doan}
+                  <span className="thsx-ray__sr"> — {ttMeta(b.trang_thai).label}</span>
+                </span>
+                <span className="thsx-ray__to">
+                  {b.la_cua_toi ? "Tổ của bạn" : (b.to_ten ?? "chưa rõ tổ")}
+                </span>
+              </div>
+              <div className="thsx-ray__row-sub">
+                <span className="thsx-ray__so">
+                  <b>{b.thuc_te > 0 ? so(b.thuc_te) : (b.ke_hoach != null ? so(b.ke_hoach) : "—")}</b>
+                  {b.don_vi ? <i>{nhanChang(b.don_vi) ?? b.don_vi}</i> : null}
+                </span>
+                {(chu || b.phan_doan_tong > 1 || b.chay_chung || b.la_kcs_cuoi) && (
+                  <span className="thsx-ray__ghi">
+                    {chu && <em className={`thsx-ray__tt thsx-ray__tt--${b.trang_thai}`}>{chu}</em>}
+                    {b.phan_doan_tong > 1 && <em>{b.phan_doan_tong} lần</em>}
+                    {b.chay_chung && <em>chạy chung</em>}
+                    {b.la_kcs_cuoi && <em className="thsx-ray__kcs">KCS cuối</em>}
+                  </span>
+                )}
+              </div>
+            </div>
           </li>
         );
       })}
-      {sau > 0 && (
-        <li className="thsx-ray__b thsx-ray__b--gom">
-          <span className="thsx-ray__moc" aria-hidden="true">+{sau}</span>
-          <span className="thsx-ray__ten">{sau} công đoạn sau</span>
-        </li>
-      )}
     </ol>
   );
 }

@@ -84,7 +84,7 @@ const HOSO_77: LenhSxHoSoOut = {
     so_con: 0, so_to_ke_hoach: 0, so_to_nguyen: 0, don_vi_tinh: null,
   },
   routing: { nodes: [], canh: [] },
-  vat_tu: { hien_tai: { du: true, dong: [] }, canh_bao_sau: [], da_cap: [], bo_qua: [] },
+  vat_tu: { hien_tai: { du: true, dong: [] }, canh_bao_sau: [], da_cap: [] },
   nhan_luc: { hien_tai: [], lich_su: [] },
   san_luong: { tong: 0, tot: 0, hong: 0, batch: [] },
   su_co: [],

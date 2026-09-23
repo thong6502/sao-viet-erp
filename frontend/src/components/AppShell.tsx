@@ -1307,11 +1307,20 @@ export function AppShell() {
   if (teamList.length) {
     const cacKhoaTo = khoaBanTo(readable);
     const capGoc = Math.min(...teamList.map((t) => t.cap ?? 0));
+    // Danh sách về PHẲNG nhưng theo thứ tự cây: nút cha của một hàng là hàng NÔNG hơn gần nhất
+    // phía trên. Giữ một chồng để suy ra `parentId` → Sidebar gập được cả nhánh (11 tổ + 5 nhóm in
+    // đẩy menu dài quá màn hình).
+    const nganh: { cap: number; id: string }[] = [];
     for (const t of teamList) {
+      const cap = (t.cap ?? 0) - capGoc;
+      while (nganh.length && nganh[nganh.length - 1].cap >= cap) nganh.pop();
+      const id = `thuc-hien-sx:${t.id}`;
       sanXuatDong.push({
-        id: `thuc-hien-sx:${t.id}`, label: t.ten, icon: "users", module: "to_sx",
-        modules: cacKhoaTo, indent: (t.cap ?? 0) - capGoc,
+        id, label: t.ten, icon: "users", module: "to_sx",
+        modules: cacKhoaTo, indent: cap,
+        parentId: nganh.length ? nganh[nganh.length - 1].id : undefined,
       });
+      nganh.push({ cap, id });
     }
   }
   if (sanXuatDong.length) dynamicItems["san-xuat"] = sanXuatDong;
