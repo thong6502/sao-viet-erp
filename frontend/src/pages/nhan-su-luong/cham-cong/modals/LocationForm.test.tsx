@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { LocationForm } from "./LocationForm";
+import { LocationForm, tachCapToaDo } from "./LocationForm";
 
 const gpsFakes = vi.hoisted(() => ({
   getPosition: vi.fn(),
@@ -108,5 +108,30 @@ describe("LocationForm", () => {
     expect(await screen.findByDisplayValue("11.0394672")).toBeInTheDocument();
     expect(screen.getByLabelText("Kinh độ (longitude)")).toHaveValue(106.4310998);
     expect(document.querySelector(".banner--error")).toBeNull();
+  });
+
+  // 23/09/2026: dán cặp "vĩ độ, kinh độ" copy từ Google Maps vào ô số thì Chrome dính hai số làm một
+  // và ô còn lại GIỮ số cũ ⇒ điểm lưu lệch vài chục – cả trăm mét.
+  it("dán CẢ CẶP toạ độ Google Maps vào một ô ⇒ điền cả hai ô", () => {
+    render(
+      <LocationForm token="token" location={null} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    fireEvent.paste(screen.getByLabelText("Kinh độ (longitude)"), {
+      clipboardData: { getData: () => "21.047563, 105.784361" },
+    });
+    expect(screen.getByLabelText("Vĩ độ (latitude)")).toHaveValue(21.047563);
+    expect(screen.getByLabelText("Kinh độ (longitude)")).toHaveValue(105.784361);
+  });
+});
+
+describe("tachCapToaDo", () => {
+  it("tách cặp Google Maps, kể cả có ngoặc / không dấu cách", () => {
+    expect(tachCapToaDo("21.047563, 105.784361")).toEqual([21.047563, 105.784361]);
+    expect(tachCapToaDo("(21.0474132,105.7841978)")).toEqual([21.0474132, 105.7841978]);
+  });
+  it("một số lẻ — kể cả kiểu Việt '21,04' — hay cặp ngoài phạm vi thì KHÔNG tách", () => {
+    expect(tachCapToaDo("21.047563")).toBeNull();
+    expect(tachCapToaDo("21,04")).toBeNull();
+    expect(tachCapToaDo("121.5, 200.1")).toBeNull();
   });
 });

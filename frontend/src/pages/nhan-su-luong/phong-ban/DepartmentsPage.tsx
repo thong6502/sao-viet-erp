@@ -712,7 +712,13 @@ export function DepartmentsPage({
   }, [token, canAddEmployee]);
 
   async function refresh(keepId: number | null) {
-    const list = await loadDepartments();
+    const listPromise = loadDepartments();
+    const metaPromise =
+      token && canAddEmployee
+        ? api.employees.meta(token).then(setEmpMeta).catch(() => undefined)
+        : Promise.resolve();
+
+    const [list] = await Promise.all([listPromise, metaPromise]);
     setDepartments(list);
     // Thêm / đổi tên / dời / xoá phòng ban làm máy chủ sinh-đổi-gỡ dòng quyền theo tổ ⇒ nạp lại
     // danh sách dòng để ma trận vai không lệch cây.
@@ -724,6 +730,9 @@ export function DepartmentsPage({
 
   // Open the "Thông tin phòng" edit modal, seeding the form from the current department.
   function openInfoEdit() {
+    if (token && selectedId != null) {
+      api.rbac.headCandidates(token, selectedId).then(setHeadCandidates).catch(() => undefined);
+    }
     setEditName(currentDept?.name ?? "");
     setEditDescription(currentDept?.description ?? "");
     setEditHead(currentDept?.head_user_id ?? null);
@@ -915,6 +924,9 @@ export function DepartmentsPage({
 
   function openAssignHeadQuick() {
     if (!currentDept) return;
+    if (token && selectedId != null) {
+      api.rbac.headCandidates(token, selectedId).then(setHeadCandidates).catch(() => undefined);
+    }
     setAssignHeadTarget(currentDept.head_user_id ?? null);
     setAssignHeadError(null);
     setAssignHeadOpen(true);
@@ -3121,7 +3133,12 @@ export function DepartmentsPage({
             // Nạp lại danh sách nhân sự của phòng + số đếm ở đầu danh sách.
             if (selectedId != null) {
               try {
-                setMembers(await api.rbac.departmentUsers(token, selectedId));
+                const [mems, cands] = await Promise.all([
+                  api.rbac.departmentUsers(token, selectedId),
+                  api.rbac.headCandidates(token, selectedId),
+                ]);
+                setMembers(mems);
+                setHeadCandidates(cands);
               } catch {
                 /* giữ danh sách cũ nếu tải lại lỗi */
               }
