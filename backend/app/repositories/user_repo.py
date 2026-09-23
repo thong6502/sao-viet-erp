@@ -2,7 +2,7 @@
 formatting of input — docs/SECURITY.md)."""
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models.user import User
@@ -21,6 +21,17 @@ class UserRepository:
             return None
         stmt = select(User).where(User.username == username)
         return self.db.execute(stmt).scalar_one_or_none()
+
+    def username_da_dung(self, username: str) -> bool:
+        """Tên đăng nhập đã có người dùng chưa — so KHÔNG phân biệt hoa/thường (23/09/2026).
+
+        Ràng buộc UNIQUE của cột chỉ chặn trùng y hệt, nên "Admin" với "admin" từng tạo được hai
+        tài khoản mà người đọc thì thấy là một tên. Đăng nhập vẫn so khớp chính xác như cũ."""
+        ten = (username or "").strip()
+        if not ten:
+            return False
+        stmt = select(User.id).where(func.lower(User.username) == ten.lower()).limit(1)
+        return self.db.execute(stmt).first() is not None
 
     def next_code(self) -> str:
         """Next sequential ACCOUNT code: 'TK' + zero-padded number. Tiền tố 'TK' tách khỏi

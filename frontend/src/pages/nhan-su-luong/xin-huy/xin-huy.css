@@ -1,0 +1,302 @@
+/* Xin hủy đơn nghỉ / phiếu tăng ca đã duyệt (23/09/2026) — dùng chung hai màn Nghỉ phép · Tăng ca. */
+
+/* Nhãn dưới ô Trạng thái của một dòng đơn. */
+.xh-nhan {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.xh-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+}
+
+.xh-badge::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.xh-badge--cho::before {
+  background: var(--rust);
+  box-shadow: 0 0 0 2px rgba(197, 64, 10, 0.2);
+}
+
+.xh-badge--giu-nguyen::before {
+  background: var(--ash);
+}
+
+.xh-badge--dong-y::before {
+  background: var(--moss);
+}
+
+.xh-nhan__phu {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ash);
+  max-width: 220px;
+  overflow-wrap: anywhere;
+}
+
+/* Ô nhập lý do trong hộp thoại. */
+.xh-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--sp-3);
+}
+
+.xh-field__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.xh-field__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--canvas);
+  resize: vertical;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.xh-field__input:focus-visible,
+.xh-field__input:focus {
+  outline: none;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.12);
+}
+
+.xh-field__hint-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--ash-2);
+  margin-top: 2px;
+}
+
+.xh-field__hint {
+  color: var(--ash-2);
+}
+
+.xh-field__counter {
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-2);
+}
+
+/* Hàng đợi của người duyệt — đặt trên bảng chờ duyệt. */
+.xh-hang-doi {
+  margin: var(--sp-4) 0 var(--sp-5);
+  background: linear-gradient(180deg, #fffdfa 0%, var(--paper) 100%);
+  border: 1px solid rgba(197, 64, 10, 0.18);
+  border-left: 4px solid var(--rust);
+  border-radius: var(--r-5);
+  padding: 16px 20px;
+  box-shadow: 0 2px 8px rgba(197, 64, 10, 0.05);
+}
+
+.xh-hang-doi__head {
+  margin-bottom: var(--sp-3);
+}
+
+.xh-hang-doi__head-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.xh-hang-doi__emblem {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-3);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.xh-hang-doi__title-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.xh-hang-doi__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.xh-hang-doi__title {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.xh-hang-doi__so {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--rust);
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.xh-hang-doi__sub {
+  margin: 3px 0 0 0;
+  font-size: 12.5px;
+  color: var(--ash);
+}
+
+.xh-hang-doi__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.xh-dong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 14px 16px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.xh-dong:hover {
+  border-color: rgba(197, 64, 10, 0.25);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.xh-dong__main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.xh-dong__header-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.xh-dong__ten {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.xh-dong__don {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ash);
+  background: var(--paper);
+  padding: 2px 8px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--rule-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.xh-dong__reason-card {
+  font-size: 13px;
+  color: var(--ink);
+  background: rgba(248, 250, 252, 0.8);
+  border-left: 3px solid var(--amber);
+  padding: 6px 10px;
+  border-radius: 0 var(--r-2) var(--r-2) 0;
+}
+
+.xh-dong__ly-do {
+  font-size: 13px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.xh-dong__luc {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--ash-2);
+}
+
+.xh-dong__luc-icon {
+  flex-shrink: 0;
+}
+
+.xh-dong__act {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.xh-btn-giu {
+  border: 1px solid var(--rule) !important;
+  background: var(--canvas) !important;
+  color: var(--ash) !important;
+  font-weight: 600 !important;
+  font-size: 12.5px !important;
+  padding: 6px 14px !important;
+  border-radius: var(--r-3) !important;
+  transition: all var(--duration-fast) !important;
+}
+
+.xh-btn-giu:hover {
+  background: var(--rule-soft) !important;
+  color: var(--ink) !important;
+  border-color: var(--rule) !important;
+}
+
+.xh-btn-huy {
+  font-weight: 600 !important;
+  font-size: 12.5px !important;
+  padding: 6px 14px !important;
+  border-radius: var(--r-3) !important;
+}
+
+@media (max-width: 640px) {
+  .xh-dong {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .xh-dong__act {
+    justify-content: flex-end;
+  }
+}

@@ -5,17 +5,26 @@ import { EmptyRow } from "../../../../components/EmptyState";
 import { RowActionButton } from "../../../../components/RowActionButton";
 // `fmtDate` DÙNG CHUNG (utils/format) — bản cục bộ cũ y hệt, chép lại chỉ tạo thêm một chỗ
 // phải nhớ sửa. Đừng viết lại.
-import { fmtDate } from "../../../../utils/format";
+import { fmtDate, fmtDateTime } from "../../../../utils/format";
 import { getInitials } from "../shared/helpers";
+import { dangXinHuy, homNayYmd, XinHuyNhan } from "../../xin-huy/XinHuy";
 import { StatusBadge } from "./badges";
 
 // --- Shared table -----------------------------------------------------------
 
 export function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
+  onXinHuy, onRutLaiXinHuy, onHuyDaDuyet,
   selectable, selected, onToggle, onToggleAll, allPendingCount, onRowClick,
   loading, listError, onRetry, emptyTitle, emptySub }: {
   items: LeaveRequest[]; showEmployee: boolean;
+  /** Hủy THẲNG — chỉ đơn ĐANG CHỜ (đơn đã duyệt thì người lao động phải xin hủy, 23/09/2026). */
   onCancel?: (id: number) => void; onApprove?: (id: number) => void; onReject?: (r: LeaveRequest) => void;
+  /** Người lao động XIN hủy đơn ĐÃ DUYỆT chưa qua. */
+  onXinHuy?: (r: LeaveRequest) => void;
+  /** Rút lại yêu cầu hủy đang chờ. */
+  onRutLaiXinHuy?: (r: LeaveRequest) => void;
+  /** Người duyệt hủy thẳng đơn ĐÃ DUYỆT (phải ghi lý do). */
+  onHuyDaDuyet?: (r: LeaveRequest) => void;
   selectable?: boolean; selected?: Set<number>; onToggle?: (id: number) => void;
   onToggleAll?: () => void; allPendingCount?: number;
   onRowClick?: (r: LeaveRequest) => void;
@@ -26,8 +35,9 @@ export function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
   emptyTitle?: string; emptySub?: string;
 }) {
   const allChecked = !!allPendingCount && selected?.size === allPendingCount;
+  const homNay = homNayYmd();
   // ⚠ Đếm theo số cột ĐANG hiện (2 cột bật/tắt theo ngữ cảnh), đừng gõ số cứng.
-  const cols = (showEmployee ? 8 : 7) + (selectable ? 1 : 0);
+  const cols = (showEmployee ? 9 : 8) + (selectable ? 1 : 0);
   return (
     <div className="cc-table-card">
       <div className="cc-timesheet-scroll-container">
@@ -36,6 +46,8 @@ export function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
             <tr>
               {selectable && <th className="ns-col-pick"><input type="checkbox" checked={allChecked} onChange={onToggleAll} title="Chọn tất cả đơn chờ" aria-label="Chọn tất cả đơn chờ duyệt" /></th>}
               {showEmployee && <th>Nhân viên</th>}
+              {/* Danh sách xếp MỚI TẠO NHẤT lên đầu (23/09/2026) ⇒ cột này là trục đọc của bảng. */}
+              <th>Ngày tạo</th>
               <th>Loại nghỉ</th>
               <th>Từ ngày</th>
               <th>Đến ngày</th>
@@ -68,6 +80,7 @@ export function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
                     </div>
                   </td>
                 )}
+                <td className="cc-date-cell">{fmtDateTime(r.created_at)}</td>
                 <td>
                   <div className="cc-leave-type-cell">
                     <span className="cc-leave-type-name">{r.leave_type_name ?? "—"}</span>
@@ -93,7 +106,10 @@ export function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
                     )}
                   </div>
                 </td>
-                <td className="ns-col-mid"><StatusBadge s={r.status} /></td>
+                <td className="ns-col-mid">
+                  <StatusBadge s={r.status} />
+                  <XinHuyNhan yc={r.yeu_cau_huy} />
+                </td>
                 <td className="ns-col-act" onClick={(e) => e.stopPropagation()}>
                   {/* Nút chữ trên dòng → RowActionButton dạng dense (icon + tooltip).
                       GIỮ `danger` cho Từ chối / Hủy: cả hai đều là quyết định người khác
@@ -105,8 +121,19 @@ export function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
                     {onReject && r.status === "pending" && (
                       <RowActionButton dense danger label="Từ chối" icon="ban" onClick={() => onReject(r)} />
                     )}
-                    {onCancel && (r.status === "pending" || r.status === "approved") && (
+                    {onCancel && r.status === "pending" && (
                       <RowActionButton dense danger label="Hủy đơn" icon="x" onClick={() => onCancel(r.id)} />
+                    )}
+                    {/* Đơn ĐÃ DUYỆT (23/09/2026): người lao động chỉ XIN hủy, và chỉ khi đơn chưa qua
+                        hết; người duyệt quyết. Đang có yêu cầu chờ thì thay bằng nút Rút lại. */}
+                    {onXinHuy && r.status === "approved" && !dangXinHuy(r.yeu_cau_huy) && r.end_date >= homNay && (
+                      <RowActionButton dense danger label="Xin hủy đơn" icon="x" onClick={() => onXinHuy(r)} />
+                    )}
+                    {onRutLaiXinHuy && r.status === "approved" && dangXinHuy(r.yeu_cau_huy) && (
+                      <RowActionButton dense label="Rút lại yêu cầu hủy" icon="rotateCcw" onClick={() => onRutLaiXinHuy(r)} />
+                    )}
+                    {onHuyDaDuyet && r.status === "approved" && (
+                      <RowActionButton dense danger label="Hủy đơn đã duyệt" icon="x" onClick={() => onHuyDaDuyet(r)} />
                     )}
                   </div>
                 </td>

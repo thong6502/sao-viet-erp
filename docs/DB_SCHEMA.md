@@ -1830,6 +1830,34 @@ Phiếu tăng ca (module `tang_ca`): NV tự gửi → tổ trưởng duyệt, H
 
 ---
 
+### `yeu_cau_huy`
+
+Yêu cầu HỦY đơn nghỉ phép / phiếu tăng ca **ĐÃ DUYỆT** (chủ chốt 23/09/2026 — `docs/prd-xin-huy-don-da-duyet.md`). Người lao động không tự hủy thẳng đơn đã duyệt nữa, chỉ XIN hủy; ai có quyền duyệt đơn (trong phạm vi) thì đồng ý hoặc giữ nguyên. Một bảng cho cả hai loại đơn (`loai`). Đơn gốc GIỮ `approved` tới khi được đồng ý — bảng công / quỹ phép / cổng chấm tăng ca không đọc bảng này. Người duyệt hủy thẳng đơn đã duyệt cũng ghi một dòng (`truc_tiep = true`) để lưu lý do. Bảng mới do `create_all` tạo (không migration).
+
+| Column | Type (Py → SQL) | Key | Null | Default | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` | **PK** | no | auto | Khóa chính. |
+| `loai` | `String(12)` → `VARCHAR(12)` | **IX(loai, request_id)** | no | — | `nghi_phep` (leave_requests) · `tang_ca` (overtime_requests). |
+| `request_id` | `Integer` → `INTEGER` | **IX(loai, request_id)** | no | — | Id đơn gốc trong bảng theo `loai` (hai bảng nên không đặt FK). |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id, IX** | no | — | Người đứng tên đơn (chép từ đơn) — lọc phạm vi người duyệt. ON DELETE CASCADE. |
+| `ly_do` | `String(500)` → `VARCHAR(500)` | — | no | — | Lý do xin hủy (hoặc lý do hủy thẳng). |
+| `trang_thai` | `String(12)` → `VARCHAR(12)` | **IX** | no | `cho` | `cho` · `dong_y` · `giu_nguyen` · `rut_lai`. Tối đa một dòng `cho` mỗi đơn (service giữ). |
+| `truc_tiep` | `Boolean` → `BOOLEAN` | — | no | `false` | Người duyệt / HCNS hủy thẳng, không qua bước xin. |
+| `huy_tu_ngay` | `Date` → `DATE` | — | yes | — | Đơn nghỉ ĐANG DỞ: hủy từ ngày này (ngày gửi xin hủy), giữ các ngày trước. NULL = hủy cả đơn. |
+| `den_ngay_cu` | `Date` → `DATE` | — | yes | — | `end_date` gốc của đơn nghỉ, ghi khi đồng ý rút ngắn. |
+| `ly_do_quyet` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú người quyết — bắt buộc khi giữ nguyên. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người gửi (CASCADE khi xoá tài khoản — luật chung mg 0327). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi gửi. |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết (CASCADE khi xoá tài khoản — luật chung mg 0327). |
+| `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Khi quyết / khi rút lại. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_yeu_cau_huy_don (loai, request_id)`, `employee_id`, `trang_thai`.
+
+---
+
 ### `late_early_requests`
 
 Phiếu xin **ĐI MUỘN / VỀ SỚM / NGHỈ NỬA BUỔI** (module `di_muon`): NV tự gửi → **tổ trưởng duyệt**, HOẶC tổ trưởng khai hộ (duyệt luôn) — cùng luồng phiếu tăng ca. Cố ý KHÔNG dùng chung `leave_requests`: đây là **phiếu chấm công ngoại lệ**, người duyệt khác (tổ trưởng vs HCNS), và gộp chung thì phải nhớ lọc nó ra ở 7 chỗ đọc đơn nghỉ (badge, chuông, lịch nghỉ, 2 danh sách, chặn chốt công, quota). **Hai nhánh tiền** phân biệt bằng `leave_type_id`: NULL = mất công phần vắng, không đụng quỹ phép; khác NULL = tiêu `leave_cong` ngày phép và phần vắng vẫn được trả theo **lương vị trí**. Cả hai nhánh đều được **miễn phạt** đi muộn/về sớm đúng số phút đã xin. Bảng mới do `create_all` tạo (không migration).

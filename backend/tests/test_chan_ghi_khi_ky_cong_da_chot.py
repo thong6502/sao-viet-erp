@@ -437,7 +437,7 @@ def test_L2_khong_huy_duoc_don_nghi_DA_DUYET_cua_thang_da_chot(client):
     assert client.post(f"/api/leaves/{rid}/approve", json={}, headers=h).status_code == 200
     _chot_cong(client, h)          # chốt SAU khi đơn đã duyệt ⇒ công đó đã vào ảnh chụp
 
-    r = client.post(f"/api/leaves/{rid}/cancel", headers=h)
+    r = client.post(f"/api/leaves/{rid}/cancel", json={"ly_do": "Đi làm lại"}, headers=h)  # 23/09/2026: hủy đơn ĐÃ DUYỆT phải ghi lý do
     assert r.status_code in (400, 409, 422), f"hủy lọt: {r.text}"
     assert "đã chốt" in r.json()["detail"]
 

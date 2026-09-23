@@ -236,6 +236,8 @@ export function AppShell() {
   const lastAdvancePending = useRef(0);
   const lastKhoPending = useRef(0);
   const lastOtPending = useRef(0);
+  // Số việc chờ duyệt nghỉ phép lần trước (đơn mới + xin hủy) — toast CHỈ khi số TĂNG (23/09/2026).
+  const lastLeavePending = useRef(0);
   const lastElPending = useRef(0);
   // Một cú bấm Bật/Nhả giữ chỗ đẻ HAI event (`bat()` báo công tắc đổi, `nhat_them()` báo vừa
   // nhặt được dòng mới) — cả hai đều cần cho máy khác đang mở màn, nhưng người bấm thì thấy
@@ -434,6 +436,7 @@ export function AppShell() {
             ...prev,
             "nghi-phep": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
           }));
+          lastLeavePending.current = s.pending_in_scope ?? 0;
           setLeaveUnseen(s.my_decided_unseen ?? 0);
         })
         .catch(() => {});
@@ -1000,10 +1003,40 @@ export function AppShell() {
             ? "✓ Phiếu tăng ca của bạn đã được duyệt"
             : e.decision === "cancelled"
               ? "✕ Phiếu tăng ca đã duyệt của bạn vừa bị HUỶ — tối nay không còn giấy phép tăng ca"
-              : "✕ Phiếu tăng ca của bạn bị từ chối",
-          e.decision === "approved" ? "ok" : "warn",
+              : e.decision === "huy_dong_y"
+                ? "✓ Yêu cầu hủy phiếu tăng ca của bạn đã được đồng ý — phiếu đã hủy"
+                : e.decision === "huy_giu_nguyen"
+                  ? "✕ Yêu cầu hủy phiếu tăng ca không được đồng ý — phiếu vẫn giữ, xem lý do ở Tăng ca"
+                  : "✕ Phiếu tăng ca của bạn bị từ chối",
+          e.decision === "approved" || e.decision === "huy_dong_y" ? "ok" : "warn",
         );
         reloadBadges();
+      } else if (e.type === "leave_decision") {
+        // Nghỉ phép (23/09/2026): quyết định về đơn đẩy riêng tới người đứng tên đơn.
+        const msg: Record<string, string> = {
+          approved: "✓ Đơn nghỉ phép của bạn đã được duyệt",
+          rejected: "✕ Đơn nghỉ phép của bạn bị từ chối — xem lý do ở Nghỉ phép",
+          cancelled: "✕ Đơn nghỉ đã duyệt của bạn vừa bị HỦY — xem lý do ở Nghỉ phép",
+          huy_dong_y: "✓ Yêu cầu hủy đơn nghỉ đã được đồng ý — đơn đã hủy",
+          huy_rut_ngan: "✓ Yêu cầu hủy đơn nghỉ đã được đồng ý — đơn được rút ngắn, giữ các ngày đã nghỉ",
+          huy_giu_nguyen: "✕ Yêu cầu hủy đơn nghỉ không được đồng ý — đơn vẫn giữ, xem lý do ở Nghỉ phép",
+        };
+        pushToast(msg[e.decision] ?? "Đơn nghỉ phép của bạn vừa được cập nhật",
+          e.decision === "approved" || e.decision === "huy_dong_y" || e.decision === "huy_rut_ngan" ? "ok" : "warn");
+        reloadBadges();
+      } else if (readable.has("nghi_phep") && e.type === "leave_pending_changed") {
+        // Có đơn mới / yêu cầu hủy / vừa xử lý → refetch số chờ duyệt; toast khi TĂNG (người duyệt).
+        api.leaves
+          .summary(token)
+          .then((s) => {
+            const n = s.pending_in_scope ?? 0;
+            setBadges((prev) => ({ ...prev, "nghi-phep": n }));
+            if (n > lastLeavePending.current) {
+              pushToast("🔔 Có đơn nghỉ phép / yêu cầu hủy chờ bạn duyệt", "info");
+            }
+            lastLeavePending.current = n;
+          })
+          .catch(() => {});
       } else if (readable.has("tang_ca") && e.type === "ot_pending_changed") {
         // Có phiếu tăng ca mới/hủy → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
         api.overtime
@@ -1438,7 +1471,7 @@ export function AppShell() {
           />
         );
       case "nghi-phep":
-        return <NghiPhepPage onChanged={reloadBadges} focusEmployeeId={navParams?.focusEmployeeId} />;
+        return <NghiPhepPage onChanged={reloadBadges} focusEmployeeId={navParams?.focusEmployeeId} eventTick={quoteTick} />;
       case "tang-ca":
         // `eventTick` nhảy theo MỌI sự kiện SSE → bảng phiếu đang mở tự tải lại ngay khi bên kia
         // duyệt/từ chối/gửi phiếu (không chỉ nhảy badge).

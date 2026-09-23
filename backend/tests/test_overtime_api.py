@@ -365,10 +365,11 @@ def test_hang_doi_duyet_loc_pending_van_ra_du_phieu_cho_duyet(client):
     _seed_overtime(eid, 25, status="approved", start_day="2026-04-01")
     _seed_overtime(eid, 3, status="pending", start_day="2026-05-01")
 
-    # KHONG loc: phieu duyet chiem het trang 1 — day chinh la hien trang gay loi.
+    # KHONG loc: tu 23/09/2026 xep MOI TAO NHAT len dau (khong con xep theo chu `status`) ⇒ 3 phieu
+    # cho duyet vua gui dung dau trang 1, khong con bi phieu da duyet day xuong cuoi.
     khong_loc = client.get("/api/overtime?page=1&size=20", headers=_h(token)).json()
-    assert all(x["status"] == "approved" for x in khong_loc["items"]), (
-        "gia dinh cua test: khong loc thi trang 1 toan phieu da duyet"
+    assert [x["status"] for x in khong_loc["items"][:3]] == ["pending"] * 3, (
+        "khong loc thi phieu moi tao (cho duyet) phai dung dau"
     )
 
     # CO loc pending: phai ra du 3 phieu cho duyet ngay trang 1.
@@ -497,7 +498,8 @@ def test_tran_thang_phieu_CHO_DUYET_cung_chiem_cho(client):
         # HỦY phiếu 1 ⇒ TRẢ CHỖ ngay trong cùng request, không job nền.
         rid = client.get("/api/overtime", params={"year": 2026, "month": 9},
                          headers=_h(token)).json()["items"][0]["id"]
-        assert client.post(f"/api/overtime/{rid}/cancel", headers=_h(token)).status_code == 200
+        assert client.post(f"/api/overtime/{rid}/cancel", json={"ly_do": "Đổi kế hoạch"},
+                           headers=_h(token)).status_code == 200  # 23/09/2026: hủy đơn ĐÃ DUYỆT phải ghi lý do
         info = client.get("/api/overtime/tran-thang",
                           params={"employee_id": eid, "year": 2026, "month": 9},
                           headers=_h(token)).json()

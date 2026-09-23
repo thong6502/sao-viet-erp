@@ -15376,3 +15376,9 @@ def _migrate_hop_nhat_bu_hao_vao_cong_doan(db: Session) -> None:
 
 
 MIGRATIONS.append(("0327_hop_nhat_bu_hao_vao_cong_doan", _migrate_hop_nhat_bu_hao_vao_cong_doan))
+
+
+# mg 0328 — chạy lại luật 0327 cho bảng sinh SAU nó: `yeu_cau_huy` (xin hủy đơn đã duyệt, 23/09)
+# lúc đầu khai FK tới users là SET NULL, DB nào đã chạy 0327 rồi mới create_all bảng này thì vẫn
+# giữ SET NULL. Hàm 0327 chỉ đụng FK chưa CASCADE nên chạy lại là vô hại với bảng khác.
+MIGRATIONS.append(("0328_user_fks_delete_cascade_lan_2", _migrate_user_fks_delete_cascade))

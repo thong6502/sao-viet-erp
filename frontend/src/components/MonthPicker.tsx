@@ -18,6 +18,7 @@ export function MonthPicker({
   ariaLabel = "Chọn kỳ",
   min,
   max,
+  nhanTrong = "Chọn kỳ",
 }: {
   /** Dạng `YYYY-MM`. */
   value: string;
@@ -30,13 +31,15 @@ export function MonthPicker({
    *  vẫn GÕ TAY được số ngoài khoảng ⇒ chỗ nào cần chặn thật thì màn gọi phải tự khoá nút gửi. */
   min?: string;
   max?: string;
+  /** Chữ hiện khi `value` rỗng — ô LỌC (rỗng = không lọc) truyền "Tất cả các tháng". */
+  nhanTrong?: string;
 }) {
   const id = useId();
   const ref = useRef<HTMLInputElement>(null);
 
   const [nam, thang] = value.split("-");
   const nhan =
-    nam && thang ? `Tháng ${Number(thang)} / ${nam}` : "Chọn kỳ";
+    nam && thang ? `Tháng ${Number(thang)} / ${nam}` : nhanTrong;
 
   return (
     <span className={`month-picker${className ? ` ${className}` : ""}`}>

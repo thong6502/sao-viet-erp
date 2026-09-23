@@ -16,7 +16,11 @@ import "../../nhan-su.css";
 import "../../cham-cong.css";
 import "../../nghi-phep.css";
 
-export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () => void; focusEmployeeId?: number }) {
+export function NghiPhepPage({ onChanged, focusEmployeeId, eventTick }: {
+  onChanged?: () => void; focusEmployeeId?: number;
+  /** Nhích theo MỌI sự kiện SSE ⇒ tab đang mở tự tải lại khi bên kia gửi / duyệt / xin hủy đơn. */
+  eventTick?: number;
+}) {
   const { token } = useAuth();
   const can = useCan();
   // Quyền DUYỆT đơn — HCNS/Admin, VÀ tổ trưởng (chủ chốt 29/07/2026: tổ trưởng duyệt đơn trong
@@ -89,9 +93,9 @@ export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () =>
         </div>
       </nav>
       {tab === "me" && tuPhucVu && (
-        <MyLeaveTab token={token!} onChanged={onChanged} coQuyenGhi={tuPhucVuGhi} />
+        <MyLeaveTab token={token!} onChanged={onChanged} coQuyenGhi={tuPhucVuGhi} eventTick={eventTick} />
       )}
-      {tab === "approve" && canManage && <ApproveTab token={token!} onChanged={onChanged} focusEmployeeId={focusEmployeeId} />}
+      {tab === "approve" && canManage && <ApproveTab token={token!} onChanged={onChanged} focusEmployeeId={focusEmployeeId} eventTick={eventTick} />}
       {tab === "calendar" && canManage && <CalendarTab token={token!} />}
       {tab === "types" && canTypes && <LeaveTypesTab token={token!} />}
     </main>

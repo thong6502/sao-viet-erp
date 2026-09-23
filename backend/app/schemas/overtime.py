@@ -9,6 +9,9 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Xin hủy phiếu đã duyệt dùng CHUNG khuôn với đơn nghỉ phép (23/09/2026) — một bảng, một luật.
+from .leave import HuyDonIn, QuyetXinHuyIn, XinHuyIn, YeuCauHuyOut  # noqa: F401
+
 _MAX_MINUTE = 2 * 1440
 
 
@@ -52,6 +55,18 @@ class OvertimeRequestOut(BaseModel):
     decided_at: datetime | None = None
     decision_note: str | None = None
     created_at: datetime | None = None
+    #: Yêu cầu hủy MỚI NHẤT của phiếu (23/09/2026) — `trang_thai == "cho"` ⇒ nhãn "Đang xin hủy".
+    yeu_cau_huy: YeuCauHuyOut | None = None
+
+
+class OtXinHuyChoDuyetOut(BaseModel):
+    """Một yêu cầu hủy phiếu đang chờ, kèm phiếu gốc — hàng đợi của người duyệt."""
+    yeu_cau: YeuCauHuyOut
+    don: OvertimeRequestOut
+
+
+class OtXinHuyChoDuyetListOut(BaseModel):
+    items: list[OtXinHuyChoDuyetOut]
 
 
 class OvertimeRequestsOut(BaseModel):

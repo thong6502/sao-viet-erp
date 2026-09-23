@@ -48,6 +48,41 @@ class LeaveDecisionIn(BaseModel):
     note: str | None = Field(default=None, max_length=500)
 
 
+# --- xin hủy đơn ĐÃ DUYỆT (23/09/2026) — dùng chung cho nghỉ phép và tăng ca -----------------
+
+
+class HuyDonIn(BaseModel):
+    """Hủy THẲNG. Người duyệt hủy đơn ĐÃ DUYỆT phải ghi lý do; đơn đang chờ thì bỏ trống được."""
+    ly_do: str | None = Field(default=None, max_length=500)
+
+
+class XinHuyIn(BaseModel):
+    ly_do: str = Field(min_length=1, max_length=500)
+
+
+class QuyetXinHuyIn(BaseModel):
+    dong_y: bool
+    #: Bắt buộc khi GIỮ NGUYÊN (người lao động phải biết vì sao); đồng ý thì tuỳ.
+    ghi_chu: str | None = Field(default=None, max_length=500)
+
+
+class YeuCauHuyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    loai: str
+    request_id: int
+    ly_do: str
+    trang_thai: str              # cho | dong_y | giu_nguyen | rut_lai
+    truc_tiep: bool = False      # người duyệt / HCNS hủy thẳng, không qua bước xin
+    huy_tu_ngay: date | None = None
+    den_ngay_cu: date | None = None
+    ly_do_quyet: str | None = None
+    created_at: datetime | None = None
+    decided_at: datetime | None = None
+    decided_by_name: str | None = None   # filled by the router
+
+
 class LeaveRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,6 +101,18 @@ class LeaveRequestOut(BaseModel):
     decided_at: datetime | None = None
     decision_note: str | None = None
     created_at: datetime | None = None
+    #: Yêu cầu hủy MỚI NHẤT của đơn (23/09/2026) — `trang_thai == "cho"` ⇒ nhãn "Đang xin hủy".
+    yeu_cau_huy: YeuCauHuyOut | None = None
+
+
+class XinHuyChoDuyetOut(BaseModel):
+    """Một yêu cầu hủy đang chờ, kèm đơn gốc — hàng đợi của người duyệt."""
+    yeu_cau: YeuCauHuyOut
+    don: LeaveRequestOut
+
+
+class XinHuyChoDuyetListOut(BaseModel):
+    items: list[XinHuyChoDuyetOut]
 
 
 class LeaveRequestsOut(BaseModel):
@@ -132,6 +179,8 @@ class LeaveCalendarDayOut(BaseModel):
     status: str
     leave_type_name: str
     is_paid: bool
+    #: Đơn đã duyệt đang có yêu cầu hủy chờ quyết (23/09/2026) — vẫn là ngày nghỉ, chỉ gắn dấu.
+    dang_xin_huy: bool = False
 
 
 class LeaveCalendarEmpOut(BaseModel):
