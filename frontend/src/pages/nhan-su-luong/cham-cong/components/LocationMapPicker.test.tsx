@@ -46,6 +46,7 @@ vi.mock("maplibre-gl", () => ({
     remove() { return undefined; }
   },
   NavigationControl: class {},
+  setWorkerUrl: vi.fn(),
 }));
 
 describe("LocationMapPicker", () => {
