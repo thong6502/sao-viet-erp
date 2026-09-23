@@ -11,6 +11,7 @@ import { Icon } from "../components/Icons";
 import type { SxLenhNhom, SxWorkItem } from "../api/client";
 import { ngayGio } from "./keHoachSxShared";
 import { ChamCho, type SxChoCuaViec } from "./thsxChoXacNhan";
+import { ThsxDaiRouting } from "./ThsxDaiRouting";
 import { sxNguonIcon } from "./thsxShared";
 
 /** Khoá ổn định của một lệnh trên bàn (bài ghép và lệnh có thể trùng id). */
@@ -94,7 +95,12 @@ export function ThsxLenhGroups({
               <span className="thsx-lenh__n thsx-num">{l.so_viec} việc</span>
               <LenhDigest d={l.digest} />
             </button>
-            {mo && <div className="thsx-lenh__body">{render(l.cong_viec)}</div>}
+            {mo && (
+              <div className="thsx-lenh__body">
+                <ThsxDaiRouting dai={l.routing ?? []} />
+                {render(l.cong_viec)}
+              </div>
+            )}
           </section>
         );
       })}

@@ -4521,3 +4521,80 @@
 .thsx-locnc-tag__x:hover { color: var(--ink); background: var(--rule-soft); }
 /* Màn cảm ứng ép nút ≥ 44px (quy tắc chung) — lề âm giữ nguyên vùng bấm mà không đội nhãn cao lên. */
 .thsx-locnc-tag__x { margin-block: -12px; }
+
+/* ===== DẢI ROUTING trên thẻ lệnh (docs/design-dai-routing-tren-ban-to.md) =================
+   Tổ thấy cả chuỗi công đoạn của lệnh nhưng chỉ bấm được bước của mình. Ô tổ khác là CHỈ ĐỌC:
+   không bắt sự kiện, không đổi con trỏ, không có gì để mở.
+   Không cuộn ngang — cửa sổ 5 ô do component cắt sẵn (xem `cuaSo` ở ThsxDaiRouting.tsx). */
+.thsx-dai { margin-bottom: var(--sp-3); }
+.thsx-dai__list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.thsx-dai__o {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid transparent;
+  min-width: 0;
+  cursor: default;
+}
+.thsx-dai__o--toi { background: #fff; border-color: var(--rust); }
+.thsx-dai__o--gom {
+  align-items: center;
+  justify-content: center;
+  background: #eef2f7;
+  grid-column: auto / span 1;
+  max-width: 46px;
+}
+.thsx-dai__gom { color: #64748b; font-weight: var(--fw-bold); font-size: var(--fs-xs); }
+/* Tên công đoạn KHÔNG ellipsis: nuốt "Bế tự động" thành "Bế tự..." là tổ đọc nhầm bước.
+   Cho xuống dòng thay vì cắt. */
+.thsx-dai__ten {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+.thsx-dai__phu { font-style: normal; color: #64748b; font-weight: 400; }
+.thsx-dai__to { font-size: var(--fs-xs); color: #64748b; overflow-wrap: anywhere; }
+.thsx-dai__o--toi .thsx-dai__to { color: var(--rust); font-weight: var(--fw-bold); }
+.thsx-dai__so { font-size: var(--fs-xs); color: #475569; }
+.thsx-dai__giao { font-size: var(--fs-xs); color: #0369a1; }
+.thsx-dai__cho { font-size: var(--fs-xs); color: #94a3b8; }
+.thsx-dai__cuoi {
+  font-size: 10px;
+  color: #0f766e;
+  background: #ccfbf1;
+  border-radius: 99px;
+  padding: 1px 7px;
+}
+.thsx-dai__nhan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
+  color: #475569;
+}
+.thsx-dai__nhan svg { color: #64748b; flex: none; }
+
+/* Bề ngang hẹp: xuống 3 ô một hàng. Cỡ chữ KHÔNG đóng cứng để không đè chữ. */
+@media (max-width: 900px) {
+  .thsx-dai__list {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-columns: auto;
+  }
+  .thsx-dai__o--gom { max-width: none; }
+}

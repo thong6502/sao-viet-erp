@@ -1429,6 +1429,26 @@ export interface SxThucTeKhoang {
  *  Đơn vị VIỆC vẫn là CÔNG ĐOẠN: `cong_viec` là các bước tổ thật sự bấm Bắt đầu / Ghi sản lượng,
  *  giữ nguyên `SxWorkItem`. Lệnh chỉ là ĐẦU MỤC bọc ngoài để tổ trưởng biết công đoạn này thuộc
  *  lệnh nào. Bài ghép là MỘT dòng, không xé theo lệnh thành viên. */
+/** Một BƯỚC trên dải routing của thẻ lệnh — chuỗi công đoạn đầy đủ, kể cả bước của tổ khác.
+ *  `cong_viec_id` chỉ có ở bước của CHÍNH tổ mình: bước tổ khác là chỉ-đọc, không mở drawer. */
+export interface SxRoutingBuoc {
+  thu_tu: number;
+  step_key: string | null;
+  ten_cong_doan: string;
+  to_id: number | null;
+  to_ten: string | null;
+  la_cua_toi: boolean;
+  la_kcs_cuoi: boolean;
+  trang_thai: string;
+  phan_doan_tong: number;
+  chay_chung: boolean;
+  ke_hoach: number | null;
+  thuc_te: number;
+  don_vi: string | null;
+  da_giao_sang_toi: number | null;   // bước NGUỒN đã giao sang tổ đang xem
+  da_nhan: number | null;            // bước CỦA TỔ đang xem đã nhận được
+  cong_viec_id: number | null;
+}
 export interface SxLenhNhom {
   nguon_loai: string;          // "lsx" | "bai_ghep"
   nguon_ma: string;
@@ -1441,6 +1461,7 @@ export interface SxLenhNhom {
   nhan_luc?: string | null;    // lúc tổ nhận việc sớm nhất của lệnh
   so_viec: number;
   digest: { released: number; running: number; paused: number; completed: number };
+  routing?: SxRoutingBuoc[];   // chuỗi công đoạn đầy đủ; rỗng khi lệnh chỉ có một bước
   cong_viec: SxWorkItem[];
 }
 /** Vị trí trang + tổng số LỆNH (không phải tổng số bước) — đơn vị trang của bàn tổ là LỆNH, nhờ
