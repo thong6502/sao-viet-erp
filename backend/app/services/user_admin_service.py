@@ -105,7 +105,7 @@ class UserAdminService:
         username = username.strip()
         if self.departments.get_by_id(department_id) is None:
             raise DepartmentNotFound("Không tìm thấy phòng ban")
-        if self.users.get_by_username(username) is not None:
+        if self.users.username_da_dung(username):
             raise UsernameTaken("Tên đăng nhập đã được sử dụng")
         # Mật khẩu: admin nhập (nếu có) hoặc mật khẩu mặc định.
         effective_pw = (password or "").strip() or settings.default_user_password

@@ -10,6 +10,7 @@ import {
 import { Button } from "../../../../components/Button";
 import { ConfirmDialog } from "../../../../components/ConfirmDialog";
 import { Pager, trangHopLe } from "../../../../components/Pager";
+import { LocThangTao } from "../../../../components/LocThangTao";
 import { Info, Plus } from "lucide-react";
 import { fmtDate } from "../../../../utils/format";
 import { LeaveTable } from "../components/LeaveTable";
@@ -17,12 +18,15 @@ import { LeaveRequestDetailModal } from "../modals/LeaveRequestDetailModal";
 import { LeaveRequestFormModal } from "../modals/LeaveRequestFormModal";
 import { PAGE_SIZE } from "../shared/constants";
 import { errMsg } from "../shared/helpers";
+import { homNayYmd, LyDoDialog } from "../../xin-huy/XinHuy";
 
 // --- Tab: Đơn của tôi -------------------------------------------------------
 
-export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
+export function MyLeaveTab({ token, onChanged, coQuyenGhi, eventTick }: {
   token: string;
   onChanged?: () => void;
+  /** Nhích theo mỗi sự kiện real-time — người duyệt quyết xin hủy thì bảng tự tươi (23/09/2026). */
+  eventTick?: number;
   /** Ô THAO TÁC của Tự phục vụ — gửi / huỷ đơn của chính mình (tách 11/08/2026). */
   coQuyenGhi: boolean;
 }) {
@@ -30,6 +34,8 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
   const [items, setItems] = useState<LeaveRequest[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  /** Lọc theo THÁNG TẠO đơn (`YYYY-MM`, rỗng = tất cả) — 23/09/2026. */
+  const [thang, setThang] = useState("");
   const [quotas, setQuotas] = useState<LeaveQuota[]>([]);
   const [types, setTypes] = useState<LeaveType[]>([]);
 
@@ -45,6 +51,12 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
   const [cancelTargetId, setCancelTargetId] = useState<number | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [canceling, setCanceling] = useState(false);
+  // XIN HỦY đơn ĐÃ DUYỆT (23/09/2026) — thợ chỉ xin, người duyệt quyết; đơn vẫn hiệu lực tới lúc đó.
+  const [xinHuyDon, setXinHuyDon] = useState<LeaveRequest | null>(null);
+  const [xinHuyBusy, setXinHuyBusy] = useState(false);
+  const [xinHuyErr, setXinHuyErr] = useState<string | null>(null);
+  /** Lỗi thao tác rút lại — hiện băng đỏ trên bảng, bảng vẫn còn. */
+  const [actErr, setActErr] = useState<string | null>(null);
   /** Lỗi TẢI DANH SÁCH — ô nhớ RIÊNG. Gộp chung với `error` thì một lần gửi đơn hỏng cũng
    *  làm cả bảng đơn của mình biến mất. */
   const [listError, setListError] = useState<string | null>(null);
@@ -59,7 +71,7 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
   const load = useCallback(() => {
     setLoadingList(true);
     setListError(null);
-    api.leaves.me(token, { page, size: PAGE_SIZE }).then((r) => {
+    api.leaves.me(token, { page, size: PAGE_SIZE, thang: thang || undefined }).then((r) => {
       setHasEmp(r.has_employee);
       setItems(r.items);
       setTotal(r.total);
@@ -84,9 +96,12 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
       // thực sự trả lời.
       .catch((e) => setListError(errMsg(e)))
       .finally(() => setLoadingList(false));
-  }, [token, page]);
+  }, [token, page, thang]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, eventTick]);
+  // Đổi tháng ⇒ về trang 1 NGAY trong handler (không qua effect) — không thì lượt tải cũ bắn đi với
+  // trang cũ rồi mới tới lượt mới, và đứng ở trang 3 của tháng khác là bảng rỗng trơn.
+  const doiThang = (v: string) => { setThang(v); setPage(1); };
   useEffect(() => { api.leaves.types(token).then((r) => setTypes(r.items.filter((t) => t.is_active))).catch(() => {}); }, [token]);
 
   async function submit() {
@@ -136,6 +151,36 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
     }
   }
 
+  async function guiXinHuy(lyDo: string) {
+    if (!xinHuyDon) return;
+    setXinHuyBusy(true);
+    setXinHuyErr(null);
+    try {
+      const r = await api.leaves.xinHuy(token, xinHuyDon.id, lyDo);
+      setXinHuyDon(null);
+      if (selectedRequest?.id === r.id) setSelectedRequest(r);
+      load();
+      onChanged?.();
+    } catch (e) {
+      setXinHuyErr(errMsg(e));
+    } finally {
+      setXinHuyBusy(false);
+    }
+  }
+
+  async function rutLai(r: LeaveRequest) {
+    if (!r.yeu_cau_huy) return;
+    setActErr(null);
+    try {
+      const moi = await api.leaves.rutLaiXinHuy(token, r.yeu_cau_huy.id);
+      if (selectedRequest?.id === moi.id) setSelectedRequest(moi);
+      load();
+      onChanged?.();
+    } catch (e) {
+      setActErr(errMsg(e));
+    }
+  }
+
   const cancelItem = cancelTargetId
     ? items.find((i) => i.id === cancelTargetId) ??
       (selectedRequest?.id === cancelTargetId ? selectedRequest : null)
@@ -172,6 +217,7 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
           </div>
 
           <div className="cc-leave-header-right">
+            <LocThangTao value={thang} onChange={doiThang} />
             <span className="cc-note-inline">
               <Info size={13} className="cc-note-inline-icon" />
               <span>Click dòng để xem chi tiết</span>
@@ -189,6 +235,7 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
         </div>
       ) : (
         <div className="cc-leave-header-strip cc-leave-header-strip--simple">
+          <LocThangTao value={thang} onChange={doiThang} />
           <span className="cc-note-inline">
             <Info size={13} className="cc-note-inline-icon" />
             <span>Click vào dòng bản ghi để xem chi tiết tiến trình đơn</span>
@@ -202,14 +249,19 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
         </div>
       )}
 
+      {actErr && <div className="banner banner--error" style={{ marginBottom: 12 }}>{actErr}</div>}
       <LeaveTable
         items={items}
         showEmployee={false}
         onCancel={cancel}
+        onXinHuy={coQuyenGhi ? (r) => { setXinHuyErr(null); setXinHuyDon(r); } : undefined}
+        onRutLaiXinHuy={coQuyenGhi ? rutLai : undefined}
         onRowClick={(r) => setSelectedRequest(r)}
         loading={loadingList}
         listError={listError}
         onRetry={load}
+        emptyTitle={thang ? "Tháng này bạn chưa gửi đơn nào" : undefined}
+        emptySub={thang ? "Bỏ lọc tháng (nút ✕) để xem mọi đơn." : undefined}
       />
 
       {/* Chân bảng CHỈ hiện khi có dòng (chuẩn §2.7) — lúc tải/lỗi/rỗng thì khối trong bảng
@@ -243,8 +295,32 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
           busy={busy}
           onClose={() => setSelectedRequest(null)}
           onCancel={cancel}
+          onXinHuy={coQuyenGhi ? (r) => { setXinHuyErr(null); setXinHuyDon(r); } : undefined}
+          onRutLaiXinHuy={coQuyenGhi ? rutLai : undefined}
         />
       )}
+
+      <LyDoDialog
+        open={xinHuyDon !== null}
+        title="Xin hủy đơn đã duyệt"
+        message={
+          xinHuyDon
+            ? `${xinHuyDon.leave_type_name ?? "Đơn nghỉ"} · ${fmtDate(xinHuyDon.start_date)}–${fmtDate(xinHuyDon.end_date)} (${xinHuyDon.days} ngày). Đơn vẫn hiệu lực cho tới khi người duyệt đồng ý hủy.${
+                xinHuyDon.start_date <= homNayYmd()
+                  ? " Bạn đang nghỉ dở: đồng ý thì giữ các ngày đã nghỉ trước hôm nay, hủy từ hôm nay trở đi."
+                  : ""
+              }`
+            : undefined
+        }
+        label="Lý do xin hủy"
+        placeholder="vd: việc nhà đã xong, đi làm lại được"
+        confirmLabel="Gửi yêu cầu hủy"
+        danger
+        busy={xinHuyBusy}
+        error={xinHuyErr}
+        onConfirm={guiXinHuy}
+        onCancel={() => setXinHuyDon(null)}
+      />
 
       {/* Popup xác nhận hủy đơn xin nghỉ chuẩn hệ thống */}
       <ConfirmDialog

@@ -47,25 +47,30 @@ class OvertimeRepository:
         self.db.refresh(r)
         return r
 
-    def list_by_employee(self, employee_id: int, *, limit: int = 100,
-                         offset: int = 0) -> list[OvertimeRequest]:
+    # SẮP XẾP: mới TẠO nhất lên đầu (chủ 23/09/2026). Trước đó xếp theo ngày nghỉ / ngày công, rồi
+    # (ở hàng đợi duyệt) theo `status` dạng chữ — đơn vừa gửi có thể nằm tít trang sau.
+    # LỌC THÁNG = tháng của NGÀY TẠO (`tao_tu`/`tao_den`, UTC, nửa mở) — xem services/khoang_thang.py.
+    def list_by_employee(self, employee_id: int, *, limit: int = 100, offset: int = 0,
+                         tao_tu=None, tao_den=None) -> list[OvertimeRequest]:
+        stmt = select(OvertimeRequest).where(OvertimeRequest.employee_id == employee_id)
+        if tao_tu is not None:
+            stmt = stmt.where(OvertimeRequest.created_at >= tao_tu, OvertimeRequest.created_at < tao_den)
         return list(
             self.db.execute(
-                select(OvertimeRequest)
-                .where(OvertimeRequest.employee_id == employee_id)
-                .order_by(OvertimeRequest.work_date.desc(), OvertimeRequest.id.desc())
+                stmt
+                .order_by(OvertimeRequest.created_at.desc(), OvertimeRequest.id.desc())
                 .limit(limit)
                 .offset(offset)
             ).scalars()
         )
 
-    def count_by_employee(self, employee_id: int) -> int:
+    def count_by_employee(self, employee_id: int, *, tao_tu=None, tao_den=None) -> int:
         """Tổng phiếu của 1 NV — nuôi chân phân trang tab "Phiếu của tôi". COUNT ở DB, đừng
         `len(list_by_employee())`: hàm kia đang bị `limit` cắt nên đếm ra số của TRANG."""
-        return int(self.db.execute(
-            select(func.count(OvertimeRequest.id))
-            .where(OvertimeRequest.employee_id == employee_id)
-        ).scalar_one())
+        stmt = select(func.count(OvertimeRequest.id)).where(OvertimeRequest.employee_id == employee_id)
+        if tao_tu is not None:
+            stmt = stmt.where(OvertimeRequest.created_at >= tao_tu, OvertimeRequest.created_at < tao_den)
+        return int(self.db.execute(stmt).scalar_one())
 
     # --- scope-aware reads (own = phiếu của mình theo Employee.user_id; department =
     #     phiếu của phòng/tổ mình + cây con; all = tất cả). `overtime_requests` KHÔNG có cột
@@ -84,7 +89,7 @@ class OvertimeRepository:
         raise ValueError(f"Unknown scope: {scope!r}")
 
     def _scoped_filters(self, stmt, *, scope: str, actor, status: str | None,
-                        employee_id: int | None):
+                        employee_id: int | None, tao_tu=None, tao_den=None):
         """Bộ lọc DÙNG CHUNG cho `list_scoped` và `count_scoped` — hai hàm lọc lệch nhau thì
         `total` ở chân bảng không mở ra xem được (báo 30, lật hết trang chỉ thấy 12)."""
         cond = self._scope_condition(scope=scope, actor=actor)
@@ -94,21 +99,23 @@ class OvertimeRepository:
             stmt = stmt.where(OvertimeRequest.status == status)
         if employee_id is not None:
             stmt = stmt.where(OvertimeRequest.employee_id == employee_id)
+        if tao_tu is not None:
+            stmt = stmt.where(OvertimeRequest.created_at >= tao_tu, OvertimeRequest.created_at < tao_den)
         return stmt
 
     def list_scoped(self, *, scope: str, actor, status: str | None = None,
                     employee_id: int | None = None, limit: int = 200,
-                    offset: int = 0) -> list[OvertimeRequest]:
+                    offset: int = 0, tao_tu=None, tao_den=None) -> list[OvertimeRequest]:
         stmt = select(OvertimeRequest).join(Employee, OvertimeRequest.employee_id == Employee.id)
         stmt = self._scoped_filters(stmt, scope=scope, actor=actor, status=status,
-                                    employee_id=employee_id)
+                                    employee_id=employee_id, tao_tu=tao_tu, tao_den=tao_den)
         stmt = stmt.order_by(
-            OvertimeRequest.status.asc(), OvertimeRequest.work_date.desc(), OvertimeRequest.id.desc()
+            OvertimeRequest.created_at.desc(), OvertimeRequest.id.desc()
         ).limit(limit).offset(offset)
         return list(self.db.execute(stmt).scalars())
 
     def count_scoped(self, *, scope: str, actor, status: str | None = None,
-                     employee_id: int | None = None) -> int:
+                     employee_id: int | None = None, tao_tu=None, tao_den=None) -> int:
         """Tổng phiếu trong phạm vi + bộ lọc — chân phân trang tab "Duyệt phiếu"."""
         stmt = (
             select(func.count(OvertimeRequest.id))
@@ -116,7 +123,7 @@ class OvertimeRepository:
             .join(Employee, OvertimeRequest.employee_id == Employee.id)
         )
         stmt = self._scoped_filters(stmt, scope=scope, actor=actor, status=status,
-                                    employee_id=employee_id)
+                                    employee_id=employee_id, tao_tu=tao_tu, tao_den=tao_den)
         return int(self.db.execute(stmt).scalar_one())
 
     def count_pending_scoped(self, *, scope: str, actor) -> int:

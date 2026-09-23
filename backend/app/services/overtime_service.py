@@ -7,7 +7,7 @@ Máy KHÔNG tự điền giờ ra từ phiếu — lượt bấm ra mới là s�
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from ..models.overtime import (
     STATUS_APPROVED,
@@ -17,16 +17,26 @@ from ..models.overtime import (
     OvertimeRequest,
 )
 from ..models.role import SCOPE_ALL
+from ..models.yeu_cau_huy import (
+    LOAI_TANG_CA,
+    TT_CHO,
+    TT_DONG_Y,
+    TT_GIU_NGUYEN,
+    TT_RUT_LAI,
+)
 from .bien_che import ly_do_ngoai_bien_che
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.overtime_repo import OvertimeRepository
+from .khoang_thang import khoang_tao_theo_thang
 from .ky_cong_guard import ly_do_ky_cong_da_chot
 
 # Trần độ dài MỘT phiếu (phút). Đ107 BLLĐ: tổng giờ làm + tăng ca ≤ 12h/ngày → 12h là trần rộng rãi.
 MAX_OT_MINUTES = 12 * 60
 # Mốc phút lớn nhất cho `to_minute` (2 ngày kể từ 00:00 ngày công) — chặn nhập bậy.
 MAX_MINUTE = 2 * 1440
+# Giờ Việt Nam cố định +7 — "hôm nay" / khung giờ phiếu của luật xin hủy tính theo giờ ở xưởng.
+_VN = timezone(timedelta(hours=7))
 
 
 class OvertimeError(Exception):
@@ -78,7 +88,8 @@ def _hhmm(minute: int) -> str:
 
 class OvertimeService:
     def __init__(self, overtime: OvertimeRepository, employees: EmployeeRepository,
-                 audit: AuditLogRepository, attendance=None, payroll=None) -> None:
+                 audit: AuditLogRepository, attendance=None, payroll=None,
+                 yeu_cau_huy=None) -> None:
         self.overtime = overtime
         self.employees = employees
         self.audit = audit
@@ -88,6 +99,8 @@ class OvertimeService:
         # AttendanceRepository | None — hỏi "kỳ công tháng đó chốt chưa" trước khi duyệt/hủy phiếu
         # ĐÃ DUYỆT. Phiếu tăng ca duyệt xong là RA PHÚT TĂNG CA trong bảng công. Chỉ đọc REPO.
         self._attendance = attendance
+        # YeuCauHuyRepository | None — xin hủy phiếu ĐÃ DUYỆT (23/09/2026). None ⇒ không có đường xin.
+        self._yc = yeu_cau_huy
 
     def _chan_neu_ky_cong_da_chot(self, ngay: date, viec: str) -> None:
         if self._attendance is None:
@@ -234,32 +247,49 @@ class OvertimeService:
 
     # --- đọc ----------------------------------------------------------------
 
-    def my_requests(self, *, user, page: int = 1,
-                    size: int = 20) -> tuple[list[OvertimeRequest], int]:
-        """Trả `(rows, total)` — `total` là TỔNG phiếu của NV, không phải số dòng của trang."""
+    @staticmethod
+    def _khoang_thang(thang):
+        """`thang` (YYYY-MM, theo NGÀY TẠO phiếu) → (tu, den) UTC, hoặc (None, None) = không lọc."""
+        try:
+            k = khoang_tao_theo_thang(thang)
+        except ValueError as exc:
+            raise OvertimeValidationError(str(exc)) from None
+        return k if k is not None else (None, None)
+
+    def my_requests(self, *, user, page: int = 1, size: int = 20,
+                    thang: str | None = None) -> tuple[list[OvertimeRequest], int]:
+        """Trả `(rows, total)` — `total` là TỔNG phiếu của NV (trong tháng tạo nếu lọc), không phải
+        số dòng của trang. Mới tạo nhất lên đầu."""
         emp = self._employee_for_user(user)
-        total = self.overtime.count_by_employee(emp.id)
+        tu, den = self._khoang_thang(thang)
+        total = self.overtime.count_by_employee(emp.id, tao_tu=tu, tao_den=den)
         rows = self.overtime.list_by_employee(emp.id, limit=size,
-                                              offset=max(0, (page - 1) * size))
+                                              offset=max(0, (page - 1) * size),
+                                              tao_tu=tu, tao_den=den)
         return rows, total
 
     def list_requests(self, *, scope: str, actor, status: str | None = None,
                       employee_id: int | None = None, page: int = 1,
-                      size: int = 20) -> tuple[list[OvertimeRequest], int]:
+                      size: int = 20, thang: str | None = None) -> tuple[list[OvertimeRequest], int]:
         """Danh sách phiếu theo DATA-SCOPE người gọi (own = của mình / department = tổ mình +
         cây con / all = tất cả) ⇒ tổ trưởng chỉ thấy & duyệt được người trong tổ.
 
         `employee_id` chỉ THU HẸP thêm bên trong phạm vi đã có — không nới quyền: gõ id người
         ngoài tổ thì `_scope_condition` vẫn cắt, kết quả rỗng chứ không lộ phiếu."""
+        tu, den = self._khoang_thang(thang)
         total = self.overtime.count_scoped(scope=scope, actor=actor, status=status,
-                                           employee_id=employee_id)
+                                           employee_id=employee_id, tao_tu=tu, tao_den=den)
         rows = self.overtime.list_scoped(scope=scope, actor=actor, status=status,
                                          employee_id=employee_id, limit=size,
-                                         offset=max(0, (page - 1) * size))
+                                         offset=max(0, (page - 1) * size), tao_tu=tu, tao_den=den)
         return rows, total
 
     def count_pending(self, *, scope: str, actor) -> int:
-        return self.overtime.count_pending_scoped(scope=scope, actor=actor)
+        """Việc chờ duyệt trong phạm vi: phiếu mới + yêu cầu HỦY phiếu đã duyệt (23/09/2026)."""
+        n = self.overtime.count_pending_scoped(scope=scope, actor=actor)
+        if self._yc is not None:
+            n += self._yc.count_cho_scoped(LOAI_TANG_CA, scope=scope, actor=actor)
+        return n
 
     def my_unseen_count(self, *, user) -> int:
         emp = self.employees.get_by_user_id(user.id)
@@ -393,24 +423,193 @@ class OvertimeService:
                           detail=f"{work_date} {hhmm(from_minute)}–{hhmm(to_minute)}")
         return r
 
+    # --- hủy / xin hủy (chủ chốt 23/09/2026 — docs/prd-xin-huy-don-da-duyet.md) -------------
+    #
+    # Y HỆT đơn nghỉ phép: phiếu ĐÃ DUYỆT là cam kết trong kế hoạch tổ (đã lên kế hoạch chạy đơn
+    # tối nay) ⇒ người lao động chỉ được XIN hủy; ai có quyền duyệt phiếu (trong phạm vi) thì quyết.
+    # Thêm một chốt riêng: đã CHẤM VÀO tăng ca rồi thì chặn luôn — về sớm thì tiền đã tự tính theo
+    # giờ bấm ra thực tế, không cần hủy phiếu.
+
+    def get_request(self, request_id) -> OvertimeRequest | None:
+        return self.overtime.get_request(request_id)
+
+    def _la_cua_minh(self, r: OvertimeRequest, actor) -> bool:
+        """Phiếu của CHÍNH người gọi: người đứng tên phiếu, hoặc người đã tạo nó. Phiếu tổ trưởng
+        TẠO HỘ thì `created_by` là tổ trưởng — người thợ vẫn là chủ phiếu, vẫn xin hủy được."""
+        if r.created_by == actor.id:
+            return True
+        me = self.employees.get_by_user_id(actor.id)
+        return me is not None and me.id == r.employee_id
+
+    def _quan_ly_duoc(self, r: OvertimeRequest, actor, *, is_manager: bool, scope: str | None) -> bool:
+        if not is_manager:
+            return False
+        if scope is not None:
+            try:
+                self._guard_scope(r.employee_id, scope=scope, actor=actor)
+            except OvertimeForbidden:
+                return False
+        try:
+            self._chan_tu_duyet(r.employee_id, scope=scope, actor=actor)
+        except OvertimeForbidden:
+            return False
+        return True
+
+    def _da_cham_vao_tang_ca(self, r: OvertimeRequest) -> bool:
+        """Người đứng tên đã có lượt VÀO trong khung phiếu (tính cả 60' được vào sớm, như cổng chấm
+        công) ⇒ tăng ca đã bắt đầu. Không có dây chấm công (unit test tối giản) ⇒ coi như chưa."""
+        if self._attendance is None:
+            return False
+        nua_dem = datetime(r.work_date.year, r.work_date.month, r.work_date.day, tzinfo=_VN)
+        tu = (nua_dem + timedelta(minutes=int(r.from_minute) - 60)).astimezone(timezone.utc)
+        den = (nua_dem + timedelta(minutes=int(r.to_minute))).astimezone(timezone.utc)
+        return any(lg.check_type == "in"
+                   for lg in self._attendance.list_by_employee_in_range(r.employee_id, tu, den))
+
     def cancel(self, *, actor, request_id: int, is_manager: bool = False,
-               scope: str | None = None) -> OvertimeRequest:
-        """Hủy phiếu: người TẠO tự hủy, hoặc người có quyền duyệt hủy hộ TRONG PHẠM VI của họ
-        (`scope`, 07/09/2026 — trước đó tổ trưởng tổ A hủy được phiếu đã duyệt của tổ B chỉ cần
-        biết mã phiếu, tức xoá tiền tăng ca của người khác). Chỉ hủy phiếu chưa quyết/đã duyệt."""
+               scope: str | None = None, ly_do=None) -> OvertimeRequest:
+        """Hủy THẲNG. Phiếu đang chờ: người tạo / người đứng tên tự hủy, hoặc người duyệt hủy hộ
+        TRONG PHẠM VI (07/09/2026). Phiếu ĐÃ DUYỆT: chỉ người duyệt, phải ghi lý do — người lao
+        động đi đường XIN hủy (`xin_huy`)."""
         r = self.overtime.get_request(request_id)
         if r is None:
             raise OvertimeNotFound("Không tìm thấy phiếu tăng ca.")
-        if not is_manager and r.created_by != actor.id:
-            raise OvertimeForbidden("Bạn chỉ hủy được phiếu do mình tạo.")
-        if is_manager and r.created_by != actor.id and scope is not None:
-            self._guard_scope(r.employee_id, scope=scope, actor=actor)
+        quan_ly = self._quan_ly_duoc(r, actor, is_manager=is_manager, scope=scope)
+        if not quan_ly and not self._la_cua_minh(r, actor):
+            if is_manager and scope is not None:
+                self._guard_scope(r.employee_id, scope=scope, actor=actor)   # nói đúng lý do 403
+            raise OvertimeForbidden("Bạn chỉ hủy được phiếu của mình.")
         if r.status not in (STATUS_PENDING, STATUS_APPROVED):
             raise OvertimeValidationError("Phiếu này không còn để hủy.")
-        # Hủy phiếu ĐÃ DUYỆT của tháng đã chốt = rút phút tăng ca đã đóng băng.
-        if r.status == STATUS_APPROVED:
+        ly_do = _clean(ly_do)
+        da_duyet = r.status == STATUS_APPROVED
+        if da_duyet:
+            if not quan_ly:
+                raise OvertimeValidationError(
+                    "Phiếu đã được duyệt nên không tự hủy được. Bấm “Xin hủy” và ghi lý do — người "
+                    "duyệt đồng ý thì phiếu mới hủy."
+                )
+            if not ly_do:
+                raise OvertimeValidationError("Hủy phiếu đã duyệt phải ghi lý do để người lao động biết.")
+            # Hủy phiếu ĐÃ DUYỆT của tháng đã chốt = rút phút tăng ca đã đóng băng.
             self._chan_neu_ky_cong_da_chot(r.work_date, "hủy phiếu tăng ca đã duyệt")
         self.overtime.update_request(r, status=STATUS_CANCELLED)
+        if da_duyet and self._yc is not None:
+            cho = self._yc.get_cho(LOAI_TANG_CA, r.id)
+            bay_gio = datetime.now(timezone.utc)
+            if cho is not None:
+                self._yc.update(cho, trang_thai=TT_DONG_Y, decided_by=actor.id, decided_at=bay_gio,
+                                ly_do_quyet=ly_do)
+            else:
+                self._yc.create(loai=LOAI_TANG_CA, request_id=r.id, employee_id=r.employee_id,
+                                ly_do=ly_do, trang_thai=TT_DONG_Y, truc_tiep=True,
+                                created_by=actor.id, decided_by=actor.id, decided_at=bay_gio,
+                                ly_do_quyet=ly_do)
         self.audit.create(actor_user_id=actor.id, action="overtime_cancelled",
-                          target=f"overtime_request:{r.id}", detail="→ cancelled")
+                          target=f"overtime_request:{r.id}",
+                          detail="→ cancelled" + (f" — {ly_do}" if ly_do else ""))
         return r
+
+    def _can_yc(self):
+        if self._yc is None:
+            raise OvertimeValidationError("Chưa bật chức năng xin hủy.")
+        return self._yc
+
+    def xin_huy(self, *, actor, request_id: int, ly_do, hom_nay: date | None = None):
+        """Người lao động XIN hủy phiếu ĐÃ DUYỆT. Phiếu vẫn hiệu lực (vẫn cho chấm vào tăng ca) tới
+        khi người duyệt đồng ý. Ngày công đã qua, hoặc đã chấm VÀO tăng ca ⇒ chặn."""
+        yc_repo = self._can_yc()
+        r = self.overtime.get_request(request_id)
+        if r is None:
+            raise OvertimeNotFound("Không tìm thấy phiếu tăng ca.")
+        if not self._la_cua_minh(r, actor):
+            raise OvertimeForbidden("Bạn chỉ xin hủy được phiếu của mình.")
+        if r.status == STATUS_PENDING:
+            raise OvertimeValidationError("Phiếu đang chờ duyệt — bấm “Hủy phiếu” để hủy thẳng, không cần xin.")
+        if r.status != STATUS_APPROVED:
+            raise OvertimeValidationError("Phiếu này không còn để hủy.")
+        ly_do = _clean(ly_do)
+        if not ly_do:
+            raise OvertimeValidationError("Cần ghi lý do xin hủy để người duyệt cân nhắc.")
+        hom_nay = hom_nay or datetime.now(_VN).date()
+        if r.work_date < hom_nay:
+            raise OvertimeValidationError(
+                "Ngày tăng ca này đã qua nên không xin hủy được. Có sai sót thì báo HCNS."
+            )
+        if self._da_cham_vao_tang_ca(r):
+            raise OvertimeValidationError(
+                "Bạn đã chấm vào tăng ca rồi nên không xin hủy được. Về sớm thì cứ chấm ra — tiền "
+                "tăng ca tính theo giờ bấm ra thực tế."
+            )
+        if yc_repo.get_cho(LOAI_TANG_CA, r.id) is not None:
+            raise OvertimeValidationError("Phiếu này đã có yêu cầu hủy đang chờ duyệt.")
+        self._chan_neu_ky_cong_da_chot(r.work_date, "xin hủy phiếu tăng ca")
+        yc = yc_repo.create(loai=LOAI_TANG_CA, request_id=r.id, employee_id=r.employee_id,
+                            ly_do=ly_do, trang_thai=TT_CHO, created_by=actor.id)
+        self.audit.create(actor_user_id=actor.id, action="overtime_cancel_requested",
+                          target=f"overtime_request:{r.id}", detail=f"xin hủy — {ly_do}")
+        return r, yc
+
+    def rut_lai_xin_huy(self, *, actor, yc_id: int):
+        yc_repo = self._can_yc()
+        yc = yc_repo.get(yc_id)
+        if yc is None or yc.loai != LOAI_TANG_CA:
+            raise OvertimeNotFound("Không tìm thấy yêu cầu hủy.")
+        if yc.created_by != actor.id:
+            raise OvertimeForbidden("Bạn chỉ rút lại được yêu cầu của mình.")
+        if yc.trang_thai != TT_CHO:
+            raise OvertimeValidationError("Yêu cầu này đã được xử lý, không rút lại được.")
+        yc_repo.update(yc, trang_thai=TT_RUT_LAI, decided_at=datetime.now(timezone.utc))
+        self.audit.create(actor_user_id=actor.id, action="overtime_cancel_request_withdrawn",
+                          target=f"overtime_request:{yc.request_id}", detail="rút lại yêu cầu hủy")
+        return self.overtime.get_request(yc.request_id), yc
+
+    def quyet_xin_huy(self, *, actor, yc_id: int, dong_y: bool, ghi_chu=None, scope: str):
+        """Người có quyền duyệt (trong phạm vi) ĐỒNG Ý hủy hoặc GIỮ NGUYÊN phiếu (phải ghi lý do)."""
+        yc_repo = self._can_yc()
+        yc = yc_repo.get(yc_id)
+        if yc is None or yc.loai != LOAI_TANG_CA:
+            raise OvertimeNotFound("Không tìm thấy yêu cầu hủy.")
+        r = self.overtime.get_request(yc.request_id)
+        if r is None:
+            raise OvertimeNotFound("Không tìm thấy phiếu tăng ca.")
+        self._guard_scope(r.employee_id, scope=scope, actor=actor)
+        self._chan_tu_duyet(r.employee_id, scope=scope, actor=actor)
+        if yc.trang_thai != TT_CHO:
+            raise OvertimeValidationError("Yêu cầu hủy này đã được xử lý.")
+        ghi_chu = _clean(ghi_chu)
+        bay_gio = datetime.now(timezone.utc)
+        if not dong_y:
+            if not ghi_chu:
+                raise OvertimeValidationError("Giữ nguyên phiếu phải ghi lý do để người lao động biết.")
+            yc_repo.update(yc, trang_thai=TT_GIU_NGUYEN, decided_by=actor.id, decided_at=bay_gio,
+                           ly_do_quyet=ghi_chu)
+            self.audit.create(actor_user_id=actor.id, action="overtime_cancel_request_rejected",
+                              target=f"overtime_request:{r.id}", detail=f"giữ nguyên phiếu — {ghi_chu}")
+            return r, yc
+        if r.status != STATUS_APPROVED:
+            raise OvertimeValidationError("Phiếu không còn ở trạng thái đã duyệt — không cần hủy nữa.")
+        self._chan_neu_ky_cong_da_chot(r.work_date, "đồng ý hủy phiếu tăng ca")
+        self.overtime.update_request(r, status=STATUS_CANCELLED)
+        yc_repo.update(yc, trang_thai=TT_DONG_Y, decided_by=actor.id, decided_at=bay_gio,
+                       ly_do_quyet=ghi_chu)
+        self.audit.create(actor_user_id=actor.id, action="overtime_cancel_request_approved",
+                          target=f"overtime_request:{r.id}",
+                          detail="hủy phiếu" + (f" — {ghi_chu}" if ghi_chu else ""))
+        return r, yc
+
+    def xin_huy_cho_duyet(self, *, scope: str, actor) -> list:
+        """Yêu cầu hủy đang chờ trong phạm vi người duyệt, kèm phiếu gốc: [(yc, phiếu)]."""
+        if self._yc is None:
+            return []
+        out = []
+        for yc in self._yc.list_cho_scoped(LOAI_TANG_CA, scope=scope, actor=actor):
+            r = self.overtime.get_request(yc.request_id)
+            if r is not None:
+                out.append((yc, r))
+        return out
+
+    def yeu_cau_huy_moi_nhat(self, request_ids) -> dict:
+        if self._yc is None:
+            return {}
+        return self._yc.moi_nhat_theo_don(LOAI_TANG_CA, request_ids)

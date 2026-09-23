@@ -100,7 +100,8 @@ def test_to_truong_VAN_huy_duoc_phieu_to_minh(client):
     sx = _emp(client, admin, name="Thợ SX", dept="Sản xuất")
     rid = _phieu_duyet(client, admin, sx)["id"]
     lead = _lead_token()
-    r = client.post(f"/api/overtime/{rid}/cancel", headers=_h(lead))
+    r = client.post(f"/api/overtime/{rid}/cancel", json={"ly_do": "Tổ đủ người"},
+                    headers=_h(lead))  # 23/09/2026: hủy đơn ĐÃ DUYỆT phải ghi lý do
     assert r.status_code == 200 and r.json()["status"] == "cancelled"
 
 

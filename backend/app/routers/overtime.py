@@ -24,6 +24,12 @@ from ..models.user import User
 from ..realtime import hub
 from ..repositories.employee_repo import EmployeeRepository
 from ..schemas.overtime import (
+    HuyDonIn,
+    OtXinHuyChoDuyetListOut,
+    OtXinHuyChoDuyetOut,
+    QuyetXinHuyIn,
+    XinHuyIn,
+    YeuCauHuyOut,
     TranThangOut,
     MyOvertimeOut,
     OvertimeBulkIn,
@@ -115,7 +121,17 @@ def _out(r, emp_names: dict[int, str], decider_names: dict[int, str]) -> Overtim
     return o
 
 
-def _resolve(employees: EmployeeRepository, reqs: list) -> list[OvertimeRequestOut]:
+def _yc_out(yc, employees: EmployeeRepository) -> YeuCauHuyOut:
+    o = YeuCauHuyOut.model_validate(yc)
+    if yc.decided_by:
+        emp = employees.get_by_user_id(yc.decided_by)
+        o.decided_by_name = emp.full_name if emp is not None else None
+    return o
+
+
+def _resolve(employees: EmployeeRepository, reqs: list,
+             svc: OvertimeService | None = None) -> list[OvertimeRequestOut]:
+    """`svc` có ⇒ kèm yêu cầu hủy mới nhất của từng phiếu (23/09/2026), một truy vấn cho cả trang."""
     names: dict[int, str] = {}
     for eid in {r.employee_id for r in reqs}:
         emp = employees.get_by_id(eid)
@@ -127,7 +143,14 @@ def _resolve(employees: EmployeeRepository, reqs: list) -> list[OvertimeRequestO
         emp = employees.get_by_user_id(uid)
         if emp is not None:
             decider_names[uid] = emp.full_name
-    return [_out(r, names, decider_names) for r in reqs]
+    out = [_out(r, names, decider_names) for r in reqs]
+    if svc is not None:
+        yc_map = svc.yeu_cau_huy_moi_nhat([r.id for r in reqs])
+        for o in out:
+            yc = yc_map.get(o.id)
+            if yc is not None:
+                o.yeu_cau_huy = _yc_out(yc, employees)
+    return out
 
 
 # --- real-time (bám hub SSE chung; event chỉ là TÍN HIỆU nhẹ, FE tự refetch số) ------------
@@ -163,20 +186,25 @@ def create_my_request(body: OvertimeRequestIn, svc: Service, employees: Employee
     except OvertimeError as exc:
         _raise(exc)
     _notify_pending_changed()
-    return _resolve(employees, [r])[0]
+    return _resolve(employees, [r], svc)[0]
 
 
 @router.get("/me", response_model=MyOvertimeOut)
 def my_requests(svc: Service, employees: Employees, user: SelfUser,
                 page: int = Query(default=1, ge=1),
-                size: int = Query(default=20, ge=1, le=100)):
+                size: int = Query(default=20, ge=1, le=100),
+                thang: str | None = Query(default=None, description="YYYY-MM — lọc theo tháng NGÀY TẠO đơn"),
+                ):
     if not svc.has_employee(user=user):
         return MyOvertimeOut(has_employee=False, page=page, size=size)
-    reqs, total = svc.my_requests(user=user, page=page, size=size)
+    try:
+        reqs, total = svc.my_requests(user=user, page=page, size=size, thang=thang)
+    except OvertimeError as exc:
+        _raise(exc)
     emp = employees.get_by_user_id(user.id)
     return MyOvertimeOut(has_employee=True,
                          employee_name=emp.full_name if emp is not None else None,
-                         items=_resolve(employees, reqs),
+                         items=_resolve(employees, reqs, svc),
                          total=total, page=page, size=size)
 
 
@@ -253,7 +281,7 @@ def create_for_employee(body: OvertimeRequestForIn, svc: Service, employees: Emp
     except OvertimeError as exc:
         _raise(exc)
     _notify_decision(r, employees, "approved")
-    return _resolve(employees, [r])[0]
+    return _resolve(employees, [r], svc)[0]
 
 
 @router.get("", response_model=OvertimeRequestsOut)
@@ -262,12 +290,17 @@ def list_requests(svc: Service, employees: Employees, authz: Authz,
                   status_filter: str | None = None,
                   employee_id: int | None = Query(default=None),
                   page: int = Query(default=1, ge=1),
-                  size: int = Query(default=20, ge=1, le=100)):
+                  size: int = Query(default=20, ge=1, le=100),
+                  thang: str | None = Query(default=None, description="YYYY-MM — lọc theo tháng NGÀY TẠO đơn"),
+                  ):
     # `employee_id` KHÔNG nới phạm vi — chỉ lọc THÊM bên trong phạm vi đã có (xem service).
     scope = authz.scope_for(user, MODULE) or "own"
-    reqs, total = svc.list_requests(scope=scope, actor=user, status=status_filter,
-                                    employee_id=employee_id, page=page, size=size)
-    return OvertimeRequestsOut(items=_resolve(employees, reqs),
+    try:
+        reqs, total = svc.list_requests(scope=scope, actor=user, status=status_filter,
+                                        employee_id=employee_id, page=page, size=size, thang=thang)
+    except OvertimeError as exc:
+        _raise(exc)
+    return OvertimeRequestsOut(items=_resolve(employees, reqs, svc),
                                total=total, page=page, size=size)
 
 
@@ -307,7 +340,7 @@ def approve(request_id: int, body: OvertimeDecisionIn, svc: Service, employees: 
     except OvertimeError as exc:
         _raise(exc)
     _notify_decision(r, employees, "approved")
-    return _resolve(employees, [r])[0]
+    return _resolve(employees, [r], svc)[0]
 
 
 @router.post("/{request_id}/reject", response_model=OvertimeRequestOut)
@@ -320,7 +353,7 @@ def reject(request_id: int, body: OvertimeRejectIn, svc: Service, employees: Emp
     except OvertimeError as exc:
         _raise(exc)
     _notify_decision(r, employees, "rejected")
-    return _resolve(employees, [r])[0]
+    return _resolve(employees, [r], svc)[0]
 
 
 @router.put("/{request_id}", response_model=OvertimeRequestOut)
@@ -335,20 +368,76 @@ def update_my_request(request_id: int, body: OvertimeRequestIn, svc: Service, em
     except OvertimeError as exc:
         _raise(exc)
     _notify_pending_changed()
-    return _resolve(employees, [r])[0]
+    return _resolve(employees, [r], svc)[0]
 
 
 @router.post("/{request_id}/cancel", response_model=OvertimeRequestOut)
-def cancel(request_id: int, svc: Service, employees: Employees, authz: Authz, user: SelfOrApprover):
+def cancel(request_id: int, svc: Service, employees: Employees, authz: Authz, user: SelfOrApprover,
+           body: HuyDonIn | None = None):
+    """Hủy THẲNG. Phiếu ĐÃ DUYỆT chỉ người duyệt hủy được, và phải ghi `ly_do` (23/09/2026) —
+    người lao động đi đường `/xin-huy`."""
     try:
+        truoc = svc.get_request(request_id)
+        da_duyet = truoc is not None and truoc.status == "approved"
         r = svc.cancel(actor=user, request_id=request_id,
-                       is_manager=authz.can(user, MODULE, "approve"), scope=_scope(authz, user))
+                       is_manager=authz.can(user, MODULE, "approve"), scope=_scope(authz, user),
+                       ly_do=body.ly_do if body else None)
     except OvertimeError as exc:
         _raise(exc)
     # Huỷ hộ phiếu ĐÃ DUYỆT = thợ mất giấy phép tăng ca mà tối vẫn đi làm ⇒ 0đ; phải báo tới đúng người
-    # như lúc duyệt/từ chối (bản rà liên thông D8, 08/09/2026). Tự huỷ phiếu của mình thì chỉ cần hạ badge.
-    if getattr(user, "id", None) != getattr(r, "created_by", None):
+    # như lúc duyệt/từ chối (bản rà liên thông D8, 08/09/2026). Tự huỷ phiếu chờ của mình chỉ hạ badge.
+    if da_duyet:
         _notify_decision(r, employees, "cancelled")
     else:
         _notify_pending_changed()
-    return _resolve(employees, [r])[0]
+    return _resolve(employees, [r], svc)[0]
+
+
+# --- XIN HỦY phiếu ĐÃ DUYỆT (chủ chốt 23/09/2026 — docs/prd-xin-huy-don-da-duyet.md) -----------
+# Y hệt đơn nghỉ phép: người lao động chỉ XIN; ai có quyền duyệt phiếu (trong phạm vi) thì quyết.
+# Đã chấm VÀO tăng ca thì chặn xin hủy.
+
+
+@router.get("/xin-huy", response_model=OtXinHuyChoDuyetListOut)
+def xin_huy_cho_duyet(svc: Service, employees: Employees, authz: Authz,
+                      user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
+    pairs = svc.xin_huy_cho_duyet(scope=_scope(authz, user), actor=user)
+    dons = _resolve(employees, [r for _, r in pairs], svc)
+    return OtXinHuyChoDuyetListOut(items=[
+        OtXinHuyChoDuyetOut(yeu_cau=_yc_out(yc, employees), don=don)
+        for (yc, _), don in zip(pairs, dons)
+    ])
+
+
+@router.post("/{request_id}/xin-huy", response_model=OvertimeRequestOut)
+def xin_huy(request_id: int, body: XinHuyIn, svc: Service, employees: Employees,
+            user: SelfOrApprover):
+    try:
+        r, _ = svc.xin_huy(actor=user, request_id=request_id, ly_do=body.ly_do)
+    except OvertimeError as exc:
+        _raise(exc)
+    _notify_pending_changed()
+    return _resolve(employees, [r], svc)[0]
+
+
+@router.post("/xin-huy/{yc_id}/rut-lai", response_model=OvertimeRequestOut)
+def rut_lai_xin_huy(yc_id: int, svc: Service, employees: Employees, user: SelfOrApprover):
+    try:
+        r, _ = svc.rut_lai_xin_huy(actor=user, yc_id=yc_id)
+    except OvertimeError as exc:
+        _raise(exc)
+    _notify_pending_changed()
+    return _resolve(employees, [r], svc)[0]
+
+
+@router.post("/xin-huy/{yc_id}/quyet", response_model=OvertimeRequestOut)
+def quyet_xin_huy(yc_id: int, body: QuyetXinHuyIn, svc: Service, employees: Employees,
+                  authz: Authz,
+                  user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
+    try:
+        r, _ = svc.quyet_xin_huy(actor=user, yc_id=yc_id, dong_y=body.dong_y,
+                                 ghi_chu=body.ghi_chu, scope=_scope(authz, user))
+    except OvertimeError as exc:
+        _raise(exc)
+    _notify_decision(r, employees, "huy_dong_y" if body.dong_y else "huy_giu_nguyen")
+    return _resolve(employees, [r], svc)[0]

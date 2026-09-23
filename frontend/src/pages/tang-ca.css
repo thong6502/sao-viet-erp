@@ -44,6 +44,15 @@
   line-height: 1.5;
 }
 
+/* Hàng lọc của tab Duyệt phiếu (trạng thái + tháng tạo, 23/09/2026) — hàng riêng dưới tiêu đề. */
+.tc-loc {
+  display: flex;
+  gap: 10px 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: -6px 0 14px;
+}
+
 .tc-bulkbar {
   display: flex;
   gap: 8px;

@@ -5,6 +5,7 @@ import { EmptyRow } from "../../../../components/EmptyState";
 // KHÔNG qua `new Date()` nên không lệch múi giờ). Đừng chép lại bản cục bộ.
 import { fmtDateISO, fmtDateTime } from "../../../../utils/format";
 import { minToHhmm } from "../shared/helpers";
+import { XinHuyNhan } from "../../xin-huy/XinHuy";
 import { StatusBadge } from "./badges";
 
 // --- Bảng phiếu dùng chung ---------------------------------------------------
@@ -38,7 +39,7 @@ export function RequestTable({
 }) {
   // ⚠ Số cột ĐANG hiện: 8 cột cố định + 2 cột bật/tắt theo ngữ cảnh. Trước đây gõ cứng 10 nên
   // ở tab "Phiếu của tôi" (8 cột) ô rỗng thừa 2 cột, kéo bảng rộng ra.
-  const cols = 8 + (selectable ? 1 : 0) + (showEmployee ? 1 : 0);
+  const cols = 9 + (selectable ? 1 : 0) + (showEmployee ? 1 : 0);
   return (
     <div className="ns__tablewrap">
       <table className="ns__table tc-table">
@@ -46,6 +47,8 @@ export function RequestTable({
           <tr>
             {selectable && <th style={{ width: 36 }} aria-label="Chọn phiếu" />}
             {showEmployee && <th>Nhân viên</th>}
+            {/* Danh sách xếp MỚI TẠO NHẤT lên đầu (23/09/2026). */}
+            <th>Ngày tạo</th>
             <th>Ngày công</th>
             <th>Khoảng tăng ca</th>
             <th>Số giờ</th>
@@ -81,6 +84,7 @@ export function RequestTable({
                 </td>
               )}
               {showEmployee && <td>{r.employee_name ?? "—"}</td>}
+              <td>{fmtDateTime(r.created_at)}</td>
               <td>{fmtDateISO(r.work_date)}</td>
               <td>
                 {minToHhmm(r.from_minute)} → {minToHhmm(r.to_minute)}
@@ -92,6 +96,7 @@ export function RequestTable({
               <td>{r.reason ?? "—"}</td>
               <td>
                 <StatusBadge status={r.status} />
+                <XinHuyNhan yc={r.yeu_cau_huy} />
               </td>
               <td>
                 {r.decided_by_name ? (

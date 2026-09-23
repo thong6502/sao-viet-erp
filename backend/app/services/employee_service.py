@@ -1039,6 +1039,22 @@ class EmployeeService:
         )
         return employee
 
+    def kiem_tai_khoan_moi(self, *, username: str, password: str) -> str:
+        """Kiểm tên đăng nhập / mật khẩu của tài khoản SẮP tạo; trả tên đã cắt khoảng trắng.
+
+        Tách riêng để màn "Thêm nhân viên" gọi TRƯỚC khi lưu hồ sơ: hồ sơ lưu xong mới báo trùng
+        tên thì màn không có id, bấm Lưu lại là đẻ thêm một hồ sơ trùng người (bắt được 23/09/2026).
+        """
+        username = (username or "").strip()
+        if not username:
+            raise EmployeeValidationError("Tên đăng nhập là bắt buộc.")
+        if len(password or "") < 6:
+            raise EmployeeValidationError("Mật khẩu tối thiểu 6 ký tự.")
+        if self.users.username_da_dung(username):
+            raise EmployeeValidationError(
+                f"Tên đăng nhập “{username}” đã có người dùng (không phân biệt hoa/thường).")
+        return username
+
     def create_account(
         self,
         *,
@@ -1053,13 +1069,7 @@ class EmployeeService:
         employee = self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
         if employee.user_id is not None:
             raise EmployeeValidationError("Nhân viên đã có tài khoản.")
-        username = (username or "").strip()
-        if not username:
-            raise EmployeeValidationError("Tên đăng nhập là bắt buộc.")
-        if len(password or "") < 6:
-            raise EmployeeValidationError("Mật khẩu tối thiểu 6 ký tự.")
-        if self.users.get_by_username(username) is not None:
-            raise EmployeeValidationError("Tên đăng nhập đã tồn tại.")
+        username = self.kiem_tai_khoan_moi(username=username, password=password)
         user = self.users.create(
             username=username,
             name=(name or employee.full_name),
