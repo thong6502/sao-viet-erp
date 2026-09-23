@@ -61,7 +61,15 @@ describe("lấy vị trí chấm công", () => {
   });
 
   it("cho dùng lại fix vừa lấy nên bấm liên tiếp không phải dò lại", async () => {
-    const getCurrentPosition = vi.fn((ok: PositionCallback) => ok(position(50)));
+    // Khai đủ BA tham số của `getCurrentPosition`: chỉ nhận `ok` thì tuple `mock.calls[0]` dài 1,
+    // đọc `[2]` là lỗi biên dịch. Hai tham số sau mở đầu bằng `_` nên `noUnusedParameters` bỏ qua.
+    const getCurrentPosition = vi.fn(
+      (
+        ok: PositionCallback,
+        _fail?: PositionErrorCallback | null,
+        _options?: PositionOptions,
+      ) => ok(position(50)),
+    );
     stubGeolocation(getCurrentPosition);
 
     await getPosition();
