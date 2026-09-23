@@ -21,6 +21,7 @@ from .repositories.calendar_repo import CalendarRepository
 from .repositories.late_early_repo import LateEarlyRepository
 from .repositories.leave_repo import LeaveRepository
 from .repositories.overtime_repo import OvertimeRepository
+from .repositories.yeu_cau_huy_repo import YeuCauHuyRepository
 from .repositories.payroll_component_repo import PayrollComponentRepository
 from .repositories.payroll_repo import PayrollRepository
 from .repositories.cong_doan_repo import CongDoanRepository
@@ -390,6 +391,7 @@ def get_leave_service(
     late_early: Annotated[LateEarlyRepository, Depends(get_late_early_repository)],
     attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
     payroll: Annotated[PayrollService, Depends(get_payroll_service)],
+    yeu_cau_huy: Annotated[YeuCauHuyRepository, Depends(get_yeu_cau_huy_repository)],
 ) -> LeaveService:
     # calendar → loại ngày lễ khỏi quota + tuần T2–T7 (Thứ 7 nay trừ phép).
     # late_early (REPO) → phiếu đi muộn/về sớm có tick "trừ phép" cũng tiêu quỹ phép năm.
@@ -397,8 +399,9 @@ def get_leave_service(
     # thì duyệt đơn nghỉ cho tháng đã chốt vẫn lọt, bảng công đổi mà bảng lương giữ số cũ.
     # payroll (SERVICE) → hỏi "tổ này ăn khoán không" để chặn nghỉ phép CÓ LƯƠNG của người khoán /
     # tài xế (khách chốt 15/09/2026). Một chiều: PayrollService không biết gì về Nghỉ phép.
+    # yeu_cau_huy (REPO) → xin hủy đơn ĐÃ DUYỆT (23/09/2026): thợ chỉ XIN, người duyệt quyết.
     return LeaveService(leaves, employees, audit, calendar=calendar, late_early=late_early,
-                        attendance=attendance, payroll=payroll)
+                        attendance=attendance, payroll=payroll, yeu_cau_huy=yeu_cau_huy)
 
 
 def get_late_early_service(
@@ -419,16 +422,26 @@ def get_overtime_repository(
     return OvertimeRepository(db)
 
 
+def get_yeu_cau_huy_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> YeuCauHuyRepository:
+    """Yêu cầu hủy đơn nghỉ / phiếu tăng ca ĐÃ DUYỆT (23/09/2026) — một bảng cho cả hai loại."""
+    return YeuCauHuyRepository(db)
+
+
 def get_overtime_service(
     overtime: Annotated[OvertimeRepository, Depends(get_overtime_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
     payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
+    yeu_cau_huy: Annotated[YeuCauHuyRepository, Depends(get_yeu_cau_huy_repository)],
 ) -> OvertimeService:
     # attendance (REPO) → chặn duyệt/hủy phiếu của tháng ĐÃ CHỐT CÔNG (12/08/2026).
     # payroll (REPO) → đọc trần giờ làm thêm ở `payroll_params` (Đ107, chủ chốt 17/08/2026).
-    return OvertimeService(overtime, employees, audit, attendance=attendance, payroll=payroll)
+    # yeu_cau_huy (REPO) → xin hủy phiếu ĐÃ DUYỆT (23/09/2026), cùng luật với đơn nghỉ.
+    return OvertimeService(overtime, employees, audit, attendance=attendance, payroll=payroll,
+                           yeu_cau_huy=yeu_cau_huy)
 
 
 def get_payroll_repository(

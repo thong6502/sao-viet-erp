@@ -20,8 +20,15 @@ from ..deps import (
     require_any_permission,
 )
 from ..models.user import User
+from ..realtime import hub
 from ..repositories.employee_repo import EmployeeRepository
 from ..schemas.leave import (
+    HuyDonIn,
+    QuyetXinHuyIn,
+    XinHuyChoDuyetListOut,
+    XinHuyChoDuyetOut,
+    XinHuyIn,
+    YeuCauHuyOut,
     LeaveBulkIn,
     LeaveBulkRejectIn,
     LeaveBulkResultOut,
@@ -106,6 +113,14 @@ def _req_out(r, emp_names: dict[int, str], type_map: dict) -> LeaveRequestOut:
     return out
 
 
+def _yc_out(yc, employees: EmployeeRepository) -> YeuCauHuyOut:
+    o = YeuCauHuyOut.model_validate(yc)
+    if yc.decided_by:
+        emp = employees.get_by_user_id(yc.decided_by)
+        o.decided_by_name = emp.full_name if emp is not None else None
+    return o
+
+
 def _resolve(svc: LeaveService, employees: EmployeeRepository, reqs: list):
     type_map = {t.id: t for t in svc.list_types()}
     emp_names: dict[int, str] = {}
@@ -113,7 +128,35 @@ def _resolve(svc: LeaveService, employees: EmployeeRepository, reqs: list):
         emp = employees.get_by_id(eid)
         if emp is not None:
             emp_names[eid] = emp.full_name
-    return [_req_out(r, emp_names, type_map) for r in reqs]
+    # Yêu cầu hủy mới nhất của từng đơn — MỘT truy vấn cho cả trang (23/09/2026).
+    yc_map = svc.yeu_cau_huy_moi_nhat([r.id for r in reqs])
+    out = []
+    for r in reqs:
+        o = _req_out(r, emp_names, type_map)
+        yc = yc_map.get(r.id)
+        if yc is not None:
+            o.yeu_cau_huy = _yc_out(yc, employees)
+        out.append(o)
+    return out
+
+
+# --- real-time (hub SSE chung; sự kiện chỉ là TÍN HIỆU nhẹ, FE tự tải lại số) ---------------
+# Trước 23/09/2026 nghỉ phép không đẩy gì: người duyệt phải F5 mới thấy đơn mới, thợ phải mở màn mới
+# biết đơn bị từ chối — trái nguyên tắc "gửi nội bộ = real-time" (CLAUDE.md).
+
+def _notify_pending_changed() -> None:
+    """Có đơn / yêu cầu hủy mới hoặc vừa xử lý → mọi client tải lại badge chờ duyệt."""
+    hub.broadcast({"type": "leave_pending_changed"})
+
+
+def _notify_decision(r, employees: EmployeeRepository, decision: str) -> None:
+    """Quyết định về đơn → đẩy tới ĐÚNG người đứng tên đơn; kèm broadcast để badge người duyệt hạ.
+    `decision`: approved | rejected | cancelled | huy_dong_y | huy_rut_ngan | huy_giu_nguyen."""
+    emp = employees.get_by_id(r.employee_id)
+    if emp is not None and emp.user_id is not None:
+        hub.publish(emp.user_id, {"type": "leave_decision", "decision": decision,
+                                  "code": emp.full_name})
+    _notify_pending_changed()
 
 
 # --- leave types (HR) -------------------------------------------------------
@@ -182,6 +225,7 @@ def create_request(body: LeaveRequestIn, svc: Service, employees: Employees,
                                start_date=body.start_date, end_date=body.end_date, reason=body.reason)
     except LeaveError as exc:
         _raise(exc)
+    _notify_pending_changed()
     return _resolve(svc, employees, [r])[0]
 
 
@@ -192,11 +236,16 @@ def my_requests(svc: Service, employees: Employees,
                 # không xem được đơn/quota của mình (bản rà liên thông E11).
                 user: SelfUser,
                 page: int = Query(default=1, ge=1),
-                size: int = Query(default=20, ge=1, le=100)) -> MyLeaveOut:
+                size: int = Query(default=20, ge=1, le=100),
+                thang: str | None = Query(default=None, description="YYYY-MM — lọc theo tháng NGÀY TẠO đơn"),
+                ) -> MyLeaveOut:
     if not svc.has_employee(user=user):
         return MyLeaveOut(has_employee=False, employee_name=None, items=[], quotas=[],
                           total=0, page=page, size=size)
-    reqs, total = svc.my_requests(user=user, page=page, size=size)
+    try:
+        reqs, total = svc.my_requests(user=user, page=page, size=size, thang=thang)
+    except LeaveError as exc:
+        _raise(exc)
     # Tên lấy từ HỒ SƠ GẮN TÀI KHOẢN, không suy từ `reqs[0]` như trước: sang trang 2 mà trang đó
     # rỗng (hoặc NV chưa có đơn nào) thì `reqs` rỗng ⇒ tên biến mất giữa chừng.
     emp = employees.get_by_user_id(user.id)
@@ -239,13 +288,80 @@ def leave_calendar(svc: Service, authz: Authz,
 
 
 @router.post("/{request_id}/cancel", response_model=LeaveRequestOut)
-def cancel_request(request_id: int, svc: Service, employees: Employees, authz: Authz, user: SelfOrApprover) -> LeaveRequestOut:
+def cancel_request(request_id: int, svc: Service, employees: Employees, authz: Authz,
+                   user: SelfOrApprover, body: HuyDonIn | None = None) -> LeaveRequestOut:
+    """Hủy THẲNG. Đơn ĐÃ DUYỆT chỉ người duyệt hủy được, và phải ghi `ly_do` (23/09/2026) —
+    người lao động đi đường `/xin-huy`."""
     is_hr = authz.can(user, MODULE, "approve")
     try:
+        truoc = svc.get_request(request_id)
+        da_duyet = truoc is not None and truoc.status == "approved"
         r = svc.cancel(actor=user, request_id=request_id, is_hr=is_hr,
-                       scope=_scope(authz, user))
+                       scope=_scope(authz, user), ly_do=body.ly_do if body else None)
     except LeaveError as exc:
         _raise(exc)
+    if da_duyet:
+        _notify_decision(r, employees, "cancelled")   # người đứng tên mất ngày nghỉ đã duyệt ⇒ báo
+    else:
+        _notify_pending_changed()
+    return _resolve(svc, employees, [r])[0]
+
+
+# --- XIN HỦY đơn ĐÃ DUYỆT (chủ chốt 23/09/2026 — docs/prd-xin-huy-don-da-duyet.md) ------------
+# Người lao động chỉ XIN; ai có quyền duyệt đơn nghỉ (trong phạm vi) thì quyết. Đơn vẫn hiệu lực
+# tới khi đồng ý. Đơn đang dở thì đồng ý là RÚT NGẮN (giữ các ngày trước ngày xin hủy).
+
+
+@router.get("/xin-huy", response_model=XinHuyChoDuyetListOut)
+def xin_huy_cho_duyet(svc: Service, employees: Employees, authz: Authz,
+                      user: Annotated[User, Depends(require_permission(MODULE, "approve"))]
+                      ) -> XinHuyChoDuyetListOut:
+    pairs = svc.xin_huy_cho_duyet(scope=_scope(authz, user), actor=user)
+    dons = _resolve(svc, employees, [r for _, r in pairs])
+    return XinHuyChoDuyetListOut(items=[
+        XinHuyChoDuyetOut(yeu_cau=_yc_out(yc, employees), don=don)
+        for (yc, _), don in zip(pairs, dons)
+    ])
+
+
+@router.post("/{request_id}/xin-huy", response_model=LeaveRequestOut)
+def xin_huy(request_id: int, body: XinHuyIn, svc: Service, employees: Employees,
+            user: SelfOrApprover) -> LeaveRequestOut:
+    try:
+        r, _ = svc.xin_huy(actor=user, request_id=request_id, ly_do=body.ly_do)
+    except LeaveError as exc:
+        _raise(exc)
+    _notify_pending_changed()
+    return _resolve(svc, employees, [r])[0]
+
+
+@router.post("/xin-huy/{yc_id}/rut-lai", response_model=LeaveRequestOut)
+def rut_lai_xin_huy(yc_id: int, svc: Service, employees: Employees,
+                    user: SelfOrApprover) -> LeaveRequestOut:
+    try:
+        r, _ = svc.rut_lai_xin_huy(actor=user, yc_id=yc_id)
+    except LeaveError as exc:
+        _raise(exc)
+    _notify_pending_changed()
+    return _resolve(svc, employees, [r])[0]
+
+
+@router.post("/xin-huy/{yc_id}/quyet", response_model=LeaveRequestOut)
+def quyet_xin_huy(yc_id: int, body: QuyetXinHuyIn, svc: Service, employees: Employees,
+                  authz: Authz,
+                  user: Annotated[User, Depends(require_permission(MODULE, "approve"))]
+                  ) -> LeaveRequestOut:
+    try:
+        r, yc = svc.quyet_xin_huy(actor=user, yc_id=yc_id, dong_y=body.dong_y,
+                                  ghi_chu=body.ghi_chu, scope=_scope(authz, user))
+    except LeaveError as exc:
+        _raise(exc)
+    if not body.dong_y:
+        _notify_decision(r, employees, "huy_giu_nguyen")
+    elif yc.den_ngay_cu is not None:
+        _notify_decision(r, employees, "huy_rut_ngan")
+    else:
+        _notify_decision(r, employees, "huy_dong_y")
     return _resolve(svc, employees, [r])[0]
 
 
@@ -258,12 +374,17 @@ def list_requests(svc: Service, employees: Employees, authz: Authz,
                   status_filter: str | None = Query(default=None, alias="status"),
                   employee_id: int | None = Query(default=None),
                   page: int = Query(default=1, ge=1),
-                  size: int = Query(default=20, ge=1, le=100)) -> LeaveRequestsOut:
+                  size: int = Query(default=20, ge=1, le=100),
+                  thang: str | None = Query(default=None, description="YYYY-MM — lọc theo tháng NGÀY TẠO đơn"),
+                  ) -> LeaveRequestsOut:
     # Data-scope: HCNS/Admin (scope=all) thấy mọi đơn; NV (scope=own) chỉ thấy đơn của mình.
     # `employee_id` KHÔNG nới phạm vi — nó lọc THÊM bên trong phạm vi đã có (xem service).
     scope = authz.scope_for(user, MODULE) or "own"
-    reqs, total = svc.list_requests(scope=scope, actor=user, status=status_filter,
-                                    employee_id=employee_id, page=page, size=size)
+    try:
+        reqs, total = svc.list_requests(scope=scope, actor=user, status=status_filter,
+                                        employee_id=employee_id, page=page, size=size, thang=thang)
+    except LeaveError as exc:
+        _raise(exc)
     return LeaveRequestsOut(items=_resolve(svc, employees, reqs),
                             total=total, page=page, size=size)
 
@@ -277,6 +398,7 @@ def approve_request(request_id: int, body: LeaveDecisionIn, svc: Service, employ
                         scope=_scope(authz, user))
     except LeaveError as exc:
         _raise(exc)
+    _notify_decision(r, employees, "approved")
     return _resolve(svc, employees, [r])[0]
 
 
@@ -289,22 +411,31 @@ def reject_request(request_id: int, body: LeaveDecisionIn, svc: Service, employe
                        scope=_scope(authz, user))
     except LeaveError as exc:
         _raise(exc)
+    _notify_decision(r, employees, "rejected")
     return _resolve(svc, employees, [r])[0]
 
 
 @router.post("/bulk-approve", response_model=LeaveBulkResultOut)
-def bulk_approve(body: LeaveBulkIn, svc: Service, authz: Authz,
+def bulk_approve(body: LeaveBulkIn, svc: Service, employees: Employees, authz: Authz,
                  user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> LeaveBulkResultOut:
-    return LeaveBulkResultOut(**svc.bulk_approve(actor=user, ids=body.ids,
-                                                scope=_scope(authz, user)))
+    res = svc.bulk_approve(actor=user, ids=body.ids, scope=_scope(authz, user))
+    for rid in res["done"]:
+        r = svc.get_request(rid)
+        if r is not None:
+            _notify_decision(r, employees, "approved")
+    return LeaveBulkResultOut(**res)
 
 
 @router.post("/bulk-reject", response_model=LeaveBulkResultOut)
-def bulk_reject(body: LeaveBulkRejectIn, svc: Service, authz: Authz,
+def bulk_reject(body: LeaveBulkRejectIn, svc: Service, employees: Employees, authz: Authz,
                 user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> LeaveBulkResultOut:
     try:
         res = svc.bulk_reject(actor=user, ids=body.ids, note=body.note,
                               scope=_scope(authz, user))
     except LeaveError as exc:
         _raise(exc)
+    for rid in res["done"]:
+        r = svc.get_request(rid)
+        if r is not None:
+            _notify_decision(r, employees, "rejected")
     return LeaveBulkResultOut(**res)

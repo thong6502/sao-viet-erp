@@ -326,7 +326,20 @@ export type QuoteEvent =
   // Phiếu tăng ca: NV gửi/hủy → 'ot_pending_changed' (người duyệt refetch badge); tổ trưởng
   // duyệt/từ chối → 'ot_decision' đẩy riêng cho nhân viên nộp phiếu.
   | { type: "ot_pending_changed"; code?: string }
-  | { type: "ot_decision"; code?: string; decision: "approved" | "rejected" | "cancelled" }
+  | {
+      type: "ot_decision";
+      code?: string;
+      // huy_dong_y / huy_giu_nguyen = người duyệt quyết yêu cầu XIN HỦY phiếu đã duyệt (23/09/2026).
+      decision: "approved" | "rejected" | "cancelled" | "huy_dong_y" | "huy_giu_nguyen";
+    }
+  // Nghỉ phép (23/09/2026 — trước đó không đẩy gì): gửi đơn / xin hủy / rút lại → người duyệt tải lại
+  // badge; quyết định về đơn → đẩy riêng cho người đứng tên đơn.
+  | { type: "leave_pending_changed"; code?: string }
+  | {
+      type: "leave_decision";
+      code?: string;
+      decision: "approved" | "rejected" | "cancelled" | "huy_dong_y" | "huy_rut_ngan" | "huy_giu_nguyen";
+    }
   // Phiếu đi muộn / về sớm / nghỉ nửa buổi: cùng luồng với tăng ca (tổ trưởng duyệt), bảng riêng.
   | { type: "el_pending_changed"; code?: string }
   // Yêu cầu chỉnh công (E7, 08/09/2026): gửi/huỷ → người duyệt refetch; duyệt/từ chối → đẩy đúng NV.
@@ -4853,6 +4866,8 @@ export interface OvertimeRequest {
   decided_at: string | null;
   decision_note: string | null;
   created_at: string | null;
+  /** Yêu cầu hủy MỚI NHẤT của phiếu (23/09/2026) — `trang_thai === "cho"` ⇒ "Đang xin hủy". */
+  yeu_cau_huy?: YeuCauHuy | null;
 }
 export interface OvertimeInput {
   work_date: string;
@@ -4971,6 +4986,32 @@ export interface LeaveRequest {
   decided_at: string | null;
   decision_note: string | null;
   created_at: string | null;
+  /** Yêu cầu hủy MỚI NHẤT của đơn (23/09/2026) — `trang_thai === "cho"` ⇒ "Đang xin hủy". */
+  yeu_cau_huy?: YeuCauHuy | null;
+}
+
+/** Yêu cầu HỦY đơn nghỉ / phiếu tăng ca ĐÃ DUYỆT (chủ chốt 23/09/2026): người lao động chỉ XIN,
+ *  ai có quyền duyệt thì quyết. Đơn gốc vẫn hiệu lực tới khi được đồng ý. */
+export interface YeuCauHuy {
+  id: number;
+  loai: "nghi_phep" | "tang_ca";
+  request_id: number;
+  ly_do: string;
+  trang_thai: "cho" | "dong_y" | "giu_nguyen" | "rut_lai";
+  /** Người duyệt / HCNS hủy thẳng, không qua bước xin. */
+  truc_tiep: boolean;
+  /** Đơn nghỉ đang dở: hủy từ ngày này, giữ các ngày trước (`YYYY-MM-DD`). */
+  huy_tu_ngay: string | null;
+  /** `end_date` gốc của đơn nghỉ trước khi được rút ngắn. */
+  den_ngay_cu: string | null;
+  ly_do_quyet: string | null;
+  created_at: string | null;
+  decided_at: string | null;
+  decided_by_name: string | null;
+}
+export interface XinHuyChoDuyet<T> {
+  yeu_cau: YeuCauHuy;
+  don: T;
 }
 
 export interface LeaveRequestInput {
@@ -5008,7 +5049,11 @@ export interface LeaveSummary {
   my_decided_unseen: number;
 }
 
-export interface LeaveCalendarDay { status: string; leave_type_name: string; is_paid: boolean; }
+export interface LeaveCalendarDay {
+  status: string; leave_type_name: string; is_paid: boolean;
+  /** Đơn đã duyệt đang có yêu cầu hủy chờ quyết — vẫn là ngày nghỉ, chỉ gắn dấu (23/09/2026). */
+  dang_xin_huy?: boolean;
+}
 export interface LeaveCalendarEmp { employee_id: number; employee_name: string; days: Record<string, LeaveCalendarDay>; }
 export interface LeaveCalendar { year: number; month: number; days_in_month: number; employees: LeaveCalendarEmp[]; }
 
@@ -10686,7 +10731,8 @@ export const api = {
 
   // --- Tăng ca (tang_ca) ----------------------------------------------------
   overtime: {
-    mine(token: string, params?: { page?: number; size?: number }): Promise<MyOvertime> {
+    /** `thang` = `YYYY-MM`, lọc theo tháng NGÀY TẠO phiếu (23/09/2026). Mới tạo nhất lên đầu. */
+    mine(token: string, params?: { page?: number; size?: number; thang?: string }): Promise<MyOvertime> {
       return authed<MyOvertime>(`/api/overtime/me${qs(params)}`, token);
     },
     createMine(token: string, input: OvertimeInput): Promise<OvertimeRequest> {
@@ -10704,10 +10750,13 @@ export const api = {
     /** `statusFilter` giữ ĐÚNG tên tham số backend (`status_filter`), đừng đổi thành `status`. */
     list(token: string, params?: {
       statusFilter?: string; employeeId?: number; page?: number; size?: number;
+      /** `YYYY-MM` — tháng NGÀY TẠO phiếu. */
+      thang?: string;
     }): Promise<Paged<OvertimeRequest>> {
       return authed<Paged<OvertimeRequest>>(`/api/overtime${qs({
         status_filter: params?.statusFilter,
         employee_id: params?.employeeId,
+        thang: params?.thang,
         page: params?.page,
         size: params?.size,
       })}`, token);
@@ -10720,8 +10769,26 @@ export const api = {
       return authed<OvertimeRequest>(`/api/overtime/${id}/reject`, token,
         { method: "POST", body: JSON.stringify({ note }) });
     },
-    cancel(token: string, id: number): Promise<OvertimeRequest> {
-      return authed<OvertimeRequest>(`/api/overtime/${id}/cancel`, token, { method: "POST" });
+    /** Hủy THẲNG. Phiếu ĐÃ DUYỆT chỉ người duyệt hủy được và phải có `lyDo` (23/09/2026). */
+    cancel(token: string, id: number, lyDo?: string): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}/cancel`, token,
+        { method: "POST", body: JSON.stringify({ ly_do: lyDo ?? null }) });
+    },
+    // --- Xin hủy phiếu ĐÃ DUYỆT (23/09/2026) ---
+    xinHuy(token: string, id: number, lyDo: string): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}/xin-huy`, token,
+        { method: "POST", body: JSON.stringify({ ly_do: lyDo }) });
+    },
+    rutLaiXinHuy(token: string, ycId: number): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/xin-huy/${ycId}/rut-lai`, token, { method: "POST" });
+    },
+    /** `dongY=false` (giữ nguyên) phải có `ghiChu`. */
+    quyetXinHuy(token: string, ycId: number, dongY: boolean, ghiChu?: string): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/xin-huy/${ycId}/quyet`, token,
+        { method: "POST", body: JSON.stringify({ dong_y: dongY, ghi_chu: ghiChu ?? null }) });
+    },
+    xinHuyChoDuyet(token: string): Promise<{ items: XinHuyChoDuyet<OvertimeRequest>[] }> {
+      return authed<{ items: XinHuyChoDuyet<OvertimeRequest>[] }>("/api/overtime/xin-huy", token);
     },
     bulkApprove(token: string, ids: number[]): Promise<OvertimeBulkResult> {
       return authed<OvertimeBulkResult>("/api/overtime/bulk-approve", token,
@@ -10824,20 +10891,42 @@ export const api = {
     },
     /** Không truyền `params` = trang 1, cỡ 20. Màn Chấm công gọi kiểu đó và chỉ đọc `quotas`
      *  (số dư phép năm) — `quotas` KHÔNG bị phân trang nên vẫn đúng. */
-    me(token: string, params?: { page?: number; size?: number }): Promise<MyLeave> {
+    /** `thang` = `YYYY-MM`, lọc theo tháng NGÀY TẠO đơn (23/09/2026). Mới tạo nhất lên đầu. */
+    me(token: string, params?: { page?: number; size?: number; thang?: string }): Promise<MyLeave> {
       return authed<MyLeave>(`/api/leaves/me${qs(params)}`, token);
     },
     create(token: string, input: LeaveRequestInput): Promise<LeaveRequest> {
       return authed<LeaveRequest>("/api/leaves", token, { method: "POST", body: JSON.stringify(input) });
     },
-    cancel(token: string, id: number): Promise<LeaveRequest> {
-      return authed<LeaveRequest>(`/api/leaves/${id}/cancel`, token, { method: "POST" });
+    /** Hủy THẲNG. Đơn ĐÃ DUYỆT chỉ người duyệt hủy được và phải có `lyDo` (23/09/2026). */
+    cancel(token: string, id: number, lyDo?: string): Promise<LeaveRequest> {
+      return authed<LeaveRequest>(`/api/leaves/${id}/cancel`, token,
+        { method: "POST", body: JSON.stringify({ ly_do: lyDo ?? null }) });
+    },
+    // --- Xin hủy đơn ĐÃ DUYỆT (23/09/2026) ---
+    xinHuy(token: string, id: number, lyDo: string): Promise<LeaveRequest> {
+      return authed<LeaveRequest>(`/api/leaves/${id}/xin-huy`, token,
+        { method: "POST", body: JSON.stringify({ ly_do: lyDo }) });
+    },
+    rutLaiXinHuy(token: string, ycId: number): Promise<LeaveRequest> {
+      return authed<LeaveRequest>(`/api/leaves/xin-huy/${ycId}/rut-lai`, token, { method: "POST" });
+    },
+    /** `dongY=false` (giữ nguyên) phải có `ghiChu`. */
+    quyetXinHuy(token: string, ycId: number, dongY: boolean, ghiChu?: string): Promise<LeaveRequest> {
+      return authed<LeaveRequest>(`/api/leaves/xin-huy/${ycId}/quyet`, token,
+        { method: "POST", body: JSON.stringify({ dong_y: dongY, ghi_chu: ghiChu ?? null }) });
+    },
+    xinHuyChoDuyet(token: string): Promise<{ items: XinHuyChoDuyet<LeaveRequest>[] }> {
+      return authed<{ items: XinHuyChoDuyet<LeaveRequest>[] }>("/api/leaves/xin-huy", token);
     },
     list(token: string, params?: {
       status?: string; employeeId?: number; page?: number; size?: number;
+      /** `YYYY-MM` — tháng NGÀY TẠO đơn. */
+      thang?: string;
     }): Promise<Paged<LeaveRequest>> {
       return authed<Paged<LeaveRequest>>(`/api/leaves${qs({
         status: params?.status,
+        thang: params?.thang,
         // Lọc theo 1 nhân viên chạy Ở MÁY CHỦ (từ 09/08/2026). Trước đây lọc ở client trên mảng
         // đã tải — sang phân trang thì đơn của người đó rơi ngoài trang là màn báo "chưa có đơn".
         employee_id: params?.employeeId,
