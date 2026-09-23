@@ -157,17 +157,39 @@ trang**, không nhân theo lệnh:
 Đừng gọi `cong_viec_chang_truoc` / `cong_viec_chang_sau` / `ban_giao_toi_dich` trong vòng lặp:
 mỗi lần là 3–4 truy vấn, nhân 20 lệnh × 5 bước là vỡ trang.
 
-## 6. UI
+## 6. UI — BĂNG CHUYỀN (sửa 23/09/2026)
 
-Dải nằm trong thẻ lệnh, trên bảng việc hiện có. Năm ô chia đều, mỗi ô: tên bước (13px/500) · tổ
-(12px, `--text-muted`) · chip trạng thái · số. Dùng đúng bảng màu trạng thái đang có ở
-`thuc-hien-sx.css` (chip `released`/`running`/`paused`/`completed`) — không đẻ hệ màu thứ hai.
+Bản đầu vẽ 5 **thẻ xám rời**, mỗi thẻ một chip trạng thái. Chạy thật thì hỏng ba chỗ: thẻ cao
+bằng nhau nên ô ít chữ hở đáy; 5 chip viền-nền-icon xếp hàng ăn hết sự chú ý mà chỉ mang 1 bit
+tin mỗi cái; và số bàn giao bị in **hai lần** ("Đã giao sang 1.200" ở ô nguồn + "Đã nhận 1.200 từ
+công đoạn trước" ở dòng dưới). Tổng cộng ~190px chiều cao cho bốn mẩu tin.
 
-Ô của mình: viền nhấn 2px, nhãn "Tổ của bạn". Ô khác: nền `surface-1`, không viền, `cursor: default`.
+Hình mới bám đúng thứ nó mô tả: lệnh là giấy chảy **một chiều** qua máy và **đổi đơn vị dọc
+đường**. Nên dải là một **đường ray**:
+
+- **Mốc trên ray** thay cho chip: một vòng tròn 20px mang icon trạng thái (`check` · `play` ·
+  `pause` · `clock` — đúng bộ icon của pill, không đẻ bộ thứ hai). Hình khác nhau chứ không chỉ
+  màu khác nhau, để người mù màu vẫn đọc được. Trạng thái còn được nói thành chữ cho trình đọc
+  màn hình (`.thsx-ray__sr`).
+- **Đoạn ray** giữa hai mốc: liền nét `--moss` = hàng đã đi qua; đứt nét `--rule` = chưa tới;
+  đứt nét `--rust` ở đoạn ngay sau bước của tổ = **đang chờ chính tổ giao**.
+- **Số bàn giao nằm TRÊN đoạn ray** ngay trước bước của tổ — đúng chỗ việc bàn giao xảy ra. Nhờ
+  vậy bỏ được cả dòng "Đã nhận … từ công đoạn trước" lẫn nhãn "Đã giao sang" ở ô nguồn.
+- **Chữ dưới mốc**: tên bước (`--fs-sm`/600) · tổ (`--fs-2xs`, `--ash-2`) · số + đơn vị. Trạng
+  thái CHỈ viết thành chữ khi là `đang chạy` / `tạm dừng`; "xong" và "chờ làm" thì nét ray đã nói
+  rồi, viết thêm chỉ là 5 nhãn xếp hàng.
+- **Bước của tổ** là chỗ DUY NHẤT được "to tiếng": nền `--rust-soft` chạy dưới phần chữ, mốc có
+  quầng rust, tên + "Tổ của bạn" màu `--rust-deep`. Mọi thứ còn lại nằm phẳng trên nền thẻ, không
+  viền, không bóng, `cursor: default`.
+
+Mọi màu lấy từ `tokens.css`. Bản đầu gõ hex thẳng (`#0369a1`, `#ccfbf1`, `#eef2f7`…) — đó là lý
+do nó lạc khỏi hệ màu chung của phần mềm.
 
 Bẫy màn xưởng phải né (theo `bay-giao-dien-dien-thoai-svn`): không `space-between` bóp chữ, không
-ellipsis nuốt tên công đoạn, không lưới chia đều đè chữ ở bề ngang hẹp. Dưới 900px: dải xuống 3 ô
-(1 trước · mình · 1 sau).
+ellipsis nuốt tên công đoạn, không lưới chia đều đè chữ ở bề ngang hẹp. **Dưới 900px ray DỰNG
+ĐỨNG** (mốc trái, chữ phải) chứ không xuống dòng: ray ngang mà wrap thì đứt mạch đọc, dựng đứng
+vẫn giữ nguyên chiều chảy. Ở bề ngang hẹp khoảng hở giữa hai hàng chỉ ~12px nên số bàn giao
+**không** treo lên đoạn ray nữa mà về hàng, đứng ngay trên tên bước nhận hàng.
 
 Màn hình đọc được khi không có dải: lệnh một bước (`routing` đúng 1 phần tử) thì ẩn dải hẳn, khỏi
 bày một ô lẻ.

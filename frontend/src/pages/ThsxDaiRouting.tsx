@@ -4,9 +4,15 @@
 // nhiêu, đã giao sang chưa; làm xong thì hàng đi đâu. Trước đây thẻ lệnh chỉ hiện đúng bước của
 // tổ nên câu đó phải hỏi miệng ngoài xưởng.
 //
+// HÌNH: BĂNG CHUYỀN, không phải một hàng thẻ (dựng lại 23/09/2026). Lệnh là giấy chảy qua máy
+// theo MỘT CHIỀU và đổi đơn vị dọc đường (1.300 tờ → 3.000 con), nên dải vẽ thành một đường ray:
+// đoạn đã đi qua liền nét, đoạn chưa tới đứt nét, số hàng đã bàn giao nằm NGAY TRÊN đoạn ray
+// giữa hai bước. Bản thẻ cũ phủ nhận điều đó — bốn hộp xám rời, cao bằng nhau nên hở đáy, bốn
+// chip trạng thái xếp hàng gây nhiễu, và số "đã giao" bị in lại lần nữa ở dòng dưới.
+//
 // CHỈ ĐỌC — không `<button>`, không `onClick`, không mở drawer. Bước của tổ khác không mang
 // `cong_viec_id` nên cũng không có gì để mở.
-import { Icon } from "../components/Icons";
+import { Icon, type IconName } from "../components/Icons";
 import type { SxRoutingBuoc } from "../api/client";
 import { nhanChang } from "./lsxBuoc";
 import { ttMeta } from "./thsxShared";
@@ -16,7 +22,21 @@ function so(n: number): string {
   return n.toLocaleString("vi-VN", { maximumFractionDigits: 3 });
 }
 
-/** Cửa sổ 5 ô quanh bước của mình; thừa hai đầu gom thành ô "+N".
+/** Mốc trên ray mang HÌNH riêng cho từng trạng thái, không chỉ màu riêng: xưởng có người mù màu,
+ *  và màn hình xưởng hay bị chói. Cùng bộ icon với pill trạng thái để hai chỗ nói một kiểu. */
+function mocIcon(tt: string): IconName {
+  return ttMeta(tt).icon;
+}
+
+/** Trạng thái nào đáng NÓI THÀNH CHỮ. Xong và chờ làm thì đoạn ray đã nói rồi — viết thêm chỉ là
+ *  bốn nhãn xếp hàng. Chỉ hai trạng thái BẤT THƯỜNG mới cần chữ. */
+function chuTrangThai(tt: string): string | null {
+  return tt === "running" || tt === "paused" ? ttMeta(tt).label.toLowerCase() : null;
+}
+
+const DA_QUA = new Set(["completed"]);
+
+/** Cửa sổ 5 bước quanh bước của mình; thừa hai đầu gom thành mốc "+N".
  *  Không cuộn ngang: màn xưởng thao tác bằng tay, cuộn ngang là bẫy. */
 function cuaSo(dai: SxRoutingBuoc[]): { truoc: number; hien: SxRoutingBuoc[]; sau: number } {
   if (dai.length <= 5) return { truoc: 0, hien: dai, sau: 0 };
@@ -27,77 +47,78 @@ function cuaSo(dai: SxRoutingBuoc[]): { truoc: number; hien: SxRoutingBuoc[]; sa
 }
 
 export function ThsxDaiRouting({ dai }: { dai: SxRoutingBuoc[] }) {
-  // Lệnh một bước: vẽ một ô lẻ là nhiễu, không phải thông tin.
+  // Lệnh một bước: vẽ một mốc lẻ trên một đoạn ray là nhiễu, không phải thông tin.
   if (!dai || dai.length < 2) return null;
   const { truoc, hien, sau } = cuaSo(dai);
-  const toi = dai.find((b) => b.la_cua_toi);
-  // Bước kề SAU bước của mình = nơi hàng sẽ đi tiếp. Tổ biết đích trước khi mở form bàn giao.
   const iToi = dai.findIndex((b) => b.la_cua_toi);
   const keSau = iToi >= 0 && iToi + 1 < dai.length ? dai[iToi + 1].step_key : null;
+  const toi = iToi >= 0 ? dai[iToi] : undefined;
+  // Số hàng ĐÃ VỀ TAY tổ, gắn lên đoạn ray ngay trước bước của mình. `da_nhan` là số đã lọc đúng
+  // đơn vị đầu vào (luật `board._thuc_nhan`); không có thì lùi về tổng bàn giao đã chốt của bước
+  // liền trước. MỘT số, đặt đúng chỗ nó xảy ra — không in lại ở dòng dưới như bản cũ.
+  const nhan = toi?.da_nhan ?? (iToi > 0 ? dai[iToi - 1].da_giao_sang_toi : null) ?? null;
 
   return (
-    <div className="thsx-dai">
-      <ol className="thsx-dai__list" aria-label="Chuỗi công đoạn của lệnh">
-        {truoc > 0 && (
-          <li className="thsx-dai__o thsx-dai__o--gom">
-            <span className="thsx-dai__gom" aria-label={`còn ${truoc} công đoạn phía trước`}>
-              +{truoc}
-            </span>
-          </li>
-        )}
-        {hien.map((b) => {
-          const m = ttMeta(b.trang_thai);
-          return (
-            <li key={b.step_key ?? b.thu_tu}
-                className={`thsx-dai__o${b.la_cua_toi ? " thsx-dai__o--toi" : ""}`}>
-              <span className="thsx-dai__ten">
-                {b.ten_cong_doan}
-                {b.phan_doan_tong > 1 && (
-                  <em className="thsx-dai__phu"> · {b.phan_doan_tong} lần chạy</em>
-                )}
-              </span>
-              <span className="thsx-dai__to">
-                {b.la_cua_toi ? "Tổ của bạn" : (b.to_ten ?? "— chưa rõ tổ —")}
-                {b.chay_chung && <em className="thsx-dai__phu"> · chạy chung</em>}
-              </span>
-              <span className={`thsx-tt ${m.cls} thsx-tt--xs`}>
-                <Icon name={m.icon} size={11} /><span>{m.label}</span>
-              </span>
-              {/* `don_vi` là mã CHẶNG dòng giấy (`to`/`con`/`cai`), KHÔNG phải mã đơn vị kho —
-                  dịch bằng `nhanChang` như `thsxShared.slText`, không phải `tenDonVi`. In thẳng
-                  mã ra là tổ đọc thấy "1.200 to" giữa một giao diện tiếng Việt. */}
-              <span className="thsx-dai__so thsx-num">
-                {b.thuc_te > 0 ? so(b.thuc_te) : (b.ke_hoach != null ? so(b.ke_hoach) : "—")}
-                {b.don_vi ? ` ${nhanChang(b.don_vi) ?? b.don_vi}` : ""}
-              </span>
-              {b.da_giao_sang_toi != null && (
-                <span className="thsx-dai__giao">
-                  Đã giao sang <b className="thsx-num">{so(b.da_giao_sang_toi)}</b>
-                </span>
-              )}
-              {b.step_key != null && b.step_key === keSau && (
-                <span className="thsx-dai__cho">chờ bạn giao</span>
-              )}
-              {b.la_kcs_cuoi && <span className="thsx-dai__cuoi">KCS cuối</span>}
-            </li>
-          );
-        })}
-        {sau > 0 && (
-          <li className="thsx-dai__o thsx-dai__o--gom">
-            <span className="thsx-dai__gom" aria-label={`còn ${sau} công đoạn phía sau`}>
-              +{sau}
-            </span>
-          </li>
-        )}
-      </ol>
-      {toi?.da_nhan != null && (
-        <p className="thsx-dai__nhan">
-          <Icon name="download" size={13} />
-          {/* Không kèm đơn vị: số này theo đơn vị ĐẦU VÀO của bước, còn `don_vi` trên ô là đơn
-              vị ĐẦU RA. Dán nhầm nhãn là tổ đọc ra con số khác hẳn. */}
-          <span>Đã nhận <b className="thsx-num">{so(toi.da_nhan)}</b> từ công đoạn trước</span>
-        </p>
+    <ol className="thsx-ray" aria-label="Chuỗi công đoạn của lệnh">
+      {truoc > 0 && (
+        <li className="thsx-ray__b thsx-ray__b--gom">
+          <span className="thsx-ray__moc" aria-hidden="true">+{truoc}</span>
+          <span className="thsx-ray__ten">{truoc} công đoạn trước</span>
+        </li>
       )}
-    </div>
+      {hien.map((b, i) => {
+        const laCuoiRay = i === hien.length - 1 && sau === 0;
+        const chu = chuTrangThai(b.trang_thai);
+        return (
+          <li
+            key={b.step_key ?? b.thu_tu}
+            className="thsx-ray__b"
+            data-toi={b.la_cua_toi || undefined}
+            data-qua={DA_QUA.has(b.trang_thai) || undefined}
+            data-cuoi={laCuoiRay || undefined}
+            data-cho-giao={(b.la_cua_toi && keSau != null) || undefined}
+          >
+            <span className={`thsx-ray__moc thsx-ray__moc--${b.trang_thai}`} aria-hidden="true">
+              <Icon name={mocIcon(b.trang_thai)} size={11} />
+            </span>
+            {b.la_cua_toi && iToi > 0 && nhan != null && (
+              <span className="thsx-ray__giao" title="Đã nhận từ công đoạn trước">
+                {so(nhan)}
+              </span>
+            )}
+            {b.step_key != null && b.step_key === keSau && (
+              <span className="thsx-ray__giao thsx-ray__giao--cho">chờ giao</span>
+            )}
+            <span className="thsx-ray__ten">
+              {b.ten_cong_doan}
+              {/* Trạng thái "xong"/"chờ làm" chỉ vẽ bằng mốc + nét ray, nên trình đọc màn hình
+                  phải được nói thành chữ ở đây, không thì mất hẳn thông tin. */}
+              <span className="thsx-ray__sr"> — {ttMeta(b.trang_thai).label}</span>
+            </span>
+            <span className="thsx-ray__to">
+              {b.la_cua_toi ? "Tổ của bạn" : (b.to_ten ?? "chưa rõ tổ")}
+            </span>
+            <span className="thsx-ray__so">
+              <b>{b.thuc_te > 0 ? so(b.thuc_te) : (b.ke_hoach != null ? so(b.ke_hoach) : "—")}</b>
+              {b.don_vi ? <i>{nhanChang(b.don_vi) ?? b.don_vi}</i> : null}
+            </span>
+            {(chu || b.phan_doan_tong > 1 || b.chay_chung || b.la_kcs_cuoi) && (
+              <span className="thsx-ray__ghi">
+                {chu && <em className={`thsx-ray__tt thsx-ray__tt--${b.trang_thai}`}>{chu}</em>}
+                {b.phan_doan_tong > 1 && <em>{b.phan_doan_tong} lần chạy</em>}
+                {b.chay_chung && <em>chạy chung</em>}
+                {b.la_kcs_cuoi && <em className="thsx-ray__kcs">KCS cuối</em>}
+              </span>
+            )}
+          </li>
+        );
+      })}
+      {sau > 0 && (
+        <li className="thsx-ray__b thsx-ray__b--gom">
+          <span className="thsx-ray__moc" aria-hidden="true">+{sau}</span>
+          <span className="thsx-ray__ten">{sau} công đoạn sau</span>
+        </li>
+      )}
+    </ol>
   );
 }

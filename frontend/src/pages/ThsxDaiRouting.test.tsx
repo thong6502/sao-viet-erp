@@ -45,11 +45,18 @@ describe("ThsxDaiRouting", () => {
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
-  it("ô nguồn nói đã giao sang, ô của mình nói đã nhận", () => {
+  // Số bàn giao nằm TRÊN đoạn ray ngay trước bước của tổ — đúng MỘT lần. Bản thẻ cũ in nó hai
+  // lần ("Đã giao sang 5.220" ở ô nguồn + "Đã nhận 5.220 từ công đoạn trước" ở dòng dưới).
+  it("số hàng đã nhận hiện đúng một lần, trên đoạn ray trước bước của tổ", () => {
     render(<ThsxDaiRouting dai={dai} />);
-    expect(screen.getByText(/Đã giao sang/)).toBeInTheDocument();
-    expect(screen.getByText(/Đã nhận/)).toBeInTheDocument();
-    expect(screen.getAllByText(/5\.220/).length).toBeGreaterThan(0);
+    const nhan = screen.getAllByText("5.220");
+    expect(nhan).toHaveLength(1);
+    expect(nhan[0]).toHaveAttribute("title", "Đã nhận từ công đoạn trước");
+  });
+
+  it("bước kế sau bước của tổ được đánh dấu chờ giao", () => {
+    render(<ThsxDaiRouting dai={dai} />);
+    expect(screen.getByText("chờ giao")).toBeInTheDocument();
   });
 
   it("lệnh một bước thì không vẽ dải", () => {

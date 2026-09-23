@@ -4523,78 +4523,215 @@
 .thsx-locnc-tag__x { margin-block: -12px; }
 
 /* ===== DẢI ROUTING trên thẻ lệnh (docs/design-dai-routing-tren-ban-to.md) =================
-   Tổ thấy cả chuỗi công đoạn của lệnh nhưng chỉ bấm được bước của mình. Ô tổ khác là CHỈ ĐỌC:
-   không bắt sự kiện, không đổi con trỏ, không có gì để mở.
-   Không cuộn ngang — cửa sổ 5 ô do component cắt sẵn (xem `cuaSo` ở ThsxDaiRouting.tsx). */
-.thsx-dai { margin-bottom: var(--sp-3); }
-.thsx-dai__list {
+   Tổ thấy cả chuỗi công đoạn của lệnh nhưng chỉ bấm được bước của mình. Bước của tổ khác là CHỈ
+   ĐỌC: không bắt sự kiện, không đổi con trỏ, không có gì để mở.
+
+   HÌNH: BĂNG CHUYỀN (dựng lại 23/09/2026). Bản đầu là 5 thẻ xám rời cao bằng nhau — hở đáy ở ô
+   ít chữ, 5 chip trạng thái xếp hàng, và số "đã giao" in lại lần nữa ở dòng dưới. Lệnh là giấy
+   chảy MỘT CHIỀU qua máy và đổi đơn vị dọc đường, nên vẽ thành một đường ray: mốc trạng thái nằm
+   trên ray, đoạn đã đi qua LIỀN NÉT, đoạn chưa tới ĐỨT NÉT, số hàng bàn giao đặt NGAY TRÊN đoạn
+   ray trước bước của tổ. Nhờ đó bỏ được cả 5 chip lẫn dòng "đã nhận" lặp.
+
+   Không cuộn ngang — cửa sổ 5 mốc do component cắt sẵn (xem `cuaSo` ở ThsxDaiRouting.tsx).
+   Mọi màu lấy từ tokens.css; đừng gõ hex thẳng vào đây như bản cũ. */
+.thsx-ray {
+  --ray-moc: 20px;          /* đường kính mốc */
+  --ray-tam: 10px;          /* tâm mốc = nơi đường ray chạy qua */
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
-  gap: 6px;
-  margin: 0;
-  padding: 0;
+  gap: 0;
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-1) var(--sp-2) 0;
   list-style: none;
 }
-.thsx-dai__o {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  padding: 7px 9px;
-  border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid transparent;
+.thsx-ray__b {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  justify-items: start;
   min-width: 0;
+  padding: 0 var(--sp-4) var(--sp-2) 0;
   cursor: default;
 }
-.thsx-dai__o--toi { background: #fff; border-color: var(--rust); }
-.thsx-dai__o--gom {
+/* Đoạn ray nối mốc NÀY sang mốc kế: thuộc về bước bên trái, nên màu nó nói "hàng đã rời bước
+   này chưa". Đứt nét = chưa qua; liền nét đậm = đã qua. */
+.thsx-ray__b::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--ray-moc) + 4px);
+  right: 2px;
+  top: calc(var(--ray-tam) - 1px);
+  height: 2px;
+  background: repeating-linear-gradient(
+    to right, var(--rule) 0 4px, transparent 4px 8px
+  );
+}
+.thsx-ray__b[data-qua]::before { background: var(--moss); }
+/* Đoạn ngay SAU bước của tổ: đang chờ chính tổ giao hàng, nên giữ nét đứt kể cả khi bước đã
+   xong — tô liền nét ở đây là mâu thuẫn với cái nhãn "chờ giao" dán ngay trên nó. */
+.thsx-ray__b[data-cho-giao]::before {
+  background: repeating-linear-gradient(
+    to right, var(--rust) 0 4px, transparent 4px 8px
+  );
+}
+.thsx-ray__b[data-cuoi]::before { content: none; }
+
+/* Mốc: HÌNH riêng cho từng trạng thái (icon bên trong), không chỉ màu riêng — xưởng có người mù
+   màu và màn hình hay bị chói. Nền đặc để đường ray không xuyên qua mốc. */
+.thsx-ray__moc {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #eef2f7;
-  grid-column: auto / span 1;
-  max-width: 46px;
+  width: var(--ray-moc);
+  height: var(--ray-moc);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule);
+  background: var(--canvas);
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
 }
-.thsx-dai__gom { color: #64748b; font-weight: var(--fw-bold); font-size: var(--fs-xs); }
-/* Tên công đoạn KHÔNG ellipsis: nuốt "Bế tự động" thành "Bế tự..." là tổ đọc nhầm bước.
-   Cho xuống dòng thay vì cắt. */
-.thsx-dai__ten {
+.thsx-ray__moc--completed { border-color: var(--moss); background: var(--moss-soft); color: var(--moss-deep); }
+.thsx-ray__moc--running { border-color: var(--rust); background: var(--rust); color: var(--canvas); }
+.thsx-ray__moc--paused { border-color: var(--amber); background: var(--amber-soft); color: var(--amber-deep); }
+
+/* Bước CỦA TỔ: nền ấm chạy dưới phần chữ (không chạm ray) + mốc to hơn có quầng. Đây là chỗ DUY
+   NHẤT trên dải được phép "to tiếng"; mọi thứ khác giữ im. */
+.thsx-ray__b[data-toi]::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: -6px;
+  right: var(--sp-3);
+  top: calc(var(--ray-moc) + 2px);
+  bottom: -2px;
+  border-radius: var(--r-5);
+  background: var(--rust-soft);
+}
+.thsx-ray__b[data-toi] > * { position: relative; z-index: 1; }
+.thsx-ray__b[data-toi] .thsx-ray__moc { box-shadow: 0 0 0 3px var(--rust-soft); }
+.thsx-ray__b[data-toi] .thsx-ray__ten { color: var(--rust-deep); }
+.thsx-ray__b[data-toi] .thsx-ray__to { color: var(--rust-deep); font-weight: var(--fw-bold); }
+.thsx-ray__b[data-toi] .thsx-ray__ten,
+.thsx-ray__b[data-toi] .thsx-ray__to,
+.thsx-ray__b[data-toi] .thsx-ray__so,
+.thsx-ray__b[data-toi] .thsx-ray__ghi { padding-left: var(--sp-2); }
+
+/* Số hàng ĐÃ VỀ TAY tổ — nằm ĐÚNG trên đoạn ray ngay trước mốc của mình, tức đúng chỗ việc bàn
+   giao xảy ra. Nền đặc để cắt nét ray phía dưới. */
+.thsx-ray__giao {
+  position: absolute;
+  z-index: 2;
+  left: -2px;
+  top: var(--ray-tam);
+  transform: translate(-100%, -50%);
+  padding: 1px var(--sp-2);
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+.thsx-ray__giao--cho {
+  background: var(--canvas);
+  border: 1px dashed var(--rule);
+  color: var(--ash-2);
+  font-weight: var(--fw-regular);
+}
+
+/* Tên công đoạn KHÔNG ellipsis: nuốt "Bế tự động" thành "Bế tự..." là tổ đọc nhầm bước. */
+.thsx-ray__ten {
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
-  color: #0f172a;
+  color: var(--ink);
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
-.thsx-dai__phu { font-style: normal; color: #64748b; font-weight: 400; }
-.thsx-dai__to { font-size: var(--fs-xs); color: #64748b; overflow-wrap: anywhere; }
-.thsx-dai__o--toi .thsx-dai__to { color: var(--rust); font-weight: var(--fw-bold); }
-.thsx-dai__so { font-size: var(--fs-xs); color: #475569; }
-.thsx-dai__giao { font-size: var(--fs-xs); color: #0369a1; }
-.thsx-dai__cho { font-size: var(--fs-xs); color: #94a3b8; }
-.thsx-dai__cuoi {
-  font-size: 10px;
-  color: #0f766e;
-  background: #ccfbf1;
-  border-radius: 99px;
-  padding: 1px 7px;
-}
-.thsx-dai__nhan {
+.thsx-ray__to { font-size: var(--fs-2xs); color: var(--ash-2); overflow-wrap: anywhere; }
+.thsx-ray__so { font-size: var(--fs-xs); color: var(--ash); }
+.thsx-ray__so b { color: var(--ink); font-weight: var(--fw-bold); }
+.thsx-ray__so i { font-style: normal; color: var(--ash-2); margin-left: 3px; }
+.thsx-ray__ghi {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: var(--sp-2) 0 0;
-  font-size: var(--fs-xs);
-  color: #475569;
+  gap: var(--sp-1) var(--sp-2);
+  margin-top: 1px;
+  font-size: var(--fs-2xs);
 }
-.thsx-dai__nhan svg { color: #64748b; flex: none; }
+.thsx-ray__ghi em { font-style: normal; color: var(--ash-2); }
+.thsx-ray__tt--running { color: var(--rust-deep); font-weight: var(--fw-bold); }
+.thsx-ray__tt--paused { color: var(--amber-deep); font-weight: var(--fw-bold); }
+.thsx-ray__kcs { color: var(--moss-deep); font-weight: var(--fw-medium); }
 
-/* Bề ngang hẹp: xuống 3 ô một hàng. Cỡ chữ KHÔNG đóng cứng để không đè chữ. */
+/* Mốc gom "+N": cùng đường ray, chỉ khác là không có gì để đọc bên dưới ngoài số công đoạn. */
+.thsx-ray__b--gom { max-width: 92px; }
+.thsx-ray__b--gom .thsx-ray__moc { border-style: dashed; background: var(--paper); }
+.thsx-ray__b--gom .thsx-ray__ten {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  color: var(--ash-2);
+}
+
+/* Chữ chỉ dành cho trình đọc màn hình (trạng thái "xong"/"chờ làm" vốn chỉ vẽ bằng hình). */
+.thsx-ray__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Bề ngang hẹp: ray DỰNG ĐỨNG — mốc bên trái, chữ bên phải. Ray ngang mà xuống dòng thì đứt
+   mạch đọc; dựng đứng vẫn giữ nguyên chiều chảy. Cỡ chữ KHÔNG đóng cứng để không đè chữ. */
 @media (max-width: 900px) {
-  .thsx-dai__list {
-    grid-auto-flow: row;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-auto-columns: auto;
+  .thsx-ray { grid-auto-flow: row; grid-auto-columns: auto; padding-right: 0; }
+  .thsx-ray__b {
+    grid-template-columns: var(--ray-moc) minmax(0, 1fr);
+    column-gap: var(--sp-3);
+    padding: 0 0 var(--sp-3);
   }
-  .thsx-dai__o--gom { max-width: none; }
+  .thsx-ray__b:last-child { padding-bottom: 0; }
+  .thsx-ray__moc { grid-row: 1 / span 2; }
+  .thsx-ray__b > :not(.thsx-ray__moc) { grid-column: 2; }
+  .thsx-ray__b::before {
+    left: calc(var(--ray-tam) - 1px);
+    right: auto;
+    top: calc(var(--ray-moc) + 4px);
+    bottom: 2px;
+    width: 2px;
+    height: auto;
+    background: repeating-linear-gradient(
+      to bottom, var(--rule) 0 4px, transparent 4px 8px
+    );
+  }
+  .thsx-ray__b[data-qua]::before { background: var(--moss); }
+  .thsx-ray__b[data-cho-giao]::before {
+    background: repeating-linear-gradient(
+      to bottom, var(--rust) 0 4px, transparent 4px 8px
+    );
+  }
+  .thsx-ray__b[data-toi]::after {
+    left: calc(var(--ray-moc) + var(--sp-2));
+    right: 0;
+    top: -2px;
+    bottom: var(--sp-2);
+  }
+  /* Ray dựng đứng: khoảng hở giữa hai hàng chỉ ~12px nên KHÔNG treo nổi con số lên đoạn ray —
+     nó sẽ đè lên dòng cuối của bước trước. Cho nó về hàng, đứng ngay trên tên bước nhận hàng. */
+  /* Chọn đủ mạnh để thắng `.thsx-ray__b[data-toi] > *` (rule đó ép position: relative). */
+  .thsx-ray__b .thsx-ray__giao {
+    position: static;
+    left: auto;
+    top: auto;
+    transform: none;
+    justify-self: start;
+    margin-bottom: 2px;
+  }
+  .thsx-ray__b[data-toi] .thsx-ray__giao { margin-left: var(--sp-2); }
+  .thsx-ray__b--gom { max-width: none; }
 }
