@@ -387,6 +387,27 @@ class SanXuatSanLuongRepository:
             )
         )
 
+    def ban_giao_toi_nhieu_dich(self, cong_viec_ids) -> dict[int, list[SanXuatBanGiao]]:
+        """{dich_cong_viec_id: [bàn giao nhận về]} cho một TẬP công việc — MỘT truy vấn gộp.
+
+        Cùng lý do `tong_tot_nhieu` ra đời: dải routing của một trang bàn tổ hỏi "đã giao sang
+        tôi chưa" cho tới 20 lệnh, gọi `ban_giao_toi_dich` từng cái là 20 truy vấn.
+
+        Id không có bàn giao nào thì KHÔNG có mặt trong dict (bên gọi tự `.get(id, [])`).
+        """
+        ids = [i for i in set(cong_viec_ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.scalars(
+            select(SanXuatBanGiao)
+            .where(SanXuatBanGiao.dich_cong_viec_id.in_(ids))
+            .order_by(SanXuatBanGiao.id)
+        )
+        ra: dict[int, list[SanXuatBanGiao]] = {}
+        for bg in rows:
+            ra.setdefault(bg.dich_cong_viec_id, []).append(bg)
+        return ra
+
     def ban_giao_cho_nhan_cua_to(self, to_ids: set[int]) -> list[tuple[SanXuatBanGiao, int]]:
         """Bàn giao ĐANG CHỜ bên nhận xác nhận mà công việc đích thuộc `to_ids` — kèm tổ đích.
         Nguồn của hộp "Chờ tổ bạn xác nhận" trên Bàn tổ và badge menu."""
