@@ -8,6 +8,7 @@
 // `cong_viec_id` nên cũng không có gì để mở.
 import { Icon } from "../components/Icons";
 import type { SxRoutingBuoc } from "../api/client";
+import { nhanChang } from "./lsxBuoc";
 import { ttMeta } from "./thsxShared";
 
 /** Số kiểu Việt: 10.200 · 2,5 — cùng cách đọc với phần còn lại của bàn tổ. */
@@ -62,9 +63,12 @@ export function ThsxDaiRouting({ dai }: { dai: SxRoutingBuoc[] }) {
               <span className={`thsx-tt ${m.cls} thsx-tt--xs`}>
                 <Icon name={m.icon} size={11} /><span>{m.label}</span>
               </span>
+              {/* `don_vi` là mã CHẶNG dòng giấy (`to`/`con`/`cai`), KHÔNG phải mã đơn vị kho —
+                  dịch bằng `nhanChang` như `thsxShared.slText`, không phải `tenDonVi`. In thẳng
+                  mã ra là tổ đọc thấy "1.200 to" giữa một giao diện tiếng Việt. */}
               <span className="thsx-dai__so thsx-num">
                 {b.thuc_te > 0 ? so(b.thuc_te) : (b.ke_hoach != null ? so(b.ke_hoach) : "—")}
-                {b.don_vi ? ` ${b.don_vi}` : ""}
+                {b.don_vi ? ` ${nhanChang(b.don_vi) ?? b.don_vi}` : ""}
               </span>
               {b.da_giao_sang_toi != null && (
                 <span className="thsx-dai__giao">

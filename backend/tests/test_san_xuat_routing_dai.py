@@ -139,3 +139,38 @@ def test_work_items_tra_ve_dai_routing(sess, lenh_that):
     l = next(x for x in ra["lenh"] if x["lsx_id"] == lenh_that)
     assert [o["ten_cong_doan"] for o in l["routing"]] == [cv.ten_cong_doan for cv in cvs]
     assert [o["la_cua_toi"] for o in l["routing"]] == [False, True, True]
+
+
+def test_so_truy_van_khong_tang_theo_so_lenh(sess, orders, lsx_svc, admin, customer):
+    """CHẶN HỒI QUY N+1 — mọi truy vấn của dải gom theo CẢ TRANG.
+
+    Một trang bàn tổ tới 20 lệnh × ~5 bước. Ai đó "sửa cho gọn" bằng cách gọi
+    `cong_viec_chang_truoc` / `ban_giao_toi_dich` / `tong_tot` trong vòng lặp là con số dưới đây
+    nhảy theo số lệnh và trang vỡ — bài này bắt tại chỗ, không đợi ra production mới thấy chậm.
+    """
+    from sqlalchemy import event
+
+    from app.services.san_xuat.routing_dai import dung_routing
+    from tests.lenh_sx_fixtures import _phat_hanh_that
+
+    def dem(khoa, cvs) -> int:
+        ds = []
+        def ghi(conn, cur, stm, par, ctx, many):
+            ds.append(stm)
+        bind = sess.get_bind()
+        event.listen(bind, "before_cursor_execute", ghi)
+        try:
+            dung_routing(sess, SanXuatRepository(sess), khoa=khoa, cv_cua_toi=cvs)
+        finally:
+            event.remove(bind, "before_cursor_execute", ghi)
+        return len(ds)
+
+    ids = [
+        _phat_hanh_that(sess, orders, lsx_svc, admin, customer,
+                        buoc=[("CTP", 15, 500), ("In", 360, 5000), ("Đóng gói", 60, 5000)])
+        for _ in range(3)
+    ]
+    mot = dem([("lsx", ids[0])], _cvs(sess, ids[0]))
+    ba = dem([("lsx", i) for i in ids], [c for i in ids for c in _cvs(sess, i)])
+    assert mot == ba, f"dải gọi {mot} truy vấn cho 1 lệnh nhưng {ba} cho 3 lệnh — N+1 quay lại"
+    assert ba <= 10, f"dải gọi {ba} truy vấn cho cả trang — quá nhiều, soi lại chỗ gom"

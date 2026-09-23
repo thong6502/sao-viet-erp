@@ -20,8 +20,10 @@ KHÔNG có TRẦN GHI MẺ ở đây, cố ý. `dau_vao.tran_ghi` lấy MIN qua 
 mà hai con số khác nhau cho CÙNG một khái niệm là nói dối, đúng bài học đã ghi ở
 `board.chi_tiet_cong_viec`. Trần ở lại tab Nhận của drawer, nơi nó được tính đủ.
 
-HIỆU NĂNG: mọi truy vấn ở đây gom theo CẢ TRANG (tối đa 20 lệnh) — 5 truy vấn, không nhân theo
-lệnh. Đừng gọi `cong_viec_chang_truoc` / `cong_viec_chang_sau` trong vòng lặp.
+HIỆU NĂNG: mọi truy vấn ở đây gom theo CẢ TRANG (tối đa 20 lệnh) — ĐO ĐƯỢC 7 truy vấn, và 7 cho
+cả 1 lẫn 3 lệnh, tức HẰNG SỐ theo số lệnh. `test_so_truy_van_khong_tang_theo_so_lenh` chốt điều
+đó lại. Đừng gọi `cong_viec_chang_truoc` / `cong_viec_chang_sau` / `ban_giao_toi_dich` trong
+vòng lặp — đó là đường N+1 quay lại.
 """
 from __future__ import annotations
 
