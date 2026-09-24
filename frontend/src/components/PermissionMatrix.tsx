@@ -103,6 +103,17 @@ const FINE_ACTIONS: Record<
       hint: 'Sửa chính sách tài chính khách: hạn mức công nợ + số ngày công nợ tối đa (từ ngày xuất HĐ) + rào chiết khấu/markup min–max. Ai cũng XEM, chỉ cờ này mới SỬA. Đây là rào mà "Duyệt báo giá đặc thù" dùng để chặn báo giá vượt ngưỡng.',
     },
   ],
+  // Tính giá: ô DUY NHẤT gác "ruột giá" — bảng Chi tiết dòng giá vốn + thẻ sản phẩm (chỗ khai
+  // giấy/khổ/số con/công đoạn). Thiếu ô này vẫn mở được phiếu, vẫn thấy giá vốn tổng + đơn giá
+  // bình quân (đủ đi chào khách), chỉ không thấy VÌ SAO ra con số đó. Dùng lại cột `can_view_cost`
+  // của Kho — cùng nghĩa "xem giá vốn", không đẻ cột mới.
+  tinh_gia_thanh: [
+    {
+      key: "can_view_cost",
+      label: "Xem chi tiết giá vốn",
+      hint: "Xem bảng “Chi tiết dòng giá vốn” (diễn giải từng dòng: khổ giấy · số tờ · đơn giá kg · tiền từng công đoạn) và mở thẻ sản phẩm để xem/khai cấu hình. Thiếu ô này thì vẫn mở được phiếu, vẫn thấy giá vốn tổng và đơn giá bình quân, nhưng không thấy cách ra con số. Vai có quyền chỉnh sửa Tính giá BẮT BUỘC có ô này (lập phiếu tức là mở thẻ ra khai) nên ô tự bật và khoá.",
+    },
+  ],
   // Báo giá: thao tác vòng đời THƯỜNG (gửi khách · ghi nhận Khách đồng ý/từ chối · hủy · PDF · tạo bản mới)
   // KHÔNG tách quyền chi tiết — ai có "Sửa" báo giá đều làm được (chủ đầu tư chốt P8). Quyền chi tiết DUY NHẤT
   // còn lại = DUYỆT BÁO GIÁ ĐẶC THÙ (biên thấp / giá trị cao): chỉ vai bật cờ này mới duyệt được đơn trình lên.
@@ -861,6 +872,19 @@ const CANH_BAO_PHAM_VI =
   "Ô này đụng vào dữ liệu dùng chung của CẢ NHÀ MÁY (điểm chấm công · ca · lịch lễ · chốt kỳ " +
   "công) nên chỉ bật được khi Phạm vi là “Tất cả”. Đổi Phạm vi sang “Tất cả” rồi bật lại.";
 
+//: Ô chi tiết BẮT BUỘC bật khi module có quyền CHỈNH SỬA — bật kèm, khoá không cho tắt.
+//: `tinh_gia_thanh:can_view_cost`: lập hay sửa phiếu tính giá CHÍNH LÀ mở thẻ sản phẩm ra khai
+//: giấy/khổ/công đoạn, nên "được sửa mà không được xem chi tiết" là trạng thái không tồn tại. Máy
+//: chủ cũng đòi cả hai (`routers/phieu_tinh_gia.py` → `RuotGia`), nên để tắt được ô này chỉ tạo ra
+//: vai bấm Lưu phiếu là ăn 403.
+const FINE_THEO_WRITE: Record<string, ActionKey> = {
+  tinh_gia_thanh: "can_view_cost",
+};
+
+const CANH_BAO_FINE_THEO_WRITE =
+  "Vai có quyền chỉnh sửa Tính giá buộc phải xem được chi tiết giá vốn — lập hoặc sửa phiếu " +
+  "chính là mở thẻ sản phẩm ra khai. Tắt “Chỉnh sửa” thì ô này mở khoá lại.";
+
 const CANH_BAO_O_CHET =
   "Ô này chưa nối vào chức năng nào — bật cũng không mở thêm gì.";
 
@@ -1119,11 +1143,15 @@ export function PermissionMatrix({
                               ? `Thao tác (thêm, xóa) — ${label}`
                               : `Chỉnh sửa (thêm, sửa, xóa) — ${label}`
                           }
-                          onChange={(e) =>
+                          onChange={(e) => {
                             actionKeys.forEach((k) =>
                               onToggle(row.module_key, k, e.target.checked),
-                            )
-                          }
+                            );
+                            // Bật Chỉnh sửa ⇒ bật kèm ô chi tiết bắt buộc (xem FINE_THEO_WRITE).
+                            // Tắt thì KHÔNG tắt theo: vai chỉ-đọc vẫn được phép giữ ô đó.
+                            const kem = FINE_THEO_WRITE[row.module_key];
+                            if (kem && e.target.checked) onToggle(row.module_key, kem, true);
+                          }}
                         />
                       </div>
                       )}
@@ -1185,14 +1213,17 @@ export function PermissionMatrix({
                                 disabled={
                                   readOnly ||
                                   !oSong(row.module_key, a.key.replace("can_", "")) ||
-                                  (doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all")
+                                  (doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all") ||
+                                  (FINE_THEO_WRITE[row.module_key] === a.key && canWrite)
                                 }
                                 title={
-                                  doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all"
-                                    ? CANH_BAO_PHAM_VI
-                                    : oSong(row.module_key, a.key.replace("can_", ""))
-                                      ? a.hint
-                                      : CANH_BAO_O_CHET
+                                  FINE_THEO_WRITE[row.module_key] === a.key && canWrite
+                                    ? CANH_BAO_FINE_THEO_WRITE
+                                    : doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all"
+                                      ? CANH_BAO_PHAM_VI
+                                      : oSong(row.module_key, a.key.replace("can_", ""))
+                                        ? a.hint
+                                        : CANH_BAO_O_CHET
                                 }
                                 aria-label={`${a.label} — ${label}`}
                                 onChange={(e) =>
