@@ -18,6 +18,7 @@ import {
 } from "../../../api/client";
 import { useAuth } from "../../../auth/useAuth";
 import { useCan, useReloadPermissions } from "../../../auth/permissions";
+import { NhanBanVaiTroModal } from "./NhanBanVaiTroModal";
 import { NhomDungChungModal, type NguoiChon } from "./NhomDungChungModal";
 import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
@@ -92,6 +93,9 @@ export function DepartmentsPage({
   // Hộp "Sửa vai trò" gom 2 thứ tách quyền: ĐỔI TÊN (`update`) và MA TRẬN (`manage_permissions`).
   // Có một trong hai là còn nút Lưu; không có cả hai thì mở ở chế độ chỉ xem.
   const canEditRoleAnything = canUpdateRole || canManagePerms;
+  // Nhân bản vai = đẻ vai MỚI (`create`) mang nguyên bộ quyền của vai khác (`manage_permissions`).
+  // Thiếu ô cấp quyền thì chỉ tạo được vai rỗng qua nút "+ Vai trò" — đúng như máy chủ gác.
+  const canDuplicateRole = canCreateRole && canManagePerms;
   // Quyền chi tiết nhóm 1: điều chuyển + gán vai trò (ô chi tiết của Hồ sơ nhân sự — khoá
   // `nguoi_dung` gỡ 24/09/2026, mg `0331`), đặt trưởng phòng (Phòng ban).
   const canTransfer = can("nhan_su", "transfer");
@@ -247,6 +251,8 @@ export function DepartmentsPage({
   const [editRoleBusy, setEditRoleBusy] = useState(false);
   const [editRoleConfirmDelete, setEditRoleConfirmDelete] = useState(false);
   const [editRoleDeleting, setEditRoleDeleting] = useState(false);
+  // Vai đang được nhân bản (null = hộp thoại đóng).
+  const [nhanBanVai, setNhanBanVai] = useState<Role | null>(null);
 
   // Bulk transfer (PBI-4008): tick members + pick a target department.
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<number>>(new Set());
@@ -2522,6 +2528,19 @@ export function DepartmentsPage({
                               </button>
                             ) : null}
                           </div>
+                          {canDuplicateRole && (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              disabled={editRoleLoading || editRoleBusy || editRoleDeleting}
+                              onClick={() => {
+                                const r = roles.find((x) => x.id === editRoleId);
+                                if (r) setNhanBanVai(r);
+                              }}
+                            >
+                              Nhân bản vai trò
+                            </Button>
+                          )}
                           {canEditRoleAnything && (
                             <Button
                               type="button"
@@ -3177,6 +3196,28 @@ export function DepartmentsPage({
               }
             }
             refresh(selectedId).catch(() => {});
+          }}
+        />
+      )}
+
+      {nhanBanVai && token && (
+        <NhanBanVaiTroModal
+          token={token}
+          vai={nhanBanVai}
+          phongs={departments}
+          onClose={() => setNhanBanVai(null)}
+          onDone={(vaiMoi, cungPhong) => {
+            if (!cungPhong || selectedId == null) return;
+            // Bản sao nằm trong phòng đang mở → nạp lại chip rồi MỞ LUÔN vai mới: nhân bản
+            // xong người ta sửa tiếp ngay, không ai nhân bản để đấy.
+            api.rbac
+              .roles(token, selectedId)
+              .then((rs) => {
+                setRoles(rs);
+                const r = rs.find((x) => x.id === vaiMoi.id);
+                if (r) void openEditRole(r);
+              })
+              .catch(() => {});
           }}
         />
       )}

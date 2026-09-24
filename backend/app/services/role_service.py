@@ -190,6 +190,56 @@ class RoleService:
         )
         return role
 
+    def duplicate_role(
+        self,
+        *,
+        role_id: int,
+        name: str | None,
+        department_id: int | None,
+        actor_id: int | None,
+    ) -> Role:
+        """Nhân bản một vai trò: vai MỚI, ma trận quyền chép y nguyên.
+
+        Phòng đích bỏ trống = cùng phòng với vai gốc. Tên bỏ trống = "«tên gốc» (bản sao)", tự
+        đánh số khi trùng — nhân bản là thao tác một cú, đừng bắt người cấp quyền nghĩ tên.
+
+        Vai mới đẻ ra đã có sẵn hai ô mặc định (`self_service`, `noi_quy`); `copy_permissions`
+        THAY SẠCH chúng bằng đúng bộ quyền của vai gốc — bản sao phải giống hệt bản gốc, kể cả
+        khi vai gốc đã bị gỡ hai ô đó.
+        """
+        goc = self.roles.get_by_id(role_id)
+        if goc is None:
+            raise RoleNotFound("Không tìm thấy vai trò")
+        dich_id = department_id if department_id is not None else goc.department_id
+        dept = self.departments.get_by_id(dich_id)
+        if dept is None:
+            raise DepartmentNotFound("Không tìm thấy phòng ban")
+        ten = (name or "").strip() or self._ten_ban_sao(goc.name, dich_id)
+        if self.roles.get_by_name_and_department(ten, dich_id) is not None:
+            raise RoleNameTaken("Tên vai trò đã tồn tại trong phòng này")
+        moi = self.roles.create(name=ten, department_id=dich_id)
+        so_dong = self.roles.copy_permissions(
+            tu_role_id=goc.id,
+            sang_role_id=moi.id,
+            doi_to=(goc.department_id, dich_id),
+        )
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="duplicate_role",
+            target=f"role:{moi.id}",
+            detail=f"Nhân bản “{goc.name}” → {dept.name} / {ten} ({so_dong} dòng quyền)",
+        )
+        return moi
+
+    def _ten_ban_sao(self, ten_goc: str, department_id: int) -> str:
+        """"X (bản sao)", rồi "X (bản sao 2)"… cho tới khi không trùng trong phòng đích."""
+        goc = ten_goc.strip()[:230]
+        for i in range(1, 100):
+            ten = f"{goc} (bản sao)" if i == 1 else f"{goc} (bản sao {i})"
+            if self.roles.get_by_name_and_department(ten, department_id) is None:
+                return ten
+        raise RoleNameTaken("Tên vai trò đã tồn tại trong phòng này")
+
     def rename_role(self, *, role_id: int, name: str, actor_id: int | None) -> Role:
         role = self.roles.get_by_id(role_id)
         if role is None:

@@ -37,6 +37,7 @@ from ..schemas.rbac import (
     RoleBulkAssignIn,
     RoleCreate,
     ResetPasswordOut,
+    RoleDuplicate,
     RoleOut,
     RoleRename,
     SessionOut,
@@ -598,6 +599,35 @@ def create_role(
         )
     except RoleNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except DepartmentNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+
+@router.post(
+    "/roles/{role_id}/duplicate",
+    response_model=RoleOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def duplicate_role(
+    role_id: int,
+    payload: RoleDuplicate,
+    svc: Service,
+    user: Annotated[object, Depends(require_permission("phong_ban", "create"))],
+    # Nhân bản CHÉP CẢ MA TRẬN QUYỀN, nên đòi ĐÚNG ô mà đường ghi quyền đòi — có `create`
+    # không thôi thì chỉ đẻ được vai rỗng qua `POST /roles`, không bê được quyền của vai khác.
+    _: Annotated[object, Depends(require_permission("phong_ban", "manage_permissions"))],
+) -> RoleOut:
+    try:
+        return svc.duplicate_role(
+            role_id=role_id,
+            name=payload.name,
+            department_id=payload.department_id,
+            actor_id=user.id,
+        )
+    except RoleNameTaken as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except RoleNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     except DepartmentNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
 

@@ -9928,6 +9928,22 @@ export const api = {
     deleteRole(token: string, roleId: number): Promise<void> {
       return authed<void>(`/api/roles/${roleId}`, token, { method: "DELETE" });
     },
+    /** Nhân bản vai trò: vai MỚI với ma trận quyền chép y nguyên vai gốc.
+     *  Bỏ `name` = máy chủ tự đặt "«tên gốc» (bản sao)"; bỏ `departmentId` = cùng phòng vai gốc.
+     *  Gác bằng `phong_ban:create` + `phong_ban:manage_permissions` (nó bê cả bộ quyền). */
+    duplicateRole(
+      token: string,
+      roleId: number,
+      opts?: { name?: string; departmentId?: number },
+    ): Promise<Role> {
+      return authed<Role>(`/api/roles/${roleId}/duplicate`, token, {
+        method: "POST",
+        body: JSON.stringify({
+          name: opts?.name ?? null,
+          department_id: opts?.departmentId ?? null,
+        }),
+      });
+    },
     /** Bảng VAI MẪU — bộ quyền dựng sẵn cho các vai điển hình (đợt 6).
      *  CHỈ ĐỌC: giao diện điền vào ma trận đang mở, người dùng xem lại rồi mới bấm Lưu. */
     roleTemplates(token: string): Promise<RoleTemplate[]> {
