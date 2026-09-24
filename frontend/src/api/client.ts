@@ -9643,6 +9643,46 @@ export async function blobUrlComTen(
   return URL.createObjectURL(new File([blob], ten, { type: blob.type }));
 }
 
+// --- Báo cáo kinh doanh theo khách (24/09/2026) -------------------------------------------
+export interface BaoCaoKinhDoanhDong {
+  ten: string;
+  so_luong: number;
+  dvt: string | null;
+  don_gia: number | null;
+  vat_pct: number;
+  thanh_tien: number | null;
+}
+export interface BaoCaoKinhDoanhTien {
+  tong: number;
+  tong_vat: number;
+  coc_phai_thu: number;
+  coc_da_nhan: number;
+  coc_con_thieu: number;
+}
+export interface BaoCaoKinhDoanhDon extends BaoCaoKinhDoanhTien {
+  order_id: number;
+  order_no: string;
+  ngay_chot: string | null;
+  sale: string | null;
+  po_khach: string | null;
+  ngay_giao: string | null;
+  coc_pct: number;
+  dong: BaoCaoKinhDoanhDong[];
+}
+export interface BaoCaoKinhDoanhKhach extends BaoCaoKinhDoanhTien {
+  customer_id: number | null;
+  ma: string | null;
+  ten: string;
+  so_don: number;
+  don: BaoCaoKinhDoanhDon[];
+}
+export interface BaoCaoKinhDoanh {
+  tu_ngay: string;
+  den_ngay: string;
+  khach: BaoCaoKinhDoanhKhach[];
+  tong: BaoCaoKinhDoanhTien & { so_khach: number; so_don: number };
+}
+
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -12671,6 +12711,39 @@ export const api = {
     },
     deleteConsent(token: string, id: number, attachmentId: number): Promise<OrderDetail> {
       return authed<OrderDetail>(`/api/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
+    },
+  },
+  // --- Báo cáo kinh doanh theo khách (24/09/2026) — đơn đã chốt, lọc theo ngày chốt -------
+  baoCaoKinhDoanh: {
+    xem(
+      token: string,
+      p: { tuNgay: string; denNgay: string; customerId?: number | null },
+    ): Promise<BaoCaoKinhDoanh> {
+      const qs = new URLSearchParams({ tu_ngay: p.tuNgay, den_ngay: p.denNgay });
+      if (p.customerId != null) qs.set("customer_id", String(p.customerId));
+      return authed<BaoCaoKinhDoanh>(`/api/bao-cao-kinh-doanh?${qs.toString()}`, token);
+    },
+    /** File .xlsx — fetch kèm bearer rồi dựng blob (thẻ `<a href>` trần không mang token). */
+    async xuatExcel(
+      token: string,
+      p: { tuNgay: string; denNgay: string; customerId?: number | null },
+    ): Promise<{ url: string; ten: string }> {
+      const qs = new URLSearchParams({ tu_ngay: p.tuNgay, den_ngay: p.denNgay });
+      if (p.customerId != null) qs.set("customer_id", String(p.customerId));
+      const duong = `${BASE_URL}/api/bao-cao-kinh-doanh/export.xlsx?${qs.toString()}`;
+      const doFetch = (bearer: string) =>
+        fetch(duong, { credentials: "include", cache: "no-store", headers: authHeader(bearer) });
+      let resp = await doFetch(token);
+      if (resp.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) resp = await doFetch(fresh);
+      }
+      if (!resp.ok) throw new ApiError(`Không xuất được file (${resp.status}).`, resp.status);
+      const khop = /filename="([^"]+)"/.exec(resp.headers.get("content-disposition") ?? "");
+      return {
+        url: URL.createObjectURL(await resp.blob()),
+        ten: khop ? khop[1] : "bao-cao-kinh-doanh.xlsx",
+      };
     },
   },
   // --- Khuôn bế (danh mục — đọc để gán vào lệnh có bế) ----------------------

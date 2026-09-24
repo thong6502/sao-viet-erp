@@ -15481,7 +15481,62 @@ def _migrate_tach_module_menu_an_ke(db: Session) -> None:
     db.commit()
 
 
+# --- Hai migration SONG SONG cùng mang số 0329 (merge 24/09/2026) -------------------------
+# Nhánh này tách `quy_trinh_kinh_doanh` + `bao_cao_kho`, nhánh kia tách `bao_cao_kinh_doanh`.
+# GIỮ NGUYÊN hai id — id thật trong `schema_migrations` là CẢ CHUỖI nên không đụng nhau, mà
+# đánh lại số thì DB nào đã chạy sẽ chạy lại (xem ghi chú "ĐỪNG đánh lại số" phía trên).
+
+
+def _migrate_module_bao_cao_kinh_doanh(db: Session) -> None:
+    """mg 0329 — ô quyền RIÊNG `bao_cao_kinh_doanh` (Báo cáo kinh doanh theo khách, 24/09/2026).
+
+    Cấp theo đúng luật đã ghi ở `seed.MODULES`: vai ĐỌC được `don_hang_ban` → được Xem báo cáo,
+    lấy ĐÚNG scope của `don_hang_ban` (sale `own` thì chỉ thấy khách/đơn của mình). Mọi ô chi tiết
+    khác để `false` — không chép cờ riêng của đơn hàng (ghi cọc, duyệt đặc thù…) sang một màn chỉ
+    đọc. Hỏi cấu trúc bảng qua `inspect()` TRƯỚC mọi lệnh ghi (cùng khuôn mg 0260).
+
+    Idempotent: vai đã có dòng `bao_cao_kinh_doanh` thì bỏ qua.
+    """
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    cot = [c for c in insp.get_columns("role_permissions") if c["name"] != "id"]
+    ten_cot, gia_tri = [], []
+    for c in cot:
+        ten = c["name"]
+        ten_cot.append(ten)
+        if ten == "module_key":
+            gia_tri.append(":k")
+        elif ten == "can_read":
+            gia_tri.append("true")
+        elif ten in ("role_id", "scope"):
+            gia_tri.append(f"rp.{ten}")
+        elif str(c["type"]).upper().startswith("BOOL"):
+            gia_tri.append("false")
+        else:
+            gia_tri.append(f"rp.{ten}")
+
+    db.execute(
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "bao_cao_kinh_doanh", "l": "Báo cáo kinh doanh"},
+    )
+    db.execute(
+        text(
+            f"INSERT INTO role_permissions ({', '.join(ten_cot)}) "
+            f"SELECT {', '.join(gia_tri)} FROM role_permissions rp "
+            "WHERE rp.module_key = 'don_hang_ban' AND rp.can_read = true AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+        ),
+        {"k": "bao_cao_kinh_doanh"},
+    )
+    db.commit()
+
+
 MIGRATIONS.append(("0329_tach_module_menu_an_ke", _migrate_tach_module_menu_an_ke))
+MIGRATIONS.append(("0329_module_bao_cao_kinh_doanh", _migrate_module_bao_cao_kinh_doanh))
 
 
 def _migrate_go_module_vai_tro(db: Session) -> None:

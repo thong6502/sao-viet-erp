@@ -510,6 +510,8 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: mở màn Công nợ phải thu (số khách còn nợ). Số liệu chỉ phát sinh từ hóa đơn bán đã ghi nhận, sau đó trừ cọc được cấn và phiếu thu; đơn mới chốt chưa tạo công nợ.",
   bao_cao_cong_no:
     "Xem: mở màn Báo cáo (sổ tổng hợp theo mẫu Excel MISA, phân tuổi nợ, xuất Excel/in) — cả hai phân hệ Phải trả lẫn Phải thu. Thao tác: khoá/mở kỳ kế toán công nợ. Tách riêng khỏi hai ô Công nợ phải trả/phải thu ở trên — ai chỉ cần xem sổ đối chiếu MISA không nhất thiết phải có quyền vào màn công nợ vận hành hằng ngày.",
+  bao_cao_kinh_doanh:
+    "Xem: mở màn Báo cáo kinh doanh (đơn đã chốt theo khách: sản phẩm, đơn giá, cọc) và xuất Excel. Phạm vi: Của tôi = chỉ đơn mình bán · Cả phòng = đơn của sale trong phòng · Tất cả = toàn công ty. Không có thao tác ghi.",
   tk_ngan_hang:
     "Xem: mở màn Tài khoản ngân hàng (TK công ty + TK nhà cung cấp). Chỉnh sửa: thêm/sửa/ngừng dùng tài khoản. TK của nhà cung cấp thì người quản danh mục Nhà cung cấp cũng sửa được.",
 };
@@ -594,9 +596,11 @@ const MODULE_GROUPS: {
   {
     key: "kinh_doanh",
     label: "Kinh doanh",
-    // Thứ tự = thứ tự menu: Quy trình → Tính giá → Báo giá → Đơn hàng → Giao hàng → Khách hàng.
+    // Thứ tự = thứ tự menu: Quy trình → Tính giá → Báo giá → Đơn hàng → Giao hàng → Khách hàng
+    // → Báo cáo kinh doanh. Người cấp quyền dò theo màn hình chứ không theo tên kỹ thuật.
     // `quy_trinh_kinh_doanh` là khoá RIÊNG từ 24/09/2026 (mg `0329`) — trước đó mục menu đó ăn
-    // ké bốn khoá còn lại nên ma trận không có dòng nào mang tên nó.
+    // ké bốn khoá còn lại nên ma trận không có dòng nào mang tên nó; `bao_cao_kinh_doanh` tách
+    // cùng ngày ở nhánh kia (báo cáo theo khách — xem + xuất Excel).
     modules: [
       "quy_trinh_kinh_doanh",
       "tinh_gia_thanh",
@@ -604,6 +608,7 @@ const MODULE_GROUPS: {
       "don_hang_ban",
       "giao_hang",
       "khach_hang",
+      "bao_cao_kinh_doanh",
     ],
   },
   // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Sản xuất" để người cấp quyền dò theo màn hình.

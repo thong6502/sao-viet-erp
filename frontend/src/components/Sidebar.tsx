@@ -93,6 +93,13 @@ export const NAV: NavSection[] = [
       // Gác bằng MỘT ô `giao_hang` — không có cửa phụ nào khác (bài học ô ma `self_service`).
       { id: "giao-hang", label: "Giao hàng", icon: "truck", module: "giao_hang" },
       { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },
+      // Báo cáo kinh doanh theo khách (24/09/2026) — ô quyền RIÊNG, Xem = xem + xuất Excel.
+      {
+        id: "bao-cao-kinh-doanh",
+        label: "Báo cáo kinh doanh",
+        icon: "table",
+        module: "bao_cao_kinh_doanh",
+      },
     ],
   },
   {

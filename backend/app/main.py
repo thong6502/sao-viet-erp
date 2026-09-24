@@ -36,6 +36,7 @@ from .routers import (
     profile,
     quotations,
     orders,
+    bao_cao_kinh_doanh,
     rbac,
     may_thiet_bi,
     vat_lieu_kho,
@@ -159,6 +160,7 @@ app.include_router(late_early.router)
 app.include_router(payroll.router)
 app.include_router(quotations.router)
 app.include_router(orders.router)
+app.include_router(bao_cao_kinh_doanh.router)
 app.include_router(product_types_catalog.router)
 app.include_router(purchases.router)
 app.include_router(accounting.router)
