@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from ..models.accounting import RECEIPT_SOURCE_PURCHASE, SALES_INVOICE_ISSUED
+from ..models.accounting import RECEIPT_SOURCE_PURCHASE, SALES_INVOICE_ISSUED, VOUCHER_CASH
 from .purchase_service import han_tra_dot, phan_bo_du_dot, phan_bo_tien_dot
 
 #: Tài khoản công nợ in ra cột "TK công nợ". Cứng, vì hệ CHƯA có danh mục tài khoản kế toán —
@@ -43,6 +43,10 @@ TK_PHAI_TRA = "331"
 KHONG_GAN_ID = None
 KHONG_GAN_TEN_THU = "(Thu khác — không gắn khách hàng)"
 KHONG_GAN_TEN_TRA = "(Chi khác — không gắn nhà cung cấp)"
+
+#: Cột "TK đối ứng" của sổ chi tiết cho phiếu thu/chi TIỀN MẶT (24/09/2026). Hệ chưa có danh mục
+#: tài khoản kế toán nên ghi TÊN, không ghi số hiệu 1111 — kế toán yêu cầu đúng như vậy.
+TK_DOI_UNG_TIEN_MAT = "Tiền mặt"
 
 
 def _ro_rong() -> dict[str, dict[str, int]]:
@@ -206,6 +210,24 @@ def _so_hoa_don(hd) -> str:
     return f"HĐ #{hd.id}"
 
 
+def _tk_doi_ung(phuong_thuc: str | None, phieu) -> str:
+    """"TK đối ứng" của một phiếu thu/chi — đi theo HÌNH THỨC tiền của chính phiếu đó.
+
+    Tiền mặt ⇒ "Tiền mặt". Chuyển khoản ⇒ tài khoản ngân hàng CỦA CÔNG TY mà tiền đi ra/vào
+    ("Vietinbank - 106875591156"), lấy từ bản CHỤP trên phiếu trước: tài khoản sửa tên/đóng sau
+    này thì sổ cũ vẫn in đúng tài khoản lúc tiền chạy. Phiếu cũ chưa có bản chụp mới lùi về danh mục.
+    """
+    if phuong_thuc == VOUCHER_CASH:
+        return TK_DOI_UNG_TIEN_MAT
+    ngan_hang = (getattr(phieu, "company_bank_name_snapshot", None) or "").strip()
+    so_tk = (getattr(phieu, "company_account_number_snapshot", None) or "").strip()
+    if not (ngan_hang or so_tk):
+        tk = getattr(phieu, "company_bank_account", None)
+        if tk is not None:
+            ngan_hang, so_tk = (tk.bank_name or "").strip(), (tk.account_number or "").strip()
+    return " - ".join(x for x in (ngan_hang, so_tk) if x) or "Chuyển khoản"
+
+
 def _ncc_cua_phieu_chi(v) -> int | None:
     if v.supplier_id is not None:
         return v.supplier_id
@@ -238,6 +260,7 @@ def _chung_tu_phai_thu(hoa_don, phieu, khach_don, ma_khach) -> list[dict]:
             "dien_giai": "Hoá đơn bán hàng",
             "luc": getattr(hd, "created_at", None),
             "net": int(hd.amount_vnd),
+            "tk_doi_ung": "",
         })
     for p in phieu:
         if p.source_type == RECEIPT_SOURCE_PURCHASE:
@@ -255,6 +278,7 @@ def _chung_tu_phai_thu(hoa_don, phieu, khach_don, ma_khach) -> list[dict]:
             "dien_giai": (p.content or "").strip() or "Khách trả tiền",
             "luc": getattr(p, "received_at", None) or getattr(p, "created_at", None),
             "net": -int(p.amount_vnd),
+            "tk_doi_ung": _tk_doi_ung(p.receipt_method, p),
         })
     return ra
 
@@ -287,6 +311,8 @@ def _chung_tu_phai_tra(don, chi, hoan, ma_ncc, *, den_ngay: date) -> list[dict]:
                 "dien_giai": "Hàng đã nhận",
                 "luc": getattr(d, "created_at", None),
                 "net": -tien,
+                # Hàng về không phải phiếu thu/chi — TK đối ứng chỉ đi theo phiếu tiền.
+                "tk_doi_ung": "",
             })
     for v in chi:
         ra.append({
@@ -298,6 +324,7 @@ def _chung_tu_phai_tra(don, chi, hoan, ma_ncc, *, den_ngay: date) -> list[dict]:
             # `paid_at` là mốc tiền THẬT SỰ rời két — cùng nguồn `ngay_chi` đang dùng.
             "luc": getattr(v, "paid_at", None),
             "net": int(v.amount_vnd),
+            "tk_doi_ung": _tk_doi_ung(v.voucher_type, v),
         })
     for p in hoan:
         ra.append({
@@ -308,6 +335,7 @@ def _chung_tu_phai_tra(don, chi, hoan, ma_ncc, *, den_ngay: date) -> list[dict]:
             "dien_giai": (p.content or "").strip() or "Nhà cung cấp hoàn tiền",
             "luc": getattr(p, "received_at", None) or getattr(p, "created_at", None),
             "net": -int(p.amount_vnd),
+            "tk_doi_ung": _tk_doi_ung(p.receipt_method, p),
         })
     return ra
 
@@ -402,6 +430,7 @@ def _so_chi_tiet(
             "loai": c["loai"],
             "so_ct": c["so_ct"],
             "dien_giai": c["dien_giai"],
+            "tk_doi_ung": c.get("tk_doi_ung") or "",
             "no": no,
             "co": co,
             "luy_ke_no": lk_no,
@@ -613,6 +642,78 @@ def so_chi_tiet_phai_tra(
     )
 
 
+#: Giá trị mặc định của `loc` = lấy MỌI đối tượng. Không dùng `None` vì `None` đã là id THẬT của
+#: dòng gom "không gắn đối tượng".
+TAT_CA = object()
+
+
+def _so_chi_tiet_moi_doi_tuong(
+    chung_tu: list[dict], *, tu_ngay: date, den_ngay: date, tk: str, tieu_de: str,
+    ten_khong_gan: str, loc=TAT_CA,
+) -> dict:
+    """Sổ chi tiết của MỌI đối tượng trong kỳ, gộp một bộ — cho file Excel chi tiết (24/09/2026).
+
+    Tập đối tượng và thứ tự lấy ĐÚNG từ máy cộng của sổ tổng hợp (`_Gom.ket_qua`): cùng người,
+    cùng thứ tự, cùng luật bỏ dòng trắng — mở hai file cạnh nhau là dò được từng người. Mỗi người
+    vẫn đi qua `_so_chi_tiet`, nên dòng cộng của họ tự khớp ô dư cuối kỳ bên sổ tổng hợp.
+    """
+    gom = _Gom(tu_ngay, den_ngay, tk, ten_khong_gan)
+    theo_ai: dict[int | None, list[dict]] = {}
+    for ct in chung_tu:
+        gom.cong(gom.muc(ct["doi_tuong_id"], ct["ten"], ct["ma"]), ct["ngay"], ct["net"])
+        theo_ai.setdefault(ct["doi_tuong_id"], []).append(ct)
+    # Chọn MỘT người (24/09/2026): lấy cả người trắng số trong kỳ — đã chọn đích danh thì vẫn ra sổ
+    # (đầu kỳ = cuối kỳ), không trả một file rỗng khó hiểu.
+    cac_muc = (
+        gom.ket_qua() if loc is TAT_CA
+        else [m for m in gom.ket_qua(an_dong_trong=False) if m["doi_tuong_id"] == loc]
+    )
+    so = []
+    for muc in cac_muc:
+        mot = _so_chi_tiet(
+            theo_ai.get(muc["doi_tuong_id"], []), doi_tuong_id=muc["doi_tuong_id"],
+            tu_ngay=tu_ngay, den_ngay=den_ngay, tk=tk, tieu_de=tieu_de,
+            ten_khong_gan=ten_khong_gan,
+        )
+        # Mã/tên theo sổ tổng hợp (đã gom mã từ mọi chứng từ), không theo chứng từ đầu tiên.
+        mot["ma"], mot["ten"] = muc["ma"], muc["ten"]
+        so.append(mot)
+    return {
+        "tk": tk,
+        "tieu_de": tieu_de,
+        "tu_ngay": tu_ngay,
+        "den_ngay": den_ngay,
+        "mot_nguoi": loc is not TAT_CA,
+        "so": so,
+        "tong": {
+            k: sum(m[k] for m in so)
+            for k in ("dau_no", "dau_co", "ps_no", "ps_co", "cuoi_no", "cuoi_co")
+        },
+    }
+
+
+def so_chi_tiet_tat_ca_phai_thu(repo, *, tu_ngay: date, den_ngay: date, loc=TAT_CA) -> dict:
+    """Sổ chi tiết TK 131 của MỌI khách có số trong kỳ — hoặc đúng một khách (`loc`)."""
+    hoa_don, phieu, khach_don, ma_khach = _nap_phai_thu(repo, den_ngay=den_ngay)
+    return _so_chi_tiet_moi_doi_tuong(
+        _chung_tu_phai_thu(hoa_don, phieu, khach_don, ma_khach),
+        tu_ngay=tu_ngay, den_ngay=den_ngay, tk=TK_PHAI_THU,
+        tieu_de="SỔ CHI TIẾT CÔNG NỢ PHẢI THU", ten_khong_gan=KHONG_GAN_TEN_THU, loc=loc,
+    )
+
+
+def so_chi_tiet_tat_ca_phai_tra(
+    repo, purchases, *, tu_ngay: date, den_ngay: date, loc=TAT_CA
+) -> dict:
+    """Sổ chi tiết TK 331 của MỌI nhà cung cấp có số trong kỳ — hoặc đúng một NCC (`loc`)."""
+    don, chi, hoan, ma_ncc = _nap_phai_tra(repo, purchases, den_ngay=den_ngay)
+    return _so_chi_tiet_moi_doi_tuong(
+        _chung_tu_phai_tra(don, chi, hoan, ma_ncc, den_ngay=den_ngay),
+        tu_ngay=tu_ngay, den_ngay=den_ngay, tk=TK_PHAI_TRA,
+        tieu_de="SỔ CHI TIẾT CÔNG NỢ PHẢI TRẢ", ten_khong_gan=KHONG_GAN_TEN_TRA, loc=loc,
+    )
+
+
 __all__ = [
     "KHONG_GAN_TEN_THU",
     "KHONG_GAN_TEN_TRA",
@@ -621,6 +722,8 @@ __all__ = [
     "ngay_chi",
     "so_chi_tiet_phai_thu",
     "so_chi_tiet_phai_tra",
+    "so_chi_tiet_tat_ca_phai_thu",
+    "so_chi_tiet_tat_ca_phai_tra",
     "tong_hop_phai_thu",
     "tong_hop_phai_tra",
 ]

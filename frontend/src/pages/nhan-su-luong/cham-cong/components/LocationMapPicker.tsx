@@ -5,9 +5,17 @@ import {
   Marker,
   NavigationControl,
   type GeoJSONSource,
+  setWorkerUrl,
   type MapMouseEvent,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+// MapLibre 6 tự đoán worker ở `<thư mục bundle>/maplibre-gl-worker.mjs`, nhưng `vite build` không
+// xuất file đó ⇒ trên bản build worker 404, bản đồ đứng im ở "Đang tải bản đồ…" dù style trả 200
+// (dev server thì chạy vì phục vụ thẳng node_modules). `?worker&url` bắt Vite đóng gói worker
+// cùng `maplibre-gl-shared.mjs` nó import thành MỘT file có trong dist.
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+
+setWorkerUrl(maplibreWorkerUrl);
 
 const EARTH_RADIUS_M = 6_371_008.8;
 
