@@ -6,6 +6,23 @@
 Màn **Báo cáo kho** trong phần Kho, CHỈ **kế toán kho** vào — tổng hợp mọi lần nhập/xuất theo dòng, **khóa kỳ (chốt sổ)** kiểu MISA, và **export Excel** đúng mẫu MISA để đẩy sang phần mềm kế toán.
 
 ## 2. Phạm vi & quyền
+
+> **CẬP NHẬT 2026-09-24 (mg `0329`)** — màn này nay là **module quyền riêng `bao_cao_kho`**, không
+> còn nấp dưới ô chi tiết của Kho. Lý do: một mục trong thanh bên phải có MỘT dòng mang tên nó
+> trong ma trận phân quyền (chủ chốt: *"một module thì nó là một cái bên sidebar, không ăn ké gì
+> cả"*) — cùng lối đã làm cho `bao_cao_cong_no` (mg 0260). Phần dưới là thiết kế đời đầu, giữ để
+> đọc lịch sử.
+>
+> - **Xem** (`bao_cao_kho:read`) = vào màn + sổ nhập-xuất + Nhập-Xuất-Tồn + chuyển kho + export MISA.
+> - **Khóa kỳ / tính giá kỳ** = ô chi tiết `bao_cao_kho:can_close_book`.
+> - **TIỀN vẫn gác riêng**: đơn giá · thành tiền · giá trị NXT chỉ hiện cho vai có
+>   **`kho:view_cost`** (luật "mọi số tiền của kho gác ở máy chủ"). Vai được cấp Báo cáo kho mà
+>   không có ô đó vẫn đọc được SỐ LƯỢNG, các ô tiền để trống — xem `_an_tien()` trong
+>   `routers/kho_baocao.py`.
+> - Migration chép quyền cũ: vai nào có `kho.can_close_book` được cấp `bao_cao_kho` (Xem + khóa
+>   kỳ), nên không ai mất đường vào. Cột `kho.can_close_book` giữ trong DB cho các cửa cũ.
+
+*(Thiết kế đời đầu — 2026-08-10)*
 - Quyền mới: action **`close_book`** → cột `role_permissions.can_close_book` (Boolean, server_default `false`).
 - Gate: xem màn + export + chốt sổ đều cần `can_close_book`. Bật cho **Kế toán kho (role_id 14)** + **Giám đốc/admin (role_id 1)**.
 - KHÔNG tái dùng `kho.can_read` (thủ kho + quản lý kho cũng có).

@@ -764,11 +764,17 @@ def export_stock_xlsx(
 
 def _chan_neu_khong_xem_ton(authz, user: User) -> None:
     """Chặn ở MÁY CHỦ người không được đọc SỐ tồn/lô. Được: người xem tồn (`view_stock`), người lập
-    phiếu (`create` — lập phiếu xuất phải thấy lô, `/lo/goi-y` vốn đã trả lô) và kế toán chốt sổ
-    (`close_book` — popup lịch sử mặt hàng ở Báo cáo kho). Vai chỉ `kho:read` để tạo đề nghị thì
-    KHÔNG: trước đây chỉ FE ẩn màn Tồn kho, gọi thẳng API vẫn ra đủ lô + số lượng — lệch với
-    danh sách đề nghị, nơi `ton_kha_dung` đã cắt ở máy chủ."""
-    if not any(authz.can(user, MODULE, a) for a in ("view_stock", "create", "close_book")):
+    phiếu (`create` — lập phiếu xuất phải thấy lô, `/lo/goi-y` vốn đã trả lô) và người vào được
+    BÁO CÁO KHO (`bao_cao_kho:read` — popup lịch sử mặt hàng nằm trong màn đó). Vai chỉ `kho:read`
+    để tạo đề nghị thì KHÔNG: trước đây chỉ FE ẩn màn Tồn kho, gọi thẳng API vẫn ra đủ lô + số
+    lượng — lệch với danh sách đề nghị, nơi `ton_kha_dung` đã cắt ở máy chủ.
+
+    Cửa thứ ba trước 24/09/2026 là `kho:close_book`; ô đó đã dời sang module riêng `bao_cao_kho`
+    (mg `0329`) nên phải hỏi đúng khoá mới, không thì kế toán kho được cấp lại vẫn mở không nổi
+    popup lịch sử."""
+    if not any(authz.can(user, MODULE, a) for a in ("view_stock", "create")) and not authz.can(
+        user, "bao_cao_kho", "read"
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Cần quyền Xem tồn kho.")
 

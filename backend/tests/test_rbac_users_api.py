@@ -2,7 +2,7 @@
 
 HR creates accounts (+ department), a head assigns a role from the user's department,
 accounts lock/unlock, and a locked account can neither log in nor use /me.
-A non-admin (NV Sales, no nguoi_dung permission) is forbidden.
+A non-admin (NV Sales, no nhan_su permission) is forbidden.
 """
 from __future__ import annotations
 

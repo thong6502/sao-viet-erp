@@ -1,8 +1,8 @@
 """feat-007 — Vai trò admin API.
 
 Admin can list modules/departments/roles, create a role (with per-department name
-dedup), and read/save a role's permission matrix; a non-admin (NV Sales, no vai_tro
-permission) is forbidden.
+dedup), and read/save a role's permission matrix; a non-admin (NV Sales, không có ô
+`phong_ban`) bị chặn.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _kd_id() -> int:
 
 
 def _sales_token() -> str:
-    """A non-admin: NV Sales role has no vai_tro permission."""
+    """A non-admin: vai NV Sales không có ô `phong_ban` (tab Vai trò & Quyền nằm trong đó)."""
     db = SessionLocal()
     try:
         users = UserRepository(db)
@@ -55,7 +55,7 @@ def test_admin_lists_modules(client):
     resp = client.get("/api/rbac/modules", headers=_h(_admin_token(client)))
     assert resp.status_code == 200
     keys = {m["key"] for m in resp.json()}
-    assert {"khach_hang", "vai_tro", "nguoi_dung"} <= keys
+    assert {"khach_hang", "phong_ban", "nhan_su"} <= keys
 
 
 def test_admin_lists_departments(client):
@@ -116,7 +116,10 @@ def test_matrix_get_defaults_and_save_persists(client):
             assert not (r["can_update"] or r["can_delete"])
         else:
             assert not r["can_read"], f'{r["module_key"]} không được tự bật cho vai mới'
-        assert r["scope"] == "own"
+        # Vai mới mặc định "Của tôi" — TRỪ Nội quy: tài liệu chung toàn công ty, phạm vi ép `all`
+        # ngay từ lúc sinh vai (24/09/2026, chủ chốt: *"nội quy công ty mặc định tất cả và không
+        # cho chỉnh sửa"*). Để `own` thì ô chọn phạm vi — nay khoá còn một lựa chọn — hiện rỗng.
+        assert r["scope"] == ("all" if r["module_key"] == "noi_quy" else "own"), r["module_key"]
 
     for row in rows:
         if row["module_key"] == "khach_hang":
@@ -237,8 +240,8 @@ def test_non_admin_forbidden(client):
 
 
 def _dept_viewer_token() -> str:
-    """A user whose role grants ONLY phong_ban:read (no vai_tro permission) — the
-    view-only employee looking at the department screen (spec-09)."""
+    """Vai CHỈ có `phong_ban:read` — người xem suông màn Phòng ban (spec-09). Không có ô chi
+    tiết `manage_permissions` nên đọc được ma trận mà không lưu được."""
     db = SessionLocal()
     try:
         users = UserRepository(db)
@@ -258,9 +261,14 @@ def _dept_viewer_token() -> str:
         db.close()
 
 
-def test_dept_viewer_can_list_role_names_but_not_matrix(client):
-    """Role NAMES inside a department are part of viewing the department
-    (phong_ban:read); the permission matrix stays behind vai_tro:read."""
+def test_dept_viewer_doc_duoc_vai_tro_va_ma_tran_nhung_khong_sua_duoc(client):
+    """Xem phòng ban = xem cả tab "Vai trò & Quyền" của phòng đó, kể cả ma trận — nhưng LƯU thì không.
+
+    Đổi 24/09/2026 cùng mg `0330`: khoá `vai_tro` gỡ hẳn vì nó không ứng với mục menu nào (chủ
+    chốt: *"làm gì có module vai trò đâu"*). Vai trò là một TAB của màn Phòng ban nên đọc nó đi
+    theo `phong_ban:read`. Hàng rào thật — thứ chặn leo thang quyền — vẫn nguyên chỗ cũ: ghi ma
+    trận đòi ô chi tiết `phong_ban:manage_permissions`, mà vai xem-suông này không có.
+    """
     token = _dept_viewer_token()
     kd_id = _kd_id()
 
@@ -269,10 +277,18 @@ def test_dept_viewer_can_list_role_names_but_not_matrix(client):
     roles = listed.json()
     assert {"NV Sales", "Trưởng phòng KD"} <= {r["name"] for r in roles}
 
-    # …but the detailed permission matrix of any role stays forbidden.
     role_id = roles[0]["id"]
     assert (
         client.get(f"/api/roles/{role_id}/permissions", headers=_h(token)).status_code
+        == 200
+    )
+    # …nhưng GHI thì 403: cấp quyền là ô chi tiết riêng.
+    assert (
+        client.put(
+            f"/api/roles/{role_id}/permissions",
+            json={"permissions": []},
+            headers=_h(token),
+        ).status_code
         == 403
     )
 

@@ -22,12 +22,12 @@ ACTION_VIEW_DEBT = "view_debt"
 ACTION_VIEW_DISCOUNT = "view_discount"  # khach_hang: xem/sửa chiết khấu riêng theo khách
 ACTION_APPROVE = "approve"  # bao_gia: duyệt báo giá (đổi trạng thái → Khách duyệt)
 ACTION_MANAGE_STATUS = "manage_status"  # don_hang_ban: chốt / hủy đơn
-ACTION_RESET_PASSWORD = "reset_password"  # nguoi_dung: đặt lại mật khẩu
+ACTION_RESET_PASSWORD = "reset_password"  # nhan_su: đặt lại mật khẩu
 # Nhóm 1 — thao tác đặc thù khác:
-ACTION_LOCK = "lock"  # nguoi_dung: khóa / mở tài khoản
-ACTION_REVOKE_SESSIONS = "revoke_sessions"  # nguoi_dung: thu hồi mọi phiên
-ACTION_ASSIGN_ROLE = "assign_role"  # nguoi_dung: gán vai trò (đơn + hàng loạt)
-ACTION_TRANSFER = "transfer"  # nguoi_dung: chuyển phòng ban
+ACTION_LOCK = "lock"  # nhan_su: khóa / mở tài khoản
+ACTION_REVOKE_SESSIONS = "revoke_sessions"  # nhan_su: thu hồi mọi phiên
+ACTION_ASSIGN_ROLE = "assign_role"  # nhan_su: gán vai trò (đơn + hàng loạt)
+ACTION_TRANSFER = "transfer"  # nhan_su: điều chuyển phòng ban / chức danh
 ACTION_SET_HEAD = "set_head"  # phong_ban: đặt trưởng phòng
 ACTION_REQUOTE = "requote"  # bao_gia: tạo bản mới (re-quote)
 ACTION_MANAGE_PRICE = "manage_price"  # dm_*: cập nhật bảng giá theo mốc

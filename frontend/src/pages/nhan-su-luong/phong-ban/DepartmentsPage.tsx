@@ -79,19 +79,22 @@ export function DepartmentsPage({
   const canCreateDept = can("phong_ban", "create");
   const canUpdateDept = can("phong_ban", "update");
   const canDeleteDept = can("phong_ban", "delete");
-  const canCreateRole = can("vai_tro", "create");
-  const canUpdateRole = can("vai_tro", "update");
-  const canDeleteRole = can("vai_tro", "delete");
+  // Vai trò sống TRONG màn này (tab "Vai trò & Quyền") nên nó đi theo ô `phong_ban` — khoá
+  // `vai_tro` đã gỡ 24/09/2026 (mg `0330`), vì nó không ứng với mục menu nào.
+  const canCreateRole = can("phong_ban", "create");
+  const canUpdateRole = can("phong_ban", "update");
+  const canDeleteRole = can("phong_ban", "delete");
   // Sửa MA TRẬN tách khỏi đổi tên vai trò (chống leo thang quyền): HCNS dựng được chỗ ngồi,
   // chỉ Admin cấp được quyền cho nó. Backend đã gác `PUT /roles/{id}/permissions` bằng cờ này
-  // — FE trước đây mở ma trận theo `vai_tro:update` nên bấm Lưu là ăn 403.
-  const canManagePerms = can("vai_tro", "manage_permissions");
+  // — FE trước đây mở ma trận theo quyền SỬA nên bấm Lưu là ăn 403.
+  const canManagePerms = can("phong_ban", "manage_permissions");
   // Hộp "Sửa vai trò" gom 2 thứ tách quyền: ĐỔI TÊN (`update`) và MA TRẬN (`manage_permissions`).
   // Có một trong hai là còn nút Lưu; không có cả hai thì mở ở chế độ chỉ xem.
   const canEditRoleAnything = canUpdateRole || canManagePerms;
-  // Quyền chi tiết nhóm 1: chuyển phòng + gán vai trò (module Người dùng), đặt trưởng phòng (Phòng ban).
-  const canTransfer = can("nguoi_dung", "transfer");
-  const canAssignRole = can("nguoi_dung", "assign_role");
+  // Quyền chi tiết nhóm 1: điều chuyển + gán vai trò (ô chi tiết của Hồ sơ nhân sự — khoá
+  // `nguoi_dung` gỡ 24/09/2026, mg `0331`), đặt trưởng phòng (Phòng ban).
+  const canTransfer = can("nhan_su", "transfer");
+  const canAssignRole = can("nhan_su", "assign_role");
   const canBulk = canTransfer || canAssignRole;
   const canSetHead = can("phong_ban", "set_head");
   const canReparent = can("phong_ban", "reparent");
@@ -2369,7 +2372,13 @@ export function DepartmentsPage({
                               )}
                             </>
                           );
-                          return canUpdateRole ? (
+                          // AI VÀO ĐƯỢC MÀN THÌ MỞ ĐƯỢC CHIP (24/09/2026). Trước đây chip chỉ bấm
+                          // được khi có quyền SỬA, nên người chỉ được xem phòng ban nhìn thấy tên
+                          // vai mà không xem nổi vai đó có quyền gì — trong khi máy chủ vẫn trả
+                          // ma trận cho họ. Panel mở ra đã tự khoá đúng chỗ: ô tên chỉ sửa được
+                          // khi có Thao tác, ma trận `readOnly` khi thiếu "Sửa ma trận phân
+                          // quyền", nút Lưu ẩn hẳn khi không có quyền nào.
+                          return (
                             <button
                               key={r.id}
                               type="button"
@@ -2381,10 +2390,6 @@ export function DepartmentsPage({
                             >
                               {chipInner}
                             </button>
-                          ) : (
-                            <span key={r.id} className="rdx-rolechip rdx-rolechip--static">
-                              {chipInner}
-                            </span>
                           );
                         })}
                         {canCreateRole && (

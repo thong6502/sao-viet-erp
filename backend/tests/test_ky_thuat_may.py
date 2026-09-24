@@ -1306,7 +1306,7 @@ def test_badge_chi_dem_lo_bao_CHUA_AI_TIEP_NHAN():
 
 
 def test_chi_chinh_chu_sua_duoc_loi_bao_cua_minh():
-    """`yeu_cau_sua_chua.update` cấp cho cả xưởng ⇒ không có cửa này thì người tổ A vào sửa lời
+    """Ô "Báo máy hỏng" cấp cho cả xưởng ⇒ không có cửa này thì người tổ A vào sửa lời
     khai của người tổ B."""
     from types import SimpleNamespace
 

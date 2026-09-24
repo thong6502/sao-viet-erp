@@ -1,7 +1,7 @@
 """spec-06 / PBI-4008 — bulk transfer of personnel between departments.
 
 Moving people drops their old role (role_id=None), clears the head of the old unit if a
-moved user headed it, writes one audit row per person, and is gated on `nguoi_dung` update.
+moved user headed it, writes one audit row per person, and is gated on `nhan_su` transfer.
 """
 from __future__ import annotations
 

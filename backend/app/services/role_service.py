@@ -66,10 +66,17 @@ SCOPELESS_MODULES = frozenset(MODULE_KEYS) | {
     "xep_lich",
     # Phiếu bảo trì tách khỏi `ky_thuat_may` cùng ngày, thừa hưởng đúng lý do của khoá mẹ.
     "phieu_bao_tri",
-    # Báo máy hỏng (20/08/2026): router KHÔNG đọc scope. Ai cũng phải THẤY hết yêu cầu đang chờ —
-    # đó là cách người thứ hai biết máy này đã có người báo rồi mà thôi không báo nữa. Còn "chỉ sửa
-    # yêu cầu của mình" đã chặn bằng `_kiem_chu_yeu_cau` (so `nguoi_bao_id`), không nhờ scope.
-    "yeu_cau_sua_chua",
+    # Quy trình kinh doanh (24/09/2026): bản đồ luồng tĩnh, không đọc dữ liệu của ai nên không có
+    # "quy trình của tôi".
+    "quy_trinh_kinh_doanh",
+    # Báo cáo kho (24/09/2026): sổ của CẢ KHO. `routers/kho_baocao.py` không đọc scope quyền —
+    # `_scope_kho_ids` là lọc theo kho người dùng chọn, không phải phạm vi của vai.
+    "bao_cao_kho",
+    # Nội quy công ty (24/09/2026, chủ chốt: *"nội quy công ty mặc định tất cả và không cho chỉnh
+    # sửa"*): nội quy lao động là tài liệu CHUNG — không có "nội quy của tôi" hay "nội quy của
+    # phòng tôi". Ô Xem đã khoá bật sẵn cho mọi vai (`rbac_repo.O_MAC_DINH`), nay phạm vi cũng ép
+    # `all` ở máy chủ và giao diện khoá luôn ô chọn.
+    "noi_quy",
 }
 
 READ_IMPLYING_KEYS = (

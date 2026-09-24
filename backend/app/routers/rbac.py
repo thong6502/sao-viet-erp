@@ -17,7 +17,6 @@ from ..deps import (
     get_role_service,
     get_unit_level_service,
     get_user_admin_service,
-    require_any_permission,
     require_permission,
 )
 from ..schemas.rbac import (
@@ -119,7 +118,12 @@ def list_audit(
 @router.get("/rbac/modules", response_model=list[ModuleOut])
 def list_modules(
     svc: Service,
-    _: Annotated[object, Depends(require_permission("vai_tro", "read"))],
+    # KHOÁ `vai_tro` ĐÃ GỠ 24/09/2026 (mg `0330`) — chủ chốt: *"làm gì có module vai trò đâu;
+    # bản chất của sửa ma trận quyền nó phải là một cái chi tiết trong phòng ban chứ"*. Vai trò
+    # KHÔNG có màn riêng: nó là tab "Vai trò & Quyền" NẰM TRONG màn Phòng ban, nên nó đi theo ô
+    # `phong_ban` — xem/sửa vai trò theo Xem/Thao tác của màn đó, còn việc nhạy cảm là CẤP QUYỀN
+    # tách ra ô chi tiết `phong_ban:manage_permissions`.
+    _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
 ) -> list[ModuleOut]:
     return svc.list_modules()
 
@@ -292,12 +296,12 @@ def transfer_department_staff(
     payload: DepartmentTransferIn,
     employees: EmployeeSvc,
     payroll: PayrollSvc,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "transfer"))],
+    user: Annotated[object, Depends(require_permission("nhan_su", "transfer"))],
 ) -> TransferResult:
     """PBI-4008 — bulk điều chuyển NHÂN SỰ sang phòng khác (vai trò cũ bị gỡ, ghi Quá trình
     công tác + nhật ký cho từng người). Chuyển theo HỒ SƠ nên người chưa có tài khoản cũng đi
     được. Đây là thao tác quản trị phòng ban nên đọc hồ sơ ở phạm vi `all` — cổng quyền là
-    `nguoi_dung:transfer` (giữ nguyên như trước)."""
+    `nhan_su:transfer` (khoá `nguoi_dung` gỡ 24/09/2026, mg `0331`)."""
     try:
         n = employees.transfer_many(
             employee_ids=payload.employee_ids,
@@ -318,7 +322,7 @@ def transfer_department_staff(
 def bulk_assign_role(
     payload: RoleBulkAssignIn,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "assign_role"))],
+    user: Annotated[object, Depends(require_permission("nhan_su", "assign_role"))],
 ) -> RoleAssignResult:
     # Gán một vai trò cho nhiều người cùng lúc từ màn Phòng ban (audit từng người).
     try:
@@ -402,7 +406,7 @@ def delete_unit_level(
 @router.get("/users", response_model=list[UserRow])
 def list_users(
     admin: Users,
-    _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+    _: Annotated[object, Depends(require_permission("nhan_su", "read"))],
 ) -> list[UserRow]:
     return admin.list_users()
 
@@ -411,7 +415,7 @@ def list_users(
 def get_user(
     user_id: int,
     admin: Users,
-    _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+    _: Annotated[object, Depends(require_permission("nhan_su", "read"))],
 ) -> dict:
     try:
         return admin.get_user_row(user_id)
@@ -430,7 +434,7 @@ def assign_user_role(
     user_id: int,
     payload: RoleAssign,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "assign_role"))],
+    user: Annotated[object, Depends(require_permission("nhan_su", "assign_role"))],
 ) -> dict:
     try:
         updated = admin.assign_role(user_id=user_id, role_id=payload.role_id, actor_id=user.id)
@@ -454,7 +458,7 @@ def set_user_active(
     user_id: int,
     payload: ActiveUpdate,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "lock"))],
+    user: Annotated[object, Depends(require_permission("nhan_su", "lock"))],
 ) -> dict:
     try:
         updated = admin.set_active(user_id=user_id, is_active=payload.is_active, actor_id=user.id)
@@ -479,7 +483,7 @@ def update_user(
     payload: UserUpdate,
     admin: Users,
     authz: Authz,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+    user: Annotated[object, Depends(require_permission("nhan_su", "update"))],
 ) -> dict:
     # PBI-2003: edit name + department. Changing department drops the old role (service).
     # Đổi phòng ban là quyền chi tiết `transfer` (đổi tên trong cùng phòng chỉ cần `update`).
@@ -489,7 +493,7 @@ def update_user(
             name=payload.name,
             department_id=payload.department_id,
             actor_id=user.id,
-            allow_transfer=authz.can(user, "nguoi_dung", "transfer"),
+            allow_transfer=authz.can(user, "nhan_su", "transfer"),
         )
     except TransferForbidden as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
@@ -512,7 +516,7 @@ def update_user(
 def reset_user_password(
     user_id: int,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "reset_password"))],
+    user: Annotated[object, Depends(require_permission("nhan_su", "reset_password"))],
 ) -> ResetPasswordOut:
     # PBI-2006: set a temp password (shown once), revoke every session, audit.
     try:
@@ -530,7 +534,7 @@ def reset_user_password(
 def revoke_user_sessions(
     user_id: int,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "revoke_sessions"))],
+    user: Annotated[object, Depends(require_permission("nhan_su", "revoke_sessions"))],
 ) -> Response:
     # PBI-2008: log the user out everywhere.
     try:
@@ -546,7 +550,7 @@ def revoke_user_sessions(
 def list_user_sessions(
     user_id: int,
     admin: Users,
-    _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+    _: Annotated[object, Depends(require_permission("nhan_su", "read"))],
 ) -> list[SessionOut]:
     return admin.list_sessions(user_id)
 
@@ -555,7 +559,7 @@ def list_user_sessions(
 def list_user_activity(
     user_id: int,
     admin: Users,
-    _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+    _: Annotated[object, Depends(require_permission("nhan_su", "read"))],
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[AuditRow]:
     return [
@@ -577,11 +581,7 @@ def list_roles(
     svc: Service,
     # Tên vai trò trong một phòng là một phần của việc XEM phòng ban (màn chi tiết phòng
     # hiển thị chip vai trò; danh sách nhân sự vốn đã trả role_name với phong_ban:read).
-    # Ma trận quyền chi tiết vẫn khóa sau vai_tro:read (GET /roles/{id}/permissions).
-    _: Annotated[
-        object,
-        Depends(require_any_permission(("vai_tro", "read"), ("phong_ban", "read"))),
-    ],
+    _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
 ) -> list[RoleOut]:
     return svc.list_roles(department_id)
 
@@ -590,7 +590,7 @@ def list_roles(
 def create_role(
     payload: RoleCreate,
     svc: Service,
-    user: Annotated[object, Depends(require_permission("vai_tro", "create"))],
+    user: Annotated[object, Depends(require_permission("phong_ban", "create"))],
 ) -> RoleOut:
     try:
         return svc.create_role(
@@ -607,7 +607,7 @@ def rename_role(
     role_id: int,
     payload: RoleRename,
     svc: Service,
-    user: Annotated[object, Depends(require_permission("vai_tro", "update"))],
+    user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
 ) -> RoleOut:
     try:
         return svc.rename_role(role_id=role_id, name=payload.name, actor_id=user.id)
@@ -625,7 +625,7 @@ def rename_role(
 def delete_role(
     role_id: int,
     svc: Service,
-    user: Annotated[object, Depends(require_permission("vai_tro", "delete"))],
+    user: Annotated[object, Depends(require_permission("phong_ban", "delete"))],
 ) -> Response:
     try:
         svc.delete_role(role_id=role_id, actor_id=user.id)
@@ -639,7 +639,7 @@ def delete_role(
 @router.get("/roles/templates", response_model=list[RoleTemplateOut])
 def list_role_templates(
     svc: Service,
-    _: Annotated[object, Depends(require_permission("vai_tro", "read"))],
+    _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
 ) -> list[RoleTemplateOut]:
     """Bảng VAI MẪU — bộ quyền dựng sẵn cho các vai điển hình.
 
@@ -648,7 +648,7 @@ def list_role_templates(
 
     CHỈ ĐỌC — không có đường nào ghi thẳng vào DB từ đây. Giao diện điền mẫu vào ma trận đang mở,
     quản trị xem lại rồi mới bấm Lưu (đi qua `PUT /roles/{id}/permissions`, vẫn gác
-    `vai_tro:manage_permissions` như cũ). Nhờ vậy chọn nhầm mẫu cũng không hỏng gì.
+    `phong_ban:manage_permissions` như cũ). Nhờ vậy chọn nhầm mẫu cũng không hỏng gì.
     """
     return [RoleTemplateOut(**m) for m in svc.role_templates()]
 
@@ -657,7 +657,7 @@ def list_role_templates(
 def get_role_permissions(
     role_id: int,
     svc: Service,
-    _: Annotated[object, Depends(require_permission("vai_tro", "read"))],
+    _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
 ) -> list[PermissionRow]:
     try:
         return svc.get_matrix(role_id)
@@ -670,7 +670,7 @@ def save_role_permissions(
     role_id: int,
     payload: PermissionMatrixIn,
     svc: Service,
-    user: Annotated[object, Depends(require_permission("vai_tro", "manage_permissions"))],
+    user: Annotated[object, Depends(require_permission("phong_ban", "manage_permissions"))],
 ) -> list[PermissionRow]:
     try:
         return svc.save_matrix(

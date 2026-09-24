@@ -62,7 +62,12 @@ export const NAV: NavSection[] = [
     label: "Tổng quan",
     items: [
       { id: "dashboard", label: "Trang chủ", icon: "grid", module: "dashboard" },
-      { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
+      // Hồ sơ CỦA CHÍNH MÌNH ⇒ khoá `self_service` — ô mà `rbac_repo.O_MAC_DINH` cấp sẵn cho
+      // MỌI vai mới, và cũng chính là ô máy chủ gác dữ liệu tự phục vụ (`employees.py` ·
+      // `attendance.py`). Trước 24/09/2026 mục này ăn ké `dashboard`: tắt Trang chủ của một vai
+      // là họ mất luôn đường vào hồ sơ của chính mình. Ô này có DÒNG RIÊNG trong ma trận (nhóm
+      // "Tổng quan", ngay dưới Trang chủ) — nó quyết định mục menu này hiện hay không.
+      { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "self_service" },
       // "Nội quy công ty" ĐÃ DỜI xuống section "Nhân sự & Lương" (chốt của chủ 09/08/2026):
       // nội quy lao động là tài liệu của HCNS, để ở "Tổng quan" thì không ai đoán ra chỗ tìm.
     ],
@@ -71,13 +76,15 @@ export const NAV: NavSection[] = [
     id: "kinh-doanh",
     label: "Kinh doanh",
     items: [
-      // Bản đồ luồng khối bán hàng — hiện cho ai vào được BẤT KỲ màn KD nào (không đẻ quyền mới).
+      // Bản đồ luồng khối bán hàng. MỘT MỤC = MỘT Ô QUYỀN từ 24/09/2026 (mg `0329`): trước đó
+      // mục này ăn ké bốn khoá KD, nên ma trận phân quyền không có dòng nào mang tên nó và
+      // không ai tắt riêng được. Migration đã cấp `quy_trinh_kinh_doanh` cho mọi vai đang đọc
+      // được một trong bốn khoá cũ ⇒ không ai mất mục menu.
       {
         id: "quy-trinh-kinh-doanh",
         label: "Quy trình kinh doanh",
         icon: "workflow",
-        module: "tinh_gia_thanh",
-        modules: ["tinh_gia_thanh", "bao_gia", "don_hang_ban", "khach_hang"],
+        module: "quy_trinh_kinh_doanh",
       },
       { id: "tinh-gia", label: "Tính giá", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
@@ -124,10 +131,9 @@ export const NAV: NavSection[] = [
       // bỏ đánh số về `xep_lich`, mg `0314` chép quyền của `xep_lich_3` sang nên không ai mất
       // đường vào. Dấu trang cũ `/xep-lich-3` và `/xep-lich-cong-doan-2` không còn dùng được.
       { id: "xep-lich", label: "Xếp lịch", icon: "calendar", module: "xep_lich" },
-      // Hai ô quyền cùng mở màn này: tổ sửa chữa vào bằng `ky_thuat_may`, người ngoài báo máy hỏng
-      // vào bằng `yeu_cau_sua_chua` (màn tự chọn khung theo quyền).
-      { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may",
-        modules: ["ky_thuat_may", "yeu_cau_sua_chua"] },
+      // MỘT ô quyền cho MỘT mục (24/09/2026, mg `0332`): khung "Yêu cầu báo hỏng" là tab của
+      // chính màn này nên `yeu_cau_sua_chua` gỡ hẳn, còn lại ô chi tiết `ky_thuat_may:request`.
+      { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may" },
       { id: "phieu-bao-tri", label: "Phiếu bảo trì", icon: "clock", module: "phieu_bao_tri" },
     ],
   },
@@ -250,8 +256,10 @@ export const NAV: NavSection[] = [
       // MỘT mục — bên trong chia tab VIỆC (Yêu cầu · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
       // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
       { id: "kho-main", label: "Yêu cầu nhập xuất", icon: "warehouse", module: "kho" },
-      // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. AppShell ẩn nếu thiếu close_book.
-      { id: "kho-baocao", label: "Báo cáo kho", icon: "fileText", module: "kho" },
+      // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. MODULE RIÊNG từ 24/09/2026
+      // (mg `0329`) — trước đó gắn khoá `kho` rồi lọc thêm bằng ô chi tiết `kho:close_book`,
+      // nên một MÀN không có dòng nào của riêng nó trong ma trận phân quyền.
+      { id: "kho-baocao", label: "Báo cáo kho", icon: "fileText", module: "bao_cao_kho" },
     ],
   },
   {
@@ -326,8 +334,9 @@ export const NAV: NavSection[] = [
     label: "Quản lý hệ thống",
     items: [
       // Màn "Người dùng" ĐÃ BỎ: mọi tài khoản thuộc một hồ sơ nhân viên → quản tài khoản
-      // ngay trong Hồ sơ nhân sự (tab "Tài khoản & Quyền"). Quyền `nguoi_dung` vẫn gác các
-      // thao tác đó, chỉ là không còn màn riêng. "Phòng ban" dời sang Nhân sự & Lương.
+      // ngay trong Hồ sơ nhân sự (tab "Tài khoản & Quyền"). Khoá `nguoi_dung` cũng GỠ HẲN
+      // 24/09/2026 (mg `0331`) — bốn thao tác tài khoản thành ô chi tiết của `nhan_su`.
+      // "Phòng ban" dời sang Nhân sự & Lương.
       { id: "nhat-ky", label: "Nhật ký", icon: "activity", module: "activity_log" },
     ],
   },

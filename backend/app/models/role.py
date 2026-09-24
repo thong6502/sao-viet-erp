@@ -84,12 +84,13 @@ class RolePermission(Base):
     can_manage_status: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # Đặt lại mật khẩu người dùng (nguoi_dung): tách khỏi "sửa" hồ sơ.
+    # Đặt lại mật khẩu tài khoản của nhân viên (`nhan_su`): tách khỏi "sửa" hồ sơ.
     can_reset_password: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     # Nhóm 1 — quyền chi tiết đặc thù khác, tách khỏi CRUD thô:
-    # nguoi_dung: khóa/mở, thu hồi phiên, gán vai trò, chuyển phòng ban.
+    # `nhan_su`: khóa/mở tài khoản, thu hồi phiên, gán vai trò, điều chuyển phòng ban.
+    # (Bốn ô này thuộc khoá `nguoi_dung` cho tới 24/09/2026 — mg `0331` gộp về Hồ sơ nhân sự.)
     can_lock: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

@@ -8182,13 +8182,15 @@ export interface BaoCaoNXTRow {
   hang_nhom: string | null;
   dvt: string | null;
   dau_sl: number;
-  dau_gt: number;
+  // Bốn ô GIÁ TRỊ về null khi vai không có ô "Xem giá thành" của Kho — xem `_an_tien` bên
+  // `routers/kho_baocao.py`. Số lượng vẫn đủ, chỉ tiền là trống.
+  dau_gt: number | null;
   nhap_sl: number;
-  nhap_gt: number;
+  nhap_gt: number | null;
   xuat_sl: number;
-  xuat_gt: number;
+  xuat_gt: number | null;
   cuoi_sl: number;
-  cuoi_gt: number;
+  cuoi_gt: number | null;
   don_gia_bq: number | null;
 }
 

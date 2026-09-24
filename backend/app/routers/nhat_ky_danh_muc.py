@@ -39,10 +39,10 @@ LOAI_MODULE: dict[str, str | tuple[str, ...]] = {
     # chỉ để đổi tiền tố URL là chép lại y nguyên đoạn này.
     "ky_thuat_sua_chua": "ky_thuat_may",
     "ky_thuat_bao_tri": "ky_thuat_may",
-    # Yêu cầu báo hỏng (20/08/2026): HAI khoá. Người báo phải đọc được lịch sử lời báo của chính
-    # mình — nhất là dòng "đã tạo phiếu SC-0006" / "từ chối vì …", đó là câu trả lời cho họ. Chỉ
-    # để `ky_thuat_may` thì tab Lịch sử 403 với đúng người cần nó nhất.
-    "ky_thuat_yeu_cau": ("yeu_cau_sua_chua", "ky_thuat_may"),
+    # Yêu cầu báo hỏng: người báo phải đọc được lịch sử lời báo của chính mình — nhất là dòng "đã
+    # tạo phiếu SC-0006" / "từ chối vì …", đó là câu trả lời cho họ. Từ 24/09/2026 "Báo máy hỏng"
+    # là ô chi tiết của `ky_thuat_may` (mg `0332`) và ô đó tự hàm ý Xem, nên một khoá gác đủ.
+    "ky_thuat_yeu_cau": "ky_thuat_may",
 }
 
 

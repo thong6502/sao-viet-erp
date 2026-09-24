@@ -140,6 +140,15 @@ const FINE_ACTIONS: Record<
   // Khoá đi qua `xep_lich_2` → `xep_lich_3` rồi về đúng `xep_lich` (18/09/2026, mg `0314`) — đây
   // là màn Xếp lịch DUY NHẤT, lý do tách hai bit vẫn nguyên: người kéo-thả thử nghiệm không đương
   // nhiên là người chốt lịch cho xưởng chạy.
+  // "Báo máy hỏng" dời từ khoá `yeu_cau_sua_chua` (gỡ 24/09/2026, mg `0332`) — chủ chốt: *"bên
+  // thanh bên có 2 module sao ở quyền lại có 3"*. Nó là TAB của chính màn Sửa chữa máy.
+  ky_thuat_may: [
+    {
+      key: "can_request",
+      label: "Báo máy hỏng",
+      hint: "Gửi lời báo “máy tôi hỏng” ở tab “Yêu cầu báo hỏng”, và sửa lại lời báo CỦA CHÍNH MÌNH khi chưa ai tiếp nhận. Đây là ô cho người NGOÀI tổ kỹ thuật (thợ đứng máy, QC, tổ trưởng): nó KHÔNG cho tiếp nhận hay đóng phiếu sửa chữa — hai việc đó nằm ở cột Thao tác.",
+    },
+  ],
   xep_lich: [
     {
       key: "can_approve",
@@ -152,17 +161,18 @@ const FINE_ACTIONS: Record<
       hint: "Di sản của bàn xếp lịch theo công đoạn (xoá 18/09/2026): phát hành DÙ danh sách Vấn đề còn cảnh báo. Bàn cấp lệnh không chặn gì nên hiện KHÔNG endpoint nào hỏi tới bit này — cấp hay không đều không đổi hành vi hôm nay.",
     },
   ],
-  vai_tro: [{ key: "can_manage_permissions", label: "Sửa ma trận phân quyền" }],
-  nguoi_dung: [
-    { key: "can_reset_password", label: "Đặt lại mật khẩu" },
-    { key: "can_lock", label: "Khóa / Mở tài khoản" },
-    { key: "can_revoke_sessions", label: "Thu hồi phiên" },
-    { key: "can_assign_role", label: "Gán vai trò" },
-    { key: "can_transfer", label: "Chuyển phòng ban" },
-  ],
   phong_ban: [
     { key: "can_set_head", label: "Đặt trưởng phòng" },
     { key: "can_reparent", label: "Đổi cấp trên (cây tổ chức)" },
+    // Ô của khoá `vai_tro` cũ, dời về đây 24/09/2026 (mg `0330`) — chủ chốt: *"bản chất của sửa
+    // ma trận quyền nó phải là một cái chi tiết trong phòng ban chứ"*. Tách khỏi Thao tác (thêm ·
+    // đổi tên · xoá vai trò) để chống leo thang quyền: HCNS dựng được chỗ ngồi, chỉ người có ô
+    // này mới cấp được quyền cho chỗ ngồi đó.
+    {
+      key: "can_manage_permissions",
+      label: "Sửa ma trận phân quyền",
+      hint: "Cho SỬA và Lưu chính bảng này (tab “Vai trò & Quyền” của màn Phòng ban). Không có ô này thì vẫn xem được ma trận của từng vai nhưng mọi công tắc ở chế độ chỉ đọc.",
+    },
   ],
   // Kho: các ô chi tiết + công tắc chung Xem (can_read) + Lập phiếu (= TẠO + GHI SỔ + HỦY, can_create).
   //   · Tạo yêu cầu (can_request) — người XIN nhập/lĩnh vật tư.
@@ -192,10 +202,17 @@ const FINE_ACTIONS: Record<
       label: "Xem giá thành",
       hint: "Thấy ĐƠN GIÁ · THÀNH TIỀN · ở mọi bước kho (yêu cầu · phiếu nhập/xuất · tồn · lô · báo cáo). CHỈ kế toán kho bật — thủ kho thường KHÔNG có ô này. Ẩn ở cả máy chủ, không chỉ ẩn giao diện.",
     },
+    // Ô "Báo cáo kho + khóa kỳ" ĐÃ DỜI 24/09/2026 sang module RIÊNG `bao_cao_kho` (mg `0329`):
+    // đó là một MÀN trong thanh bên, nên nó phải có DÒNG của mình trong ma trận, không phải một
+    // ô chi tiết nấp trong panel của Kho. Cột `kho.can_close_book` giữ trong DB (một cửa cũ của
+    // màn Kho còn đọc), chỉ thôi bày ra đây.
+  ],
+  // Báo cáo kho: Xem = vào màn + sổ + NXT + export MISA. Ô chi tiết DUY NHẤT là việc GHI của màn.
+  bao_cao_kho: [
     {
       key: "can_close_book",
-      label: "Báo cáo kho + khóa kỳ (kế toán)",
-      hint: "Mở màn \"Báo cáo kho\": sổ nhập-xuất, Nhập-Xuất-Tồn, tính giá kỳ, xuất Excel theo mẫu MISA, và KHÓA KỲ (chốt sổ) toàn kho / từng kho. Chỉ kế toán kho.",
+      label: "Khóa kỳ (chốt sổ) + tính giá kỳ",
+      hint: "Chốt sổ kho theo kỳ (toàn kho / từng kho) và chạy tính giá kỳ. Người chỉ có Xem vẫn đọc được sổ nhập-xuất, Nhập-Xuất-Tồn và xuất Excel MISA, nhưng không chốt được kỳ nào.",
     },
   ],
   // DANH MỤC: đa số KHÔNG có quyền chi tiết — mỗi màn chỉ Xem + Thao tác.
@@ -217,9 +234,36 @@ const FINE_ACTIONS: Record<
       hint: "Cho nhập/sửa các trường lương, bảo hiểm, thuế trên hồ sơ nhân sự và lúc tạo hồ sơ mới. Quyền này luôn phải đi cùng quyền xem lương.",
     },
     { key: "can_manage_status", label: "Thao tác vòng đời (chính thức/nghỉ/đình chỉ)" },
-    { key: "can_transfer", label: "Điều chuyển & đổi chức danh" },
+    {
+      key: "can_transfer",
+      label: "Điều chuyển & đổi chức danh",
+      hint: "Chuyển nhân viên sang phòng/tổ khác và đổi chức danh — cả ở màn Hồ sơ (một người) lẫn nút “Điều chuyển” hàng loạt của màn Phòng ban. Khoá `nguoi_dung` cũ có một ô “Chuyển phòng ban” riêng; gộp về đây 24/09/2026 vì hai cửa làm đúng MỘT việc.",
+    },
     { key: "can_approve", label: "Duyệt yêu cầu cập nhật" },
     { key: "can_export", label: "Xuất Excel danh sách" },
+    // BỐN Ô DƯỚI ĐÂY dời từ khoá `nguoi_dung` (gỡ 24/09/2026, mg `0331`) — chủ chốt: *"gộp luôn
+    // người dùng vào hồ sơ nhân sự đi"*. Chúng gác tab "Tài khoản & Quyền" CỦA CHÍNH màn này, tên
+    // cột trong DB giữ nguyên nên vai cũ không mất gì.
+    {
+      key: "can_reset_password",
+      label: "Đặt lại mật khẩu",
+      hint: "Đặt lại mật khẩu tài khoản của nhân viên (tab “Tài khoản & Quyền” của hồ sơ). Tách khỏi “Sửa” vì sửa hồ sơ là việc thường ngày, còn đổi mật khẩu người khác là chiếm được tài khoản đó.",
+    },
+    {
+      key: "can_lock",
+      label: "Khóa / Mở tài khoản",
+      hint: "Khoá hoặc mở tài khoản đăng nhập của nhân viên. Người bị khoá không vào được hệ thống nhưng hồ sơ vẫn nguyên.",
+    },
+    {
+      key: "can_revoke_sessions",
+      label: "Thu hồi phiên",
+      hint: "Đăng xuất TẤT CẢ thiết bị đang mở của tài khoản đó — dùng khi máy bị mất hoặc nghi lộ mật khẩu.",
+    },
+    {
+      key: "can_assign_role",
+      label: "Gán vai trò",
+      hint: "Gán / đổi vai trò cho tài khoản (một người ở tab “Tài khoản & Quyền”, hàng loạt ở màn Phòng ban), và tạo hồ sơ mới kèm tài khoản có vai. Đây là ô chống leo thang quyền: có nó là phát được quyền của người khác.",
+    },
   ],
   // Màn CHẤM CÔNG tách khoá riêng 10/08/2026. Cột Xem = Bảng công tháng + Nhật ký chấm công;
   // cột Chỉnh sửa = ô "Cấu hình chấm công" (Điểm chấm công · Khai ca · Lịch & Ngày lễ). Ba ô
@@ -375,11 +419,11 @@ const FINE_ACTIONS: Record<
 // không hiện ⓘ — thà thiếu còn hơn mô tả sai.
 const MODULE_HINTS: Record<string, string> = {
   self_service:
-    "Việc người lao động làm với hồ sơ CỦA CHÍNH MÌNH: tự chấm công, xem công và phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng. Vai mới sinh ra đã bật sẵn ô này. Tắt đi thì người đó không tự chấm công được nữa — cân nhắc trước khi bỏ tick.",
+    "Xem: mở mục “Hồ sơ của tôi” — hồ sơ, sổ công, phiếu lương, đơn nghỉ / tăng ca của CHÍNH MÌNH, và gửi đề nghị cập nhật thông tin. Vai mới sinh ra đã bật sẵn. Tắt đi là mất mục menu đó; việc tự chấm công ở màn Chấm công KHÔNG đi qua ô này.",
   giao_hang:
     "Xem: mở màn Giao hàng — tab “Đơn giao hàng”, lọc theo Phạm vi. Thao tác: gửi yêu cầu giao từ đơn hàng bán, bấm đã lấy hàng, nhập kết quả + số km. Lên đơn giao hàng và tab Nhân viên giao hàng là hai ô riêng bên dưới. Kho KHÔNG cần ô này — nút Duyệt của kho nằm trong Hộp yêu cầu và đi theo ô Kho.",
   nhan_su:
-    "Xem: mở Hồ sơ nhân sự (danh sách NV, chi tiết hồ sơ). Chỉnh sửa: thêm/sửa/xóa hồ sơ. Lương & BHXH của NV là dữ liệu nhạy cảm nên tách riêng thành quyền xem và quyền sửa. Màn Chấm công KHÔNG còn nằm trong ô này — nó có ô riêng ngay bên dưới.",
+    "Xem: mở Hồ sơ nhân sự (danh sách NV, chi tiết hồ sơ, và tab “Tài khoản & Quyền” của từng người). Chỉnh sửa: thêm/sửa/xóa hồ sơ và tạo/sửa tài khoản đăng nhập gắn với hồ sơ. Lương & BHXH của NV là dữ liệu nhạy cảm nên tách riêng thành quyền xem và quyền sửa. Đặt lại mật khẩu, khóa tài khoản, thu hồi phiên, gán vai trò nằm ở quyền chi tiết (dời từ ô “Người dùng” cũ 24/09/2026 — màn đó không còn). Màn Chấm công KHÔNG nằm trong ô này — nó có ô riêng ngay bên dưới.",
   cham_cong:
     "Xem: mở màn Chấm công (Bảng công tháng + Nhật ký chấm công) trong phạm vi được cấp. Chỉnh sửa: ba tab cấu hình — Điểm chấm công, Khai ca, Lịch & Ngày lễ (gác cả xem lẫn sửa, vì toạ độ điểm chấm công và lưới phân ca không phải thứ ai cũng cần đọc). Chấm bù và Chốt kỳ nằm ở quyền chi tiết. Nhân viên tự chấm công cho mình thì dùng ô Tự phục vụ, không cần ô này.",
   noi_quy:
@@ -419,17 +463,11 @@ const MODULE_HINTS: Record<string, string> = {
   xep_lich:
     "Màn Xếp lịch (bàn cấp LỆNH SẢN XUẤT — đặt MỘT giờ bắt đầu, hệ tự ra ngày kết thúc). Xem: nhìn lịch cả xưởng theo tuần. Chỉnh sửa: kéo-thả đặt/dời giờ bắt đầu, bỏ lịch. PHÁT HÀNH nằm ở quyền chi tiết — màn này không chặn gì khác, nên ô đó là cửa duy nhất.",
   ky_thuat_may:
-    "CHỈ màn Sửa chữa máy. Xem: xem phiếu + ảnh hiện trạng/chứng thực — hợp với quản đốc, điều độ. Chỉnh sửa: ghi nhận máy hỏng, ghi đã sửa gì, tải ảnh và xác nhận xong — hợp với tổ sửa chữa. Không có quyền duyệt riêng: cửa chặn là ẢNH chứng thực, thiếu ảnh thì KHÔNG AI đóng được phiếu, kể cả giám đốc.",
+    "CHỈ màn Sửa chữa máy — cả hai tab của nó. Xem: mở màn, đọc phiếu sửa chữa + ảnh hiện trạng/chứng thực, và nhìn hàng chờ báo hỏng (thấy máy đó có người báo rồi thì thôi báo trùng) — hợp với quản đốc, điều độ. Chỉnh sửa: TIẾP NHẬN lời báo thành phiếu, ghi đã sửa gì, tải ảnh và xác nhận xong — hợp với tổ sửa chữa. Gửi lời báo máy hỏng là ô chi tiết riêng, cấp cho cả xưởng mà không mở phiếu. Không có quyền duyệt riêng: cửa chặn là ẢNH chứng thực, thiếu ảnh thì KHÔNG AI đóng được phiếu, kể cả giám đốc.",
   phieu_bao_tri:
     "Màn Phiếu bảo trì (bảo dưỡng định kỳ sinh từ lịch của máy). Tách khỏi Sửa chữa máy 17/08/2026: điều độ cần biết máy nào sắp nằm để né khi xếp lịch, mà không cần đọc phiếu máy hỏng. Xem: xem phiếu + lịch đến hạn. Chỉnh sửa: sinh phiếu từ lịch, tick hạng mục, dời lịch, tải ảnh, xác nhận xong. Cửa chặn vẫn là ẢNH.",
-  yeu_cau_sua_chua:
-    "Cùng màn Sửa chữa máy, nhưng là khung “Yêu cầu báo hỏng” dành cho người NGOÀI tổ kỹ thuật (thợ đứng máy, QC, tổ trưởng). Xem: nhìn hàng chờ báo hỏng — để không hai người cùng báo một cái máy. Chỉnh sửa: gửi lời báo và sửa lại lời báo CỦA CHÍNH MÌNH khi chưa ai tiếp nhận. Ô này KHÔNG cho mở/đóng phiếu sửa chữa; biến lời báo thành phiếu là quyền “Sửa chữa máy”.",
-  vai_tro:
-    "Xem: xem danh sách vai trò và ma trận quyền. Chỉnh sửa: thêm/sửa/xóa vai trò. Muốn SỬA được chính ma trận này thì cần quyền chi tiết “Sửa ma trận phân quyền”.",
-  nguoi_dung:
-    "Xem: danh sách tài khoản. Chỉnh sửa: tạo/sửa tài khoản. Đặt lại mật khẩu, khóa tài khoản, thu hồi phiên, gán vai trò, chuyển phòng ban nằm ở quyền chi tiết.",
   phong_ban:
-    "Xem: xem cây tổ chức phòng ban / tổ. Chỉnh sửa: thêm/sửa/xóa phòng ban. Đặt trưởng phòng và đổi cấp trên trong cây nằm ở quyền chi tiết.",
+    "Xem: mở màn Phòng ban — cây tổ chức, nhân sự trong phòng và tab “Vai trò & Quyền” (đọc ma trận của từng vai). Chỉnh sửa: thêm/sửa/xóa phòng ban VÀ thêm/đổi tên/xóa vai trò trong phòng. Đặt trưởng phòng, đổi cấp trên và “Sửa ma trận phân quyền” nằm ở quyền chi tiết.",
   ke_toan:
     "Xem: mở màn Đơn mua hàng của kế toán (danh sách PMH đã duyệt, chờ chi). CHỈ màn này — Phiếu chi, Phiếu thu, Công nợ và Tài khoản ngân hàng là các ô riêng bên dưới.",
   phieu_chi:
@@ -464,9 +502,10 @@ export const SCOPES: { value: Scope; label: string }[] = [
 // Khoá CŨ đã gộp về nơi khác — ẨN khỏi ma trận, KHÔNG xoá dữ liệu (ĐẢO ĐƯỢC: xoá set này là chúng
 // hiện lại y cũ). Đã soi đủ BA nơi (cổng router · `authz.can` ở service · `can(...)` ở giao diện)
 // + đếm dữ liệu thật ngày 26/08/2026 — không dòng code nào còn đọc chúng:
-//   · `self_service`       — BỎ 15/08/2026. Hằng `MODULE_TU_PHUC_VU` còn khai ở 6 router và
-//                            `SELF_SERVICE_MODULE` còn export ở Sidebar, nhưng KHÔNG nơi nào dùng.
-//                            20/23 vai đang bật ⇒ ẩn mà KHÔNG ai mất quyền (vì không ai đọc).
+//   · `self_service`       — ĐÃ QUAY LẠI 24/09/2026, xem chú thích trong set. Ẩn nó ngày
+//                            26/08/2026 là đúng lúc đó (không ai đọc ô này ở máy chủ), nhưng từ
+//                            khi mục menu "Hồ sơ của tôi" thôi ăn ké khoá `dashboard` thì chính
+//                            ô này quyết định mục đó có hiện không — ẩn đi là màn không cấp được.
 //   · `yeu_cau_chinh_cong` — gộp về `cham_cong.approve`. Số khớp: 2 vai ↔ 2 vai.
 //   · `di_muon`            — gộp về `cham_cong.approve_late_early`. Số khớp: 3 vai ↔ 3 vai. Việc
 //                            CUỐI CÙNG của nó (badge phiếu chờ duyệt + kênh SSE) đã chuyển sang
@@ -475,7 +514,11 @@ export const SCOPES: { value: Scope; label: string }[] = [
 // Xoá HẲN (dòng `role_permissions` + khoá ở `seed.py`/`deps.py` + hằng chết) để LƯỢT SAU — việc đó
 // không đảo được nên cần migration + chủ gật.
 const MODULE_DA_NGUNG = new Set([
-  "self_service", "di_muon", "yeu_cau_chinh_cong",
+  // `self_service` ĐÃ BỎ khỏi danh sách này (24/09/2026): "Hồ sơ của tôi" là một MỤC MENU thật,
+  // nên nó phải có dòng riêng trong ma trận như mọi mục khác — khối "Tổng quan" của thanh bên có
+  // hai mục thì nhóm "Tổng quan" ở đây cũng phải có hai dòng. Ô này được `rbac_repo.O_MAC_DINH`
+  // cấp sẵn cho vai MỚI, nhưng cấp sẵn ≠ không được xem: quản trị vẫn cần thấy vai nào đang có.
+  "di_muon", "yeu_cau_chinh_cong",
   // `bai_ghep_2` KHÔNG chết — chỉ ĐANG ẨN theo cờ `BAI_GHEP_ENABLED` (10/09/2026). Ẩn nốt ở đây
   // vì màn đã rút khỏi menu: để ô lại thì quản trị tick xong vẫn không ai thấy màn nào mở ra.
   // Dòng `role_permissions` đã cấp GIỮ NGUYÊN trong DB, bật cờ lại là ô hiện y như cũ.
@@ -493,81 +536,107 @@ const MODULE_GROUPS: {
   /** Nhóm KHÔNG có cột Thao tác (Tổ sản xuất — ba quyền chi tiết thay nó). */
   noWrite?: boolean;
 }[] = [
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+  // MỘT NHÓM Ở ĐÂY = MỘT KHỐI CỦA THANH BÊN. MỘT DÒNG = MỘT MỤC MENU.
+  //
+  // Chủ dự án chốt 24/09/2026: *"một module thì nó là một cái bên sidebar, một phân hệ sẽ bao
+  // gồm nhiều module"*. Vì vậy `label` ở đây lấy ĐÚNG chữ của `NAV[].label` bên `Sidebar.tsx`
+  // (kể cả "Kho hàng", "Cấu hình danh mục", "Nhân sự & Lương", "Quản lý hệ thống" — trước đây
+  // rút gọn thành "Kho"/"Danh mục"/"Nhân sự"/"Hệ thống", đọc hai bên thành hai bộ tên khác
+  // nhau), và thứ tự module trong nhóm bám đúng thứ tự mục menu của khối đó.
+  //
+  // Thiếu một khoá ở đây thì nó rơi vào nhóm "Khác" ở CUỐI ma trận — nhóm đó mặc định THU GỌN
+  // khi chưa cấp gì (`open = granted > 0`), nên module mới coi như tàng hình: không ai cấp ⇒
+  // menu không hiện ⇒ tưởng module chưa dựng. `bai_ghep_2` dính bẫy đó 18/08/2026; bốn khoá
+  // `lenh_san_xuat` · `theo_doi_san_xuat` · `tai_san` · `dm_xe` nằm lại trong đó tới 24/09/2026.
+  // Guard `test_ma_tran_quyen_khop_thanh_ben.py` nay canh cả hai chiều — thêm màn mà quên khai
+  // vào đây là test đỏ ngay, không đợi ai mở dialog ra mới thấy.
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+  {
+    key: "tong_quan",
+    label: "Tổng quan",
+    // Khối "Tổng quan" của thanh bên có HAI mục — ma trận cũng phải có hai dòng, cùng tên, cùng
+    // thứ tự: Trang chủ (`dashboard`) rồi Hồ sơ của tôi (`self_service`). `dashboard` trước nằm ở
+    // nhóm "Hệ thống" (ma trận xếp Trang chủ chung với Nhật ký hệ thống, trong khi thanh bên để
+    // nó ở khối đầu tiên) và `self_service` thì bị ẩn hẳn — 24/09/2026 dời cả hai về đây.
+    modules: ["dashboard", "self_service"],
+  },
   {
     key: "kinh_doanh",
     label: "Kinh doanh",
-    // `giao_hang` đứng ngay sau `don_hang_ban`: nó là khúc SAU của đơn, và người cấp quyền dò
-    // theo màn hình chứ không theo tên kỹ thuật. Thiếu ở đây thì nó rơi vào nhóm "Khác" —
-    // vẫn cấp được, nhưng phải cuộn xuống cuối mới thấy.
-    modules: ["khach_hang", "bao_gia", "don_hang_ban", "giao_hang", "tinh_gia_thanh"],
+    // Thứ tự = thứ tự menu: Quy trình → Tính giá → Báo giá → Đơn hàng → Giao hàng → Khách hàng.
+    // `quy_trinh_kinh_doanh` là khoá RIÊNG từ 24/09/2026 (mg `0329`) — trước đó mục menu đó ăn
+    // ké bốn khoá còn lại nên ma trận không có dòng nào mang tên nó.
+    modules: [
+      "quy_trinh_kinh_doanh",
+      "tinh_gia_thanh",
+      "bao_gia",
+      "don_hang_ban",
+      "giao_hang",
+      "khach_hang",
+    ],
   },
   // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Sản xuất" để người cấp quyền dò theo màn hình.
-  // 6 mục menu → 6 dòng; trước 17/08/2026 chỉ có 2, bật đủ 2/2 vẫn không siết được màn nào.
-  // Thiếu một khoá ở đây thì nó rơi vào nhóm "Khác" — mà nhóm "Khác" mặc định THU GỌN khi chưa
-  // cấp gì (`open = granted > 0`), nên module mới coi như tàng hình: không cấp được ⇒ menu không
-  // hiện ⇒ tưởng module chưa dựng. `bai_ghep_2` dính đúng bẫy đó ngày 18/08/2026.
+  // Trước 17/08/2026 cả khối treo trên đúng 2 khoá; bật đủ 2/2 vẫn không siết được màn nào.
   {
     key: "san_xuat",
     label: "Sản xuất",
+    // `lenh_san_xuat` + `theo_doi_san_xuat` ĐƯA VỀ ĐÂY 24/09/2026: chúng là mục 2 và 3 của khối
+    // Sản xuất trong thanh bên, nhưng ma trận bỏ quên nên rơi xuống "Khác" suốt từ 31/08/2026.
+    // `yeu_cau_sua_chua` ("Báo máy hỏng") GỠ HẲN 24/09/2026 (mg `0332`) — chủ chốt: *"bên thanh
+    // bên có 2 module sao ở quyền lại có 3"*. Nó không có mục menu riêng vì là KHUNG THỨ HAI của
+    // chính màn "Sửa chữa máy" (xem đầu `SuaChuaMayPage.tsx`) ⇒ thành ô chi tiết "Báo máy hỏng"
+    // của `ky_thuat_may`, không còn là một dòng.
     modules: [
       "san_xuat",
+      "lenh_san_xuat",
+      "theo_doi_san_xuat",
       "ke_hoach_vat_tu",
       "bai_ghep_2",
       "xep_lich",
       "ky_thuat_may",
-      "yeu_cau_sua_chua",
       "phieu_bao_tri",
     ],
   },
-  { key: "kho", label: "Kho", modules: ["kho"] },
-  // Thu mua tách khỏi nhóm Kho (10/08/2026): mỗi MÀN một ô quyền + phạm vi riêng, cấp tới đâu
-  // làm được tới đó. Thiếu một khoá ở đây thì nó rơi vào nhóm "Khác" — vẫn cấp được, chỉ khó tìm.
   {
     key: "thu_mua",
     label: "Thu mua",
+    // Tách khỏi nhóm Kho (10/08/2026): mỗi MÀN một ô quyền + phạm vi riêng.
     modules: ["yeu_cau_mua_hang", "thu_mua", "nha_cung_cap"],
   },
   {
     key: "ke_toan",
     label: "Kế toán",
+    // Thứ tự = menu: Đơn mua hàng → Phiếu chi → Công nợ phải trả → Phiếu thu → Công nợ phải thu
+    // → Báo cáo → Tài khoản ngân hàng → Tài sản & CCDC. `tai_san` ĐƯA VỀ ĐÂY 24/09/2026 (trước
+    // rơi vào "Khác" từ lúc dựng màn).
     modules: [
       "ke_toan",
       "phieu_chi",
-      "phieu_thu",
       "cong_no_phai_tra",
+      "phieu_thu",
       "cong_no_phai_thu",
       "bao_cao_cong_no",
       "tk_ngan_hang",
+      "tai_san",
     ],
   },
   {
-    key: "nhan_su",
-    label: "Nhân sự",
-    // ĐÃ GỠ 15/08/2026: "Đi muộn / về sớm" và "Yêu cầu chỉnh công" — hai TAB của màn Chấm công,
-    // không phải hai màn. Quyền của chúng nay là ô chi tiết của chính Chấm công (mg 0194); để lại
-    // hai dòng này thì tick cũng không mở thêm gì.
-    // Ô "Tự phục vụ" ĐÃ BỎ 15/08/2026: phần "của tôi" là quyền đương nhiên của mọi tài khoản, nên
-    // nó không phải một dòng để cấp. Nó cũng không phải một MÀN — nó cắt ngang bốn màn khác.
-    modules: [
-      // Phòng ban ĐỨNG TRƯỚC Hồ sơ nhân sự (chủ chốt 11/08/2026): cây tổ chức là cái khung chứa
-      // hồ sơ, đọc từ trên xuống mới thuận. Trước đây nó nằm mãi dưới nhóm "Hệ thống".
-      "phong_ban",
-      "nhan_su",
-      "cham_cong",
-      "nghi_phep",
-      "tang_ca",
-      "luong",
-      "noi_quy",
-    ],
+    key: "kho_hang",
+    label: "Kho hàng",
+    // Hai mục menu = hai dòng. `bao_cao_kho` tách khỏi `kho` ngày 24/09/2026 (mg `0329`): trước
+    // đó màn Báo cáo kho không có dòng riêng, muốn cấp phải mở panel chi tiết của Kho rồi tick ô
+    // "Báo cáo kho + khóa kỳ". Các kho ĐÃ KHAI BÁO (Kho Giấy, Kho Mực…) vẫn không có dòng ở đây:
+    // chúng là mục ĐỘNG sinh theo danh mục kho, gác chung bằng `kho` + ô "Xem tồn kho".
+    modules: ["kho", "bao_cao_kho"],
   },
   {
-    key: "danh_muc",
-    label: "Danh mục",
-    // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Cấu hình danh mục" để người cấp quyền dò theo
-    // màn hình. 12 mục menu → 12 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
-    // (Màn "Lý do & lỗi SX" + ô quyền `dm_ly_do_san_xuat` ĐÃ GỠ HẲN — mg 0288. Màn "Bù hao" +
-    // `dm_bu_hao` GỠ 22/09/2026 — mg 0327: bậc bù hao nay khai trong chính Công đoạn, không còn
-    // màn riêng để cấp quyền. Vậy 12/12.)
+    key: "cau_hinh_danh_muc",
+    label: "Cấu hình danh mục",
+    // MỘT MÀN = MỘT DÒNG, đúng thứ tự menu "Cấu hình danh mục". 12 mục menu → 12 dòng.
+    // (Màn "Lý do & lỗi SX" + ô `dm_ly_do_san_xuat` ĐÃ GỠ HẲN — mg 0288. Màn "Bù hao" +
+    // `dm_bu_hao` GỠ 22/09/2026 — mg 0327: bậc bù hao nay khai trong chính Công đoạn.)
+    // `dm_xe` ĐƯA VỀ ĐÂY 24/09/2026 — trước rơi vào "Khác" kể từ khi dựng màn (12/09/2026).
     modules: [
       "dm_loai_san_pham",
       "dm_thiet_bi",
@@ -580,15 +649,41 @@ const MODULE_GROUPS: {
       "khuon_be",
       "dm_kho_hang",
       "dm_kcs_tieu_chi",
+      "dm_xe",
     ],
     noScope: true,
   },
   {
-    key: "he_thong",
-    label: "Hệ thống",
-    // `phong_ban` đã dời sang nhóm Nhân sự (11/08/2026) — nó là cây tổ chức nhân sự, không phải
-    // cấu hình hệ thống.
-    modules: ["dashboard", "vai_tro", "nguoi_dung", "activity_log"],
+    key: "nhan_su_luong",
+    label: "Nhân sự & Lương",
+    // ĐÃ GỠ 15/08/2026: "Đi muộn / về sớm" và "Yêu cầu chỉnh công" — hai TAB của màn Chấm công,
+    // không phải hai màn; quyền của chúng nay là ô chi tiết của chính Chấm công (mg 0194).
+    // Phòng ban ĐỨNG TRƯỚC Hồ sơ nhân sự (chủ chốt 11/08/2026): cây tổ chức là cái khung chứa
+    // hồ sơ, đọc từ trên xuống mới thuận — và thanh bên cũng xếp đúng thứ tự đó.
+    //
+    // HAI KHOÁ GỠ HẲN 24/09/2026 vì không khoá nào có mục thanh bên của riêng nó:
+    //   • `vai_tro` (mg `0330`, chủ chốt: *"làm gì có module vai trò đâu; bản chất của sửa ma
+    //     trận quyền nó phải là một cái chi tiết trong phòng ban chứ"*) — vai trò là TAB của màn
+    //     Phòng ban nên đi theo ô `phong_ban`, việc cấp quyền thành ô chi tiết "Sửa ma trận phân
+    //     quyền" của chính ô đó.
+    //   • `nguoi_dung` (mg `0331`, chủ chốt: *"gộp luôn người dùng vào hồ sơ nhân sự đi"*) — màn
+    //     "Người dùng" riêng đã bỏ, tài khoản đăng nhập là TAB "Tài khoản & Quyền" của màn Hồ sơ
+    //     nhân sự, nên bốn ô quản trị tài khoản thành quyền chi tiết của `nhan_su`.
+    modules: [
+      "phong_ban",
+      "nhan_su",
+      "cham_cong",
+      "nghi_phep",
+      "tang_ca",
+      "luong",
+      "noi_quy",
+    ],
+  },
+  {
+    key: "quan_ly_he_thong",
+    label: "Quản lý hệ thống",
+    // Khối này của thanh bên chỉ có MỘT mục ("Nhật ký") ⇒ ma trận cũng đúng MỘT dòng.
+    modules: ["activity_log"],
   },
 ];
 
@@ -723,24 +818,44 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   bai_ghep_2: ["all"],
   xep_lich: ["all"],
   phieu_bao_tri: ["all"],
-  // Không có “chỉ của tôi”: ai cũng phải THẤY hết yêu cầu đang chờ thì mới thôi báo trùng. Việc
-  // “chỉ sửa lời báo của mình” backend chặn bằng người gửi, không bằng phạm vi.
-  yeu_cau_sua_chua: ["all"],
+  // Hai khoá tách ra 24/09/2026 (mg `0329`) cũng nằm trong `SCOPELESS_MODULES` của máy chủ nhưng
+  // ở nhóm CÓ cột Phạm vi (Kinh doanh · Kho hàng), nên khoá về một lựa chọn để ô hiện mờ thay vì
+  // bày ba lựa chọn mà chọn gì cũng ra `all`.
+  // Bản đồ luồng: một bức tranh chung, không có "quy trình của tôi".
+  quy_trinh_kinh_doanh: ["all"],
+  // Sổ kho là sổ của CẢ KHO — không có "báo cáo của tôi".
+  bao_cao_kho: ["all"],
+  // Nội quy lao động là tài liệu CHUNG toàn công ty — không có "nội quy của tôi" hay "nội quy
+  // của phòng tôi". Ô Xem đã khoá bật sẵn cho mọi vai; 24/09/2026 khoá nốt ô phạm vi (chủ chốt:
+  // *"nội quy công ty mặc định tất cả và không cho chỉnh sửa"*), máy chủ ép `all` lúc lưu.
+  noi_quy: ["all"],
+  // "Hồ sơ của tôi" chỉ có MỘT phạm vi đúng nghĩa: của chính mình. Mọi đường `/me` tự lọc theo hồ
+  // sơ gắn với tài khoản nên không router nào đọc scope của khoá này — bày ba lựa chọn ở đây chỉ
+  // khiến người cấp quyền tưởng mình vừa mở cho ai đó xem hồ sơ người khác.
+  self_service: ["own"],
 };
 
 //: Ô CHỈ BẬT ĐƯỢC khi phạm vi là "Tất cả" (chủ chốt 15/08/2026).
 //: Ba tab cấu hình dưới đây ghi vào dữ liệu DÙNG CHUNG cả nhà máy — đổi lịch lễ hay khai ca là
 //: đổi CÔNG của toàn bộ nhân viên, không phải của một tổ. Máy chủ cũng chặn (403), nên không khai
 //: ở đây thì người cấp quyền tick được mà người dùng bấm vào ăn lỗi.
+//: Khai theo CẶP `khoá:cột` từ 24/09/2026 — trước đó chỉ khai tên cột, mà tên cột dùng chung giữa
+//: các màn: `can_lock` của Chấm công là "Chốt kỳ công" (đúng là phải toàn công ty) còn `can_lock`
+//: của Hồ sơ nhân sự là "Khoá / Mở tài khoản" (HCNS phạm vi một phòng vẫn khoá được tài khoản
+//: người phòng mình). Khai trần tên cột thì ô thứ hai bị làm mờ oan.
 const O_DOI_PHAM_VI_TOAN_CTY: ReadonlySet<string> = new Set([
-  "can_manage_locations",
-  "can_manage_shifts",
-  "can_manage_calendar",
+  "cham_cong:can_manage_locations",
+  "cham_cong:can_manage_shifts",
+  "cham_cong:can_manage_calendar",
   // Chốt kỳ công / Mở lại kỳ: máy chủ ĐÃ đòi phạm vi "Tất cả" từ đợt trước, nhưng ma trận không
   // nói ra ⇒ tick được rồi bấm mới ăn 403. Một cú bấm đóng băng bảng công của TOÀN CÔNG TY; chốt
   // nửa nhà máy thì bảng lương không biết nửa nào là nửa nào.
-  "can_lock",
+  "cham_cong:can_lock",
 ]);
+
+//: Ô này có đòi phạm vi "Tất cả" không? (khoá màn + tên cột)
+const doiPhamViToanCty = (khoa: string, cot: string) =>
+  O_DOI_PHAM_VI_TOAN_CTY.has(`${khoa}:${cot}`);
 
 const CANH_BAO_PHAM_VI =
   "Ô này đụng vào dữ liệu dùng chung của CẢ NHÀ MÁY (điểm chấm công · ca · lịch lễ · chốt kỳ " +
@@ -1037,7 +1152,9 @@ export function PermissionMatrix({
                               // nhưng bị làm mờ — nhìn như đã cấp, mà bấm vào ăn 403 vì máy chủ
                               // chặn. Tắt hẳn để cái nhìn thấy đúng bằng cái có thật.
                               if (moi !== "all") {
-                                O_DOI_PHAM_VI_TOAN_CTY.forEach((k) => {
+                                O_DOI_PHAM_VI_TOAN_CTY.forEach((cap) => {
+                                  const [khoa, k] = cap.split(":");
+                                  if (khoa !== row.module_key) return;
                                   if ((row as unknown as Record<string, boolean | undefined>)[k]) {
                                     onToggle(row.module_key, k as ActionKey, false);
                                   }
@@ -1068,10 +1185,10 @@ export function PermissionMatrix({
                                 disabled={
                                   readOnly ||
                                   !oSong(row.module_key, a.key.replace("can_", "")) ||
-                                  (O_DOI_PHAM_VI_TOAN_CTY.has(a.key) && row.scope !== "all")
+                                  (doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all")
                                 }
                                 title={
-                                  O_DOI_PHAM_VI_TOAN_CTY.has(a.key) && row.scope !== "all"
+                                  doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all"
                                     ? CANH_BAO_PHAM_VI
                                     : oSong(row.module_key, a.key.replace("can_", ""))
                                       ? a.hint
@@ -1089,7 +1206,7 @@ export function PermissionMatrix({
                                 {a.label}
                                 {/* Nói RA MẶT lý do không bật được — nằm trong tooltip thì người
                                     cấp quyền phải rê chuột mới biết, mà họ có biết đâu mà rê. */}
-                                {O_DOI_PHAM_VI_TOAN_CTY.has(a.key) && row.scope !== "all" && (
+                                {doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all" && (
                                   <span className="rdx-perm__fine-warn" title={CANH_BAO_PHAM_VI}>
                                     cần Phạm vi “Tất cả”
                                   </span>

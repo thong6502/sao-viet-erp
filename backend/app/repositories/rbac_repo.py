@@ -338,6 +338,10 @@ class RoleRepository:
             self.db.add(RolePermission(
                 role_id=role.id, module_key=khoa, can_read=True,
                 can_create=(khoa == "self_service"),
+                # `noi_quy` là tài liệu CHUNG toàn công ty ⇒ phạm vi `all` ngay từ lúc sinh vai
+                # (24/09/2026). Để mặc định `own` thì ô chọn phạm vi — nay đã khoá về một lựa
+                # chọn "Tất cả" — hiện RỖNG vì giá trị đang lưu không nằm trong danh sách.
+                scope=("all" if khoa == "noi_quy" else "own"),
             ))
         self.db.commit()
         return role
