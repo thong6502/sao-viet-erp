@@ -8,6 +8,7 @@ import {
   type PhieuTinhGiaListItem,
   type PhieuTinhGiaStatsOut,
 } from "../api/client";
+import { useCan } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
@@ -52,6 +53,9 @@ export function PhieuTinhGiaListView({
   onNew: () => void;
 }) {
   const { token } = useAuth();
+  // Vai không có ô "Thêm mới" ở phân hệ Tính giá thì KHÔNG bày nút lập phiếu: bấm vào chỉ mở được
+  // form rỗng rồi ăn 403 lúc lưu — người dùng nhập xong cả phiếu mới biết mình không có quyền.
+  const taoDuoc = useCan()("tinh_gia_thanh", "create");
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [items, setItems] = useState<PhieuTinhGiaListItem[]>([]);
@@ -115,9 +119,11 @@ export function PhieuTinhGiaListView({
         </div>
         <div className="tg-head__actions">
           {/* Chỉ MỞ FORM, không POST: phiếu rỗng không được sinh ra rồi bỏ lại trong DB. */}
-          <Button variant="accent" onClick={onNew}>
-            <PlusIcon /> Lập phiếu tính giá
-          </Button>
+          {taoDuoc && (
+            <Button variant="accent" onClick={onNew}>
+              <PlusIcon /> Lập phiếu tính giá
+            </Button>
+          )}
         </div>
       </header>
 
@@ -206,11 +212,11 @@ export function PhieuTinhGiaListView({
                       <Button variant="ghost" onClick={() => setQ("")}>
                         Xóa tìm kiếm
                       </Button>
-                    ) : (
+                    ) : taoDuoc ? (
                       <Button variant="ghost" onClick={onNew}>
                         + Lập phiếu đầu tiên
                       </Button>
-                    )}
+                    ) : null}
                   </div>
                 </td>
               </tr>

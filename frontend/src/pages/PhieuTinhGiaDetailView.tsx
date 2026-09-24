@@ -1233,6 +1233,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   // Id THẬT của phiếu: null tới khi lần lưu đầu tiên chạy xong (POST). Từ đó trở đi là PUT.
   const [pid, setPid] = useState<number | null>(id);
   const daLuu = pid != null;
+  // Phiếu chưa lưu đi đường POST (ô "Thêm mới"), phiếu đã lưu đi đường PUT (ô "Chỉnh sửa") — hỏi
+  // ĐÚNG ô mà máy chủ sẽ gác, đừng gộp một cờ chung. Thiếu ô tương ứng thì phiếu về chế độ XEM:
+  // ẩn hết nút đổi nội dung và khoá nút lưu, chứ không để bấm thoải mái rồi 403 ở bước cuối.
+  const suaDuoc = can("tinh_gia_thanh", daLuu ? "update" : "create");
 
   // --- Danh mục nguồn ---
   const [loaiSPs, setLoaiSPs] = useState<Row[]>([]);
@@ -1905,11 +1909,13 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
             variant="accent"
             onClick={calc}
             loading={calcing}
-            disabled={!token || loading || (!daLuu && comps.length === 0)}
+            disabled={!token || loading || !suaDuoc || (!daLuu && comps.length === 0)}
             title={
-              !daLuu && comps.length === 0
-                ? "Thêm sản phẩm trước — phiếu trống không được lưu"
-                : "Lưu phiếu & tính lại giá vốn"
+              !suaDuoc
+                ? "Bạn chỉ được xem phiếu này — không có quyền lưu"
+                : !daLuu && comps.length === 0
+                  ? "Thêm sản phẩm trước — phiếu trống không được lưu"
+                  : "Lưu phiếu & tính lại giá vốn"
             }
           >
             {daLuu ? "Tính giá" : "Tính giá & lưu"}
@@ -1996,7 +2002,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                 <div className="tg-empty tg-empty--sm">
                   <p className="tg-empty__title">Chưa có sản phẩm</p>
                   <p className="tg-empty__sub">
-                    Bấm “Thêm sản phẩm”, rồi chọn loại sản phẩm trong drawer để tự bung cấu hình.
+                    {suaDuoc
+                      ? "Bấm “Thêm sản phẩm”, rồi chọn loại sản phẩm trong drawer để tự bung cấu hình."
+                      : "Bạn chỉ được xem phiếu này — người lập phiếu sẽ khai sản phẩm."}
                   </p>
                 </div>
               ) : (
@@ -2078,6 +2086,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                 <input
                                   type="checkbox"
                                   checked={chonUids.has(c.uid)}
+                                  // Tick để GỘP dòng là sửa nội dung phiếu, không phải lọc xem.
+                                  disabled={!suaDuoc}
                                   onChange={() => toggleChon(c.uid)}
                                   aria-label={`Chọn "${c.ten || "sản phẩm"}" để gộp khi báo giá`}
                                 />
@@ -2128,24 +2138,28 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                     : "—"}
                               </td>
                               <td className="prow__act" onClick={(e) => e.stopPropagation()}>
-                                <button
-                                  type="button"
-                                  className="tg-icon-btn"
-                                  onClick={() => duplicateComp(c.uid)}
-                                  title="Nhân bản sản phẩm"
-                                  aria-label="Nhân bản sản phẩm"
-                                >
-                                  <CopyIcon />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="tg-icon-btn tg-icon-btn--danger"
-                                  onClick={() => removeComp(c.uid)}
-                                  title="Xóa sản phẩm"
-                                  aria-label="Xóa sản phẩm"
-                                >
-                                  <TrashIcon />
-                                </button>
+                                {suaDuoc && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="tg-icon-btn"
+                                      onClick={() => duplicateComp(c.uid)}
+                                      title="Nhân bản sản phẩm"
+                                      aria-label="Nhân bản sản phẩm"
+                                    >
+                                      <CopyIcon />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="tg-icon-btn tg-icon-btn--danger"
+                                      onClick={() => removeComp(c.uid)}
+                                      title="Xóa sản phẩm"
+                                      aria-label="Xóa sản phẩm"
+                                    >
+                                      <TrashIcon />
+                                    </button>
+                                  </>
+                                )}
                               </td>
                             </tr>
                           );
@@ -2184,6 +2198,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                               <input
                                 type="checkbox"
                                 checked={tickCaNhom}
+                                disabled={!suaDuoc}
                                 onChange={() =>
                                   setChonUids((s) => {
                                     const n = new Set(s);
@@ -2301,11 +2316,13 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                 </div>
                 </>
               )}
-              <div className="addbtn">
-                <button type="button" onClick={addComp}>
-                  <PlusIcon /> Thêm sản phẩm
-                </button>
-              </div>
+              {suaDuoc && (
+                <div className="addbtn">
+                  <button type="button" onClick={addComp}>
+                    <PlusIcon /> Thêm sản phẩm
+                  </button>
+                </div>
+              )}
             </section>
 
             {/* --- Chi tiết dòng giá vốn (Diễn giải người-đọc-được) --- */}
@@ -2509,6 +2526,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           liveMeta={editMeta}
           liveGia={editGia}
           phieuSL={phieuSL}
+          suaDuoc={suaDuoc}
           onClose={closeEditor}
           onRemove={() => {
             removeComp(editing.uid);
@@ -2549,6 +2567,7 @@ function ComponentModal({
   liveMeta,
   liveGia,
   phieuSL,
+  suaDuoc,
   onClose,
   onRemove,
   patchComp,
@@ -2568,6 +2587,8 @@ function ComponentModal({
   liveMeta: TinhGiaComponentMeta | null;
   liveGia: PhieuTinhGiaGroupOut[] | null;
   phieuSL: number;
+  /** false = vai chỉ được XEM phiếu: thẻ này vẫn mở để đọc cấu hình, nhưng bỏ nút xóa sản phẩm. */
+  suaDuoc: boolean;
   onClose: () => void;
   onRemove: () => void;
   patchComp: (uid: string, patch: Partial<EditableComponent>) => void;
@@ -3962,9 +3983,15 @@ function ComponentModal({
         </div>
 
         <footer className="rc-modal__foot">
-          <Button type="button" variant="ghost" onClick={onRemove}>
-            Xóa sản phẩm
-          </Button>
+          {/* Giữ chỗ khi ẩn nút xóa: footer canh `space-between`, mất một đầu là nút "Xong" nhảy
+              sang trái. */}
+          {suaDuoc ? (
+            <Button type="button" variant="ghost" onClick={onRemove}>
+              Xóa sản phẩm
+            </Button>
+          ) : (
+            <span />
+          )}
           <Button type="button" variant="primary" onClick={onClose}>
             Xong
           </Button>
