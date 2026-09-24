@@ -15714,11 +15714,16 @@ def _migrate_go_module_yeu_cau_sua_chua(db: Session) -> None:
     gia_tri_scope = ", 'all'" if "scope" in cols else ""
 
     # 1) Vai CÓ dòng `yeu_cau_sua_chua` nhưng CHƯA có dòng `ky_thuat_may` → đẻ dòng mới.
+    #    `can_create`/`can_update`/`can_delete` là ba cột đời đầu, NOT NULL mà KHÔNG có
+    #    server_default ⇒ bỏ ra khỏi danh sách cột là Postgres ném `NotNullViolation` và backend
+    #    chết ngay lúc khởi động. Phải ghi thẳng `false`: tiếp nhận / đóng phiếu sửa chữa KHÔNG
+    #    đi theo ô báo hỏng.
     db.execute(
         text(
-            "INSERT INTO role_permissions (module_key, role_id, can_read, can_request"
-            f"{cot_scope}) "
-            f"SELECT 'ky_thuat_may', rp.role_id, ({dk_bat_ky}), ({dk_ghi}){gia_tri_scope} "
+            "INSERT INTO role_permissions (module_key, role_id, can_read, can_request, "
+            f"can_create, can_update, can_delete{cot_scope}) "
+            f"SELECT 'ky_thuat_may', rp.role_id, ({dk_bat_ky}), ({dk_ghi}), "
+            f"false, false, false{gia_tri_scope} "
             "FROM role_permissions rp "
             "WHERE rp.module_key = 'yeu_cau_sua_chua' AND NOT EXISTS ("
             "  SELECT 1 FROM role_permissions x "
@@ -15751,3 +15756,41 @@ def _migrate_go_module_yeu_cau_sua_chua(db: Session) -> None:
 
 
 MIGRATIONS.append(("0332_go_module_yeu_cau_sua_chua", _migrate_go_module_yeu_cau_sua_chua))
+def _migrate_nhom_dung_chung_kd(db: Session) -> None:
+    """0333 — hai bảng NHÓM DÙNG CHUNG (khối Kinh doanh).
+
+    `create_all` chỉ dựng bảng trên DB TRẮNG; DB dev/prod đang chạy phải đi qua đây.
+    Idempotent nhờ `CREATE TABLE IF NOT EXISTS`. KHÔNG backfill: nhóm mở đầu rỗng, mà người
+    không thuộc nhóm nào thì "Của tôi" vẫn đúng nghĩa cũ ⇒ không ai thấy thêm gì sau khi chạy.
+    """
+    bind = db.get_bind()
+    pk = "INTEGER PRIMARY KEY AUTOINCREMENT" if bind.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS nhom_dung_chung ("
+        f"id {pk}, "
+        "ten VARCHAR(255) NOT NULL, "
+        "created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+        "created_at TIMESTAMP NOT NULL, "
+        "CONSTRAINT uq_nhom_dung_chung_ten UNIQUE (ten))"
+    ))
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS nhom_dung_chung_thanh_vien ("
+        f"id {pk}, "
+        "nhom_id INTEGER NOT NULL REFERENCES nhom_dung_chung(id) ON DELETE CASCADE, "
+        "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+        "added_by INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+        "added_at TIMESTAMP NOT NULL, "
+        "CONSTRAINT uq_nhom_dung_chung_thanh_vien UNIQUE (nhom_id, user_id))"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_nhom_dung_chung_thanh_vien_nhom_id "
+        "ON nhom_dung_chung_thanh_vien (nhom_id)"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_nhom_dung_chung_thanh_vien_user_id "
+        "ON nhom_dung_chung_thanh_vien (user_id)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0333_nhom_dung_chung_kd", _migrate_nhom_dung_chung_kd))
