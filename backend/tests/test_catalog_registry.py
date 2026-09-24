@@ -62,6 +62,9 @@ SCOPELESS_CU = frozenset({
     #   • `noi_quy` (mg `0330`) — nội quy lao động là tài liệu CHUNG toàn công ty; chủ chốt:
     #     *"nội quy công ty mặc định tất cả và không cho chỉnh sửa"*.
     "quy_trinh_kinh_doanh", "bao_cao_kho", "noi_quy",
+    # `ton_kho` (mg `0334`, cùng đợt): màn Tồn kho của từng kho. Thấy kho nào là do KHAI BÁO KHO
+    # quyết định — `kho_voucher.py` lọc theo `kho_id` người dùng chọn, không đọc scope của vai.
+    "ton_kho",
 })
 
 #: `nhat_ky_danh_muc.LOAI_MODULE` — 17 khoá: 11 tên chính, 3 tên đời cũ

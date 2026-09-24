@@ -1236,11 +1236,12 @@ export function AppShell() {
   }
 
   const baseId = activeId.split(":")[0];
-  // "Kho hàng" (kho vật lý: tồn/phiếu/ngưỡng) là VIỆC CỦA KHO, không phải của người đề nghị.
-  // Vai chỉ có `kho:read` (để tạo đề nghị) KHÔNG được thấy — chặn bằng `can_view_stock`, để
-  // ông sản xuất không nhìn thấy tồn/giá/lô của kho.
-  const canViewStock = !!caps.get("kho")?.can_view_stock;
-  // "kho-item:<id>" = màn Tồn kho của 1 kho — gác `kho` + `view_stock`.
+  // Màn TỒN KHO của từng kho là VIỆC CỦA KHO, không phải của người đề nghị: ông sản xuất chỉ có
+  // `kho:read` để đi xin vật tư thì KHÔNG được nhìn tồn/lô. Từ 24/09/2026 (mg `0334`) đây là
+  // module RIÊNG `ton_kho` có dòng của mình trong ma trận, thay cho ô chi tiết `kho:view_stock`
+  // — trước đó cả nhóm mục menu này nấp sau một công tắc trong panel của màn Yêu cầu nhập xuất.
+  const canViewStock = !!caps.get("ton_kho")?.can_read;
+  // "kho-item:<id>" = màn Tồn kho của 1 kho — gác `ton_kho:read`.
   const isKhoView = baseId === "kho-item";
   const moduleKeys =
     MODULES_BY_NAV_ID[baseId] ??
@@ -1248,25 +1249,24 @@ export function AppShell() {
     // không có, phải khai tay ở đây.
     (baseId === "thuc-hien-sx"
       ? khoaBanTo(readable)
-      : isKhoView ? ["kho"] : undefined);
+      : isKhoView ? ["ton_kho"] : undefined);
   const allowed =
     AUTHENTICATED_NAV_IDS.has(baseId) ||
     // Màn KCS: người thuộc phòng ban "Tổ KCS", không đi qua ô quyền của vai.
     (baseId === "kcs" && kcsTuCach.kcs) ||
-    (moduleKeys != null &&
-      moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
-      // "Báo cáo kho" KHÔNG còn lọc thêm ở đây: từ 24/09/2026 nó có khoá riêng `bao_cao_kho`,
-      // nên `readable` đã là cổng đủ. Trước đây mục gắn khoá `kho` nên phải chặn thêm bằng ô chi
-      // tiết `close_book`, và đó chính là chỗ làm một MÀN không có dòng riêng trong ma trận.
-      (baseId !== "kho-item" || canViewStock));
+    // KHÔNG mục nào còn phải lọc thêm sau `readable` nữa: "Báo cáo kho" (mg `0329`) và màn Tồn
+    // kho của từng kho (mg `0334`) đều đã có khoá riêng. Trước đây cả hai gắn khoá `kho` rồi chặn
+    // thêm bằng ô chi tiết `close_book` / `view_stock` — đúng chỗ làm ra những MÀN không có dòng
+    // nào của riêng mình trong ma trận phân quyền.
+    (moduleKeys != null && moduleKeys.some((moduleKey) => readable.has(moduleKey)));
 
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
-  // Chỉ đổ khi có `can_view_stock`; thiếu quyền → section "Kho hàng" rỗng nên tự ẩn.
+  // Chỉ đổ khi có `ton_kho:read`; thiếu quyền → khối chỉ còn 2 mục nghiệp vụ (hoặc rỗng, tự ẩn).
   const dynamicItems: Record<string, NavItem[]> = {};
   if (khoList.length && canViewStock) {
     dynamicItems["kho-hang"] = khoList.map((w): NavItem => ({
-      id: `kho-item:${w.id}`, label: w.ten, icon: "warehouse", module: "kho",
+      id: `kho-item:${w.id}`, label: w.ten, icon: "warehouse", module: "ton_kho",
     }));
   }
   // Mục "KCS" (KCS theo lệnh, mg 0306) — MỘT mục cho người thuộc phòng ban "Tổ KCS", kiểm mọi tổ.

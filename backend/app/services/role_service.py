@@ -77,6 +77,9 @@ SCOPELESS_MODULES = frozenset(MODULE_KEYS) | {
     # phòng tôi". Ô Xem đã khoá bật sẵn cho mọi vai (`rbac_repo.O_MAC_DINH`), nay phạm vi cũng ép
     # `all` ở máy chủ và giao diện khoá luôn ô chọn.
     "noi_quy",
+    # Tồn kho (24/09/2026, mg `0334`): người này thấy kho nào là do KHAI BÁO KHO quyết định, không
+    # phải phạm vi của vai — `kho_voucher.py` lọc theo `kho_id` người dùng chọn, không đọc scope.
+    "ton_kho",
 }
 
 READ_IMPLYING_KEYS = (

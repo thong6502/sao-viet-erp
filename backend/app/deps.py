@@ -574,6 +574,13 @@ O_CHET_DA_XAC_MINH: set[tuple[str, str]] = {
     ("bao_cao_kho", "create"),
     ("bao_cao_kho", "update"),
     ("bao_cao_kho", "delete"),
+    # Tồn kho (mg `0334`): Xem = số tồn + lô; việc GHI duy nhất là KHAI NGƯỠNG
+    # (`PUT /api/kho/nguong-ton` → ô chi tiết `ton_kho:set_threshold`). Không có "tạo/sửa/xoá tồn
+    # kho" — khai báo kho là màn danh mục riêng (`dm_kho_hang`), còn lô sinh ra từ phiếu nhập chứ
+    # không gõ tay. Cùng khuôn `bao_cao_kho`: cột Thao tác xám, việc ghi nằm ở ô chi tiết.
+    ("ton_kho", "create"),
+    ("ton_kho", "update"),
+    ("ton_kho", "delete"),
     ("yeu_cau_mua_hang", "delete"),
     # `thu_mua:cancel` và `thu_mua:manage_status`: KHÔNG khai ở đây. Hai ô đó đã GỠ HẲN khỏi ma
     # trận ngày 12/08/2026 (xem `PermissionMatrix.tsx`), mà danh sách này chỉ dùng để TẮT những ô

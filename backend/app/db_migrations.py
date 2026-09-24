@@ -15794,3 +15794,93 @@ def _migrate_nhom_dung_chung_kd(db: Session) -> None:
 
 
 MIGRATIONS.append(("0333_nhom_dung_chung_kd", _migrate_nhom_dung_chung_kd))
+def _migrate_tach_module_ton_kho(db: Session) -> None:
+    """0334 — TỒN KHO thành module riêng, tách khỏi ô chi tiết `kho.can_view_stock`.
+
+    Chủ chốt 24/09/2026, chỉ vào khối "Kho hàng" của thanh bên: nó bày ra *ba* loại màn — Yêu cầu
+    nhập xuất · Tồn kho của TỪNG kho đã khai báo (mục động, AppShell tiêm) · Báo cáo kho — mà ma
+    trận chỉ có hai dòng. Cả nhóm màn Tồn kho đang nấp sau một công tắc nằm trong panel chi tiết
+    của màn Yêu cầu nhập xuất, đúng kiểu "màn không có dòng của riêng nó" mà `bao_cao_kho` vừa
+    thoát ra hôm trước (mg `0329`).
+
+    Chuyển quyền sang dòng mới `ton_kho`:
+      • `kho.can_view_stock`   → `ton_kho.can_read`   (thấy khối kho trên menu + SỐ tồn + lô)
+      • `kho.can_set_threshold`→ `ton_kho.can_set_threshold` (ô chi tiết "Khai ngưỡng tồn" —
+        cùng cột, khác DÒNG; việc ghi duy nhất của màn này)
+
+    KHÔNG đụng `kho.can_view_cost`: quyền thấy giá vốn vẫn là MỘT công tắc duy nhất trên khoá
+    `kho`, dùng chung cho cả ba màn kho — ma trận chỉ bày lại nó ở cả ba dòng cho khỏi đi tìm.
+    Nhân bản thành ba cột là mở đường cho "thấy giá ở màn tồn mà không thấy ở báo cáo", thứ nghiệp
+    vụ không có.
+
+    Hai cột cũ GIỮ NGUYÊN trong DB (không drop): `can_view_stock` / `can_set_threshold` thành cột
+    chết sau đợt này. Đừng đọc lại chúng — mọi cửa đã chuyển sang hỏi `ton_kho`.
+
+    Idempotent: chạy lại thì `modules` đã có dòng, `INSERT` không khớp vai nào, `UPDATE` không
+    đổi cờ nào (điều kiện `= false`).
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"role_permissions", "modules"} <= tables:
+        return
+    cols = set(_existing_columns(insp, "role_permissions"))
+    if "can_view_stock" not in cols:
+        return
+
+    # `role_permissions.module_key` là khoá ngoại trỏ `modules.key` ⇒ phải có dòng module TRƯỚC.
+    # Seeder cũng tự thêm lúc khởi động, nhưng migration chạy SỚM HƠN seed nên không chờ được.
+    db.execute(
+        text(
+            "INSERT INTO modules (key, label, created_at) "
+            "SELECT 'ton_kho', 'Tồn kho', CURRENT_TIMESTAMP "
+            "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = 'ton_kho')"
+        )
+    )
+
+    co_nguong = "can_set_threshold" in cols
+    cot_scope = ", scope" if "scope" in cols else ""
+    # `ton_kho` nằm trong `SCOPELESS_MODULES` — máy chủ ép `all` lúc lưu, nên ghi thẳng `all` thay
+    # vì bê scope của dòng `kho` sang (thủ kho `all`, tổ trưởng `department`… đều vô nghĩa ở đây:
+    # thấy kho nào là do KHAI BÁO KHO quyết định, không phải phạm vi).
+    gia_tri_scope = ", 'all'" if "scope" in cols else ""
+
+    # 1) Vai có `kho.can_view_stock` mà CHƯA có dòng `ton_kho` → đẻ dòng mới.
+    #    `can_create` / `can_delete` là cột đời đầu: NOT NULL mà không có server_default, bỏ ra
+    #    khỏi danh sách cột là Postgres ném `NotNullViolation` và backend chết lúc khởi động.
+    cot_ng = ", can_set_threshold" if co_nguong else ""
+    gia_tri_ng = ", rp.can_set_threshold" if co_nguong else ""
+    db.execute(
+        text(
+            "INSERT INTO role_permissions (module_key, role_id, can_read, "
+            f"can_create, can_update, can_delete{cot_ng}{cot_scope}) "
+            f"SELECT 'ton_kho', rp.role_id, true, "
+            f"false, false, false{gia_tri_ng}{gia_tri_scope} "
+            "FROM role_permissions rp "
+            "WHERE rp.module_key = 'kho' AND rp.can_view_stock AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = 'ton_kho')"
+        )
+    )
+
+    # 2) Vai đã có sẵn dòng `ton_kho` (chạy lại, hoặc DB trắng vừa seed xong) → OR hai cờ vào.
+    db.execute(
+        text(
+            "UPDATE role_permissions SET can_read = true "
+            "WHERE module_key = 'ton_kho' AND can_read = false AND role_id IN ("
+            "  SELECT rp.role_id FROM role_permissions rp "
+            "  WHERE rp.module_key = 'kho' AND rp.can_view_stock)"
+        )
+    )
+    if co_nguong:
+        db.execute(
+            text(
+                "UPDATE role_permissions SET can_set_threshold = true "
+                "WHERE module_key = 'ton_kho' AND can_set_threshold = false AND role_id IN ("
+                "  SELECT rp.role_id FROM role_permissions rp "
+                "  WHERE rp.module_key = 'kho' AND rp.can_set_threshold)"
+            )
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0334_tach_module_ton_kho", _migrate_tach_module_ton_kho))

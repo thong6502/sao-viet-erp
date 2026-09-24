@@ -122,7 +122,16 @@ MODULES: list[tuple[str, str]] = [
     # Khoá `yeu_cau_sua_chua` ("Báo máy hỏng") ĐÃ GỠ 24/09/2026 (mg `0332`) — chủ chốt, nhìn vào
     # ma trận: *"bên thanh bên có 2 module sao ở quyền lại có 3"*. "Yêu cầu báo hỏng" là một TAB
     # của màn Sửa chữa máy, không phải màn riêng ⇒ thành ô CHI TIẾT `ky_thuat_may:can_request`.
-    ("kho", "Kho hàng"),
+    # Nhãn ĐỔI 24/09/2026 (từ "Kho hàng") cho trùng chữ với mục menu nó gác. Tên cũ trùng luôn tên
+    # PHÂN HỆ nên ma trận bày ra "Kho hàng › Kho hàng", còn trên thanh bên thì không có mục nào
+    # tên vậy — người đi cấp quyền không nối được ô với màn.
+    ("kho", "Yêu cầu nhập xuất"),
+    # Tồn kho (24/09/2026, mg `0334`) — tách khỏi ô CHI TIẾT `kho:can_view_stock`. Mỗi kho đã khai
+    # báo là MỘT mục menu (AppShell tiêm động dưới khối "Kho hàng"), mở màn Tồn kho của kho đó;
+    # trước đây cả nhóm màn ấy nấp sau một công tắc nằm trong panel chi tiết của màn Yêu cầu nhập
+    # xuất — đúng kiểu "màn không có dòng của riêng nó" mà `bao_cao_kho` vừa thoát ra (mg `0329`).
+    # Xem = thấy khối kho trên menu + số tồn; ô chi tiết `set_threshold` = khai ngưỡng tồn.
+    ("ton_kho", "Tồn kho"),
     # Báo cáo kho (24/09/2026) — tách khỏi `kho`, CÙNG MỘT LÝ DO với `bao_cao_cong_no` (mg 0260,
     # chủ chốt: *"báo cáo đó là một module riêng mà"*). Trước đó mục menu "Báo cáo kho" gắn khoá
     # `kho` rồi lọc thêm bằng ô CHI TIẾT `kho:close_book` — nghĩa là một MÀN không có dòng của
@@ -308,14 +317,22 @@ def _read(scope: str) -> dict:
 # Cụm quyền KHO — ĐÃ GỘP (bỏ SoD): người có quyền LẬP PHIẾU (can_create) tự GHI SỔ + HỦY luôn.
 # Không còn tách "thủ kho lập" và "QL/kế toán ghi sổ" (theo vận hành). `can_post` KHÔNG còn gác ở
 # endpoint nào nữa — giữ cột trong DB cho tương thích nhưng là quyền chết.
-#   _KHO_VIEW = xem tồn + khai ngưỡng tồn. KHÔNG kèm giá vốn (tách 29/08/2026) — CHỈ Kế toán kho
-#     (+ Giám đốc) mới có `can_view_cost` (thấy đơn giá/giá vốn); thủ kho & QL kho xem tồn KHÔNG thấy giá.
-#   _KHO_QL   = _KHO_VIEW (không còn khác biệt — giữ tên cho các chỗ gọi cũ).
 # KHÔNG kèm `can_approve` — DUYỆT đề nghị là việc của quản lý bộ phận đề nghị, kho KHÔNG tự duyệt.
-_KHO_VIEW = {
-    "can_view_stock": True, "can_set_threshold": True,
+#
+# `_KHO_VIEW` / `_KHO_QL` (xem tồn + khai ngưỡng, gắn trên khoá `kho`) ĐÃ GỠ 24/09/2026 cùng mg
+# `0334`: hai việc đó nay là module RIÊNG `ton_kho` bên dưới. Ai xem tồn thì cấp `ton_kho`, đừng
+# gắn lại cờ `can_view_stock` vào `kho` — cột còn trong DB nhưng không endpoint nào đọc nữa.
+#
+# Cụm TỒN KHO: Xem = thấy khối kho trên thanh bên + số tồn + lô. Việc GHI duy nhất của màn là
+# KHAI NGƯỠNG, đi bằng ô CHI TIẾT `can_set_threshold` (cùng khuôn `bao_cao_kho` + `close_book`):
+# thêm/sửa/xoá của màn này không có nghĩa — kho khai ở danh mục riêng, lô sinh ra từ phiếu nhập.
+# KHÔNG kèm giá vốn — `can_view_cost` vẫn là MỘT công tắc duy nhất nằm trên khoá `kho`, dùng chung
+# cho cả ba màn kho (yêu cầu · tồn · báo cáo), vì quyền thấy giá là của NGƯỜI chứ không của màn.
+# Phạm vi: `ton_kho` scopeless (máy chủ ép `all`) — thấy kho nào là do KHAI BÁO KHO quyết định.
+_TON_KHO = {
+    "can_read": True, "can_create": False, "can_update": False, "can_delete": False,
+    "can_set_threshold": True, "scope": SCOPE_ALL,
 }
-_KHO_QL = {**_KHO_VIEW}
 
 
 def _leave_self(scope: str = SCOPE_OWN) -> dict:
@@ -684,8 +701,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     ),
     # === Vai trò tiếp cận Kho (BRD Module Kho §1.4/§1.5 · spec-kho-de-nghi §9.2) ==========
     # GỘP QUYỀN (2026-07-29, mentor): 5 cột kho (duyệt · ghi sổ · xem tồn · xem giá vốn · khai
-    # ngưỡng) = 1 công tắc "Quản lý kho" trên ma trận → vai làm việc với kho bật cả cụm. `_KHO_QL`
-    # = cụm đó. Người đề nghị scope `own` (chỉ đèn tín hiệu, không thấy tồn/giá).
+    # ngưỡng) = 1 công tắc "Quản lý kho" trên ma trận → vai làm việc với kho bật cả cụm. Từ
+    # 24/09/2026 hai cột "xem tồn · khai ngưỡng" rời sang module `ton_kho` (mg `0334`), nên vai
+    # làm kho nào cũng phải cấp KÈM khoá đó. Người đề nghị scope `own` (chỉ đèn tín hiệu, không
+    # thấy tồn/giá) ⇒ KHÔNG cấp `ton_kho`.
     # Thủ kho: LẬP PHIẾU + XEM KHO (tồn/ngưỡng; KHÔNG xem giá vốn — chỉ kế toán) — KHÔNG ghi sổ (SoD: QL kho / Kế toán kho
     # chốt tồn). Khai rõ create/update/delete để công tắc "Lập phiếu" trên ma trận hiện ĐÚNG là bật.
     (
@@ -695,8 +714,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "kho": {
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
-                "scope": SCOPE_ALL, **_KHO_VIEW,
+                "scope": SCOPE_ALL,
             },
+            "ton_kho": dict(_TON_KHO),
             # Danh mục hàng + khai báo kho: GIỮ NGUYÊN khả năng cũ (hồi chúng còn gác bằng quyền
             # `kho`) — tách module không phải để âm thầm rút quyền của người đang làm việc. Muốn
             # siết "thủ kho không đặt đơn giá giấy" thì tắt công tắc Thao tác ở ma trận.
@@ -723,8 +743,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             "kho": {
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
-                "scope": SCOPE_ALL, **_KHO_QL,
+                "scope": SCOPE_ALL,
             },
+            "ton_kho": dict(_TON_KHO),
             **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),
             # Scope rộng hơn giữa `san_xuat` (all, không có `don_hang_ban`) = all.
@@ -803,7 +824,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             # Kế toán kho: XEM GIÁ VỐN (can_view_cost — tách riêng khỏi xem tồn) + KHÓA KỲ (chốt sổ)
             # + Báo cáo kho + export MISA (can_close_book). Chỉ vai này (+ GĐ) thấy giá.
-            "kho": {**_read(SCOPE_ALL), **_KHO_QL, "can_view_cost": True, "can_close_book": True},
+            "kho": {**_read(SCOPE_ALL), "can_view_cost": True, "can_close_book": True},
+            "ton_kho": dict(_TON_KHO),
             # Báo cáo kho tách thành module riêng 24/09/2026: Xem = vào màn + export MISA,
             # `can_close_book` = khoá kỳ / tính giá kỳ. Cờ `kho.can_close_book` ở trên GIỮ LẠI
             # cho các cửa cũ của chính màn Kho (popup lịch sử mặt hàng) — xem mg `0329`.

@@ -84,9 +84,19 @@ const WRITE_ACTIONS: ActionKey[] = ["can_create", "can_update", "can_delete"];
 // cột chi tiết. Thêm module/hành động mới chỉ cần bổ sung vào bảng này + cột ở backend.
 // `keys` (tuỳ chọn): 1 công tắc bật/tắt NHIỀU cột cùng lúc (gộp quyền). `key` = cột đại diện để
 // đếm/định danh; `keys` = toàn bộ cột được set. Không có `keys` → công tắc 1 cột như thường.
+// `tuModule` (tuỳ chọn): công tắc GƯƠNG — đọc/ghi thẳng vào cột của DÒNG KHÁC, chỉ bày lại ở dòng
+// này. Dùng đúng một chỗ: "Xem giá thành" của ba màn kho. Quyền thấy giá vốn là thuộc tính của
+// NGƯỜI chứ không của màn (không ai "thấy giá ở màn tồn mà không thấy ở báo cáo"), nên vẫn MỘT
+// cột `kho.can_view_cost` — chỉ bày ở cả ba dòng cho người đi cấp khỏi phải đi tìm sang màn khác.
+//: Chú thích cho công tắc "Xem giá thành" — MỘT cột `kho.can_view_cost` bày ở cả ba dòng kho.
+const KHO_GIA_HINT =
+  "Thấy ĐƠN GIÁ · THÀNH TIỀN ở mọi bước kho (yêu cầu · phiếu nhập/xuất · tồn · lô · báo cáo). " +
+  "MỘT công tắc dùng chung cho cả ba màn kho — bật ở dòng nào cũng như nhau. CHỈ kế toán kho " +
+  "bật; thủ kho thường KHÔNG có. Ẩn ở cả máy chủ, không chỉ ẩn giao diện.";
+
 const FINE_ACTIONS: Record<
   string,
-  { key: ActionKey; keys?: ActionKey[]; label: string; hint?: string }[]
+  { key: ActionKey; keys?: ActionKey[]; label: string; hint?: string; tuModule?: string }[]
 > = {
   khach_hang: [
     {
@@ -185,13 +195,12 @@ const FINE_ACTIONS: Record<
       hint: "Cho SỬA và Lưu chính bảng này (tab “Vai trò & Quyền” của màn Phòng ban). Không có ô này thì vẫn xem được ma trận của từng vai nhưng mọi công tắc ở chế độ chỉ đọc.",
     },
   ],
-  // Kho: các ô chi tiết + công tắc chung Xem (can_read) + Lập phiếu (= TẠO + GHI SỔ + HỦY, can_create).
-  //   · Tạo yêu cầu (can_request) — người XIN nhập/lĩnh vật tư.
-  //   · Xem tồn kho (can_view_stock + can_set_threshold): xem số tồn + khai ngưỡng — KHÔNG kèm giá.
-  //   · Xem giá vốn (can_view_cost) — Ô RIÊNG (tách 29/08/2026): CHỈ kế toán thấy đơn giá/giá vốn.
-  //     Trước đây gộp chung vào "Xem tất cả kho" nên thủ kho cũng thấy giá; nay tách để chỉ kế toán
-  //     xem giá. LƯU Ý: role cũ đã bật ô gộp thì `can_view_cost` vẫn = true trong DB — muốn thủ kho
-  //     hết thấy giá phải VÀO BỎ TICK ô "Xem giá vốn" cho role đó.
+  // Kho ("Yêu cầu nhập xuất"): Xem (can_read) = vào màn; Lập phiếu (can_create) = TẠO + GHI SỔ +
+  // HỦY, tức hộp việc của BÊN KHO. Hai ô chi tiết:
+  //   · Tạo yêu cầu (can_request) — người XIN nhập/lĩnh vật tư (tổ SX, mua hàng).
+  //   · Xem giá thành (can_view_cost) — Ô RIÊNG từ 29/08/2026: trước gộp chung nên thủ kho cũng
+  //     thấy giá. Vai cũ đã bật ô gộp thì cột vẫn = true trong DB, muốn thủ kho hết thấy giá phải
+  //     VÀO BỎ TICK. Nay ô này còn được bày lại ở hai dòng kho kia (công tắc GƯƠNG `tuModule`).
   // ĐÃ GỘP (bỏ SoD): "Ghi sổ" + "Hủy" nhập chung vào "Lập phiếu" — KHÔNG còn công tắc Ghi sổ riêng.
   // Ai có Lập phiếu là tạo + ghi sổ + hủy được. KHÔNG có Duyệt: ĐÃ BỎ BƯỚC DUYỆT yêu cầu kho
   // (chủ 06/08/2026) — tạo yêu cầu là 'approved' luôn, không ai duyệt nữa (cột `can_approve` giữ
@@ -202,24 +211,34 @@ const FINE_ACTIONS: Record<
       label: "Tạo yêu cầu nhập/xuất",
       hint: "Lập YÊU CẦU nhập/xuất kho (tổ SX xin lĩnh vật tư, mua hàng xin nhập bổ sung). Người yêu cầu nên để phạm vi \"Của tôi\".",
     },
-    {
-      key: "can_view_stock",
-      keys: ["can_view_stock", "can_set_threshold"],
-      label: "Xem tồn kho",
-      hint: "XEM số tồn từng kho + KHAI ngưỡng tồn (đèn cảnh báo). KHÔNG kèm giá — muốn thấy đơn giá/giá vốn phải bật thêm ô \"Xem giá vốn\". Thủ kho / ai làm kho bật ô này.",
-    },
+    // Ô "Xem tồn kho" ĐÃ DỜI 24/09/2026 sang module RIÊNG `ton_kho` (mg `0334`): mỗi kho đã khai
+    // báo là một MỤC MENU mở màn Tồn kho của kho đó, nên cả nhóm màn ấy phải có DÒNG của mình,
+    // không phải nấp sau một công tắc trong panel chi tiết của màn này. Cột `kho.can_view_stock`
+    // giữ trong DB nhưng không cửa nào đọc nữa.
     {
       key: "can_view_cost",
       label: "Xem giá thành",
-      hint: "Thấy ĐƠN GIÁ · THÀNH TIỀN · ở mọi bước kho (yêu cầu · phiếu nhập/xuất · tồn · lô · báo cáo). CHỈ kế toán kho bật — thủ kho thường KHÔNG có ô này. Ẩn ở cả máy chủ, không chỉ ẩn giao diện.",
+      hint: KHO_GIA_HINT,
     },
     // Ô "Báo cáo kho + khóa kỳ" ĐÃ DỜI 24/09/2026 sang module RIÊNG `bao_cao_kho` (mg `0329`):
     // đó là một MÀN trong thanh bên, nên nó phải có DÒNG của mình trong ma trận, không phải một
     // ô chi tiết nấp trong panel của Kho. Cột `kho.can_close_book` giữ trong DB (một cửa cũ của
     // màn Kho còn đọc), chỉ thôi bày ra đây.
   ],
+  // Tồn kho (mg `0334`): Xem = thấy khối kho trên thanh bên + số tồn + lô. Cột Thao tác XÁM —
+  // màn này không có thêm/sửa/xoá; việc ghi duy nhất là khai ngưỡng, nằm ở ô chi tiết (cùng khuôn
+  // `bao_cao_kho` + "Khóa kỳ"). Ô thứ hai là công tắc GƯƠNG của tiền.
+  ton_kho: [
+    {
+      key: "can_set_threshold",
+      label: "Khai ngưỡng tồn",
+      hint: "Đặt ngưỡng tồn / cận tồn / tối đa cho từng mặt hàng — đây là cái quyết định màu đèn cảnh báo ở màn Tồn kho. Người chỉ có Xem vẫn thấy số tồn và đèn, nhưng không sửa được ngưỡng.",
+    },
+    { key: "can_view_cost", tuModule: "kho", label: "Xem giá thành", hint: KHO_GIA_HINT },
+  ],
   // Báo cáo kho: Xem = vào màn + sổ + NXT + export MISA. Ô chi tiết DUY NHẤT là việc GHI của màn.
   bao_cao_kho: [
+    { key: "can_view_cost", tuModule: "kho", label: "Xem giá thành", hint: KHO_GIA_HINT },
     {
       key: "can_close_book",
       label: "Khóa kỳ (chốt sổ) + tính giá kỳ",
@@ -643,11 +662,16 @@ const MODULE_GROUPS: {
   {
     key: "kho_hang",
     label: "Kho hàng",
-    // Hai mục menu = hai dòng. `bao_cao_kho` tách khỏi `kho` ngày 24/09/2026 (mg `0329`): trước
-    // đó màn Báo cáo kho không có dòng riêng, muốn cấp phải mở panel chi tiết của Kho rồi tick ô
-    // "Báo cáo kho + khóa kỳ". Các kho ĐÃ KHAI BÁO (Kho Giấy, Kho Mực…) vẫn không có dòng ở đây:
-    // chúng là mục ĐỘNG sinh theo danh mục kho, gác chung bằng `kho` + ô "Xem tồn kho".
-    modules: ["kho", "bao_cao_kho"],
+    // BA LOẠI MÀN = ba dòng, khớp đúng khối "Kho hàng" của thanh bên:
+    //   • `kho` — màn "Yêu cầu nhập xuất" (hai tab: bên đi xin · hộp việc của kho);
+    //   • `ton_kho` — màn Tồn kho của TỪNG kho đã khai báo (Kho Giấy, Kho Mực…). Mỗi kho là một
+    //     mục menu ĐỘNG sinh theo danh mục kho, nhưng CHUNG một dòng quyền: thấy kho nào là do
+    //     khai báo kho quyết định, không đẻ một ô quyền cho mỗi kho. Tách 24/09/2026 (mg `0334`)
+    //     khỏi ô chi tiết `kho:view_stock`;
+    //   • `bao_cao_kho` — sổ nhập-xuất của kế toán, tách cùng ngày (mg `0329`).
+    // Cả hai lần tách cùng một lý do: trước đó chúng là MÀN không có dòng nào mang tên mình, muốn
+    // cấp phải mò vào panel chi tiết của màn Kho.
+    modules: ["kho", "ton_kho", "bao_cao_kho"],
   },
   {
     key: "cau_hinh_danh_muc",
@@ -844,6 +868,8 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   quy_trinh_kinh_doanh: ["all"],
   // Sổ kho là sổ của CẢ KHO — không có "báo cáo của tôi".
   bao_cao_kho: ["all"],
+  // Tồn kho (mg `0334`): thấy kho nào là do KHAI BÁO KHO quyết định, không phải phạm vi của vai.
+  ton_kho: ["all"],
   // Nội quy lao động là tài liệu CHUNG toàn công ty — không có "nội quy của tôi" hay "nội quy
   // của phòng tôi". Ô Xem đã khoá bật sẵn cho mọi vai; 24/09/2026 khoá nốt ô phạm vi (chủ chốt:
   // *"nội quy công ty mặc định tất cả và không cho chỉnh sửa"*), máy chủ ép `all` lúc lưu.
@@ -1080,9 +1106,16 @@ export function PermissionMatrix({
                   const phamViChoPhep = PHAM_VI_CHO_PHEP[row.module_key];
                   const fineActs = fineCua(row.module_key);
                   const def = moduleDef.get(row.module_key);
+                  // Công tắc GƯƠNG (`tuModule`): đọc/ghi cột của DÒNG KHÁC — dòng thiếu thì rơi
+                  // về chính dòng này để không vỡ giao diện (chỉ xảy ra nếu module nguồn bị gỡ).
+                  const dongCuaO = (a: { tuModule?: string }) =>
+                    (a.tuModule ? byKey.get(a.tuModule) : undefined) ?? row;
+                  const khoaCuaO = (a: { tuModule?: string }) => a.tuModule ?? row.module_key;
                   // Công tắc gộp (`keys`): bật = TẤT CẢ cột bật.
-                  const fineOn = (a: { key: ActionKey; keys?: ActionKey[] }) =>
-                    a.keys ? a.keys.every((k) => row[k]) : !!row[a.key];
+                  const fineOn = (a: { key: ActionKey; keys?: ActionKey[]; tuModule?: string }) => {
+                    const r = dongCuaO(a);
+                    return a.keys ? a.keys.every((k) => r[k]) : !!r[a.key];
+                  };
                   const fineGranted = fineActs ? fineActs.filter(fineOn).length : 0;
                   const fineIsOpen = openFine.has(row.module_key);
                   return (
@@ -1222,19 +1255,21 @@ export function PermissionMatrix({
                               <input
                                 type="checkbox"
                                 className="switch"
-                                checked={fineOn(a) && oSong(row.module_key, a.key.replace("can_", ""))}
+                                checked={fineOn(a) && oSong(khoaCuaO(a), a.key.replace("can_", ""))}
                                 disabled={
                                   readOnly ||
-                                  !oSong(row.module_key, a.key.replace("can_", "")) ||
-                                  (doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all") ||
+                                  !oSong(khoaCuaO(a), a.key.replace("can_", "")) ||
+                                  (doiPhamViToanCty(khoaCuaO(a), a.key)
+                                    && dongCuaO(a).scope !== "all") ||
                                   (FINE_THEO_WRITE[row.module_key] === a.key && coDuongGhi)
                                 }
                                 title={
                                   FINE_THEO_WRITE[row.module_key] === a.key && coDuongGhi
                                     ? CANH_BAO_FINE_THEO_WRITE
-                                    : doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all"
+                                    : doiPhamViToanCty(khoaCuaO(a), a.key)
+                                      && dongCuaO(a).scope !== "all"
                                       ? CANH_BAO_PHAM_VI
-                                      : oSong(row.module_key, a.key.replace("can_", ""))
+                                      : oSong(khoaCuaO(a), a.key.replace("can_", ""))
                                         ? a.hint
                                         : CANH_BAO_O_CHET
                                 }
@@ -1242,7 +1277,7 @@ export function PermissionMatrix({
                                 onChange={(e) =>
                                   // Công tắc gộp → set TẤT CẢ cột trong `keys`; thường → 1 cột.
                                   (a.keys ?? [a.key]).forEach((k) =>
-                                    onToggle(row.module_key, k, e.target.checked),
+                                    onToggle(khoaCuaO(a), k, e.target.checked),
                                   )
                                 }
                               />
@@ -1250,7 +1285,8 @@ export function PermissionMatrix({
                                 {a.label}
                                 {/* Nói RA MẶT lý do không bật được — nằm trong tooltip thì người
                                     cấp quyền phải rê chuột mới biết, mà họ có biết đâu mà rê. */}
-                                {doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all" && (
+                                {doiPhamViToanCty(khoaCuaO(a), a.key)
+                                  && dongCuaO(a).scope !== "all" && (
                                   <span className="rdx-perm__fine-warn" title={CANH_BAO_PHAM_VI}>
                                     cần Phạm vi “Tất cả”
                                   </span>

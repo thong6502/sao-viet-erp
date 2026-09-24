@@ -439,7 +439,11 @@ class RoleRepository:
     def kho_notify_user_ids(self, *, bo_phan_id: int | None, creator_id: int | None) -> list[int]:
         """User ids NÊN nhận tín hiệu 'việc kho mới' cho yêu cầu ở phòng `bo_phan_id`.
 
-        = người XỬ LÝ kho (`can_create` HOẶC `can_view_stock`) mà PHẠM VI của vai PHỦ phòng đó:
+        = NGƯỜI KHO mà PHẠM VI của vai PHỦ phòng đó. "Người kho" theo luật 24/09/2026 (khớp
+        `kho_request._la_nguoi_kho`, mg `0334`): có Thao tác kho (`can_create`), HOẶC chỉ có Xem
+        mà không có ô "Tạo yêu cầu" (`can_read AND NOT can_request` — vai Kế toán kho). Vế thứ
+        hai trước đây là `can_view_stock`; cờ đó đã sang module `ton_kho`, mà hộp việc của màn
+        Kho không được đi hỏi quyền của màn Tồn kho.
         `all` (mọi phòng) · `department` (phòng người nhận là phòng yêu cầu hoặc phòng cha/ông của
         nó) · và chính người tạo. Tôn trọng ĐÚNG scope như danh sách yêu cầu
         (kho_request._scoped_filters, 16/09/2026): ai thấy yêu cầu trong danh sách thì nhận tín hiệu."""
@@ -457,7 +461,10 @@ class RoleRepository:
                 RolePermission.module_key == "kho",
                 or_(
                     RolePermission.can_create.is_(True),
-                    RolePermission.can_view_stock.is_(True),
+                    and_(
+                        RolePermission.can_read.is_(True),
+                        RolePermission.can_request.is_(False),
+                    ),
                 ),
                 or_(
                     RolePermission.scope == SCOPE_ALL,

@@ -20,6 +20,7 @@ import { Pager } from "../../components/Pager";
 import { Icon } from "../../components/Icons";
 import { useDebounced } from "../../utils/useDebounced";
 import { num } from "../keHoachSxShared";
+import { laNguoiKho } from "../khoShared";
 import { KcsChuoiCongDoan } from "./KcsChuoiCongDoan";
 import { KcsBaoCaoLoc, KcsDashboard, KCS_DASH_FILTERS_RONG, type KcsDashFilters } from "./KcsDashboard";
 import { KCS_NHOM_TRANG_THAI } from "./kcsNhan";
@@ -39,7 +40,7 @@ export function KcsTheoLenhPage({
   // Yêu cầu nhập kho KCS tạo nằm ở màn Kho: người có "Tạo yêu cầu" mở ở tab Yêu cầu, thủ kho mở ở
   // "Phiếu từ yêu cầu". Không có quyền nào ở Kho thì mã chỉ hiện chữ.
   const coTabDeNghi = can("kho", "request");
-  const coTabYeuCau = can("kho", "create") || can("kho", "view_stock");
+  const coTabYeuCau = laNguoiKho(can);
   const moYeuCauKho = navigate && (coTabDeNghi || coTabYeuCau)
     ? (id: number) => navigate("kho-main", { khoOpenRequest: { id, view: coTabDeNghi ? "denghi" : "yeucau" } })
     : undefined;

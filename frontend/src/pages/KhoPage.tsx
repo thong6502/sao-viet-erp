@@ -7,7 +7,7 @@
 // Không tách bảng DB — vẫn 1 bảng `stock_requests`/`stock_vouchers` cột `loai`, chỉ lọc theo
 // chiều. `key={chieu}` để đổi chiều là remount màn con với state sạch (khỏi lẫn dữ liệu 3 chiều).
 import { useCallback, useEffect, useState } from "react";
-import { AN_DIEU_CHUYEN } from "./khoShared";
+import { AN_DIEU_CHUYEN, laNguoiKho } from "./khoShared";
 import type { StockRequestKind } from "../api/client";
 import { useCan } from "../auth/permissions";
 import { KhoDeNghiPage, type KhoNhapSeed } from "./KhoDeNghiPage";
@@ -41,7 +41,10 @@ export function KhoPage({
   // Tab "Yêu cầu" (xem + tạo yêu cầu) CHỈ cho vai có `can_request` ("Tạo yêu cầu nhập/xuất") → THỦ
   // KHO (chỉ có view_stock/create) KHÔNG thấy tab này, chỉ thấy "Phiếu từ yêu cầu".
   const canDeNghi = can("kho", "request");
-  const canYeuCau = can("kho", "create") || can("kho", "view_stock");
+  // Tab "Phiếu từ yêu cầu" = hộp việc của BÊN KHO. Điều kiện nay chỉ đọc hai ô của CHÍNH màn này
+  // (xem `laNguoiKho`): trước 24/09/2026 nó OR với `kho:view_stock`, mà ô đó đã sang module
+  // `ton_kho` — để nguyên là hộp việc của màn Kho đi mượn quyền của màn Tồn kho.
+  const canYeuCau = laNguoiKho(can);
   const [fn, setFn] = useState<FnTab>(canDeNghi ? "denghi" : "yeucau");
   // CHIỀU: Nhập · Xuất · Điều chuyển. Điều chuyển vốn là yêu cầu NHẬP ở đích nhưng tách tab riêng để
   // Nhập/Xuất KHÔNG lẫn điều chuyển; màn con nhận `loai` (NHẬP cho tab điều chuyển) + cờ `dieuChuyen`.

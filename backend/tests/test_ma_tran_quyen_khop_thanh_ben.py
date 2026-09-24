@@ -27,6 +27,8 @@ from pathlib import Path
 FE = Path(__file__).resolve().parents[2] / "frontend" / "src"
 SIDEBAR = FE / "components" / "Sidebar.tsx"
 MA_TRAN = FE / "components" / "PermissionMatrix.tsx"
+#: Mục menu ĐỘNG (sinh theo dữ liệu, không nằm trong `NAV` tĩnh) được tiêm từ đây.
+APP_SHELL = FE / "components" / "AppShell.tsx"
 
 #: Khoá có mục menu nhưng CỐ Ý không có dòng trong ma trận — kèm lý do.
 KHOA_KHONG_BAY_MA_TRAN: dict[str, str] = {
@@ -55,12 +57,6 @@ KHOA_KHONG_CO_MUC_MENU: dict[str, str] = {}
 
 #: Khoá mà NHÃN trong ma trận cố ý KHÁC chữ của mục menu — kèm lý do.
 NHAN_LECH_CO_LY_DO: dict[str, str] = {
-    "kho":
-        "Khoá `kho` gác NHIỀU mục cùng lúc: 'Yêu cầu nhập xuất' + mỗi KHO ĐÃ KHAI BÁO (mục động "
-        "`kho-item:<id>` do AppShell tiêm, nhãn là TÊN KHO trong DB). Không thể lấy nhãn của một "
-        "mục nào làm tên ô, nên giữ tên khối 'Kho hàng'. Đây KHÔNG phải ăn ké: các kho là DỮ "
-        "LIỆU của cùng một màn, không phải màn khác — kho nào được xem do khai báo kho + phạm vi "
-        "quyết định, không phải một ô quyền mỗi kho.",
     "phieu_chi":
         "Nhãn mục menu là biến `VOUCHER_PAGE_LABEL` (frontend/src/constants/features.ts): 'Phiếu "
         "chi / UNC' khi `UNC_ENABLED`, 'Phiếu chi' khi tắt. Máy chủ không đọc được cờ giao diện "
@@ -133,6 +129,19 @@ def _nhan_may_chu() -> dict[str, str]:
     return dict(MODULES)
 
 
+def _khoa_muc_menu_dong() -> set[str]:
+    """Khoá của các mục menu ĐỘNG — sinh theo dữ liệu nên không có trong `NAV` tĩnh.
+
+    Hai chỗ: mỗi KHO đã khai báo thành một mục dưới khối "Kho hàng" (`ton_kho`), và mỗi TỔ đã
+    khai báo thành một node dưới khối "Tổ sản xuất" (`to_sx`). Chúng vẫn là MỤC MENU thật, người
+    dùng bấm vào mở được màn — nên dòng ma trận tương ứng KHÔNG mồ côi.
+
+    Chỉ dùng cho chiều "dòng ma trận → mục menu". Chiều ngược lại vẫn chỉ đọc `NAV`: dòng của tổ
+    là `to_sx_<id>` sinh động từ máy chủ, không phải khoá `to_sx` viết ở đây.
+    """
+    return set(re.findall(r'module:\s*"([a-z_0-9]+)"', _bo_chu_thich(_nguon(APP_SHELL))))
+
+
 def _nhan_khoi_thanh_ben() -> list[str]:
     s = _bo_chu_thich(_nguon(SIDEBAR))
     nav = s.split("export const NAV: NavSection[] = [", 1)[1].split("\n];", 1)[0]
@@ -159,7 +168,7 @@ def test_moi_muc_menu_deu_co_dong_trong_ma_tran():
 
 def test_moi_dong_ma_tran_deu_co_mot_muc_menu():
     """Dòng không có màn ⇒ cấp cũng như không: tick xong chẳng có gì hiện ra."""
-    tren_menu = _khoa_cua_thanh_ben()
+    tren_menu = _khoa_cua_thanh_ben() | _khoa_muc_menu_dong()
     mo_coi = sorted(
         k for _, ks in _nhom_cua_ma_tran() for k in ks
         if k not in tren_menu and k not in KHOA_KHONG_CO_MUC_MENU
@@ -167,8 +176,9 @@ def test_moi_dong_ma_tran_deu_co_mot_muc_menu():
     assert not mo_coi, (
         "Ma trận bày mấy dòng này nhưng thanh bên không có mục menu nào gác chúng: "
         + ", ".join(mo_coi)
-        + " — cấp ô xong người dùng vẫn không có đường vào bằng chuột. Thêm mục vào Sidebar, "
-        "hoặc khai vào `KHOA_KHONG_CO_MUC_MENU` kèm lý do."
+        + " — cấp ô xong người dùng vẫn không có đường vào bằng chuột. Thêm mục vào Sidebar "
+        "(hoặc vào `dynamicItems` của AppShell nếu mục sinh theo dữ liệu), hoặc khai vào "
+        "`KHOA_KHONG_CO_MUC_MENU` kèm lý do."
     )
 
 
