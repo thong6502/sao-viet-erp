@@ -18,6 +18,7 @@ import {
 } from "../../../api/client";
 import { useAuth } from "../../../auth/useAuth";
 import { useCan, useReloadPermissions } from "../../../auth/permissions";
+import { NhomDungChungModal, type NguoiChon } from "./NhomDungChungModal";
 import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../../../components/DiscardChangesDialog";
@@ -95,6 +96,10 @@ export function DepartmentsPage({
   // `nguoi_dung` gỡ 24/09/2026, mg `0331`), đặt trưởng phòng (Phòng ban).
   const canTransfer = can("nhan_su", "transfer");
   const canAssignRole = can("nhan_su", "assign_role");
+  // Gộp nhóm dùng chung = cho người này thấy dữ liệu của người kia ⇒ cùng loại với cấp quyền,
+  // nên đi theo ô "Sửa ma trận phân quyền" chứ không đẻ ô mới.
+  const canGopNhom = can("phong_ban", "manage_permissions");
+  const [moNhomDungChung, setMoNhomDungChung] = useState(false);
   const canBulk = canTransfer || canAssignRole;
   const canSetHead = can("phong_ban", "set_head");
   const canReparent = can("phong_ban", "reparent");
@@ -598,6 +603,11 @@ export function DepartmentsPage({
     (m) => selectedMemberIds.has(m.employee_id) && m.user_id != null,
   ).length;
   const selectedWithoutAccount = selectedMemberIds.size - selectedWithAccount;
+  // Nhóm dùng chung gắn theo TÀI KHOẢN (phạm vi dữ liệu là của tài khoản), nên người chưa có
+  // tài khoản không gộp được.
+  const nguoiChonCoTaiKhoan: NguoiChon[] = members
+    .filter((m) => selectedMemberIds.has(m.employee_id) && m.user_id != null)
+    .map((m) => ({ userId: m.user_id as number, hoTen: m.name }));
   const memberPageCount = Math.max(1, Math.ceil(filteredMembers.length / memberPageSize));
   const pageMembers = filteredMembers.slice(
     (memberPage - 1) * memberPageSize,
@@ -2086,6 +2096,24 @@ export function DepartmentsPage({
                                 </div>
                               )}
 
+                              {canGopNhom && (
+                                <div className="depts__dock-group">
+                                  <Button
+                                    type="button"
+                                    variant="secondary"
+                                    disabled={nguoiChonCoTaiKhoan.length === 0}
+                                    title={
+                                      nguoiChonCoTaiKhoan.length === 0
+                                        ? "Chọn người CÓ tài khoản — nhóm dùng chung gắn theo tài khoản"
+                                        : "Người cùng nhóm xem và sửa được dữ liệu của nhau ở Tính giá · Báo giá · Đơn hàng · Khách hàng"
+                                    }
+                                    onClick={() => setMoNhomDungChung(true)}
+                                  >
+                                    Gộp nhóm dùng chung — Kinh doanh
+                                  </Button>
+                                </div>
+                              )}
+
                               {canTransfer && (
                                 <div className="depts__dock-group">
                                   <div className="depts__dock-label-tag">
@@ -3150,6 +3178,15 @@ export function DepartmentsPage({
             }
             refresh(selectedId).catch(() => {});
           }}
+        />
+      )}
+
+      {moNhomDungChung && token && (
+        <NhomDungChungModal
+          token={token}
+          nguoiChon={nguoiChonCoTaiKhoan}
+          onClose={() => setMoNhomDungChung(false)}
+          onSaved={() => setSelectedMemberIds(new Set())}
         />
       )}
     </main>

@@ -2985,6 +2985,22 @@ export interface UnitLevel {
 /** Nhân sự của một phòng — một dòng = một HỒ SƠ (Đ2), kèm tài khoản nếu có.
  *  `user_id`/`username` null = chưa có tài khoản đăng nhập (công nhân xưởng): vẫn thuộc
  *  phòng và vẫn chuyển phòng được, chỉ là không gán vai trò được. */
+/** Một người trong nhóm dùng chung (khối Kinh doanh). */
+export interface NhomDungChungThanhVien {
+  user_id: number;
+  ho_ten: string;
+  username: string;
+}
+
+/** Nhóm DÙNG CHUNG dữ liệu — hai người cùng nhóm thì phạm vi "Của tôi" của họ ở bốn màn
+ *  Tính giá · Báo giá · Đơn hàng · Khách hàng được hiểu là "của tôi + của người cùng nhóm". */
+export interface NhomDungChung {
+  id: number;
+  ten: string;
+  thanh_viens: NhomDungChungThanhVien[];
+  created_at?: string | null;
+}
+
 export interface DepartmentMember {
   employee_id: number;
   code?: string | null;
@@ -9925,6 +9941,40 @@ export const api = {
       return authed<PermissionRow[]>(`/api/roles/${roleId}/permissions`, token, {
         method: "PUT",
         body: JSON.stringify({ permissions: rows }),
+      });
+    },
+  },
+
+  // --- Nhóm dùng chung (khối Kinh doanh) -------------------------------------
+  // Gác bằng `phong_ban:manage_permissions` — gộp nhóm là cho người này thấy dữ liệu của người
+  // kia, cùng loại với cấp quyền.
+  nhomDungChung: {
+    list(token: string): Promise<NhomDungChung[]> {
+      return authed<NhomDungChung[]>("/api/nhom-dung-chung", token);
+    },
+    create(token: string, ten: string, userIds: number[]): Promise<NhomDungChung> {
+      return authed<NhomDungChung>("/api/nhom-dung-chung", token, {
+        method: "POST",
+        body: JSON.stringify({ ten, user_ids: userIds }),
+      });
+    },
+    /** `userIds` là THAY TOÀN BỘ danh sách thành viên; bỏ qua = chỉ đổi tên. */
+    update(
+      token: string,
+      id: number,
+      data: { ten?: string; userIds?: number[] },
+    ): Promise<NhomDungChung> {
+      return authed<NhomDungChung>(`/api/nhom-dung-chung/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...(data.ten === undefined ? {} : { ten: data.ten }),
+          ...(data.userIds === undefined ? {} : { user_ids: data.userIds }),
+        }),
+      });
+    },
+    remove(token: string, id: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/nhom-dung-chung/${id}`, token, {
+        method: "DELETE",
       });
     },
   },
