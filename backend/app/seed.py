@@ -672,7 +672,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "theo_doi_san_xuat": _read(SCOPE_OWN),
             # Tính giá: NV Sales tự lập phiếu tính giá của mình; phạm vi "Của tôi" (chỉ thấy phiếu mình lập),
             # TP KD/GĐ scope phòng/tất cả thấy hết (lọc theo `created_by`).
-            "tinh_gia_thanh": _rcu(SCOPE_OWN),
+            # `can_view_cost` = ô chi tiết "Xem chi tiết giá vốn" (24/09/2026): BẮT BUỘC đi kèm
+            # quyền lập/sửa — lập phiếu chính là mở thẻ sản phẩm ra khai giấy/khổ/công đoạn.
+            # Vai chỉ ĐỌC Tính giá thì quản trị tự quyết bật hay không.
+            "tinh_gia_thanh": {**_rcu(SCOPE_OWN), "can_view_cost": True},
             # Giao hàng (PRD §14): NV Sales tạo yêu cầu giao cho đơn CỦA MÌNH + theo dõi chuyến,
             # phạm vi "Của tôi". Không lên kế hoạch, không phân công tài xế, không huỷ chuyến.
             "giao_hang": {**_read(SCOPE_OWN), "can_create": True},

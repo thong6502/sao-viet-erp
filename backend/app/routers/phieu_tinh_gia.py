@@ -34,6 +34,7 @@ from ..schemas.phieu_tinh_gia import (
     PhieuTinhGiaListItem,
     PhieuTinhGiaListOut,
     PhieuTinhGiaOut,
+    PhieuTinhGiaOutRutGon,
     PhieuTinhGiaStatsOut,
     PhieuTinhGiaUpdate,
     PtgActivityItem,
@@ -49,6 +50,11 @@ from ..services.tinh_gia_service import compute_phieu_snapshot, danh_muc_doi_sau
 router = APIRouter(prefix="/api/phieu-tinh-gia", tags=["phieu-tinh-gia"])
 MODULE = "tinh_gia_thanh"
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
+#: Quyền chi tiết "Xem chi tiết giá vốn" — gác RUỘT GIÁ (cấu hình giấy/khổ/công đoạn + diễn
+#: giải từng dòng). Đi KÈM dependency CRUD chứ không thay: `create`/`update` vẫn phải có, ô này
+#: chỉ nói thêm "được nhìn vào trong". Lập hay sửa phiếu đều là mở thẻ sản phẩm ra khai nên hai
+#: đường ghi buộc có cả hai. Xoá phiếu KHÔNG cần — xoá không lộ gì.
+RuotGia = Annotated[User, Depends(require_permission(MODULE, "view_cost"))]
 
 
 def _owner_ids_for_scope(db: Session, user: User, authz: AuthorizationService) -> set[int] | None:
@@ -313,6 +319,7 @@ def create_item(
     payload: PhieuTinhGiaCreate,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    _ruot: RuotGia,
 ) -> PhieuTinhGia:
     p = PhieuTinhGia(
         ma=_next_ma(db),
@@ -344,6 +351,7 @@ def create_item(
 def san_pham_tai_ban_goi_y(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _ruot: RuotGia,
     q: str = Query(default=""),
     size: int = Query(default=20, ge=1, le=50),
 ) -> list[SanPhamTaiBan]:
@@ -357,6 +365,7 @@ def san_pham_tai_ban_chi_tiet(
     id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _ruot: RuotGia,
 ) -> dict:
     row = san_pham_tai_ban_service.lay_chi_tiet(db, id)
     if row is None:
@@ -364,14 +373,18 @@ def san_pham_tai_ban_chi_tiet(
     return row.cau_hinh_json
 
 
-@router.get("/{p_id}", response_model=PhieuTinhGiaOut)
+@router.get("/{p_id}", response_model=None)
 def get_item(
     p_id: int,
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> PhieuTinhGiaOut:
+) -> PhieuTinhGiaOut | PhieuTinhGiaOutRutGon:
     p = _fetch_in_scope(db, p_id, user, authz)
+    # Thiếu "Xem chi tiết giá vốn" → KHÔNG dựng `PhieuTinhGiaOut` rồi cắt: dựng rồi cắt là để
+    # ngỏ đường quên cắt một chỗ. Trả thẳng model rút gọn — nó không có field ruột giá để mà lọt.
+    if not authz.can(user, MODULE, "view_cost"):
+        return PhieuTinhGiaOutRutGon.model_validate(p)
     out = PhieuTinhGiaOut.model_validate(p)
     # Ảnh chụp giữ SỐ, không giữ CÁCH BÀY: đắp lại danh sách cột theo khai báo hiện tại của engine
     # để phiếu cũ không còn gánh cột đã bỏ (cột "Ghi chú" rỗng, 25/08/2026).
@@ -392,6 +405,7 @@ def update_item(
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    _ruot: RuotGia,
 ) -> PhieuTinhGia:
     p = _fetch_in_scope(db, p_id, user, authz)
     data = payload.model_dump(exclude_unset=True)
