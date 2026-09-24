@@ -30,6 +30,7 @@ from ..repositories.org_scope import dept_subtree_ids, nhom_dung_chung_user_ids
 from ..services.actor_display import actor_labels
 from ..schemas.phieu_tinh_gia import (
     DanhMucDoi,
+    NhomTongOut,
     PhieuTinhGiaCreate,
     PhieuTinhGiaListItem,
     PhieuTinhGiaListOut,
@@ -385,7 +386,16 @@ def get_item(
     # Thiếu "Xem chi tiết giá vốn" → KHÔNG dựng `PhieuTinhGiaOut` rồi cắt: dựng rồi cắt là để
     # ngỏ đường quên cắt một chỗ. Trả thẳng model rút gọn — nó không có field ruột giá để mà lọt.
     if not authz.can(user, MODULE, "view_cost"):
-        return PhieuTinhGiaOutRutGon.model_validate(p)
+        rut_gon = PhieuTinhGiaOutRutGon.model_validate(p)
+        # Ba rổ (Nguyên vật liệu · Công đoạn · Giao hàng) chỉ lấy TÊN + TỔNG. `rows`/`columns`
+        # của mỗi rổ mới là diễn giải — không đi kèm.
+        groups = (p.result_json or {}).get("groups") or []
+        rut_gon.nhom_tong = [
+            NhomTongOut(ten=str(g.get("name") or ""), tong=float(g.get("subtotal") or 0))
+            for g in groups
+            if isinstance(g, dict)
+        ]
+        return rut_gon
     out = PhieuTinhGiaOut.model_validate(p)
     # Ảnh chụp giữ SỐ, không giữ CÁCH BÀY: đắp lại danh sách cột theo khai báo hiện tại của engine
     # để phiếu cũ không còn gánh cột đã bỏ (cột "Ghi chú" rỗng, 25/08/2026).

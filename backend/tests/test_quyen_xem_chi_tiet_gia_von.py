@@ -109,6 +109,21 @@ def test_thieu_view_cost_mo_phieu_khong_thay_dien_giai(client):
         assert "gia_von_tp" in tp
 
 
+def test_thieu_view_cost_van_thay_tong_ba_ro(client):
+    """Ba rổ (Nguyên vật liệu · Công đoạn · Giao hàng) chỉ còn TÊN + TỔNG, không dòng nào.
+
+    Thiếu ô quyền vẫn phải biết tiền nằm ở rổ nào — thẻ đen bên phải màn phiếu sống bằng ba số
+    này. Cái bị giấu là các DÒNG cộng vào đó.
+    """
+    p_id = _tao_phieu(client)
+    token = _user_with_role("kd_xem_ba_ro", MODULE, can_read=True)
+    body = client.get(f"/api/phieu-tinh-gia/{p_id}", headers=_h(token)).json()
+    assert body["nhom_tong"], "phải có ít nhất một rổ"
+    for nhom in body["nhom_tong"]:
+        assert set(nhom) == {"ten", "tong"}, "rổ chỉ được có tên + tổng"
+        assert nhom["ten"]
+
+
 def test_co_view_cost_mo_phieu_thay_du(client):
     p_id = _tao_phieu(client)
     token = _user_with_role("kd_xem_du", MODULE, can_read=True, can_view_cost=True)

@@ -302,6 +302,16 @@ class ThanhPhanRutGonOut(BaseModel):
     gia_von_tp: float
 
 
+class NhomTongOut(BaseModel):
+    """Tên rổ + TỔNG TIỀN của rổ (Nguyên vật liệu · Công đoạn · Giao hàng) — không kèm dòng nào.
+
+    Thiếu `view_cost` vẫn phải thấy ba con số này (đi chào khách cần biết tiền nằm ở đâu), nhưng
+    KHÔNG thấy dòng nào cộng vào đó. Router lọc từ `result_json["groups"]`, chỉ lấy hai khoá.
+    """
+    ten: str
+    tong: float
+
+
 class PhieuTinhGiaOutRutGon(BaseModel):
     """Phiếu KHÔNG kèm ruột giá — thiếu `view_cost` thì `GET /{id}` trả cái này.
 
@@ -321,6 +331,8 @@ class PhieuTinhGiaOutRutGon(BaseModel):
     ktv: str | None = None
     ghi_chu: str | None = None
     thanh_phans: list[ThanhPhanRutGonOut] = Field(default_factory=list)
+    # Router gán tay từ `result_json` (không đọc được từ ORM) — xem `get_item`.
+    nhom_tong: list[NhomTongOut] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

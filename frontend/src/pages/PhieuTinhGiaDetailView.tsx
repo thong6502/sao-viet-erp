@@ -1249,6 +1249,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const [ktv, setKtv] = useState<string | null>(null);
   const [ngay, setNgay] = useState<string | null>(null);
   const [tongGiaVon, setTongGiaVon] = useState<number | null>(null);
+  // Hai thứ dưới đây CHỈ dùng khi vai thiếu "Xem chi tiết giá vốn": không gọi được /preview nên
+  // `result` rỗng, số phải lấy từ ẢNH CHỤP mà BE đã lưu cùng phiếu.
+  const [giaVonDonLuu, setGiaVonDonLuu] = useState<number | null>(null);
+  const [nhomTongLuu, setNhomTongLuu] = useState<{ ten: string; tong: number }[]>([]);
 
   // --- Form ---
   const [loaiSPId, setLoaiSPId] = useState<number | "">("");
@@ -1289,6 +1293,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setKtv(out.ktv);
     setNgay(out.created_at ? out.created_at.slice(0, 10) : null);
     setTongGiaVon(out.tong_gia_von);
+    setGiaVonDonLuu(out.gia_von_don);
+    setNhomTongLuu(out.nhom_tong ?? []);
     setKhoThanhPham(out.kho_thanh_pham ?? "");
     setLoaiSPId(out.loai_san_pham_id ?? "");
     setComps((out.thanh_phans ?? []).map(fromComponent));
@@ -1698,7 +1704,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     }
   }
 
-  const grand = result ? result.grand_total : null;
+  // Thiếu ô chi tiết giá vốn ⇒ engine không chạy phía này; thẻ đen đọc ảnh chụp đã lưu. Tổng và
+  // đơn giá bình quân VẪN phải hiện — đó là hai con số đi chào khách, ô quyền chỉ giấu CÁCH RA.
+  const grand = result ? result.grand_total : xemRuotGia ? null : tongGiaVon;
   // Đơn giá BÌNH QUÂN (nhiều SP khác SL) — ưu tiên meta engine; fallback grand/ΣSL.
   const tongSoLuong = result?.meta?.tong_so_luong ?? 0;
   const perPiece =
@@ -1706,7 +1714,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       ? Math.round(result.meta.gia_von_don)
       : result && tongSoLuong > 0
         ? Math.round(result.grand_total / tongSoLuong)
-        : null;
+        : !xemRuotGia && giaVonDonLuu != null && giaVonDonLuu > 0
+          ? Math.round(giaVonDonLuu)
+          : null;
 
   // Danh sách HIỂN THỊ: các dòng cùng nhóm kéo về nằm cạnh nhau, tại vị trí dòng đầu của nhóm.
   // Dòng lẻ giữ nguyên chỗ. Không đổi thứ tự dữ liệu (`comps`) — chỉ đổi cách bày ra bảng + bản in.
@@ -1779,12 +1789,19 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   );
 
   const summaryRows = useMemo(() => {
-    if (!result) return [];
+    if (!result) {
+      // Ba rổ của bản rút gọn: chỉ tên + tổng, không có dòng nào cộng vào đó.
+      if (xemRuotGia || nhomTongLuu.length === 0) return [];
+      return [
+        ...nhomTongLuu.map((g) => ({ label: g.ten, value: `${fmt(g.tong)} đ`, total: false })),
+        { label: "Tổng giá vốn", value: `${fmt(tongGiaVon ?? 0)} đ`, total: true },
+      ];
+    }
     return [
       ...result.groups.map((g) => ({ label: g.name, value: `${fmt(g.subtotal)} đ`, total: false })),
       { label: "Tổng giá vốn", value: `${fmt(result.grand_total)} đ`, total: true },
     ];
-  }, [result]);
+  }, [result, xemRuotGia, nhomTongLuu, tongGiaVon]);
 
   // --- GỘP DÒNG KHI BÁO GIÁ ---------------------------------------------------
   // Nhóm là quan hệ GIỮA các dòng (ruột + bìa = 1 cuốn) nên thao tác đặt ở LIST: tick 2 dòng,
@@ -2043,8 +2060,11 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                           const meta = metaByIdx.get(i);
                           // SL hiệu lực từ STATE LOCAL (phản ánh ngay khi sửa; 0 = lấy SL phiếu).
                           const sl = c.so_luong > 0 ? c.so_luong : phieuSL;
+                          // Không có ruột giá thì cũng không có giấy/khổ để mà thiếu — bản rút
+                          // gọn KHÔNG trả các field đó, nên cảnh báo sẽ đỏ oan mọi dòng.
                           const thieu =
-                            !c.giay_id || c.dai_thanh_pham <= 0 || c.rong_thanh_pham <= 0;
+                            xemRuotGia &&
+                            (!c.giay_id || c.dai_thanh_pham <= 0 || c.rong_thanh_pham <= 0);
                           return (
                             <tr
                               key={c.uid}
@@ -2083,13 +2103,17 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                     <span className="d" />
                                     <span className="badge__t">{loaiLabelOf(c)}</span>
                                   </span>
-                                ) : (
+                                ) : xemRuotGia ? (
                                   <span
                                     className="tg-warn-chip"
                                     title="Chưa chọn loại sản phẩm — mở sản phẩm để chọn, chuỗi công đoạn mặc định cũng bung theo loại."
                                   >
                                     <WarnIcon /> chưa chọn loại
                                   </span>
+                                ) : (
+                                  // Bản rút gọn không trả loại của từng dòng — im lặng, không
+                                  // dựng cảnh báo cho thứ vai này vốn không được nhìn.
+                                  <span className="mono">—</span>
                                 )}
                               </td>
                               <td className="num mono">{sl > 0 ? fmt(sl) : "—"}</td>
@@ -2097,7 +2121,11 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                 {c.gia_von_tp > 0 ? `${fmt(c.gia_von_tp)} đ` : "—"}
                               </td>
                               <td className="num rust-num">
-                                {meta && meta.gia_von_don > 0 ? `${fmt(meta.gia_von_don)} đ` : "—"}
+                                {meta && meta.gia_von_don > 0
+                                  ? `${fmt(meta.gia_von_don)} đ`
+                                  : !xemRuotGia && c.gia_von_tp > 0 && sl > 0
+                                    ? `${fmt(Math.round(c.gia_von_tp / sl))} đ`
+                                    : "—"}
                               </td>
                               <td className="prow__act" onClick={(e) => e.stopPropagation()}>
                                 <button
@@ -2351,7 +2379,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                   <span className="tg-cost__grandval">{fmt(result.grand_total)} đ</span>
                 </div>
               </section>
-            ) : (
+            ) : xemRuotGia ? (
               <section className="panel">
                 <div className="tg-empty">
                   <CalcIcon />
@@ -2362,7 +2390,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                   </p>
                 </div>
               </section>
-            )}
+            ) : null}
           </div>
 
           {/* ============ RIGHT (sticky) ============ */}
@@ -2408,7 +2436,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                   <span className="v">
                     {!daLuu ? (
                       <span className="badge neutral"><span className="d" />Chưa lưu</span>
-                    ) : result && result.grand_total > 0 ? (
+                    ) : (result ? result.grand_total : (tongGiaVon ?? 0)) > 0 ? (
                       <span className="badge soft"><span className="d" />Đã tính giá</span>
                     ) : (
                       <span className="badge neutral"><span className="d" />Nháp</span>

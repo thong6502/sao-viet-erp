@@ -3899,6 +3899,9 @@ export interface PhieuTinhGiaOut {
   gia_von_don: number;
   result: TinhGiaPreviewOut | null;
   warnings: string[] | null;
+  /** CHỈ có ở bản RÚT GỌN (vai thiếu `tinh_gia_thanh:view_cost`): tên + tổng tiền từng rổ, không
+   *  kèm dòng nào. Vai đủ quyền đọc ba rổ từ `result.groups` nên BE không trả field này. */
+  nhom_tong?: { ten: string; tong: number }[];
   ktv: string | null;
   ghi_chu: string | null;
   thanh_phans: ThanhPhanOut[];

@@ -1067,6 +1067,10 @@ export function PermissionMatrix({
                   const canWrite = isNoiQuy
                     ? row.can_create && row.can_delete
                     : WRITE_ACTIONS.every((k) => row[k]);
+                  // Khoá ô chi tiết bắt buộc bám "CÓ ĐƯỜNG GHI NÀO KHÔNG", KHÔNG bám `canWrite`.
+                  // `canWrite` đòi đủ cả thêm+sửa+xóa nên vai thêm+sửa (không xóa) vẫn lọt: quản
+                  // trị tắt được ô, rồi người đó bấm Lưu phiếu là ăn 403 từ máy chủ.
+                  const coDuongGhi = row.can_create || row.can_update;
                   const xemSong = oSong(row.module_key, "read");
                   // Cột "Thao tác" bật nhiều cột một lúc — coi là còn sống nếu CÓ ÍT NHẤT MỘT
                   // trong số đó được máy chủ gác. Đòi tất cả thì gần như màn nào cũng bị khoá oan.
@@ -1223,10 +1227,10 @@ export function PermissionMatrix({
                                   readOnly ||
                                   !oSong(row.module_key, a.key.replace("can_", "")) ||
                                   (doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all") ||
-                                  (FINE_THEO_WRITE[row.module_key] === a.key && canWrite)
+                                  (FINE_THEO_WRITE[row.module_key] === a.key && coDuongGhi)
                                 }
                                 title={
-                                  FINE_THEO_WRITE[row.module_key] === a.key && canWrite
+                                  FINE_THEO_WRITE[row.module_key] === a.key && coDuongGhi
                                     ? CANH_BAO_FINE_THEO_WRITE
                                     : doiPhamViToanCty(row.module_key, a.key) && row.scope !== "all"
                                       ? CANH_BAO_PHAM_VI
