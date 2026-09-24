@@ -99,7 +99,8 @@ export function BaoCaoCongNoPage({
   const [data, setData] = useState<BaoCaoCongNo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dangXuat, setDangXuat] = useState(false);
+  // Đang xuất file nào — hai nút dùng chung một lượt tải, bấm cái này thì khoá cả hai.
+  const [dangXuat, setDangXuat] = useState<"tong_hop" | "chi_tiet" | null>(null);
   const [q, setQ] = useState("");
   // Đối tượng đang mở SỔ CHI TIẾT. Giữ cả TÊN vừa bấm để hiện ngay lúc còn đang tải —
   // `id` có thể là `null` (dòng "ngoài danh mục") nên không dùng chính nó làm cờ đóng/mở được.
@@ -241,14 +242,16 @@ export function BaoCaoCongNoPage({
   // }
 
   // Xuất file Excel (.xlsx)
-  async function xuatExcel() {
+  async function xuatExcel(chiTiet = false) {
     if (!token) return;
-    setDangXuat(true);
+    setDangXuat(chiTiet ? "chi_tiet" : "tong_hop");
     try {
-      const { url, ten } = await api.accounting.baoCaoCongNoXlsx(token, ben, {
-        tuNgay: ky.tu,
-        denNgay: ky.den,
-      });
+      const { url, ten } = await api.accounting.baoCaoCongNoXlsx(
+        token,
+        ben,
+        { tuNgay: ky.tu, denNgay: ky.den },
+        chiTiet,
+      );
       const a = document.createElement("a");
       a.href = url;
       a.download = ten;
@@ -259,7 +262,7 @@ export function BaoCaoCongNoPage({
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Không xuất được file.");
     } finally {
-      setDangXuat(false);
+      setDangXuat(null);
     }
   }
 
@@ -361,12 +364,21 @@ export function BaoCaoCongNoPage({
           {/* Tạm thời ẩn nút In báo cáo theo yêu cầu */}
           <Button
             variant="ghost"
-            onClick={xuatExcel}
-            disabled={dangXuat || !data}
+            onClick={() => void xuatExcel()}
+            disabled={dangXuat != null || !data}
             title="Xuất file .xlsx chuẩn MISA"
           >
             <Icon name="table" size={14} />{" "}
-            {dangXuat ? "Đang xuất…" : "Xuất Excel"}
+            {dangXuat === "tong_hop" ? "Đang xuất…" : "Xuất Excel"}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => void xuatExcel(true)}
+            disabled={dangXuat != null || !data}
+            title="Sổ chi tiết mọi đối tượng trong kỳ: từng chứng từ, TK đối ứng (tiền mặt / tài khoản ngân hàng), số dư luỹ kế"
+          >
+            <Icon name="fileText" size={14} />{" "}
+            {dangXuat === "chi_tiet" ? "Đang xuất…" : "Xuất Excel chi tiết"}
           </Button>
           {canKhoaSo && (
             <Button

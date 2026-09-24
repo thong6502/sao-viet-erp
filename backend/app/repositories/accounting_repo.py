@@ -564,6 +564,8 @@ class AccountingRepository:
                 selectinload(PaymentReceipt.payment_voucher).selectinload(
                     PaymentVoucher.purchase_request
                 ),
+                # Cột "TK đối ứng" của sổ chi tiết lùi về đây khi phiếu cũ thiếu bản chụp.
+                selectinload(PaymentReceipt.company_bank_account),
             )
             .where(
                 PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
@@ -583,7 +585,10 @@ class AccountingRepository:
         """
         stmt = (
             select(PaymentVoucher)
-            .options(selectinload(PaymentVoucher.purchase_request))
+            .options(
+                selectinload(PaymentVoucher.purchase_request),
+                selectinload(PaymentVoucher.company_bank_account),
+            )
             .where(PaymentVoucher.status == PAYMENT_VOUCHER_PAID)
             .order_by(PaymentVoucher.voucher_date, PaymentVoucher.id)
         )

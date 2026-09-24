@@ -72,6 +72,30 @@ export function SoChiTietDrawer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [trang, setTrang] = useState(1);
+  const [dangXuat, setDangXuat] = useState(false);
+
+  // Xuất Excel sổ chi tiết của RIÊNG người đang xem — cùng khuôn với "Xuất Excel chi tiết" ở sổ
+  // tổng hợp (TK công nợ trống, TK đối ứng theo phiếu thu–chi), chỉ khác là một khối.
+  async function xuatExcel() {
+    if (!token) return;
+    setDangXuat(true);
+    try {
+      const { url, ten } = await api.accounting.baoCaoCongNoXlsx(
+        token, ben, { tuNgay, denNgay }, true, { doiTuongId },
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = ten;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Không xuất được file.");
+    } finally {
+      setDangXuat(false);
+    }
+  }
 
   // Sắp xếp chứng từ phát sinh: MỚI NHẤT LÊN ĐẦU (chủ chốt chọn Cách 1: Đầu kỳ → Phát sinh mới đến cũ → Cuối kỳ).
   // Bố cục hiển thị: SỐ DƯ ĐẦU KỲ → PHÁT SINH TRONG KỲ (mới → cũ) → SỐ DƯ CUỐI KỲ.
@@ -160,14 +184,26 @@ export function SoChiTietDrawer({
                 */}
               </div>
             </div>
-            <button
-              type="button"
-              className="purchase__hero-x"
-              onClick={onClose}
-              aria-label="Đóng"
-            >
-              ✕
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                onClick={() => void xuatExcel()}
+                disabled={dangXuat || loading || !data}
+                title="Xuất sổ chi tiết của riêng đối tượng này ra .xlsx (kèm TK đối ứng)"
+              >
+                <Icon name="table" size={13} />{" "}
+                {dangXuat ? "Đang xuất…" : "Xuất Excel"}
+              </button>
+              <button
+                type="button"
+                className="purchase__hero-x"
+                onClick={onClose}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
           </div>
           <div className="purchase__hero-meta">
             {data?.ma && (
@@ -327,9 +363,9 @@ export function SoChiTietDrawer({
 
               <p className="bccn__soct-foot">
                 <Icon name="fileText" size={13} />{" "}
-                Cần file lưu trữ? Dùng nút{" "}
-                <strong>Xuất Excel</strong> ở sổ tổng hợp — sổ chi
-                tiết này để tra tại chỗ khi ngồi đối chiếu.
+                Cần file lưu trữ? Nút <strong>Xuất Excel</strong> ở trên xuất riêng
+                sổ này; nút <strong>Xuất Excel chi tiết</strong> ở sổ tổng hợp xuất
+                mọi đối tượng trong kỳ.
               </p>
             </>
           )}
