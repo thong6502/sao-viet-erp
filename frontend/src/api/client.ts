@@ -13189,12 +13189,21 @@ export const api = {
       token: string,
       ben: "receivables" | "payables",
       params: { tuNgay: string; denNgay: string },
+      /** `true` = SỔ CHI TIẾT mọi đối tượng (từng chứng từ + TK đối ứng), không phải sổ tổng hợp. */
+      chiTiet = false,
+      /** Chỉ xuất sổ chi tiết của MỘT đối tượng. `null` = dòng gom "không gắn đối tượng" —
+       *  KHÔNG phải "tất cả" (bỏ trống tham số này mới là tất cả). */
+      motNguoi?: { doiTuongId: number | null },
     ): Promise<{ url: string; ten: string }> {
       const qs = new URLSearchParams({
         tu_ngay: params.tuNgay,
         den_ngay: params.denNgay,
       });
-      const duong = `${BASE_URL}/api/accounting/reports/${ben}.xlsx?${qs.toString()}`;
+      if (motNguoi) {
+        if (motNguoi.doiTuongId == null) qs.set("khong_gan", "true");
+        else qs.set("doi_tuong_id", String(motNguoi.doiTuongId));
+      }
+      const duong = `${BASE_URL}/api/accounting/reports/${ben}${chiTiet ? "-detail" : ""}.xlsx?${qs.toString()}`;
       const doFetch = (bearer: string) =>
         fetch(duong, {
           credentials: "include",

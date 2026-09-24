@@ -648,6 +648,22 @@ class AccountingService:
             tu_ngay=tu_ngay, den_ngay=den_ngay,
         )
 
+    def so_chi_tiet_tat_ca_phai_thu(
+        self, *, tu_ngay: date, den_ngay: date, loc=bao_cao_cong_no.TAT_CA
+    ) -> dict:
+        """Sổ chi tiết TK 131 cho file Excel: mọi khách trong kỳ, hoặc đúng một khách (`loc`)."""
+        return bao_cao_cong_no.so_chi_tiet_tat_ca_phai_thu(
+            self.repo, tu_ngay=tu_ngay, den_ngay=den_ngay, loc=loc
+        )
+
+    def so_chi_tiet_tat_ca_phai_tra(
+        self, *, tu_ngay: date, den_ngay: date, loc=bao_cao_cong_no.TAT_CA
+    ) -> dict:
+        """Sổ chi tiết TK 331 cho file Excel: mọi NCC trong kỳ, hoặc đúng một NCC (`loc`)."""
+        return bao_cao_cong_no.so_chi_tiet_tat_ca_phai_tra(
+            self.repo, self.purchases, tu_ngay=tu_ngay, den_ngay=den_ngay, loc=loc
+        )
+
     def payables_summary(
         self,
         *,
