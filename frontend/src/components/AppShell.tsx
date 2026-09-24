@@ -24,6 +24,7 @@ import {
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
+import { BaoCaoKinhDoanhPage } from "../pages/bao-cao-kinh-doanh/BaoCaoKinhDoanhPage";
 import GiaoHangPage from "../pages/giao-hang/giao-hang";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
 import { LenhSanXuatPage } from "../pages/LenhSanXuatPage";
@@ -1499,6 +1500,8 @@ export function AppShell() {
         );
       case "don-hang-ban":
         return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
+      case "bao-cao-kinh-doanh":
+        return <BaoCaoKinhDoanhPage />;
       case "giao-hang":
         // `eventTick` tăng mỗi sự kiện SSE ⇒ bảng chuyến tự tươi, không phải F5.
         return <GiaoHangPage eventTick={quoteTick} />;

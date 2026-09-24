@@ -131,6 +131,40 @@ class OrderRepository:
         ).scalar()
         return int(val) // 100 if val is not None else 0
 
+    def chot_trong_khoang(
+        self, *, tu, den, scope: str, actor, customer_id: int | None = None
+    ) -> list[Order]:
+        """Đơn ĐÃ CHỐT có `ordered_at` trong `[tu, den)` (hai mốc UTC) — nguồn của Báo cáo kinh
+        doanh (24/09/2026). Nạp sẵn dòng sản phẩm: báo cáo in hết dòng của mọi đơn, để lười là
+        N+1 trên cả trăm đơn."""
+        stmt = (
+            select(Order)
+            .options(selectinload(Order.lines))
+            .where(Order.status == "ordered", Order.ordered_at >= tu, Order.ordered_at < den)
+            .order_by(Order.ordered_at, Order.id)
+        )
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        if customer_id is not None:
+            stmt = stmt.where(Order.customer_id == customer_id)
+        return list(self.db.execute(stmt).scalars().unique().all())
+
+    def khach_theo_ids(self, ids: set[int]) -> dict[int, Customer]:
+        if not ids:
+            return {}
+        return {
+            c.id: c for c in self.db.execute(select(Customer).where(Customer.id.in_(ids))).scalars()
+        }
+
+    def ten_nguoi_dung(self, ids: set[int]) -> dict[int, str]:
+        if not ids:
+            return {}
+        return {
+            uid: (name or "")
+            for uid, name in self.db.execute(select(User.id, User.name).where(User.id.in_(ids)))
+        }
+
     def money_sums(self, order_ids: list[int]) -> dict[int, dict]:
         """Batch của `line_total_sum` + `total_with_vat` + `order_cost_sum` — MỘT câu cho cả trang.
 

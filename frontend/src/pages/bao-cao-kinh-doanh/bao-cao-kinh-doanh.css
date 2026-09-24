@@ -1,0 +1,282 @@
+/* BÁO CÁO KINH DOANH theo khách hàng (24/09/2026).
+ *
+ * Tiền tố `bckd__` cho MỌI selector, neo dưới `.bckd`. Không đụng `.rc-*` (guard `cssKhongCuop`)
+ * và không đè class dùng chung — cùng luật với sổ công nợ.
+ *
+ * Bố cục: header (tiêu đề + nút xuất) → bộ lọc → dải số tổng → bảng KHÁCH; bấm một khách thì mở
+ * các đơn của khách đó ngay bên dưới, mỗi đơn kèm bảng dòng sản phẩm. */
+
+.bckd {
+  max-width: 1280px;
+  padding: var(--sp-5) var(--sp-6) var(--sp-7);
+  margin: 0 auto;
+}
+
+.bckd__head {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+}
+
+.bckd__title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.bckd__sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ash);
+}
+
+/* --- bộ lọc ------------------------------------------------------------------------------ */
+.bckd__loc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-4);
+  align-items: flex-end;
+  margin-bottom: var(--sp-4);
+}
+
+.bckd__o {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.bckd__o input,
+.bckd__o select {
+  height: 36px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+
+.bckd__o--rong {
+  flex: 1 1 320px;
+  max-width: 520px;
+}
+
+/* --- dải số tổng ------------------------------------------------------------------------- */
+.bckd__kpi {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.bckd__kpi > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+}
+
+.bckd__kpi span {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ash);
+}
+
+.bckd__kpi strong {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.bckd__kpi .is-thieu strong {
+  color: var(--rust);
+}
+
+@media (max-width: 1100px) {
+  .bckd__kpi {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* --- bảng khách ---------------------------------------------------------------------------- */
+.bckd__bang-khung {
+  overflow-x: auto;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+}
+
+.bckd__bang {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.bckd__bang > thead th {
+  padding: 10px 12px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ash);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.bckd__bang > tbody > tr > td {
+  padding: 10px 12px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+/* Chỉ cột MỞ của bảng khách — dùng `>` để không ăn lan sang bảng dòng sản phẩm lồng bên trong
+ * (bản đầu viết `.bckd__bang td:first-child` bóp cột "Sản phẩm" còn 36px). */
+.bckd__bang > thead > tr > th:first-child,
+.bckd__bang > tbody > tr > td:first-child {
+  width: 36px;
+  padding-right: 0;
+}
+
+.bckd .bckd__so {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bckd__khach {
+  cursor: pointer;
+}
+
+.bckd__khach:hover > td {
+  background: var(--paper);
+}
+
+.bckd__ten {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.bckd__phu {
+  font-size: var(--fs-2xs);
+  color: var(--ash-2);
+}
+
+.bckd__mo {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  color: var(--ash);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.bckd__caret {
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+
+.bckd__caret.is-open {
+  transform: rotate(0deg);
+}
+
+.bckd__tien {
+  font-variant-numeric: tabular-nums;
+}
+
+.bckd__tien--nhat {
+  font-weight: var(--fw-bold);
+}
+
+.bckd__khong {
+  color: var(--ash-2);
+}
+
+.bckd__trong {
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--ash);
+}
+
+/* --- đơn trong khách ----------------------------------------------------------------------- */
+.bckd__don-hang > td {
+  background: var(--paper);
+}
+
+.bckd__don {
+  padding: 4px 0 8px;
+}
+
+.bckd__don-dau {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: baseline;
+  margin-bottom: 8px;
+  font-size: var(--fs-sm);
+  color: var(--ash);
+}
+
+.bckd__don-dau strong {
+  color: var(--ink);
+}
+
+.bckd__don-coc {
+  margin-left: auto;
+}
+
+.bckd__thieu {
+  font-weight: var(--fw-bold);
+  color: var(--rust);
+}
+
+.bckd__dong {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+}
+
+.bckd__dong th,
+.bckd__dong td {
+  padding: 7px 10px;
+  font-size: var(--fs-sm);
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+.bckd__dong th {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  text-align: left;
+  color: var(--ash);
+}
+
+.bckd__dong-cong td {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  border-bottom: 0;
+}

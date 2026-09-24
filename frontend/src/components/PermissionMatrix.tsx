@@ -442,6 +442,8 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: mở màn Công nợ phải thu (số khách còn nợ). Số liệu chỉ phát sinh từ hóa đơn bán đã ghi nhận, sau đó trừ cọc được cấn và phiếu thu; đơn mới chốt chưa tạo công nợ.",
   bao_cao_cong_no:
     "Xem: mở màn Báo cáo (sổ tổng hợp theo mẫu Excel MISA, phân tuổi nợ, xuất Excel/in) — cả hai phân hệ Phải trả lẫn Phải thu. Thao tác: khoá/mở kỳ kế toán công nợ. Tách riêng khỏi hai ô Công nợ phải trả/phải thu ở trên — ai chỉ cần xem sổ đối chiếu MISA không nhất thiết phải có quyền vào màn công nợ vận hành hằng ngày.",
+  bao_cao_kinh_doanh:
+    "Xem: mở màn Báo cáo kinh doanh (đơn đã chốt theo khách: sản phẩm, đơn giá, cọc) và xuất Excel. Phạm vi: Của tôi = chỉ đơn mình bán · Cả phòng = đơn của sale trong phòng · Tất cả = toàn công ty. Không có thao tác ghi.",
   tk_ngan_hang:
     "Xem: mở màn Tài khoản ngân hàng (TK công ty + TK nhà cung cấp). Chỉnh sửa: thêm/sửa/ngừng dùng tài khoản. TK của nhà cung cấp thì người quản danh mục Nhà cung cấp cũng sửa được.",
 };
@@ -499,7 +501,9 @@ const MODULE_GROUPS: {
     // `giao_hang` đứng ngay sau `don_hang_ban`: nó là khúc SAU của đơn, và người cấp quyền dò
     // theo màn hình chứ không theo tên kỹ thuật. Thiếu ở đây thì nó rơi vào nhóm "Khác" —
     // vẫn cấp được, nhưng phải cuộn xuống cuối mới thấy.
-    modules: ["khach_hang", "bao_gia", "don_hang_ban", "giao_hang", "tinh_gia_thanh"],
+    modules: [
+      "khach_hang", "bao_gia", "don_hang_ban", "giao_hang", "tinh_gia_thanh", "bao_cao_kinh_doanh",
+    ],
   },
   // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Sản xuất" để người cấp quyền dò theo màn hình.
   // 6 mục menu → 6 dòng; trước 17/08/2026 chỉ có 2, bật đủ 2/2 vẫn không siết được màn nào.
