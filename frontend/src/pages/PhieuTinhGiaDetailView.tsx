@@ -22,6 +22,7 @@ import {
 } from "../api/client";
 import { congDoan, donViDo, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
@@ -35,16 +36,12 @@ import { useNapTenDonVi } from "./tenDonVi";
 // xem ghi chú chỗ `humanizeFormula`.
 import { traBien, useBienCongThuc, type TraBien } from "./RebuildCatalogPage";
 import { HAM_TOAN, catToken, laSo, laToanTu } from "./danh-muc/formulaTokens";
-import { PhieuTinhGiaPrint, type PhieuTinhGia, type PhieuTinhGiaColumn } from "./PhieuTinhGiaPrint";
 import "./rebuild-catalog.css";
 import "./tinh-gia.css";
 
 // ------------------------------- Helpers -------------------------------
 const fmt = (v: number | null | undefined): string =>
   typeof v === "number" ? Math.round(v).toLocaleString("vi-VN") : "—";
-
-const vnd = (v: number | string | null | undefined): string =>
-  typeof v === "number" ? v.toLocaleString("vi-VN") : (v ?? "").toString();
 
 const rowLabel = (r: Row): string => `${r.ma ? `${r.ma} · ` : ""}${r.ten}`;
 const cdName = (r: Row): string => (r.ten_hien_thi ? String(r.ten_hien_thi) : String(r.ten));
@@ -895,68 +892,6 @@ type NodeHienThi =
   | { kind: "don"; comp: EditableComponent };
 
 
-// Engine (snake_case) → phiếu in (chuỗi format sẵn).
-function toPhieu(
-  res: TinhGiaPreviewOut,
-  soPhieu: string,
-  tenAnPham: string,
-  soLuong: string,
-  khoThanhPham: string,
-  /** Ngày LẬP PHIẾU (`created_at`), KHÔNG phải hôm nay. Phiếu lập 27/7 mà bản in ghi ngày bấm In
-   *  là chứng từ nói sai ngày — ai đối chiếu sổ sách cũng vấp. */
-  ngayLap: string | null,
-  sanPhams: { ten: string; soLuong: number; dvt: string }[],
-  tra: TraBien,
-): PhieuTinhGia {
-  const now = new Date();
-  return {
-    header: {
-      soPhieu,
-      ngayLap: ngayLap ?? "—",
-      ngayIn: now.toLocaleString("vi-VN"),
-      tenAnPham: tenAnPham || "—",
-      soLuong,
-      khoThanhPham: khoThanhPham || "—",
-    },
-    sanPhams,
-    noiDung: [],
-    groups: res.groups.map((g) => {
-      const columns: PhieuTinhGiaColumn[] = g.columns.map((c) => ({
-        key: c.key,
-        label: c.label,
-        align: c.align,
-        kind: c.kind === "formula" ? "formula" : isNumCol(c) ? "num" : "text",
-      }));
-      return {
-        idx: g.idx,
-        name: g.name,
-        columns,
-        rows: g.rows.map((r) => {
-          const out: Record<string, string | number> = {};
-          for (const c of g.columns) {
-            const val = r[c.key];
-            out[c.key] = isNumCol(c)
-              ? vnd(val as number)
-              : c.kind === "formula"
-                ? humanizeFormula((val ?? "").toString(), tra)  // bản in cũng dễ đọc: "32.000 đ × 210 tờ"
-                : (val ?? "").toString();
-          }
-          return out;
-        }),
-        subtotalLabel: `Cộng ${g.name}`,
-        subtotal: vnd(g.subtotal),
-      };
-    }),
-    grandTotal: vnd(res.grand_total),
-    grandNote: "Giá vốn sản xuất · chưa gồm lợi nhuận & VAT",
-    chuKy: [
-      { role: "Người lập", who: "Bộ phận định giá" },
-      { role: "Người duyệt", who: "Trưởng phòng KD" },
-      { role: "Giám đốc", who: "Ban giám đốc" },
-    ],
-  };
-}
-
 // ------------------------------- Small building blocks -------------------------------
 function Seg({
   options,
@@ -1284,6 +1219,12 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   navigate?: (pageId: string, params?: { openQuoteId?: number }) => void;
 }) {
   const { token } = useAuth();
+  const can = useCan();
+  // Ô chi tiết "Xem chi tiết giá vốn" (`tinh_gia_thanh:view_cost`). Thiếu nó: vẫn mở được phiếu,
+  // vẫn thấy giá vốn tổng + đơn giá bình quân (đủ đi chào khách), nhưng KHÔNG thấy bảng diễn giải
+  // và KHÔNG mở được thẻ sản phẩm — chỗ khai giấy/khổ/công đoạn. Máy chủ cũng cắt phần đó khỏi
+  // phản hồi, nên đây chỉ là cho giao diện khỏi bày ô trống.
+  const xemRuotGia = can("tinh_gia_thanh", "view_cost");
   // Nhãn đơn vị ở bảng phân rã bù hao đọc từ danh mục — nạp một lần cho cả phiên.
   useNapTenDonVi();
   // Danh sách ĐVT cho ô ĐVT của từng sản phẩm (modal) VÀ ô ĐVT của dải nhóm (bảng).
@@ -1796,48 +1737,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     return out;
   }, [comps]);
 
-  const phieu = useMemo(() => {
-    if (!result) return null;
-    // Tên + SL trên bản in tính THEO NHÓM: ruột + bìa của 1 cuốn là MỘT sản phẩm thương mại,
-    // nên tên lấy tên nhóm và SL không cộng dồn (5.000 cuốn, không phải 5.000 ruột + 5.000 bìa).
-    const slCua = (c: EditableComponent) => (c.so_luong > 0 ? c.so_luong : phieuSL);
-    const names: string[] = [];
-    // SL gom THEO ĐƠN VỊ TÍNH, không cộng thành một số. Phiếu này có 500 cuốn + 1.000 thẻ; cộng
-    // lại ra "1.500" là một con số không đếm được thứ gì — cuốn và thẻ không cùng đơn vị.
-    const slTheoDv = new Map<string, number>();
-    for (const node of danhSachHienThi) {
-      const c = node.kind === "don" ? node.comp : node.members[0];
-      if (node.kind === "don") {
-        const t = (node.comp.ten || "").trim();
-        if (t) names.push(t);
-      } else {
-        names.push(node.ten);
-      }
-      const dv = (c.don_vi_tinh || "cái").trim() || "cái";
-      slTheoDv.set(dv, (slTheoDv.get(dv) ?? 0) + slCua(c));
-    }
-    const slPhieu = [...slTheoDv]
-      .map(([dv, n]) => `${n.toLocaleString("vi-VN")} ${dv}`)
-      .join(" · ") || "—";
-    const tenAnPham =
-      names.length === 0
-        ? "—"
-        : names.length <= 3
-          ? names.join(", ")
-          : `${names.slice(0, 3).join(", ")} +${names.length - 3} SP`;
-    const sanPhams = comps.map((c) => ({
-      ten: c.ten,
-      soLuong: slCua(c), // SL riêng của SP, =0 thì lấy SL mặc định phiếu
-      dvt: c.don_vi_tinh,
-      nhom: c.nhom_bao_gia.trim() || null,
-    }));
-    return toPhieu(
-      result, ma || "(chưa lưu)", tenAnPham, slPhieu, khoThanhPham,
-      ngay ? new Date(ngay).toLocaleDateString("vi-VN") : null,
-      sanPhams, traDv,
-    );
-  }, [result, ma, khoThanhPham, comps, danhSachHienThi, phieuSL, traDv, ngay]);
-
   // Số [Hiện] chốt từ engine, index theo vị trí thành phần.
   const metaByIdx = useMemo(() => {
     const list = result?.meta?.components ?? [];
@@ -1998,14 +1897,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           >
             {daLuu ? "Tính giá" : "Tính giá & lưu"}
           </Button>
-          <Button
-            variant="secondary"
-            onClick={() => window.print()}
-            disabled={!phieu}
-            title={phieu ? "In phiếu tính giá" : "Tính giá trước khi in"}
-          >
-            In phiếu
-          </Button>
           {navigate && (
             <Button
               variant="primary"
@@ -2158,7 +2049,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                             <tr
                               key={c.uid}
                               className={`prow${con ? " prow--con" : ""}${cuoi ? " prow--conCuoi" : ""}`}
-                              onClick={() => setEditingUid(c.uid)}
+                              // Thiếu "Xem chi tiết giá vốn" thì hàng KHÔNG mở thẻ sản phẩm —
+                              // thẻ đó chính là chỗ bày giấy/khổ/công đoạn.
+                              style={xemRuotGia ? undefined : { cursor: "default" }}
+                              onClick={() => { if (xemRuotGia) setEditingUid(c.uid); }}
                             >
                               <td className="prow__pick" onClick={(e) => e.stopPropagation()}>
                                 <input
@@ -2389,7 +2283,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
             {/* --- Chi tiết dòng giá vốn (Diễn giải người-đọc-được) --- */}
             {/* Chỉ hiện khi CÒN sản phẩm — xóa hết sản phẩm thì bảng NVL/Công đoạn (result cũ server
                 trả về) không còn ý nghĩa, phải về trạng thái rỗng cho khớp panel "Sản phẩm trong phiếu". */}
-            {result && comps.length > 0 ? (
+            {xemRuotGia && result && comps.length > 0 ? (
               <section className="panel">
                 <div className="panel__hd">
                   <h3><RowsIcon /> Chi tiết dòng giá vốn</h3>
@@ -2600,13 +2494,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           addFin={addFin}
           removeFin={removeFin}
         />
-      ) : null}
-
-      {/* ---------- Phiếu in (chỉ hiện khi @media print) ---------- */}
-      {phieu ? (
-        <div className="tg-print-only">
-          <PhieuTinhGiaPrint data={phieu} />
-        </div>
       ) : null}
 
       <DiscardChangesDialog
