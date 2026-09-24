@@ -18,6 +18,7 @@ from ..models.order import Order, OrderLine
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from .org_scope import dept_subtree_ids
+from .org_scope import nhom_dung_chung_user_ids
 
 # Columns a caller may sort by (whitelist — never interpolate a raw sort key).
 def _line_total_with_vat():
@@ -59,7 +60,8 @@ class OrderRepository:
         if scope == SCOPE_ALL:
             return None
         if scope == SCOPE_OWN:
-            return Order.sale_user_id == actor.id
+            # "Của tôi" = tôi + người CÙNG NHÓM DÙNG CHUNG với tôi (khối KD).
+            return Order.sale_user_id.in_(nhom_dung_chung_user_ids(self.db, actor.id))
         if scope == SCOPE_DEPARTMENT:
             # Subtree semantics (#26): phòng mình + mọi đơn vị con (GĐKD thấy các team).
             dept_ids = dept_subtree_ids(self.db, actor.department_id)
@@ -74,7 +76,7 @@ class OrderRepository:
         if scope == SCOPE_ALL:
             return True
         if scope == SCOPE_OWN:
-            return order.sale_user_id == actor.id
+            return order.sale_user_id in nhom_dung_chung_user_ids(self.db, actor.id)
         if scope == SCOPE_DEPARTMENT:
             if order.sale_user_id is None:
                 return False

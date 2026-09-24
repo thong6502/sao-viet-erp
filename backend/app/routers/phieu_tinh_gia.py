@@ -26,7 +26,7 @@ from ..models.phieu_tinh_gia import (
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
-from ..repositories.org_scope import dept_subtree_ids
+from ..repositories.org_scope import dept_subtree_ids, nhom_dung_chung_user_ids
 from ..services.actor_display import actor_labels
 from ..schemas.phieu_tinh_gia import (
     DanhMucDoi,
@@ -60,7 +60,8 @@ RuotGia = Annotated[User, Depends(require_permission(MODULE, "view_cost"))]
 def _owner_ids_for_scope(db: Session, user: User, authz: AuthorizationService) -> set[int] | None:
     """Tập user-id chủ sở hữu phiếu mà `user` được thấy theo scope module. None = thấy TẤT CẢ.
     - Tất cả (all) → None (không lọc).
-    - Của tôi (own) → chỉ mình.
+    - Của tôi (own) → mình + người CÙNG NHÓM DÙNG CHUNG (khối KD). Không thuộc nhóm nào thì
+      đúng bằng {mình} ⇒ y như trước khi có nhóm.
     - Phòng (department) → mọi người trong phòng mình + cây con (GĐ/TP thấy cả team)."""
     scope = authz.scope_for(user, MODULE) or SCOPE_OWN
     if scope == SCOPE_ALL:
@@ -70,7 +71,7 @@ def _owner_ids_for_scope(db: Session, user: User, authz: AuthorizationService) -
         if dept_ids:
             ids = db.execute(select(User.id).where(User.department_id.in_(dept_ids))).scalars().all()
             return set(ids) | {user.id}
-    return {user.id}
+    return nhom_dung_chung_user_ids(db, user.id)
 
 
 def _fetch_in_scope(db: Session, p_id: int, user: User, authz: AuthorizationService) -> PhieuTinhGia:
