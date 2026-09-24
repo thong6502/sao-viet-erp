@@ -36,6 +36,10 @@ MODULES: list[tuple[str, str]] = [
     ("khach_hang", "Khách hàng"),
     ("bao_gia", "Báo giá in ấn"),
     ("don_hang_ban", "Đơn hàng bán"),
+    # Báo cáo kinh doanh theo khách (24/09/2026) — mục menu RIÊNG. Xem = xem + xuất Excel. Cấp theo
+    # đúng luật hai màn chỉ-đọc Lệnh SX: vai đọc được `don_hang_ban` → được Xem, ĐÚNG scope của
+    # `don_hang_ban` (mg 0329 chép y như vậy cho DB đang chạy).
+    ("bao_cao_kinh_doanh", "Báo cáo kinh doanh"),
     ("tinh_gia_thanh", "Tính giá thành"),
     # Giao hàng (19/08/2026): yêu cầu giao → lên kế hoạch → đề nghị xuất kho → chuyến giao.
     # MỘT khoá cho cả màn; hai tab đặc quyền tách bằng ô chi tiết `can_plan` / `can_view_drivers`.
@@ -398,6 +402,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # Đơn hàng bán: GĐ duyệt "đơn đặc thù" + hủy đơn đã chốt + ghi cọc (GĐ toàn quyền).
             # SoD: `can_record_deposit` KHÔNG ở `_full` (TP KD/GĐ KD không tự ghi cọc) — chỉ GĐ + vai Kế toán.
             "don_hang_ban": {**_full(SCOPE_ALL, can_approve_exception=True), "can_record_deposit": True},
+            "bao_cao_kinh_doanh": _read(SCOPE_ALL),
         },
     ),
     (
@@ -587,6 +592,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "bao_gia": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
             # Đơn hàng bán: TP KD duyệt đơn đặc thù + hủy đơn đã chốt (cùng GĐ KD).
             "don_hang_ban": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
+            "bao_cao_kinh_doanh": _read(SCOPE_DEPARTMENT),
             # Xem lệnh SX của ĐƠN trong phòng mình: cùng phạm vi với đơn hàng, không rộng hơn
             # (vai này không có `san_xuat` để so bì).
             "lenh_san_xuat": _read(SCOPE_DEPARTMENT),
@@ -605,6 +611,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             **{k: _full(SCOPE_ALL) for k in KD_MODULE_KEYS},
             "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
             "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
+            "bao_cao_kinh_doanh": _read(SCOPE_ALL),
             # Xem lệnh SX của MỌI đơn: cùng phạm vi ALL với đơn hàng.
             "lenh_san_xuat": _read(SCOPE_ALL),
             "theo_doi_san_xuat": _read(SCOPE_ALL),
@@ -628,6 +635,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # Đơn hàng bán: NV KD lập/sửa/chốt đơn CỦA MÌNH (_rcu own + quản trạng thái). Đơn đặc thù
             # (nhập tay/bổ sung) phải TRÌNH lên TP/GĐ (can_approve_exception). Ghi cọc = Kế toán (P2).
             "don_hang_ban": {**_rcu(SCOPE_OWN), "can_manage_status": True},
+            "bao_cao_kinh_doanh": _read(SCOPE_OWN),
             # Xem lệnh SX của ĐƠN mình phụ trách: cùng phạm vi với đơn hàng, không rộng hơn.
             "lenh_san_xuat": _read(SCOPE_OWN),
             "theo_doi_san_xuat": _read(SCOPE_OWN),
@@ -701,6 +709,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_ALL),
             "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
+            "bao_cao_kinh_doanh": _read(SCOPE_ALL),
             # Xem lệnh SX của MỌI đơn: cùng phạm vi ALL với đơn hàng.
             "lenh_san_xuat": _read(SCOPE_ALL),
             "theo_doi_san_xuat": _read(SCOPE_ALL),
@@ -738,6 +747,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "thu_mua": _read(SCOPE_ALL),
             # Ghi phiếu thu CỌC ngay trên đơn hàng bán (cùng ô của vai "Kế toán bán hàng").
             "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
+            "bao_cao_kinh_doanh": _read(SCOPE_ALL),
             # Xem lệnh SX của MỌI đơn: cùng phạm vi ALL với đơn hàng.
             "lenh_san_xuat": _read(SCOPE_ALL),
             "theo_doi_san_xuat": _read(SCOPE_ALL),
@@ -877,6 +887,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             },
             # Điều phối cần biết đơn giao cho ai, địa chỉ ở đâu — CHỈ TRA, không sửa đơn/khách.
             "don_hang_ban": _read(SCOPE_ALL),
+            "bao_cao_kinh_doanh": _read(SCOPE_ALL),
             # Xem lệnh SX của MỌI đơn: cùng phạm vi ALL với đơn hàng.
             "lenh_san_xuat": _read(SCOPE_ALL),
             "theo_doi_san_xuat": _read(SCOPE_ALL),
