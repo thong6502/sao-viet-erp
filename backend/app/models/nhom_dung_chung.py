@@ -33,7 +33,7 @@ class NhomDungChung(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ten: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     created_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -59,7 +59,7 @@ class NhomDungChungThanhVien(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     added_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

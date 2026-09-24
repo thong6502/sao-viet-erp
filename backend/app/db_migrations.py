@@ -15939,3 +15939,11 @@ def _migrate_tach_module_ton_kho(db: Session) -> None:
 
 
 MIGRATIONS.append(("0334_tach_module_ton_kho", _migrate_tach_module_ton_kho))
+
+
+# mg 0335 — chạy lại luật 0327 lần 3, cho hai bảng sinh SAU nó: `nhom_dung_chung` và
+# `nhom_dung_chung_thanh_vien` (nhóm dùng chung dữ liệu khối Kinh doanh, 24/09). Hai cột vết
+# `created_by` / `added_by` lúc đầu khai SET NULL — lọt lưới vì bảng đẻ ở nhánh không có guard
+# `test_user_fk_cascade`, còn nhánh có guard thì chưa có bảng; chỉ lộ ra lúc gộp hai nhánh.
+# Luật chung của dự án là CASCADE cho MỌI FK trỏ users (111/111 cột khác đều vậy).
+MIGRATIONS.append(("0335_user_fks_delete_cascade_lan_3", _migrate_user_fks_delete_cascade))
