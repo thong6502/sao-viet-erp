@@ -1276,7 +1276,8 @@ export function AppShell() {
   if (kcsTuCach.kcs) {
     sanXuatDong.push({ id: "kcs", label: "KCS", icon: "shield", module: KCS_NAV_KEY });
   }
-  // Tổ đã khai báo → node lá ĐỘNG dưới SECTION "Sản xuất" (id section = "san-xuat"). Bấm 1 tổ → mở
+  // Tổ đã khai báo → node lá ĐỘNG dưới SECTION "Tổ sản xuất" (id section = "to-san-xuat", khối
+  // tách riêng 24/09/2026 — trước đó đổ chung vào khối "Sản xuất"). Bấm 1 tổ → mở
   // bàn "Thực hiện sản xuất" lọc theo tổ. teamList chỉ có dữ liệu khi có Xem ở một dòng quyền theo
   // tổ, nên thiếu quyền thì không đổ node nào. Máy chủ trả theo thứ tự cây kèm `cap` — thụt lề tính
   // từ nút NÔNG nhất người này thấy, để ai chỉ thấy vài tổ lá thì menu vẫn thẳng hàng.
@@ -1299,7 +1300,7 @@ export function AppShell() {
       nganh.push({ cap, id });
     }
   }
-  if (sanXuatDong.length) dynamicItems["san-xuat"] = sanXuatDong;
+  if (sanXuatDong.length) dynamicItems["to-san-xuat"] = sanXuatDong;
   const readableNav = kcsTuCach.kcs ? new Set([...readable, KCS_NAV_KEY]) : readable;
   // Mục "Kho" chỉ cần `kho:read`; tab "Phiếu từ đề nghị" (cần create/view_stock) tự ẩn trong KhoPage.
   const hiddenIds = new Set<string>();

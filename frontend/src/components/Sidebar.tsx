@@ -131,6 +131,25 @@ export const NAV: NavSection[] = [
       // bỏ đánh số về `xep_lich`, mg `0314` chép quyền của `xep_lich_3` sang nên không ai mất
       // đường vào. Dấu trang cũ `/xep-lich-3` và `/xep-lich-cong-doan-2` không còn dùng được.
       { id: "xep-lich", label: "Xếp lịch", icon: "calendar", module: "xep_lich" },
+    ],
+  },
+  // KHỐI RIÊNG 24/09/2026 (chủ chốt: *"tách ra làm phân hệ sản xuất riêng đi"*). Mục ở đây KHÔNG
+  // khai tĩnh: cây tổ + mục KCS do AppShell tiêm động qua `dynamicItems["to-san-xuat"]` theo đúng
+  // những tổ mà người dùng có Xem. Không ai thấy tổ nào ⇒ khối rỗng ⇒ Sidebar tự ẩn cả khối.
+  // Ma trận có nhóm cùng tên ("Tổ sản xuất", dựng runtime từ các dòng `to_sx_<id>`), nay hai bên
+  // là một khối đúng nghĩa chứ không còn nấp chung trong "Sản xuất".
+  {
+    id: "to-san-xuat",
+    label: "Tổ sản xuất",
+    items: [],
+  },
+  // KHỐI RIÊNG 24/09/2026 (chủ chốt: *"module sửa chữa máy với phiếu bảo trì thì tách ra làm phân
+  // hệ sửa chữa & bảo dưỡng"*). Hai màn này là việc của tổ kỹ thuật — hỏng thì sửa, đến hạn thì
+  // bảo dưỡng — khác hẳn chuỗi lập lệnh · xếp lịch · chạy hàng của khối Sản xuất.
+  {
+    id: "sua-chua-bao-duong",
+    label: "Sửa chữa & bảo dưỡng",
+    items: [
       // MỘT ô quyền cho MỘT mục (24/09/2026, mg `0332`): khung "Yêu cầu báo hỏng" là tab của
       // chính màn này nên `yeu_cau_sua_chua` gỡ hẳn, còn lại ô chi tiết `ky_thuat_may:request`.
       { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may" },

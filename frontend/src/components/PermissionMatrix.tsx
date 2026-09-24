@@ -605,9 +605,17 @@ const MODULE_GROUPS: {
       "ke_hoach_vat_tu",
       "bai_ghep_2",
       "xep_lich",
-      "ky_thuat_may",
-      "phieu_bao_tri",
     ],
+  },
+  // (Nhóm "Tổ sản xuất" chèn ở ĐÂY lúc chạy — nó dựng từ các dòng `to_sx_<id>` máy chủ trả về,
+  //  xem `iSanXuat` phía dưới. Thanh bên cũng có khối cùng tên ngay sau khối "Sản xuất".)
+  // KHỐI RIÊNG 24/09/2026 (chủ chốt: *"module sửa chữa máy với phiếu bảo trì thì tách ra làm phân
+  // hệ sửa chữa & bảo dưỡng"*). Hai màn này là việc của tổ kỹ thuật, không thuộc chuỗi lập lệnh ·
+  // xếp lịch · chạy hàng.
+  {
+    key: "sua_chua_bao_duong",
+    label: "Sửa chữa & bảo dưỡng",
+    modules: ["ky_thuat_may", "phieu_bao_tri"],
   },
   {
     key: "thu_mua",
@@ -940,7 +948,8 @@ export function PermissionMatrix({
   }));
   const groups = [
     ...nhomTinh.slice(0, iSanXuat + 1),
-    // Đứng ngay sau nhóm Sản xuất: người cấp quyền tìm Bàn tổ ở đúng khu Sản xuất.
+    // Đứng ngay sau nhóm Sản xuất — khớp thanh bên: khối "Tổ sản xuất" cũng nằm ngay đó
+    // (24/09/2026 nó là khối riêng, trước đó là mấy node động nấp trong khối "Sản xuất").
     { key: "to_san_xuat", label: "Tổ sản xuất", noScope: false, noWrite: true, rows: dongTo },
     ...nhomTinh.slice(iSanXuat + 1),
     ...(orphans.length
