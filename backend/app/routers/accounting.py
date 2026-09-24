@@ -62,7 +62,7 @@ from ..schemas.accounting import (
     SupplierBankAccountOut,
 )
 from ..schemas.purchase import PurchaseRequestListOut
-from ..services import bao_cao_cong_no_excel
+from ..services import bao_cao_cong_no, bao_cao_cong_no_excel
 from ..services.accounting_service import (
     AccountingConflict,
     AccountingNotFound,
@@ -475,6 +475,57 @@ def bao_cao_tong_hop_phai_tra_xlsx(
     _khoang_ngay(tu_ngay, den_ngay)
     bc = svc.bao_cao_phai_tra(tu_ngay=tu_ngay, den_ngay=den_ngay)
     return _tra_file(bc)
+
+
+# Sổ CHI TIẾT của mọi đối tượng trong kỳ, một file (24/09/2026): mỗi người một khối — đầu kỳ,
+# từng chứng từ kèm TK đối ứng (Tiền mặt / tài khoản ngân hàng của phiếu thu–chi), dòng cộng.
+@router.get("/api/accounting/reports/receivables-detail.xlsx")
+def bao_cao_chi_tiet_phai_thu_xlsx(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date = Query(...),
+    den_ngay: date = Query(...),
+    doi_tuong_id: int | None = Query(default=None),
+    khong_gan: bool = Query(default=False),
+) -> Response:
+    _khoang_ngay(tu_ngay, den_ngay)
+    return _tra_file_chi_tiet(svc.so_chi_tiet_tat_ca_phai_thu(
+        tu_ngay=tu_ngay, den_ngay=den_ngay, loc=_loc_doi_tuong(doi_tuong_id, khong_gan)))
+
+
+@router.get("/api/accounting/reports/payables-detail.xlsx")
+def bao_cao_chi_tiet_phai_tra_xlsx(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date = Query(...),
+    den_ngay: date = Query(...),
+    doi_tuong_id: int | None = Query(default=None),
+    khong_gan: bool = Query(default=False),
+) -> Response:
+    _khoang_ngay(tu_ngay, den_ngay)
+    return _tra_file_chi_tiet(svc.so_chi_tiet_tat_ca_phai_tra(
+        tu_ngay=tu_ngay, den_ngay=den_ngay, loc=_loc_doi_tuong(doi_tuong_id, khong_gan)))
+
+
+def _loc_doi_tuong(doi_tuong_id: int | None, khong_gan: bool):
+    """Không truyền gì = MỌI đối tượng. `doi_tuong_id` = đúng một người. `khong_gan=true` = chỉ dòng
+    gom "không gắn đối tượng" (id thật của nó là None nên phải có cờ riêng)."""
+    if khong_gan:
+        return None
+    if doi_tuong_id is not None:
+        return doi_tuong_id
+    return bao_cao_cong_no.TAT_CA
+
+
+def _tra_file_chi_tiet(bao_cao: dict) -> Response:
+    return Response(
+        content=bao_cao_cong_no_excel.xuat_xlsx_chi_tiet(bao_cao),
+        media_type=bao_cao_cong_no_excel.MEDIA_XLSX,
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{bao_cao_cong_no_excel.ten_file_chi_tiet(bao_cao)}"'
+        },
+    )
 
 
 def _tra_file(bao_cao: dict) -> Response:
