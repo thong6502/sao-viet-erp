@@ -97,6 +97,11 @@ export function NhanBanVaiTroModal({
         <div className="ndc-modal__block">
           <div className="ndc-modal__label">Phòng của vai mới</div>
           <Select
+            // `portal` là BẮT BUỘC trong hộp thoại: hộp có `overflow-y: auto`, danh sách mọc
+            // trong lòng nó sẽ bị cắt ngang và đẻ ra thanh cuộn cho cả hộp.
+            portal
+            searchable
+            searchPlaceholder="Tìm phòng…"
             ariaLabel="Phòng của vai mới"
             value={phongDich}
             onChange={(v) => setPhongDich((v as number) ?? vai.department_id)}
