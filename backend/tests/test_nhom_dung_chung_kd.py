@@ -160,3 +160,92 @@ def test_cung_nhom_thi_thay_khach_hang_cua_nhau(client):
     assert client.get(f"/api/customers/{cid}", headers=_h(tok_b)).status_code == 404
     _gop_nhom("Cặp A-B khách", [uid_a, uid_b])
     assert client.get(f"/api/customers/{cid}", headers=_h(tok_b)).status_code == 200
+
+
+# ============================ API quản lý nhóm ============================
+# Gộp nhóm = cho người này thấy dữ liệu của người kia ⇒ cùng loại với CẤP QUYỀN, nên gác bằng
+# ô đã có `phong_ban:manage_permissions`, không đẻ ô mới.
+
+def _user_voi_quyen(username: str, module_key: str, **perm) -> str:
+    from app.db import SessionLocal
+    from app.models.role import SCOPE_ALL
+    from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
+    from app.repositories.user_repo import UserRepository
+    from app.security import create_access_token, hash_password
+
+    s = SessionLocal()
+    try:
+        users, depts, roles = UserRepository(s), DepartmentRepository(s), RoleRepository(s)
+        kd = depts.get_by_name("Kinh doanh")
+        role = roles.get_by_name_and_department(f"role-{username}", kd.id)
+        if role is None:
+            role = roles.create(name=f"role-{username}", department_id=kd.id)
+        roles.set_permission(role_id=role.id, module_key=module_key, scope=SCOPE_ALL, **perm)
+        u = users.get_by_username(username)
+        if u is None:
+            u = users.create(username=username, name=username,
+                             password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=kd.id, role_id=role.id, is_active=True)
+        return create_access_token(str(u.id))
+    finally:
+        s.close()
+
+
+def test_thieu_quyen_khong_tao_duoc_nhom(client):
+    token = _user_voi_quyen("ndc_thuong", "tinh_gia_thanh", can_read=True)
+    r = client.post("/api/nhom-dung-chung", headers=_h(token),
+                    json={"ten": "Cặp lén", "user_ids": []})
+    assert r.status_code == 403
+
+
+def test_co_quyen_thi_tao_sua_xoa_duoc_nhom(client):
+    uid_a, _ = _sale_own("ndc_api_a", **_QUYEN)
+    uid_b, _ = _sale_own("ndc_api_b", **_QUYEN)
+    token = _user_voi_quyen("ndc_qtri", "phong_ban",
+                            can_read=True, can_manage_permissions=True)
+
+    r = client.post("/api/nhom-dung-chung", headers=_h(token),
+                    json={"ten": "Cặp KD 9", "user_ids": [uid_a, uid_b]})
+    assert r.status_code == 201, r.text
+    nhom_id = r.json()["id"]
+    assert {t["user_id"] for t in r.json()["thanh_viens"]} == {uid_a, uid_b}
+
+    ds = client.get("/api/nhom-dung-chung", headers=_h(token))
+    assert ds.status_code == 200
+    assert any(n["id"] == nhom_id for n in ds.json())
+
+    r = client.patch(f"/api/nhom-dung-chung/{nhom_id}", headers=_h(token),
+                     json={"ten": "Cặp KD 9 (đổi tên)", "user_ids": [uid_a]})
+    assert r.status_code == 200, r.text
+    assert r.json()["ten"] == "Cặp KD 9 (đổi tên)"
+    assert [t["user_id"] for t in r.json()["thanh_viens"]] == [uid_a]
+
+    assert client.delete(f"/api/nhom-dung-chung/{nhom_id}", headers=_h(token)).status_code == 200
+    assert all(n["id"] != nhom_id for n in client.get("/api/nhom-dung-chung",
+                                                      headers=_h(token)).json())
+
+
+def test_ten_nhom_trung_bi_chan(client):
+    token = _user_voi_quyen("ndc_qtri2", "phong_ban",
+                            can_read=True, can_manage_permissions=True)
+    assert client.post("/api/nhom-dung-chung", headers=_h(token),
+                       json={"ten": "Cặp trùng", "user_ids": []}).status_code == 201
+    r = client.post("/api/nhom-dung-chung", headers=_h(token),
+                    json={"ten": "Cặp trùng", "user_ids": []})
+    assert r.status_code == 409
+
+
+def test_go_khoi_nhom_thi_het_thay_du_lieu(client):
+    uid_a, tok_a = _sale_own("ndc_go_a", **_QUYEN)
+    uid_b, tok_b = _sale_own("ndc_go_b", **_QUYEN)
+    token = _user_voi_quyen("ndc_qtri3", "phong_ban",
+                            can_read=True, can_manage_permissions=True)
+    pid = client.post("/api/phieu-tinh-gia", headers=_h(tok_a),
+                      json={"ten_san_pham": "SP của A", "so_luong": 10}).json()["id"]
+    nhom_id = client.post("/api/nhom-dung-chung", headers=_h(token),
+                          json={"ten": "Cặp gỡ", "user_ids": [uid_a, uid_b]}).json()["id"]
+    assert client.get(f"/api/phieu-tinh-gia/{pid}", headers=_h(tok_b)).status_code == 200
+
+    client.patch(f"/api/nhom-dung-chung/{nhom_id}", headers=_h(token),
+                 json={"user_ids": [uid_a]})
+    assert client.get(f"/api/phieu-tinh-gia/{pid}", headers=_h(tok_b)).status_code == 404
