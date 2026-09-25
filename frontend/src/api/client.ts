@@ -128,6 +128,11 @@ async function safeDetail(resp: Response): Promise<{ text: string | null; raw: u
         return { text, raw: detail };
       }
     }
+    // Object detail có CÂU `message` (thao tác hàng loạt bị chặn: `{message, vuong_ids}`): lấy câu
+    // đó làm thông báo, `raw` vẫn giữ để nơi gọi bóc danh sách dòng vướng.
+    if (detail && typeof detail === "object" && typeof (detail as { message?: unknown }).message === "string") {
+      return { text: (detail as { message: string }).message, raw: detail };
+    }
     // Object detail có cấu trúc (vd `{loai, van_de}`): không dựng được câu ngắn ⇒ text = null (nơi
     // gọi tự bóc `raw`), nhưng VẪN trả `raw` để không mất dữ liệu.
     return { text: null, raw: detail };
@@ -5107,6 +5112,9 @@ export interface PayrollParams {
    *  `com_tang_ca_muc = 0` ⇒ TẮT tính năng. */
   com_tang_ca_nguong_phut: number;
   com_tang_ca_muc: number;
+  /** Công tính lương tối thiểu (từ ngày 1 tới ngày lập phiếu) để lập phiếu tạm ứng / lương đợt 1.
+   *  0 = tắt điều kiện (25/09/2026). */
+  tam_ung_cong_toi_thieu: number;
   /** TRẦN GIỜ LÀM THÊM THÁNG (Đ107) — số PHÚT tối đa MỘT người trong MỘT tháng, `0` = TẮT trần.
    *  Backend CHẶN CỨNG khi vượt: không có đường vượt, không quyền đặc biệt. Ô nhập trên UI theo
    *  GIỜ (40h = 2400) — nhớ ×60 lúc lưu, ÷60 lúc đọc. KHÔNG có trần theo NĂM. */
@@ -5201,6 +5209,8 @@ export interface SalaryAdvance {
   code: string | null;
   employee_id: number;
   employee_name: string | null;
+  employee_code?: string | null;
+  department_id?: number | null;
   department_name: string | null;
   bank_account: string | null;
   bank_name: string | null;
@@ -5214,6 +5224,9 @@ export interface SalaryAdvance {
   status: string;
   decision_note: string | null;
   created_at: string;
+  /** Phiếu chi CÒN HIỆU LỰC — máy chủ gắn sẵn trong danh sách của kỳ (25/09/2026). */
+  phieu_chi_id?: number | null;
+  phieu_chi_code?: string | null;
 }
 
 export interface MyAdvanceInput {
@@ -7288,6 +7301,33 @@ export interface VoucherBatchInput extends PaymentVoucherAccountsInput {
 export interface VoucherBatchResult {
   vouchers: PaymentVoucherRow[];
   total_amount: number;
+}
+
+/** Bảng kê đính kèm phiếu chi tạm ứng / lương đợt 1 — một lượt (nhiều người) hay lẻ (25/09/2026). */
+export interface BangKeTamUngRow {
+  salary_advance_id: number;
+  ma_phieu: string | null;
+  kind: string;
+  employee_id: number;
+  ma_nv: string | null;
+  ten: string | null;
+  department_id: number | null;
+  department_name: string | null;
+  so_tien: number;
+  so_tai_khoan: string | null;
+  ngan_hang: string | null;
+}
+export interface BangKeTamUng {
+  voucher_id: number;
+  code: string;
+  doc_no: string | null;
+  voucher_type: string;
+  voucher_date: string | null;
+  content: string | null;
+  status: string;
+  so_nguoi: number;
+  tong: number;
+  rows: BangKeTamUngRow[];
 }
 
 /** Những ô kế toán THẬT SỰ khai khi lập phiếu chi từ một phiếu tạm ứng lương đã duyệt.
@@ -9646,6 +9686,23 @@ export interface BaoCaoKinhDoanh {
   tong: BaoCaoKinhDoanhTien & { so_khach: number; so_don: number };
 }
 
+export interface UngVienTamUng {
+  employee_id: number;
+  code: string | null;
+  name: string | null;
+  department_id: number | null;
+  department_name?: string | null;
+  cong: number;
+  du_dieu_kien: boolean;
+  so_tien_goi_y: number | null;
+  so_phieu_da_co: number;
+}
+export interface UngVienTamUngList {
+  nguong: number;
+  den_ngay: number;
+  items: UngVienTamUng[];
+}
+
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -11051,17 +11108,61 @@ export const api = {
     createAdvance(token: string, input: SalaryAdvanceInput): Promise<SalaryAdvance> {
       return authed<SalaryAdvance>("/api/luong/advances", token, { method: "POST", body: JSON.stringify(input) });
     },
+    /** Người trong phạm vi + công tính lương tới ngày lập phiếu, đủ điều kiện hay chưa (25/09/2026). */
+    ungVienTamUng(
+      token: string,
+      p: { year: number; month: number; advanceDate: string; kind: "tam_ung" | "luong_dot_1" },
+    ): Promise<UngVienTamUngList> {
+      const qs = new URLSearchParams({
+        year: String(p.year), month: String(p.month), advance_date: p.advanceDate, kind: p.kind,
+      });
+      return authed<UngVienTamUngList>(`/api/luong/advances/ung-vien?${qs.toString()}`, token);
+    },
+    /** Lập phiếu cho nhiều người một lượt — còn một người chưa đủ điều kiện là không ghi phiếu nào. */
+    createAdvancesBulk(token: string, input: {
+      period_year: number;
+      period_month: number;
+      advance_date: string;
+      kind: "tam_ung" | "luong_dot_1";
+      reason?: string | null;
+      items: { employee_id: number; amount: number }[];
+    }): Promise<{ items: SalaryAdvance[] }> {
+      return authed<{ items: SalaryAdvance[] }>("/api/luong/advances/bulk", token, {
+        method: "POST", body: JSON.stringify(input),
+      });
+    },
     approveAdvance(token: string, id: number, note?: string): Promise<SalaryAdvance> {
       return authed<SalaryAdvance>(`/api/luong/advances/${id}/approve`, token, { method: "POST", body: JSON.stringify({ note: note ?? null }) });
     },
     rejectAdvance(token: string, id: number, note?: string): Promise<SalaryAdvance> {
       return authed<SalaryAdvance>(`/api/luong/advances/${id}/reject`, token, { method: "POST", body: JSON.stringify({ note: note ?? null }) });
     },
+    /** Duyệt / từ chối NHIỀU phiếu một lượt (25/09/2026). Một phiếu vướng là không phiếu nào
+     *  đổi trạng thái — server báo rõ phiếu nào. */
+    decideAdvancesBulk(token: string, input: {
+      ids: number[];
+      approve: boolean;
+      note?: string | null;
+    }): Promise<{ items: SalaryAdvance[] }> {
+      return authed<{ items: SalaryAdvance[] }>("/api/luong/advances/bulk-decision", token, {
+        method: "POST", body: JSON.stringify(input),
+      });
+    },
     cancelAdvance(token: string, id: number): Promise<SalaryAdvance> {
       return authed<SalaryAdvance>(`/api/luong/advances/${id}/cancel`, token, { method: "POST" });
     },
     myAdvances(token: string): Promise<MyAdvances> {
       return authed<MyAdvances>("/api/luong/advances/me", token);
+    },
+    /** Công tính lương của CHÍNH MÌNH từ ngày 1 của kỳ tới ngày ứng + ngưỡng (25/09/2026). */
+    dieuKienTamUngCuaToi(
+      token: string,
+      p: { year: number; month: number; advanceDate: string },
+    ): Promise<{ nguong: number; den_ngay: number; cong: number; du_dieu_kien: boolean }> {
+      const qs = new URLSearchParams({
+        year: String(p.year), month: String(p.month), advance_date: p.advanceDate,
+      });
+      return authed(`/api/luong/advances/me/dieu-kien?${qs.toString()}`, token);
     },
     createMyAdvance(token: string, input: MyAdvanceInput): Promise<SalaryAdvance> {
       return authed<SalaryAdvance>("/api/luong/advances/me", token, { method: "POST", body: JSON.stringify(input) });
@@ -11236,6 +11337,37 @@ export const api = {
         if (fresh) resp = await doFetch(fresh);
       }
       if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+      return URL.createObjectURL(await resp.blob());
+    },
+    /** File chuyển khoản tạm ứng / lương đợt 1 theo khuôn lô lương BIZ MBBank (25/09/2026).
+     *  `ids` = chỉ những phiếu đang tick; bỏ trống = mọi phiếu đã duyệt / đã chi của kỳ. Lỗi thì
+     *  ném NGUYÊN câu máy chủ (vd "Chưa có phiếu đã duyệt…") chứ không phải "Export failed (404)". */
+    async advancesXlsxBlobUrl(
+      token: string,
+      year: number,
+      month: number,
+      ids?: number[],
+    ): Promise<string> {
+      const q = `year=${year}&month=${month}` + (ids && ids.length ? `&ids=${ids.join(",")}` : "");
+      const doFetch = (bearer: string) =>
+        fetch(`${BASE_URL}/api/luong/advances/export.xlsx?${q}`, {
+          credentials: "include", cache: "no-store", headers: authHeader(bearer),
+        });
+      let resp = await doFetch(token);
+      if (resp.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) resp = await doFetch(fresh);
+      }
+      if (!resp.ok) {
+        let msg = `Xuất file lỗi (${resp.status}).`;
+        try {
+          const body = (await resp.json()) as { detail?: unknown };
+          if (typeof body.detail === "string") msg = body.detail;
+        } catch {
+          /* thân không phải JSON — giữ câu chung */
+        }
+        throw new ApiError(msg, resp.status);
+      }
       return URL.createObjectURL(await resp.blob());
     },
     /** Bỏ trống `ky` ⇒ kỳ mới nhất đang mở (hành vi cũ). Truyền vào ⇒ tra lại tháng đó —
@@ -13382,28 +13514,9 @@ export const api = {
     voucher(token: string, id: number): Promise<PaymentVoucherRow> {
       return authed<PaymentVoucherRow>(`/api/accounting/payment-vouchers/${id}`, token);
     },
-    /** MỌI phiếu chi lập từ phiếu tạm ứng lương (kể cả phiếu đã huỷ) — màn Tạm ứng bên Lương
-     *  map lại theo `salary_advance_id` để biết dòng nào đã chi.
-     *
-     *  `GET /api/luong/advances` CHƯA trả cờ "đã có phiếu chi", nên FE phải tự đối chiếu. Đọc
-     *  theo trang 200 (trần của backend), tối đa `maxPages` trang: một màn xem theo THÁNG không
-     *  đáng gọi hàng chục lượt. Nếu số phiếu vượt trần thì phiếu CŨ NHẤT không có chip — bấm
-     *  "Lập phiếu chi" vẫn an toàn vì backend trả 409 kèm mã phiếu chi đã lập.
-     *  Cần đúng một lượt gọi: xin backend trả thẳng `payment_voucher_code` trong danh sách tạm ứng. */
-    async salaryAdvanceVouchers(token: string, maxPages = 5): Promise<PaymentVoucherRow[]> {
-      const rows: PaymentVoucherRow[] = [];
-      for (let page = 1; page <= maxPages; page += 1) {
-        const resp = await api.accounting.vouchers(token, {
-          source_type: "salary_advance",
-          sort: "-created_at",
-          page,
-          size: 200,
-        });
-        rows.push(...resp.items);
-        if (resp.items.length === 0 || rows.length >= resp.total) break;
-      }
-      return rows;
-    },
+    // (25/09/2026) `salaryAdvanceVouchers` ĐÃ GỠ: tải 1000 phiếu chi gần nhất để dò mã PC cho màn
+    // Tạm ứng — ở quy mô ~1000 người/tháng thì phiếu cũ rơi khỏi 1000 và dòng "Đã chi" mất mã. Máy
+    // chủ nay trả sẵn `phieu_chi_id` / `phieu_chi_code` trong `GET /api/luong/advances`.
     createVoucher(token: string, input: PaymentVoucherInput): Promise<PaymentVoucherRow> {
       return authed<PaymentVoucherRow>("/api/accounting/payment-vouchers", token, {
         method: "POST",
@@ -13421,6 +13534,28 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input),
       });
+    },
+    /** Chi MỘT LƯỢT cho nhiều phiếu tạm ứng / lương đợt 1 đã duyệt ⇒ MỘT phiếu chi cho cả lô
+     *  (chủ chốt 25/09/2026; `vouchers` luôn một phần tử). Số tiền = tổng lô, người nhận "Theo bảng
+     *  kê đính kèm (N người)" — server tự điền; lô một người thì như lập lẻ. */
+    createVouchersFromAdvances(
+      token: string,
+      input: {
+        salary_advance_ids: number[];
+        voucher_type: PaymentVoucherType;
+        voucher_date: string;
+        company_bank_account_id?: number | null;
+        note?: string | null;
+      },
+    ): Promise<VoucherBatchResult> {
+      return authed<VoucherBatchResult>("/api/accounting/payment-vouchers/from-advances", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Bảng kê đính kèm phiếu chi tạm ứng (từng người · số tiền · tài khoản) — để in. */
+    bangKeTamUng(token: string, voucherId: number): Promise<BangKeTamUng> {
+      return authed<BangKeTamUng>(`/api/accounting/payment-vouchers/${voucherId}/bang-ke-tam-ung`, token);
     },
     /** Lập phiếu chi TỪ một phiếu tạm ứng lương ĐÃ DUYỆT (chủ chốt 18/08/2026). Dùng ở tab Tạm ứng
      *  bên màn Lương — kế toán bấm TAY, KHÔNG tự sinh lúc duyệt tạm ứng (từ 04/08/2026 hệ này

@@ -40,6 +40,7 @@ from ..services.payroll_component_service import (
 )
 from ..services.employee_service import EmployeeService
 from ..services.luong_excel import xuat_bang_luong
+from ..services.tam_ung_excel import xuat_file_chuyen_khoan
 from ..services.rbac_service import AuthorizationService
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
@@ -73,7 +74,10 @@ from ..schemas.payroll import (
     KhoanKmChuyenOut,
     ComponentsOut,
     AdvanceDecisionIn,
+    AdvanceBulkDecisionIn,
+    AdvanceBulkIn,
     AdvanceIn,
+    UngVienTamUngListOut,
     AdvanceOut,
     AdvancesOut,
     DeptComponentOut,
@@ -104,6 +108,7 @@ from ..schemas.payroll import (
     TableOut,
 )
 from ..services.payroll_service import (
+    PayrollBulkBlocked,
     PayrollError,
     PayrollForbidden,
     PayrollLocked,
@@ -221,6 +226,10 @@ def _raise(exc: Exception) -> None:
         raise HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, PayrollLocked):
         raise HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, PayrollBulkBlocked):
+        # Thao tác hàng loạt: kèm id dòng vướng để màn hình bỏ chọn đúng chúng (25/09/2026).
+        raise HTTPException(status_code=400,
+                            detail={"message": str(exc), "vuong_ids": exc.vuong_ids})
     if isinstance(exc, PayrollValidationError):
         raise HTTPException(status_code=400, detail=str(exc))
     raise exc
@@ -308,7 +317,8 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
 
 
 def _adv_out(advs, employees: EmployeeRepository,
-             departments: DepartmentRepository | None = None) -> list[AdvanceOut]:
+             departments: DepartmentRepository | None = None,
+             phieu_chi: dict[int, tuple[int, str]] | None = None) -> list[AdvanceOut]:
     dept_names = {d.id: d.name for d in departments.list_all()} if (departments is not None and advs) else {}
     emp_map = employees.map_by_ids({a.employee_id for a in advs})
     res = []
@@ -317,9 +327,13 @@ def _adv_out(advs, employees: EmployeeRepository,
         emp = emp_map.get(a.employee_id)
         if emp is not None:
             o.employee_name = emp.full_name
+            o.employee_code = emp.code
             o.bank_account = emp.bank_account
             o.bank_name = emp.bank_name
+            o.department_id = emp.department_id
             o.department_name = dept_names.get(emp.department_id)
+        if phieu_chi and a.id in phieu_chi:
+            o.phieu_chi_id, o.phieu_chi_code = phieu_chi[a.id]
         res.append(o)
     return res
 
@@ -330,6 +344,17 @@ def _adv_out(advs, employees: EmployeeRepository,
 def _notify_advance_pending(name: str | None) -> None:
     """Có đề nghị tạm ứng mới/đổi → tín hiệu mọi client refetch badge (người duyệt nhận)."""
     hub.broadcast({"type": "advance_pending_changed", "code": name})
+
+
+def _notify_advance_decisions(advs, employees: EmployeeRepository, decision: str) -> None:
+    """Như `_notify_advance_decision` cho NHIỀU phiếu — nạp hồ sơ MỘT lần (sau commit, hồ sơ trong
+    phiên đã hết hạn: tra từng người là 1000 câu SELECT khi duyệt 1000 phiếu)."""
+    nv = employees.map_by_ids({a.employee_id for a in advs})
+    for a in advs:
+        emp = nv.get(a.employee_id)
+        if emp is not None and emp.user_id is not None:
+            hub.publish(emp.user_id, {"type": "advance_decision", "decision": decision,
+                                      "code": emp.full_name})
 
 
 def _notify_advance_decision(a, employees: EmployeeRepository, decision: str) -> None:
@@ -630,7 +655,8 @@ def list_advances(svc: Service, employees: Employees, departments: Departments, 
     # lương của mình) — không lọc là ai cũng đọc được tạm ứng + số tài khoản của cả công ty.
     advs = svc.list_advances(year=year, month=month, status=status_filter,
                              scope=_emp_scope_for(authz, user), actor=user)
-    return AdvancesOut(items=_adv_out(advs, employees, departments))
+    return AdvancesOut(items=_adv_out(advs, employees, departments,
+                                      svc.phieu_chi_theo_tam_ung([a.id for a in advs])))
 
 
 @router.post("/advances", response_model=AdvanceOut, status_code=status.HTTP_201_CREATED)
@@ -647,6 +673,82 @@ def create_advance(body: AdvanceIn, svc: Service, employees: Employees, departme
     out = _adv_out([a], employees, departments)[0]
     _notify_advance_pending(out.employee_name)
     return out
+
+
+# Điều kiện công + lập hàng loạt (25/09/2026): "chọn tất cả người đủ điều kiện" ở màn Tạm ứng.
+@router.get("/advances/ung-vien", response_model=UngVienTamUngListOut)
+def ung_vien_tam_ung(svc: Service, authz: Authz, departments: Departments,
+                     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+                     year: int = Query(..., ge=2000, le=2100),
+                     month: int = Query(..., ge=1, le=12),
+                     advance_date: date = Query(...),
+                     kind: str = Query(default="tam_ung", pattern="^(tam_ung|luong_dot_1)$"),
+                     ) -> UngVienTamUngListOut:
+    try:
+        out = UngVienTamUngListOut(**svc.ung_vien_tam_ung(
+            period_year=year, period_month=month, advance_date=advance_date, kind=kind,
+            scope=_emp_scope_for(authz, user), actor=user))
+    except PayrollError as exc:
+        _raise(exc)
+    ten_to = {d.id: d.name for d in departments.list_all()}
+    for x in out.items:
+        x.department_name = ten_to.get(x.department_id)
+    return out
+
+
+@router.post("/advances/bulk", response_model=AdvancesOut, status_code=status.HTTP_201_CREATED)
+def create_advances_bulk(body: AdvanceBulkIn, svc: Service, employees: Employees,
+                         departments: Departments, authz: Authz,
+                         user: Annotated[User, Depends(require_permission(MODULE, "create"))]
+                         ) -> AdvancesOut:
+    try:
+        rows = svc.create_advances_bulk(
+            actor=user, scope=_emp_scope_for(authz, user), period_year=body.period_year,
+            period_month=body.period_month, advance_date=body.advance_date, kind=body.kind,
+            reason=body.reason, items=[i.model_dump() for i in body.items])
+    except PayrollError as exc:
+        _raise(exc)
+    out = _adv_out(rows, employees, departments)
+    _notify_advance_pending(f"{len(out)} người")
+    return AdvancesOut(items=out)
+
+
+@router.get("/advances/export.xlsx")
+def export_advances_xlsx(svc: Service, authz: Authz,
+                         user: Annotated[User, Depends(require_permission(MODULE, "export"))],
+                         year: int = Query(..., ge=2000, le=2100),
+                         month: int = Query(..., ge=1, le=12),
+                         ids: str | None = Query(default=None)) -> Response:
+    """File chuyển khoản tạm ứng / lương đợt 1 theo khuôn lô lương BIZ MBBank (25/09/2026).
+    `ids` = "1,2,3" — chỉ những phiếu đang tick; bỏ trống = mọi phiếu đã duyệt / đã chi của kỳ.
+    Lọc theo PHẠM VI như màn — file mang số tài khoản của người ta."""
+    try:
+        chon = [int(x) for x in ids.split(",") if x.strip()] if ids else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Danh sách phiếu không hợp lệ.") from None
+    dong = svc.dong_file_chuyen_khoan(year=year, month=month, ids=chon,
+                                      scope=_emp_scope_for(authz, user), actor=user)
+    if not dong:
+        raise HTTPException(status_code=404,
+                            detail="Chưa có phiếu đã duyệt / đã chi nào để xuất trong kỳ này.")
+    return _xlsx_response(xuat_file_chuyen_khoan(dong, nam=year, thang=month),
+                          f"ck-luong-ung-{year}-{month:02d}.xlsx")
+
+
+@router.post("/advances/bulk-decision", response_model=AdvancesOut)
+def decide_advances_bulk(body: AdvanceBulkDecisionIn, svc: Service, employees: Employees,
+                         departments: Departments, authz: Authz,
+                         user: Annotated[User, Depends(require_permission(MODULE, "approve"))]
+                         ) -> AdvancesOut:
+    try:
+        rows = svc.decide_advances_bulk(advance_ids=body.ids, actor=user, approve=body.approve,
+                                        note=body.note, scope=_emp_scope_for(authz, user))
+    except PayrollError as exc:
+        _raise(exc)
+    # Mỗi người nhận ĐÚNG thông báo của phiếu mình (real-time), như duyệt lẻ.
+    _notify_advance_decisions(rows, employees, "approved" if body.approve else "rejected")
+    _notify_advance_pending(f"{len(rows)} phiếu")
+    return AdvancesOut(items=_adv_out(rows, employees, departments))
 
 
 @router.post("/advances/{advance_id}/approve", response_model=AdvanceOut)
@@ -713,6 +815,24 @@ def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
     out = _adv_out([a], employees, departments)[0]
     _notify_advance_pending(out.employee_name)
     return out
+
+
+@router.get("/advances/me/dieu-kien")
+def dieu_kien_tam_ung_cua_toi(svc: Service, employees: Employees, user: SelfUser,
+                              year: int = Query(..., ge=2000, le=2100),
+                              month: int = Query(..., ge=1, le=12),
+                              advance_date: date = Query(...)) -> dict:
+    """Công tính lương của CHÍNH MÌNH tới ngày ứng + ngưỡng (25/09/2026) — màn "Đề nghị tạm ứng"
+    hiện trước cho người ta biết đủ hay chưa, thay vì bấm Gửi rồi mới bị chặn. Chỉ của mình:
+    không có tham số nhân viên nào để hỏi người khác."""
+    emp = employees.get_by_user_id(user.id)
+    if emp is None:
+        raise HTTPException(status_code=400, detail="Tài khoản chưa gắn hồ sơ nhân sự.")
+    dk = svc.dieu_kien_tam_ung(period_year=year, period_month=month, advance_date=advance_date,
+                               only_employee_id=emp.id)
+    cong = float((dk["cong"].get(emp.id) or {}).get("cong") or 0)
+    return {"nguong": dk["nguong"], "den_ngay": dk["den_ngay"], "cong": cong,
+            "du_dieu_kien": dk["nguong"] <= 0 or cong + 1e-9 >= dk["nguong"]}
 
 
 @router.get("/advances/notify-summary")

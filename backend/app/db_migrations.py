@@ -15433,3 +15433,48 @@ def _migrate_module_bao_cao_kinh_doanh(db: Session) -> None:
 
 
 MIGRATIONS.append(("0329_module_bao_cao_kinh_doanh", _migrate_module_bao_cao_kinh_doanh))
+
+
+def _migrate_tam_ung_cong_toi_thieu(db: Session) -> None:
+    """mg 0330 — `payroll_params.tam_ung_cong_toi_thieu` (công tối thiểu để tạm ứng / lương đợt 1,
+    25/09/2026). Mặc định 13 như xưởng đang làm tay."""
+    insp = inspect(db.get_bind())
+    if "payroll_params" not in set(insp.get_table_names()):
+        return
+    if "tam_ung_cong_toi_thieu" in _existing_columns(insp, "payroll_params"):
+        return
+    db.execute(text(
+        "ALTER TABLE payroll_params ADD COLUMN tam_ung_cong_toi_thieu NUMERIC(5,2) NOT NULL DEFAULT 13"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0330_tam_ung_cong_toi_thieu", _migrate_tam_ung_cong_toi_thieu))
+
+
+def _migrate_salary_advance_payment_voucher(db: Session) -> None:
+    """mg 0331 — `salary_advances.payment_voucher_id` (25/09/2026): chi một lượt cho nhiều người ra
+    MỘT phiếu chi cho cả lô ⇒ phiếu tạm ứng trỏ tới phiếu chi của nó. Chuyển dữ liệu cũ: phiếu chi
+    một-một (`payment_vouchers.salary_advance_id`) còn hiệu lực thì gắn ngược sang cột mới."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "salary_advances" not in tables:
+        return
+    if "payment_voucher_id" not in _existing_columns(insp, "salary_advances"):
+        db.execute(text("ALTER TABLE salary_advances ADD COLUMN payment_voucher_id INTEGER"))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_salary_advances_payment_voucher_id "
+            "ON salary_advances (payment_voucher_id)"
+        ))
+    if "payment_vouchers" in tables:
+        db.execute(text(
+            "UPDATE salary_advances SET payment_voucher_id = ("
+            " SELECT pv.id FROM payment_vouchers pv"
+            " WHERE pv.salary_advance_id = salary_advances.id AND pv.status <> 'cancelled'"
+            " ORDER BY pv.id DESC LIMIT 1)"
+            " WHERE payment_voucher_id IS NULL"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0331_salary_advance_payment_voucher", _migrate_salary_advance_payment_voucher))
