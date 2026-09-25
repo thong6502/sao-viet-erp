@@ -89,11 +89,13 @@ from ..storage import get_storage, key_from_url, make_key, url_from_key
 router = APIRouter(prefix="/api/ky-thuat-may", tags=["ky-thuat-may"])
 MODULE = "ky_thuat_may"      # màn Sửa chữa máy
 MODULE_BT = "phieu_bao_tri"  # màn Phiếu bảo trì
-# Ô quyền thứ ba (20/08/2026) — "Báo máy hỏng", cấp cho NGƯỜI NGOÀI tổ kỹ thuật: thợ đứng máy, tổ
-# trưởng sản xuất. Nó chỉ mở đúng cửa gửi yêu cầu; phiếu sửa chữa vẫn nằm sau `ky_thuat_may`. Tách
-# ra vì nếu dùng chung `ky_thuat_may.create` thì cấp quyền báo hỏng cho cả xưởng đồng nghĩa cả xưởng
-# mở được phiếu sửa chữa.
-MODULE_YC = "yeu_cau_sua_chua"
+# "Báo máy hỏng" — cấp cho NGƯỜI NGOÀI tổ kỹ thuật (thợ đứng máy, tổ trưởng sản xuất) để họ gửi
+# lời báo mà KHÔNG mở được phiếu sửa chữa (dùng chung `create` thì cấp báo hỏng cho cả xưởng đồng
+# nghĩa cả xưởng mở được phiếu). Từ 24/09/2026 nó là Ô CHI TIẾT của chính `ky_thuat_may` chứ không
+# còn là khoá module riêng — chủ chốt: *"bên thanh bên có 2 module sao ở quyền lại có 3"*. Khung
+# "Yêu cầu báo hỏng" là một TAB của màn Sửa chữa máy, không phải một màn (mg `0332`). Ô đó là
+# `ky_thuat_may:request`; các dep dưới viết thẳng chuỗi "request" chứ không qua hằng, vì guard
+# `test_giao_dien_khop_may_chu.py` quét mã nguồn bằng regex và chỉ giải được hằng tên `MODULE*`.
 
 # Subdir storage — khai kèm ở `routers/files.py::_PREFIX_PERMISSION` để ảnh chỉ người có quyền đọc
 # module này mới xem được (ảnh máy hỏng có thể lộ tình trạng nhà xưởng).
@@ -117,21 +119,22 @@ BtCreator = Annotated[User, Depends(require_permission(MODULE_BT, "create"))]
 # nào; ô nào đúng với loại phiếu thì `_quyen_theo_loai` kiểm tiếp bên trong.
 AnhReader = Annotated[
     User,
-    Depends(require_any_permission((MODULE, "read"), (MODULE_BT, "read"), (MODULE_YC, "read"))),
+    Depends(require_any_permission((MODULE, "read"), (MODULE_BT, "read"))),
 ]
 AnhWriter = Annotated[
     User,
     Depends(require_any_permission(
-        (MODULE, "update"), (MODULE_BT, "update"), (MODULE_YC, "update"),
+        (MODULE, "update"), (MODULE_BT, "update"), (MODULE, "request"),
     )),
 ]
 # --- Yêu cầu sửa chữa ---
-# ĐỌC danh sách yêu cầu: cả người báo lẫn tổ sửa chữa. Không giới hạn "chỉ yêu cầu của tôi" — thấy
-# yêu cầu người khác vừa gửi chính là cách người thứ hai KHÔNG báo trùng cái máy đó lần nữa.
-YcReader = Annotated[User, Depends(require_any_permission((MODULE_YC, "read"), (MODULE, "read")))]
-YcCreator = Annotated[User, Depends(require_permission(MODULE_YC, "create"))]
+# ĐỌC danh sách yêu cầu: cả người báo lẫn tổ sửa chữa — nay cùng một ô Xem của màn. Không giới hạn
+# "chỉ yêu cầu của tôi": thấy yêu cầu người khác vừa gửi chính là cách người thứ hai KHÔNG báo
+# trùng cái máy đó lần nữa.
+YcReader = Annotated[User, Depends(require_permission(MODULE, "read"))]
+YcCreator = Annotated[User, Depends(require_permission(MODULE, "request"))]
 YcWriter = Annotated[
-    User, Depends(require_any_permission((MODULE_YC, "update"), (MODULE, "update")))
+    User, Depends(require_any_permission((MODULE, "request"), (MODULE, "update")))
 ]
 # Ô chọn máy: mở cho cả người chỉ mới được cấp quyền GỬI yêu cầu — chưa gửi lần nào thì họ cũng
 # chưa có gì để "read", mà không chọn được máy thì không gửi được. Người mở được Bàn tổ (Xem ở ít
@@ -141,7 +144,7 @@ MayChonReader = Annotated[
     User,
     Depends(require_quyen_to(
         "read",
-        (MODULE, "read"), (MODULE_BT, "read"), (MODULE_YC, "read"), (MODULE_YC, "create"),
+        (MODULE, "read"), (MODULE_BT, "read"), (MODULE, "request"),
     )),
 ]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
@@ -287,8 +290,8 @@ def _kiem_chu_yeu_cau(svc: KyThuatMayService, authz: AuthorizationService,
     """Yêu cầu là LỜI CỦA MỘT NGƯỜI: chỉ chính họ sửa được, cộng thêm tổ sửa chữa (`ky_thuat_may.
     update`) vì họ mới là bên phải làm việc với nội dung đó.
 
-    Nếu không có cửa này thì `yeu_cau_sua_chua.update` — ô quyền cấp cho cả xưởng — cho phép người
-    tổ A vào sửa lời khai của người tổ B.
+    Nếu không có cửa này thì ô "Báo máy hỏng" — ô cấp cho cả xưởng — cho phép người tổ A vào sửa
+    lời khai của người tổ B.
     """
     if authz.can(user, MODULE, "update"):
         return
@@ -625,9 +628,17 @@ def _quyen_theo_loai(authz: AuthorizationService, user: User, loai_phieu: str, v
     if loai_phieu == LOAI_PHIEU_BAO_TRI:
         cac_mk = (MODULE_BT,)
     elif loai_phieu == LOAI_PHIEU_YEU_CAU:
-        # Ảnh kèm yêu cầu: người báo (ô mới) HOẶC tổ sửa chữa (ô cũ). Chủ-sở-hữu kiểm riêng ở
-        # `_kiem_chu_yeu_cau` — ở đây mới chỉ là "có được đụng vào loại này không".
-        cac_mk = (MODULE_YC, MODULE)
+        # Ảnh kèm yêu cầu: người báo (ô chi tiết "Báo máy hỏng") HOẶC tổ sửa chữa (Xem/Thao tác của
+        # màn). Chủ-sở-hữu kiểm riêng ở `_kiem_chu_yeu_cau` — ở đây mới chỉ là "có được đụng vào
+        # loại này không". GHI (`viec="update"`) thì ô báo hỏng cũng tính là đủ tư cách.
+        cap = [(MODULE, viec)]
+        if viec != "read":
+            cap.append((MODULE, "request"))
+        if not any(authz.can(user, mk, v) for mk, v in cap):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, "Bạn không có quyền thực hiện thao tác này"
+            )
+        return
     else:
         cac_mk = (MODULE,)
     if not any(authz.can(user, mk, viec) for mk in cac_mk):

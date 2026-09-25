@@ -353,6 +353,73 @@ class SanXuatRepository:
             ).scalars()
         )
 
+    def cong_viec_cua_goi_cho_lenh(
+        self, goi_ids: set[int], lsx_ids: set[int]
+    ) -> list[SanXuatCongViec]:
+        """Bước của MỌI TỔ trong các gói đã cho — nguồn của dải routing trên bàn tổ.
+
+        Khác `cong_viec_cua_lenh` ở đúng một chỗ, nhưng là chỗ cốt lõi: KHÔNG lọc
+        `department_id`. Bàn tổ lọc theo tổ để ra danh sách VIỆC; dải thì cần cả chuỗi, kể cả
+        bước của tổ khác.
+
+        Lấy hai nhánh: bước RIÊNG của các lệnh trong trang, và MỌI bước chạy chung của bài ghép
+        trong cùng gói (bước chung neo `bai_ghep_id`, `lsx_id` để trống nên không lọc theo lệnh
+        được — bên gọi nối lại qua `bai_ghep_phu_step_key`).
+        """
+        if not goi_ids or not lsx_ids:
+            return []
+        from sqlalchemy import or_
+
+        return list(
+            self.db.execute(
+                select(SanXuatCongViec)
+                .where(
+                    SanXuatCongViec.goi_id.in_(goi_ids),
+                    or_(
+                        SanXuatCongViec.lsx_id.in_(lsx_ids),
+                        SanXuatCongViec.bai_ghep_cong_doan_id.is_not(None),
+                    ),
+                )
+                .order_by(SanXuatCongViec.id)
+            ).scalars()
+        )
+
+    def thu_tu_theo_step_key(self, lsx_ids: set[int]) -> dict[str, tuple[int, int]]:
+        """{step_key: (lsx_id, thu_tu)} cho cả một trang bàn tổ — MỘT truy vấn.
+
+        `san_xuat_cong_viec` KHÔNG có cột thứ tự, nên thứ tự dải phải tra ngược về
+        `lsx_cong_doan.thu_tu`. Đọc routing SỐNG ở đây là an toàn: phát hành đã khoá routing
+        (`da_phat_hanh`) nên `thu_tu` không đổi dưới chân snapshot.
+
+        ĐỪNG sắp dải theo `du_kien_bat_dau` như `cong_viec_cua_lenh` làm cho danh sách việc —
+        lệnh chưa đặt giờ thì mốc trống và dải nhảy lung tung.
+        """
+        if not lsx_ids:
+            return {}
+        rows = self.db.execute(
+            select(LsxCongDoan.step_key, LsxCongDoan.lsx_id, LsxCongDoan.thu_tu)
+            .where(LsxCongDoan.lsx_id.in_(lsx_ids), LsxCongDoan.step_key.is_not(None))
+        ).all()
+        return {sk: (lid, tt) for sk, lid, tt in rows}
+
+    def bai_ghep_phu_step_key(self, lsx_ids: set[int]) -> dict[int, list[str]]:
+        """{bai_ghep_cong_doan_id: [lsx_step_key, …]} — bước chạy chung PHỦ lên bước nào của lệnh.
+
+        Bước chung của bài ghép mang `step_key` của CHÍNH bài ghép, không phải của lệnh, nên nối
+        vào dải của một lệnh phải đi qua bảng map này.
+        """
+        if not lsx_ids:
+            return {}
+        rows = self.db.execute(
+            select(BaiGhepCongDoanMap.bai_ghep_cong_doan_id, BaiGhepCongDoanMap.lsx_step_key)
+            .where(BaiGhepCongDoanMap.lsx_id.in_(lsx_ids))
+        ).all()
+        ra: dict[int, list[str]] = {}
+        for bgcd_id, sk in rows:
+            if sk:
+                ra.setdefault(bgcd_id, []).append(sk)
+        return ra
+
     # ================= ĐÓNG NHÓM THÀNH PHẨM (§16) =================
 
     def nhom(self, nhom_id: int) -> SanXuatNhom | None:

@@ -18,6 +18,7 @@ from ..models.order import Order, OrderLine
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from .org_scope import dept_subtree_ids
+from .org_scope import nhom_dung_chung_user_ids
 
 # Columns a caller may sort by (whitelist — never interpolate a raw sort key).
 def _line_total_with_vat():
@@ -59,7 +60,8 @@ class OrderRepository:
         if scope == SCOPE_ALL:
             return None
         if scope == SCOPE_OWN:
-            return Order.sale_user_id == actor.id
+            # "Của tôi" = tôi + người CÙNG NHÓM DÙNG CHUNG với tôi (khối KD).
+            return Order.sale_user_id.in_(nhom_dung_chung_user_ids(self.db, actor.id))
         if scope == SCOPE_DEPARTMENT:
             # Subtree semantics (#26): phòng mình + mọi đơn vị con (GĐKD thấy các team).
             dept_ids = dept_subtree_ids(self.db, actor.department_id)
@@ -74,7 +76,7 @@ class OrderRepository:
         if scope == SCOPE_ALL:
             return True
         if scope == SCOPE_OWN:
-            return order.sale_user_id == actor.id
+            return order.sale_user_id in nhom_dung_chung_user_ids(self.db, actor.id)
         if scope == SCOPE_DEPARTMENT:
             if order.sale_user_id is None:
                 return False
@@ -130,6 +132,40 @@ class OrderRepository:
             .where(OrderLine.order_id == order_id)
         ).scalar()
         return int(val) // 100 if val is not None else 0
+
+    def chot_trong_khoang(
+        self, *, tu, den, scope: str, actor, customer_id: int | None = None
+    ) -> list[Order]:
+        """Đơn ĐÃ CHỐT có `ordered_at` trong `[tu, den)` (hai mốc UTC) — nguồn của Báo cáo kinh
+        doanh (24/09/2026). Nạp sẵn dòng sản phẩm: báo cáo in hết dòng của mọi đơn, để lười là
+        N+1 trên cả trăm đơn."""
+        stmt = (
+            select(Order)
+            .options(selectinload(Order.lines))
+            .where(Order.status == "ordered", Order.ordered_at >= tu, Order.ordered_at < den)
+            .order_by(Order.ordered_at, Order.id)
+        )
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        if customer_id is not None:
+            stmt = stmt.where(Order.customer_id == customer_id)
+        return list(self.db.execute(stmt).scalars().unique().all())
+
+    def khach_theo_ids(self, ids: set[int]) -> dict[int, Customer]:
+        if not ids:
+            return {}
+        return {
+            c.id: c for c in self.db.execute(select(Customer).where(Customer.id.in_(ids))).scalars()
+        }
+
+    def ten_nguoi_dung(self, ids: set[int]) -> dict[int, str]:
+        if not ids:
+            return {}
+        return {
+            uid: (name or "")
+            for uid, name in self.db.execute(select(User.id, User.name).where(User.id.in_(ids)))
+        }
 
     def money_sums(self, order_ids: list[int]) -> dict[int, dict]:
         """Batch của `line_total_sum` + `total_with_vat` + `order_cost_sum` — MỘT câu cho cả trang.

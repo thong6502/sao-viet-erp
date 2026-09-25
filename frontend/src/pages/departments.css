@@ -1300,3 +1300,184 @@
     align-items: stretch;
   }
 }
+
+/* ---------- Gộp nhóm dùng chung (khối Kinh doanh) ---------- */
+/* Dùng lại đúng bộ token paper/ink/rust của màn Phòng ban; khuôn scrim + hộp bám theo
+   .rc-modal ở tinh-gia.css để hai màn không lệch cảm giác. */
+.ndc-modal__scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--ink, #14130f) 50%, transparent);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+  z-index: 100;
+}
+
+.ndc-modal {
+  width: min(560px, 96vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-lg);
+  padding: var(--sp-5) var(--sp-6) var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.ndc-modal__hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+.ndc-modal__hd h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.ndc-modal__x {
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: var(--ash);
+  border-radius: var(--r-3);
+  width: 32px;
+  height: 32px;
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.ndc-modal__x:hover {
+  background: var(--rule-soft);
+  color: var(--ink);
+}
+
+.ndc-modal__note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ash);
+  background: var(--rust-soft);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.ndc-modal__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.ndc-modal__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+
+.ndc-modal__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.ndc-modal__chip {
+  font-size: 13px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--paper-contrast, var(--paper));
+  border: 1px solid var(--rule-soft);
+  color: var(--ink);
+}
+
+.ndc-modal__input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  padding: var(--sp-2) var(--sp-3);
+}
+.ndc-modal__input:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+
+.ndc-modal__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+.ndc-modal__list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 14px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.ndc-modal__list li:last-child {
+  border-bottom: none;
+}
+.ndc-modal__dim {
+  color: var(--ash);
+  font-size: 12px;
+}
+.ndc-modal__bo {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2, 4px);
+  color: var(--ash);
+  font-size: 12px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.ndc-modal__bo:hover:not(:disabled) {
+  border-color: var(--signal);
+  color: var(--signal);
+}
+.ndc-modal__bo:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.ndc-modal__empty {
+  font-size: 13px;
+  color: var(--ash);
+}
+.ndc-modal__loi {
+  font-size: 13px;
+  color: var(--signal);
+  background: var(--signal-soft);
+  border: 1px solid color-mix(in srgb, var(--signal) 25%, transparent);
+  border-radius: var(--r-3);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.ndc-modal__ft {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
+}
+.ndc-modal__spacer {
+  flex: 1;
+}

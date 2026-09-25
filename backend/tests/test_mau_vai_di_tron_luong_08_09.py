@@ -1,6 +1,6 @@
 """Mẫu vai phải đi trọn luồng thật — bản rà liên thông 5 phân hệ (08/09/2026), E8 + C12.
 
-HCNS cấp vai từ mẫu rồi: tạo nhân viên kèm tài khoản có vai (đi qua kiểm `nguoi_dung:assign_role`
+HCNS cấp vai từ mẫu rồi: tạo nhân viên kèm tài khoản có vai (đi qua kiểm `nhan_su:assign_role`
 từ 07/09), tạo loại nghỉ, mở Bảng lương tháng / Lương nhân viên. Tổ trưởng (không có module nhân
 sự) đổ được dropdown "Tạo hộ thợ" qua `/api/overtime/roster` — chỉ thấy người trong tổ.
 """

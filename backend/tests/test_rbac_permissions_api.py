@@ -34,7 +34,7 @@ def _sales_token() -> str:
 def test_admin_permissions_cover_catalog(client):
     token = client.post("/api/auth/login", json=ADMIN).json()["access_token"]
     mods = set(client.get("/api/auth/permissions", headers=_h(token)).json()["modules"])
-    assert {"dashboard", "khach_hang", "vai_tro", "nguoi_dung", "phong_ban"} <= mods
+    assert {"dashboard", "khach_hang", "nhan_su", "phong_ban"} <= mods
 
 
 def test_sales_permissions_are_limited(client):
@@ -43,8 +43,8 @@ def test_sales_permissions_are_limited(client):
     # NV Sales can read its KD modules…
     assert {"dashboard", "khach_hang", "bao_gia"} <= mods
     # …but not admin modules or other KD modules it has no permission for.
-    assert "vai_tro" not in mods
-    assert "nguoi_dung" not in mods
+    assert "phong_ban" not in mods
+    assert "nhan_su" not in mods
     assert "san_pham" not in mods
 
 

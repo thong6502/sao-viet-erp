@@ -35,6 +35,30 @@ def _so(x: float) -> str:
     return s.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
+def cung_to_cung_lsx(nguon_cv, dich_cv) -> bool:
+    """Hai bước NỐI NHAU mà cùng tổ VÀ cùng lệnh — hàng chưa rời tổ (23/09/2026).
+
+    Cờ này lái cả ba chỗ, phải đọc cùng một luật ở cả ba (trước đây `ban_giao._la_cung_to` giữ
+    riêng một bản, rồi cổng/trần lại không biết tới nó):
+
+      · `ban_giao.de_xuat` — bàn giao nội bộ tự `confirmed`, không bắt ai xác nhận;
+      · `thieu_dau_vao` / `kiem_bat_dau` — KHÔNG cổng: bắt tổ tự "giao cho chính mình" rồi mới
+        được bắt đầu là thao tác rỗng, không mang tin gì mới;
+      · `tran_ghi` — trần bám thẳng SẢN LƯỢNG bước trước thay vì số đã bàn giao.
+
+    Bước ghép bài (`bai_ghep_cong_doan_id`) gộp nhiều lệnh nên `lsx_id` trống ⇒ luôn FALSE: hàng
+    của lệnh khác vẫn phải giao và xác nhận đàng hoàng (khớp cổng §10.2).
+    """
+    if nguon_cv is None or dich_cv is None:
+        return False
+    return (
+        nguon_cv.department_id is not None
+        and nguon_cv.department_id == dich_cv.department_id
+        and nguon_cv.lsx_id is not None
+        and nguon_cv.lsx_id == dich_cv.lsx_id
+    )
+
+
 def _khoa(c) -> tuple:
     """Gom các LẦN CHẠY của cùng một bước vào một nguồn — luật "đã nhận từ công đoạn trước" hỏi
     theo BƯỚC, không theo từng lần chạy."""
@@ -71,6 +95,9 @@ def tran_ghi(
     """Trần Σ số làm được của công đoạn (đơn vị đầu RA). None = không trần: công đoạn đầu lệnh,
     hệ số 0/trống, chưa khai đơn vị vào, hoặc không nguồn nào giao đúng đơn vị vào.
 
+    Nguồn CÙNG TỔ + CÙNG LỆNH không có bàn giao để đếm (cổng đã bỏ) nên trần bám thẳng SẢN LƯỢNG
+    bước trước — vẫn là "làm ra bao nhiêu mới ghi được bấy nhiêu", chỉ đổi chỗ đọc số.
+
     `thay_so` = {ban_giao_id: số mới} — tính thử trần SAU một lần điều chỉnh, chưa ghi DB."""
     repo = repo or SanXuatSanLuongRepository(db)
     he_so = float(cv.he_so_quy_doi or 0)
@@ -81,28 +108,41 @@ def tran_ghi(
     if not nhom:
         return None
     bgs = [b for b in repo.ban_giao_toi_dich(cv.id) if b.trang_thai in _DA_CHOT]
-    muc: list[tuple[float, list]] = []
+    noi_bo = [g for g in nhom if cung_to_cung_lsx(g[0], cv)]
+    tot = repo.tong_tot_nhieu({c.id for g in noi_bo for c in g}) if noi_bo else {}
+    muc: list[tuple[float, list, bool]] = []
     for g in nhom:
         ids = {c.id for c in g}
+        dung_dv = any((c.don_vi_ra or "").strip() == dv_vao for c in g)
+        if cung_to_cung_lsx(g[0], cv):
+            # Hàng chưa rời tổ: không có dòng bàn giao nào để cộng. Số bước trước LÀM RA chính là
+            # số đang nằm trong tổ. Khác đơn vị vào thì máy không suy được ⇒ bỏ qua nguồn này,
+            # đúng như luật cũ bỏ qua nguồn giao sai đơn vị (bản kẽm vào bước in tờ).
+            if dung_dv:
+                muc.append((sum(tot.get(i, 0.0) for i in ids), g, True))
+            continue
         nhan = sum(_so_bg(b, thay_so) for b in bgs
                    if b.nguon_cong_viec_id in ids and (b.don_vi or "").strip() == dv_vao)
-        if nhan > _EPS or any((c.don_vi_ra or "").strip() == dv_vao for c in g):
-            muc.append((nhan, g))
+        if nhan > _EPS or dung_dv:
+            muc.append((nhan, g, False))
     if not muc:
         return None
-    da_nhan, g = min(muc, key=lambda t: t[0])
+    da_nhan, g, cung_to = min(muc, key=lambda t: t[0])
     return {
         "toi_da": round(da_nhan * he_so, 3),
         "da_nhan": da_nhan,
         "he_so": he_so,
         "don_vi_nhan": dv_vao,
         "nguon_ten": g[0].ten_cong_doan,
+        # Lái CÂU BÁO: cùng tổ thì "đã nhận" là sai chữ, hàng có đi đâu đâu mà nhận.
+        "cung_to": cung_to,
     }
 
 
 def _cau_tran(dv_ten: dict[str, str], cv, t: dict) -> str:
     dv_ra = nhan_don_vi(dv_ten, cv.don_vi_ra) if cv.don_vi_ra else ""
-    nhan = f"đã nhận từ {t['nguon_ten']} {_so(t['da_nhan'])} {nhan_don_vi(dv_ten, t['don_vi_nhan'])}"
+    dau = "đã làm được ở" if t.get("cung_to") else "đã nhận từ"
+    nhan = f"{dau} {t['nguon_ten']} {_so(t['da_nhan'])} {nhan_don_vi(dv_ten, t['don_vi_nhan'])}"
     if abs(t["he_so"] - 1) > _EPS:
         nhan += f" × {_so(t['he_so'])} = tối đa {_so(t['toi_da'])} {dv_ra}"
     return nhan
@@ -119,10 +159,12 @@ def kiem_tran_ghi(db: Session, repo: SanXuatSanLuongRepository, cv, them: float)
     dv_ten = DonViDoRepository(db).ten_theo_ma()
     dv_ra = nhan_don_vi(dv_ten, cv.don_vi_ra) if cv.don_vi_ra else ""
     con = max(0.0, t["toi_da"] - da_ghi)
+    them = "làm thêm" if t.get("cung_to") else "giao thêm"
     duoi = (f"mẻ này ghi tối đa {_so(con)} {dv_ra}." if con > _EPS
-            else "chờ công đoạn trước giao thêm rồi mới ghi tiếp được.")
+            else f"chờ công đoạn trước {them} rồi mới ghi tiếp được.")
+    dau = "Vượt sản lượng công đoạn trước" if t.get("cung_to") else "Vượt số nhận từ công đoạn trước"
     raise ValueError(
-        f"Vượt số nhận từ công đoạn trước: {_cau_tran(dv_ten, cv, t)}, "
+        f"{dau}: {_cau_tran(dv_ten, cv, t)}, "
         f"đã ghi {_so(da_ghi)} {dv_ra} — {duoi}"
     )
 
@@ -148,8 +190,12 @@ def kiem_giam_ban_giao(db: Session, repo: SanXuatSanLuongRepository, bg, dich_cv
 
 def thieu_dau_vao(repo: SanXuatSanLuongRepository, cv) -> list[str]:
     """Tên các công đoạn trước CHƯA giao được gì (bàn giao đã xác nhận, số dương) sang đây —
-    rỗng thì bắt đầu được (luật 1). Không xét đơn vị: nhận bản kẽm cũng là đã nhận đầu vào."""
-    nhom = nhom_truoc(repo, cv)
+    rỗng thì bắt đầu được (luật 1). Không xét đơn vị: nhận bản kẽm cũng là đã nhận đầu vào.
+
+    Bước trước CÙNG TỔ + CÙNG LỆNH không tính vào cổng (23/09/2026): hàng chưa rời tổ, bắt tổ tự
+    giao cho chính mình rồi mới được bắt đầu là thao tác rỗng. Trần ghi mẻ vẫn giữ, chỉ đổi sang
+    bám sản lượng bước trước (`tran_ghi`)."""
+    nhom = [g for g in nhom_truoc(repo, cv) if not cung_to_cung_lsx(g[0], cv)]
     if not nhom:
         return []
     co_nhan = {
@@ -186,6 +232,9 @@ def cong_doan_truoc(db: Session, repo: SanXuatSanLuongRepository, cv) -> list[di
             "phan_doan_so": c.phan_doan_so,
             "phan_doan_tong": c.phan_doan_tong,
             "to_ten": to_ten.get(c.department_id) if c.department_id else None,
+            # Cùng tổ + cùng lệnh: không có cổng, không cần bàn giao — drawer bày "Giao sang" /
+            # "Đã nhận" ở dòng này là bày hai ô 0 mãi mãi rồi tổ đi tìm nút không tồn tại.
+            "cung_to": cung_to_cung_lsx(c, cv),
             "trang_thai": c.trang_thai,
             "ke_hoach": None if c.so_luong_ra is None else float(c.so_luong_ra),
             "don_vi": c.don_vi_ra,

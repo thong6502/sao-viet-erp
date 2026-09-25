@@ -120,6 +120,7 @@ from .khuon_be import KhuonBe
 from .vat_tu_giu_cho import VatTuGiuCho
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham, SanPhamTaiBan
+from .nhom_dung_chung import NhomDungChung, NhomDungChungThanhVien
 from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc, LsxDinhKem
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
 from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu

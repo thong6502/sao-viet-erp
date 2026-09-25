@@ -1,7 +1,9 @@
 """Đầu vào theo routing lệnh (19/09/2026, `services/san_xuat/dau_vao.py`).
 
   · chặng trước là chiều ngược đúng của chặng sau (cạnh thắng thứ tự bảng);
-  · bắt đầu phải đã NHẬN (bàn giao đã xác nhận) từ công đoạn trước;
+  · bắt đầu phải đã NHẬN (bàn giao đã xác nhận) từ công đoạn trước — CHỈ khi khác tổ;
+  · CÙNG TỔ + CÙNG LỆNH (23/09/2026): không cổng, và trần bám SẢN LƯỢNG bước trước thay cho số
+    bàn giao — hàng chưa rời tổ thì không có dòng bàn giao nào để đếm;
   · Σ số làm được các mẻ ≤ số đã nhận × hệ số quy đổi — cùng đơn vị hệ số 1, tờ → con nhân hệ số;
     nguồn giao khác đơn vị vào (bản kẽm vào bước in tờ) thì không làm trần;
   · điều chỉnh giảm bàn giao không được kéo trần xuống dưới số đã ghi;
@@ -15,7 +17,7 @@ import pytest
 
 from app.models.lsx import LsxCongDoanPhuThuoc
 from app.models.san_xuat import CV_DANG_CHAY, CV_PHAT_HANH
-from app.models.san_xuat_san_luong import BG_DE_XUAT, BG_XAC_NHAN
+from app.models.san_xuat_san_luong import BG_DE_XUAT
 from app.repositories.rbac_repo import RoleRepository
 from app.repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from app.services.rbac_service import AuthorizationService
@@ -51,10 +53,29 @@ def _cung_lenh(db, orders, lsx_svc, admin, customer, *, he_so=1.0, dv_ra="tờ",
     return to, cv1, cv2
 
 
+def _khac_to(db, orders, lsx_svc, admin, customer, *, he_so=1.0, dv_ra="tờ", ma="TO-DV"):
+    """cv1 → cv2 KHÁC tổ, cùng lệnh. Từ 23/09/2026 cổng đầu vào + trần theo số bàn giao CHỈ còn
+    áp cho cặp khác tổ, nên các bài soi hai luật đó phải dựng bằng helper này chứ không phải
+    `_cung_lenh` (cùng tổ giờ đi nhánh khác hẳn). Trả (to_nguon, to_dich, user_dich, cv1, cv2)."""
+    to, cv1, cv2 = _cung_lenh(db, orders, lsx_svc, admin, customer,
+                              he_so=he_so, dv_ra=dv_ra, ma=ma)
+    to_b, u_b = _to_dich(db, ma=f"{ma}-D")
+    cv2.department_id = to_b.id
+    db.commit()
+    return to, to_b, u_b, cv1, cv2
+
+
 def _giao(db, admin, cv1, cv2, tot, t0=_T0):
     b = _batch(db, admin, cv1, tot=tot, t0=t0)
     return ban_giao.de_xuat(db, user=admin, nguon_cong_viec_id=cv1.id,
                             dich_cong_viec_id=cv2.id, batch_ids=[b])
+
+
+def _giao_nhan(db, admin, u_dich, cv1, cv2, tot, t0=_T0):
+    """Khác tổ: đề xuất rồi bên NHẬN xác nhận — chốt xong mới tính là "đã nhận"."""
+    r = _giao(db, admin, cv1, cv2, tot, t0=t0)
+    ban_giao.xac_nhan(db, user=u_dich, ban_giao_id=r["ban_giao_id"])
+    return r
 
 
 def test_chang_truoc_la_chieu_nguoc_chang_sau(db, orders, lsx_svc, admin, customer):
@@ -80,16 +101,49 @@ def test_chang_truoc_la_chieu_nguoc_chang_sau(db, orders, lsx_svc, admin, custom
 
 
 def test_bat_dau_phai_da_nhan_tu_cong_doan_truoc(db, orders, lsx_svc, admin, customer):
-    to, cv1, cv2 = _cung_lenh(db, orders, lsx_svc, admin, customer, ma="TO-BD")
+    _to, to_b, u_b, cv1, cv2 = _khac_to(db, orders, lsx_svc, admin, customer, ma="TO-BD")
     cv2.trang_thai = CV_PHAT_HANH
     db.commit()
-    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv2.id, employee_id=_emp(db, to, "NV-DV-1").id)
+    thuc_thi.phan_cong(db, user=u_b, cong_viec_id=cv2.id, employee_id=_emp(db, to_b, "NV-DV-1").id)
 
     with pytest.raises(ValueError, match=rf"^Chưa nhận hàng từ công đoạn trước \({cv1.ten_cong_doan}\)"):
-        thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv2.id)
+        thuc_thi.bat_dau(db, user=u_b, cong_viec_id=cv2.id)
 
-    _giao(db, admin, cv1, cv2, 100)
+    _giao_nhan(db, admin, u_b, cv1, cv2, 100)
+    assert thuc_thi.bat_dau(db, user=u_b, cong_viec_id=cv2.id)["trang_thai"] == CV_DANG_CHAY
+
+
+# --- Cùng tổ + cùng lệnh: KHÔNG cổng (23/09/2026) --------------------------------------------
+def test_cung_to_cung_lenh_bat_dau_duoc_ngay_khong_can_ban_giao(db, orders, lsx_svc, admin, customer):
+    """Hàng chưa rời tổ. Bắt tổ tự "giao cho chính mình" rồi mới được bắt đầu là thao tác rỗng."""
+    to, cv1, cv2 = _cung_lenh(db, orders, lsx_svc, admin, customer, ma="TO-NB")
+    cv2.trang_thai = CV_PHAT_HANH
+    db.commit()
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv2.id, employee_id=_emp(db, to, "NV-NB-1").id)
+
+    assert board.chi_tiet_cong_viec(  # drawer cũng thôi đòi
+        db, admin, AuthorizationService(RoleRepository(db)), cong_viec_id=cv2.id
+    )["thieu_dau_vao"] == []
     assert thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv2.id)["trang_thai"] == CV_DANG_CHAY
+    assert cv1.department_id == cv2.department_id and cv1.lsx_id == cv2.lsx_id
+
+
+def test_cung_to_tran_bam_san_luong_buoc_truoc(db, orders, lsx_svc, admin, customer):
+    """Bỏ cổng KHÔNG có nghĩa là bỏ trần: bước trước làm ra bao nhiêu thì bước sau ghi bấy nhiêu,
+    chỉ đổi chỗ đọc số (sản lượng bước trước thay cho số đã bàn giao)."""
+    _to, cv1, cv2 = _cung_lenh(db, orders, lsx_svc, admin, customer, ma="TO-NB2")
+    with pytest.raises(ValueError, match="chờ công đoạn trước làm thêm"):   # cv1 chưa ghi mẻ nào
+        _batch(db, admin, cv2, tot=10, t0=_T0 + timedelta(hours=2))
+
+    _batch(db, admin, cv1, tot=100)
+    _batch(db, admin, cv2, tot=60, t0=_T0 + timedelta(hours=2))
+    with pytest.raises(ValueError) as loi:
+        _batch(db, admin, cv2, tot=50, t0=_T0 + timedelta(hours=3))
+    assert str(loi.value) == (
+        f"Vượt sản lượng công đoạn trước: đã làm được ở {cv1.ten_cong_doan} 100 tờ, "
+        f"đã ghi 60 tờ — mẻ này ghi tối đa 40 tờ."
+    )
+    _batch(db, admin, cv2, tot=40, t0=_T0 + timedelta(hours=3))              # chạm trần: được
 
 
 def test_de_xuat_chua_xac_nhan_chua_tinh_la_da_nhan(db, orders, lsx_svc, admin, customer):
@@ -107,33 +161,34 @@ def test_de_xuat_chua_xac_nhan_chua_tinh_la_da_nhan(db, orders, lsx_svc, admin, 
 
 
 def test_cung_don_vi_ghi_toi_da_bang_so_da_nhan(db, orders, lsx_svc, admin, customer):
-    to, cv1, cv2 = _cung_lenh(db, orders, lsx_svc, admin, customer, ma="TO-TR")
+    _to, _tb, u_b, cv1, cv2 = _khac_to(db, orders, lsx_svc, admin, customer, ma="TO-TR")
     with pytest.raises(ValueError, match="chờ công đoạn trước giao thêm"):      # chưa nhận gì
-        _batch(db, admin, cv2, tot=10, t0=_T0 + timedelta(hours=2))
+        _batch(db, u_b, cv2, tot=10, t0=_T0 + timedelta(hours=2))
 
-    assert _giao(db, admin, cv1, cv2, 100)["trang_thai_ban_giao"] == BG_XAC_NHAN
-    _batch(db, admin, cv2, tot=60, t0=_T0 + timedelta(hours=2))
+    assert _giao_nhan(db, admin, u_b, cv1, cv2, 100)["trang_thai_ban_giao"] == BG_DE_XUAT
+    _batch(db, u_b, cv2, tot=60, t0=_T0 + timedelta(hours=2))
     with pytest.raises(ValueError) as loi:
-        _batch(db, admin, cv2, tot=50, t0=_T0 + timedelta(hours=3))
+        _batch(db, u_b, cv2, tot=50, t0=_T0 + timedelta(hours=3))
     assert str(loi.value) == (
         f"Vượt số nhận từ công đoạn trước: đã nhận từ {cv1.ten_cong_doan} 100 tờ, "
         f"đã ghi 60 tờ — mẻ này ghi tối đa 40 tờ."
     )
-    _batch(db, admin, cv2, tot=40, t0=_T0 + timedelta(hours=3))                  # chạm trần: được
+    _batch(db, u_b, cv2, tot=40, t0=_T0 + timedelta(hours=3))                    # chạm trần: được
 
 
 def test_doi_don_vi_nhan_he_so(db, orders, lsx_svc, admin, customer):
     """Bế 1 tờ → 2 con: nhận 1.000 tờ thì ghi tối đa 2.000 con."""
-    to, cv1, cv2 = _cung_lenh(db, orders, lsx_svc, admin, customer, he_so=2, dv_ra="con", ma="TO-HS")
-    _giao(db, admin, cv1, cv2, 1000)
-    _batch(db, admin, cv2, tot=1500, t0=_T0 + timedelta(hours=2))
+    _to, _tb, u_b, cv1, cv2 = _khac_to(db, orders, lsx_svc, admin, customer,
+                                       he_so=2, dv_ra="con", ma="TO-HS")
+    _giao_nhan(db, admin, u_b, cv1, cv2, 1000)
+    _batch(db, u_b, cv2, tot=1500, t0=_T0 + timedelta(hours=2))
     with pytest.raises(ValueError) as loi:
-        _batch(db, admin, cv2, tot=600, t0=_T0 + timedelta(hours=3))
+        _batch(db, u_b, cv2, tot=600, t0=_T0 + timedelta(hours=3))
     assert str(loi.value) == (
         f"Vượt số nhận từ công đoạn trước: đã nhận từ {cv1.ten_cong_doan} 1.000 tờ × 2 = tối đa "
         f"2.000 con, đã ghi 1.500 con — mẻ này ghi tối đa 500 con."
     )
-    _batch(db, admin, cv2, tot=500, t0=_T0 + timedelta(hours=3))
+    _batch(db, u_b, cv2, tot=500, t0=_T0 + timedelta(hours=3))
 
 
 def test_he_so_khong_thi_khong_tran(db, orders, lsx_svc, admin, customer):
@@ -153,9 +208,9 @@ def test_nguon_khac_don_vi_vao_thi_khong_tran(db, orders, lsx_svc, admin, custom
 
 
 def test_dieu_chinh_giam_khong_duoc_duoi_so_da_ghi(db, orders, lsx_svc, admin, customer):
-    to, cv1, cv2 = _cung_lenh(db, orders, lsx_svc, admin, customer, ma="TO-DC")
-    r = _giao(db, admin, cv1, cv2, 100)
-    _batch(db, admin, cv2, tot=80, t0=_T0 + timedelta(hours=2))
+    _to, _tb, u_b, cv1, cv2 = _khac_to(db, orders, lsx_svc, admin, customer, ma="TO-DC")
+    r = _giao_nhan(db, admin, u_b, cv1, cv2, 100)
+    _batch(db, u_b, cv2, tot=80, t0=_T0 + timedelta(hours=2))
 
     with pytest.raises(ValueError) as loi:
         ban_giao.dieu_chinh(db, user=admin, ban_giao_id=r["ban_giao_id"], so_luong_sau=70)
@@ -170,27 +225,46 @@ def test_dieu_chinh_giam_khong_duoc_duoi_so_da_ghi(db, orders, lsx_svc, admin, c
 def test_drawer_bay_cong_doan_truoc_va_tran(db, orders, lsx_svc, admin, customer):
     from app.schemas.san_xuat import WorkItemChiTietOut
 
-    to, cv1, cv2 = _cung_lenh(db, orders, lsx_svc, admin, customer, he_so=2, dv_ra="con", ma="TO-DR")
+    _to, _tb, u_b, cv1, cv2 = _khac_to(db, orders, lsx_svc, admin, customer,
+                                       he_so=2, dv_ra="con", ma="TO-DR")
     cv1.so_luong_ra = 1200
     db.commit()
     az = AuthorizationService(RoleRepository(db))
 
     def ct():
         return WorkItemChiTietOut.model_validate(
-            board.chi_tiet_cong_viec(db, admin, az, cong_viec_id=cv2.id)).model_dump()
+            board.chi_tiet_cong_viec(db, u_b, az, cong_viec_id=cv2.id)).model_dump()
 
     truoc = ct()
     assert truoc["thieu_dau_vao"] == [cv1.ten_cong_doan]
     assert truoc["tran_ghi"]["toi_da"] == 0
 
-    _giao(db, admin, cv1, cv2, 1000)
+    _giao_nhan(db, admin, u_b, cv1, cv2, 1000)
     _batch(db, admin, cv1, tot=150, t0=_T0 + timedelta(hours=1, minutes=30))   # làm thêm, chưa giao
-    _batch(db, admin, cv2, tot=300, t0=_T0 + timedelta(hours=2))
+    _batch(db, u_b, cv2, tot=300, t0=_T0 + timedelta(hours=2))
     sau = ct()
     assert sau["thieu_dau_vao"] == []
     [dong] = sau["cong_doan_truoc"]
     assert (dong["cong_viec_id"], dong["ke_hoach"], dong["don_vi"], dong["thuc_te"],
-            dong["da_giao"], dong["da_xac_nhan"], dong["cho_xac_nhan"]) == (
-        cv1.id, 1200, "tờ", 1150, 1000, 1000, 0)
+            dong["da_giao"], dong["da_xac_nhan"], dong["cho_xac_nhan"], dong["cung_to"]) == (
+        cv1.id, 1200, "tờ", 1150, 1000, 1000, 0, False)
     assert {k: sau["tran_ghi"][k] for k in ("toi_da", "da_nhan", "he_so", "da_ghi", "con_ghi_duoc")} == {
         "toi_da": 2000, "da_nhan": 1000, "he_so": 2, "da_ghi": 300, "con_ghi_duoc": 1700}
+
+
+def test_drawer_danh_dau_buoc_truoc_cung_to(db, orders, lsx_svc, admin, customer):
+    """Dòng "Công đoạn trước" cùng tổ mang cờ `cung_to` để drawer thôi bày hai ô Giao sang / Đã
+    nhận đứng 0 mãi — tổ đi tìm một cái nút không còn tồn tại."""
+    from app.schemas.san_xuat import WorkItemChiTietOut
+
+    _to, cv1, cv2 = _cung_lenh(db, orders, lsx_svc, admin, customer, ma="TO-NB3")
+    _batch(db, admin, cv1, tot=250)
+    ct = WorkItemChiTietOut.model_validate(board.chi_tiet_cong_viec(
+        db, admin, AuthorizationService(RoleRepository(db)), cong_viec_id=cv2.id)).model_dump()
+
+    assert ct["thieu_dau_vao"] == []
+    [dong] = ct["cong_doan_truoc"]
+    assert (dong["cong_viec_id"], dong["cung_to"], dong["thuc_te"], dong["da_giao"]) == (
+        cv1.id, True, 250, 0)
+    assert {k: ct["tran_ghi"][k] for k in ("toi_da", "da_nhan", "cung_to", "con_ghi_duoc")} == {
+        "toi_da": 250, "da_nhan": 250, "cung_to": True, "con_ghi_duoc": 250}

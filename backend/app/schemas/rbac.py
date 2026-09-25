@@ -311,6 +311,14 @@ class RoleRename(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
+class RoleDuplicate(BaseModel):
+    """Nhân bản vai trò. Bỏ trống `name` = tự đặt "«tên gốc» (bản sao)"; bỏ trống
+    `department_id` = nhân bản trong chính phòng của vai gốc."""
+
+    name: str | None = Field(default=None, max_length=255)
+    department_id: int | None = None
+
+
 class RoleTemplateOut(BaseModel):
     """Một VAI MẪU: mô tả + bộ quyền điền sẵn cho ma trận (đợt 6, 11/08/2026).
 

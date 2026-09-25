@@ -150,7 +150,9 @@ export function KhoYeuCauPage({
   // Ghi sổ đã GỘP vào quyền "create" (bỏ tách "post"/SoD) — khớp backend: post_voucher chỉ đòi
   // create. Ai lập được phiếu là ghi sổ được luôn, không còn bước "Chờ ghi sổ" chờ người khác.
   const canPost = canCreate;
-  const canViewStock = can("kho", "view_stock");
+  // Cột "tồn khả dụng" trên dòng yêu cầu — đọc quyền của màn TỒN KHO (mg `0334`). Đây là đọc
+  // DỮ LIỆU của màn khác để hiện một cột, không phải mượn cửa để mở màn này.
+  const canViewStock = can("ton_kho", "read");
   const canViewCost = can("kho", "view_cost");
 
   const [khoList, setKhoList] = useState<KhoOption[]>([]);

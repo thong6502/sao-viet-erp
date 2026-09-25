@@ -137,7 +137,6 @@ def test_giao_dien_va_may_chu_hoi_cung_mot_o_quyen():
 #: Khoá module máy chủ có gác nhưng GIAO DIỆN không cần hỏi — kèm lý do.
 KHONG_CAN_O_GIAO_DIEN: dict[str, str] = {
     "activity_log": "Màn Nhật ký hiện/ẩn qua thanh bên (`module:` ở Sidebar), không có nút nào hỏi thêm.",
-    "vai_tro": "Màn Vai trò & Quyền hiện qua thanh bên; sửa ma trận gác bằng ô chi tiết riêng.",
 }
 
 

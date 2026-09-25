@@ -15382,3 +15382,568 @@ MIGRATIONS.append(("0327_hop_nhat_bu_hao_vao_cong_doan", _migrate_hop_nhat_bu_ha
 # lúc đầu khai FK tới users là SET NULL, DB nào đã chạy 0327 rồi mới create_all bảng này thì vẫn
 # giữ SET NULL. Hàm 0327 chỉ đụng FK chưa CASCADE nên chạy lại là vô hại với bảng khác.
 MIGRATIONS.append(("0328_user_fks_delete_cascade_lan_2", _migrate_user_fks_delete_cascade))
+
+
+def _migrate_tach_module_menu_an_ke(db: Session) -> None:
+    """Hai MỤC MENU đang ăn ké ô quyền của màn khác nay có module của RIÊNG mình (chủ chốt
+    24/09/2026: *"một module thì nó là một cái bên sidebar, không ăn ké gì cả"*).
+
+      • `quy_trinh_kinh_doanh` — mục "Quy trình kinh doanh". Trước: Sidebar mở mục này cho ai đọc
+        được BẤT KỲ khoá nào trong bốn khoá KD (`tinh_gia_thanh`/`bao_gia`/`don_hang_ban`/
+        `khach_hang`), nên ma trận không có dòng nào mang tên mục đó và không ai tắt riêng được.
+      • `bao_cao_kho` — mục "Báo cáo kho". Trước: mục gắn khoá `kho` rồi lọc thêm bằng ô CHI TIẾT
+        `kho:close_book`; muốn cấp phải đi tìm trong panel chi tiết của Kho. Cùng khuôn đã làm cho
+        `bao_cao_cong_no` (mg 0260).
+
+    Sao chép quyền CŨ sang để không ai mất đường vào:
+      • Vai có Xem ở một trong bốn khoá KD → Xem `quy_trinh_kinh_doanh` (màn chỉ có Xem).
+      • Vai có `kho.can_close_book` → `bao_cao_kho`: Xem + `can_close_book` (khoá kỳ). Cờ
+        `kho.can_close_book` GIỮ NGUYÊN trong DB: màn Kho còn một cửa cũ đọc nó và gỡ ở đây thì
+        không đảo lại được.
+
+    Dùng INSERT/UPDATE thường, hỏi cấu trúc bảng qua `inspect()` trước mọi lệnh ghi — cùng khuôn an
+    toàn của `_migrate_tach_module_bao_cao_cong_no`. Idempotent: chạy lại không đẻ hàng trùng.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"role_permissions", "modules"} <= tables:
+        return
+
+    cols = sorted(_existing_columns(insp, "role_permissions"))
+    # Cột tự chép nguyên (scope, các cờ chi tiết…); `can_read`/`can_close_book` đặt tay bên dưới.
+    # `scope` KHÔNG chép: hai khoá này nằm trong `SCOPELESS_MODULES` (không có "của tôi \ cả
+    # phòng"), service ép 'all' khi lưu qua ma trận — dòng do migration đẻ ra phải cùng giá trị,
+    # nếu không thì chỉ cần ai đó bấm Lưu là scope nhảy và diff nhìn như người dùng vừa đổi gì đó.
+    chep = [
+        c for c in cols
+        if c not in ("id", "module_key", "role_id", "can_read", "can_close_book", "scope")
+    ]
+    chon = ", ".join(f"rp.{c}" for c in chep)
+    # Cột `scope` có thể chưa tồn tại ở DB rất cũ — ghép chuỗi sẵn thay vì nhúng điều kiện vào
+    # f-string (nháy lồng nháy không chạy trên Python 3.11).
+    cot_scope = ", scope" if "scope" in cols else ""
+    gia_tri_scope = ", 'all'" if "scope" in cols else ""
+
+    for khoa, nhan in (
+        ("quy_trinh_kinh_doanh", "Quy trình kinh doanh"),
+        ("bao_cao_kho", "Báo cáo kho"),
+    ):
+        db.execute(
+            text("INSERT INTO modules (key, label, created_at) "
+                 "SELECT :k, :l, CURRENT_TIMESTAMP "
+                 "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+            {"k": khoa, "l": nhan},
+        )
+
+    # --- Quy trình kinh doanh: một dòng cho mỗi vai đọc được ít nhất một khoá KD ----------------
+    # Bốn khoá nguồn ⇒ một vai có thể khớp nhiều dòng; `NOT EXISTS` + một câu cho MỖI nguồn (chạy
+    # tuần tự) nên dòng thứ hai trở đi tự bỏ qua. Thao tác để FALSE: màn không có gì để ghi.
+    for nguon in ("tinh_gia_thanh", "bao_gia", "don_hang_ban", "khach_hang"):
+        db.execute(
+            text(
+                "INSERT INTO role_permissions "
+                f"(module_key, role_id, can_read, can_close_book{cot_scope}"
+                f", {', '.join(chep)}) "
+                f"SELECT :k, rp.role_id, true, false{gia_tri_scope}, {chon} "
+                "FROM role_permissions rp "
+                "WHERE rp.module_key = :nguon AND rp.can_read = true AND NOT EXISTS ("
+                "  SELECT 1 FROM role_permissions x "
+                "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+            ),
+            {"k": "quy_trinh_kinh_doanh", "nguon": nguon},
+        )
+    # Vai đã có dòng (từ nguồn trước) mà Xem đang false, nhưng nguồn khác cho Xem → bật lên.
+    db.execute(
+        text(
+            "UPDATE role_permissions SET can_read = true "
+            "WHERE module_key = :k AND can_read = false AND role_id IN ("
+            "  SELECT role_id FROM role_permissions "
+            "  WHERE module_key IN ('tinh_gia_thanh', 'bao_gia', 'don_hang_ban', 'khach_hang') "
+            "    AND can_read = true)"
+        ),
+        {"k": "quy_trinh_kinh_doanh"},
+    )
+
+    # --- Báo cáo kho: nguồn DUY NHẤT là `kho.can_close_book` (cửa cũ của màn) -------------------
+    db.execute(
+        text(
+            "INSERT INTO role_permissions "
+            f"(module_key, role_id, can_read, can_close_book{cot_scope}"
+            f", {', '.join(chep)}) "
+            f"SELECT :k, rp.role_id, true, true{gia_tri_scope}, {chon} "
+            "FROM role_permissions rp "
+            "WHERE rp.module_key = 'kho' AND rp.can_close_book = true AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+        ),
+        {"k": "bao_cao_kho"},
+    )
+    db.commit()
+
+
+# --- Hai migration SONG SONG cùng mang số 0329 (merge 24/09/2026) -------------------------
+# Nhánh này tách `quy_trinh_kinh_doanh` + `bao_cao_kho`, nhánh kia tách `bao_cao_kinh_doanh`.
+# GIỮ NGUYÊN hai id — id thật trong `schema_migrations` là CẢ CHUỖI nên không đụng nhau, mà
+# đánh lại số thì DB nào đã chạy sẽ chạy lại (xem ghi chú "ĐỪNG đánh lại số" phía trên).
+
+
+def _migrate_module_bao_cao_kinh_doanh(db: Session) -> None:
+    """mg 0329 — ô quyền RIÊNG `bao_cao_kinh_doanh` (Báo cáo kinh doanh theo khách, 24/09/2026).
+
+    Cấp theo đúng luật đã ghi ở `seed.MODULES`: vai ĐỌC được `don_hang_ban` → được Xem báo cáo,
+    lấy ĐÚNG scope của `don_hang_ban` (sale `own` thì chỉ thấy khách/đơn của mình). Mọi ô chi tiết
+    khác để `false` — không chép cờ riêng của đơn hàng (ghi cọc, duyệt đặc thù…) sang một màn chỉ
+    đọc. Hỏi cấu trúc bảng qua `inspect()` TRƯỚC mọi lệnh ghi (cùng khuôn mg 0260).
+
+    Idempotent: vai đã có dòng `bao_cao_kinh_doanh` thì bỏ qua.
+    """
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    cot = [c for c in insp.get_columns("role_permissions") if c["name"] != "id"]
+    ten_cot, gia_tri = [], []
+    for c in cot:
+        ten = c["name"]
+        ten_cot.append(ten)
+        if ten == "module_key":
+            gia_tri.append(":k")
+        elif ten == "can_read":
+            gia_tri.append("true")
+        elif ten in ("role_id", "scope"):
+            gia_tri.append(f"rp.{ten}")
+        elif str(c["type"]).upper().startswith("BOOL"):
+            gia_tri.append("false")
+        else:
+            gia_tri.append(f"rp.{ten}")
+
+    db.execute(
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "bao_cao_kinh_doanh", "l": "Báo cáo kinh doanh"},
+    )
+    db.execute(
+        text(
+            f"INSERT INTO role_permissions ({', '.join(ten_cot)}) "
+            f"SELECT {', '.join(gia_tri)} FROM role_permissions rp "
+            "WHERE rp.module_key = 'don_hang_ban' AND rp.can_read = true AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+        ),
+        {"k": "bao_cao_kinh_doanh"},
+    )
+    db.commit()
+
+
+MIGRATIONS.append(("0329_tach_module_menu_an_ke", _migrate_tach_module_menu_an_ke))
+MIGRATIONS.append(("0329_module_bao_cao_kinh_doanh", _migrate_module_bao_cao_kinh_doanh))
+
+
+def _migrate_go_module_vai_tro(db: Session) -> None:
+    """Gỡ khoá `vai_tro` — vai trò KHÔNG phải một màn, nó là tab của màn Phòng ban.
+
+    Chủ chốt 24/09/2026, nhìn thẳng vào ma trận: *"làm gì có module vai trò đâu. Bản chất của sửa
+    ma trận quyền nó phải là một cái chi tiết trong phòng ban chứ"*. Đúng: `vai_tro` không có mục
+    menu nào — muốn xem/sửa vai trò thì vào **Phòng ban → tab "Vai trò & Quyền"**. Một dòng ma
+    trận không dẫn tới màn nào là dòng người cấp quyền không nối được với cái gì.
+
+    Chuyển quyền sang `phong_ban` (OR vào dòng sẵn có, hoặc đẻ dòng mới nếu vai chưa có):
+      • `vai_tro.can_read`               → `phong_ban.can_read`              (mở màn + đọc ma trận)
+      • `vai_tro.can_create/update/delete` → `phong_ban.can_create/update/delete`
+        (thêm · đổi tên · xoá vai trò đi theo Thao tác của chính màn chứa nó)
+      • `vai_tro.can_manage_permissions` → `phong_ban.can_manage_permissions`
+        (ô CHI TIẾT "Sửa ma trận phân quyền" — việc nhạy cảm nhất, vẫn tách riêng như cũ)
+
+    ⚠ Chép `can_create/update/delete` nghĩa là vai nào trước chỉ được sửa VAI TRÒ thì nay sửa được
+    cả PHÒNG BAN. Cố ý chọn hướng "không ai mất quyền": dự án chưa có dữ liệu thật, và bộ seed
+    hiện KHÔNG cấp `vai_tro` CRUD cho vai nào (chỉ TP HCNS có `_read`), nên thực tế không vai nào
+    rộng quyền thêm. Muốn siết thì vào ma trận bỏ tick — thấy được, sửa được.
+
+    Sau khi chép: XOÁ dòng `role_permissions` của `vai_tro` rồi xoá hẳn module. Không xoá thì
+    `get_matrix` vẫn trả khoá đó (nó đọc bảng `modules` của DB, không đọc `seed.MODULES`) và dòng
+    "Vai trò" rơi xuống nhóm "Khác" — đúng cái bẫy mà mg 0329 vừa dọn.
+
+    Kèm việc thứ hai, cùng một câu của chủ chốt: *"nội quy công ty mặc định tất cả và không cho
+    chỉnh sửa"* ⇒ ép `scope='all'` cho mọi dòng `noi_quy`. Nội quy lao động là tài liệu chung, ô
+    chọn phạm vi nay khoá ở giao diện và `SCOPELESS_MODULES` ép `all` lúc lưu; dòng cũ còn để
+    `own` thì ô chọn hiện RỖNG.
+
+    Idempotent: chạy lại khi `vai_tro` đã biến mất là mọi câu lệnh không khớp hàng nào.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"role_permissions", "modules"} <= tables:
+        return
+    cols = set(_existing_columns(insp, "role_permissions"))
+
+    if "scope" in cols:
+        db.execute(
+            text("UPDATE role_permissions SET scope = 'all' "
+                 "WHERE module_key = 'noi_quy' AND scope <> 'all'")
+        )
+
+    if db.execute(
+        text("SELECT 1 FROM modules WHERE key = 'vai_tro'")
+    ).first() is None:
+        db.commit()
+        return
+
+    # 1) Vai CÓ dòng `vai_tro` nhưng CHƯA có dòng `phong_ban` → đẻ dòng mới, chép thẳng 4 cờ.
+    co_quyen = [c for c in (
+        "can_read", "can_create", "can_update", "can_delete", "can_manage_permissions",
+    ) if c in cols]
+    cot_scope = ", scope" if "scope" in cols else ""
+    gia_tri_scope = ", rp.scope" if "scope" in cols else ""
+    db.execute(
+        text(
+            "INSERT INTO role_permissions (module_key, role_id, "
+            f"{', '.join(co_quyen)}{cot_scope}) "
+            f"SELECT 'phong_ban', rp.role_id, {', '.join('rp.' + c for c in co_quyen)}"
+            f"{gia_tri_scope} "
+            "FROM role_permissions rp "
+            "WHERE rp.module_key = 'vai_tro' AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = 'phong_ban')"
+        )
+    )
+
+    # 2) Vai đã có CẢ HAI dòng → OR từng cờ vào dòng `phong_ban`. Một câu cho mỗi cờ: viết một câu
+    #    `SET a = a OR (...), b = b OR (...)` thì mỗi cờ lại cần một truy vấn con, dài mà không
+    #    nhanh hơn — số vai ở đây đếm trên đầu ngón tay.
+    for cot in co_quyen:
+        db.execute(
+            text(
+                f"UPDATE role_permissions SET {cot} = true "
+                f"WHERE module_key = 'phong_ban' AND {cot} = false AND role_id IN ("
+                f"  SELECT role_id FROM role_permissions "
+                f"  WHERE module_key = 'vai_tro' AND {cot} = true)"
+            )
+        )
+
+    # 3) Dọn: xoá dòng quyền trước (khoá ngoại trỏ vào `modules.key`), rồi xoá module.
+    db.execute(text("DELETE FROM role_permissions WHERE module_key = 'vai_tro'"))
+    db.execute(text("DELETE FROM modules WHERE key = 'vai_tro'"))
+    db.commit()
+
+
+MIGRATIONS.append(("0330_go_module_vai_tro", _migrate_go_module_vai_tro))
+
+
+def _migrate_go_module_nguoi_dung(db: Session) -> None:
+    """0331 — Gỡ hẳn module `nguoi_dung`, dời quyền tài khoản vào `nhan_su`.
+
+    Chủ chốt 24/09/2026, ngay sau mg `0330`: *"gộp luôn người dùng vào hồ sơ nhân sự đi"*. Cùng
+    một bệnh với `vai_tro`: màn "Người dùng" riêng đã bỏ từ lâu — tài khoản đăng nhập nay là tab
+    **"Tài khoản & Quyền" của chính màn Hồ sơ nhân sự**, nên một dòng ma trận mang tên "Người
+    dùng" không dẫn tới mục thanh bên nào.
+
+    Chuyển quyền sang `nhan_su` (OR vào dòng sẵn có, hoặc đẻ dòng mới nếu vai chưa có):
+      • `nguoi_dung.can_read`                → `nhan_su.can_read`   (mở hồ sơ + đọc tab Tài khoản)
+      • `nguoi_dung.can_create/update/delete` → `nhan_su.can_create/update/delete`
+      • bốn ô CHI TIẾT giữ nguyên tên cột, chỉ đổi khoá module:
+        `can_reset_password` · `can_lock` · `can_revoke_sessions` · `can_assign_role`
+      • `nguoi_dung.can_transfer` → `nhan_su.can_transfer`: "chuyển phòng ban" và "điều chuyển &
+        đổi chức danh" là MỘT việc, hai cửa (màn Phòng ban và màn Hồ sơ) — nay một ô.
+
+    ⚠ Hai chỗ chồng nghĩa, cố ý chọn hướng "không ai mất quyền":
+      • `can_create/update/delete`: vai nào trước chỉ quản TÀI KHOẢN thì nay sửa được cả HỒ SƠ.
+        Bộ seed chỉ cấp cặp này cho TP HCNS, mà vai đó đã có `nhan_su` full ⇒ thực tế không vai
+        nào rộng quyền thêm. Muốn siết thì vào ma trận bỏ tick — thấy được, sửa được.
+      • `nhan_su.can_lock` trước đây KHÔNG endpoint nào hỏi tới (chốt kỳ công dùng
+        `cham_cong.can_lock`, chốt bảng lương dùng `luong.can_lock`) nên ô này rỗng, ghi vào
+        không đè mất việc gì.
+
+    PHẠM VI: `nhan_su` chỉ nhận `department`/`all` (`PHAM_VI_CHO_PHEP`), còn `nguoi_dung` cho cả
+    `own`. Dòng `nguoi_dung` scope `own` mà đẻ thẳng sang thì ô chọn phạm vi hiện RỖNG ⇒ nâng lên
+    `department` (mức thấp nhất hợp lệ của màn Hồ sơ). Bộ seed không có vai nào như vậy.
+
+    Sau khi chép: XOÁ dòng `role_permissions` của `nguoi_dung` rồi xoá hẳn module — `get_matrix`
+    đọc bảng `modules` của DB chứ không đọc `seed.MODULES`, để lại là dòng "Người dùng" rơi xuống
+    nhóm "Khác" (nhóm thu gọn ⇒ coi như tàng hình).
+
+    Idempotent: chạy lại khi `nguoi_dung` đã biến mất là mọi câu lệnh không khớp hàng nào.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"role_permissions", "modules"} <= tables:
+        return
+    cols = set(_existing_columns(insp, "role_permissions"))
+
+    if db.execute(
+        text("SELECT 1 FROM modules WHERE key = 'nguoi_dung'")
+    ).first() is None:
+        return
+
+    co_quyen = [c for c in (
+        "can_read", "can_create", "can_update", "can_delete",
+        "can_reset_password", "can_lock", "can_revoke_sessions", "can_assign_role",
+        "can_transfer",
+    ) if c in cols]
+
+    # 1) Vai CÓ dòng `nguoi_dung` nhưng CHƯA có dòng `nhan_su` → đẻ dòng mới, chép thẳng các cờ.
+    cot_scope = ", scope" if "scope" in cols else ""
+    gia_tri_scope = (
+        ", CASE WHEN rp.scope = 'own' THEN 'department' ELSE rp.scope END"
+        if "scope" in cols else ""
+    )
+    db.execute(
+        text(
+            "INSERT INTO role_permissions (module_key, role_id, "
+            f"{', '.join(co_quyen)}{cot_scope}) "
+            f"SELECT 'nhan_su', rp.role_id, {', '.join('rp.' + c for c in co_quyen)}"
+            f"{gia_tri_scope} "
+            "FROM role_permissions rp "
+            "WHERE rp.module_key = 'nguoi_dung' AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = 'nhan_su')"
+        )
+    )
+
+    # 2) Vai đã có CẢ HAI dòng → OR từng cờ vào dòng `nhan_su`. Phạm vi của dòng `nhan_su` GIỮ
+    #    NGUYÊN: nó là phạm vi của màn Hồ sơ, không phải thứ đi kèm mấy ô tài khoản.
+    for cot in co_quyen:
+        db.execute(
+            text(
+                f"UPDATE role_permissions SET {cot} = true "
+                f"WHERE module_key = 'nhan_su' AND {cot} = false AND role_id IN ("
+                f"  SELECT role_id FROM role_permissions "
+                f"  WHERE module_key = 'nguoi_dung' AND {cot} = true)"
+            )
+        )
+
+    # 3) Dọn: xoá dòng quyền trước (khoá ngoại trỏ vào `modules.key`), rồi xoá module.
+    db.execute(text("DELETE FROM role_permissions WHERE module_key = 'nguoi_dung'"))
+    db.execute(text("DELETE FROM modules WHERE key = 'nguoi_dung'"))
+    db.commit()
+
+
+MIGRATIONS.append(("0331_go_module_nguoi_dung", _migrate_go_module_nguoi_dung))
+
+
+def _migrate_go_module_yeu_cau_sua_chua(db: Session) -> None:
+    """0332 — Gỡ hẳn module `yeu_cau_sua_chua`, "Báo máy hỏng" thành ô chi tiết của Sửa chữa máy.
+
+    Chủ chốt 24/09/2026, chỉ thẳng vào ma trận: *"bên thanh bên có 2 module sao ở quyền lại có
+    3"*. Đúng: khối Kỹ thuật của thanh bên chỉ có **Sửa chữa máy** và **Phiếu bảo trì**, còn
+    "Yêu cầu báo hỏng" là một TAB bên trong màn Sửa chữa máy (`SuaChuaMayPage.tsx` — hai khung,
+    một trang). Một dòng ma trận không dẫn tới mục menu nào thì hoặc là ô CHI TIẾT của màn chứa
+    nó, hoặc không nên tồn tại; ca này rơi vào vế đầu.
+
+    Chuyển quyền sang `ky_thuat_may` (OR vào dòng sẵn có, hoặc đẻ dòng mới nếu vai chưa có):
+      • bất kỳ cờ nào của `yeu_cau_sua_chua` → `ky_thuat_may.can_read` (mở màn = thấy cả hai tab)
+      • `yeu_cau_sua_chua.can_create` / `.can_update` → `ky_thuat_may.can_request`
+        (ô chi tiết "Báo máy hỏng": gửi lời báo + sửa lại lời báo CỦA CHÍNH MÌNH khi chưa ai tiếp
+        nhận — `_kiem_chu_yeu_cau` vẫn so `nguoi_bao_id`, không nhờ ô quyền)
+
+    ⚠ KHÔNG chép sang `can_create`/`can_update` của `ky_thuat_may`: hai ô đó là TIẾP NHẬN và ĐÓNG
+    phiếu sửa chữa — việc của tổ kỹ thuật. Chép sang là cấp quyền báo hỏng cho cả xưởng hoá ra
+    cấp luôn quyền mở/đóng phiếu, đúng cái mà khoá riêng ngày xưa sinh ra để tránh.
+
+    ⚠ Đổi lại: vai trước đây CHỈ có `yeu_cau_sua_chua` (thợ đứng máy · QC · tổ trưởng SX) nay
+    nhìn thấy thêm khung "Phiếu sửa chữa" ở chế độ đọc. Cố ý đánh đổi — một mục thanh bên là một
+    ô quyền, mà phiếu sửa chữa máy không có số tiền nào; thợ biết máy nào đang nằm là có ích.
+    Muốn giấu lại thì phải tách khung phiếu thành ô chi tiết riêng (cột DB mới), không làm ở đây.
+
+    Idempotent: chạy lại khi `yeu_cau_sua_chua` đã biến mất là mọi câu lệnh không khớp hàng nào.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"role_permissions", "modules"} <= tables:
+        return
+    cols = set(_existing_columns(insp, "role_permissions"))
+    if "can_request" not in cols:
+        return
+
+    if db.execute(
+        text("SELECT 1 FROM modules WHERE key = 'yeu_cau_sua_chua'")
+    ).first() is None:
+        return
+
+    co_ghi = [c for c in ("can_create", "can_update") if c in cols]
+    dk_ghi = " OR ".join("rp." + c for c in co_ghi) if co_ghi else "false"
+    co_bat_ky = [c for c in ("can_read", "can_create", "can_update", "can_delete") if c in cols]
+    dk_bat_ky = " OR ".join("rp." + c for c in co_bat_ky) if co_bat_ky else "false"
+    cot_scope = ", scope" if "scope" in cols else ""
+    # Màn Sửa chữa máy nằm trong `SCOPELESS_MODULES` — máy chủ ép `all` lúc lưu, nên đẻ dòng mới
+    # cũng ghi thẳng `all` thay vì bê scope cũ sang.
+    gia_tri_scope = ", 'all'" if "scope" in cols else ""
+
+    # 1) Vai CÓ dòng `yeu_cau_sua_chua` nhưng CHƯA có dòng `ky_thuat_may` → đẻ dòng mới.
+    #    `can_create`/`can_update`/`can_delete` là ba cột đời đầu, NOT NULL mà KHÔNG có
+    #    server_default ⇒ bỏ ra khỏi danh sách cột là Postgres ném `NotNullViolation` và backend
+    #    chết ngay lúc khởi động. Phải ghi thẳng `false`: tiếp nhận / đóng phiếu sửa chữa KHÔNG
+    #    đi theo ô báo hỏng.
+    db.execute(
+        text(
+            "INSERT INTO role_permissions (module_key, role_id, can_read, can_request, "
+            f"can_create, can_update, can_delete{cot_scope}) "
+            f"SELECT 'ky_thuat_may', rp.role_id, ({dk_bat_ky}), ({dk_ghi}), "
+            f"false, false, false{gia_tri_scope} "
+            "FROM role_permissions rp "
+            "WHERE rp.module_key = 'yeu_cau_sua_chua' AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = 'ky_thuat_may')"
+        )
+    )
+
+    # 2) Vai đã có CẢ HAI dòng → OR hai cờ vào dòng `ky_thuat_may`.
+    db.execute(
+        text(
+            "UPDATE role_permissions SET can_read = true "
+            "WHERE module_key = 'ky_thuat_may' AND can_read = false AND role_id IN ("
+            "  SELECT rp.role_id FROM role_permissions rp "
+            f"  WHERE rp.module_key = 'yeu_cau_sua_chua' AND ({dk_bat_ky}))"
+        )
+    )
+    db.execute(
+        text(
+            "UPDATE role_permissions SET can_request = true "
+            "WHERE module_key = 'ky_thuat_may' AND can_request = false AND role_id IN ("
+            "  SELECT rp.role_id FROM role_permissions rp "
+            f"  WHERE rp.module_key = 'yeu_cau_sua_chua' AND ({dk_ghi}))"
+        )
+    )
+
+    # 3) Dọn: xoá dòng quyền trước (khoá ngoại trỏ vào `modules.key`), rồi xoá module.
+    db.execute(text("DELETE FROM role_permissions WHERE module_key = 'yeu_cau_sua_chua'"))
+    db.execute(text("DELETE FROM modules WHERE key = 'yeu_cau_sua_chua'"))
+    db.commit()
+
+
+MIGRATIONS.append(("0332_go_module_yeu_cau_sua_chua", _migrate_go_module_yeu_cau_sua_chua))
+def _migrate_nhom_dung_chung_kd(db: Session) -> None:
+    """0333 — hai bảng NHÓM DÙNG CHUNG (khối Kinh doanh).
+
+    `create_all` chỉ dựng bảng trên DB TRẮNG; DB dev/prod đang chạy phải đi qua đây.
+    Idempotent nhờ `CREATE TABLE IF NOT EXISTS`. KHÔNG backfill: nhóm mở đầu rỗng, mà người
+    không thuộc nhóm nào thì "Của tôi" vẫn đúng nghĩa cũ ⇒ không ai thấy thêm gì sau khi chạy.
+    """
+    bind = db.get_bind()
+    pk = "INTEGER PRIMARY KEY AUTOINCREMENT" if bind.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS nhom_dung_chung ("
+        f"id {pk}, "
+        "ten VARCHAR(255) NOT NULL, "
+        "created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+        "created_at TIMESTAMP NOT NULL, "
+        "CONSTRAINT uq_nhom_dung_chung_ten UNIQUE (ten))"
+    ))
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS nhom_dung_chung_thanh_vien ("
+        f"id {pk}, "
+        "nhom_id INTEGER NOT NULL REFERENCES nhom_dung_chung(id) ON DELETE CASCADE, "
+        "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+        "added_by INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+        "added_at TIMESTAMP NOT NULL, "
+        "CONSTRAINT uq_nhom_dung_chung_thanh_vien UNIQUE (nhom_id, user_id))"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_nhom_dung_chung_thanh_vien_nhom_id "
+        "ON nhom_dung_chung_thanh_vien (nhom_id)"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_nhom_dung_chung_thanh_vien_user_id "
+        "ON nhom_dung_chung_thanh_vien (user_id)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0333_nhom_dung_chung_kd", _migrate_nhom_dung_chung_kd))
+def _migrate_tach_module_ton_kho(db: Session) -> None:
+    """0334 — TỒN KHO thành module riêng, tách khỏi ô chi tiết `kho.can_view_stock`.
+
+    Chủ chốt 24/09/2026, chỉ vào khối "Kho hàng" của thanh bên: nó bày ra *ba* loại màn — Yêu cầu
+    nhập xuất · Tồn kho của TỪNG kho đã khai báo (mục động, AppShell tiêm) · Báo cáo kho — mà ma
+    trận chỉ có hai dòng. Cả nhóm màn Tồn kho đang nấp sau một công tắc nằm trong panel chi tiết
+    của màn Yêu cầu nhập xuất, đúng kiểu "màn không có dòng của riêng nó" mà `bao_cao_kho` vừa
+    thoát ra hôm trước (mg `0329`).
+
+    Chuyển quyền sang dòng mới `ton_kho`:
+      • `kho.can_view_stock`   → `ton_kho.can_read`   (thấy khối kho trên menu + SỐ tồn + lô)
+      • `kho.can_set_threshold`→ `ton_kho.can_set_threshold` (ô chi tiết "Khai ngưỡng tồn" —
+        cùng cột, khác DÒNG; việc ghi duy nhất của màn này)
+
+    KHÔNG đụng `kho.can_view_cost`: quyền thấy giá vốn vẫn là MỘT công tắc duy nhất trên khoá
+    `kho`, dùng chung cho cả ba màn kho — ma trận chỉ bày lại nó ở cả ba dòng cho khỏi đi tìm.
+    Nhân bản thành ba cột là mở đường cho "thấy giá ở màn tồn mà không thấy ở báo cáo", thứ nghiệp
+    vụ không có.
+
+    Hai cột cũ GIỮ NGUYÊN trong DB (không drop): `can_view_stock` / `can_set_threshold` thành cột
+    chết sau đợt này. Đừng đọc lại chúng — mọi cửa đã chuyển sang hỏi `ton_kho`.
+
+    Idempotent: chạy lại thì `modules` đã có dòng, `INSERT` không khớp vai nào, `UPDATE` không
+    đổi cờ nào (điều kiện `= false`).
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"role_permissions", "modules"} <= tables:
+        return
+    cols = set(_existing_columns(insp, "role_permissions"))
+    if "can_view_stock" not in cols:
+        return
+
+    # `role_permissions.module_key` là khoá ngoại trỏ `modules.key` ⇒ phải có dòng module TRƯỚC.
+    # Seeder cũng tự thêm lúc khởi động, nhưng migration chạy SỚM HƠN seed nên không chờ được.
+    db.execute(
+        text(
+            "INSERT INTO modules (key, label, created_at) "
+            "SELECT 'ton_kho', 'Tồn kho', CURRENT_TIMESTAMP "
+            "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = 'ton_kho')"
+        )
+    )
+
+    co_nguong = "can_set_threshold" in cols
+    cot_scope = ", scope" if "scope" in cols else ""
+    # `ton_kho` nằm trong `SCOPELESS_MODULES` — máy chủ ép `all` lúc lưu, nên ghi thẳng `all` thay
+    # vì bê scope của dòng `kho` sang (thủ kho `all`, tổ trưởng `department`… đều vô nghĩa ở đây:
+    # thấy kho nào là do KHAI BÁO KHO quyết định, không phải phạm vi).
+    gia_tri_scope = ", 'all'" if "scope" in cols else ""
+
+    # 1) Vai có `kho.can_view_stock` mà CHƯA có dòng `ton_kho` → đẻ dòng mới.
+    #    `can_create` / `can_delete` là cột đời đầu: NOT NULL mà không có server_default, bỏ ra
+    #    khỏi danh sách cột là Postgres ném `NotNullViolation` và backend chết lúc khởi động.
+    cot_ng = ", can_set_threshold" if co_nguong else ""
+    gia_tri_ng = ", rp.can_set_threshold" if co_nguong else ""
+    db.execute(
+        text(
+            "INSERT INTO role_permissions (module_key, role_id, can_read, "
+            f"can_create, can_update, can_delete{cot_ng}{cot_scope}) "
+            f"SELECT 'ton_kho', rp.role_id, true, "
+            f"false, false, false{gia_tri_ng}{gia_tri_scope} "
+            "FROM role_permissions rp "
+            "WHERE rp.module_key = 'kho' AND rp.can_view_stock AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = 'ton_kho')"
+        )
+    )
+
+    # 2) Vai đã có sẵn dòng `ton_kho` (chạy lại, hoặc DB trắng vừa seed xong) → OR hai cờ vào.
+    db.execute(
+        text(
+            "UPDATE role_permissions SET can_read = true "
+            "WHERE module_key = 'ton_kho' AND can_read = false AND role_id IN ("
+            "  SELECT rp.role_id FROM role_permissions rp "
+            "  WHERE rp.module_key = 'kho' AND rp.can_view_stock)"
+        )
+    )
+    if co_nguong:
+        db.execute(
+            text(
+                "UPDATE role_permissions SET can_set_threshold = true "
+                "WHERE module_key = 'ton_kho' AND can_set_threshold = false AND role_id IN ("
+                "  SELECT rp.role_id FROM role_permissions rp "
+                "  WHERE rp.module_key = 'kho' AND rp.can_set_threshold)"
+            )
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0334_tach_module_ton_kho", _migrate_tach_module_ton_kho))
+
+
+# mg 0335 — chạy lại luật 0327 lần 3, cho hai bảng sinh SAU nó: `nhom_dung_chung` và
+# `nhom_dung_chung_thanh_vien` (nhóm dùng chung dữ liệu khối Kinh doanh, 24/09). Hai cột vết
+# `created_by` / `added_by` lúc đầu khai SET NULL — lọt lưới vì bảng đẻ ở nhánh không có guard
+# `test_user_fk_cascade`, còn nhánh có guard thì chưa có bảng; chỉ lộ ra lúc gộp hai nhánh.
+# Luật chung của dự án là CASCADE cho MỌI FK trỏ users (111/111 cột khác đều vậy).
+MIGRATIONS.append(("0335_user_fks_delete_cascade_lan_3", _migrate_user_fks_delete_cascade))

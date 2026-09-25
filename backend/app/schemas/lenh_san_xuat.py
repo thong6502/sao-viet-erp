@@ -289,13 +289,14 @@ class VatTuMucOut(BaseModel):
 
 class VatTuOut(BaseModel):
     """Ba câu hỏi khác nhau, ba danh sách: bước ĐANG LÀM có đủ đồ không · bước SẮP TỚI hụt gì ·
-    kho đã xuất bao nhiêu rồi. `bo_qua` = dòng engine không đối chiếu được (thiếu công thức lượng,
-    đơn vị lạ) — phải bày ra, vì một bảng vật tư im lặng bỏ sót vài món trông y hệt bảng đủ."""
+    kho đã xuất bao nhiêu rồi.
+
+    `bo_qua` (lệnh/bài engine không cân đối được) GỠ 23/09/2026 cùng lúc với `CanDoiOut.bo_qua` —
+    xem `ke_hoach_vat_tu_service._gom_nhu_cau`."""
 
     hien_tai: VatTuMucOut
     canh_bao_sau: list[VatTuDongOut] = []
     da_cap: list[VatTuDongOut] = []
-    bo_qua: list[dict] = []
 
 
 class NhanLucBuocOut(BaseModel):

@@ -563,6 +563,24 @@ O_QUYEN_GAC_O_SERVICE: set[tuple[str, str]] = {
 #: `test_o_quyen_chet_tu_sinh.py` soi đủ ba nơi và đối chiếu với danh sách này — thêm bừa một dòng
 #: mà chỗ nào đó vẫn đang hỏi thì test đỏ.
 O_CHET_DA_XAC_MINH: set[tuple[str, str]] = {
+    # Quy trình kinh doanh: BẢN ĐỒ LUỒNG tĩnh, vẽ bằng SVG ở trình duyệt — không endpoint nào,
+    # không dữ liệu nào để thêm/sửa/xoá. Chỉ ô Xem (mở mục menu) là có nghĩa.
+    ("quy_trinh_kinh_doanh", "create"),
+    ("quy_trinh_kinh_doanh", "update"),
+    ("quy_trinh_kinh_doanh", "delete"),
+    # Báo cáo kho: Xem = vào màn + sổ + NXT + export; Thao tác thật là KHOÁ KỲ, đi bằng ô chi
+    # tiết `close_book`. Không có "tạo mới báo cáo" hay "xoá báo cáo" — cùng khuôn với
+    # `bao_cao_cong_no` bên dưới.
+    ("bao_cao_kho", "create"),
+    ("bao_cao_kho", "update"),
+    ("bao_cao_kho", "delete"),
+    # Tồn kho (mg `0334`): Xem = số tồn + lô; việc GHI duy nhất là KHAI NGƯỠNG
+    # (`PUT /api/kho/nguong-ton` → ô chi tiết `ton_kho:set_threshold`). Không có "tạo/sửa/xoá tồn
+    # kho" — khai báo kho là màn danh mục riêng (`dm_kho_hang`), còn lô sinh ra từ phiếu nhập chứ
+    # không gõ tay. Cùng khuôn `bao_cao_kho`: cột Thao tác xám, việc ghi nằm ở ô chi tiết.
+    ("ton_kho", "create"),
+    ("ton_kho", "update"),
+    ("ton_kho", "delete"),
     ("yeu_cau_mua_hang", "delete"),
     # `thu_mua:cancel` và `thu_mua:manage_status`: KHÔNG khai ở đây. Hai ô đó đã GỠ HẲN khỏi ma
     # trận ngày 12/08/2026 (xem `PermissionMatrix.tsx`), mà danh sách này chỉ dùng để TẮT những ô
@@ -581,7 +599,15 @@ O_CHET_DA_XAC_MINH: set[tuple[str, str]] = {
     # (`POST /api/accounting/khoa-so`) — CẢ HAI đều sống. Chỉ Thêm/Xoá chết (màn không có "tạo
     # mới báo cáo" hay "xoá báo cáo").
     ("bao_cao_cong_no", "create"), ("bao_cao_cong_no", "delete"),
+    # `bao_cao_kinh_doanh` (24/09/2026): chỉ Xem (= xem + xuất Excel). Không có gì để thêm/sửa/xoá.
+    ("bao_cao_kinh_doanh", "create"), ("bao_cao_kinh_doanh", "update"),
+    ("bao_cao_kinh_doanh", "delete"),
     ("tk_ngan_hang", "create"), ("tk_ngan_hang", "delete"),
+    # `self_service` nay gác MỤC MENU "Hồ sơ của tôi" (24/09/2026) — chỉ ô XEM còn sống. Ô Thao
+    # tác chết từ 15/08/2026: `useSelfServiceWrite()` (auth/permissions.tsx) trả `true` cứng và
+    # không router nào đòi `self_service:create` nữa, vì ghi vào hồ sơ CỦA CHÍNH MÌNH là quyền
+    # đương nhiên. Khai ra đây để ma trận bày ô xám thay vì để người cấp quyền tick một ô vô nghĩa.
+    ("self_service", "create"),
     ("self_service", "update"), ("self_service", "delete"), ("self_service", "approve"),
     ("nghi_phep", "delete"),
     # `tang_ca:create` SỐNG LẠI 15/08/2026: ô Tự phục vụ bỏ đi, nên "gửi phiếu tăng ca cho chính

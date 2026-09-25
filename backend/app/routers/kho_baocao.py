@@ -1,8 +1,9 @@
 """Router — BÁO CÁO KHO (kế toán): sổ nhập-xuất + khóa kỳ (chốt sổ) + export MISA.
 
-docs/spec-bao-cao-kho.md. CHỈ kế toán kho vào (quyền `close_book`): xem báo cáo + export Excel +
-khóa/mở kỳ. Đăng ký TRƯỚC `kho.router` trong main.py vì `/api/kho/khoa-so` là path 1 đoạn sẽ bị
-`/api/kho/{kho_id}` nuốt nếu khai sau (FastAPI khớp theo thứ tự).
+docs/spec-bao-cao-kho.md. MODULE quyền RIÊNG `bao_cao_kho` (tách khỏi `kho` ngày 24/09/2026,
+mg `0329`): Xem = vào màn + sổ nhập-xuất + NXT + export Excel; ô chi tiết `close_book` = KHOÁ KỲ
+(chốt sổ) + tính giá kỳ. Đăng ký TRƯỚC `kho.router` trong main.py vì `/api/kho/khoa-so` là path 1
+đoạn sẽ bị `/api/kho/{kho_id}` nuốt nếu khai sau (FastAPI khớp theo thứ tự).
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session
 import json
 
 from ..db import get_db
-from ..deps import require_permission
+from ..deps import get_authorization_service, require_permission
 from ..models.kho_hang import KhoHang
 from ..models.stock_lot import StockLot
 from ..models.stock_request import StockRequest
@@ -37,6 +38,7 @@ from ..repositories.kho_khoa_so_repo import KhoKhoaSoRepository
 from ..repositories.kho_ky_ton_repo import KhoKyTonRepository
 from ..repositories.user_repo import UserRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+from ..services.rbac_service import AuthorizationService
 from ..services.vat_lieu_kho_service import VatLieuKhoService
 from ..schemas.stock import (
     BaoCaoChuyenKhoPage,
@@ -56,10 +58,49 @@ from ..schemas.stock import (
 from ..services import kho_gia_goc_service
 
 router = APIRouter(prefix="/api/kho", tags=["kho-bao-cao"])
-MODULE = "kho"
+# MÀN NÀY LÀ MỘT MODULE RIÊNG từ 24/09/2026 (mg `0329`) — trước đây gác bằng ô CHI TIẾT
+# `kho:close_book`, nghĩa là một mục menu không có dòng nào mang tên nó trong ma trận phân quyền.
+# Cùng lý do đã tách `bao_cao_cong_no` khỏi hai khoá công nợ (mg 0260).
+MODULE = "bao_cao_kho"
+#: Khoá của màn KHO nghiệp vụ — còn dùng cho đúng MỘT cửa ở đây: bảng "thành phẩm chưa có giá
+#: gốc" đọc GIÁ VỐN, mà quyền thấy giá vốn thuộc về màn Kho (`kho:view_cost`), không phải báo cáo.
+MODULE_KHO = "kho"
 
 Db = Annotated[Session, Depends(get_db)]
+Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
+#: Xem báo cáo (sổ nhập-xuất · NXT · chuyển kho · kỳ đã tính · lịch sử export · export Excel).
+XemBaoCaoUser = Annotated[User, Depends(require_permission(MODULE, "read"))]
+#: KHOÁ KỲ (chốt sổ) + tính giá kỳ — hai việc GHI duy nhất của màn.
 CloseBookUser = Annotated[User, Depends(require_permission(MODULE, "close_book"))]
+
+#: Trường TIỀN của từng loại dòng báo cáo → đặt None khi người xem không được thấy giá vốn.
+_O_TIEN: dict[str, tuple[str, ...]] = {
+    "so": ("don_gia", "thanh_tien"),
+    "chuyen": ("don_gia_von", "tien_von"),
+    "nxt": ("dau_gt", "nhap_gt", "xuat_gt", "cuoi_gt", "don_gia_bq"),
+}
+
+
+def _thay_gia(authz: AuthorizationService, user: User) -> bool:
+    """Ai thấy ĐƠN GIÁ / THÀNH TIỀN trong báo cáo kho: CHỈ người có `kho:view_cost`.
+
+    Ô "Báo cáo kho" (module riêng từ 24/09/2026) mở CỬA VÀO MÀN — nó không phải giấy phép xem
+    giá vốn. Chủ dự án chốt 10/08/2026: *mọi số tiền của kho gác bằng `kho:view_cost` ở MÁY CHỦ,
+    không ngoại lệ*. Trước đây màn này chỉ kế toán kho vào (ô `kho:close_book`, mà vai nào có ô
+    đó cũng có sẵn `view_cost`) nên chưa lộ ra; tách module xong thì quản trị cấp được cho người
+    ngoài kế toán, và họ phải thấy SỐ LƯỢNG mà không thấy TIỀN."""
+    return authz.can(user, MODULE_KHO, "view_cost")
+
+
+def _an_tien(rows: list, loai: str, cho_xem: bool) -> list:
+    """Xoá trắng các ô tiền của `rows` khi `cho_xem` là False. Ghi None chứ KHÔNG ghi 0 — số 0
+    là một con số, người đọc sẽ tin là "kỳ này không phát sinh tiền"."""
+    if cho_xem:
+        return rows
+    for r in rows:
+        for o in _O_TIEN[loai]:
+            setattr(r, o, None)
+    return rows
 
 
 # Ghi sổ lưu mốc UTC (`ghi_so_luc`); nhưng NGÀY HẠCH TOÁN + phân kỳ sổ phải theo NGÀY LÀM VIỆC
@@ -163,21 +204,25 @@ def _report_rows(
 @router.get("/bao-cao/dong", response_model=BaoCaoKhoPage)
 def bao_cao_dong(
     db: Db,
-    _: CloseBookUser,
+    authz: Authz,
+    user: XemBaoCaoUser,
     tu: date | None = Query(default=None),
     den: date | None = Query(default=None),
     kho_id: int | None = Query(default=None),
     loai: str | None = Query(default=None, pattern="^(NHAP|XUAT)$"),
     q: str | None = Query(default=None),
 ) -> BaoCaoKhoPage:
-    rows = _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q)
+    rows = _an_tien(
+        _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q),
+        "so", _thay_gia(authz, user),
+    )
     return BaoCaoKhoPage(items=rows, total=len(rows))
 
 
 @router.get("/bao-cao/thanh-pham-chua-gia-goc", response_model=ThanhPhamChuaGiaGocPage)
 def thanh_pham_chua_gia_goc(
     db: Db,
-    _: Annotated[User, Depends(require_permission(MODULE, "view_cost"))],
+    _: Annotated[User, Depends(require_permission(MODULE_KHO, "view_cost"))],
     q: str | None = Query(default=None, max_length=100),
     chi_chua_gia: bool = Query(default=True),
     tu: date | None = Query(default=None),
@@ -274,13 +319,15 @@ def _chuyen_kho_rows(
 @router.get("/bao-cao/chuyen-kho", response_model=BaoCaoChuyenKhoPage)
 def bao_cao_chuyen_kho(
     db: Db,
-    _: CloseBookUser,
+    authz: Authz,
+    user: XemBaoCaoUser,
     tu: date | None = Query(default=None),
     den: date | None = Query(default=None),
     kho_id: int | None = Query(default=None),
     q: str | None = Query(default=None),
 ) -> BaoCaoChuyenKhoPage:
-    rows = _chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    rows = _an_tien(_chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q),
+                    "chuyen", _thay_gia(authz, user))
     return BaoCaoChuyenKhoPage(items=rows, total=len(rows))
 
 
@@ -430,7 +477,8 @@ def _scope_kho_ids(db: Session, kho_id: int | None, tu: date, den: date) -> list
 @router.get("/bao-cao/nxt", response_model=BaoCaoNXTPage)
 def bao_cao_nxt(
     db: Db,
-    _: CloseBookUser,
+    authz: Authz,
+    user: XemBaoCaoUser,
     tu: date = Query(...),
     den: date = Query(...),
     kho_id: int | None = Query(default=None),
@@ -438,7 +486,8 @@ def bao_cao_nxt(
 ) -> BaoCaoNXTPage:
     """Báo cáo N-X-T theo kỳ (bình quân gia quyền cuối kỳ). Đầu kỳ = snapshot kỳ trước ("Tính giá
     kỳ"). Kỳ chưa tính → hiện TẠM TÍNH (da_tinh=false). Chỉ kế toán kho (`close_book`)."""
-    rows = _nxt_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    rows = _an_tien(_nxt_rows(db, tu=tu, den=den, kho_id=kho_id, q=q),
+                    "nxt", _thay_gia(authz, user))
     kho_ids = [kho_id] if kho_id else None
     ky_repo = KhoKyTonRepository(db)
     da_tinh = ky_repo.count_for_den(den, kho_ids) > 0
@@ -491,7 +540,7 @@ def tinh_gia_ky(payload: TinhGiaKyIn, db: Db, user: CloseBookUser) -> BaoCaoNXTP
 
 
 @router.get("/bao-cao/ky-da-tinh", response_model=list[KyDaTinhRow])
-def get_ky_da_tinh(db: Db, _: CloseBookUser) -> list[KyDaTinhRow]:
+def get_ky_da_tinh(db: Db, _: XemBaoCaoUser) -> list[KyDaTinhRow]:
     """Danh sách các KỲ ĐÃ TÍNH GIÁ (có snapshot) — cho tab 'Kỳ đã tính'. Mới nhất trước."""
     ky_repo = KhoKyTonRepository(db)
     khoa_repo = KhoKhoaSoRepository(db)
@@ -527,13 +576,13 @@ def _khoa_row(db: Session, row) -> KhoKhoaSoRow:
 
 
 @router.get("/khoa-so", response_model=list[KhoKhoaSoRow])
-def get_khoa_so(db: Db, _: CloseBookUser) -> list[KhoKhoaSoRow]:
+def get_khoa_so(db: Db, _: XemBaoCaoUser) -> list[KhoKhoaSoRow]:
     """Lịch sử thao tác khóa/mở kỳ (mới nhất trước) — dùng cho tab Lịch sử + đối chiếu đang khóa."""
     return [_khoa_row(db, r) for r in KhoKhoaSoRepository(db).history()]
 
 
 @router.get("/khoa-so/ky", response_model=list[KhoaSoKyRow])
-def get_khoa_so_ky(db: Db, _: CloseBookUser) -> list[KhoaSoKyRow]:
+def get_khoa_so_ky(db: Db, _: XemBaoCaoUser) -> list[KhoaSoKyRow]:
     """Các KỲ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab 'Kỳ đã khóa' chọn nhanh + xuất."""
     kho_repo = KhoHangRepository(db)
     repo = KhoKhoaSoRepository(db)
@@ -835,7 +884,7 @@ def _log_export(db: Session, user: User, *, loai_label: str,
 
 
 @router.get("/bao-cao/lich-su-export", response_model=list[KhoExportLogRow])
-def get_lich_su_export(db: Db, _: CloseBookUser) -> list[KhoExportLogRow]:
+def get_lich_su_export(db: Db, _: XemBaoCaoUser) -> list[KhoExportLogRow]:
     """Lịch sử thao tác báo cáo kho: XUẤT EXCEL + TÍNH GIÁ KỲ (mới nhất trước) — cho tab 'Lịch sử'."""
     users = UserRepository(db)
     audit = AuditLogRepository(db)
@@ -900,7 +949,8 @@ def _passes_funnel(
 @router.get("/bao-cao/export.xlsx")
 def export_bao_cao(
     db: Db,
-    user: CloseBookUser,
+    authz: Authz,
+    user: XemBaoCaoUser,
     loai: str = Query(pattern="^(NHAP|XUAT)$"),
     tu: date | None = Query(default=None),
     den: date | None = Query(default=None),
@@ -917,7 +967,10 @@ def export_bao_cao(
 ) -> Response:
     # `_report_rows` đã LOẠI điều chuyển (chuẩn kế toán: nội bộ, không nhập-mua/xuất-bán) — nên file
     # MISA nhập/xuất tự động không dính điều chuyển; điều chuyển có mẫu "Chuyển kho" riêng.
-    rows = _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q)
+    # Ẩn tiền TRƯỚC khi lọc funnel: bộ lọc theo Đơn giá/Thành tiền phải thấy cùng một bảng với
+    # người dùng, không thì file lọc ra theo con số mà họ không được nhìn.
+    rows = _an_tien(_report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q),
+                    "so", _thay_gia(authz, user))
     # Áp bộ lọc funnel theo cột (nếu FE truyền) → file = đúng bảng đang xem.
     rows = [
         r for r in rows
@@ -1065,14 +1118,16 @@ def _build_nxt_xlsx(rows: list[BaoCaoNXTRow], *, tu: date, den: date, hien_cuoi:
 @router.get("/bao-cao/nxt/export.xlsx")
 def export_nxt(
     db: Db,
-    user: CloseBookUser,
+    authz: Authz,
+    user: XemBaoCaoUser,
     tu: date = Query(...),
     den: date = Query(...),
     kho_id: int | None = Query(default=None),
     q: str | None = Query(default=None),
 ) -> Response:
     """Xuất Excel bảng Nhập-Xuất-Tồn (mẫu MISA, gom nhóm theo kho + dòng cộng)."""
-    rows = _nxt_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    rows = _an_tien(_nxt_rows(db, tu=tu, den=den, kho_id=kho_id, q=q),
+                    "nxt", _thay_gia(authz, user))
     kho_ids = [kho_id] if kho_id else None
     ky_repo = KhoKyTonRepository(db)
     # Giống màn hình: cuối kỳ chỉ ra tiền khi đã chốt, hoặc `den` nằm trong một kỳ đã tính.
@@ -1090,7 +1145,8 @@ def export_nxt(
 @router.get("/bao-cao/chuyen-kho/export.xlsx")
 def export_chuyen_kho(
     db: Db,
-    user: CloseBookUser,
+    authz: Authz,
+    user: XemBaoCaoUser,
     tu: date | None = Query(default=None),
     den: date | None = Query(default=None),
     kho_id: int | None = Query(default=None),
@@ -1104,7 +1160,8 @@ def export_chuyen_kho(
     tt_from: float | None = Query(default=None),
     tt_to: float | None = Query(default=None),
 ) -> Response:
-    rows = _chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    rows = _an_tien(_chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q),
+                    "chuyen", _thay_gia(authz, user))
     # Bảng Chuyển kho lọc funnel theo `don_gia_von`/`tien_von` (cột Đơn giá/Thành tiền) — khớp FE.
     rows = [
         r for r in rows

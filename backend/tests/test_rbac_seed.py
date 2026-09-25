@@ -36,7 +36,7 @@ def test_modules_seeded(client):
         modules = ModuleRepository(db)
         assert modules.count() == len(MODULES)
         keys = {m.key for m in modules.list_all()}
-        assert {"dashboard", "khach_hang", "vai_tro", "nguoi_dung"} <= keys
+        assert {"dashboard", "khach_hang", "phong_ban", "nhan_su"} <= keys
         # Các phân hệ mới (Thu mua/Kế toán/Sản xuất/Kho) đã có module riêng.
         assert {"thu_mua", "ke_toan", "san_xuat", "kho"} <= keys
     finally:

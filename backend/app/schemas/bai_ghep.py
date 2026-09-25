@@ -268,15 +268,11 @@ class VatTuHieuLucNhom(BaseModel):
     dong: list[VatTuHieuLucDong] = Field(default_factory=list)
 
 
-class VatTuHieuLucBoQua(BaseModel):
-    ma: str
-    ly_do: str
-
-
 class VatTuHieuLucOut(BaseModel):
+    """`bo_qua` GỠ 23/09/2026 cùng lúc với `CanDoiOut.bo_qua` — xem `_gom_nhu_cau`."""
+
     bai_ghep_id: int
     items: list[VatTuHieuLucNhom] = Field(default_factory=list)
-    bo_qua: list[VatTuHieuLucBoQua] = Field(default_factory=list)
 
 
 class NguoiPhuTrachOption(BaseModel):

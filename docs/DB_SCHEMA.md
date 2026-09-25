@@ -6497,6 +6497,58 @@ tính lại từ đây tới hết tháng trước.
 `luy_ke_dau`, `nguon`, `created_at`.
 
 ---
+### `nhom_dung_chung`
+
+**Purpose:** Một NHÓM DÙNG CHUNG dữ liệu của khối Kinh doanh. 1 dòng = 1 nhóm có tên (vd "Cặp KD 1"). Hai người cùng nhóm thì phạm vi "Của tôi" của họ ở bốn màn `tinh_gia_thanh` · `bao_gia` · `don_hang_ban` · `khach_hang` được hiểu rộng ra thành "của tôi + của người cùng nhóm". Nhóm MỞ RỘNG DỮ LIỆU, KHÔNG nâng quyền. Bảng mới (migration `0333`).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `ten` | `String(255)` | **U** | no | — | Tên nhóm, hiện trên chip ở tab Nhân sự của màn Phòng ban. |
+| `created_by` | `Integer` | FK→`users.id` (CASCADE) | yes | — | Người gộp nhóm. Xoá cứng tài khoản đó là nhóm đi theo — luật CASCADE chung cho mọi FK trỏ `users` (mg `0327`, chạy lại ở `0335`). |
+| `created_at` | `DateTime(timezone=True)` | — | no | `utcnow` | Lúc gộp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Foreign keys: `created_by FK→users.id` — `ON DELETE CASCADE`.
+- Unique: `uq_nhom_dung_chung_ten` trên `ten` — hai nhóm trùng tên thì người cấp quyền không biết mình đang thêm người vào nhóm nào.
+
+**Relationships**
+
+- Một `nhom_dung_chung` có nhiều `nhom_dung_chung_thanh_vien` (CASCADE xoá).
+
+**Tất cả cột:** `id`, `ten`, `created_by`, `created_at`.
+
+---
+
+### `nhom_dung_chung_thanh_vien`
+
+**Purpose:** Một NGƯỜI trong một nhóm dùng chung. 1 dòng = (nhóm, người). Một người ở được nhiều nhóm — tập người dùng chung của ai đó là HỢP của mọi nhóm người đó thuộc. Bảng mới (migration `0333`).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `nhom_id` | `Integer` | FK→`nhom_dung_chung.id` (CASCADE), **IX** | no | — | Nhóm chứa người này. |
+| `user_id` | `Integer` | FK→`users.id` (CASCADE), **IX** | no | — | Tài khoản được dùng chung dữ liệu. Xoá tài khoản là dòng đi theo. |
+| `added_by` | `Integer` | FK→`users.id` (CASCADE) | yes | — | Ai thêm người này vào nhóm. Xoá cứng tài khoản đó thì dòng thành viên do họ thêm đi theo — luật CASCADE chung (mg `0327`, chạy lại ở `0335`). |
+| `added_at` | `DateTime(timezone=True)` | — | no | `utcnow` | Lúc thêm. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Foreign keys: `nhom_id FK→nhom_dung_chung.id` (CASCADE) · `user_id FK→users.id` (CASCADE) · `added_by FK→users.id` (CASCADE).
+- Unique: `uq_nhom_dung_chung_thanh_vien` trên (`nhom_id`, `user_id`).
+- Indexes: `ix_nhom_dung_chung_thanh_vien_nhom_id` · `ix_nhom_dung_chung_thanh_vien_user_id` — mọi lượt lọc dữ liệu của bốn màn KD đều hỏi "người này thuộc nhóm nào" rồi "nhóm đó có ai".
+
+**Relationships**
+
+- Nhiều `nhom_dung_chung_thanh_vien` thuộc một `nhom_dung_chung` và trỏ tới một `users`.
+
+**Tất cả cột:** `id`, `nhom_id`, `user_id`, `added_by`, `added_at`.
+
+---
+
 
 ## Template for a new table (copy when adding one)
 

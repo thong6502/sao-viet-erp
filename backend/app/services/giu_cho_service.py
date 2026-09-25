@@ -314,6 +314,8 @@ class GiuChoService:
                 "ma": o["ma"],
                 "is_rush": bool(o["is_rush"]),
                 "ngay_can": o["ngay_can"],
+                "khach_ten": o.get("khach_ten"),
+                "han_giao_khach": o.get("han_giao_khach"),
                 "ngoai_pham_vi": bool(o.get("ngoai_pham_vi")),
                 "bat": tt["bat"],
                 "du": tt["du"],
@@ -455,8 +457,15 @@ class GiuChoService:
                 if chu == (None, None):
                     continue
                 o = gom.setdefault(chu, {"ma": d.get("ma") or "", "is_rush": False,
-                                         "ngay_can": None, "hang": {}})
+                                         "ngay_can": None, "khach_ten": None,
+                                         "han_giao_khach": None, "hang": {}})
                 o["is_rush"] = o["is_rush"] or bool(d.get("is_rush"))
+                # Khách + hạn giao là thuộc tính của CHỦ THỂ, mọi dòng của nó mang giá trị y hệt
+                # (bảng cân đối gắn sẵn từ lệnh/bài) ⇒ nhặt cái đầu tiên gặp, không gộp gì thêm.
+                if o["khach_ten"] is None:
+                    o["khach_ten"] = d.get("khach_ten")
+                if o["han_giao_khach"] is None:
+                    o["han_giao_khach"] = d.get("han_giao_khach")
                 # Ngày cần của lệnh = ngày cần hàng SỚM NHẤT trên các YCMH đã lập cho nó (bảng cân
                 # đối đọc sẵn từng dòng). Lệnh không phải mua thì mọi dòng đều trống ⇒ trống.
                 ngay = d.get("ngay_can")

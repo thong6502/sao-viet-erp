@@ -28,6 +28,10 @@ export interface NavItem {
   children?: NavChild[];
   /** Mức thụt lề (item ĐỘNG theo cây, vd bàn tổ dưới xưởng) — 0/undefined = thẳng hàng. */
   indent?: number;
+  /** Id item CHA trong cây ĐỘNG (vd "Nhóm in máy 5 màu" nằm dưới "Tổ in"). Khai nó thì hàng cha
+   *  mọc nút ▾ để GẬP cả nhánh — cây xưởng 11 tổ + nhóm in kéo menu dài quá màn hình. Khác
+   *  `children`: con ở đây vẫn là item đầy đủ (icon, badge, bấm vào mở bàn của chính nó). */
+  parentId?: string;
 }
 
 // Ô `self_service` ĐÃ BỎ 15/08/2026 — phần "của tôi" là quyền đương nhiên, không phải ô cấp.
@@ -58,7 +62,12 @@ export const NAV: NavSection[] = [
     label: "Tổng quan",
     items: [
       { id: "dashboard", label: "Trang chủ", icon: "grid", module: "dashboard" },
-      { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
+      // Hồ sơ CỦA CHÍNH MÌNH ⇒ khoá `self_service` — ô mà `rbac_repo.O_MAC_DINH` cấp sẵn cho
+      // MỌI vai mới, và cũng chính là ô máy chủ gác dữ liệu tự phục vụ (`employees.py` ·
+      // `attendance.py`). Trước 24/09/2026 mục này ăn ké `dashboard`: tắt Trang chủ của một vai
+      // là họ mất luôn đường vào hồ sơ của chính mình. Ô này có DÒNG RIÊNG trong ma trận (nhóm
+      // "Tổng quan", ngay dưới Trang chủ) — nó quyết định mục menu này hiện hay không.
+      { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "self_service" },
       // "Nội quy công ty" ĐÃ DỜI xuống section "Nhân sự & Lương" (chốt của chủ 09/08/2026):
       // nội quy lao động là tài liệu của HCNS, để ở "Tổng quan" thì không ai đoán ra chỗ tìm.
     ],
@@ -67,13 +76,15 @@ export const NAV: NavSection[] = [
     id: "kinh-doanh",
     label: "Kinh doanh",
     items: [
-      // Bản đồ luồng khối bán hàng — hiện cho ai vào được BẤT KỲ màn KD nào (không đẻ quyền mới).
+      // Bản đồ luồng khối bán hàng. MỘT MỤC = MỘT Ô QUYỀN từ 24/09/2026 (mg `0329`): trước đó
+      // mục này ăn ké bốn khoá KD, nên ma trận phân quyền không có dòng nào mang tên nó và
+      // không ai tắt riêng được. Migration đã cấp `quy_trinh_kinh_doanh` cho mọi vai đang đọc
+      // được một trong bốn khoá cũ ⇒ không ai mất mục menu.
       {
         id: "quy-trinh-kinh-doanh",
         label: "Quy trình kinh doanh",
         icon: "workflow",
-        module: "tinh_gia_thanh",
-        modules: ["tinh_gia_thanh", "bao_gia", "don_hang_ban", "khach_hang"],
+        module: "quy_trinh_kinh_doanh",
       },
       { id: "tinh-gia", label: "Tính giá", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
@@ -82,6 +93,13 @@ export const NAV: NavSection[] = [
       // Gác bằng MỘT ô `giao_hang` — không có cửa phụ nào khác (bài học ô ma `self_service`).
       { id: "giao-hang", label: "Giao hàng", icon: "truck", module: "giao_hang" },
       { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },
+      // Báo cáo kinh doanh theo khách (24/09/2026) — ô quyền RIÊNG, Xem = xem + xuất Excel.
+      {
+        id: "bao-cao-kinh-doanh",
+        label: "Báo cáo kinh doanh",
+        icon: "table",
+        module: "bao_cao_kinh_doanh",
+      },
     ],
   },
   {
@@ -120,10 +138,28 @@ export const NAV: NavSection[] = [
       // bỏ đánh số về `xep_lich`, mg `0314` chép quyền của `xep_lich_3` sang nên không ai mất
       // đường vào. Dấu trang cũ `/xep-lich-3` và `/xep-lich-cong-doan-2` không còn dùng được.
       { id: "xep-lich", label: "Xếp lịch", icon: "calendar", module: "xep_lich" },
-      // Hai ô quyền cùng mở màn này: tổ sửa chữa vào bằng `ky_thuat_may`, người ngoài báo máy hỏng
-      // vào bằng `yeu_cau_sua_chua` (màn tự chọn khung theo quyền).
-      { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may",
-        modules: ["ky_thuat_may", "yeu_cau_sua_chua"] },
+    ],
+  },
+  // KHỐI RIÊNG 24/09/2026 (chủ chốt: *"tách ra làm phân hệ sản xuất riêng đi"*). Mục ở đây KHÔNG
+  // khai tĩnh: cây tổ + mục KCS do AppShell tiêm động qua `dynamicItems["to-san-xuat"]` theo đúng
+  // những tổ mà người dùng có Xem. Không ai thấy tổ nào ⇒ khối rỗng ⇒ Sidebar tự ẩn cả khối.
+  // Ma trận có nhóm cùng tên ("Tổ sản xuất", dựng runtime từ các dòng `to_sx_<id>`), nay hai bên
+  // là một khối đúng nghĩa chứ không còn nấp chung trong "Sản xuất".
+  {
+    id: "to-san-xuat",
+    label: "Tổ sản xuất",
+    items: [],
+  },
+  // KHỐI RIÊNG 24/09/2026 (chủ chốt: *"module sửa chữa máy với phiếu bảo trì thì tách ra làm phân
+  // hệ sửa chữa & bảo dưỡng"*). Hai màn này là việc của tổ kỹ thuật — hỏng thì sửa, đến hạn thì
+  // bảo dưỡng — khác hẳn chuỗi lập lệnh · xếp lịch · chạy hàng của khối Sản xuất.
+  {
+    id: "sua-chua-bao-duong",
+    label: "Sửa chữa & bảo dưỡng",
+    items: [
+      // MỘT ô quyền cho MỘT mục (24/09/2026, mg `0332`): khung "Yêu cầu báo hỏng" là tab của
+      // chính màn này nên `yeu_cau_sua_chua` gỡ hẳn, còn lại ô chi tiết `ky_thuat_may:request`.
+      { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may" },
       { id: "phieu-bao-tri", label: "Phiếu bảo trì", icon: "clock", module: "phieu_bao_tri" },
     ],
   },
@@ -246,8 +282,10 @@ export const NAV: NavSection[] = [
       // MỘT mục — bên trong chia tab VIỆC (Yêu cầu · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
       // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
       { id: "kho-main", label: "Yêu cầu nhập xuất", icon: "warehouse", module: "kho" },
-      // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. AppShell ẩn nếu thiếu close_book.
-      { id: "kho-baocao", label: "Báo cáo kho", icon: "fileText", module: "kho" },
+      // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. MODULE RIÊNG từ 24/09/2026
+      // (mg `0329`) — trước đó gắn khoá `kho` rồi lọc thêm bằng ô chi tiết `kho:close_book`,
+      // nên một MÀN không có dòng nào của riêng nó trong ma trận phân quyền.
+      { id: "kho-baocao", label: "Báo cáo kho", icon: "fileText", module: "bao_cao_kho" },
     ],
   },
   {
@@ -322,8 +360,9 @@ export const NAV: NavSection[] = [
     label: "Quản lý hệ thống",
     items: [
       // Màn "Người dùng" ĐÃ BỎ: mọi tài khoản thuộc một hồ sơ nhân viên → quản tài khoản
-      // ngay trong Hồ sơ nhân sự (tab "Tài khoản & Quyền"). Quyền `nguoi_dung` vẫn gác các
-      // thao tác đó, chỉ là không còn màn riêng. "Phòng ban" dời sang Nhân sự & Lương.
+      // ngay trong Hồ sơ nhân sự (tab "Tài khoản & Quyền"). Khoá `nguoi_dung` cũng GỠ HẲN
+      // 24/09/2026 (mg `0331`) — bốn thao tác tài khoản thành ô chi tiết của `nhan_su`.
+      // "Phòng ban" dời sang Nhân sự & Lương.
       { id: "nhat-ky", label: "Nhật ký", icon: "activity", module: "activity_log" },
     ],
   },
@@ -374,9 +413,41 @@ interface SidebarProps {
   onClose?: () => void;
 }
 
+/** Nhánh cây ĐỘNG đang GẬP — nhớ qua lần vào, nếu không thì mỗi lần F5 lại bung cả 11 tổ và
+ *  việc gập thành vô nghĩa. Chế độ riêng tư chặn localStorage ⇒ bọc try, mất nhớ chứ không vỡ màn. */
+const GAP_KEY = "sidebar.gapNhanh";
+
+/** Cắt những item bị nhánh GẬP che: leo chuỗi cha, gặp một nút đang gập là ẩn. Cha bị bộ lọc
+ *  quyền loại mất thì chuỗi đứt ngay đó (coi như gốc) — không ẩn oan tổ mà người này xem được. */
+function locGap(items: NavItem[], gap: ReadonlySet<string>): NavItem[] {
+  if (!gap.size) return items;
+  const cha = new Map(items.map((i) => [i.id, i.parentId]));
+  return items.filter((i) => {
+    for (let p = i.parentId; p && cha.has(p); p = cha.get(p)) {
+      if (gap.has(p)) return false;
+    }
+    return true;
+  });
+}
+
+function docGap(): Set<string> {
+  try {
+    const raw = localStorage.getItem(GAP_KEY);
+    const xs = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(xs) ? xs.filter((x) => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
 export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicItems, badges, hiddenIds, onClose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [gap, setGap] = useState<Set<string>>(docGap);
+
+  useEffect(() => {
+    try { localStorage.setItem(GAP_KEY, JSON.stringify([...gap])); } catch { /* riêng tư/đầy */ }
+  }, [gap]);
 
   function toggle(set: Set<string>, id: string): Set<string> {
     const next = new Set(set);
@@ -389,9 +460,7 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
   const sections = NAV.map((s) => {
     // Gộp item tĩnh + item ĐỘNG của section (vd kho đã khai báo dưới "Kho hàng"), rồi lọc theo quyền.
     const merged = [...s.items, ...(dynamicItems?.[s.id] ?? [])];
-    return {
-      ...s,
-      items: merged
+    const duoc = merged
         .filter((i) => !hiddenIds?.has(i.id))
         .filter((i) =>
           AUTHENTICATED_NAV_IDS.has(i.id) ||
@@ -407,8 +476,11 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
             ...i,
             children: i.children.filter((c) => !c.module || readable.has(c.module)),
           };
-        }),
-    };
+        });
+    // Nút cha phải tính TRƯỚC khi cắt nhánh gập — cắt xong thì cha không còn con nào để nhận ra
+    // mình là cha, nút ▾ biến mất và nhánh gập rồi không mở lại được.
+    const coCon = new Set(duoc.map((i) => i.parentId).filter((x): x is string => !!x));
+    return { ...s, coCon, items: locGap(duoc, gap) };
   }).filter((s) => s.items.length > 0);
 
   // Auto-mở item cha khi một menu con của nó đang active (mở lại trang / deep-link).
@@ -419,6 +491,25 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
     if (host) setExpanded((prev) => (prev.has(host.id) ? prev : new Set(prev).add(host.id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, itemChildren]);
+
+  // Đi thẳng tới một tổ nằm trong nhánh đang GẬP (bấm toast "có việc mới", mở lại link cũ) → bung
+  // chuỗi cha ra cho thấy hàng đang đứng. Chỉ bám `activeId`: tự tay gập trong lúc đang đứng ở một
+  // nút con thì nhánh KHÔNG bung lại — đó là ý người dùng.
+  useEffect(() => {
+    const cha = new Map(
+      Object.values(dynamicItems ?? {}).flat().map((i) => [i.id, i.parentId]),
+    );
+    const chuoi: string[] = [];
+    for (let p = cha.get(activeId); p; p = cha.get(p)) chuoi.push(p);
+    if (!chuoi.length) return;
+    setGap((prev) => {
+      if (!chuoi.some((x) => prev.has(x))) return prev;
+      const next = new Set(prev);
+      for (const x of chuoi) next.delete(x);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, dynamicItems]);
 
   return (
     <aside className="sidebar">
@@ -470,8 +561,11 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
                       activeId={activeId}
                       isOpen={expanded.has(item.id)}
                       badge={badges?.[item.id] ?? 0}
+                      coCon={section.coCon.has(item.id)}
+                      dangGap={gap.has(item.id)}
                       onSelect={onSelect}
                       onToggle={() => setExpanded((s) => toggle(s, item.id))}
+                      onGap={() => setGap((s) => toggle(s, item.id))}
                     />
                   ))}
                 </ul>
@@ -489,17 +583,22 @@ interface NavRowProps {
   activeId: string;
   isOpen: boolean;
   badge?: number;
+  /** Có item khác nhận mình làm `parentId` → mọc nút ▾ gập nhánh. */
+  coCon?: boolean;
+  dangGap?: boolean;
   onSelect: (id: string) => void;
   onToggle: () => void;
+  onGap?: () => void;
 }
 
-function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowProps) {
+function NavRow({ item, activeId, isOpen, badge, coCon, dangGap, onSelect, onToggle, onGap }: NavRowProps) {
   const hasChildren = !!item.children?.length;
   const childActive = item.children?.some((c) => c.id === activeId) ?? false;
   const active = activeId === item.id || (childActive && !isOpen);
 
   return (
     <li>
+      <div className={`sidebar__row${coCon ? " has-twisty" : ""}${active ? " is-active" : ""}`}>
       <button
         type="button"
         className={`sidebar__link${active ? " is-active" : ""}`}
@@ -530,6 +629,21 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
           />
         )}
       </button>
+      {/* Nút gập RIÊNG, không gộp vào hàng: bấm vào tên tổ vẫn phải MỞ BÀN của tổ đó — cha ở cây
+          này là một tổ thật có việc, không phải cái nhãn nhóm. */}
+      {coCon && (
+        <button
+          type="button"
+          className={`sidebar__twisty${dangGap ? " is-collapsed" : ""}`}
+          aria-expanded={!dangGap}
+          aria-label={`${dangGap ? "Mở" : "Thu gọn"} các tổ trong ${item.label}`}
+          title={dangGap ? "Mở các tổ bên trong" : "Thu gọn các tổ bên trong"}
+          onClick={onGap}
+        >
+          <Icon name="chevron" size={14} />
+        </button>
+      )}
+      </div>
 
       {hasChildren && isOpen && (
         <ul className="sidebar__sub">

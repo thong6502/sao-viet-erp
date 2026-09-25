@@ -16,7 +16,7 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon, type IconName } from "../components/Icons";
-import { BangLoi, ChipGap, EmptyState, Skeleton, ngay, num } from "./keHoachSxShared";
+import { BangLoi, ChipGap, EmptyState, Skeleton, classHan, ngay, num } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
 import { moTaPhieuMua, tomTatPhieuMua, vetDangKep } from "./phieuMuaNhan";
 import { useNapTenDonVi } from "./tenDonVi";
@@ -401,15 +401,24 @@ export function GiuChoTheoLenhView({
         /* ── CHẾ ĐỘ 1: STREAM TABLE GRID (MẶC ĐỊNH) ── */
         <div className="khvt-master-card">
           <div className="khvt-table-wrap">
-            <table className="khvt-master-table">
+            {/* `--lenh`: bảng này khai bề rộng cho 6/7 cột nên dùng table-layout cố định — để
+                trình duyệt tự đo thì cột Vật tư (chip không xuống dòng) tự ý nong ra và cả bảng
+                phải cuộn ngang, mã lệnh ở cột đầu bị đẩy khuất. */}
+            <table className="khvt-master-table khvt-master-table--lenh">
               <thead>
                 <tr>
-                  <th style={{ width: 170 }}>Lệnh sản xuất</th>
-                  <th style={{ width: 120 }}>Ngày cần</th>
-                  <th>Dòng chảy vật tư</th>
-                  <th style={{ width: 130 }}>Độ sẵn sàng</th>
-                  <th style={{ width: 140 }}>Cửa xếp lịch</th>
-                  <th style={{ width: 130 }}>Hành động</th>
+                  <th style={{ width: 140 }}>Lệnh sản xuất</th>
+                  {/* Không khai bề rộng: Khách hàng và Vật tư là hai cột chữ dài nhất, cứ để
+                      chúng chia nhau chỗ còn dư — màn rộng thì tên công ty hiện đủ. */}
+                  <th>Khách hàng</th>
+                  <th style={{ width: 100 }}>Ngày giao</th>
+                  <th style={{ width: 100 }}>Cần hàng</th>
+                  <th>Vật tư</th>
+                  {/* "Cửa xếp lịch" GỠ 23/09/2026: nó chỉ nói lại đúng điều cột này vừa nói —
+                      `du === true` ⟺ 100% ⟺ mở khoá, không có ca nào lệch. Nay trạng thái cửa
+                      nằm làm tầng hai của chính badge sẵn sàng. */}
+                  <th style={{ width: 140 }}>Độ sẵn sàng</th>
+                  <th style={{ width: 165 }}>Hành động</th>
                 </tr>
               </thead>
               <tbody>
@@ -418,6 +427,12 @@ export function GiuChoTheoLenhView({
                   const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
                   const soMonDu = r.hang.filter((h) => h.trang_thai_giu === "da_cap" || h.trang_thai_giu === "da_giu").length;
                   const tongMon = r.hang.length;
+                  // Món còn việc phải lo = thiếu, hoặc chưa quy đổi được, hoặc giữ chưa xong.
+                  // Chỉ những món này mới đáng chiếm chỗ trên bảng; phần còn lại được ĐẾM.
+                  const monPhaiLo = r.hang.filter(
+                    (h) => h.thieu > 0 || h.trang_thai === "khong_ro"
+                      || (h.trang_thai_giu !== "da_cap" && h.trang_thai_giu !== "da_giu"),
+                  );
                   const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
                   const isDangChay = dangChay === k;
 
@@ -461,26 +476,53 @@ export function GiuChoTheoLenhView({
                         </div>
                       </td>
 
-                      {/* Cột 2: Ngày cần — ngày cần hàng trên yêu cầu mua đã lập cho lệnh; chưa mua
-                          (vd tồn đủ) thì trống, hệ không suy. */}
+                      {/* Cột 2: Khách hàng — bài ghép nhiều khách thì server đã trả "n khách" */}
+                      <td>
+                        <span className="khvt-khach" title={r.khach_ten ?? "Đơn chưa gắn khách hàng"}>
+                          {r.khach_ten ?? "—"}
+                        </span>
+                      </td>
+
+                      {/* Cột 3: Ngày giao khách — hạn ngoài đời, KHÁC "Cần hàng" ở cột sau */}
+                      <td>
+                        <div
+                          className="khvt-cell-date"
+                          title={r.han_giao_khach ? "Hạn giao hàng cho khách" : "Lệnh chưa khai hạn giao khách"}
+                        >
+                          {r.han_giao_khach ? (
+                            <span className={`khvt-date-text ${classHan(r.han_giao_khach)}`}>
+                              {ngay(r.han_giao_khach)}
+                            </span>
+                          ) : (
+                            <span className="khvt-date-null">—</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Cột 4: Cần hàng (ngày cần trên yêu cầu mua đã lập) */}
                       <td>
                         <div
                           className="khvt-cell-date"
                           title={r.ngay_can ? "Ngày cần hàng ghi trên yêu cầu mua đã lập" : "Chưa lập yêu cầu mua cho lệnh này"}
                         >
-                          <span className="khvt-date-val">{ngay(r.ngay_can)}</span>
+                          {r.ngay_can ? (
+                            <span className="khvt-date-text">{ngay(r.ngay_can)}</span>
+                          ) : (
+                            <span className="khvt-date-null">—</span>
+                          )}
                         </div>
                       </td>
 
-                      {/* Cột 3: Dòng chảy vật tư (Interactive Stream Chips) */}
+                      {/* Cột 5: Vật tư — CHỈ món phải lo.
+                          Trước 23/09/2026 cột này in mọi mặt hàng thành chip có nền màu: một lệnh
+                          6 món là 6 chip tự xuống ba hàng, thẻ lệnh cao gấp ba dòng bảng thường và
+                          màu thì loang khắp. Món ĐỦ không có việc gì để làm, nên nó chỉ cần được
+                          ĐẾM; ai muốn xem từng món vẫn bấm vào lệnh để mở panel bên phải. */}
                       <td>
                         <div className="khvt-material-stream">
-                          {r.hang.map((h) => {
+                          {monPhaiLo.slice(0, 1).map((h) => {
                             const meta = mauVatTuGiu(h.trang_thai_giu);
                             const icon = iconLoaiHang(h.hang_loai);
-                            // Chỉ bày ở món CÒN PHẢI LO. Món đã đủ kho mà vẫn đeo mã phiếu
-                            // thì cả hàng chip toàn chữ, và cái cần đọc chìm mất; ai muốn
-                            // tra vẫn có tooltip + drawer.
                             const vet = h.thieu > 0 || h.trang_thai === "khong_ro"
                               ? tomTatPhieuMua(h.phieu_mua)
                               : null;
@@ -503,21 +545,39 @@ export function GiuChoTheoLenhView({
                                     {soGoc(h.dang_giu || h.can)}
                                   </span>
                                 )}
-                                {/* Đã có người lập phiếu — nói ra ngay trên chip để khỏi ai
-                                    bấm Mua chồng lên. */}
                                 {vet && (
-                                  <span className="khvt-stream-chip__po">
-                                    <Icon name="cart" size={10} /> {vet.chinh}
-                                    {vet.them > 0 && <b>+{vet.them}</b>}
+                                  <span className="khvt-stream-chip__po" title={vet.title}>
+                                    <Icon name="cart" size={10} /> {vet.chinh.split(" · ")[0]}
+                                    {vet.them > 0 && <span>+{vet.them}</span>}
                                   </span>
                                 )}
                               </div>
                             );
                           })}
+                          {(monPhaiLo.length > 1 || soMonDu > 0) && (
+                            /* Hai mẩu đếm đi chung MỘT dòng: chip đã xếp dọc, để mỗi mẩu một dòng
+                               nữa thì hàng lệnh cao thêm mà chẳng thêm thông tin gì. */
+                            <div className="khvt-stream-dem">
+                              {monPhaiLo.length > 1 && (
+                                <span
+                                  className="khvt-stream-more"
+                                  title={monPhaiLo.slice(1).map((h) => h.hang_ten ?? h.hang_ma).join("\n")}
+                                >
+                                  +{monPhaiLo.length - 1} món nữa
+                                </span>
+                              )}
+                              {soMonDu > 0 && (
+                                <span className="khvt-stream-du" title="Đã đủ — không còn việc phải lo">
+                                  <Icon name="check" size={11} /> {soMonDu} món đủ
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {tongMon === 0 && <span className="khsx-muted">—</span>}
                         </div>
                       </td>
 
-                      {/* Cột 4: Độ sẵn sàng */}
+                      {/* Cột 6: Độ sẵn sàng (gồm luôn trạng thái cửa xếp lịch) */}
                       <td>
                         <div className="khvt-cell-readiness">
                           <div className={`khvt-readiness-badge ${pctGiu >= 100 ? "is-ready" : pctGiu >= 50 ? "is-partial" : "is-deficit"}`}>
@@ -531,27 +591,23 @@ export function GiuChoTheoLenhView({
                               </>
                             )}
                           </div>
+                          {/* Tầng hai: cửa xếp lịch. Nó là HỆ QUẢ của con số ngay trên, nên đứng
+                              dưới dạng chữ nhỏ chứ không chiếm một cột riêng. */}
+                          <span
+                            className={`khvt-cua-lich ${r.du ? "is-open" : !r.bat ? "is-locked" : "is-partial"}`}
+                            title={r.du
+                              ? "Đã giữ đủ vật tư — sẵn sàng xếp lịch"
+                              : !r.bat
+                                ? "Chưa giữ chỗ — chặn xếp lịch"
+                                : "Đang giữ dở — chờ hàng về bù tồn"}
+                          >
+                            <Icon name={r.du ? "check" : !r.bat ? "lock" : "clock"} size={10} />{" "}
+                            {r.du ? "Mở khóa" : !r.bat ? "Chặn lịch" : "Chờ bù tồn"}
+                          </span>
                         </div>
                       </td>
 
-                      {/* Cột 5: Cửa xếp lịch */}
-                      <td>
-                        {r.du ? (
-                          <span className="khvt-lock-badge khvt-lock-badge--open" title="Đã giữ đủ vật tư — Sẵn sàng xếp lịch">
-                            <Icon name="check" size={12} /> Mở khóa
-                          </span>
-                        ) : !r.bat ? (
-                          <span className="khvt-lock-badge khvt-lock-badge--locked" title="Chưa giữ chỗ — Chặn xếp lịch">
-                            <Icon name="lock" size={12} /> Chặn lịch
-                          </span>
-                        ) : (
-                          <span className="khvt-lock-badge khvt-lock-badge--partial" title="Đang giữ dở — Chờ hàng về bù tồn">
-                            <Icon name="clock" size={12} /> Chờ bù tồn
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Cột 6: Hành động nhanh */}
+                      {/* Cột 7: Hành động nhanh */}
                       <td>
                         <div
                           className="khvt-row-actions"
@@ -639,8 +695,19 @@ export function GiuChoTheoLenhView({
                     </div>
 
                     <div className="khvt-bcard__date">
-                      <Icon name="calendar" size={12} />
-                      <span>Ngày cần: <b>{ngay(r.ngay_can)}</b></span>
+                      {r.khach_ten && (
+                        <span className="khvt-bcard__khach" title={r.khach_ten}>
+                          <Icon name="users" size={12} /> {r.khach_ten}
+                        </span>
+                      )}
+                      {r.han_giao_khach && (
+                        <span className={classHan(r.han_giao_khach)}>
+                          Giao: <b>{ngay(r.han_giao_khach)}</b>
+                        </span>
+                      )}
+                      <span>
+                        <Icon name="calendar" size={12} /> Cần hàng: <b>{ngay(r.ngay_can)}</b>
+                      </span>
                     </div>
                   </div>
 
@@ -837,7 +904,10 @@ function LenhVatTuDrawer({
     <div className="rc-drawer__scrim khvt-drawer-scrim" onClick={onClose} role="presentation">
       <aside
         className="rc-drawer rc-drawer--wide khvt-drawer"
-        style={{ width: "min(720px, 94vw)" }}
+        /* 720px cũ nhét bốn cột vào một khung hẹp: tên mặt hàng bị ellipsis nuốt ("Bản kẽm CTP
+           1030x7…"), nhãn "VẬT TƯ" gãy làm hai dòng, còn ô Trạng thái phải chồng ba tầng chữ.
+           Rộng ra cho mỗi thứ một cột. */
+        style={{ width: "min(1040px, 94vw)" }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -879,33 +949,35 @@ function LenhVatTuDrawer({
           {/* Dải KPI Bento Grid */}
           <div className="khvt-drawer-kpi-grid">
             <div className="khvt-bento-kpi">
-              <span className="khvt-bento-kpi__label">TỔNG SỐ MÓN</span>
-              <span className="khvt-bento-kpi__val">
-                <b>{num(tongMon)}</b> <small>món</small>
-              </span>
+              <span className="khvt-bento-kpi__label">Tổng số món</span>
+              <div className="khvt-bento-kpi__val-wrap">
+                <span className="khvt-bento-kpi__val">{num(tongMon)}</span>
+                <span className="khvt-bento-kpi__unit">món</span>
+              </div>
             </div>
             <div className="khvt-bento-kpi">
-              <span className="khvt-bento-kpi__label">ĐÃ ĐỦ KHO</span>
-              <span className="khvt-bento-kpi__val khvt-bento-kpi__val--ok">
-                <b>{num(soMonDu)}</b> <small>món</small>
-              </span>
+              <span className="khvt-bento-kpi__label">Đã đủ kho</span>
+              <div className="khvt-bento-kpi__val-wrap">
+                <span className="khvt-bento-kpi__val khvt-bento-kpi__val--ok">{num(soMonDu)}</span>
+                <span className="khvt-bento-kpi__unit">món</span>
+              </div>
             </div>
-            <div className="khvt-bento-kpi">
-              <span className="khvt-bento-kpi__label">CẦN ĐẶT MUA</span>
-              <div className="khvt-bento-kpi__val">
+            <div className={`khvt-bento-kpi ${soDo > 0 ? "khvt-bento-kpi--deficit" : "khvt-bento-kpi--ok"}`}>
+              <span className="khvt-bento-kpi__label">Cần đặt mua</span>
+              <div className="khvt-bento-kpi__val-wrap">
                 {soDo > 0 ? (
-                  <span className="khvt-kpi-badge khvt-kpi-badge--deficit">
-                    Thiếu <b>{num(soDo)}</b> dòng
+                  <span className="khvt-bento-kpi__val khvt-bento-kpi__val--deficit">
+                    Thiếu {num(soDo)} <span className="khvt-bento-kpi__unit">dòng</span>
                   </span>
                 ) : (
-                  <span className="khvt-kpi-badge khvt-kpi-badge--ok">
+                  <span className="khvt-bento-kpi__val khvt-bento-kpi__val--ok">
                     Đủ hàng
                   </span>
                 )}
               </div>
             </div>
             <div className="khvt-bento-kpi">
-              <span className="khvt-bento-kpi__label">ĐỘ SẴN SÀNG</span>
+              <span className="khvt-bento-kpi__label">Độ sẵn sàng</span>
               <div className="khvt-bento-kpi__cov">
                 <span className="khvt-bento-kpi__cov-pct">{pctGiu}%</span>
                 <div className="khvt-mini-bar">
@@ -952,7 +1024,7 @@ function LenhVatTuDrawer({
           <div className="khvt-drawer-breakdown">
             <div className="khvt-drawer-breakdown__head">
               <h3 className="khvt-drawer-breakdown__title">
-                Danh sách chi tiết từng loại vật tư ({r.hang.length} mặt hàng)
+                Danh sách chi tiết từng loại vật tư <span className="khvt-count-badge">({r.hang.length} mặt hàng)</span>
               </h3>
             </div>
 
@@ -961,13 +1033,19 @@ function LenhVatTuDrawer({
                 <thead>
                   <tr>
                     <th scope="col">Mặt hàng &amp; Quy cách</th>
-                    <th scope="col" className="khsx-th--num" style={{ width: 130 }}>
+                    <th scope="col" className="khsx-th--num" style={{ width: 120 }}>
                       Nhu cầu
                     </th>
-                    <th scope="col" className="khsx-th--num" style={{ width: 130 }}>
+                    <th scope="col" className="khsx-th--num" style={{ width: 120 }}>
                       Đang giữ
                     </th>
-                    <th scope="col" style={{ width: 160, textAlign: "right" }}>
+                    {/* Cột số thứ ba, tách khỏi ô Trạng thái: "giữ ngay được bao nhiêu" là một CON
+                        SỐ, đứng cạnh hai con số kia thì so được ngay, nhét làm chú thích dưới
+                        badge thì phải đọc từng dòng. */}
+                    <th scope="col" className="khsx-th--num" style={{ width: 130 }}>
+                      Giữ ngay được
+                    </th>
+                    <th scope="col" style={{ width: 150, textAlign: "right" }}>
                       Trạng thái
                     </th>
                   </tr>
@@ -980,8 +1058,6 @@ function LenhVatTuDrawer({
                       <tr key={`${h.hang_loai}-${h.hang_id}`}>
                         <td>
                           <div className="khvt-cell-item">
-                            {/* Tên món đứng đầu, KHÔNG kèm mã danh mục — drawer này để xem còn
-                                thiếu gì, mã chỉ làm dày dòng chữ. */}
                             <div className="khvt-cell-item__top">
                               <span className="khvt-item-name" title={h.hang_ten ?? undefined}>
                                 {h.hang_ten ?? "(đã gỡ khỏi danh mục)"}
@@ -993,21 +1069,58 @@ function LenhVatTuDrawer({
                                 </span>
                               )}
                             </div>
-                            {h.so_lenh_khac_thieu > 0 && (
-                              <div className="khvt-compete-alert">
-                                <Icon name="alert" size={11} /> Có {h.so_lenh_khac_thieu} lệnh khác cũng đang chờ món này
+                            {(h.so_lenh_khac_thieu > 0 || h.phieu_mua.length > 0) && (
+                              /* Hai mẩu VẾT của chính món này — lệnh khác đang tranh, và phiếu mua
+                                 đang chạy. Chúng thuộc về món, không thuộc về trạng thái, nên nằm
+                                 dưới tên món chứ không chen vào ô badge. */
+                              <div className="khvt-cell-item__vet">
+                                {h.so_lenh_khac_thieu > 0 && (
+                                  <span className="khvt-compete-alert">
+                                    <Icon name="alert" size={11} /> {h.so_lenh_khac_thieu} lệnh khác cũng chờ món này
+                                  </span>
+                                )}
+                                {h.phieu_mua.map((pm) => (
+                                  <span
+                                    key={pm.ma}
+                                    className={`khvt-vet-po ${vetDangKep(pm) ? "khvt-po--kep" : ""}`}
+                                    title={
+                                      vetDangKep(pm)
+                                        ? "Thu mua đã lập đơn cho món này nhưng đơn bị từ chối. Việc đang đứng — chờ thêm cũng không có hàng, cần thu mua lập lại đơn."
+                                        : undefined
+                                    }
+                                  >
+                                    <Icon name={vetDangKep(pm) ? "alert" : "cart"} size={10} />{" "}
+                                    {moTaPhieuMua(pm, { dayDu: true })}
+                                  </span>
+                                ))}
                               </div>
                             )}
                           </div>
                         </td>
                         <td className="khsx-num khvt-num-cell">
-                          <div className="khvt-num-primary"><b>{soGoc(h.can)}</b> <small>{nhanDonVi(h.don_vi_goc)}</small></div>
+                          <div className="khvt-num-primary">
+                            <span>{soGoc(h.can)}</span> <small className="khvt-unit-sm">{nhanDonVi(h.don_vi_goc)}</small>
+                          </div>
                         </td>
                         <td className="khsx-num khvt-num-cell">
                           <div className="khvt-num-primary">
                             <span className={h.dang_giu > 0 ? "khvt-num-sub--ok" : "khvt-text-ash"}>
-                              <b>{soGoc(h.dang_giu)}</b> <small>{nhanDonVi(h.don_vi_goc)}</small>
+                              <span>{soGoc(h.dang_giu)}</span> <small className="khvt-unit-sm">{nhanDonVi(h.don_vi_goc)}</small>
                             </span>
+                          </div>
+                        </td>
+                        <td className="khsx-num khvt-num-cell">
+                          {/* Chi tiết "bao nhiêu ở kho, bao nhiêu đang về" để trong tooltip: ô này
+                              trả lời câu hỏi "bấm giữ bây giờ được mấy kg", một con số là đủ. */}
+                          <div className="khvt-num-primary" title={moTaCoTheGiuNgay(h) || undefined}>
+                            {coTheGiuNgay(h) ? (
+                              <span className="khvt-num-giu-ngay">
+                                <span>{soGoc(coTheGiuNgay(h)!.tong)}</span>{" "}
+                                <small className="khvt-unit-sm">{nhanDonVi(h.don_vi_goc)}</small>
+                              </span>
+                            ) : (
+                              <span className="khvt-text-ash">—</span>
+                            )}
                           </div>
                         </td>
                         <td style={{ textAlign: "right" }}>
@@ -1015,35 +1128,6 @@ function LenhVatTuDrawer({
                             <span className="khsx-pill__dot" aria-hidden="true" />
                             {h.thieu > 0 ? `Thiếu ${soGoc(h.thieu)}` : meta.label}
                           </span>
-                          {coTheGiuNgay(h) && (
-                            <div className="khvt-pill-note khvt-note--giu-ngay">
-                              {moTaCoTheGiuNgay(h)}
-                            </div>
-                          )}
-                          {/* Drawer là chỗ TRA nên kê ĐỦ phiếu đang chạy, kể cả khi dòng đã xanh —
-                              hai phiếu cùng một món nằm cạnh nhau chính là dấu hiệu đề nghị trùng. */}
-                          {h.phieu_mua.length > 0 && (
-                            <div className="khvt-pill-note khvt-pill-note--po">
-                              {h.phieu_mua
-                                .map((pm) => (
-                                  <span
-                                    key={pm.ma}
-                                    className={vetDangKep(pm) ? "khvt-po--kep" : undefined}
-                                    title={
-                                      vetDangKep(pm)
-                                        ? "Thu mua đã lập đơn cho món này nhưng đơn bị từ chối. Việc đang đứng — chờ thêm cũng không có hàng, cần thu mua lập lại đơn."
-                                        : undefined
-                                    }
-                                  >
-                                    <Icon
-                                      name={vetDangKep(pm) ? "alert" : "cart"}
-                                      size={10}
-                                    />{" "}
-                                    {moTaPhieuMua(pm, { dayDu: true })}
-                                  </span>
-                                ))}
-                            </div>
-                          )}
                         </td>
                       </tr>
                     );

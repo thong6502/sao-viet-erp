@@ -23,7 +23,7 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import get_authorization_service, require_permission
+from ..deps import get_authorization_service, require_any_permission, require_permission
 from ..models.stock_voucher import VOUCHER_NHAP
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
@@ -78,6 +78,13 @@ threshold_router = APIRouter(prefix="/api/kho/nguong-ton", tags=["kho-nguong"])
 # Điều chuyển kho — prefix RIÊNG (không nhét dưới /phieu) để không bị `/phieu/{voucher_id}` nuốt.
 dieu_chuyen_router = APIRouter(prefix="/api/kho/dieu-chuyen", tags=["kho-dieu-chuyen"])
 MODULE = "kho"
+# Màn TỒN KHO của từng kho (mục menu động dưới khối "Kho hàng") — module RIÊNG từ 24/09/2026
+# (mg `0334`). Xem = đọc SỐ tồn + lô; việc GHI duy nhất là khai ngưỡng, đi bằng ô CHI TIẾT
+# `set_threshold` của chính dòng này. Trước đó là hai ô chi tiết
+# `kho:view_stock` / `kho:set_threshold`, tức cả nhóm màn nấp trong panel của màn Yêu cầu nhập
+# xuất. Tên biến phải mở đầu bằng `MODULE` thì guard `test_giao_dien_khop_may_chu` mới lần ra được
+# cặp (khoá, việc) mà giao diện đang hỏi.
+MODULE_TON_KHO = "ton_kho"
 # Action nhật ký khi ĐIỀU CHỈNH phiếu xuất (SX dùng ít hơn) — đọc lại cho "Lịch sử điều chỉnh".
 _ACTION_DIEU_CHINH_XUAT = "kho_xuat_dieu_chinh"
 
@@ -763,12 +770,19 @@ def export_stock_xlsx(
 
 
 def _chan_neu_khong_xem_ton(authz, user: User) -> None:
-    """Chặn ở MÁY CHỦ người không được đọc SỐ tồn/lô. Được: người xem tồn (`view_stock`), người lập
-    phiếu (`create` — lập phiếu xuất phải thấy lô, `/lo/goi-y` vốn đã trả lô) và kế toán chốt sổ
-    (`close_book` — popup lịch sử mặt hàng ở Báo cáo kho). Vai chỉ `kho:read` để tạo đề nghị thì
-    KHÔNG: trước đây chỉ FE ẩn màn Tồn kho, gọi thẳng API vẫn ra đủ lô + số lượng — lệch với
-    danh sách đề nghị, nơi `ton_kha_dung` đã cắt ở máy chủ."""
-    if not any(authz.can(user, MODULE, a) for a in ("view_stock", "create", "close_book")):
+    """Chặn ở MÁY CHỦ người không được đọc SỐ tồn/lô. Được: người xem tồn (`ton_kho:read`), người lập
+    phiếu (`create` — lập phiếu xuất phải thấy lô, `/lo/goi-y` vốn đã trả lô) và người vào được
+    BÁO CÁO KHO (`bao_cao_kho:read` — popup lịch sử mặt hàng nằm trong màn đó). Vai chỉ `kho:read`
+    để tạo đề nghị thì KHÔNG: trước đây chỉ FE ẩn màn Tồn kho, gọi thẳng API vẫn ra đủ lô + số
+    lượng — lệch với danh sách đề nghị, nơi `ton_kha_dung` đã cắt ở máy chủ.
+
+    Cửa thứ ba trước 24/09/2026 là `kho:close_book`; ô đó đã dời sang module riêng `bao_cao_kho`
+    (mg `0329`) nên phải hỏi đúng khoá mới, không thì kế toán kho được cấp lại vẫn mở không nổi
+    popup lịch sử. Cửa thứ nhất cũng đã dời cùng ngày: `kho:view_stock` → `ton_kho:read` (mg
+    `0334`)."""
+    if not authz.can(user, MODULE_TON_KHO, "read") and not authz.can(
+        user, MODULE, "create"
+    ) and not authz.can(user, "bao_cao_kho", "read"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Cần quyền Xem tồn kho.")
 
@@ -776,7 +790,11 @@ def _chan_neu_khong_xem_ton(authz, user: User) -> None:
 @router.get("/lo/danh-sach", response_model=list[StockLotOut])
 def list_lots(
     svc: Service, db: Db, authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    # Cửa NGOÀI chỉ lọc "có phải người của kho không" — ai ĐƯỢC đọc số tồn thật thì
+    # `_chan_neu_khong_xem_ton` bên dưới quyết. Phải nhận cả `ton_kho` từ 24/09/2026 (mg `0334`):
+    # vai chỉ được cấp màn Tồn kho thì không có `kho:read` nào cả.
+    user: Annotated[User, Depends(
+        require_any_permission((MODULE, "read"), (MODULE_TON_KHO, "read")))],
     hang_loai: str | None = Query(default=None),
     hang_id: int | None = Query(default=None),
     kho_id: int | None = Query(default=None),
@@ -825,7 +843,8 @@ def _gan_nguon_lo(row: StockLotOut, n: dict | None, can_view_cost: bool) -> None
 @router.get("/mat-hang/{hang_loai}/{hang_id}/lich-su", response_model=MaterialHistoryOut)
 def material_history(
     hang_loai: str, hang_id: int, svc: Service, db: Db, authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(
+        require_any_permission((MODULE, "read"), (MODULE_TON_KHO, "read")))],
     kho_id: int = Query(...),
 ) -> MaterialHistoryOut:
     """Lịch sử NHẬP (mọi lô, kể cả đã hết) + XUẤT (dòng phiếu xuất đã ghi sổ) của 1 mặt hàng
@@ -955,7 +974,7 @@ def delete_voucher_attachment(
 
 @threshold_router.get("", response_model=list[StockThresholdOut])
 def list_thresholds(
-    db: Db, _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    db: Db, _: Annotated[User, Depends(require_permission(MODULE_TON_KHO, "read"))],
 ) -> list[StockThresholdOut]:
     return [
         StockThresholdOut.model_validate(t)
@@ -966,7 +985,7 @@ def list_thresholds(
 @threshold_router.put("", response_model=StockThresholdOut)
 def upsert_threshold(
     payload: StockThresholdIn, db: Db,
-    _: Annotated[User, Depends(require_permission(MODULE, "set_threshold"))],
+    _: Annotated[User, Depends(require_permission(MODULE_TON_KHO, "set_threshold"))],
 ) -> StockThresholdOut:
     """Khai ngưỡng. Bỏ trống `nguong_can_ton` thì để NULL — service tự suy ra
     `nguong_ton × 1.3` lúc so sánh, khỏi phải backfill khi đổi hệ số."""

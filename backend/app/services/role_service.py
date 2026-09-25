@@ -66,10 +66,20 @@ SCOPELESS_MODULES = frozenset(MODULE_KEYS) | {
     "xep_lich",
     # Phiếu bảo trì tách khỏi `ky_thuat_may` cùng ngày, thừa hưởng đúng lý do của khoá mẹ.
     "phieu_bao_tri",
-    # Báo máy hỏng (20/08/2026): router KHÔNG đọc scope. Ai cũng phải THẤY hết yêu cầu đang chờ —
-    # đó là cách người thứ hai biết máy này đã có người báo rồi mà thôi không báo nữa. Còn "chỉ sửa
-    # yêu cầu của mình" đã chặn bằng `_kiem_chu_yeu_cau` (so `nguoi_bao_id`), không nhờ scope.
-    "yeu_cau_sua_chua",
+    # Quy trình kinh doanh (24/09/2026): bản đồ luồng tĩnh, không đọc dữ liệu của ai nên không có
+    # "quy trình của tôi".
+    "quy_trinh_kinh_doanh",
+    # Báo cáo kho (24/09/2026): sổ của CẢ KHO. `routers/kho_baocao.py` không đọc scope quyền —
+    # `_scope_kho_ids` là lọc theo kho người dùng chọn, không phải phạm vi của vai.
+    "bao_cao_kho",
+    # Nội quy công ty (24/09/2026, chủ chốt: *"nội quy công ty mặc định tất cả và không cho chỉnh
+    # sửa"*): nội quy lao động là tài liệu CHUNG — không có "nội quy của tôi" hay "nội quy của
+    # phòng tôi". Ô Xem đã khoá bật sẵn cho mọi vai (`rbac_repo.O_MAC_DINH`), nay phạm vi cũng ép
+    # `all` ở máy chủ và giao diện khoá luôn ô chọn.
+    "noi_quy",
+    # Tồn kho (24/09/2026, mg `0334`): người này thấy kho nào là do KHAI BÁO KHO quyết định, không
+    # phải phạm vi của vai — `kho_voucher.py` lọc theo `kho_id` người dùng chọn, không đọc scope.
+    "ton_kho",
 }
 
 READ_IMPLYING_KEYS = (
@@ -182,6 +192,56 @@ class RoleService:
             detail=f"{dept.name} / {name}",
         )
         return role
+
+    def duplicate_role(
+        self,
+        *,
+        role_id: int,
+        name: str | None,
+        department_id: int | None,
+        actor_id: int | None,
+    ) -> Role:
+        """Nhân bản một vai trò: vai MỚI, ma trận quyền chép y nguyên.
+
+        Phòng đích bỏ trống = cùng phòng với vai gốc. Tên bỏ trống = "«tên gốc» (bản sao)", tự
+        đánh số khi trùng — nhân bản là thao tác một cú, đừng bắt người cấp quyền nghĩ tên.
+
+        Vai mới đẻ ra đã có sẵn hai ô mặc định (`self_service`, `noi_quy`); `copy_permissions`
+        THAY SẠCH chúng bằng đúng bộ quyền của vai gốc — bản sao phải giống hệt bản gốc, kể cả
+        khi vai gốc đã bị gỡ hai ô đó.
+        """
+        goc = self.roles.get_by_id(role_id)
+        if goc is None:
+            raise RoleNotFound("Không tìm thấy vai trò")
+        dich_id = department_id if department_id is not None else goc.department_id
+        dept = self.departments.get_by_id(dich_id)
+        if dept is None:
+            raise DepartmentNotFound("Không tìm thấy phòng ban")
+        ten = (name or "").strip() or self._ten_ban_sao(goc.name, dich_id)
+        if self.roles.get_by_name_and_department(ten, dich_id) is not None:
+            raise RoleNameTaken("Tên vai trò đã tồn tại trong phòng này")
+        moi = self.roles.create(name=ten, department_id=dich_id)
+        so_dong = self.roles.copy_permissions(
+            tu_role_id=goc.id,
+            sang_role_id=moi.id,
+            doi_to=(goc.department_id, dich_id),
+        )
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="duplicate_role",
+            target=f"role:{moi.id}",
+            detail=f"Nhân bản “{goc.name}” → {dept.name} / {ten} ({so_dong} dòng quyền)",
+        )
+        return moi
+
+    def _ten_ban_sao(self, ten_goc: str, department_id: int) -> str:
+        """"X (bản sao)", rồi "X (bản sao 2)"… cho tới khi không trùng trong phòng đích."""
+        goc = ten_goc.strip()[:230]
+        for i in range(1, 100):
+            ten = f"{goc} (bản sao)" if i == 1 else f"{goc} (bản sao {i})"
+            if self.roles.get_by_name_and_department(ten, department_id) is None:
+                return ten
+        raise RoleNameTaken("Tên vai trò đã tồn tại trong phòng này")
 
     def rename_role(self, *, role_id: int, name: str, actor_id: int | None) -> Role:
         role = self.roles.get_by_id(role_id)

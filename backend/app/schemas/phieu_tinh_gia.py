@@ -285,6 +285,58 @@ class PhieuTinhGiaOut(BaseModel):
     danh_muc_doi: DanhMucDoi | None = None
 
 
+class ThanhPhanRutGonOut(BaseModel):
+    """1 dòng sản phẩm KHÔNG kèm cấu hình — cho vai thiếu `tinh_gia_thanh:view_cost`.
+
+    Đủ để bày bảng "Sản phẩm trong phiếu" (tên · loại · SL · giá vốn) và đi chào khách; KHÔNG
+    có giấy/khổ/máy/công đoạn ⇒ không suy ngược ra định mức hay giá mua vào.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    thu_tu: int
+    ten: str
+    loai_thanh_phan: str
+    so_luong: int
+    don_vi_tinh: str
+    gia_von_tp: float
+
+
+class NhomTongOut(BaseModel):
+    """Tên rổ + TỔNG TIỀN của rổ (Nguyên vật liệu · Công đoạn · Giao hàng) — không kèm dòng nào.
+
+    Thiếu `view_cost` vẫn phải thấy ba con số này (đi chào khách cần biết tiền nằm ở đâu), nhưng
+    KHÔNG thấy dòng nào cộng vào đó. Router lọc từ `result_json["groups"]`, chỉ lấy hai khoá.
+    """
+    ten: str
+    tong: float
+
+
+class PhieuTinhGiaOutRutGon(BaseModel):
+    """Phiếu KHÔNG kèm ruột giá — thiếu `view_cost` thì `GET /{id}` trả cái này.
+
+    CỐ Ý là model RIÊNG chứ không phải `PhieuTinhGiaOut` với vài field để None: model riêng thì
+    field thừa không thể lọt ra theo đường "quên cắt một chỗ" (Pydantic nuốt field im lặng).
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ma: str
+    ten_san_pham: str
+    kho_thanh_pham: str | None = None
+    loai_san_pham_id: int | None = None
+    so_luong: int
+    tong_gia_von: float
+    gia_von_don: float
+    ktv: str | None = None
+    ghi_chu: str | None = None
+    thanh_phans: list[ThanhPhanRutGonOut] = Field(default_factory=list)
+    # Router gán tay từ `result_json` (không đọc được từ ORM) — xem `get_item`.
+    nhom_tong: list[NhomTongOut] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class PhieuTinhGiaListItem(BaseModel):
     """Dòng nhẹ cho bảng — KHÔNG kèm result_json / thành phần."""
     model_config = ConfigDict(from_attributes=True)

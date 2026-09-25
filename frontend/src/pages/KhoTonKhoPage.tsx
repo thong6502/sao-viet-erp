@@ -179,11 +179,12 @@ export function KhoTonKhoPage({
 }) {
   const can = useCan();
   const canViewCost = can("kho", "view_cost");
-  const canViewStock = can("kho", "view_stock");
+  // Màn này nay là module RIÊNG `ton_kho` (mg `0334`) — Xem = số tồn + lô, Thao tác = ngưỡng.
+  const canViewStock = can("ton_kho", "read");
   const canCreate = can("kho", "create");
   // ĐÃ GỘP quyền: ghi sổ + hủy dùng CHUNG quyền lập phiếu (create) — không còn 'post' riêng.
   const canPost = canCreate;
-  const canSetThreshold = can("kho", "set_threshold");
+  const canSetThreshold = can("ton_kho", "set_threshold");
 
   const [tab, setTab] = useState<TonTab>("ton");
   const [lots, setLots] = useState<StockLot[]>([]);

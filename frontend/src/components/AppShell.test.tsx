@@ -68,10 +68,10 @@ const AUTH: AuthState = {
   updateUser: () => {}, notice: null, setNotice: () => {},
 };
 
-/** Fetch giả cho ĐÚNG BỐN nguồn còn lại chạy KHÔNG ĐIỀU KIỆN lúc `AppShell` mount, bất kể
+/** Fetch giả cho ĐÚNG BA nguồn còn lại chạy KHÔNG ĐIỀU KIỆN lúc `AppShell` mount, bất kể
  *  `readable` chứa module gì (đã dò trong `AppShell.tsx`): `myAccess` (dựng `readable`/`caps`),
- *  `moduleNotifications.summary` (trong `reloadBadges`, chỉ gác `!token || readable===null`),
- *  `attendance.notifySummary` và `notifications.list` (cả hai unconditional). Thiếu một trong bốn
+ *  `moduleNotifications.summary` (trong `reloadBadges`, chỉ gác `!token || readable===null`) và
+ *  `attendance.notifySummary` (unconditional). Thiếu một trong ba
  *  thì promise rơi vào nhánh `.catch` — vô hại cho bài này, nhưng để tránh nhiễu log lúc chạy vẫn
  *  khai đủ. */
 function stubApi(quyen: { modules: string[] } = { modules: ["dashboard", "lenh_san_xuat"] }) {
@@ -86,8 +86,6 @@ function stubApi(quyen: { modules: string[] } = { modules: ["dashboard", "lenh_s
       data = { thu_mua: 0, ke_toan: 0 };
     } else if (url.includes("/api/attendance/notify-summary")) {
       data = { unseen_shift_changes: 0 };
-    } else if (url.includes("/api/notifications")) {
-      data = { items: [], unread: 0 };
     }
     return Promise.resolve({
       ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }),

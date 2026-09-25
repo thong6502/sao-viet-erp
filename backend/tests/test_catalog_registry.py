@@ -33,9 +33,9 @@ from app.services.role_service import SCOPELESS_MODULES
 #: `san_xuat` KHÔNG có mặt — `lsx.py` đọc scope thật để thợ chỉ thấy lệnh của mình.
 #: `bai_ghep` (màn cũ) rời danh sách 18/08/2026: mg `0216` chép quyền sang `bai_ghep_2` rồi xoá khoá.
 #: `xep_lich` (màn cũ) rời danh sách 19/08/2026: mg `0219` chép quyền sang `xep_lich_2` rồi xoá khoá.
-#: `yeu_cau_sua_chua` (20/08/2026): ô báo máy hỏng cho người NGOÀI tổ kỹ thuật. Scopeless là CHỦ Ý —
-#: ai cũng phải thấy hết hàng chờ thì mới thôi báo trùng một cái máy. Việc "chỉ sửa lời báo của
-#: mình" do `_kiem_chu_yeu_cau` chặn theo người gửi, không chặn bằng phạm vi.
+#: `yeu_cau_sua_chua` (20/08/2026) rời danh sách 24/09/2026: mg `0332` gỡ khoá, "Báo máy hỏng"
+#: thành ô chi tiết `ky_thuat_may:can_request` — nó vốn là TAB của màn Sửa chữa máy, không phải
+#: màn riêng. Việc "chỉ sửa lời báo của mình" vẫn do `_kiem_chu_yeu_cau` chặn theo người gửi.
 #: `dm_kcs_tieu_chi` (31/08/2026, Task 3 KCS kiêm nhiệm): danh mục Tiêu chí KCS — checklist chuẩn
 #: dùng chung cả xưởng, không có khái niệm "tiêu chí của tôi", scopeless như mọi màn danh mục khác.
 SCOPELESS_CU = frozenset({
@@ -46,7 +46,7 @@ SCOPELESS_CU = frozenset({
     # Thành phẩm (19/08/2026, mg 0203): danh mục thì KHÔNG có phạm vi — bỏ sót ở đây là màn mọc
     # ra dropdown Phạm vi, rồi scope `own` bó âm thầm quyền vừa cấp.
     "dm_thanh_pham",
-    "ky_thuat_may", "yeu_cau_sua_chua",
+    "ky_thuat_may",
     "ke_hoach_vat_tu", "bai_ghep_2", "phieu_bao_tri",
     # Xếp lịch (bàn cấp LỆNH, 10/09/2026) — không đọc scope lần nào. Khoá đi qua `xep_lich_2` rồi
     # `xep_lich_3`; 18/09/2026 gộp về đúng `xep_lich`, mg `0314` chép quyền rồi xoá hai khoá cũ.
@@ -54,6 +54,17 @@ SCOPELESS_CU = frozenset({
     "dm_kcs_tieu_chi",
     # Xe giao hàng (12/09/2026): danh mục biển số dùng chung cả xưởng, không có "xe của tôi".
     "dm_xe",
+    # BA khoá vào danh sách 24/09/2026, cùng đợt dọn "một mục thanh bên = một ô quyền":
+    #   • `quy_trinh_kinh_doanh` (mg `0329`) — bản đồ luồng TĨNH vẽ bằng SVG, không đọc dữ liệu
+    #     của ai nên không có "quy trình của tôi".
+    #   • `bao_cao_kho` (mg `0329`) — sổ của CẢ KHO; `kho_baocao.py` không đọc scope quyền, lọc
+    #     theo kho người dùng chọn.
+    #   • `noi_quy` (mg `0330`) — nội quy lao động là tài liệu CHUNG toàn công ty; chủ chốt:
+    #     *"nội quy công ty mặc định tất cả và không cho chỉnh sửa"*.
+    "quy_trinh_kinh_doanh", "bao_cao_kho", "noi_quy",
+    # `ton_kho` (mg `0334`, cùng đợt): màn Tồn kho của từng kho. Thấy kho nào là do KHAI BÁO KHO
+    # quyết định — `kho_voucher.py` lọc theo `kho_id` người dùng chọn, không đọc scope của vai.
+    "ton_kho",
 })
 
 #: `nhat_ky_danh_muc.LOAI_MODULE` — 17 khoá: 11 tên chính, 3 tên đời cũ
@@ -79,10 +90,11 @@ LOAI_MODULE_CU = {
     "xe": "dm_xe",
     "ky_thuat_sua_chua": "ky_thuat_may",
     "ky_thuat_bao_tri": "ky_thuat_may",
-    # Yêu cầu báo hỏng (20/08/2026) — khoá ĐẦU TIÊN mang giá trị TUPLE: người báo phải đọc được
-    # lịch sử lời báo của chính mình (dòng "đã tạo phiếu SC-0006" / "từ chối vì …" chính là câu
-    # trả lời cho họ), mà họ không có `ky_thuat_may`. Đọc được MỘT khoá là đủ.
-    "ky_thuat_yeu_cau": ("yeu_cau_sua_chua", "ky_thuat_may"),
+    # Yêu cầu báo hỏng: người báo phải đọc được lịch sử lời báo của chính mình (dòng "đã tạo
+    # phiếu SC-0006" / "từ chối vì …" chính là câu trả lời cho họ). Trước 24/09/2026 phải khai
+    # TUPLE hai khoá vì họ không có `ky_thuat_may`; nay ô "Báo máy hỏng" là ô chi tiết của chính
+    # khoá đó (mg `0332`) và ô chi tiết tự hàm ý Xem, nên một khoá là đủ.
+    "ky_thuat_yeu_cau": "ky_thuat_may",
     # Tiêu chí KCS (31/08/2026, Task 3 KCS kiêm nhiệm) — màn thứ 13, module riêng.
     "san_xuat_kcs_tieu_chi": "dm_kcs_tieu_chi",
 }

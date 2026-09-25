@@ -36,6 +36,7 @@ from .routers import (
     profile,
     quotations,
     orders,
+    bao_cao_kinh_doanh,
     rbac,
     may_thiet_bi,
     vat_lieu_kho,
@@ -53,6 +54,7 @@ from .routers import (
     loai_san_pham,
     danh_muc_xoa,
     nhat_ky_danh_muc,
+    nhom_dung_chung,
     notifications,
     tinh_gia,
     phieu_tinh_gia,
@@ -147,6 +149,7 @@ app.include_router(files.router)
 app.include_router(profile.router)
 app.include_router(noi_quy.router)
 app.include_router(rbac.router)
+app.include_router(nhom_dung_chung.router)
 app.include_router(customers.router)
 app.include_router(employees.router)
 app.include_router(attendance.router)
@@ -157,6 +160,7 @@ app.include_router(late_early.router)
 app.include_router(payroll.router)
 app.include_router(quotations.router)
 app.include_router(orders.router)
+app.include_router(bao_cao_kinh_doanh.router)
 app.include_router(product_types_catalog.router)
 app.include_router(purchases.router)
 app.include_router(accounting.router)

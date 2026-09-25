@@ -1,8 +1,8 @@
 """feat-007 — Vai trò admin API.
 
 Admin can list modules/departments/roles, create a role (with per-department name
-dedup), and read/save a role's permission matrix; a non-admin (NV Sales, no vai_tro
-permission) is forbidden.
+dedup), and read/save a role's permission matrix; a non-admin (NV Sales, không có ô
+`phong_ban`) bị chặn.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _kd_id() -> int:
 
 
 def _sales_token() -> str:
-    """A non-admin: NV Sales role has no vai_tro permission."""
+    """A non-admin: vai NV Sales không có ô `phong_ban` (tab Vai trò & Quyền nằm trong đó)."""
     db = SessionLocal()
     try:
         users = UserRepository(db)
@@ -55,7 +55,7 @@ def test_admin_lists_modules(client):
     resp = client.get("/api/rbac/modules", headers=_h(_admin_token(client)))
     assert resp.status_code == 200
     keys = {m["key"] for m in resp.json()}
-    assert {"khach_hang", "vai_tro", "nguoi_dung"} <= keys
+    assert {"khach_hang", "phong_ban", "nhan_su"} <= keys
 
 
 def test_admin_lists_departments(client):
@@ -116,7 +116,10 @@ def test_matrix_get_defaults_and_save_persists(client):
             assert not (r["can_update"] or r["can_delete"])
         else:
             assert not r["can_read"], f'{r["module_key"]} không được tự bật cho vai mới'
-        assert r["scope"] == "own"
+        # Vai mới mặc định "Của tôi" — TRỪ Nội quy: tài liệu chung toàn công ty, phạm vi ép `all`
+        # ngay từ lúc sinh vai (24/09/2026, chủ chốt: *"nội quy công ty mặc định tất cả và không
+        # cho chỉnh sửa"*). Để `own` thì ô chọn phạm vi — nay khoá còn một lựa chọn — hiện rỗng.
+        assert r["scope"] == ("all" if r["module_key"] == "noi_quy" else "own"), r["module_key"]
 
     for row in rows:
         if row["module_key"] == "khach_hang":
@@ -237,8 +240,8 @@ def test_non_admin_forbidden(client):
 
 
 def _dept_viewer_token() -> str:
-    """A user whose role grants ONLY phong_ban:read (no vai_tro permission) — the
-    view-only employee looking at the department screen (spec-09)."""
+    """Vai CHỈ có `phong_ban:read` — người xem suông màn Phòng ban (spec-09). Không có ô chi
+    tiết `manage_permissions` nên đọc được ma trận mà không lưu được."""
     db = SessionLocal()
     try:
         users = UserRepository(db)
@@ -258,9 +261,14 @@ def _dept_viewer_token() -> str:
         db.close()
 
 
-def test_dept_viewer_can_list_role_names_but_not_matrix(client):
-    """Role NAMES inside a department are part of viewing the department
-    (phong_ban:read); the permission matrix stays behind vai_tro:read."""
+def test_dept_viewer_doc_duoc_vai_tro_va_ma_tran_nhung_khong_sua_duoc(client):
+    """Xem phòng ban = xem cả tab "Vai trò & Quyền" của phòng đó, kể cả ma trận — nhưng LƯU thì không.
+
+    Đổi 24/09/2026 cùng mg `0330`: khoá `vai_tro` gỡ hẳn vì nó không ứng với mục menu nào (chủ
+    chốt: *"làm gì có module vai trò đâu"*). Vai trò là một TAB của màn Phòng ban nên đọc nó đi
+    theo `phong_ban:read`. Hàng rào thật — thứ chặn leo thang quyền — vẫn nguyên chỗ cũ: ghi ma
+    trận đòi ô chi tiết `phong_ban:manage_permissions`, mà vai xem-suông này không có.
+    """
     token = _dept_viewer_token()
     kd_id = _kd_id()
 
@@ -269,10 +277,18 @@ def test_dept_viewer_can_list_role_names_but_not_matrix(client):
     roles = listed.json()
     assert {"NV Sales", "Trưởng phòng KD"} <= {r["name"] for r in roles}
 
-    # …but the detailed permission matrix of any role stays forbidden.
     role_id = roles[0]["id"]
     assert (
         client.get(f"/api/roles/{role_id}/permissions", headers=_h(token)).status_code
+        == 200
+    )
+    # …nhưng GHI thì 403: cấp quyền là ô chi tiết riêng.
+    assert (
+        client.put(
+            f"/api/roles/{role_id}/permissions",
+            json={"permissions": []},
+            headers=_h(token),
+        ).status_code
         == 403
     )
 
@@ -333,3 +349,132 @@ def test_moi_cot_quyen_deu_di_het_duong_ong_len_API():
         "cột quyền không có trong `RoleService.save_matrix` ⇒ bật rồi Lưu nhưng KHÔNG xuống DB: "
         + ", ".join(thieu_ghi)
     )
+
+
+# ---------------------------------------------------------------- Nhân bản vai trò
+def _mt(client, token: str, role_id: int) -> dict[str, dict]:
+    """Ma trận của vai, băm theo module để so hai vai với nhau."""
+    rows = client.get(f"/api/roles/{role_id}/permissions", headers=_h(token)).json()
+    return {r["module_key"]: r for r in rows}
+
+
+def test_nhan_ban_vai_chep_nguyen_ma_tran(client):
+    """Bản sao phải GIỐNG HỆT bản gốc từng ô — nhân bản mà lệch một cờ thì người cấp quyền
+    không phát hiện ra cho tới lúc có người bị chặn nhầm."""
+    token = _admin_token(client)
+    kd_id = _kd_id()
+    db = SessionLocal()
+    try:
+        goc_id = RoleRepository(db).get_by_name_and_department("NV Sales", kd_id).id
+    finally:
+        db.close()
+
+    truoc = _mt(client, token, goc_id)
+    resp = client.post(f"/api/roles/{goc_id}/duplicate", json={}, headers=_h(token))
+    assert resp.status_code == 201, resp.text
+    moi = resp.json()
+    assert moi["id"] != goc_id
+    assert moi["department_id"] == kd_id
+    assert moi["name"] == "NV Sales (bản sao)"
+
+    sau = _mt(client, token, moi["id"])
+    assert set(truoc) == set(sau)
+    for khoa, dong in truoc.items():
+        assert sau[khoa] == dong, f"module {khoa} lệch sau khi nhân bản"
+
+    # Bản gốc KHÔNG bị đụng vào.
+    assert _mt(client, token, goc_id) == truoc
+
+
+def test_nhan_ban_tu_danh_so_va_bao_trung_ten(client):
+    token = _admin_token(client)
+    kd_id = _kd_id()
+    goc_id = client.post(
+        "/api/roles", json={"name": "Vai gốc NB", "department_id": kd_id}, headers=_h(token)
+    ).json()["id"]
+
+    lan1 = client.post(f"/api/roles/{goc_id}/duplicate", json={}, headers=_h(token))
+    assert lan1.status_code == 201 and lan1.json()["name"] == "Vai gốc NB (bản sao)"
+    lan2 = client.post(f"/api/roles/{goc_id}/duplicate", json={}, headers=_h(token))
+    assert lan2.status_code == 201 and lan2.json()["name"] == "Vai gốc NB (bản sao 2)"
+
+    dat_ten = client.post(
+        f"/api/roles/{goc_id}/duplicate", json={"name": "Vai đặt tên tay"}, headers=_h(token)
+    )
+    assert dat_ten.status_code == 201 and dat_ten.json()["name"] == "Vai đặt tên tay"
+    # Tên đã có trong phòng → 409, không đẻ vai thứ hai trùng tên.
+    assert client.post(
+        f"/api/roles/{goc_id}/duplicate", json={"name": "Vai đặt tên tay"}, headers=_h(token)
+    ).status_code == 409
+
+
+def test_nhan_ban_sang_to_khac_doi_dong_quyen_to_sang_to_dich(client):
+    """Nhân bản sang phòng KHÁC: dòng quyền theo tổ phải ĐỔI THEO phòng đích.
+
+    Chép nguyên `to_sx_<tổ A>` sang vai của tổ B là mở cửa bàn tổ A cho người tổ B; còn bỏ sạch
+    thì bản sao mất quyền làm việc ở chính tổ mình. Cả hai đều sai, nên dòng tổ được ánh xạ —
+    và BỎ khi phòng đích không có dòng nào (ngoài khối sản xuất).
+    """
+    from app.models.department import Department
+    from app.services.quyen_to import dong_bo_dong_quyen_to, khoa_to
+
+    token = _admin_token(client)
+    kd_id = _kd_id()
+    db = SessionLocal()
+    try:
+        to_a = Department(name="Tổ NB A", code="TNBA", la_san_xuat=True)
+        to_b = Department(name="Tổ NB B", code="TNBB", la_san_xuat=True)
+        db.add_all([to_a, to_b])
+        db.commit()
+        a_id, b_id = to_a.id, to_b.id
+        dong_bo_dong_quyen_to(db)
+        db.commit()
+        roles = RoleRepository(db)
+        goc = roles.create(name="Vai tổ NB", department_id=a_id)
+        roles.set_permission(
+            role_id=goc.id,
+            module_key=khoa_to(a_id),
+            scope="all",
+            can_read=True,
+            can_run_order=True,
+        )
+        goc_id = goc.id
+    finally:
+        db.close()
+
+    sang_b = client.post(
+        f"/api/roles/{goc_id}/duplicate",
+        json={"name": "Vai tổ NB ở B", "department_id": b_id},
+        headers=_h(token),
+    )
+    assert sang_b.status_code == 201, sang_b.text
+    mt_b = _mt(client, token, sang_b.json()["id"])
+    assert mt_b[khoa_to(b_id)]["can_read"] and mt_b[khoa_to(b_id)]["can_run_order"], (
+        "dòng tổ phải đổi sang tổ đích"
+    )
+    assert not mt_b[khoa_to(a_id)]["can_read"], "không được giữ dòng tổ của phòng gốc"
+
+    sang_kd = client.post(
+        f"/api/roles/{goc_id}/duplicate",
+        json={"name": "Vai tổ NB ở KD", "department_id": kd_id},
+        headers=_h(token),
+    )
+    assert sang_kd.status_code == 201, sang_kd.text
+    mt_kd = _mt(client, token, sang_kd.json()["id"])
+    assert not mt_kd[khoa_to(a_id)]["can_read"], (
+        "phòng ngoài khối sản xuất thì dòng tổ phải bị bỏ hẳn"
+    )
+
+
+def test_nhan_ban_doi_quyen_quan_ly_phan_quyen(client):
+    """Nhân bản = bê nguyên bộ quyền của vai khác ⇒ phải đòi đúng ô `manage_permissions`."""
+    kd_id = _kd_id()
+    db = SessionLocal()
+    try:
+        goc_id = RoleRepository(db).get_by_name_and_department("NV Sales", kd_id).id
+    finally:
+        db.close()
+    resp = client.post(
+        f"/api/roles/{goc_id}/duplicate", json={}, headers=_h(_sales_token())
+    )
+    assert resp.status_code == 403

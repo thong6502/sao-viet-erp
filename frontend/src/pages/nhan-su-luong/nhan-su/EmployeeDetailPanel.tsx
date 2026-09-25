@@ -57,7 +57,10 @@ export function EmployeeDetailPanel({
     can("nhan_su", "view_salary") || canEditSalaryFields;
   const canManageStatus = can("nhan_su", "manage_status");
   const canTransfer = can("nhan_su", "transfer");
-  const canViewAccount = can("nguoi_dung", "read");
+  // Tab "Tài khoản & Quyền" nay đi theo ô XEM của chính màn Hồ sơ nhân sự — khoá `nguoi_dung`
+  // gỡ 24/09/2026 (mg `0331`). Vào được hồ sơ là thấy được tài khoản của hồ sơ đó; bốn thao tác
+  // quản trị bên trong vẫn gác riêng từng ô chi tiết.
+  const canViewAccount = can("nhan_su", "read");
   // Nút "Đặt ca nền" ở tab Thông tin đi theo đúng ô của tab Khai ca bên Chấm công.
   const canKhaiCa = can("cham_cong", "manage_shifts");
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);

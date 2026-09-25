@@ -49,6 +49,28 @@ from ..services.vat_lieu_kho_service import HANG_NHAN, VatLieuKhoError, VatLieuK
 
 router = APIRouter(prefix="/api/kho/de-nghi", tags=["kho-de-nghi"])
 MODULE = "kho"
+# Màn TỒN KHO — module riêng từ 24/09/2026 (mg `0334`). Ở router này nó CHỈ là cửa DỮ LIỆU: cột
+# "tồn khả dụng" trên dòng yêu cầu chỉ điền cho người được xem số tồn. Một màn hỏi quyền của màn
+# khác để hiện một CỘT là hợp lệ; cái không được phép là một MÀN phải nấp sau ô chi tiết của màn
+# khác mới mở ra được (đúng chỗ `ton_kho` vừa thoát ra).
+MODULE_TON_KHO = "ton_kho"
+
+
+def _la_nguoi_kho(authz, user: User) -> bool:
+    """Người đứng PHÍA KHO của màn Yêu cầu nhập xuất (tab "Phiếu từ yêu cầu"), đối lại với người
+    ĐI XIN (tab "Yêu cầu").
+
+    Luật 24/09/2026, chỉ dùng hai ô của CHÍNH màn này:
+      • có Thao tác (`create`) ⇒ người kho, lập được phiếu;
+      • chỉ có Xem mà KHÔNG có ô chi tiết "Tạo yêu cầu" ⇒ người kho ở chế độ đọc — đúng hình vai
+        **Kế toán kho** (đối chiếu sổ, không cầm hàng nên không có `create`).
+
+    Trước đó vế thứ hai là `kho:view_stock`. Ô đó đã sang module `ton_kho` (mg `0334`), mà hộp việc
+    của màn Kho thì không được đi hỏi quyền của màn Tồn kho — hỏi vậy là lại ăn ké, chỉ đổi chiều.
+    """
+    return authz.can(user, MODULE, "create") or (
+        authz.can(user, MODULE, "read") and not authz.can(user, MODULE, "request")
+    )
 
 
 def _hang_service(db: Session) -> VatLieuKhoService:
@@ -122,7 +144,8 @@ def _serialize(req, *, db: Session, can_view_stock: bool, can_view_cost: bool,
     """Dựng payload + ÁP quyền hiển thị.
 
     `muc_ton` (đèn 5 màu) trả cho mọi vai vì không kèm con số; `ton_kha_dung` chỉ set khi
-    có `can_view_stock`. Mọi con số TIỀN chỉ set khi có `can_view_cost` — kể cả với người tạo
+    có `can_view_stock` (từ 24/09/2026 là `ton_kho:read` — tham số giữ tên cũ vì nó chỉ là cờ
+    đã tính sẵn). Mọi con số TIỀN chỉ set khi có `can_view_cost` — kể cả với người tạo
     yêu cầu (chủ 18/09/2026). Ẩn ở đây chứ không chỉ ẩn trên UI — ẩn cột ở FE thì số vẫn nằm
     trong response.
 
@@ -287,7 +310,7 @@ def list_requests(
         order=order, page=page, size=size,
         **_scoped_filters(db, user, authz),
     )
-    can_view_stock = authz.can(user, MODULE, "view_stock")
+    can_view_stock = authz.can(user, MODULE_TON_KHO, "read")
     can_view_cost = authz.can(user, MODULE, "view_cost")
     draft_map = StockVoucherRepository(db).draft_ids_by_request([r.id for r in rows])
     # Nạp SẴN mọi mã hàng của cả trang trong 1 query (tránh N+1 trong _serialize).
@@ -318,14 +341,14 @@ def request_counts(
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> dict[str, int]:
     """Số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu, theo chiều. Badge "chờ cấp" là VIỆC CỦA KHO nên CHỈ
-    hiện cho người XỬ LÝ (can_create=lập phiếu / can_view_stock) — khớp đúng người nhận thông báo;
+    hiện cho NGƯỜI KHO (`_la_nguoi_kho`) — khớp đúng người nhận thông báo;
     người chỉ TẠO yêu cầu (vd tổ trưởng SX) KHÔNG thấy badge. Trong tầm thì lọc theo SCOPE như list:
     kho trung tâm (all) thấy tổng; phòng ban thấy của phòng; scope own thấy của mình."""
     # `done_unseen` / `fail_unseen` = phản hồi kho (yêu cầu HOÀN TẤT / KHÔNG THÀNH) của CHÍNH user mà
     # user chưa mở xem — KHÔNG lọc theo scope xử-lý (việc của NGƯỜI TẠO, không phải workload kho).
     # Người chỉ tạo yêu cầu vẫn nhận số này dù nhap/xuat = 0. Badge người tạo = done + fail.
     resp = svc.requests.unseen_response_counts(user.id)
-    is_kho_worker = authz.can(user, MODULE, "create") or authz.can(user, MODULE, "view_stock")
+    is_kho_worker = _la_nguoi_kho(authz, user)
     if not is_kho_worker:
         return {"nhap": 0, "xuat": 0, "dieu_chuyen": 0,
                 "done_unseen": resp["done"], "fail_unseen": resp["fail"]}
@@ -389,7 +412,7 @@ def get_request(
     _require_visible(db, req, user, authz)
     levels, on_hand = _levels(svc, req)
     draft_map = StockVoucherRepository(db).draft_ids_by_request([req.id])
-    return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE, "view_stock"),
+    return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE_TON_KHO, "read"),
                       can_view_cost=authz.can(user, MODULE, "view_cost"),
                       levels=levels, on_hand=on_hand,
                       open_voucher_id=draft_map.get(req.id))
@@ -424,7 +447,7 @@ def create_request(
     except StockRequestError as e:
         raise _err(e) from None
     levels, on_hand = _levels(svc, req)
-    return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE, "view_stock"),
+    return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE_TON_KHO, "read"),
                       can_view_cost=authz.can(user, MODULE, "view_cost"),
                       levels=levels, on_hand=on_hand)
 
@@ -452,7 +475,7 @@ def update_request(
         req = svc.update(req, lines=lines, **data)
     except StockRequestError as e:
         raise _err(e) from None
-    return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE, "view_stock"),
+    return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE_TON_KHO, "read"),
                       can_view_cost=authz.can(user, MODULE, "view_cost"),
                       levels=None, on_hand=None)
 
@@ -468,7 +491,7 @@ def _act(svc: StockRequestService, request_id: int, user: User, authz: Authoriza
         raise _err(e) from None
     # Yêu cầu nhập thành phẩm từ KCS: màn KCS / hồ sơ lệnh đọc ngược yêu cầu này ⇒ đẩy ngay.
     phat_su_kien_kho(req, bao_nguoi_tao=bao_nguoi_tao)
-    return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE, "view_stock"),
+    return _serialize(req, db=db, can_view_stock=authz.can(user, MODULE_TON_KHO, "read"),
                       can_view_cost=authz.can(user, MODULE, "view_cost"),
                       levels=None, on_hand=None)
 

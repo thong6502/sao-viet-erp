@@ -23,6 +23,9 @@ from .phieu_tinh_gia import _build_thanh_phan
 
 router = APIRouter(prefix="/api/tinh-gia", tags=["tinh-gia"])
 MODULE = "tinh_gia_thanh"
+#: Cả hai đường ở đây đều bày RUỘT GIÁ (bình bài trả số con/layout; preview trả `result`
+#: đầy đủ từng dòng), nên gác bằng ô chi tiết "Xem chi tiết giá vốn" chứ không phải `read`:
+#: vai chỉ được xem giá vốn TỔNG mà gọi thẳng /preview là lấy lại đúng phần vừa bị giấu.
 
 
 class BinhBaiIn(BaseModel):
@@ -49,7 +52,7 @@ class BinhBaiIn(BaseModel):
 @router.post("/binh-bai")
 def binh_bai(
     payload: BinhBaiIn,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE, "view_cost"))],
 ) -> dict:
     """Bình bài live: trả số con + LAYOUT (cols/rows/rotated/usable) để FE vẽ sơ đồ đúng engine + hiệu suất."""
     chua_d, chua_r = payload.chua_dai_mm, payload.chua_rong_mm
@@ -74,7 +77,7 @@ def binh_bai(
 def preview(
     payload: PhieuTinhGiaCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE, "view_cost"))],
 ) -> dict:
     """Xem-trước LIVE: chạy ĐÚNG engine (`compute_phieu_snapshot`) trên dữ liệu phiếu CHƯA lưu →
     trả `result` đầy đủ (mỗi thành phần: con, tờ vào máy/sau in, bù hao tự, kẽm, giá vốn). KHÔNG ghi DB.

@@ -111,7 +111,6 @@ const HOSO: LenhSxHoSoOut = {
       da_cap: 6, dang_linh: 2, con_phai_co: 0, thieu: 0, trang_thai: "xam",
       ngay_can: "2026-09-02",
     }],
-    bo_qua: [{ ma: "GB26-0004", ly_do: "Thiếu công thức lượng cho đơn vị `tay`" }],
   },
   nhan_luc: {
     hien_tai: [{

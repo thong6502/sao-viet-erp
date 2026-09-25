@@ -227,7 +227,7 @@ def test_C6_gan_vai_tro_khi_tao_tai_khoan_phai_dung_quyen_va_dung_phong(client):
         role_kd_id, role_sx_id = role_kd.id, role_sx.id
     finally:
         db.close()
-    # Vai có nhan_su:update nhưng KHÔNG có nguoi_dung:assign_role → 403
+    # Vai có nhan_su:update nhưng KHÔNG có nhan_su:assign_role → 403
     t = _token_luong("c6-hcns", scope="all", phong="Kinh doanh", can_read=True, can_update=True)
     r = client.post(f"/api/employees/{a}/account", json={"username": "nv_c6", "password": "Matkhau123!",
                     "role_id": role_kd_id}, headers={"Authorization": f"Bearer {t}"})

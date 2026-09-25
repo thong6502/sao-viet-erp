@@ -43,7 +43,7 @@ from ..quyen_to import (
     quyen_tren_viec,
 )
 from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi, ve_utc_that
-from . import dau_vao, viec_khoan
+from . import dau_vao, routing_dai, viec_khoan
 from .nguoi_trong_me import nguoi_theo_me
 from .thuc_thi import _aware
 from .tinh_trang_nguoi import hom_nay, tinh_trang_nhieu
@@ -429,6 +429,10 @@ def work_items(
         sap_xep=sap_xep)
     khoa = [k for k, _, _ in khoa_trang]
     rows = repo.cong_viec_cua_lenh(tron, khoa, employee_id=emp_id, rieng_ids=rieng)
+    # Dải routing: chuỗi công đoạn ĐẦY ĐỦ của lệnh, kể cả bước của tổ khác (chỉ đọc). Dựng từ
+    # `rows` TRƯỚC khi lọc `trang_thai` — lọc trạng thái là thao tác của danh sách VIỆC, dải thì
+    # phải luôn đủ chuỗi, không thì tổ lọc "đang chạy" một cái là dải cụt mất mấy bước.
+    dai_theo_khoa = routing_dai.dung_routing(db, repo, khoa=khoa, cv_cua_toi=rows)
     # "Nhận" của lệnh tính trên MỌI bước của tổ (cùng khoá sắp của repo), trước khi lọc trạng thái.
     nhan_lenh: dict[tuple[str, int | None], datetime] = {}
     for cv in rows:
@@ -464,6 +468,7 @@ def work_items(
             "nhan_luc": thuc_te_hien_thi(nhan_lenh.get((loai, nid))),
             "so_viec": len(cvs),
             "digest": _digest(cvs),
+            "routing": dai_theo_khoa.get((loai, nid), []),
             "cong_viec": [item_theo_id[cv.id] for cv in cvs if cv.id in item_theo_id],
         })
     return {"team_id": team_id, "nhom": "lenh",

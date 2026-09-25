@@ -3,6 +3,7 @@
 // đối; để mỗi màn tự khai một bảng là kiểu gì cũng lệch sau vài lần sửa.
 import { useEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes } from "react";
 import type { StockRequestKind, StockRequestStatus, StockVoucherStatus } from "../api/client";
+import { useCan } from "../auth/permissions";
 import { Select } from "../components/Select";
 import { tenDonVi } from "./tenDonVi";
 import "./kho-request.css";
@@ -15,6 +16,21 @@ export const AN_DIEU_CHUYEN = true;
 /** ẨN nút "In yêu cầu" ở màn Yêu cầu nhập/xuất kho — CHỈ giao diện (hàm in vẫn còn).
  *  Bật lại: đổi thành `false`. */
 export const AN_IN_YEU_CAU = true;
+
+/** Người đứng PHÍA KHO của màn "Yêu cầu nhập xuất" — tức tab "Phiếu từ yêu cầu", đối lại với
+ *  người ĐI XIN ở tab "Yêu cầu".
+ *
+ *  Luật 24/09/2026, chỉ dùng hai ô của CHÍNH màn Kho:
+ *    • có Thao tác (`create`) ⇒ người kho, lập phiếu được;
+ *    • chỉ có Xem mà KHÔNG có ô chi tiết "Tạo yêu cầu" ⇒ người kho ở chế độ đọc — đúng hình vai
+ *      **Kế toán kho** (đối chiếu sổ, không cầm hàng nên không có Thao tác).
+ *
+ *  Vế thứ hai trước đây là `kho:view_stock`. Ô đó đã tách sang module `ton_kho` (mg `0334`), mà
+ *  hộp việc của màn Kho thì không được đi hỏi quyền của màn Tồn kho — hỏi vậy là lại ăn ké, chỉ
+ *  đổi chiều. Máy chủ giữ ĐÚNG luật này ở `kho_request._la_nguoi_kho`. */
+export function laNguoiKho(can: ReturnType<typeof useCan>): boolean {
+  return can("kho", "create") || (can("kho", "read") && !can("kho", "request"));
+}
 
 /** Các mức số dòng/trang cho mọi danh sách kho. Mặc định = 10. */
 export const PAGE_SIZES = [10, 15, 20] as const;
