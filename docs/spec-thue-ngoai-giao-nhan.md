@@ -1,5 +1,8 @@
 # SPEC — THUÊ NGOÀI: GHI NHẬN GIAO – NHẬN THỰC TẾ
 
+> **ĐÃ THAY THẾ (26/09/2026)** bởi `docs/superpowers/specs/2026-09-26-gia-cong-ngoai-design.md` —
+> bỏ ngày hẹn/hao cho phép, giao–nhận chuyển sang "lần gia công", thêm trọn gói + phiếu chi.
+
 > Bước gia công ngoài hiện **chỉ có sổ dự kiến**, không trường nào ghi *đã xảy ra*. Hàng ra khỏi
 > cổng không có tên người: lúc trễ không truy được, lúc thiếu không ai nhận.
 > Anh em với `spec-cong-doan.md`, `spec-bai-ghep-dag.md`.
