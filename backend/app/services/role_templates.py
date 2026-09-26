@@ -121,6 +121,10 @@ TEMPLATES: list[dict] = [
                 "can_read": True, "can_create": True, "can_update": True,
                 "can_view_salary": True, "can_edit_salary": True, "can_manage_status": True,
                 "can_transfer": True, "can_approve": True, "can_export": True,
+                # Tạo NV kèm tài khoản có vai đi qua kiểm `assign_role` (C6, 07/09/2026) — HCNS là
+                # người tạo hồ sơ + nối tài khoản nên mẫu phải kèm ô này, nếu không tạo NV → 403.
+                # Khoá `nguoi_dung` gỡ 24/09/2026 (mg `0331`) ⇒ ô này về đúng màn Hồ sơ nhân sự.
+                "can_assign_role": True,
                 "scope": SCOPE_ALL,
             },
             "cham_cong": {
@@ -155,9 +159,6 @@ TEMPLATES: list[dict] = [
                 "can_manage_piece_rates": True,
                 "scope": SCOPE_ALL,
             },
-            # Tạo NV kèm tài khoản có vai đi qua kiểm `nguoi_dung:assign_role` (C6, 07/09/2026) —
-            # HCNS là người tạo hồ sơ + nối tài khoản nên mẫu phải kèm ô này, nếu không tạo NV → 403.
-            "nguoi_dung": {"can_read": True, "can_assign_role": True, "scope": SCOPE_ALL},
             "noi_quy": {"can_read": True, "can_create": True, "can_delete": True, "scope": SCOPE_ALL},
         },
     },

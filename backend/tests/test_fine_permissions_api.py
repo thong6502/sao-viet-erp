@@ -2,7 +2,8 @@
 
 Chứng minh các quyền mới tách khỏi CRUD:
   - bao_gia `approve`      : duyệt báo giá (→ accepted) tách khỏi `update`.
-  - nguoi_dung `reset_password` : đặt lại mật khẩu tách khỏi `update`.
+  - nhan_su `reset_password`   : đặt lại mật khẩu tách khỏi `update` (khoá `nguoi_dung` gỡ
+                                 24/09/2026 — bốn ô tài khoản thành quyền chi tiết của Hồ sơ).
 Mỗi test dựng một vai trò CÓ `update` nhưng THIẾU quyền chi tiết → thao tác phải 403.
 """
 from __future__ import annotations
@@ -84,7 +85,7 @@ def test_quotation_accept_requires_update_permission(client):
 def test_reset_password_requires_reset_permission_not_update(client):
     # Vai trò CÓ update người dùng nhưng KHÔNG có `reset_password` → đặt lại MK bị 403,
     # chứng minh reset_password đã tách khỏi update.
-    token = _user_with_role("fp-hr", "nguoi_dung", can_read=True, can_update=True)
+    token = _user_with_role("fp-hr", "nhan_su", can_read=True, can_update=True)
     r = client.post("/api/users/1/reset-password", headers=_h(token))
     assert r.status_code == 403, r.text
 
@@ -118,19 +119,19 @@ def _dept_id(name: str) -> int:
 
 
 def test_lock_requires_lock_permission(client):
-    token = _user_with_role("fp-lock", "nguoi_dung", can_read=True, can_update=True)
+    token = _user_with_role("fp-lock", "nhan_su", can_read=True, can_update=True)
     r = client.put("/api/users/1/active", json={"is_active": False}, headers=_h(token))
     assert r.status_code == 403, r.text
 
 
 def test_revoke_sessions_requires_permission(client):
-    token = _user_with_role("fp-revoke", "nguoi_dung", can_read=True, can_update=True)
+    token = _user_with_role("fp-revoke", "nhan_su", can_read=True, can_update=True)
     r = client.post("/api/users/1/revoke-sessions", headers=_h(token))
     assert r.status_code == 403, r.text
 
 
 def test_assign_role_requires_assign_permission(client):
-    token = _user_with_role("fp-assign", "nguoi_dung", can_read=True, can_update=True)
+    token = _user_with_role("fp-assign", "nhan_su", can_read=True, can_update=True)
     r = client.put("/api/users/1/role", json={"role_id": 1}, headers=_h(token))
     assert r.status_code == 403, r.text
 
@@ -166,7 +167,7 @@ def test_cancel_quotation_requires_update_permission(client):
 
 def test_transfer_department_via_edit_requires_transfer(client):
     # Đổi TÊN trong cùng phòng chỉ cần `update`; ĐỔI PHÒNG cần `transfer`.
-    token = _user_with_role("fp-tf", "nguoi_dung", can_read=True, can_update=True)
+    token = _user_with_role("fp-tf", "nhan_su", can_read=True, can_update=True)
     uid, kd_id = _mk_plain_user("fp-target")
     other = _dept_id("Hành chính nhân sự")
     ok = client.put(
@@ -195,8 +196,9 @@ def test_set_head_requires_permission(client):
 
 
 def test_manage_permissions_requires_permission(client):
-    # CÓ vai_tro update (đổi tên) nhưng KHÔNG `manage_permissions` → sửa ma trận bị 403.
-    token = _user_with_role("fp-perm", "vai_tro", can_read=True, can_update=True)
+    # CÓ phong_ban update (đổi tên vai trò) nhưng KHÔNG `manage_permissions` → sửa ma trận bị
+    # 403. Khoá `vai_tro` gỡ 24/09/2026 (mg 0330): vai trò là tab của màn Phòng ban.
+    token = _user_with_role("fp-perm", "phong_ban", can_read=True, can_update=True)
     r = client.put(
         "/api/roles/1/permissions", json={"permissions": []}, headers=_h(token)
     )

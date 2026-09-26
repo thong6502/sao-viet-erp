@@ -147,6 +147,60 @@
 }
 
 /* ---- Item ----------------------------------------------------------------- */
+/* Hàng = nhãn (bấm → mở màn) + nút ▾ gập nhánh. Hai NÚT RỜI cố ý: cha trong cây tổ là một tổ
+   thật, bấm tên nó phải vào bàn của nó chứ không phải chỉ đóng/mở con. */
+.sidebar__row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.sidebar__row .sidebar__link {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+/* Hàng đang chọn MÀ có nút ▾: nền rust vẽ ở cả hàng, không thì nút ▾ nằm hẫng ngoài viên thuốc. */
+.sidebar__row.has-twisty.is-active {
+  background: var(--rust);
+  border-radius: var(--r-3);
+}
+.sidebar__row.has-twisty .sidebar__link.is-active {
+  background: none;
+}
+
+.sidebar__twisty {
+  flex: 0 0 auto;
+  width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  color: var(--sb-muted);
+  transition: background-color var(--duration-base) var(--easing-standard),
+    color var(--duration-base) var(--easing-standard);
+}
+.sidebar__twisty:hover {
+  background: var(--sb-hover);
+  color: var(--sb-text);
+}
+.sidebar__twisty:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.sidebar__row.is-active .sidebar__twisty {
+  color: var(--paper-contrast);
+}
+.sidebar__twisty svg {
+  transition: transform var(--duration-base) var(--easing-standard);
+}
+.sidebar__twisty.is-collapsed svg {
+  transform: rotate(-90deg);
+}
+
 .sidebar__link {
   position: relative;
   width: 100%;
@@ -298,6 +352,10 @@
   /* Vùng chạm ≥44px cho ngón tay (WCAG 2.5.8) — màn hẹp thao tác bằng tay, không phải chuột. */
   .sidebar__link {
     min-height: 44px;
+  }
+  /* Nút ▾ cũng phải đủ rộng cho ngón tay, không thì chạm trượt sang tên tổ và nhảy màn. */
+  .sidebar__twisty {
+    width: 44px;
   }
   .sidebar__close {
     display: inline-flex;

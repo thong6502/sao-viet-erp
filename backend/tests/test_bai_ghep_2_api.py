@@ -156,7 +156,6 @@ def test_endpoint_vat_tu_hieu_luc_tra_contract_typed(client):
                         "nhu_cau_hien_thi": "12 kg",
                     }],
                 }],
-                "bo_qua": [{"ma": "GB-001", "ly_do": "Chưa chọn giấy chung."}],
             }
 
     app.dependency_overrides[get_material_service] = lambda: _VatTuGia()
@@ -179,7 +178,6 @@ def test_endpoint_vat_tu_hieu_luc_tra_contract_typed(client):
                 "nhu_cau": 12.0, "nhu_cau_hien_thi": "12 kg",
             }],
         }],
-        "bo_qua": [{"ma": "GB-001", "ly_do": "Chưa chọn giấy chung."}],
     }
 
 

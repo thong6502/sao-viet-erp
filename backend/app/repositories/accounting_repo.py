@@ -168,7 +168,7 @@ class AccountingRepository:
                        PaymentVoucher.status != PAYMENT_VOUCHER_CANCELLED)
             ).all():
                 out[int(aid)] = v
-            # 2) Phiếu chi một-một cũ (`payment_vouchers.salary_advance_id`) — mg 0331 đã gắn ngược,
+            # 2) Phiếu chi một-một cũ (`payment_vouchers.salary_advance_id`) — mg 0337 đã gắn ngược,
             #    giữ nhánh này cho phiếu lập trước khi có cột.
             con = [aid for aid in phan if aid not in out]
             if con:

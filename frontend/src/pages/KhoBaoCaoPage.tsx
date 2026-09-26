@@ -1622,16 +1622,16 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         }
         // Dữ liệu 2 biểu đồ: (1) Top mặt hàng theo GT tồn cuối kỳ; (2) Nhập vs Xuất (GT) theo kho.
         const topCuoi = [...filtered]
-          .filter((r) => r.cuoi_gt > 0)
-          .sort((a, b) => b.cuoi_gt - a.cuoi_gt)
+          .filter((r) => (r.cuoi_gt ?? 0) > 0)
+          .sort((a, b) => (b.cuoi_gt ?? 0) - (a.cuoi_gt ?? 0))
           .slice(0, 12)
-          .map((r) => ({ ten: r.ten_hang ?? r.ma_hang ?? "—", gt: r.cuoi_gt }));
+          .map((r) => ({ ten: r.ten_hang ?? r.ma_hang ?? "—", gt: r.cuoi_gt ?? 0 }));
         const nxTheoKhoMap = new Map<string, { kho: string; nhap: number; xuat: number }>();
         for (const r of filtered) {
           const k = r.kho_ten ?? "— Chưa gắn kho —";
           const e = nxTheoKhoMap.get(k) ?? { kho: k, nhap: 0, xuat: 0 };
-          e.nhap += r.nhap_gt;
-          e.xuat += r.xuat_gt;
+          e.nhap += r.nhap_gt ?? 0;
+          e.xuat += r.xuat_gt ?? 0;
           nxTheoKhoMap.set(k, e);
         }
         const nxTheoKho = [...nxTheoKhoMap.values()];
@@ -1784,7 +1784,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   groups.map((g) => {
                     const t = g.rows.reduce(
                       (a, r) => {
-                        a.dau += r.dau_gt; a.nhap += r.nhap_gt; a.xuat += r.xuat_gt; a.cuoi += r.cuoi_gt;
+                        a.dau += r.dau_gt ?? 0; a.nhap += r.nhap_gt ?? 0;
+                        a.xuat += r.xuat_gt ?? 0; a.cuoi += r.cuoi_gt ?? 0;
                         return a;
                       },
                       { dau: 0, nhap: 0, xuat: 0, cuoi: 0 },

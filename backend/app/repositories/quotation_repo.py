@@ -22,6 +22,7 @@ from ..models.quotation import (
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from .org_scope import dept_subtree_ids
+from .org_scope import nhom_dung_chung_user_ids
 
 # Whitelist of sortable fields in Quote
 _SORTABLE = {
@@ -116,7 +117,9 @@ class QuotationRepository:
         if scope == SCOPE_ALL:
             return None
         if scope == SCOPE_OWN:
-            return Quote.salesperson_id == actor.id
+            # "Của tôi" = tôi + người CÙNG NHÓM DÙNG CHUNG với tôi (khối KD). Không thuộc nhóm
+            # nào thì tập đó đúng bằng {tôi} ⇒ hành vi cũ giữ nguyên.
+            return Quote.salesperson_id.in_(nhom_dung_chung_user_ids(self.db, actor.id))
         if scope == SCOPE_DEPARTMENT:
             # Subtree semantics (#26): phòng mình + mọi đơn vị con (GĐKD thấy các team).
             dept_ids = dept_subtree_ids(self.db, actor.department_id)
@@ -168,7 +171,7 @@ class QuotationRepository:
         if scope == SCOPE_ALL:
             return True
         if scope == SCOPE_OWN:
-            return quote.salesperson_id == actor.id
+            return quote.salesperson_id in nhom_dung_chung_user_ids(self.db, actor.id)
         if scope == SCOPE_DEPARTMENT:
             if quote.salesperson_id is None:
                 return False

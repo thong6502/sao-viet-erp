@@ -23,7 +23,7 @@ from ...models.san_xuat_san_luong import (
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ..quyen_to import VIEC_XAC_NHAN, nguoi_co_quyen
-from .dau_vao import kiem_giam_ban_giao
+from .dau_vao import cung_to_cung_lsx, kiem_giam_ban_giao
 from .thuc_thi import _gate, _kiem_version, _moc
 from .san_luong import _EPS, _so_khong_am
 
@@ -52,17 +52,9 @@ def _gate_hai_ben(db: Session, user, nguon_cv, dich_cv) -> None:
     raise PermissionError("Bạn không có quyền Xác nhận sản lượng ở tổ nguồn hoặc tổ đích.")
 
 
-def _la_cung_to(nguon_cv, dich_cv) -> bool:
-    """Tự xác nhận ⇔ cùng tổ VÀ cùng LSX (§11.2). Bước ghép gộp nhiều LSX ⇒ luôn khác LSX ⇒ cần
-    xác nhận hai bên (khớp cổng §10.2)."""
-    if dich_cv is None:
-        return False
-    return (
-        nguon_cv.department_id is not None
-        and nguon_cv.department_id == dich_cv.department_id
-        and nguon_cv.lsx_id is not None
-        and nguon_cv.lsx_id == dich_cv.lsx_id
-    )
+# Tự xác nhận ⇔ cùng tổ VÀ cùng LSX (§11.2). Luật này nay nằm ở `dau_vao.cung_to_cung_lsx` vì
+# cổng đầu vào và trần ghi mẻ cũng đọc nó — giữ hai bản là hai bản trôi khác hướng.
+_la_cung_to = cung_to_cung_lsx
 
 
 def _ket_qua(

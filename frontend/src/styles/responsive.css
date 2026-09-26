@@ -628,12 +628,11 @@
 /* ---- 23. Vỏ máy: thanh trên và ngăn kéo điều hướng ----------------------- */
 /* Mọi mục §8-§22 đều mở đầu bằng `.shell__content`, mà thanh trên với ngăn kéo nằm NGOÀI khối
    đó — nên suốt các đợt trước chúng chưa hề được rà. Quét riêng ở 375px thấy:
-   nút mở menu 40×40, chuông thông báo 38×38, nút đóng ngăn kéo 36×36, và bảy đầu mục nhóm
+   nút mở menu 40×40, nút đóng ngăn kéo 36×36, và bảy đầu mục nhóm
    trong ngăn kéo chỉ cao 26px. Đây là những nút bấm NHIỀU NHẤT trên điện thoại — mở menu là
    thao tác đầu tiên của mọi lần dùng — nên phải là chỗ đúng 44px trước tiên. */
 @media screen and (max-width: 768px) {
   .topbar__nav-toggle,
-  .tb-bell,
   .sidebar__close {
     width: 44px;
     height: 44px;

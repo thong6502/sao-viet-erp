@@ -58,11 +58,11 @@ _PREFIX_PERMISSION: dict[str, str] = {
 # (người chỉ có Phiếu bảo trì không xem được ảnh của chính phiếu mình đang làm).
 _PREFIX_2_PERMISSION: dict[tuple[str, str], tuple[str, ...]] = {
     ("ky-thuat-may", "bao_tri"): ("phieu_bao_tri",),
-    # Ảnh máy hỏng người ngoài tổ kỹ thuật gửi kèm yêu cầu — HAI khoá, có một cái không bỏ được:
-    # lúc yêu cầu thành phiếu, ảnh đổi chủ sang phiếu nhưng KHOÁ LƯU TRỮ vẫn mang đoạn `yeu_cau`
-    # (đổi khoá = phải chép tệp trong storage). Chỉ để `yeu_cau_sua_chua` thì tổ sửa chữa mở phiếu
-    # ra thấy ô ảnh 403; chỉ để `ky_thuat_may` thì người báo không xem lại được ảnh mình vừa gửi.
-    ("ky-thuat-may", "yeu_cau"): ("yeu_cau_sua_chua", "ky_thuat_may"),
+    # Ảnh máy hỏng người ngoài tổ kỹ thuật gửi kèm yêu cầu. Trước 24/09/2026 phải khai HAI khoá
+    # (`yeu_cau_sua_chua` cho người báo + `ky_thuat_may` cho tổ sửa chữa) vì lúc yêu cầu thành
+    # phiếu, ảnh đổi chủ sang phiếu nhưng KHOÁ LƯU TRỮ vẫn mang đoạn `yeu_cau`. Nay "Báo máy hỏng"
+    # là ô chi tiết của chính `ky_thuat_may` (mg `0332`) nên một khoá gác đủ cả hai bên.
+    ("ky-thuat-may", "yeu_cau"): ("ky_thuat_may",),
 }
 
 

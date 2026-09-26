@@ -2,7 +2,7 @@
 
 Admin can edit a user's name + department (role drops on dept change), reset the password
 (temp shown once + all sessions revoked), list/revoke live sessions, and read a user's
-activity. Everything is gated on `nguoi_dung`.
+activity. Everything is gated on `nhan_su` (khoá `nguoi_dung` gỡ 24/09/2026, mg `0331`).
 """
 from __future__ import annotations
 

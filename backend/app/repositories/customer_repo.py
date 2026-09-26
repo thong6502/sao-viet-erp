@@ -26,6 +26,7 @@ from ..models.customer import (
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from .org_scope import dept_subtree_ids
+from .org_scope import nhom_dung_chung_user_ids
 
 # Columns a caller may sort by (whitelist — never interpolate a raw sort key).
 _SORTABLE = {
@@ -106,7 +107,8 @@ class CustomerRepository:
         if scope == SCOPE_ALL:
             return None
         if scope == SCOPE_OWN:
-            return Customer.sale_user_id == actor.id
+            # "Của tôi" = tôi + người CÙNG NHÓM DÙNG CHUNG với tôi (khối KD).
+            return Customer.sale_user_id.in_(nhom_dung_chung_user_ids(self.db, actor.id))
         if scope == SCOPE_DEPARTMENT:
             dept_ids = dept_subtree_ids(self.db, actor.department_id)
             if not dept_ids:
@@ -121,7 +123,7 @@ class CustomerRepository:
         if scope == SCOPE_ALL:
             return True
         if scope == SCOPE_OWN:
-            return customer.sale_user_id == actor.id
+            return customer.sale_user_id in nhom_dung_chung_user_ids(self.db, actor.id)
         if scope == SCOPE_DEPARTMENT:
             if customer.sale_user_id is None:
                 return False

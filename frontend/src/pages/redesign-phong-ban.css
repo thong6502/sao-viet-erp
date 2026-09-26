@@ -496,7 +496,11 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: hidden;
+  /* `clip` chứ KHÔNG phải `hidden`: cả hai đều cắt nội dung tràn ra ngoài góc bo, nhưng `hidden`
+     biến khung này thành scroll-container và nuốt mọi `position: sticky` bên trong (thanh hành
+     động của panel vai trò). Khung này cao bằng nội dung nên chẳng bao giờ cuộn — cuộn thật nằm
+     ở `.shell__content`. */
+  overflow: clip;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
@@ -673,7 +677,11 @@
 .rdx-drawer__panel {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
+  /* KHÔNG đặt `overflow-y: auto` ở đây: khung này cao bằng nội dung (cha không bó chiều cao) nên
+     nó chẳng bao giờ cuộn, nhưng `auto` vẫn biến nó thành scroll-container và NUỐT MỌI
+     `position: sticky` bên trong — thanh hành động của panel vai trò dính đáy nhờ chỗ này.
+     Cuộn thật nằm ở `.shell__content`. */
+  overflow-y: visible;
   padding: 20px;
   background: #ffffff;
   scrollbar-width: none;
@@ -858,14 +866,26 @@
 .rdx-rolepanel .depts__matrix-label {
   margin: var(--sp-1) 0 0;
 }
+/* Thanh hành động DÍNH đáy màn khi ma trận còn dài (hơn 60 dòng): trước đây phải cuộn hết bảng
+   mới thấy nút Lưu, nên tick xong ở giữa bảng là mất dấu nút bấm.
+   Tràn ra hai mép panel (margin âm = đúng padding của panel) để nền che kín bề ngang.
+   ⚠️ Khối `.rdx-rolepanel*` trong file này CÓ HAI BẢN giống hệt (bản sau đè bản trước) — sửa
+   thì sửa cả hai, không thì thay đổi ở bản trên bị bản dưới nuốt. */
 .rdx-rolepanel__foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-3);
   flex-wrap: wrap;
   border-top: 1px solid var(--rule-hair);
-  padding-top: var(--sp-3);
+  margin: 0 calc(var(--sp-4) * -1) calc(var(--sp-4) * -1);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--paper);
+  border-radius: 0 0 var(--r-5) var(--r-5);
+  box-shadow: 0 -10px 20px -16px rgba(20, 19, 15, 0.45);
 }
 .rdx-rolepanel__danger {
   flex: 1 1 auto;
@@ -2270,7 +2290,9 @@
 .rdx-drawer__panel {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
+  /* Xem chú thích ở bản trên: `auto` sẽ nuốt `position: sticky` của thanh hành động trong panel
+     vai trò, mà khung này vốn không cuộn (cuộn thật ở `.shell__content`). */
+  overflow-y: visible;
   padding: 16px 18px;
 }
 .rdx-tab {
@@ -2453,14 +2475,26 @@
 .rdx-rolepanel .depts__matrix-label {
   margin: var(--sp-1) 0 0;
 }
+/* Thanh hành động DÍNH đáy màn khi ma trận còn dài (hơn 60 dòng): trước đây phải cuộn hết bảng
+   mới thấy nút Lưu, nên tick xong ở giữa bảng là mất dấu nút bấm.
+   Tràn ra hai mép panel (margin âm = đúng padding của panel) để nền che kín bề ngang.
+   ⚠️ Khối `.rdx-rolepanel*` trong file này CÓ HAI BẢN giống hệt (bản sau đè bản trước) — sửa
+   thì sửa cả hai, không thì thay đổi ở bản trên bị bản dưới nuốt. */
 .rdx-rolepanel__foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-3);
   flex-wrap: wrap;
   border-top: 1px solid var(--rule-hair);
-  padding-top: var(--sp-3);
+  margin: 0 calc(var(--sp-4) * -1) calc(var(--sp-4) * -1);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--paper);
+  border-radius: 0 0 var(--r-5) var(--r-5);
+  box-shadow: 0 -10px 20px -16px rgba(20, 19, 15, 0.45);
 }
 .rdx-rolepanel__danger {
   flex: 1 1 auto;

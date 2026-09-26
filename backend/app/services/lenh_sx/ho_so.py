@@ -396,7 +396,7 @@ def _dong_vat_tu(nhom: dict, row: dict, pham_vi_dong: str) -> dict:
     }
 
 
-def _vat_tu(bc: BoiCanh, lsx_id: int, *, bang: dict | None, ma_bai: dict[int, str],
+def _vat_tu(bc: BoiCanh, lsx_id: int, *, bang: dict | None,
             thu_tu_buoc: dict[int, int], thu_tu_hien_tai: int) -> dict:
     """Vật tư của lệnh, chia làm BA phần vì chúng trả lời ba câu khác nhau:
 
@@ -417,8 +417,7 @@ def _vat_tu(bc: BoiCanh, lsx_id: int, *, bang: dict | None, ma_bai: dict[int, st
     hoặc bước đã bị xoá khi sửa routing) coi như CẦN RỒI — xếp vào `hien_tai`. Giấu nó xuống
     "cảnh báo sau" là hứa hẹn một thứ đang thiếu ngay bây giờ.
     """
-    bang = bang or {"items": [], "bo_qua": []}
-    ma_lenh = bc.lenh[lsx_id].ma
+    bang = bang or {"items": []}
     bai_ids = {cv.bai_ghep_id for cv in bc.cong_viec_ghep[lsx_id] if cv.bai_ghep_id is not None}
     # Bước của lệnh mà một công đoạn ghép phủ ⇒ vị trí của dòng bài trong chuỗi của lệnh.
     thu_tu_ghep: dict[int, int] = {}
@@ -446,6 +445,8 @@ def _vat_tu(bc: BoiCanh, lsx_id: int, *, bang: dict | None, ma_bai: dict[int, st
             if _f(dong["da_cap"]) > 0:
                 da_cap.append(dong)
 
+    # `bo_qua` (lệnh/bài engine không cân đối được, lọc theo mã lệnh + mã bài) GỠ 23/09/2026 cùng
+    # lúc với `CanDoiOut.bo_qua` — engine không sinh danh sách đó nữa. Xem `_gom_nhu_cau`.
     return {
         "hien_tai": {
             "du": all(d["trang_thai"] in _VT_YEN_TAM for d in hien_tai),
@@ -453,17 +454,6 @@ def _vat_tu(bc: BoiCanh, lsx_id: int, *, bang: dict | None, ma_bai: dict[int, st
         },
         "canh_bao_sau": canh_bao_sau,
         "da_cap": da_cap,
-        # Dòng engine KHÔNG đối chiếu được (thiếu công thức lượng, đơn vị lạ). Phải bày ra: một
-        # bảng vật tư im lặng bỏ qua vài món trông y hệt một bảng đủ.
-        #
-        # Lọc theo MÃ, và phải nhận CẢ HAI loại mã: dòng bỏ qua của lệnh mang `lsx.ma`, còn dòng
-        # của bài ghép mang `bai_ghep.ma` (`ke_hoach_vat_tu_service.py:995`). Chỉ so với `ma_lenh`
-        # là lệnh nằm trong bài mà bài chưa chọn giấy chung sẽ thấy `bo_qua` RỖNG — đúng kiểu im
-        # lặng bỏ sót mà chính khối này sinh ra để chống. Bài canh: `test_bo_qua_nhan_dong_bai_ghep`.
-        "bo_qua": [
-            r for r in bang.get("bo_qua", [])
-            if r.get("ma") == ma_lenh or r.get("ma") in set(ma_bai.values())
-        ],
     }
 
 
@@ -905,24 +895,6 @@ def _timeline(db: Session, bc: BoiCanh, lsx_id: int, *, goi_id: int | None,
     return ra
 
 
-def _ma_bai_ghep(db: Session, bc: BoiCanh, lsx_id: int) -> dict[int, str]:
-    """`{bai_ghep_id: mã bài}` của những bài mà lệnh là thành viên. Rỗng ⇒ KHÔNG chạm DB.
-
-    `boi_canh` chỉ nạp công việc ghép (`cv.bai_ghep_id`), không nạp bản thân bài — mà dòng "bỏ
-    qua" của bảng cân đối chỉ nhận diện được bằng MÃ (`ke_hoach_vat_tu_service.py:995` ghi
-    `bg.ma`). Một câu cho cả tập, và chỉ khi lệnh thật sự nằm trong bài ghép.
-    """
-    from ...models.bai_ghep import BaiGhep
-
-    ids = {cv.bai_ghep_id for cv in bc.cong_viec_ghep[lsx_id] if cv.bai_ghep_id is not None}
-    if not ids:
-        return {}
-    return {
-        int(r[0]): r[1]
-        for r in db.execute(select(BaiGhep.id, BaiGhep.ma).where(BaiGhep.id.in_(ids))).all()
-    }
-
-
 def _ten_user(db: Session, ids) -> dict[int, str]:
     """`{user_id: tên}` cho MỘT lượt đọc — mặt đọc phơi tên chứ không phơi id trần, và một câu cho
     cả danh sách thay vì N+1 (cùng lối `KhoHangRepository.ten_theo_ids`)."""
@@ -1040,7 +1012,6 @@ def ho_so(
     if can & {"giao_hang", "kho"}:
         nhom_id = next((cv.nhom_id for cv in cvs if cv.nhom_id is not None), None)
         giao_hang = _giao_hang(db, bc, lsx_id, nhom_id=nhom_id)
-    ma_bai = _ma_bai_ghep(db, bc, lsx_id) if "vat_tu" in can else {}
 
     ra: dict = {}
     if "thong_tin" in can:
@@ -1055,7 +1026,7 @@ def ho_so(
         )
     if "vat_tu" in can:
         ra["vat_tu"] = _vat_tu(
-            bc, lsx_id, bang=bang, ma_bai=ma_bai,
+            bc, lsx_id, bang=bang,
             thu_tu_buoc=thu_tu_buoc, thu_tu_hien_tai=thu_tu_hien_tai,
         )
     if "nhan_luc" in can:

@@ -1419,7 +1419,7 @@ def test_gom_theo_hang_va_chu_the_quy_ve_bai_ghep(db, kh, customer):
     # riêng — khai thì nó có nhu cầu riêng thật, và ca đang kiểm không còn là ca này nữa.
     a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200, giay_o_buoc=False)
     # `giay_id`/`kho_in_dai`/`kho_in_rong` BẮT BUỘC để bài thật sự sinh dòng nhu cầu giấy của
-    # RIÊNG NÓ (`_gom_nhu_cau`: thiếu `giay_id` thì bài rơi vào `bo_qua`, không có dòng nào cả) —
+    # RIÊNG NÓ (`_gom_nhu_cau`: thiếu `giay_id` thì bài bị bỏ qua im lặng, không có dòng nào cả) —
     # thiếu thì cả hai bên `(a.id, None)` lẫn `(None, bg.id)` đều rỗng, hoá thành ca "mơ hồ" oan,
     # đúng bẫy mà `test_bai_ghep_la_CHU_THE_giu_cho` (file này) đã dặn qua cách dựng dữ liệu.
     bg = BaiGhep(ma="GB-1", ten="Bài 1", trang_thai="nhap",
@@ -1587,3 +1587,17 @@ def test_doi_soat_chay_duoc_tren_service_CHUA_TUNG_dung_bang(db, svc, customer):
         "trả rỗng vì thiếu nền quy đổi"
     )
 
+
+
+def test_the_lenh_mang_khach_va_han_giao_khach(db, svc, customer):
+    """Màn "Theo lệnh sản xuất" bày khách + ngày giao ngay trên hàng lệnh.
+
+    Thẻ chỉ NHẶT LẠI giá trị bảng cân đối đã gắn sẵn vào từng dòng — không tự tra thêm câu nào."""
+    g = _giay(db, ma="GY-1")
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    a.han_giao_khach = HOM_NAY + timedelta(days=11)
+    db.commit()
+
+    row = [r for r in svc.theo_chu_the()["items"] if r["lsx_id"] == a.id][0]
+    assert row["khach_ten"] == customer.name
+    assert row["han_giao_khach"] == HOM_NAY + timedelta(days=11)

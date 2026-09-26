@@ -212,13 +212,13 @@ def _kiem_role_gan(authz, user: User, roles: RoleRepository, department_id: int 
                    role_id: int | None) -> None:
     """Gán vai trò cho tài khoản mới sinh từ hồ sơ (07/09/2026, bản rà C6): trước đây nhận `role_id`
     tuỳ ý chỉ với `nhan_su:update` — người quản hồ sơ tự tạo tài khoản mang vai Giám đốc. Cùng luật
-    với đường quản trị chính (`user_admin_service.assign_role`): đòi ô Người dùng → Gán vai trò, và vai
-    phải thuộc phòng của nhân viên."""
+    với đường quản trị chính (`user_admin_service.assign_role`): đòi ô Hồ sơ nhân sự → Gán vai trò
+    (khoá `nguoi_dung` gỡ 24/09/2026, mg `0331`), và vai phải thuộc phòng của nhân viên."""
     if role_id is None:
         return
-    if not authz.can(user, "nguoi_dung", "assign_role"):
+    if not authz.can(user, MODULE, "assign_role"):
         raise HTTPException(status_code=403,
-                            detail="Gán vai trò cho tài khoản cần quyền Người dùng → Gán vai trò.")
+                            detail="Gán vai trò cho tài khoản cần quyền Hồ sơ nhân sự → Gán vai trò.")
     role = roles.get_by_id(role_id)
     if role is None or role.department_id != department_id:
         raise HTTPException(status_code=400, detail="Vai trò không thuộc phòng của nhân viên.")

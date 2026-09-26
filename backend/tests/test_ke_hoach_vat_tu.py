@@ -387,20 +387,26 @@ def test_lenh_cu_con_co_nguon_khach_VAN_sinh_dong_can_doi(db, svc, customer):
     assert [gr for gr in svc.can_doi()["items"] if gr["hang_id"] == g.id]
 
 
-def test_lenh_chua_chon_giay_hien_o_bo_qua_chu_khong_im_lang(db, svc, customer):
+def test_lenh_chua_khai_vat_tu_thi_VANG_MAT_chu_khong_bao_gi(db, svc, customer):
+    """Từ 23/09/2026 bảng KHÔNG còn mục "bỏ qua": chưa khai thì vắng mặt, im lặng.
+
+    Cửa chặn nằm ở xếp lịch (`_chan_chua_giu_du`), không ở bảng này — xem `_gom_nhu_cau`.
+    """
     o = _don(db, customer)
     db.add(Lsx(ma="LSX-NOGIAY", ten="x", order_id=o.id, order_line_id=o._line.id,
                so_luong_dat=10, so_to_nguyen=100, quy_cach_json={}, trang_thai=TT_SAN_SANG))
     db.commit()
 
-    assert [b["ma"] for b in svc.can_doi()["bo_qua"]] == ["LSX-NOGIAY"]
+    bang = svc.can_doi()
+    assert "bo_qua" not in bang
+    assert not [r for nhom in bang["items"] for r in nhom["dong"] if r.get("ma") == "LSX-NOGIAY"]
 
 
 def test_lenh_KHONG_con_tu_sinh_dong_giay_tu_quy_cach(db, svc, customer):
     """Đường cũ đã cắt 08/09/2026: `quy_cach_json.giay_id` không còn đẻ nhu cầu giấy nào.
 
     Lệnh vẫn ghi giấy trong quy cách (khổ/định lượng còn dùng chỗ khác) và vẫn có bước, chỉ thiếu
-    dòng giấy khai tay ⇒ bảng cân đối phải TRỐNG giấy, và lệnh rơi xuống mục "bỏ qua".
+    dòng giấy khai tay ⇒ bảng cân đối phải TRỐNG giấy.
     """
     g = _giay(db)
     _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
@@ -408,7 +414,6 @@ def test_lenh_KHONG_con_tu_sinh_dong_giay_tu_quy_cach(db, svc, customer):
 
     bang = svc.can_doi()
     assert not [x for x in bang["items"] if x["hang_loai"] == "giay"]
-    assert [b["ma"] for b in bang["bo_qua"]] == ["LSX-A"]
 
 
 def test_giay_chon_tay_o_BUOC_len_bang_voi_ngay_can_cua_dung_buoc_do(db, svc, customer):
@@ -1472,3 +1477,204 @@ def test_mon_da_BO_khoi_yeu_cau_thi_rung_chip(db, svc, customer):
     assert _nhom(svc.can_doi(), g)["phieu_mua"] == [], (
         "món đã bỏ mà vẫn đeo nhãn thì nhãn nói dối"
     )
+
+
+# --- KHÁCH HÀNG & HẠN GIAO KHÁCH ----------------------------------------------
+
+
+def test_dong_mang_khach_va_han_giao_cua_lenh(db, svc, customer):
+    """Bảng cân đối phải nói được "lệnh này của ai, giao ngày nào".
+
+    Hạn giao KHÁCH (`han_giao_khach`) khác hạn nội bộ `han_hoan_thanh_sx` mà bảng dùng xếp thứ tự
+    ăn tồn — dựng hai ngày LỆCH nhau để bắt được ca lấy nhầm cột."""
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000,
+              han=HOM_NAY + timedelta(days=5))
+    a.han_giao_khach = HOM_NAY + timedelta(days=9)
+    db.commit()
+
+    d = _nhom(svc.can_doi(), g)["dong"][0]
+    assert d["khach_ten"] == customer.name
+    assert d["han_giao_khach"] == HOM_NAY + timedelta(days=9)
+
+
+def test_don_chua_gan_khach_thi_o_khach_trong_chu_khong_mat_dong(db, svc, customer):
+    """Đơn không có khách (`customer_id` NULL) vẫn phải giữ dòng — join phải là LEFT."""
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    db.get(Order, a.order_id).customer_id = None
+    db.commit()
+
+    dong = _nhom(svc.can_doi(), g)["dong"]
+    assert [d["ma"] for d in dong] == ["LSX-A"]
+    assert dong[0]["khach_ten"] is None
+
+
+def test_bai_ghep_nhieu_khach_thi_dem_khach_va_lay_han_som_nhat(db, svc, customer):
+    """Bài gom nhiều lệnh của nhiều khách: KHÔNG bốc một tên làm đại diện (người đọc sẽ tưởng cả
+    bài của khách đó), mà nói đúng là "2 khách". Hạn giao lấy SỚM NHẤT."""
+    khac = Customer(code="KH-KHAC", name="Khách thứ hai")
+    db.add(khac)
+    db.commit()
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=500, han=MAI,
+              giay_o_buoc=False)
+    b = _lenh(db, khac, ma="LSX-B", giay_id=g.id, so_to_nguyen=500, han=MAI,
+              giay_o_buoc=False)
+    a.han_giao_khach = HOM_NAY + timedelta(days=12)
+    b.han_giao_khach = HOM_NAY + timedelta(days=8)
+    bg = BaiGhep(ma="GB-001", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add_all([
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1),
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=b.id, so_con_tren_to=1),
+    ])
+    db.commit()
+
+    d = _nhom(svc.can_doi(), g)["dong"][0]
+    assert d["ma"] == "GB-001"
+    assert d["khach_ten"] == "2 khách"
+    assert d["han_giao_khach"] == HOM_NAY + timedelta(days=8)
+
+
+def test_bai_ghep_cung_mot_khach_thi_noi_ten_khach(db, svc, customer):
+    """Mọi thành viên cùng khách ⇒ nói thẳng tên, không đếm."""
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=500, han=MAI,
+              giay_o_buoc=False)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=500, han=MAI,
+              giay_o_buoc=False)
+    bg = BaiGhep(ma="GB-002", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add_all([
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1),
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=b.id, so_con_tren_to=1),
+    ])
+    db.commit()
+
+    assert _nhom(svc.can_doi(), g)["dong"][0]["khach_ten"] == customer.name
+
+
+# --- BƯỚC ĐÃ CHẠY XONG THÌ RỤNG KHỎI BẢNG (23/09/2026) ------------------------
+#
+# Bảng này trả lời "CÒN phải lo gì". `lsx.trang_thai` dừng ở `da_phat_hanh` (các mốc sau khai mà
+# chưa dùng), nên trước đây không có gì kéo dòng ra: lệnh chạy xong đời nào vẫn nằm lại dưới dạng
+# "đã cấp đủ". Mốc rụng là BƯỚC — vật tư neo vào đúng bước tiêu thụ nó.
+
+
+def _cong_viec(db, lsx, *, buoc_id=None, bai_ghep_cong_doan_id=None, xong=True,
+               phan_doan_so=1, phan_doan_tong=1):
+    """Một work item của bàn tổ, đủ cột để `buoc_da_chay_xong` đếm được."""
+    from app.models.san_xuat import (
+        CV_HOAN_THANH, CV_PHAT_HANH, SanXuatCongViec, SanXuatGoiPhatHanh,
+    )
+
+    goi = db.query(SanXuatGoiPhatHanh).first()
+    if goi is None:
+        goi = SanXuatGoiPhatHanh(ma="GOI-KHVT-1")
+        db.add(goi)
+        db.flush()
+    cv = SanXuatCongViec(
+        goi_id=goi.id, lsx_id=(lsx.id if lsx is not None else None),
+        lsx_cong_doan_id=buoc_id, bai_ghep_cong_doan_id=bai_ghep_cong_doan_id,
+        ten_cong_doan="In offset", phan_doan_so=phan_doan_so, phan_doan_tong=phan_doan_tong,
+        trang_thai=CV_HOAN_THANH if xong else CV_PHAT_HANH,
+        hoan_thanh_luc=datetime.now(timezone.utc) if xong else None,
+    )
+    db.add(cv)
+    db.commit()
+    return cv
+
+
+def _buoc_cua(db, lsx) -> LsxCongDoan:
+    return db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id == lsx.id).order_by(
+        LsxCongDoan.thu_tu).first()
+
+
+def _nhom_neu_co(bang, giay):
+    """Như `_nhom` nhưng trả `None` khi mặt hàng đã rụng — `_nhom` cố ý nổ để test cũ không im."""
+    return next(
+        (g for g in bang["items"] if (g["hang_loai"], g["hang_id"]) == ("giay", giay.id)), None
+    )
+
+
+def test_buoc_chay_xong_thi_dong_vat_tu_RUNG_khoi_bang(db, svc, customer):
+    """Bước ăn giấy đã `completed` ⇒ mặt hàng không còn việc gì để lo ⇒ biến khỏi bảng.
+
+    Không phải "chuyển xám": xám nghĩa là còn theo dõi. Ở đây là hết chuyện.
+    """
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-XONG", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    _ton(db, g, 500)
+    assert _nhom_neu_co(svc.can_doi(), g) is not None, "chưa chạy thì phải có mặt"
+
+    _cong_viec(db, l, buoc_id=_buoc_cua(db, l).id, xong=True)
+
+    assert _nhom_neu_co(svc.can_doi(), g) is None
+
+
+def test_buoc_chua_phat_hanh_thi_VAN_O_LAI(db, svc, customer):
+    """Không có work item nào ⇒ chưa chạy, không phải đã xong. Chiều an toàn."""
+    g = _giay(db)
+    _lenh(db, customer, ma="LSX-CHUA", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    _ton(db, g, 500)
+
+    assert _nhom_neu_co(svc.can_doi(), g) is not None
+
+
+def test_moi_xong_MOT_lan_chay_thi_chua_rung(db, svc, customer):
+    """Bước tách hai lần chạy (mg `0254`): lần 1 xong, lần 2 còn chạy ⇒ vật tư vẫn phải lo.
+
+    Đếm "có một việc xong" thay vì "mọi việc xong" là giấu mất giấy của nửa sau.
+    """
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-2LAN", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    _ton(db, g, 500)
+    buoc = _buoc_cua(db, l).id
+    _cong_viec(db, l, buoc_id=buoc, xong=True, phan_doan_so=1, phan_doan_tong=2)
+    _cong_viec(db, l, buoc_id=buoc, xong=False, phan_doan_so=2, phan_doan_tong=2)
+
+    assert _nhom_neu_co(svc.can_doi(), g) is not None
+
+    db.query(__import__("app.models.san_xuat", fromlist=["SanXuatCongViec"]).SanXuatCongViec)\
+        .filter_by(phan_doan_so=2).update({"trang_thai": "completed"})
+    db.commit()
+
+    assert _nhom_neu_co(svc.can_doi(), g) is None, "xong nốt lần 2 thì mới hết việc"
+
+
+def test_phan_da_cap_cua_buoc_rung_KHONG_troi_sang_buoc_con_lai(db, svc, customer):
+    """Lệnh ăn cùng một món ở HAI bước, kho cấp cho bước đầu, bước đầu chạy xong.
+
+    `da_cap` không có chiều bước (phiếu xuất chỉ gắn lệnh — xem `_da_cap_dang_linh`), nên nếu bỏ
+    dòng mà không trừ phần của nó thì số đã cấp ấy trôi sang bước sau và dán "đã cấp đủ" lên một
+    bước chưa hề nhận hàng.
+    """
+    from app.models.lsx import LsxCongDoanVatTu
+
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-2BUOC", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+              kg_giay=80)
+    b1 = _buoc_cua(db, l)
+    b2 = LsxCongDoan(lsx_id=l.id, thu_tu=2, ten="In mặt sau", loai_buoc="may",
+                     may_id=_may(db).id, don_vi_vao="to", don_vi_ra="to",
+                     so_luong_vao=1_000, so_luong_ra=1_000)
+    db.add(b2)
+    db.flush()
+    db.add(LsxCongDoanVatTu(
+        lsx_cong_doan_id=b2.id, hang_loai="giay", vat_tu_id=g.id,
+        vat_tu_ma_snapshot=g.ma, vat_tu_ten_snapshot=g.ten, don_vi_snapshot="kg",
+        so_luong=80, thu_tu=0, tu_dong=False,
+    ))
+    db.commit()
+    _ton(db, g, 1_000)
+    # Kho đã ứng ĐÚNG phần của bước 1 (80 kg), bước 1 chạy xong.
+    _de_nghi_xuat(db, g, lsx_id=l.id, duyet=80, da_ung=80)
+    _cong_viec(db, l, buoc_id=b1.id, xong=True)
+
+    dong = _nhom(svc.can_doi(), g)["dong"]
+    assert len(dong) == 1, "bước 1 đã rụng, chỉ còn bước 2"
+    assert dong[0]["da_cap"] == 0, "80 kg đó tiêu ở bước 1, không phải hàng của bước 2"
+    assert dong[0]["con_phai_co"] == 80

@@ -1,11 +1,15 @@
 // Sửa chữa máy — HAI cửa vào cùng một câu chuyện "máy này hỏng", trên MỘT màn.
 //
-//   • Yêu cầu báo hỏng (`yeu_cau_sua_chua`): người ngoài tổ kỹ thuật — thợ đứng máy, QC, tổ
-//     trưởng — nói "máy tôi hỏng". Là LỜI BÁO, chưa phải việc.
-//   • Phiếu sửa chữa (`ky_thuat_may`): sổ công việc của tổ sửa chữa. Mã SC chạy liên tục, mức độ
-//     là kết luận nghề, đóng phiếu đòi ảnh chứng thực.
+//   • Yêu cầu báo hỏng: người ngoài tổ kỹ thuật — thợ đứng máy, QC, tổ trưởng — nói "máy tôi
+//     hỏng". Là LỜI BÁO, chưa phải việc. Gửi/sửa lời báo gác bằng ô chi tiết
+//     `ky_thuat_may:request` ("Báo máy hỏng").
+//   • Phiếu sửa chữa: sổ công việc của tổ sửa chữa. Mã SC chạy liên tục, mức độ là kết luận nghề,
+//     đóng phiếu đòi ảnh chứng thực. Tiếp nhận/đóng phiếu gác bằng Thao tác của màn.
 //
-// Không tách thành hai màn (dù là hai bảng, hai ô quyền): người tổ kỹ thuật phải nhìn thấy hàng
+// MỘT màn = MỘT ô quyền `ky_thuat_may` (24/09/2026, mg `0332`): khoá `yeu_cau_sua_chua` cũ không
+// có mục thanh bên của riêng nó nên gỡ hẳn, Xem mở cả hai khung.
+//
+// Không tách thành hai màn (dù là hai bảng): người tổ kỹ thuật phải nhìn thấy hàng
 // chờ báo hỏng NGAY CẠNH hàng việc đang làm thì mới tiếp nhận kịp; bắt họ đổi màn là lời báo nằm
 // đó cả ca. Chuyển cửa bằng công tắc đầu thanh công cụ, mỗi lúc chỉ một khung được gắn.
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -91,9 +95,10 @@ export function SuaChuaMayPage({ eventTick = 0, onBadgeStale }: {
   const can = useCan();
   const xemPhieu = can("ky_thuat_may", "read");
   // Ai vào được màn này cũng xem được hàng chờ báo hỏng: người thứ hai phải THẤY máy đó có người
-  // báo rồi thì mới thôi báo trùng.
-  const xemYc = can("yeu_cau_sua_chua", "read") || xemPhieu;
-  const guiYcDuoc = can("yeu_cau_sua_chua", "create");
+  // báo rồi thì mới thôi báo trùng. Từ 24/09/2026 cả hai khung đi chung MỘT ô Xem (mg `0332`) —
+  // khoá `yeu_cau_sua_chua` gỡ hẳn vì nó không có mục thanh bên của riêng nó.
+  const xemYc = xemPhieu;
+  const guiYcDuoc = can("ky_thuat_may", "request");
   const tiepNhanDuoc = can("ky_thuat_may", "create");
   const tuChoiDuoc = can("ky_thuat_may", "update");
 

@@ -10,7 +10,7 @@ chẳng liên quan gì tới cân đối, rồi lần sau muốn biết màn nà
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.bai_ghep_cong_doan import (
@@ -18,6 +18,7 @@ from ..models.bai_ghep_cong_doan import (
 )
 from ..models.lsx import LsxCongDoanVatTu
 from ..models.may_thiet_bi import MayThietBi
+from ..models.san_xuat import CV_HOAN_THANH, SanXuatCongViec
 from ..models.xep_lich import XepLichCongDoan
 
 
@@ -79,5 +80,54 @@ class KeHoachVatTuRepository:
             m.id: m
             for m in self.db.execute(select(MayThietBi).where(MayThietBi.id.in_(ids))).scalars()
         }
+
+    def buoc_da_chay_xong(
+        self, *, lsx_buoc_ids: set[int], bai_buoc_ids: set[int]
+    ) -> tuple[set[int], set[int]]:
+        """Bước mà MỌI công việc sản xuất của nó đã `completed` — trả `(bước lệnh, bước chung)`.
+
+        "Mọi", không phải "có một": một bước tách nhiều lần chạy (`phan_doan_so`, mg `0254`) đẻ N
+        công việc cùng `lsx_cong_doan_id`. Xong lần 1 mà lần 2 còn chạy thì vật tư vẫn phải lo.
+
+        Bước KHÔNG có công việc nào (chưa phát hành, hoặc gói đã thu hồi và xoá việc) rơi ra ngoài
+        cả hai tập ⇒ tầng trên coi là CHƯA xong. Đó là chiều an toàn: thà giữ một dòng thừa trên
+        bảng còn hơn giấu mất một món chưa ai mua.
+
+        Neo bước ở `san_xuat_cong_viec` là id LỎNG (không FK — `replace_routing` tái sinh id). Vô
+        hại ở đây: routing khoá từ lúc lập kế hoạch, mà chưa lập kế hoạch thì cũng chưa có việc.
+        """
+        lsx_ids = {int(i) for i in lsx_buoc_ids if i}
+        bai_ids = {int(i) for i in bai_buoc_ids if i}
+        if not lsx_ids and not bai_ids:
+            return set(), set()
+        dk = []
+        if lsx_ids:
+            dk.append(SanXuatCongViec.lsx_cong_doan_id.in_(lsx_ids))
+        if bai_ids:
+            dk.append(SanXuatCongViec.bai_ghep_cong_doan_id.in_(bai_ids))
+        rows = self.db.execute(
+            select(
+                SanXuatCongViec.lsx_cong_doan_id,
+                SanXuatCongViec.bai_ghep_cong_doan_id,
+                func.count().label("tong"),
+                func.sum(
+                    case((SanXuatCongViec.trang_thai == CV_HOAN_THANH, 1), else_=0)
+                ).label("xong"),
+            )
+            .where(or_(*dk))
+            .group_by(
+                SanXuatCongViec.lsx_cong_doan_id, SanXuatCongViec.bai_ghep_cong_doan_id
+            )
+        ).all()
+        xong_lsx: set[int] = set()
+        xong_bai: set[int] = set()
+        for lsx_cd, bai_cd, tong, xong in rows:
+            if not tong or int(xong or 0) < int(tong):
+                continue
+            if bai_cd is not None:
+                xong_bai.add(int(bai_cd))
+            elif lsx_cd is not None:
+                xong_lsx.add(int(lsx_cd))
+        return xong_lsx, xong_bai
 
     # (`khuon_theo_ids` + `cong_doan_can_dung_cu` đã gỡ 16/08/2026 cùng nhóm "Công cụ" — mg `0203`.)

@@ -41,10 +41,12 @@ export function AccountTab({
 }) {
   const can = useCan();
   const canCreate = can("nhan_su", "update");
-  const canAssignRole = can("nguoi_dung", "assign_role");
-  const canReset = can("nguoi_dung", "reset_password");
-  const canLock = can("nguoi_dung", "lock");
-  const canRevoke = can("nguoi_dung", "revoke_sessions");
+  // Bốn ô quản trị tài khoản dời từ khoá `nguoi_dung` sang `nhan_su` 24/09/2026 (mg `0331`) —
+  // tên thao tác giữ nguyên nên chỉ đổi khoá màn.
+  const canAssignRole = can("nhan_su", "assign_role");
+  const canReset = can("nhan_su", "reset_password");
+  const canLock = can("nhan_su", "lock");
+  const canRevoke = can("nhan_su", "revoke_sessions");
 
   const [row, setRow] = useState<UserRow | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);

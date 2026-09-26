@@ -943,7 +943,6 @@ export interface BaiGhep2VatTuNhom {
 export interface BaiGhep2VatTuHieuLuc {
   bai_ghep_id: number;
   items: BaiGhep2VatTuNhom[];
-  bo_qua: { ma: string; ly_do: string }[];
 }
 export interface BaiGhep2Activity {
   at: string | null;
@@ -1447,6 +1446,26 @@ export interface SxThucTeKhoang {
  *  Đơn vị VIỆC vẫn là CÔNG ĐOẠN: `cong_viec` là các bước tổ thật sự bấm Bắt đầu / Ghi sản lượng,
  *  giữ nguyên `SxWorkItem`. Lệnh chỉ là ĐẦU MỤC bọc ngoài để tổ trưởng biết công đoạn này thuộc
  *  lệnh nào. Bài ghép là MỘT dòng, không xé theo lệnh thành viên. */
+/** Một BƯỚC trên dải routing của thẻ lệnh — chuỗi công đoạn đầy đủ, kể cả bước của tổ khác.
+ *  `cong_viec_id` chỉ có ở bước của CHÍNH tổ mình: bước tổ khác là chỉ-đọc, không mở drawer. */
+export interface SxRoutingBuoc {
+  thu_tu: number;
+  step_key: string | null;
+  ten_cong_doan: string;
+  to_id: number | null;
+  to_ten: string | null;
+  la_cua_toi: boolean;
+  la_kcs_cuoi: boolean;
+  trang_thai: string;
+  phan_doan_tong: number;
+  chay_chung: boolean;
+  ke_hoach: number | null;
+  thuc_te: number;
+  don_vi: string | null;
+  da_giao_sang_toi: number | null;   // bước NGUỒN đã giao sang tổ đang xem
+  da_nhan: number | null;            // bước CỦA TỔ đang xem đã nhận được
+  cong_viec_id: number | null;
+}
 export interface SxLenhNhom {
   nguon_loai: string;          // "lsx" | "bai_ghep"
   nguon_ma: string;
@@ -1459,6 +1478,7 @@ export interface SxLenhNhom {
   nhan_luc?: string | null;    // lúc tổ nhận việc sớm nhất của lệnh
   so_viec: number;
   digest: { released: number; running: number; paused: number; completed: number };
+  routing?: SxRoutingBuoc[];   // chuỗi công đoạn đầy đủ; rỗng khi lệnh chỉ có một bước
   cong_viec: SxWorkItem[];
 }
 /** Vị trí trang + tổng số LỆNH (không phải tổng số bước) — đơn vị trang của bàn tổ là LỆNH, nhờ
@@ -1774,6 +1794,8 @@ export interface SxCongDoanTruoc {
   phan_doan_so: number;
   phan_doan_tong: number;
   to_ten: string | null;
+  /** Bước trước cùng tổ + cùng lệnh: không cổng, không cần bàn giao (`dau_vao.cung_to_cung_lsx`). */
+  cung_to: boolean;
   trang_thai: string;
   ke_hoach: number | null;
   don_vi: string | null;
@@ -1790,6 +1812,8 @@ export interface SxTranGhi {
   he_so: number;
   don_vi_nhan: string;
   nguon_ten: string;
+  /** Nguồn cùng tổ ⇒ `da_nhan` là SẢN LƯỢNG bước trước, không phải số đã bàn giao. */
+  cung_to: boolean;
   da_ghi: number;
   con_ghi_duoc: number;
 }
@@ -2966,6 +2990,22 @@ export interface UnitLevel {
 /** Nhân sự của một phòng — một dòng = một HỒ SƠ (Đ2), kèm tài khoản nếu có.
  *  `user_id`/`username` null = chưa có tài khoản đăng nhập (công nhân xưởng): vẫn thuộc
  *  phòng và vẫn chuyển phòng được, chỉ là không gán vai trò được. */
+/** Một người trong nhóm dùng chung (khối Kinh doanh). */
+export interface NhomDungChungThanhVien {
+  user_id: number;
+  ho_ten: string;
+  username: string;
+}
+
+/** Nhóm DÙNG CHUNG dữ liệu — hai người cùng nhóm thì phạm vi "Của tôi" của họ ở bốn màn
+ *  Tính giá · Báo giá · Đơn hàng · Khách hàng được hiểu là "của tôi + của người cùng nhóm". */
+export interface NhomDungChung {
+  id: number;
+  ten: string;
+  thanh_viens: NhomDungChungThanhVien[];
+  created_at?: string | null;
+}
+
 export interface DepartmentMember {
   employee_id: number;
   code?: string | null;
@@ -3864,6 +3904,9 @@ export interface PhieuTinhGiaOut {
   gia_von_don: number;
   result: TinhGiaPreviewOut | null;
   warnings: string[] | null;
+  /** CHỈ có ở bản RÚT GỌN (vai thiếu `tinh_gia_thanh:view_cost`): tên + tổng tiền từng rổ, không
+   *  kèm dòng nào. Vai đủ quyền đọc ba rổ từ `result.groups` nên BE không trả field này. */
+  nhom_tong?: { ten: string; tong: number }[];
   ktv: string | null;
   ghi_chu: string | null;
   thanh_phans: ThanhPhanOut[];
@@ -8198,13 +8241,15 @@ export interface BaoCaoNXTRow {
   hang_nhom: string | null;
   dvt: string | null;
   dau_sl: number;
-  dau_gt: number;
+  // Bốn ô GIÁ TRỊ về null khi vai không có ô "Xem giá thành" của Kho — xem `_an_tien` bên
+  // `routers/kho_baocao.py`. Số lượng vẫn đủ, chỉ tiền là trống.
+  dau_gt: number | null;
   nhap_sl: number;
-  nhap_gt: number;
+  nhap_gt: number | null;
   xuat_sl: number;
-  xuat_gt: number;
+  xuat_gt: number | null;
   cuoi_sl: number;
-  cuoi_gt: number;
+  cuoi_gt: number | null;
   don_gia_bq: number | null;
 }
 
@@ -8337,6 +8382,11 @@ export interface CanDoiDong {
   /** "Ngày cần hàng" người lập gõ trên yêu cầu mua đã lập cho lệnh/bài này (sớm nhất) — đọc ngược,
    *  KHÔNG suy. Chưa lập yêu cầu mua nào (vd tồn đủ) ⇒ `null`, hiện trống. */
   ngay_can: string | null;
+  /** Khách của lệnh. Dòng BÀI GHÉP gom nhiều lệnh: một khách thì là tên, nhiều khách thì server
+   *  trả thẳng chuỗi `"3 khách"` — FE in nguyên, không tự diễn giải. */
+  khach_ten: string | null;
+  /** Hạn giao KHÁCH — khác hạn nội bộ mà bảng dùng xếp thứ tự ăn tồn. */
+  han_giao_khach: string | null;
   /** Mọi số theo ĐƠN VỊ GỐC của mặt hàng. null ở dòng công cụ. */
   nhu_cau: number | null;
   /** Hai đơn vị cùng lúc: "2.961 tờ ≈ 116 kg". */
@@ -8397,15 +8447,10 @@ export interface CanDoiNhom {
   dong: CanDoiDong[];
 }
 
-/** Lệnh/bài KHÔNG cân đối được — hiện thẳng ra thay vì im lặng bỏ. */
-export interface CanDoiBoQua {
-  ma: string;
-  ly_do: string;
-}
-
+/** `bo_qua` (lệnh/bài không cân đối được) GỠ 23/09/2026 — chưa khai vật tư thì vắng mặt, không
+ *  cảnh báo; cửa chặn nằm ở xếp lịch. */
 export interface CanDoiOut {
   items: CanDoiNhom[];
-  bo_qua: CanDoiBoQua[];
   /** Số lệnh giữ lâu chưa vào kế hoạch — toàn xưởng, không theo `q` (cùng nghĩa `TheoLenhOut`). */
   so_giu_lau: number;
 }
@@ -8488,6 +8533,9 @@ export interface TheoLenhRow {
   is_rush: boolean;
   /** Ngày cần hàng SỚM NHẤT trên các yêu cầu mua đã lập cho lệnh. Lệnh không phải mua ⇒ `null`. */
   ngay_can: string | null;
+  /** Khách + hạn giao khách — xem `CanDoiDong.khach_ten` / `.han_giao_khach`. */
+  khach_ten: string | null;
+  han_giao_khach: string | null;
   /** Còn giữ chỗ nhưng ĐÃ RƠI khỏi bảng cân đối (lệnh bị kéo về nháp…). Vẫn trừ vào tồn tự do của
    *  mọi người khác, nên phải bày ra để có đường nhả. */
   ngoai_pham_vi: boolean;
@@ -8779,22 +8827,11 @@ export interface LenhSxVatTuMuc {
   dong: LenhSxVatTuDong[];
 }
 
+/** `bo_qua` GỠ 23/09/2026 cùng lúc với `CanDoiOut.bo_qua` — ba mục dưới là toàn bộ khối vật tư. */
 export interface LenhSxVatTu {
   hien_tai: LenhSxVatTuMuc;
   canh_bao_sau: LenhSxVatTuDong[];
   da_cap: LenhSxVatTuDong[];
-  /** Dòng engine KHÔNG đối chiếu được (thiếu công thức lượng, đơn vị lạ). Phải bày ra: một bảng
-   *  vật tư im lặng bỏ sót vài món trông y hệt một bảng đủ. */
-  bo_qua: LenhSxVatTuBoQua[];
-}
-
-/** Schema khai `list[dict]` (hình dạng do engine vật tư quyết), nên hai khoá dưới đây khai
- *  OPTIONAL và chừa cửa cho khoá lạ — engine thêm trường thì màn không gãy, chỉ không hiện. */
-export interface LenhSxVatTuBoQua {
-  /** Mã LỆNH hoặc mã BÀI GHÉP — hai loại, đừng giả định chỉ có một. */
-  ma?: string | null;
-  ly_do?: string | null;
-  [k: string]: unknown;
 }
 
 export interface LenhSxNhanLucBuoc {
@@ -9988,6 +10025,22 @@ export const api = {
     deleteRole(token: string, roleId: number): Promise<void> {
       return authed<void>(`/api/roles/${roleId}`, token, { method: "DELETE" });
     },
+    /** Nhân bản vai trò: vai MỚI với ma trận quyền chép y nguyên vai gốc.
+     *  Bỏ `name` = máy chủ tự đặt "«tên gốc» (bản sao)"; bỏ `departmentId` = cùng phòng vai gốc.
+     *  Gác bằng `phong_ban:create` + `phong_ban:manage_permissions` (nó bê cả bộ quyền). */
+    duplicateRole(
+      token: string,
+      roleId: number,
+      opts?: { name?: string; departmentId?: number },
+    ): Promise<Role> {
+      return authed<Role>(`/api/roles/${roleId}/duplicate`, token, {
+        method: "POST",
+        body: JSON.stringify({
+          name: opts?.name ?? null,
+          department_id: opts?.departmentId ?? null,
+        }),
+      });
+    },
     /** Bảng VAI MẪU — bộ quyền dựng sẵn cho các vai điển hình (đợt 6).
      *  CHỈ ĐỌC: giao diện điền vào ma trận đang mở, người dùng xem lại rồi mới bấm Lưu. */
     roleTemplates(token: string): Promise<RoleTemplate[]> {
@@ -10004,6 +10057,40 @@ export const api = {
       return authed<PermissionRow[]>(`/api/roles/${roleId}/permissions`, token, {
         method: "PUT",
         body: JSON.stringify({ permissions: rows }),
+      });
+    },
+  },
+
+  // --- Nhóm dùng chung (khối Kinh doanh) -------------------------------------
+  // Gác bằng `phong_ban:manage_permissions` — gộp nhóm là cho người này thấy dữ liệu của người
+  // kia, cùng loại với cấp quyền.
+  nhomDungChung: {
+    list(token: string): Promise<NhomDungChung[]> {
+      return authed<NhomDungChung[]>("/api/nhom-dung-chung", token);
+    },
+    create(token: string, ten: string, userIds: number[]): Promise<NhomDungChung> {
+      return authed<NhomDungChung>("/api/nhom-dung-chung", token, {
+        method: "POST",
+        body: JSON.stringify({ ten, user_ids: userIds }),
+      });
+    },
+    /** `userIds` là THAY TOÀN BỘ danh sách thành viên; bỏ qua = chỉ đổi tên. */
+    update(
+      token: string,
+      id: number,
+      data: { ten?: string; userIds?: number[] },
+    ): Promise<NhomDungChung> {
+      return authed<NhomDungChung>(`/api/nhom-dung-chung/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...(data.ten === undefined ? {} : { ten: data.ten }),
+          ...(data.userIds === undefined ? {} : { user_ids: data.userIds }),
+        }),
+      });
+    },
+    remove(token: string, id: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/nhom-dung-chung/${id}`, token, {
+        method: "DELETE",
       });
     },
   },

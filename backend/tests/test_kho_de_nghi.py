@@ -33,7 +33,13 @@ def _login(client, username: str) -> dict[str, str]:
 
 
 def _mk_user(username: str, dept_name: str, perms: dict) -> int:
-    """1 user + 1 vai trò mang đúng ô quyền `kho` cần test."""
+    """1 user + 1 vai trò mang đúng ô quyền `kho` cần test.
+
+    Hai cờ `can_view_stock` / `can_set_threshold` vẫn viết ở chỗ gọi cho dễ đọc, nhưng từ
+    24/09/2026 (mg `0334`) chúng KHÔNG còn là ô chi tiết của `kho` nữa: màn Tồn kho là module
+    riêng `ton_kho` (Xem = số tồn + lô, ô chi tiết = khai ngưỡng). Helper dịch hộ sang dòng quyền
+    mới để các test cũ vẫn mô tả đúng nhân vật.
+    """
     db = SessionLocal()
     try:
         depts, roles, users = DepartmentRepository(db), RoleRepository(db), UserRepository(db)
@@ -41,7 +47,18 @@ def _mk_user(username: str, dept_name: str, perms: dict) -> int:
         role = roles.get_by_name_and_department(f"Vai {username}", dept.id) or roles.create(
             name=f"Vai {username}", department_id=dept.id
         )
-        roles.set_permission(role_id=role.id, module_key="kho", **perms)
+        xem_ton = bool(perms.get("can_view_stock"))
+        khai_nguong = bool(perms.get("can_set_threshold"))
+        roles.set_permission(
+            role_id=role.id, module_key="kho",
+            **{k: v for k, v in perms.items()
+               if k not in ("can_view_stock", "can_set_threshold")},
+        )
+        if xem_ton or khai_nguong:
+            roles.set_permission(
+                role_id=role.id, module_key="ton_kho",
+                can_read=xem_ton, can_set_threshold=khai_nguong, scope=SCOPE_ALL,
+            )
         u = users.create(username=username, name=username, password_hash=hash_password(PW))
         users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
         return u.id

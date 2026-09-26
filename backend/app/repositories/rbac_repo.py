@@ -338,6 +338,10 @@ class RoleRepository:
             self.db.add(RolePermission(
                 role_id=role.id, module_key=khoa, can_read=True,
                 can_create=(khoa == "self_service"),
+                # `noi_quy` là tài liệu CHUNG toàn công ty ⇒ phạm vi `all` ngay từ lúc sinh vai
+                # (24/09/2026). Để mặc định `own` thì ô chọn phạm vi — nay đã khoá về một lựa
+                # chọn "Tất cả" — hiện RỖNG vì giá trị đang lưu không nằm trong danh sách.
+                scope=("all" if khoa == "noi_quy" else "own"),
             ))
         self.db.commit()
         return role
@@ -347,6 +351,43 @@ class RoleRepository:
         self.db.commit()
         self.db.refresh(role)
         return role
+
+    def copy_permissions(
+        self,
+        *,
+        tu_role_id: int,
+        sang_role_id: int,
+        doi_to: tuple[int, int] | None = None,
+    ) -> int:
+        """Chép TOÀN BỘ dòng quyền của vai `tu_role_id` sang vai `sang_role_id`, thay sạch
+        quyền vai đích đang có. Trả số dòng đã chép.
+
+        Chép theo DANH SÁCH CỘT CỦA MODEL chứ không liệt kê tay: thêm cột quyền mới sau này là
+        bản sao tự có ngay. `get_matrix`/`save_matrix` liệt kê tay và đã từng sót ba cột
+        (vá 11/08/2026) — đường này không lặp lại được lỗi đó.
+
+        `doi_to = (phòng gốc, phòng đích)`: nhân bản SANG PHÒNG KHÁC thì dòng quyền theo tổ
+        `to_sx_<phòng gốc>` được ánh xạ sang `to_sx_<phòng đích>`; phòng đích không có dòng tổ
+        (ngoài khối sản xuất) thì BỎ, chứ không để vai phòng B cầm quyền tổ của phòng A.
+        """
+        cot = [c.name for c in RolePermission.__table__.columns if c.name not in ("id", "role_id")]
+        self.db.execute(delete(RolePermission).where(RolePermission.role_id == sang_role_id))
+        khoa_co = {k for (k,) in self.db.execute(select(Module.key)).all()}
+        chep = 0
+        for p in self.permissions_for(tu_role_id):
+            gia_tri = {c: getattr(p, c) for c in cot}
+            khoa = str(gia_tri["module_key"])
+            if doi_to is not None and doi_to[0] != doi_to[1] and khoa.startswith("to_sx_"):
+                if khoa != f"to_sx_{doi_to[0]}":
+                    continue
+                khoa = f"to_sx_{doi_to[1]}"
+                if khoa not in khoa_co:
+                    continue
+                gia_tri["module_key"] = khoa
+            self.db.add(RolePermission(role_id=sang_role_id, **gia_tri))
+            chep += 1
+        self.db.commit()
+        return chep
 
     def delete(self, role: Role) -> None:
         """Delete a role and its permission rows (no DB cascade configured)."""
@@ -398,7 +439,11 @@ class RoleRepository:
     def kho_notify_user_ids(self, *, bo_phan_id: int | None, creator_id: int | None) -> list[int]:
         """User ids NÊN nhận tín hiệu 'việc kho mới' cho yêu cầu ở phòng `bo_phan_id`.
 
-        = người XỬ LÝ kho (`can_create` HOẶC `can_view_stock`) mà PHẠM VI của vai PHỦ phòng đó:
+        = NGƯỜI KHO mà PHẠM VI của vai PHỦ phòng đó. "Người kho" theo luật 24/09/2026 (khớp
+        `kho_request._la_nguoi_kho`, mg `0334`): có Thao tác kho (`can_create`), HOẶC chỉ có Xem
+        mà không có ô "Tạo yêu cầu" (`can_read AND NOT can_request` — vai Kế toán kho). Vế thứ
+        hai trước đây là `can_view_stock`; cờ đó đã sang module `ton_kho`, mà hộp việc của màn
+        Kho không được đi hỏi quyền của màn Tồn kho.
         `all` (mọi phòng) · `department` (phòng người nhận là phòng yêu cầu hoặc phòng cha/ông của
         nó) · và chính người tạo. Tôn trọng ĐÚNG scope như danh sách yêu cầu
         (kho_request._scoped_filters, 16/09/2026): ai thấy yêu cầu trong danh sách thì nhận tín hiệu."""
@@ -416,7 +461,10 @@ class RoleRepository:
                 RolePermission.module_key == "kho",
                 or_(
                     RolePermission.can_create.is_(True),
-                    RolePermission.can_view_stock.is_(True),
+                    and_(
+                        RolePermission.can_read.is_(True),
+                        RolePermission.can_request.is_(False),
+                    ),
                 ),
                 or_(
                     RolePermission.scope == SCOPE_ALL,

@@ -174,23 +174,10 @@ function DsRowBlock({
       {/* Nguồn & Mã */}
       <td>
         <div className="thsx-ds__src-cell">
-          <div className="thsx-ds__src-main">
-            <span className="thsx-ds__src">
-              <Icon name={sxNguonIcon(w.nguon_loai)} size={13} className="thsx-ds__src-ic" />
-              <span className="thsx-num">{sxSerial(w.nguon_ma)}</span>
-            </span>
-            {w.nguon_ten && (
-              <div className="thsx-ds__srcten" title={w.nguon_ten}>
-                {w.nguon_ten}
-              </div>
-            )}
-            {w.khach_hang && (
-              <div className="thsx-ds__khach" title={`Khách hàng: ${w.khach_hang}`}>
-                <Icon name="building" size={11} />
-                <span>{w.khach_hang}</span>
-              </div>
-            )}
-          </div>
+          <span className="thsx-ds__src" title={w.nguon_ten ? `${w.nguon_ten}${w.khach_hang ? ` · ${w.khach_hang}` : ""}` : undefined}>
+            <Icon name={sxNguonIcon(w.nguon_loai)} size={13} className="thsx-ds__src-ic" />
+            <span className="thsx-num">{sxSerial(w.nguon_ma)}</span>
+          </span>
         </div>
       </td>
 
@@ -237,8 +224,13 @@ function DsRowBlock({
       {/* Sản lượng & Tiến độ */}
       <td>
         <div className="thsx-ds__sl-cell">
-          <div className="thsx-ds__sl-main thsx-num">
-            {slText(w)}
+          <div className="thsx-ds__sl-top">
+            <span className="thsx-ds__sl-main thsx-num">{slText(w)}</span>
+            {w.thuc_nhan != null && (
+              <span className="thsx-ds__recv-badge thsx-num" title="Số lượng đã nhận từ công đoạn trước">
+                Đã nhận: {num(w.thuc_nhan)}
+              </span>
+            )}
           </div>
           {mucTieu > 0 ? (
             <div className="thsx-ds__prog-wrap">
@@ -251,11 +243,6 @@ function DsRowBlock({
               </div>
             </div>
           ) : null}
-          {w.thuc_nhan != null && (
-            <div className="thsx-ds__recv-badge thsx-num">
-              Đã nhận: {num(w.thuc_nhan)}
-            </div>
-          )}
         </div>
       </td>
 
@@ -265,44 +252,41 @@ function DsRowBlock({
       {/* Trạng thái & Thao tác nhanh */}
       <td>
         <div className="thsx-ds__act-cell" onClick={(e) => e.stopPropagation()}>
-          {/* Pill trên, nút dưới: xếp ngang cả ba thì cột này rộng ~320px và đẩy bảng tràn khung. */}
-          <div className="thsx-ds__act-main">
-            <ThsxTrangThaiPill tt={w.trang_thai} size="xs" />
-            {(w.trang_thai === "released" || w.trang_thai === "paused") && w.chay_duoc && onBatDau && (
-              <button
-                type="button"
-                className="thsx-ds__actbtn thsx-ds__actbtn--play"
-                title="Bắt đầu thực hiện công việc"
-                onClick={onBatDau}
-              >
-                <Icon name="play" size={11} /> Bắt đầu
-              </button>
-            )}
-            {w.trang_thai === "running" && w.chay_duoc && (onTamDung || onKetThuc) && (
-              <div className="thsx-ds__act-grp">
-                {onTamDung && (
-                  <button
-                    type="button"
-                    className="thsx-ds__actbtn thsx-ds__actbtn--pause"
-                    title="Tạm dừng công việc"
-                    onClick={onTamDung}
-                  >
-                    <Icon name="pause" size={11} /> Tạm dừng
-                  </button>
-                )}
-                {onKetThuc && (
-                  <button
-                    type="button"
-                    className="thsx-ds__actbtn thsx-ds__actbtn--check"
-                    title="Hoàn thành & Kết thúc"
-                    onClick={onKetThuc}
-                  >
-                    <Icon name="check" size={11} /> Kết thúc
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          <ThsxTrangThaiPill tt={w.trang_thai} size="xs" />
+          {(w.trang_thai === "released" || w.trang_thai === "paused") && w.chay_duoc && onBatDau && (
+            <button
+              type="button"
+              className="thsx-ds__actbtn thsx-ds__actbtn--play"
+              title="Bắt đầu thực hiện công việc"
+              onClick={onBatDau}
+            >
+              <Icon name="play" size={11} /> Bắt đầu
+            </button>
+          )}
+          {w.trang_thai === "running" && w.chay_duoc && (onTamDung || onKetThuc) && (
+            <div className="thsx-ds__act-grp">
+              {onTamDung && (
+                <button
+                  type="button"
+                  className="thsx-ds__actbtn thsx-ds__actbtn--pause"
+                  title="Tạm dừng công việc"
+                  onClick={onTamDung}
+                >
+                  <Icon name="pause" size={11} /> Tạm dừng
+                </button>
+              )}
+              {onKetThuc && (
+                <button
+                  type="button"
+                  className="thsx-ds__actbtn thsx-ds__actbtn--check"
+                  title="Hoàn thành & Kết thúc"
+                  onClick={onKetThuc}
+                >
+                  <Icon name="check" size={11} /> Kết thúc
+                </button>
+              )}
+            </div>
+          )}
           <button
             type="button"
             className="thsx-ds__actbtn thsx-ds__actbtn--view"

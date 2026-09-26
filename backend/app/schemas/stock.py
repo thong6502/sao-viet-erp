@@ -246,13 +246,16 @@ class BaoCaoNXTRow(BaseModel):
     hang_nhom: str | None = None          # "Giấy" | "Vật tư" — cho FE gom nhóm
     dvt: str | None = None
     dau_sl: float = 0
-    dau_gt: int = 0
+    # Bốn ô GIÁ TRỊ nhận None (không phải 0) khi người xem thiếu `kho:view_cost`: họ vẫn đọc được
+    # SỐ LƯỢNG nhập-xuất-tồn, chỉ không thấy tiền (xem `_an_tien` ở `routers/kho_baocao.py`).
+    # Ghi 0 thì người đọc tin là "kỳ này không phát sinh tiền" — sai lệch còn tệ hơn ô trống.
+    dau_gt: int | None = 0
     nhap_sl: float = 0
-    nhap_gt: int = 0
+    nhap_gt: int | None = 0
     xuat_sl: float = 0
-    xuat_gt: int = 0
+    xuat_gt: int | None = 0
     cuoi_sl: float = 0
-    cuoi_gt: int = 0
+    cuoi_gt: int | None = 0
     don_gia_bq: float | None = None       # đơn giá bình quân của kỳ (đ/ĐVT gốc)
 
 

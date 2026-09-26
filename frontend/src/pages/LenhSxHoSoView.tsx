@@ -854,22 +854,9 @@ export function LenhSxHoSoView({
                   dong={d.vat_tu.da_cap}
                   khiRong="Kho chưa xuất món nào cho lệnh này."
                 />
-                {d.vat_tu.bo_qua.length > 0 && (
-                  <div className="hslsx-hs__muc">
-                    <h4 className="hslsx-hs__muc-h">Engine chưa đối chiếu được</h4>
-                    {/* Một bảng vật tư im lặng bỏ sót vài món trông y hệt một bảng đủ. */}
-                    <p className="hslsx-hs__note">
-                      Những dòng dưới đây KHÔNG nằm trong ba mục trên — phải tự kiểm bằng tay.
-                    </p>
-                    <ul className="hslsx-hs__ul">
-                      {d.vat_tu.bo_qua.map((r, i) => (
-                        <li key={i}>
-                          <b>{String(r.ma ?? "—")}</b> — {String(r.ly_do ?? "không rõ lý do")}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                {/* Mục "Engine chưa đối chiếu được" (đọc `vat_tu.bo_qua`) GỠ 23/09/2026 cùng lúc
+                    với băng cùng nội dung ở màn Kế hoạch vật tư: lệnh/bài chưa khai vật tư thì
+                    vắng mặt, không phải một cảnh báo. Chặn vẫn ở cửa xếp lịch. */}
               </Khoi>
 
               {/* ---------- Nhân lực ---------- */}

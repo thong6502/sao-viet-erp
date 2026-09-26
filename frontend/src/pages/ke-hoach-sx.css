@@ -5409,46 +5409,8 @@ td.khsx-num > .khsx-unit {
   background: var(--rule-hair);
 }
 
-/* --- Inline Alert Strip (Lệnh bỏ qua) ------------------------------------- */
-.khsx .khvt-alert-inline {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 9px 16px;
-  margin-bottom: var(--sp-4);
-  background: var(--amber-soft);
-  border: 1px solid color-mix(in srgb, var(--amber) 25%, var(--amber-soft));
-  border-radius: var(--r-3);
-  color: var(--amber-deep);
-  font-size: var(--fs-xs);
-}
-.khsx .khvt-alert-inline svg {
-  color: var(--amber);
-  flex-shrink: 0;
-  transform: translateY(2px);
-}
-.khsx .khvt-alert-inline__content {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.khsx .khvt-alert-inline__items {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.khsx .khvt-alert-inline__item code {
-  font-family: var(--ff-sans);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--amber-deep);
-  background: var(--canvas);
-  padding: 1px 6px;
-  border-radius: var(--r-2);
-  border: 1px solid color-mix(in srgb, var(--amber) 20%, transparent);
-}
+/* `.khvt-alert-inline*` (băng vàng "lệnh chưa thể cân đối vật tư") GỠ 23/09/2026 cùng khối JSX
+   sinh ra nó — xem chú thích ở VatTuKeHoachView. */
 
 /* --- Master Table (Bảng Master Mặt Hàng - §6 UI_DESIGN.md) ---------------- */
 .khsx .khvt-master-tablewrap {
@@ -5480,6 +5442,40 @@ td.khsx-num > .khsx-unit {
   min-width: 1080px !important;
   border-collapse: collapse;
   font-size: 13.5px;
+}
+/* Bảng "Theo lệnh sản xuất": bề rộng cột do mình khai, phần dư dồn hết cho cột Vật tư. */
+.khsx .khvt-master-table--lenh {
+  table-layout: fixed;
+  min-width: 940px !important;
+}
+.khsx .khvt-master-table--lenh td,
+.khsx .khvt-master-table--lenh th {
+  overflow: hidden;
+}
+/* Mã phiếu mua ("DMH-260920-H4KV") dài bằng cả tên vật tư và chỉ là VẾT, không phải thứ người
+   ta đọc ở bảng tổng. Ở đây bỏ đi để tên vật tư có chỗ; vết vẫn còn trong tooltip của chip và
+   trong drawer Chi tiết cân đối. */
+.khsx .khvt-master-table--lenh .khvt-stream-chip__po { display: none; }
+/* Cột Vật tư xếp DỌC, mỗi món một dòng. Xếp ngang thì hai chip chia nhau một cột hẹp, mỗi chip
+   còn vài chục pixel — đo 23/09/2026: chip 22px cho nội dung 212px, chỉ còn trơ cái icon. Dọc thì
+   mỗi món chiếm trọn bề ngang cột nên tên đọc được ở mọi bề rộng màn hình. */
+.khsx .khvt-master-table--lenh .khvt-material-stream {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+.khsx .khvt-master-table--lenh .khvt-stream-chip {
+  /* Số thiếu ghim mép phải để mắt dò một cột số thẳng hàng. */
+  justify-content: flex-start;
+}
+.khsx .khvt-master-table--lenh .khvt-stream-chip__deficit,
+.khsx .khvt-master-table--lenh .khvt-stream-chip__ok { margin-left: auto; }
+.khsx .khvt-stream-dem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 .khsx .khvt-master-table th {
   font-size: 10.5px;
@@ -5517,9 +5513,11 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-master-row.khvt-row--khongro {
   border-left: 3.5px solid var(--amber);
 }
+/* "Đang chọn" là trạng thái THAO TÁC, không phải cảnh báo → nền xám trung tính, KHÔNG dùng tông
+   đỏ/cam (màu đó để dành cho tin xấu: thiếu hàng, trễ hạn). Vạch chỉ vẽ ở ô ĐẦU hàng — đặt
+   box-shadow lên mọi td sẽ thành 7 vạch đỏ dọc chạy giữa bảng. */
 .khsx .khvt-master-row.khvt-row--chon td {
-  background: var(--rust-soft);
-  box-shadow: inset 3px 0 0 var(--rust);
+  background: #eef2f7;
 }
 
 .khsx .khvt-cell-item {
@@ -5547,7 +5545,7 @@ td.khsx-num > .khsx-unit {
 
 .khsx .khvt-item-name {
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink);
   max-width: 320px;
   white-space: nowrap;
@@ -5569,10 +5567,12 @@ td.khsx-num > .khsx-unit {
   color: var(--ash);
   white-space: nowrap;
 }
+/* Cùng cân nặng với số trong drawer (`khvt-num-primary`, 500): bảng master trước đây in đậm 700
+   nên hàng nào cũng nện chữ, đọc mỏi mắt. Số vẫn nổi hơn nhãn "Tồn"/"Cần" nhờ màu ink. */
 .khsx .khvt-ton-val b,
 .khsx .khvt-can-val b {
   font-family: var(--ff-sans);
-  font-weight: 700;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -5605,24 +5605,28 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-mini-bar__fill.is-onway { background: #3b82f6 !important; }
 .khsx .khvt-mini-bar__fill.is-unknown { background: #f59e0b !important; }
 
+/* Độ phủ nói LẠI điều mà thanh mini-bar (cột Tồn/Nhu cầu) và cột Lượng thiếu đã nói. Ba mảng màu
+   cạnh nhau cho cùng một tin làm hàng thiếu hàng đỏ rực cả dải. Bỏ nền, giữ CHỮ màu: vẫn phân
+   biệt được đủ/thiếu mà chỉ còn một mảng màu mỗi ý. */
 .khsx .khvt-coverage-badge {
   display: inline-block;
   font-family: var(--ff-sans);
-  font-size: 11.5px;
-  font-weight: 700;
+  font-size: 12.5px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
+  background: transparent !important;
 }
-.khsx .khvt-coverage-badge.is-full { background: #d1fae5 !important; color: #047857 !important; }
-.khsx .khvt-coverage-badge.is-onway { background: #dbeafe !important; color: #1d4ed8 !important; }
-.khsx .khvt-coverage-badge.is-unknown { background: #fef3c7 !important; color: #b45309 !important; }
-.khsx .khvt-coverage-badge.is-deficit { background: #ffe4e6 !important; color: #e11d48 !important; }
+.khsx .khvt-coverage-badge.is-full { color: #047857 !important; }
+.khsx .khvt-coverage-badge.is-onway { color: #1d4ed8 !important; }
+.khsx .khvt-coverage-badge.is-unknown { color: #b45309 !important; }
+.khsx .khvt-coverage-badge.is-deficit { color: #be123c !important; }
 
 /* Cột Lượng thiếu - Shape Pill 999px đồng bộ với cột Độ phủ & Trạng thái */
 .khsx .khvt-cell-thieu {
   white-space: nowrap;
 }
+/* Cột số, không phải cột nhãn: bỏ viên pill, để CON SỐ tự nói. Mỗi hàng chỉ còn đúng MỘT mảng
+   màu (badge ở cột Trạng thái) — trước đây một hàng thiếu hàng đeo tới bốn viên đỏ cùng lúc. */
 .khsx .khvt-deficit-tag,
 .khsx .khvt-deficit-pill {
   display: inline-flex !important;
@@ -5630,15 +5634,14 @@ td.khsx-num > .khsx-unit {
   justify-content: center !important;
   gap: 3px !important;
   font-family: var(--ff-sans) !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
   font-variant-numeric: tabular-nums !important;
-  /* rose-600 trên rose-100 là 3,91:1; xuống rose-700 được 5,19:1, vẫn đúng sắc đỏ cảnh báo. */
+  /* rose-700 trên nền hàng: 7,0:1 — đọc rõ mà không cần nền tô. */
   color: #be123c !important;
-  background: #ffe4e6 !important;
-  border: 1px solid #fecdd3 !important;
-  padding: 2px 10px !important;
-  border-radius: 999px !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
   white-space: nowrap !important;
 }
 .khsx .khvt-deficit-zero {
@@ -5647,18 +5650,20 @@ td.khsx-num > .khsx-unit {
   justify-content: center !important;
   gap: 3px !important;
   font-family: var(--ff-sans) !important;
-  font-size: 11.5px !important;
+  font-size: 12.5px !important;
   font-weight: 500 !important;
+  font-variant-numeric: tabular-nums !important;
   /* #94a3b8 trên #f8fafc chỉ 2,45:1 — gần như không đọc được. */
   color: var(--ash-2) !important;
-  background: #f8fafc !important;
-  border: 1px solid #e2e8f0 !important;
-  padding: 2px 10px !important;
-  border-radius: 999px !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
   white-space: nowrap !important;
 }
 
-/* Cột Hạn đặt - Shape Date Badge 6px đồng bộ với cột Lệnh sử dụng */
+/* Cột Hạn đặt - Shape Date Badge 6px đồng bộ với cột Lệnh sử dụng.
+   Mặc định TRUNG TÍNH: một ngày cần hàng bình thường không phải tin xấu. Chỉ khi sát hạn
+   (`khsx-date--soon`) hay đã quá hạn (`khsx-date--late`) mới đổi tông cảnh báo. */
 .khsx .khvt-date-badge {
   display: inline-flex !important;
   align-items: center !important;
@@ -5666,14 +5671,20 @@ td.khsx-num > .khsx-unit {
   font-family: var(--ff-sans) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
-  color: #e11d48 !important;
-  background: #fff1f2 !important;
-  border: 1px solid #fecdd3 !important;
+  color: var(--ash-2) !important;
+  background: var(--paper) !important;
+  border: 1px solid var(--rule-soft) !important;
   padding: 3px 8px !important;
   border-radius: 6px !important;
   white-space: nowrap !important;
 }
+.khsx .khvt-date-badge.khsx-date--soon {
+  color: #b45309 !important;
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+}
 .khsx .khvt-date-badge.is-late,
+.khsx .khvt-date-badge.khsx-date--late,
 .khsx .khsx-date--late {
   color: #e11d48 !important;
   background: #fff1f2 !important;
@@ -5788,7 +5799,10 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-drawer {
   width: 100%;
-  max-width: 820px;
+  /* 820px cũ vừa đủ cho 5 cột; từ khi bảng có thêm Khách hàng + Ngày giao thì tên công ty bị
+     ellipsis nuốt gần hết ("Công ty TNHH Thực phẩm …"). Nới ra thay vì cắt chữ — màn hình còn
+     chỗ, và `94vw` giữ cho laptop nhỏ vẫn thấy mép nền phía sau để biết đây là lớp phủ. */
+  max-width: min(1120px, 94vw);
   height: 100vh;
   background: var(--canvas);
   box-shadow: -10px 0 30px rgba(15, 23, 42, 0.15);
@@ -5872,8 +5886,8 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-drawer__title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 600;
   color: var(--ink);
   line-height: 1.3;
 }
@@ -5886,10 +5900,10 @@ td.khsx-num > .khsx-unit {
   color: var(--ash);
 }
 .khsx .khvt-drawer__code {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 500;
   font-family: var(--ff-sans) !important;
-  color: var(--ink);
+  color: #475569;
   background: var(--canvas);
   padding: 1px 7px;
   border-radius: var(--r-2);
@@ -5908,61 +5922,96 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-drawer-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  gap: 12px;
 }
 .khsx .khvt-bento-kpi {
   background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
-  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  gap: 5px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
 }
 .khsx .khvt-bento-kpi:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-  border-color: var(--rule);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+.khsx .khvt-bento-kpi--deficit {
+  border-color: rgba(225, 29, 72, 0.18);
+  background: linear-gradient(180deg, #ffffff 0%, rgba(255, 228, 230, 0.12) 100%);
+}
+.khsx .khvt-bento-kpi--ok {
+  border-color: rgba(16, 185, 129, 0.18);
+  background: linear-gradient(180deg, #ffffff 0%, rgba(209, 250, 229, 0.12) 100%);
 }
 .khsx .khvt-bento-kpi__label {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ash);
+  color: #64748b;
 }
-.khsx .khvt-bento-kpi__val {
-  font-size: 16px !important;
-  font-weight: 700 !important;
-  font-family: var(--ff-sans) !important;
-  color: #0f172a;
+.khsx .khvt-bento-kpi__val-wrap {
   display: flex;
   align-items: baseline;
   gap: 4px;
+}
+.khsx .khvt-bento-kpi__val {
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  font-family: var(--ff-sans) !important;
+  color: #0f172a;
+  line-height: 1.2;
+}
+.khsx .khvt-bento-kpi__unit {
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  color: #64748b;
+  font-family: var(--ff-sans) !important;
 }
 .khsx .khvt-bento-kpi__val b,
 .khsx .khvt-bento-kpi__val small,
 .khsx .khvt-bento-kpi__val span {
   font-family: var(--ff-sans) !important;
-  font-size: 16px !important;
-  font-weight: 700 !important;
 }
 .khsx .khvt-bento-kpi__cov {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 2px;
 }
 .khsx .khvt-bento-kpi__cov-pct {
-  font-size: 15px !important;
+  font-size: 16px !important;
   font-weight: 700 !important;
   font-family: var(--ff-sans) !important;
   color: #0f172a;
 }
+.khsx .khvt-mini-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--rule-soft);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.khsx .khvt-mini-bar__fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+.khsx .khvt-mini-bar__fill.is-deficit {
+  background: linear-gradient(90deg, #f43f5e 0%, #e11d48 100%);
+}
+.khsx .khvt-mini-bar__fill.is-full {
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+}
 
-/* Ô KPI báo trạng thái bằng badge ("Thiếu -162,5 kg" / "Đủ tồn kho") — dùng ở CẢ hai drawer
-   (chi tiết cân đối + giữ chỗ theo lệnh). Thiếu rule này thì chữ và số dính liền, ô Cân đối
-   trông như chưa nạp CSS. */
+/* Ô KPI báo trạng thái bằng badge */
 .khsx .khvt-kpi-badge {
   display: inline-flex;
   align-items: baseline;
@@ -5992,21 +6041,23 @@ td.khsx-num > .khsx-unit {
   border: 1px solid var(--kh-ok-bd);
 }
 .khsx .khvt-bento-kpi__val--deficit {
-  color: var(--kh-thieu-fg) !important;
+  color: #e11d48 !important;
   font-weight: 700;
 }
 .khsx .khvt-bento-kpi__val--deficit b,
-.khsx .khvt-bento-kpi__val--deficit small {
-  color: var(--kh-thieu-fg) !important;
+.khsx .khvt-bento-kpi__val--deficit small,
+.khsx .khvt-bento-kpi__val--deficit span {
+  color: #e11d48 !important;
   font-family: var(--ff-sans) !important;
 }
 .khsx .khvt-bento-kpi__val--ok {
-  color: var(--kh-ok-fg) !important;
+  color: #059669 !important;
   font-weight: 700;
 }
 .khsx .khvt-bento-kpi__val--ok b,
-.khsx .khvt-bento-kpi__val--ok small {
-  color: var(--kh-ok-fg) !important;
+.khsx .khvt-bento-kpi__val--ok small,
+.khsx .khvt-bento-kpi__val--ok span {
+  color: #059669 !important;
   font-family: var(--ff-sans) !important;
 }
 
@@ -6180,14 +6231,14 @@ td.khsx-num > .khsx-unit {
   font-size: var(--fs-sm);
 }
 .khsx .khvt-table th {
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ash);
+  letter-spacing: 0.04em;
+  color: #64748b;
   background: var(--paper);
-  border-bottom: 1.5px solid var(--rule);
-  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 9px 12px;
   text-align: left;
 }
 .khsx .khvt-table td {
@@ -6196,14 +6247,102 @@ td.khsx-num > .khsx-unit {
   vertical-align: middle;
 }
 .khsx .khvt-table tr:last-child td { border-bottom: none; }
-.khsx .khvt-table tr:hover td { background: var(--paper); }
+.khsx .khvt-table tr:hover td { background: #f8fafc; }
 
 .khsx .khvt-th--tick,
 .khsx .khvt-td--tick { width: 34px; text-align: center; }
-.khsx .khvt-row--chon td { background: var(--rust-soft); }
+/* Bảng phân bổ trong drawer. Selector phải bọc trong `.khvt-table`: bảng master ngoài danh sách
+   cũng mang class `khvt-row--chon`, mà ở đó vạch trái là của TRẠNG THÁI (thiếu/về muộn) — thêm
+   vạch chọn vào sẽ thành hai vạch màu khác nhau dính nhau. */
+.khsx .khvt-table tr.khvt-row--chon td {
+  background: #eef2f7 !important;
+}
+.khsx .khvt-table tr.khvt-row--chon td:first-child {
+  box-shadow: inset 3px 0 0 var(--rust);
+}
+
+.khsx .khvt-count-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  text-transform: none;
+  letter-spacing: normal;
+  margin-left: 4px;
+}
 
 .khsx .khvt-cell-date { white-space: nowrap; }
-.khsx .khvt-date-val { font-weight: 600; color: var(--ink); }
+.khsx .khvt-date-val { font-weight: 500; color: #334155; }
+.khsx .khvt-date-null {
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 400;
+  display: inline-block;
+  padding-left: 4px;
+}
+.khsx .khvt-date-text {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #334155;
+  display: inline-block;
+}
+.khsx .khvt-date-text.is-gap,
+.khsx .khvt-date-text.khvt-date--tre {
+  color: #dc2626;
+  font-weight: 500;
+}
+
+.khsx .khvt-num-primary {
+  font-weight: 500 !important;
+  color: #0f172a;
+  font-family: var(--ff-sans) !important;
+  font-variant-numeric: tabular-nums;
+}
+.khsx .khvt-balance-val {
+  font-size: 13px;
+  font-weight: 600 !important;
+  color: #0f172a;
+  font-family: var(--ff-sans) !important;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.khsx .khvt-balance-val.is-negative {
+  color: #dc2626;
+}
+.khsx .khvt-unit-sm {
+  font-size: 11px;
+  font-weight: 400;
+  color: #64748b;
+}
+.khsx .khvt-sub-deficit-note {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: #dc2626;
+  margin-top: 2px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.khsx .khvt-item-name {
+  font-weight: 500;
+  color: #0f172a;
+}
+.khsx .khvt-compete-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #b45309;
+  background: #fef8ee;
+  border: 1px solid #fef08a;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-top: 3px;
+}
+
 .khsx .khvt-tam-badge {
   display: block;
   font-size: var(--fs-xs);
@@ -6215,15 +6354,20 @@ td.khsx-num > .khsx-unit {
   border: none;
   background: transparent;
   padding: 0;
-  font-weight: 600;
-  color: var(--rust-deep);
+  font-weight: 500;
+  color: #2563eb;
   cursor: pointer;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.khsx .khvt-lsx-link:hover {
+  color: #1d4ed8;
   text-decoration: underline;
-  text-underline-offset: 2px;
 }
 .khsx .khvt-lsx-link:hover { color: var(--rust); }
 .khsx .khvt-lsx-code { font-weight: 600; color: var(--ink); }
 .khsx .khvt-lsx-sub { font-size: var(--fs-xs); color: var(--ash); margin-top: 2px; }
+
 .khsx .khvt-sub-note--vemuon {
   display: inline-flex;
   align-items: center;
@@ -6405,10 +6549,13 @@ td.khsx-num > .khsx-unit {
 /* Nút hành động nhanh trong bảng theo lệnh */
 .khsx .khvt-row-actions {
   display: flex;
-  flex-direction: column;
+  /* NGANG chứ không xếp chồng (23/09/2026): hai nút chồng nhau kéo hàng lệnh cao 85px trong khi
+     phần còn lại của hàng chỉ cần 56px — cả bảng dài ra vì đúng một ô. */
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
+  /* Căn TRÁI: dồn phải thì hàng nào chỉ có một nút sẽ bỏ lại một mảng trắng giữa cột. */
+  justify-content: flex-start;
+  gap: 6px;
   width: 100%;
 }
 .khsx .khvt-row-actions button,
@@ -6416,7 +6563,8 @@ td.khsx-num > .khsx-unit {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 90px !important;
+  width: auto !important;
+  min-width: 72px !important;
   height: 28px !important;
   padding: 0 8px !important;
   font-size: 11.5px !important;
@@ -6459,7 +6607,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-item-name {
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink);
 }
 .khsx .khvt-compete-alert {
@@ -6733,10 +6881,13 @@ td.khsx-num > .khsx-unit {
 /* Nút Mua & Khóa Mua */
 .khsx .khvt-row-actions {
   display: flex;
-  flex-direction: column;
+  /* NGANG chứ không xếp chồng (23/09/2026): hai nút chồng nhau kéo hàng lệnh cao 85px trong khi
+     phần còn lại của hàng chỉ cần 56px — cả bảng dài ra vì đúng một ô. */
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
+  /* Căn TRÁI: dồn phải thì hàng nào chỉ có một nút sẽ bỏ lại một mảng trắng giữa cột. */
+  justify-content: flex-start;
+  gap: 6px;
   width: 100%;
 }
 .khsx .khvt-btn-buy {
@@ -7463,7 +7614,10 @@ th.khsx-vtbang__buoc {
   width: fit-content;
 }
 
-.khsx .khvt-cell-date {
+/* Chỉ áp cho ô ngày dạng <div> (màn Giữ chỗ theo lệnh).
+   KHÔNG áp cho <td class="khvt-cell-date">: td thành flex sẽ mất chiều cao
+   hàng, để lại mảng trắng + kẻ ngang lệch ở cột Ngày cần. */
+.khsx div.khvt-cell-date {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -7474,55 +7628,77 @@ th.khsx-vtbang__buoc {
   color: var(--ink);
 }
 
-/* Dải Chip Vật Tư Đa Sắc (Material Stream Matrix) */
+/* Dải Chip Vật Tư Đa Sắc (Material Stream Matrix).
+   `nowrap`: cột chỉ còn tối đa 2 chip + 2 mẩu chữ đếm, phải nằm gọn MỘT dòng. Cho phép xuống
+   dòng là quay lại đúng cảnh cũ — thẻ lệnh cao ba hàng. */
 .khsx .khvt-material-stream {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 .khsx .khvt-stream-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
+  /* Chip phải CO được. Trong ô có bề rộng cố định, chip không co sẽ nong cột ra và kéo cả bảng
+     sang thanh cuộn ngang — đúng lỗi đã sửa 23/09/2026. */
+  min-width: 0;
+  flex: 0 1 auto;
+  /* Co mà KHÔNG cắt thì chữ vẽ tràn ra ngoài viền, đè lên mẩu "N món đủ" đứng cạnh
+     (đo 23/09/2026: chip rộng 22px, nội dung 212px). Cắt ở mép chip, phần chịu cắt là
+     tên vật tư bên trong. */
+  overflow: hidden;
+  gap: 4px;
+  padding: 2px 7px;
   border-radius: 6px;
   font-size: 11px;
-  font-weight: var(--fw-medium);
+  font-weight: 500;
   border: 1px solid transparent;
   transition: all 0.15s ease;
   white-space: nowrap;
 }
+/* Trong chip: icon và con số thiếu KHÔNG được co — mất chúng là mất luôn thông tin cần đọc.
+   Chỉ tên vật tư nhường chỗ, cắt bằng ellipsis. */
+.khsx .khvt-stream-chip > svg,
+.khsx .khvt-stream-chip__deficit,
+.khsx .khvt-stream-chip__ok,
+.khsx .khvt-stream-chip__po { flex: 0 0 auto; }
+.khsx .khvt-stream-chip__name { flex: 0 1 auto; }
+/* Hai mẩu đếm không bao giờ bị cắt: chúng là phần TÓM TẮT, mất chúng thì người đọc tưởng lệnh
+   chỉ có 2 món. Chip mới là thứ được phép co. */
+.khsx .khvt-stream-more,
+.khsx .khvt-stream-du { flex: 0 0 auto; }
 .khsx .khvt-stream-chip:hover {
   transform: translateY(-1px);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
 }
 
 .khsx .khvt-stream-chip--xanh {
-  background: var(--rule-hair);
-  color: var(--ash);
-  border-color: var(--rule-soft);
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
 }
 .khsx .khvt-stream-chip--vang {
-  background: var(--kh-canhbao-bg);
-  color: var(--kh-canhbao-fg);
-  border-color: var(--kh-canhbao-bd);
+  background: #fffbe6;
+  color: #b45309;
+  border-color: #fde68a;
 }
 .khsx .khvt-stream-chip--do {
-  background: var(--kh-thieu-bg);
-  color: var(--kh-thieu-fg);
-  border-color: var(--kh-thieu-bd);
-  font-weight: var(--fw-bold);
+  background: #fff1f2;
+  color: #dc2626;
+  border-color: #fecdd3;
+  font-weight: 500;
 }
 .khsx .khvt-stream-chip--vemuon {
-  background: var(--kh-vemuon-bg);
-  color: var(--kh-vemuon-fg);
-  border-color: var(--kh-vemuon-bd);
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
 }
 .khsx .khvt-stream-chip--xam {
-  background: var(--rule-hair);
-  color: var(--ash);
-  border-color: var(--rule-soft);
+  background: #f8fafc;
+  color: #64748b;
+  border-color: #e2e8f0;
 }
 .khsx .khvt-stream-chip--khongro {
   background: var(--paper);
@@ -7534,21 +7710,69 @@ th.khsx-vtbang__buoc {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: 500;
 }
 /* Con số dính sát tên vật tư thì dấu trừ đọc thành gạch nối ("Couche 150gsm-162,5 kg"). Tách ra
    một nhịp để "tên" và "thiếu bao nhiêu" là hai mẩu tin riêng. */
 .khsx .khvt-stream-chip__deficit {
-  color: var(--kh-thieu-fg);
+  color: #dc2626;
   font-family: var(--ff-sans);
-  font-weight: 700;
-  margin-left: 4px;
+  font-weight: 500;
+  margin-left: 3px;
 }
 .khsx .khvt-stream-chip__ok {
-  color: var(--ash);
+  color: #64748b;
   font-family: var(--ff-sans);
-  font-weight: 600;
-  margin-left: 4px;
+  font-weight: 500;
+  margin-left: 3px;
 }
+
+/* Phần ĐẾM của cột Vật tư (23/09/2026). Món đủ và món thứ ba trở đi không còn đeo chip riêng —
+   chúng thành hai mẩu chữ xám, giữ hàng lệnh cao đúng MỘT dòng như bảng Theo mặt hàng. */
+.khsx .khvt-stream-more,
+.khsx .khvt-stream-du {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+.khsx .khvt-stream-du {
+  color: #047857;
+}
+/* Khách hàng: một dòng, dài thì cắt — tên công ty Việt Nam rất dài ("Công ty TNHH Thương mại và
+   Dịch vụ …"), để nó tự xuống dòng là hàng lệnh lại cao gấp đôi. */
+.khsx .khvt-khach {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink);
+  /* Cắt theo CỘT, không theo con số gõ cứng: cột Khách hàng nay co giãn theo bề ngang màn, đóng
+     đinh 150px thì màn 1440 vẫn cắt tên trong khi cột còn thừa chỗ. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Trong drawer thì có chỗ: cho tên khách XUỐNG DÒNG thay vì cắt — ellipsis ở đây nuốt đúng phần
+   phân biệt hai khách ("Công ty TNHH Thực phẩm …" vs "Công ty TNHH Thương mại …"). */
+.khsx .khvt-drawer .khvt-khach {
+  max-width: none;
+  white-space: normal;
+  line-height: 1.35;
+}
+/* Cửa xếp lịch, nay là tầng hai của badge Độ sẵn sàng (cột riêng đã gỡ). Chữ nhỏ KHÔNG nền: nó
+   chỉ nhắc lại hệ quả của con số ngay trên, thêm một viên màu nữa là thừa. */
+.khsx .khvt-cua-lich {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+.khsx .khvt-cua-lich.is-open { color: #047857; }
+.khsx .khvt-cua-lich.is-partial { color: #b45309; }
 
 /* Độ sẵn sàng Cell */
 .khsx .khvt-cell-readiness {
@@ -7710,11 +7934,32 @@ th.khsx-vtbang__buoc {
 .khsx .khvt-bcard__date {
   display: inline-flex;
   align-items: center;
+  /* Ba mẩu tin (khách · giao · cần hàng) trên thẻ hẹp: cho xuống dòng, không thì tên công ty bị
+     ellipsis cắt còn một hai chữ và trông như lỗi hiển thị. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 5px;
   font-size: var(--fs-xs);
   color: var(--ash);
 }
 .khsx .khvt-bcard__date b { color: var(--ink); }
+/* Ba mẩu tin trên một dòng (khách · giao · cần hàng) ⇒ cần vách ngăn, không thì đọc dính vào nhau. */
+.khsx .khvt-bcard__date > span + span::before {
+  content: "·";
+  margin-right: 5px;
+  color: var(--rule-soft);
+}
+.khsx .khvt-bcard__khach {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.khsx .khvt-bcard__date .khsx-date--late { color: #be123c; }
+.khsx .khvt-bcard__date .khsx-date--soon { color: #b45309; }
 
 .khsx .khvt-bcard__readiness {
   display: flex;
@@ -7964,6 +8209,40 @@ th.khsx-vtbang__buoc {
    thay vì màu rust-deep dùng chung cho mọi note khác (về muộn / phiếu mua đang chờ). */
 .khsx .khvt-note--giu-ngay {
   color: var(--moss-deep);
+}
+/* Cùng tin ấy, nay là CỘT SỐ riêng trong drawer bóc tách vật tư của lệnh. */
+.khsx .khvt-num-giu-ngay {
+  color: var(--moss-deep);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hàng VẾT dưới tên mặt hàng trong drawer bóc tách: lệnh khác đang tranh món, và phiếu mua đang
+   chạy. Xếp ngang, tự xuống dòng khi hết chỗ — mỗi mẩu một dòng cứng thì hàng cao gấp ba. */
+.khsx .khvt-cell-item__vet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px;
+}
+.khsx .khvt-vet-po {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--rust-deep);
+  font-family: var(--ff-sans);
+}
+.khsx .khvt-vet-po > svg { flex: none; }
+/* Nhãn loại hàng và "N bước" không được gãy đôi — khung hẹp từng bẻ "VẬT TƯ" thành hai dòng. */
+.khsx .khvt-item-tag,
+.khsx .khvt-bcard__buoc-tag { white-space: nowrap; }
+/* Trong drawer thì có chỗ: tên mặt hàng xuống dòng thay vì bị ellipsis nuốt đuôi, vì đuôi mới là
+   phần phân biệt ("Bản kẽm CTP 1030x770" vs "… 1100x800"). */
+.khsx .khvt-drawer .khvt-item-name {
+  max-width: none;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 /* Bản nhiều dòng ở drawer thẻ lệnh: mỗi phiếu một dòng, đọc hết không phải hover. */

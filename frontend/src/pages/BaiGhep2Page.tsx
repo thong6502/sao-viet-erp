@@ -962,7 +962,8 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
         {materials == null || keVatTuBg == null ? <Skeleton rows={4} cols={3} />
           : materials.items.length === 0 ? <EmptyState icon="box" title="Chưa có nhu cầu vật tư" sub="Vật tư của bước chung và bước riêng sẽ xuất hiện tại đây." />
           : <LsxVatTuPanel ke={keVatTuBg} />}
-        {materials?.bo_qua.length ? <div className="bg2-status-line bg2-status-line--warn">{materials.bo_qua.map((x) => `${x.ma}: ${x.ly_do}`).join(" · ")}</div> : null}
+        {/* Băng `materials.bo_qua` ("GB-001: Bài ghép chưa chọn giấy chung.") GỠ 23/09/2026 —
+            engine không còn sinh danh sách đó; xem `ke_hoach_vat_tu_service._gom_nhu_cau`. */}
       </section>}
 
       {tab === "nhatky" && <section className="khsx-panel bg2-panel" role="tabpanel" id="bg2-panel-nhatky" aria-labelledby="bg2-tab-nhatky">

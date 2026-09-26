@@ -18,6 +18,8 @@ import {
 } from "../../../api/client";
 import { useAuth } from "../../../auth/useAuth";
 import { useCan, useReloadPermissions } from "../../../auth/permissions";
+import { NhanBanVaiTroModal } from "./NhanBanVaiTroModal";
+import { NhomDungChungModal, type NguoiChon } from "./NhomDungChungModal";
 import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../../../components/DiscardChangesDialog";
@@ -79,19 +81,29 @@ export function DepartmentsPage({
   const canCreateDept = can("phong_ban", "create");
   const canUpdateDept = can("phong_ban", "update");
   const canDeleteDept = can("phong_ban", "delete");
-  const canCreateRole = can("vai_tro", "create");
-  const canUpdateRole = can("vai_tro", "update");
-  const canDeleteRole = can("vai_tro", "delete");
+  // Vai trò sống TRONG màn này (tab "Vai trò & Quyền") nên nó đi theo ô `phong_ban` — khoá
+  // `vai_tro` đã gỡ 24/09/2026 (mg `0330`), vì nó không ứng với mục menu nào.
+  const canCreateRole = can("phong_ban", "create");
+  const canUpdateRole = can("phong_ban", "update");
+  const canDeleteRole = can("phong_ban", "delete");
   // Sửa MA TRẬN tách khỏi đổi tên vai trò (chống leo thang quyền): HCNS dựng được chỗ ngồi,
   // chỉ Admin cấp được quyền cho nó. Backend đã gác `PUT /roles/{id}/permissions` bằng cờ này
-  // — FE trước đây mở ma trận theo `vai_tro:update` nên bấm Lưu là ăn 403.
-  const canManagePerms = can("vai_tro", "manage_permissions");
+  // — FE trước đây mở ma trận theo quyền SỬA nên bấm Lưu là ăn 403.
+  const canManagePerms = can("phong_ban", "manage_permissions");
   // Hộp "Sửa vai trò" gom 2 thứ tách quyền: ĐỔI TÊN (`update`) và MA TRẬN (`manage_permissions`).
   // Có một trong hai là còn nút Lưu; không có cả hai thì mở ở chế độ chỉ xem.
   const canEditRoleAnything = canUpdateRole || canManagePerms;
-  // Quyền chi tiết nhóm 1: chuyển phòng + gán vai trò (module Người dùng), đặt trưởng phòng (Phòng ban).
-  const canTransfer = can("nguoi_dung", "transfer");
-  const canAssignRole = can("nguoi_dung", "assign_role");
+  // Nhân bản vai = đẻ vai MỚI (`create`) mang nguyên bộ quyền của vai khác (`manage_permissions`).
+  // Thiếu ô cấp quyền thì chỉ tạo được vai rỗng qua nút "+ Vai trò" — đúng như máy chủ gác.
+  const canDuplicateRole = canCreateRole && canManagePerms;
+  // Quyền chi tiết nhóm 1: điều chuyển + gán vai trò (ô chi tiết của Hồ sơ nhân sự — khoá
+  // `nguoi_dung` gỡ 24/09/2026, mg `0331`), đặt trưởng phòng (Phòng ban).
+  const canTransfer = can("nhan_su", "transfer");
+  const canAssignRole = can("nhan_su", "assign_role");
+  // Gộp nhóm dùng chung = cho người này thấy dữ liệu của người kia ⇒ cùng loại với cấp quyền,
+  // nên đi theo ô "Sửa ma trận phân quyền" chứ không đẻ ô mới.
+  const canGopNhom = can("phong_ban", "manage_permissions");
+  const [moNhomDungChung, setMoNhomDungChung] = useState(false);
   const canBulk = canTransfer || canAssignRole;
   const canSetHead = can("phong_ban", "set_head");
   const canReparent = can("phong_ban", "reparent");
@@ -239,6 +251,8 @@ export function DepartmentsPage({
   const [editRoleBusy, setEditRoleBusy] = useState(false);
   const [editRoleConfirmDelete, setEditRoleConfirmDelete] = useState(false);
   const [editRoleDeleting, setEditRoleDeleting] = useState(false);
+  // Vai đang được nhân bản (null = hộp thoại đóng).
+  const [nhanBanVai, setNhanBanVai] = useState<Role | null>(null);
 
   // Bulk transfer (PBI-4008): tick members + pick a target department.
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<number>>(new Set());
@@ -595,6 +609,11 @@ export function DepartmentsPage({
     (m) => selectedMemberIds.has(m.employee_id) && m.user_id != null,
   ).length;
   const selectedWithoutAccount = selectedMemberIds.size - selectedWithAccount;
+  // Nhóm dùng chung gắn theo TÀI KHOẢN (phạm vi dữ liệu là của tài khoản), nên người chưa có
+  // tài khoản không gộp được.
+  const nguoiChonCoTaiKhoan: NguoiChon[] = members
+    .filter((m) => selectedMemberIds.has(m.employee_id) && m.user_id != null)
+    .map((m) => ({ userId: m.user_id as number, hoTen: m.name }));
   const memberPageCount = Math.max(1, Math.ceil(filteredMembers.length / memberPageSize));
   const pageMembers = filteredMembers.slice(
     (memberPage - 1) * memberPageSize,
@@ -2083,6 +2102,24 @@ export function DepartmentsPage({
                                 </div>
                               )}
 
+                              {canGopNhom && (
+                                <div className="depts__dock-group">
+                                  <Button
+                                    type="button"
+                                    variant="secondary"
+                                    disabled={nguoiChonCoTaiKhoan.length === 0}
+                                    title={
+                                      nguoiChonCoTaiKhoan.length === 0
+                                        ? "Chọn người CÓ tài khoản — nhóm dùng chung gắn theo tài khoản"
+                                        : "Người cùng nhóm xem và sửa được dữ liệu của nhau ở Tính giá · Báo giá · Đơn hàng · Khách hàng"
+                                    }
+                                    onClick={() => setMoNhomDungChung(true)}
+                                  >
+                                    Gộp nhóm dùng chung — Kinh doanh
+                                  </Button>
+                                </div>
+                              )}
+
                               {canTransfer && (
                                 <div className="depts__dock-group">
                                   <div className="depts__dock-label-tag">
@@ -2369,7 +2406,13 @@ export function DepartmentsPage({
                               )}
                             </>
                           );
-                          return canUpdateRole ? (
+                          // AI VÀO ĐƯỢC MÀN THÌ MỞ ĐƯỢC CHIP (24/09/2026). Trước đây chip chỉ bấm
+                          // được khi có quyền SỬA, nên người chỉ được xem phòng ban nhìn thấy tên
+                          // vai mà không xem nổi vai đó có quyền gì — trong khi máy chủ vẫn trả
+                          // ma trận cho họ. Panel mở ra đã tự khoá đúng chỗ: ô tên chỉ sửa được
+                          // khi có Thao tác, ma trận `readOnly` khi thiếu "Sửa ma trận phân
+                          // quyền", nút Lưu ẩn hẳn khi không có quyền nào.
+                          return (
                             <button
                               key={r.id}
                               type="button"
@@ -2381,10 +2424,6 @@ export function DepartmentsPage({
                             >
                               {chipInner}
                             </button>
-                          ) : (
-                            <span key={r.id} className="rdx-rolechip rdx-rolechip--static">
-                              {chipInner}
-                            </span>
                           );
                         })}
                         {canCreateRole && (
@@ -2489,6 +2528,19 @@ export function DepartmentsPage({
                               </button>
                             ) : null}
                           </div>
+                          {canDuplicateRole && (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              disabled={editRoleLoading || editRoleBusy || editRoleDeleting}
+                              onClick={() => {
+                                const r = roles.find((x) => x.id === editRoleId);
+                                if (r) setNhanBanVai(r);
+                              }}
+                            >
+                              Nhân bản vai trò
+                            </Button>
+                          )}
                           {canEditRoleAnything && (
                             <Button
                               type="button"
@@ -3145,6 +3197,37 @@ export function DepartmentsPage({
             }
             refresh(selectedId).catch(() => {});
           }}
+        />
+      )}
+
+      {nhanBanVai && token && (
+        <NhanBanVaiTroModal
+          token={token}
+          vai={nhanBanVai}
+          phongs={departments}
+          onClose={() => setNhanBanVai(null)}
+          onDone={(vaiMoi, cungPhong) => {
+            if (!cungPhong || selectedId == null) return;
+            // Bản sao nằm trong phòng đang mở → nạp lại chip rồi MỞ LUÔN vai mới: nhân bản
+            // xong người ta sửa tiếp ngay, không ai nhân bản để đấy.
+            api.rbac
+              .roles(token, selectedId)
+              .then((rs) => {
+                setRoles(rs);
+                const r = rs.find((x) => x.id === vaiMoi.id);
+                if (r) void openEditRole(r);
+              })
+              .catch(() => {});
+          }}
+        />
+      )}
+
+      {moNhomDungChung && token && (
+        <NhomDungChungModal
+          token={token}
+          nguoiChon={nguoiChonCoTaiKhoan}
+          onClose={() => setMoNhomDungChung(false)}
+          onSaved={() => setSelectedMemberIds(new Set())}
         />
       )}
     </main>

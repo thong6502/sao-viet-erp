@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   connectQuoteEvents,
-  type AppNotification,
   type CanDoiKhoaDong,
   type DepartmentPurchaseSourceType,
   type HangLoai,
@@ -208,11 +207,6 @@ export function AppShell() {
   // số việc chờ. `teams` MỘT cú gọi ra cả list lẫn badge (`so_viec_cho`) — đừng thêm API badge
   // riêng. Refetch khi có sự kiện `san_xuat_cong_viec_changed` (badge nhảy + bàn đang mở tự tươi).
   const [teamList, setTeamList] = useState<SxTeam[]>([]);
-  // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
-  const [leaveUnseen, setLeaveUnseen] = useState(0);
-  // Trung tâm thông báo (chuông): list + số chưa đọc. Nạp lúc đăng nhập + mỗi event 'notification_new'.
-  const [notifs, setNotifs] = useState<AppNotification[]>([]);
-  const [notifUnread, setNotifUnread] = useState(0);
   // Real-time luồng gửi duyệt (SSE): toast nổi + mốc 'chờ tôi duyệt' gần nhất để chỉ toast khi TĂNG.
   // `quoteTick` tăng mỗi event → truyền xuống BaoGiaPage cho nó refetch list/stats. Kênh SSE vẫn
   // DUY NHẤT ở đây (trang con mở kênh riêng = tốn kết nối + lệch trạng thái).
@@ -438,7 +432,6 @@ export function AppShell() {
             "nghi-phep": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
           }));
           lastLeavePending.current = s.pending_in_scope ?? 0;
-          setLeaveUnseen(s.my_decided_unseen ?? 0);
         })
         .catch(() => {});
     }
@@ -651,21 +644,6 @@ export function AppShell() {
     setBadges((prev) => (prev["ke-hoach-vat-tu"] === n ? prev : { ...prev, "ke-hoach-vat-tu": n }));
   }, []);
 
-  // Trung tâm thông báo (chuông): nạp list + số chưa đọc. Mọi user đăng nhập đều có hộp riêng.
-  const reloadNotifs = useCallback(() => {
-    if (!token) return;
-    api.notifications
-      .list(token)
-      .then((r) => {
-        setNotifs(r.items);
-        setNotifUnread(r.unread);
-      })
-      .catch(() => {});
-  }, [token]);
-  useEffect(() => {
-    reloadNotifs();
-  }, [reloadNotifs]);
-
   // Danh sách kho cho menu con động (chỉ người có quyền `kho`). Gọi lại sau mỗi lần khai báo kho.
   const reloadKho = useCallback(() => {
     if (!token || readable === null || !readable.has("kho")) return;
@@ -722,11 +700,6 @@ export function AppShell() {
       // phòng). Máy chủ đã gác theo quyền mới từ request kế tiếp; menu + nút thì phải hỏi lại.
       if (e.type === "quyen_doi") {
         reloadAccess(true);
-        return;
-      }
-      // Có thông báo mới vào chuông → refetch list + badge chuông (độc lập luồng badge module).
-      if (e.type === "notification_new") {
-        reloadNotifs();
         return;
       }
       // Chuyến giao của CHÍNH tài xế này — máy chủ đẩy đích danh nên không lọc quyền lần nữa.
@@ -1255,36 +1228,6 @@ export function AppShell() {
   }, [activeId, token, readable, reloadBadges]);
 
 
-  // Bấm chuông → mở Nghỉ phép (Đơn của tôi) + đánh dấu đã xem → đóng chuông.
-  const openLeaveFromBell = useCallback(() => {
-    navigate("nghi-phep");
-    if (token) api.leaves.markSeen(token).then(reloadBadges).catch(() => {});
-  }, [navigate, token, reloadBadges]);
-
-  // Bấm 1 thông báo: đánh dấu đã đọc (lạc quan hạ số ngay) + điều hướng tới đúng phiếu/yêu cầu.
-  const openNotif = useCallback(
-    (n: AppNotification) => {
-      if (token && !n.da_doc) {
-        api.notifications.markRead(token, n.id).catch(() => {});
-        setNotifs((prev) => prev.map((x) => (x.id === n.id ? { ...x, da_doc: true } : x)));
-        setNotifUnread((u) => Math.max(0, u - 1));
-      }
-      if (n.link_id != null && (n.link_loai === "kho_inbox" || n.link_loai === "kho_mine")) {
-        navigate("kho-main", {
-          khoOpenRequest: { id: n.link_id, view: n.link_loai === "kho_inbox" ? "yeucau" : "denghi" },
-        });
-      }
-    },
-    [token, navigate],
-  );
-
-  const markAllNotifs = useCallback(() => {
-    if (!token) return;
-    api.notifications.markAllRead(token).catch(() => {});
-    setNotifs((prev) => prev.map((x) => ({ ...x, da_doc: true })));
-    setNotifUnread(0);
-  }, [token]);
-
   if (readable === null) {
     return (
       <div className="shell__center" role="status" aria-live="polite">
@@ -1294,13 +1237,12 @@ export function AppShell() {
   }
 
   const baseId = activeId.split(":")[0];
-  // "Kho hàng" (kho vật lý: tồn/phiếu/ngưỡng) là VIỆC CỦA KHO, không phải của người đề nghị.
-  // Vai chỉ có `kho:read` (để tạo đề nghị) KHÔNG được thấy — chặn bằng `can_view_stock`, để
-  // ông sản xuất không nhìn thấy tồn/giá/lô của kho.
-  const canViewStock = !!caps.get("kho")?.can_view_stock;
-  // Báo cáo kho (kế toán) — chỉ vai có `close_book` (kế toán kho + GĐ) mới vào.
-  const canCloseBook = !!caps.get("kho")?.can_close_book;
-  // "kho-item:<id>" = màn Tồn kho của 1 kho — gác `kho` + `view_stock`.
+  // Màn TỒN KHO của từng kho là VIỆC CỦA KHO, không phải của người đề nghị: ông sản xuất chỉ có
+  // `kho:read` để đi xin vật tư thì KHÔNG được nhìn tồn/lô. Từ 24/09/2026 (mg `0334`) đây là
+  // module RIÊNG `ton_kho` có dòng của mình trong ma trận, thay cho ô chi tiết `kho:view_stock`
+  // — trước đó cả nhóm mục menu này nấp sau một công tắc trong panel của màn Yêu cầu nhập xuất.
+  const canViewStock = !!caps.get("ton_kho")?.can_read;
+  // "kho-item:<id>" = màn Tồn kho của 1 kho — gác `ton_kho:read`.
   const isKhoView = baseId === "kho-item";
   const moduleKeys =
     MODULES_BY_NAV_ID[baseId] ??
@@ -1308,23 +1250,24 @@ export function AppShell() {
     // không có, phải khai tay ở đây.
     (baseId === "thuc-hien-sx"
       ? khoaBanTo(readable)
-      : isKhoView ? ["kho"] : undefined);
+      : isKhoView ? ["ton_kho"] : undefined);
   const allowed =
     AUTHENTICATED_NAV_IDS.has(baseId) ||
     // Màn KCS: người thuộc phòng ban "Tổ KCS", không đi qua ô quyền của vai.
     (baseId === "kcs" && kcsTuCach.kcs) ||
-    (moduleKeys != null &&
-      moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
-      (baseId !== "kho-item" || canViewStock) &&
-      (baseId !== "kho-baocao" || canCloseBook));
+    // KHÔNG mục nào còn phải lọc thêm sau `readable` nữa: "Báo cáo kho" (mg `0329`) và màn Tồn
+    // kho của từng kho (mg `0334`) đều đã có khoá riêng. Trước đây cả hai gắn khoá `kho` rồi chặn
+    // thêm bằng ô chi tiết `close_book` / `view_stock` — đúng chỗ làm ra những MÀN không có dòng
+    // nào của riêng mình trong ma trận phân quyền.
+    (moduleKeys != null && moduleKeys.some((moduleKey) => readable.has(moduleKey)));
 
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
-  // Chỉ đổ khi có `can_view_stock`; thiếu quyền → section "Kho hàng" rỗng nên tự ẩn.
+  // Chỉ đổ khi có `ton_kho:read`; thiếu quyền → khối chỉ còn 2 mục nghiệp vụ (hoặc rỗng, tự ẩn).
   const dynamicItems: Record<string, NavItem[]> = {};
   if (khoList.length && canViewStock) {
     dynamicItems["kho-hang"] = khoList.map((w): NavItem => ({
-      id: `kho-item:${w.id}`, label: w.ten, icon: "warehouse", module: "kho",
+      id: `kho-item:${w.id}`, label: w.ten, icon: "warehouse", module: "ton_kho",
     }));
   }
   // Mục "KCS" (KCS theo lệnh, mg 0306) — MỘT mục cho người thuộc phòng ban "Tổ KCS", kiểm mọi tổ.
@@ -1334,26 +1277,34 @@ export function AppShell() {
   if (kcsTuCach.kcs) {
     sanXuatDong.push({ id: "kcs", label: "KCS", icon: "shield", module: KCS_NAV_KEY });
   }
-  // Tổ đã khai báo → node lá ĐỘNG dưới SECTION "Sản xuất" (id section = "san-xuat"). Bấm 1 tổ → mở
+  // Tổ đã khai báo → node lá ĐỘNG dưới SECTION "Tổ sản xuất" (id section = "to-san-xuat", khối
+  // tách riêng 24/09/2026 — trước đó đổ chung vào khối "Sản xuất"). Bấm 1 tổ → mở
   // bàn "Thực hiện sản xuất" lọc theo tổ. teamList chỉ có dữ liệu khi có Xem ở một dòng quyền theo
   // tổ, nên thiếu quyền thì không đổ node nào. Máy chủ trả theo thứ tự cây kèm `cap` — thụt lề tính
   // từ nút NÔNG nhất người này thấy, để ai chỉ thấy vài tổ lá thì menu vẫn thẳng hàng.
   if (teamList.length) {
     const cacKhoaTo = khoaBanTo(readable);
     const capGoc = Math.min(...teamList.map((t) => t.cap ?? 0));
+    // Danh sách về PHẲNG nhưng theo thứ tự cây: nút cha của một hàng là hàng NÔNG hơn gần nhất
+    // phía trên. Giữ một chồng để suy ra `parentId` → Sidebar gập được cả nhánh (11 tổ + 5 nhóm in
+    // đẩy menu dài quá màn hình).
+    const nganh: { cap: number; id: string }[] = [];
     for (const t of teamList) {
+      const cap = (t.cap ?? 0) - capGoc;
+      while (nganh.length && nganh[nganh.length - 1].cap >= cap) nganh.pop();
+      const id = `thuc-hien-sx:${t.id}`;
       sanXuatDong.push({
-        id: `thuc-hien-sx:${t.id}`, label: t.ten, icon: "users", module: "to_sx",
-        modules: cacKhoaTo, indent: (t.cap ?? 0) - capGoc,
+        id, label: t.ten, icon: "users", module: "to_sx",
+        modules: cacKhoaTo, indent: cap,
+        parentId: nganh.length ? nganh[nganh.length - 1].id : undefined,
       });
+      nganh.push({ cap, id });
     }
   }
-  if (sanXuatDong.length) dynamicItems["san-xuat"] = sanXuatDong;
+  if (sanXuatDong.length) dynamicItems["to-san-xuat"] = sanXuatDong;
   const readableNav = kcsTuCach.kcs ? new Set([...readable, KCS_NAV_KEY]) : readable;
   // Mục "Kho" chỉ cần `kho:read`; tab "Phiếu từ đề nghị" (cần create/view_stock) tự ẩn trong KhoPage.
   const hiddenIds = new Set<string>();
-  // "Báo cáo kho" gắn module `kho` (để qua gate readable) nhưng CHỈ kế toán (close_book) thấy.
-  if (!canCloseBook) hiddenIds.add("kho-baocao");
 
 
   function renderContent() {
@@ -1391,7 +1342,8 @@ export function AppShell() {
         />
       );
     }
-    // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. Gác `close_book` ở `allowed`.
+    // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. Gác bằng khoá riêng
+    // `bao_cao_kho` ở `allowed`; khoá kỳ bên trong còn hỏi thêm ô chi tiết `close_book` ở máy chủ.
     if (baseId === "kho-baocao") {
       return <KhoBaoCaoPage token={token ?? ""} />;
     }
@@ -1653,12 +1605,6 @@ export function AppShell() {
         <div className="shell__main">
           <Topbar
             onOpenProfile={() => navigate("ho-so-cua-toi")}
-            leaveUnseen={leaveUnseen}
-            onOpenLeave={openLeaveFromBell}
-            notifs={notifs}
-            notifUnread={notifUnread}
-            onOpenNotif={openNotif}
-            onMarkAllRead={markAllNotifs}
             onToggleNav={() => setNavOpen((v) => !v)}
             navOpen={navOpen}
           />

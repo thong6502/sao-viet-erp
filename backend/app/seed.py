@@ -32,7 +32,19 @@ from .security import hash_password
 
 # Module catalog: (key, label). Kinh doanh + Hành chính nhân sự / quản trị only.
 MODULES: list[tuple[str, str]] = [
-    ("dashboard", "Dashboard"),
+    # NHÃN = ĐÚNG CHỮ CỦA MỤC MENU (chủ chốt 24/09/2026). Nhãn này chỉ chảy ra MỘT nơi: ma trận
+    # phân quyền (`role_service.list_modules`). Người cấp quyền đọc ma trận rồi đi tìm mục đó trên
+    # thanh bên — hai bộ tên khác nhau cho cùng một màn là bắt họ tự dịch ("Dashboard" ↔ "Trang
+    # chủ", "Tự phục vụ" ↔ "Hồ sơ của tôi"). `seed_modules` tự đồng bộ nhãn mỗi lần khởi động nên
+    # đổi ở đây là DB dev/prod nhận ngay, không cần migration.
+    ("dashboard", "Trang chủ"),
+    # Quy trình kinh doanh (24/09/2026) — MỘT MỤC MENU = MỘT Ô QUYỀN. Trước đó mục này ăn ké bốn
+    # khoá KD (`modules: [tinh_gia_thanh, bao_gia, don_hang_ban, khach_hang]` ở Sidebar): ai có
+    # BẤT KỲ màn KD nào là thấy, không ai tắt riêng được, và ma trận không có dòng nào mang tên
+    # mục đó. Màn là BẢN ĐỒ LUỒNG tĩnh (không endpoint) nên chỉ ô Xem có nghĩa — Thêm/Sửa/Xoá
+    # khai chết ở `deps.O_CHET_DA_XAC_MINH`. Mg `0329` cấp cho mọi vai đang đọc được 1 trong 4
+    # khoá KD nên không ai mất mục menu.
+    ("quy_trinh_kinh_doanh", "Quy trình kinh doanh"),
     ("khach_hang", "Khách hàng"),
     ("bao_gia", "Báo giá in ấn"),
     ("don_hang_ban", "Đơn hàng bán"),
@@ -40,7 +52,9 @@ MODULES: list[tuple[str, str]] = [
     # đúng luật hai màn chỉ-đọc Lệnh SX: vai đọc được `don_hang_ban` → được Xem, ĐÚNG scope của
     # `don_hang_ban` (mg 0329 chép y như vậy cho DB đang chạy).
     ("bao_cao_kinh_doanh", "Báo cáo kinh doanh"),
-    ("tinh_gia_thanh", "Tính giá thành"),
+    # Nhãn "Tính giá" (không phải "Tính giá thành") — phải TRÙNG CHỮ với mục menu, guard
+    # `test_nhan_o_quyen_trung_chu_voi_muc_menu` canh chỗ này.
+    ("tinh_gia_thanh", "Tính giá"),
     # Giao hàng (19/08/2026): yêu cầu giao → lên kế hoạch → đề nghị xuất kho → chuyến giao.
     # MỘT khoá cho cả màn; hai tab đặc quyền tách bằng ô chi tiết `can_plan` / `can_view_drivers`.
     ("giao_hang", "Giao hàng"),
@@ -54,16 +68,19 @@ MODULES: list[tuple[str, str]] = [
     # TÁCH THEO MÀN (10/08/2026, đường A) — giống Thu mua. `ke_toan` GIỮ KHOÁ nhưng thu hẹp nghĩa
     # còn đúng màn "Đơn mua hàng" của kế toán; 5 màn kia tách ra khoá riêng, migration 0178 sao
     # chép quyền `ke_toan` cũ sang.
-    ("ke_toan", "Đơn mua hàng (Kế toán)"),
-    ("phieu_chi", "Phiếu chi / UNC"),
+    ("ke_toan", "Đơn mua hàng"),
+    # Nhãn menu là `VOUCHER_PAGE_LABEL` (frontend/src/constants/features.ts): "Phiếu chi / UNC"
+    # khi `UNC_ENABLED`, "Phiếu chi" khi tắt. Máy chủ không biết cờ giao diện nên giữ tên ngắn —
+    # phần "/ UNC" là biến thể của cùng một màn, không phải màn khác.
+    ("phieu_chi", "Phiếu chi"),
     ("phieu_thu", "Phiếu thu"),
     ("cong_no_phai_tra", "Công nợ phải trả"),
     ("cong_no_phai_thu", "Công nợ phải thu"),
     # TÁCH RIÊNG (chủ chốt 04/09/2026: "báo cáo đó là một module riêng mà") — trước "Báo cáo"
     # ăn ké quyền Xem của hai khoá trên, migration 0260 sao chép quyền cũ sang.
-    ("bao_cao_cong_no", "Báo cáo công nợ"),
+    ("bao_cao_cong_no", "Báo cáo"),
     ("tk_ngan_hang", "Tài khoản ngân hàng"),
-    ("tai_san", "Tài sản & Công cụ dụng cụ"),
+    ("tai_san", "Tài sản & CCDC"),
     # TÁCH THEO MÀN (chủ chốt 17/08/2026, đường A — giống Thu mua/Kế toán): 6 mục menu khối Sản
     # xuất trước đây treo trên ĐÚNG HAI khoá, bật một công tắc là mở 4 màn. Nay mỗi màn một ô.
     # Hai khoá cũ GIỮ NGUYÊN TÊN, chỉ thu hẹp nghĩa còn đúng một màn — đổi khoá là mọi hàng
@@ -108,14 +125,37 @@ MODULES: list[tuple[str, str]] = [
     # bảo trì để né máy nằm, mà không nên đọc phiếu máy hỏng. Nên tách 17/08/2026.
     ("ky_thuat_may", "Sửa chữa máy"),
     ("phieu_bao_tri", "Phiếu bảo trì"),
-    # Người ngoài tổ kỹ thuật báo máy hỏng (20/08/2026). Tách khỏi `ky_thuat_may` vì đây đúng là
-    # hai nhóm người khác nhau: thợ đứng máy CHỈ được gửi lời báo, không được mở/đóng phiếu sửa.
-    ("yeu_cau_sua_chua", "Báo máy hỏng"),
-    ("kho", "Kho hàng"),
+    # Khoá `yeu_cau_sua_chua` ("Báo máy hỏng") ĐÃ GỠ 24/09/2026 (mg `0332`) — chủ chốt, nhìn vào
+    # ma trận: *"bên thanh bên có 2 module sao ở quyền lại có 3"*. "Yêu cầu báo hỏng" là một TAB
+    # của màn Sửa chữa máy, không phải màn riêng ⇒ thành ô CHI TIẾT `ky_thuat_may:can_request`.
+    # Nhãn ĐỔI 24/09/2026 (từ "Kho hàng") cho trùng chữ với mục menu nó gác. Tên cũ trùng luôn tên
+    # PHÂN HỆ nên ma trận bày ra "Kho hàng › Kho hàng", còn trên thanh bên thì không có mục nào
+    # tên vậy — người đi cấp quyền không nối được ô với màn.
+    ("kho", "Yêu cầu nhập xuất"),
+    # Tồn kho (24/09/2026, mg `0334`) — tách khỏi ô CHI TIẾT `kho:can_view_stock`. Mỗi kho đã khai
+    # báo là MỘT mục menu (AppShell tiêm động dưới khối "Kho hàng"), mở màn Tồn kho của kho đó;
+    # trước đây cả nhóm màn ấy nấp sau một công tắc nằm trong panel chi tiết của màn Yêu cầu nhập
+    # xuất — đúng kiểu "màn không có dòng của riêng nó" mà `bao_cao_kho` vừa thoát ra (mg `0329`).
+    # Xem = thấy khối kho trên menu + số tồn; ô chi tiết `set_threshold` = khai ngưỡng tồn.
+    ("ton_kho", "Tồn kho"),
+    # Báo cáo kho (24/09/2026) — tách khỏi `kho`, CÙNG MỘT LÝ DO với `bao_cao_cong_no` (mg 0260,
+    # chủ chốt: *"báo cáo đó là một module riêng mà"*). Trước đó mục menu "Báo cáo kho" gắn khoá
+    # `kho` rồi lọc thêm bằng ô CHI TIẾT `kho:close_book` — nghĩa là một MÀN không có dòng của
+    # riêng nó trong ma trận, phải đi tìm trong panel chi tiết của Kho mới cấp được.
+    # Nay: Xem = vào màn + sổ nhập-xuất + NXT + export MISA; `close_book` = KHOÁ KỲ (chốt sổ) +
+    # tính giá kỳ. Mg `0329` chép quyền từ `kho.can_close_book` sang.
+    ("bao_cao_kho", "Báo cáo kho"),
+    # Phòng ban: MỘT màn, nhiều tab — cơ cấu phòng · nhân sự trong phòng · "Vai trò & Quyền".
+    # Khoá `vai_tro` ĐÃ GỠ 24/09/2026 (mg `0330`, chủ chốt: *"làm gì có module vai trò đâu"*):
+    # vai trò không có mục menu nào, nó sống trong tab của chính màn này. Xem/thêm/sửa/xoá vai trò
+    # đi theo Xem/Thao tác của `phong_ban`; riêng việc CẤP QUYỀN (sửa ma trận) tách thành ô chi
+    # tiết `can_manage_permissions` — đúng chỗ nó thuộc về.
     ("phong_ban", "Phòng ban"),
-    ("vai_tro", "Vai trò"),
-    ("nguoi_dung", "Người dùng"),
-    ("activity_log", "Nhật ký hoạt động"),
+    # Khoá `nguoi_dung` ĐÃ GỠ 24/09/2026 (mg `0331`) — cùng lý do với `vai_tro`: màn "Người dùng"
+    # riêng đã bỏ từ lâu, tài khoản đăng nhập nay là tab "Tài khoản & Quyền" của HỒ SƠ NHÂN SỰ.
+    # Bốn thao tác quản trị (đặt lại mật khẩu · khoá/mở · thu hồi phiên · gán vai trò) thành ô
+    # CHI TIẾT của `nhan_su`; "chuyển phòng ban" gộp vào `nhan_su.can_transfer` sẵn có.
+    ("activity_log", "Nhật ký"),
     # Cấu hình danh mục (spec-06): mỗi trang là một module quyền riêng để tích quyền độc lập.
     # Chỉ liệt kê module CÓ MÀN dùng tới — module không màn = dòng ma trong ma trận, tick vào
     # không đổi gì. Đã gỡ (migration 0069): san_pham · dm_gia_click · dm_gia_khuon_ban ·
@@ -140,9 +180,11 @@ MODULES: list[tuple[str, str]] = [
     # Tách khỏi `cham_cong` ngày 11/08/2026: duyệt yêu cầu chỉnh công là việc của người QUẢN,
     # còn xem bảng công là việc của cả người bị quản — hai mức khác nhau, hai ô khác nhau.
     ("yeu_cau_chinh_cong", "Yêu cầu chỉnh công"),
-    # TỰ PHỤC VỤ: việc người lao động làm với hồ sơ của CHÍNH MÌNH. Trước đây là luật ngầm
-    # (chỉ cần đăng nhập) nên không tắt được cho ai — nay là một ô nhìn thấy được.
-    ("self_service", "Tự phục vụ"),
+    # Mục menu "Hồ sơ của tôi": việc người lao động làm với hồ sơ của CHÍNH MÌNH. Trước đây là
+    # luật ngầm (chỉ cần đăng nhập) nên không tắt được cho ai — nay là một ô nhìn thấy được, và
+    # từ 24/09/2026 nó CÓ DÒNG trong ma trận đúng như mọi mục menu khác (nhãn cũ "Tự phục vụ"
+    # không trùng chữ nào trên thanh bên nên chẳng ai nối được ô với màn).
+    ("self_service", "Hồ sơ của tôi"),
     ("nghi_phep", "Nghỉ phép"),
     ("tang_ca", "Tăng ca"),
     ("di_muon", "Đi muộn / về sớm"),
@@ -281,14 +323,22 @@ def _read(scope: str) -> dict:
 # Cụm quyền KHO — ĐÃ GỘP (bỏ SoD): người có quyền LẬP PHIẾU (can_create) tự GHI SỔ + HỦY luôn.
 # Không còn tách "thủ kho lập" và "QL/kế toán ghi sổ" (theo vận hành). `can_post` KHÔNG còn gác ở
 # endpoint nào nữa — giữ cột trong DB cho tương thích nhưng là quyền chết.
-#   _KHO_VIEW = xem tồn + khai ngưỡng tồn. KHÔNG kèm giá vốn (tách 29/08/2026) — CHỈ Kế toán kho
-#     (+ Giám đốc) mới có `can_view_cost` (thấy đơn giá/giá vốn); thủ kho & QL kho xem tồn KHÔNG thấy giá.
-#   _KHO_QL   = _KHO_VIEW (không còn khác biệt — giữ tên cho các chỗ gọi cũ).
 # KHÔNG kèm `can_approve` — DUYỆT đề nghị là việc của quản lý bộ phận đề nghị, kho KHÔNG tự duyệt.
-_KHO_VIEW = {
-    "can_view_stock": True, "can_set_threshold": True,
+#
+# `_KHO_VIEW` / `_KHO_QL` (xem tồn + khai ngưỡng, gắn trên khoá `kho`) ĐÃ GỠ 24/09/2026 cùng mg
+# `0334`: hai việc đó nay là module RIÊNG `ton_kho` bên dưới. Ai xem tồn thì cấp `ton_kho`, đừng
+# gắn lại cờ `can_view_stock` vào `kho` — cột còn trong DB nhưng không endpoint nào đọc nữa.
+#
+# Cụm TỒN KHO: Xem = thấy khối kho trên thanh bên + số tồn + lô. Việc GHI duy nhất của màn là
+# KHAI NGƯỠNG, đi bằng ô CHI TIẾT `can_set_threshold` (cùng khuôn `bao_cao_kho` + `close_book`):
+# thêm/sửa/xoá của màn này không có nghĩa — kho khai ở danh mục riêng, lô sinh ra từ phiếu nhập.
+# KHÔNG kèm giá vốn — `can_view_cost` vẫn là MỘT công tắc duy nhất nằm trên khoá `kho`, dùng chung
+# cho cả ba màn kho (yêu cầu · tồn · báo cáo), vì quyền thấy giá là của NGƯỜI chứ không của màn.
+# Phạm vi: `ton_kho` scopeless (máy chủ ép `all`) — thấy kho nào là do KHAI BÁO KHO quyết định.
+_TON_KHO = {
+    "can_read": True, "can_create": False, "can_update": False, "can_delete": False,
+    "can_set_threshold": True, "scope": SCOPE_ALL,
 }
-_KHO_QL = {**_KHO_VIEW}
 
 
 def _leave_self(scope: str = SCOPE_OWN) -> dict:
@@ -421,6 +471,14 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
                 "can_approve": True,
                 "can_export": True,
                 "can_adjust": True,   # (cờ cũ — chấm bù nay nằm ở khoá `cham_cong` bên dưới)
+                # TÀI KHOẢN đăng nhập của nhân viên — khoá `nguoi_dung` gỡ 24/09/2026 (mg `0331`),
+                # bốn ô này dời nguyên sang đây vì chúng gác tab "Tài khoản & Quyền" CỦA CHÍNH
+                # màn Hồ sơ nhân sự. "Chuyển phòng ban" của khoá cũ gộp vào `can_transfer` sẵn có
+                # (điều chuyển nhân sự — cùng một việc, hai cửa).
+                "can_reset_password": True,
+                "can_lock": True,
+                "can_revoke_sessions": True,
+                "can_assign_role": True,
             },
             # Màn CHẤM CÔNG tách khoá riêng 10/08/2026 — trước đây ăn ké `nhan_su`, nên cấp quyền
             # xem hồ sơ là mở luôn bảng công cả công ty. `_full` bật cả `can_adjust` (chấm bù) lẫn
@@ -434,18 +492,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "tang_ca": _ot_lead(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
-            # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
-            # đặt lại MK, khóa/mở, thu hồi phiên, gán vai trò, chuyển phòng ban.
-            "nguoi_dung": {
-                **_rcu(SCOPE_ALL),
-                "can_reset_password": True,
-                "can_lock": True,
-                "can_revoke_sessions": True,
-                "can_assign_role": True,
-                "can_transfer": True,
-            },
+            # (Quản trị tài khoản của HCNS nay nằm trong ô `nhan_su` phía trên — mg `0331`.)
+            # Xem phòng ban KÈM tab "Vai trò & Quyền" (khoá `vai_tro` gỡ ở mg `0330`). TP HCNS
+            # ĐỌC được ma trận nhưng KHÔNG sửa: cấp quyền là ô chi tiết `can_manage_permissions`,
+            # cố ý không bật — trước đây cũng chỉ có `vai_tro: _read`.
             "phong_ban": _read(SCOPE_ALL),
-            "vai_tro": _read(SCOPE_ALL),
             "activity_log": _read(SCOPE_ALL),
         },
     ),
@@ -517,7 +568,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # Tổ trưởng vẫn cần ĐỌC danh mục máy (đổ danh sách máy ở màn của tổ), không sửa.
             "dm_thiet_bi": _read(SCOPE_ALL),
             # Báo máy hỏng thay cả tổ + sửa lại lời báo của thợ cho rõ trước khi tổ kỹ thuật đọc.
-            "yeu_cau_sua_chua": _rcu(SCOPE_ALL),
+            # Xem = mở màn Sửa chữa máy (cả hai tab); ô chi tiết `can_request` = gửi/sửa lời báo.
+            "ky_thuat_may": {**_read(SCOPE_ALL), "can_request": True},
             # Kho: đề nghị lĩnh vật tư cho tổ + DUYỆT cấp 1 đề nghị của tổ mình (BRD §2.8 b5 —
             # "Tổ trưởng/Quản lý duyệt đề xuất cấp phát"). Scope DEPARTMENT: phải thấy đề nghị của
             # NV trong phòng mới duyệt được (own chỉ thấy của mình → không có gì để duyệt).
@@ -565,8 +617,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
          "xep_lich": _read(SCOPE_ALL),
          # Thợ đứng máy là người ĐẦU TIÊN biết máy hỏng: cho gửi yêu cầu + sửa lại yêu cầu của
          # mình (khi chưa ai tiếp nhận). `read` để trống mắt thấy người khác đã báo cùng cái máy
-         # đó chưa — không có nó thì mỗi ca lại đẻ một yêu cầu trùng.
-         "yeu_cau_sua_chua": _rcu(SCOPE_ALL),
+         # đó chưa — không có nó thì mỗi ca lại đẻ một yêu cầu trùng. KHÔNG cấp Thao tác: tiếp
+         # nhận / đóng phiếu sửa chữa vẫn là việc của tổ kỹ thuật.
+         "ky_thuat_may": {**_read(SCOPE_ALL), "can_request": True},
          "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self(),
          "cham_cong": _cham_cong_self()},
     ),
@@ -579,7 +632,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
          "lenh_san_xuat": _read(SCOPE_ALL), "theo_doi_san_xuat": _read(SCOPE_ALL),
          "ke_hoach_vat_tu": _read(SCOPE_ALL), "bai_ghep_2": _read(SCOPE_ALL),
          "xep_lich": _read(SCOPE_ALL),
-         "yeu_cau_sua_chua": _rcu(SCOPE_ALL),  # soi ra máy chạy sai thì báo ngay tại chỗ
+         # soi ra máy chạy sai thì báo ngay tại chỗ
+         "ky_thuat_may": {**_read(SCOPE_ALL), "can_request": True},
          "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self(),
          "cham_cong": _cham_cong_self()},
     ),
@@ -588,6 +642,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Trưởng phòng KD",
         {
             **{k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS},
+            # Bản đồ luồng KD: chỉ có Xem (màn tĩnh, không endpoint) nên KHÔNG dùng `_full`.
+            "quy_trinh_kinh_doanh": _read(SCOPE_ALL),
             # TP KD DUYỆT được "báo giá đặc thù" (cùng Giám đốc Kinh doanh) — chủ đầu tư chốt sau P7.
             "bao_gia": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
             # Đơn hàng bán: TP KD duyệt đơn đặc thù + hủy đơn đã chốt (cùng GĐ KD).
@@ -609,6 +665,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Giám đốc Kinh doanh",
         {
             **{k: _full(SCOPE_ALL) for k in KD_MODULE_KEYS},
+            "quy_trinh_kinh_doanh": _read(SCOPE_ALL),
             "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
             "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
             "bao_cao_kinh_doanh": _read(SCOPE_ALL),
@@ -626,6 +683,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "NV Sales",
         {
             "dashboard": _read(SCOPE_OWN),
+            "quy_trinh_kinh_doanh": _read(SCOPE_ALL),
             "khach_hang": _rcu(SCOPE_OWN),
             # Báo giá: NV Sales có ĐỦ thao tác thường trên phiếu CỦA MÌNH (gửi khách, ghi nhận khách
             # đồng ý/từ chối, hủy, xuất PDF, tạo bản mới) — các quyền này KHÔNG tách vụn, ai làm KD cũng có.
@@ -641,7 +699,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "theo_doi_san_xuat": _read(SCOPE_OWN),
             # Tính giá: NV Sales tự lập phiếu tính giá của mình; phạm vi "Của tôi" (chỉ thấy phiếu mình lập),
             # TP KD/GĐ scope phòng/tất cả thấy hết (lọc theo `created_by`).
-            "tinh_gia_thanh": _rcu(SCOPE_OWN),
+            # `can_view_cost` = ô chi tiết "Xem chi tiết giá vốn" (24/09/2026): BẮT BUỘC đi kèm
+            # quyền lập/sửa — lập phiếu chính là mở thẻ sản phẩm ra khai giấy/khổ/công đoạn.
+            # Vai chỉ ĐỌC Tính giá thì quản trị tự quyết bật hay không.
+            "tinh_gia_thanh": {**_rcu(SCOPE_OWN), "can_view_cost": True},
             # Giao hàng (PRD §14): NV Sales tạo yêu cầu giao cho đơn CỦA MÌNH + theo dõi chuyến,
             # phạm vi "Của tôi". Không lên kế hoạch, không phân công tài xế, không huỷ chuyến.
             "giao_hang": {**_read(SCOPE_OWN), "can_create": True},
@@ -650,8 +711,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     ),
     # === Vai trò tiếp cận Kho (BRD Module Kho §1.4/§1.5 · spec-kho-de-nghi §9.2) ==========
     # GỘP QUYỀN (2026-07-29, mentor): 5 cột kho (duyệt · ghi sổ · xem tồn · xem giá vốn · khai
-    # ngưỡng) = 1 công tắc "Quản lý kho" trên ma trận → vai làm việc với kho bật cả cụm. `_KHO_QL`
-    # = cụm đó. Người đề nghị scope `own` (chỉ đèn tín hiệu, không thấy tồn/giá).
+    # ngưỡng) = 1 công tắc "Quản lý kho" trên ma trận → vai làm việc với kho bật cả cụm. Từ
+    # 24/09/2026 hai cột "xem tồn · khai ngưỡng" rời sang module `ton_kho` (mg `0334`), nên vai
+    # làm kho nào cũng phải cấp KÈM khoá đó. Người đề nghị scope `own` (chỉ đèn tín hiệu, không
+    # thấy tồn/giá) ⇒ KHÔNG cấp `ton_kho`.
     # Thủ kho: LẬP PHIẾU + XEM KHO (tồn/ngưỡng; KHÔNG xem giá vốn — chỉ kế toán) — KHÔNG ghi sổ (SoD: QL kho / Kế toán kho
     # chốt tồn). Khai rõ create/update/delete để công tắc "Lập phiếu" trên ma trận hiện ĐÚNG là bật.
     (
@@ -661,8 +724,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "kho": {
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
-                "scope": SCOPE_ALL, **_KHO_VIEW,
+                "scope": SCOPE_ALL,
             },
+            "ton_kho": dict(_TON_KHO),
             # Danh mục hàng + khai báo kho: GIỮ NGUYÊN khả năng cũ (hồi chúng còn gác bằng quyền
             # `kho`) — tách module không phải để âm thầm rút quyền của người đang làm việc. Muốn
             # siết "thủ kho không đặt đơn giá giấy" thì tắt công tắc Thao tác ở ma trận.
@@ -689,8 +753,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             "kho": {
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
-                "scope": SCOPE_ALL, **_KHO_QL,
+                "scope": SCOPE_ALL,
             },
+            "ton_kho": dict(_TON_KHO),
             **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),
             # Scope rộng hơn giữa `san_xuat` (all, không có `don_hang_ban`) = all.
@@ -771,7 +836,12 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             # Kế toán kho: XEM GIÁ VỐN (can_view_cost — tách riêng khỏi xem tồn) + KHÓA KỲ (chốt sổ)
             # + Báo cáo kho + export MISA (can_close_book). Chỉ vai này (+ GĐ) thấy giá.
-            "kho": {**_read(SCOPE_ALL), **_KHO_QL, "can_view_cost": True, "can_close_book": True},
+            "kho": {**_read(SCOPE_ALL), "can_view_cost": True, "can_close_book": True},
+            "ton_kho": dict(_TON_KHO),
+            # Báo cáo kho tách thành module riêng 24/09/2026: Xem = vào màn + export MISA,
+            # `can_close_book` = khoá kỳ / tính giá kỳ. Cờ `kho.can_close_book` ở trên GIỮ LẠI
+            # cho các cửa cũ của chính màn Kho (popup lịch sử mặt hàng) — xem mg `0329`.
+            "bao_cao_kho": {**_read(SCOPE_ALL), "can_close_book": True},
             # Đối chiếu giá vốn cần TRA danh mục, không sửa.
             **{k: _read(SCOPE_ALL) for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu")},
         },

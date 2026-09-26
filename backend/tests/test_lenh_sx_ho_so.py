@@ -886,20 +886,16 @@ def test_san_luong_cong_don_moi_batch(client, seed_credentials, sess, admin, len
     assert all(b["la_buoc_ghep"] is False for b in sl["batch"])
 
 
-def test_bo_qua_nhan_dong_bai_ghep(client, seed_credentials, sess, ghep_doi):
-    """`bo_qua` phải nhận cả dòng mang mã BÀI GHÉP, không riêng mã lệnh.
+def test_khoi_vat_tu_KHONG_con_muc_bo_qua(client, seed_credentials, sess, ghep_doi):
+    """Mục `bo_qua` GỠ 23/09/2026 — hồ sơ chỉ còn ba danh sách nói việc phải làm.
 
-    Engine vật tư ghi dòng bỏ qua của bài ghép dưới `bg.ma` (`ke_hoach_vat_tu_service:995`), nên bộ
-    lọc `r["ma"] == ma_lenh` làm lệnh nằm trong bài ghép thấy `bo_qua` RỖNG — im lặng bỏ sót đúng
-    thứ mà khối này sinh ra để nói. Lệnh ở đây chưa khai giấy nên bài ghép không đối chiếu được,
-    engine bỏ qua nó và ghi lý do.
+    Lệnh ở đây nằm trong bài ghép chưa chọn giấy chung, tức đúng ca trước kia đẻ ra một dòng "bỏ
+    qua" mang mã `GB…`. Nay khối vật tư phải im về chuyện đó (cửa chặn ở xếp lịch lo).
     """
     lsx_a, _lsx_b, _cv_chung = ghep_doi
     vt = _ho_so(client, seed_credentials, lsx_a)["vat_tu"]
-    assert vt["bo_qua"], "dòng bỏ qua mang mã bài ghép phải lọt qua bộ lọc"
-    assert any("GB" in (r.get("ma") or "") for r in vt["bo_qua"]), (
-        "phải là dòng của BÀI GHÉP (mã bắt đầu bằng GB), không phải dòng của lệnh"
-    )
+    assert "bo_qua" not in vt
+    assert set(vt) == {"hien_tai", "canh_bao_sau", "da_cap"}
 
 
 def test_thong_tin_ra_dung_ten_khach_va_nguoi_ban(client, seed_credentials, lenh_that):

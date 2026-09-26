@@ -58,9 +58,7 @@
   .sel__opt-sub,
   .sidebar__tag,
   .sidebar__sectionhead,
-  .sidebar__badge,
-  .tb-bell__badge,
-  .tb-notif__time {
+  .sidebar__badge {
     font-size: 12px !important;
   }
 

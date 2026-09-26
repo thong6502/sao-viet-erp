@@ -323,7 +323,7 @@ class SalaryAdvance(Base):
     decision_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
-    # Phiếu chi CÒN HIỆU LỰC đã chi phiếu này (25/09/2026, mg 0331). Chủ chốt: chi một lượt cho 1 hay
+    # Phiếu chi CÒN HIỆU LỰC đã chi phiếu này (25/09/2026, mg 0337). Chủ chốt: chi một lượt cho 1 hay
     # 1000 người thì chỉ MỘT phiếu chi cho cả lô ⇒ quan hệ nay là NHIỀU tạm ứng → một phiếu chi, không
     # còn một-một qua `payment_vouchers.salary_advance_id`. Huỷ phiếu chi ⇒ xoá về NULL. KHÔNG khai
     # ForeignKey: `payment_vouchers` đã có khoá ngoại ngược lại (`salary_advance_id`), hai chiều là vòng

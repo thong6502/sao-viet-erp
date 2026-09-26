@@ -287,9 +287,12 @@ function giaKhoan(v: { don_gia: number; don_vi: string; don_vi_ten: string | nul
 
 /** "đã nhận từ In 1.000 × 2 = 2.000, đã ghi 300" — CHỈ SỐ, không đơn vị (19/09/2026: mẻ chỉ ghi
  *  nhận con số, xưởng không muốn thấy tờ/con/cái ở form này). */
+// Cùng tổ + cùng lệnh thì không có bàn giao, `da_nhan` là SẢN LƯỢNG bước trước — viết "đã nhận"
+// ở đó là nói sai việc, tổ sẽ đi tìm bàn giao không tồn tại. Cùng chữ với câu máy chủ chặn.
 function cauTranGhi(t: SxTranGhi): string {
   const quyDoi = Math.abs(t.he_so - 1) > 1e-9 ? ` × ${num(t.he_so)} = ${num(t.toi_da)}` : "";
-  return `đã nhận từ ${t.nguon_ten} ${num(t.da_nhan)}${quyDoi}, đã ghi ${num(t.da_ghi)}`;
+  const dau = t.cung_to ? "đã làm được ở" : "đã nhận từ";
+  return `${dau} ${t.nguon_ten} ${num(t.da_nhan)}${quyDoi}, đã ghi ${num(t.da_ghi)}`;
 }
 
 /** Form GHI MẺ theo CÔNG VIỆC KHOÁN (spec 2026-09-18 §7.1): chọn ĐÚNG MỘT việc của tổ (thấy đơn giá
@@ -437,12 +440,12 @@ export function BatchForm({
         <p className={`thsx-x-hint${tranGhi.con_ghi_duoc <= 0.0005 ? " thsx-x-hint--canh" : ""}`}>
           {tranGhi.con_ghi_duoc > 0.0005
             ? <>Còn ghi được tối đa <b>{num(tranGhi.con_ghi_duoc)}</b> — {cauTranGhi(tranGhi)}.</>
-            : <>Hết số đã nhận ({cauTranGhi(tranGhi)}) — chỉ ghi được mẻ 0 cho tới khi công đoạn trước giao thêm.</>}
+            : <>Hết số {tranGhi.cung_to ? "bước trước làm ra" : "đã nhận"} ({cauTranGhi(tranGhi)}) — chỉ ghi được mẻ 0 cho tới khi công đoạn trước {tranGhi.cung_to ? "làm" : "giao"} thêm.</>}
         </p>
       )}
       {vuotTran && tranGhi && tranGhi.con_ghi_duoc > 0.0005 && (
         <span className="thsx-x-err thsx-glass-err">
-          Vượt số nhận từ công đoạn trước — mẻ này ghi tối đa {num(tranGhi.con_ghi_duoc)}.
+          Vượt {tranGhi.cung_to ? "sản lượng" : "số nhận từ"} công đoạn trước — mẻ này ghi tối đa {num(tranGhi.con_ghi_duoc)}.
         </span>
       )}
 
@@ -766,6 +769,8 @@ function CongDoanTruocRow({ c }: { c: SxCongDoanTruoc }) {
           {KCS_CD_TRANG_THAI[c.trang_thai] ?? c.trang_thai}
         </span>
       </div>
+      {/* Cùng tổ + cùng lệnh: hàng chưa rời tổ nên KHÔNG có bàn giao (`dau_vao.cung_to_cung_lsx`).
+          Bày hai ô Giao sang / Đã nhận đứng 0 mãi là đẩy tổ đi tìm một cái nút không tồn tại. */}
       <div className="thsx-batch-metric-strip">
         <div className="thsx-batch-metric-tile">
           <span className="thsx-metric-lbl">Kế hoạch</span>{so(c.ke_hoach, dv)}
@@ -773,13 +778,21 @@ function CongDoanTruocRow({ c }: { c: SxCongDoanTruoc }) {
         <div className="thsx-batch-metric-tile" title="Cộng các mẻ công đoạn đó đã ghi">
           <span className="thsx-metric-lbl">Thực tế</span>{so(c.thuc_te, dv)}
         </div>
-        <div className="thsx-batch-metric-tile">
-          <span className="thsx-metric-lbl">Giao sang</span>{so(c.da_giao, dvGiao)}
-        </div>
-        <div className="thsx-batch-metric-tile">
-          <span className="thsx-metric-lbl">Đã nhận</span>{so(c.da_xac_nhan, dvGiao)}
-        </div>
+        {!c.cung_to && (<>
+          <div className="thsx-batch-metric-tile">
+            <span className="thsx-metric-lbl">Giao sang</span>{so(c.da_giao, dvGiao)}
+          </div>
+          <div className="thsx-batch-metric-tile">
+            <span className="thsx-metric-lbl">Đã nhận</span>{so(c.da_xac_nhan, dvGiao)}
+          </div>
+        </>)}
       </div>
+      {c.cung_to && (
+        <div className="thsx-x-bg__sub">
+          <span>Cùng tổ, cùng lệnh — hàng chưa rời tổ nên không phải bàn giao. Bước này làm ra bao
+          nhiêu thì bên đây ghi mẻ được bấy nhiêu.</span>
+        </div>
+      )}
       {c.cho_xac_nhan > 0 && (
         <div className="thsx-x-bg__sub">
           <span className="thsx-x-pill thsx-x-pill--wait">chờ xác nhận</span>
