@@ -3,13 +3,15 @@
 guarded by require_permission on the relevant module."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
 
 from ..deps import (
     get_activity_service,
+    get_audit_repository,
     get_authorization_service,
     get_department_service,
     get_employee_service,
@@ -22,6 +24,8 @@ from ..deps import (
 from ..schemas.rbac import (
     RoleTemplateOut,
     ActiveUpdate,
+    AuditFacets,
+    AuditPage,
     AuditRow,
     DepartmentCreate,
     DepartmentMemberOut,
@@ -91,6 +95,11 @@ from ..services.user_admin_service import (
     UserNotFound,
 )
 from ..services.user_admin_service import DepartmentNotFound as UADeptNotFound
+from .. import audit_registry
+from ..db import SessionLocal
+from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.rbac_repo import RoleRepository
+from ..repositories.user_repo import UserRepository
 from ..services.activity_service import ActivityService
 from ..services.rbac_service import AuthorizationService
 from ..services.payroll_service import PayrollError, PayrollService
@@ -106,14 +115,119 @@ EmployeeSvc = Annotated[EmployeeService, Depends(get_employee_service)]
 PayrollSvc = Annotated[PayrollService, Depends(get_payroll_service)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 Activity = Annotated[ActivityService, Depends(get_activity_service)]
+AuditRepo = Annotated[AuditLogRepository, Depends(get_audit_repository)]
 
 
-@router.get("/audit", response_model=list[AuditRow])
+@router.get("/audit", response_model=AuditPage)
 def list_audit(
     activity: Activity,
-    _: Annotated[object, Depends(require_permission("activity_log", "read"))],
-) -> list[AuditRow]:
-    return activity.list_recent()
+    user: Annotated[object, Depends(require_permission("activity_log", "read"))],
+    q: Annotated[str | None, Query(description="tìm trong nội dung / đối tượng")] = None,
+    tu_ngay: Annotated[datetime | None, Query()] = None,
+    den_ngay: Annotated[datetime | None, Query()] = None,
+    action: Annotated[list[str] | None, Query()] = None,
+    actor_id: Annotated[list[int] | None, Query()] = None,
+    loai: Annotated[list[str] | None, Query(description="tiền tố của target")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    trang: Annotated[int, Query(ge=1, description="số trang, 1 là mới nhất")] = 1,
+    neo: Annotated[str | None, Query(description="mốc ảnh chụp do trang 1 trả về")] = None,
+) -> dict:
+    """Nhật ký hoạt động — lọc + phân trang Ở MÁY CHỦ.
+
+    Trước 25/09/2026 endpoint này không nhận tham số nào và trả cứng 100 dòng mới nhất; màn hình
+    lọc/cắt trang/xuất CSV trên đúng 100 dòng ấy, nên dòng thứ 101 trở đi không có đường nào lấy
+    ra. Không truyền khoảng ngày thì mặc định 30 ngày gần nhất (màn đổ sẵn ra ô chọn)."""
+    return activity.liet_ke(
+        user=user, q=q, tu=tu_ngay, den=den_ngay, actions=action,
+        actor_ids=actor_id, loais=loai, limit=limit, trang=trang, neo=neo,
+    )
+
+
+@router.get("/audit/facets", response_model=AuditFacets)
+def audit_facets(
+    activity: Activity,
+    user: Annotated[object, Depends(require_permission("activity_log", "read"))],
+    q: Annotated[str | None, Query()] = None,
+    tu_ngay: Annotated[datetime | None, Query()] = None,
+    den_ngay: Annotated[datetime | None, Query()] = None,
+) -> dict:
+    """Danh mục hành động / người thao tác / nhóm, ĐẾM theo khoảng ngày đang xem — để hai dropdown
+    liệt kê đủ chứ không chỉ những mã tình cờ có mặt trong trang hiện tại."""
+    return activity.danh_muc_hanh_dong(user=user, q=q, tu=tu_ngay, den=den_ngay)
+
+
+@router.get("/audit/export")
+def audit_export(
+    activity: Activity,
+    audit_repo: AuditRepo,
+    user: Annotated[object, Depends(require_permission("activity_log", "export"))],
+    q: Annotated[str | None, Query()] = None,
+    tu_ngay: Annotated[datetime | None, Query()] = None,
+    den_ngay: Annotated[datetime | None, Query()] = None,
+    action: Annotated[list[str] | None, Query()] = None,
+    actor_id: Annotated[list[int] | None, Query()] = None,
+    loai: Annotated[list[str] | None, Query()] = None,
+) -> StreamingResponse:
+    """Xuất CSV theo ĐÚNG bộ lọc đang xem (không phải theo trang đang tải), stream từng dòng.
+
+    Hai điểm khác bản cũ ở frontend: (a) xuất được TOÀN BỘ dữ liệu khớp chứ không tối đa 100 dòng;
+    (b) chính việc xuất được ghi lại một dòng nhật ký (`audit_export`) — cùng lối màn Báo cáo kho
+    đã làm với `kho_export`. Lấy cả nhật ký ra ngoài là việc cần để lại vết."""
+    uid = getattr(user, "id", None)
+    audit_repo.create(
+        actor_user_id=uid, action="audit_export",
+        target="audit", detail=_mo_ta_bo_loc(q, tu_ngay, den_ngay, action, actor_id, loai),
+    )
+
+    def dong():
+        # Phiên DB của request ĐÃ ĐÓNG trước khi generator chạy (StreamingResponse tiêu thụ sau
+        # khi handler trả về) ⇒ phải mở phiên riêng, cùng lối kênh SSE của báo giá. Dùng `activity`
+        # của request ở đây là `DetachedInstanceError` ngay dòng đầu.
+        db = SessionLocal()
+        try:
+            svc = ActivityService(
+                AuditLogRepository(db), UserRepository(db), AuthorizationService(RoleRepository(db))
+            )
+            nguoi = UserRepository(db).get_by_id(uid) if uid else None
+            yield "﻿ID,Thời gian,Người thực hiện,Hành động,Đối tượng,Chi tiết\n"
+            for d in svc.xuat(user=nguoi, q=q, tu=tu_ngay, den=den_ngay, actions=action,
+                              actor_ids=actor_id, loais=loai):
+                yield ",".join([
+                    str(d["id"]),
+                    _o(d["created_at"].isoformat()),
+                    _o(d["actor_name"] or "Hệ thống"),
+                    _o(d["nhan"]),
+                    _o(d["target"]),
+                    _o(d["detail"]),
+                ]) + "\n"
+        finally:
+            db.close()
+
+    ten = f"nhat-ky-hoat-dong-{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        dong(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{ten}"'},
+    )
+
+
+def _o(v: str) -> str:
+    return '"' + str(v).replace('"', '""') + '"'
+
+
+def _mo_ta_bo_loc(q, tu, den, action, actor_id, loai) -> str:
+    phan = []
+    if tu or den:
+        phan.append(f"{tu.date() if tu else '…'} → {den.date() if den else '…'}")
+    if q:
+        phan.append(f'tìm "{q}"')
+    if action:
+        phan.append(f"{len(action)} hành động")
+    if actor_id:
+        phan.append(f"{len(actor_id)} người")
+    if loai:
+        phan.append(f"loại {', '.join(loai)}")
+    return "Xuất CSV nhật ký — " + (" · ".join(phan) if phan else "toàn bộ")
 
 
 @router.get("/rbac/modules", response_model=list[ModuleOut])
@@ -567,8 +681,16 @@ def list_user_activity(
         AuditRow(
             id=a.id,
             actor_user_id=a.actor_user_id,
+            actor_name=a.actor_name_luc_do or None,
+            ip=a.ip or None,
+            user_agent=a.user_agent or None,
             action=a.action,
+            # Nhãn tiếng Việt lấy từ CÙNG một danh mục với màn Nhật ký — hai chỗ hiện cùng một
+            # dòng audit thì không được gọi tên nó hai kiểu.
+            nhan=audit_registry.tra(a.action, a.target or "").nhan,
+            nhom=audit_registry.tra(a.action, a.target or "").nhom,
             target=a.target,
+            target_loai=(a.target or "").split(":", 1)[0] or None,
             detail=a.detail,
             created_at=a.created_at,
         )

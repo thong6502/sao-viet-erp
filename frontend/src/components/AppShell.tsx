@@ -211,6 +211,8 @@ export function AppShell() {
   // `quoteTick` tăng mỗi event → truyền xuống BaoGiaPage cho nó refetch list/stats. Kênh SSE vẫn
   // DUY NHẤT ở đây (trang con mở kênh riêng = tốn kết nối + lệch trạng thái).
   const [quoteTick, setQuoteTick] = useState(0);
+  // Tách khỏi `quoteTick` — xem lý do ở nhánh `nhat_ky_moi` của kênh SSE bên dưới.
+  const [nhatKyTick, setNhatKyTick] = useState(0);
   // Tín hiệu ĐÍCH DANH cho bàn tổ: SỐ LẦN đề nghị cấp vật tư đổi, ĐẾM THEO TỪNG công việc. Tách
   // khỏi `quoteTick` có chủ đích — sự kiện này broadcast toàn hệ, đẩy vào tick chung là bắt mọi
   // màn đang mở của cả nhà máy gọi lại API mỗi lần một tổ bấm gửi (xem nhánh SSE bên dưới).
@@ -700,6 +702,13 @@ export function AppShell() {
       // phòng). Máy chủ đã gác theo quyền mới từ request kế tiếp; menu + nút thì phải hỏi lại.
       if (e.type === "quyen_doi") {
         reloadAccess(true);
+        return;
+      }
+      // Nhật ký có dòng mới. TICK RIÊNG, cố ý không đụng `quoteTick`: mọi thao tác trong hệ đều
+      // ghi một dòng audit, đẩy vào tick chung là bắt MỌI màn đang mở nạp lại theo. Màn Nhật ký
+      // cũng không tự chèn dòng vào danh sách người ta đang đọc — nó chỉ hiện băng "có N dòng mới".
+      if (e.type === "nhat_ky_moi") {
+        setNhatKyTick((n) => n + 1);
         return;
       }
       // Chuyến giao của CHÍNH tài xế này — máy chủ đẩy đích danh nên không lọc quyền lần nữa.
@@ -1574,7 +1583,7 @@ export function AppShell() {
           />
         );
       case "nhat-ky":
-        return <ActivityLogPage />;
+        return <ActivityLogPage navigate={navigate} eventTick={nhatKyTick} />;
       default:
         return <DashboardPage />;
     }

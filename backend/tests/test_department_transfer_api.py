@@ -105,7 +105,7 @@ def test_bulk_transfer_moves_drops_role_clears_head_and_audits(client):
     assert src["head_user_id"] is None
 
     # One audit row per moved person.
-    audit = client.get("/api/audit", headers=_h(token)).json()
+    audit = client.get("/api/audit", headers=_h(token)).json()["items"]
     moved = [a for a in audit if a["action"] == "employee_transferred"]
     assert len({a["target"] for a in moved}) >= 2
 
@@ -185,7 +185,7 @@ def test_bulk_assign_role_sets_role_and_audits(client):
         row = next(r for r in users if r["id"] == uid)
         assert row["role_id"] == role["id"]
 
-    audit = client.get("/api/audit", headers=_h(token)).json()
+    audit = client.get("/api/audit", headers=_h(token)).json()["items"]
     assigned = [a for a in audit if a["action"] == "assign_role"]
     assert len({a["target"] for a in assigned}) >= 2
 

@@ -98,6 +98,15 @@ const FINE_ACTIONS: Record<
   string,
   { key: ActionKey; keys?: ActionKey[]; label: string; hint?: string; tuModule?: string }[]
 > = {
+  // Nhật ký (25/09/2026): XEM và TẢI VỀ là hai việc khác nhau. Trước đó ai mở được màn là bấm
+  // "Xuất CSV" mang toàn bộ nhật ký ra ngoài được, và bản thân việc mang đi KHÔNG để lại vết.
+  activity_log: [
+    {
+      key: "can_export",
+      label: "Xuất CSV nhật ký",
+      hint: "Tải toàn bộ nhật ký khớp bộ lọc ra tệp CSV. Tách khỏi Xem vì đem cả vết hoạt động của công ty ra ngoài là việc khác hẳn với việc tra cứu trên màn. Mỗi lần xuất tự ghi lại một dòng nhật ký (ai xuất, lọc những gì).",
+    },
+  ],
   khach_hang: [
     {
       key: "can_reassign",
@@ -871,6 +880,10 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   // bày ba lựa chọn mà chọn gì cũng ra `all`.
   // Bản đồ luồng: một bức tranh chung, không có "quy trình của tôi".
   quy_trinh_kinh_doanh: ["all"],
+  // Nhật ký (25/09/2026) vào `SCOPELESS_MODULES` của máy chủ. Trước đó ô này bày đủ ba lựa chọn
+  // mà endpoint không đọc scope lần nào — chọn gì cũng thấy toàn bộ. Cái thật sự giới hạn tầm
+  // nhìn là quyền trên TỪNG MÀN: dòng của màn người xem không mở được thì máy chủ che đi.
+  activity_log: ["all"],
   // Sổ kho là sổ của CẢ KHO — không có "báo cáo của tôi".
   bao_cao_kho: ["all"],
   // Tồn kho (mg `0334`): thấy kho nào là do KHAI BÁO KHO quyết định, không phải phạm vi của vai.

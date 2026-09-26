@@ -36,7 +36,8 @@ def test_action_appears_in_audit_log(client):
     # An action that writes an audit row.
     client.post("/api/departments", json={"name": "Phòng Audit Test"}, headers=_h(token))
 
-    rows = client.get("/api/audit", headers=_h(token)).json()
+    # 25/09/2026: endpoint trả một TRANG (lọc + phân trang ở máy chủ), không còn mảng 100 dòng.
+    rows = client.get("/api/audit", headers=_h(token)).json()["items"]
     match = [
         r
         for r in rows
@@ -45,6 +46,7 @@ def test_action_appears_in_audit_log(client):
     assert match, "expected a create_department audit row"
     assert match[0]["actor_name"] == "Admin"
     assert match[0]["created_at"]  # serialized timestamp present
+    assert match[0]["nhan"] == "Tạo phòng ban"  # nhãn tiếng Việt do máy chủ dịch
 
 
 def test_audit_requires_permission(client):

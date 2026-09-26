@@ -15947,3 +15947,54 @@ MIGRATIONS.append(("0334_tach_module_ton_kho", _migrate_tach_module_ton_kho))
 # `test_user_fk_cascade`, còn nhánh có guard thì chưa có bảng; chỉ lộ ra lúc gộp hai nhánh.
 # Luật chung của dự án là CASCADE cho MỌI FK trỏ users (111/111 cột khác đều vậy).
 MIGRATIONS.append(("0335_user_fks_delete_cascade_lan_3", _migrate_user_fks_delete_cascade))
+
+
+# mg 0336 — màn Nhật ký hoạt động: lọc/phân trang chuyển về MÁY CHỦ (25/09/2026).
+#
+# Trước đó `GET /api/audit` trả cứng 100 dòng mới nhất, không nhận tham số; màn hình lọc, cắt
+# trang và xuất CSV trên đúng 100 dòng ấy — dòng thứ 101 trở đi KHÔNG có đường nào lấy ra, và
+# "30 ngày qua" chỉ lọc trong ảnh chụp đó. Ba cột + hai index dưới đây là phần DB của việc mở ra.
+_COT_0336 = (
+    # Tên người thao tác CHỤP TẠI LÚC GHI. Trước đây tên tra từ `users` lúc ĐỌC ⇒ đổi tên một
+    # người là mọi dòng cũ của họ đổi theo, nhật ký nói sai về quá khứ.
+    ("actor_name_luc_do", "VARCHAR(120)"),
+    # Ai, TỪ ĐÂU. Điền tự động từ `app/audit_context.py` (middleware) nên mọi đường ghi audit đều
+    # có mà không phải sửa hơn 200 chữ ký hàm.
+    ("ip", "VARCHAR(45)"),
+    ("user_agent", "VARCHAR(255)"),
+)
+
+_INDEX_0336 = (
+    # Lọc theo hành động / theo người, luôn kèm sắp xếp theo thời gian. Không có hai index này thì
+    # mỗi lần lọc là quét cả bảng — mà mg `0301` đã ghi đây là bảng phình nhanh nhất hệ.
+    ("ix_audit_logs_action_created_at", ("action", "created_at")),
+    ("ix_audit_logs_actor_created_at", ("actor_user_id", "created_at")),
+)
+
+
+def _migrate_nhat_ky_loc_may_chu(db) -> None:
+    """Ba cột vết + hai index cho `audit_logs`.
+
+    KHÔNG backfill `actor_name_luc_do` cho dòng cũ: tên hôm nay chưa chắc là tên lúc đó, ghi bừa
+    vào là bịa lịch sử. Để rỗng và tầng đọc tự tra ngược sang `users` như trước — đúng chất lượng
+    dữ liệu mà dòng cũ vốn có, không giả vờ hơn.
+    """
+    insp = inspect(db.get_bind())
+    if "audit_logs" not in set(insp.get_table_names()):
+        return
+    co = _existing_columns(insp, "audit_logs")
+    for ten, kieu in _COT_0336:
+        if ten in co:
+            continue
+        # NOT NULL + server_default để `create_all` trên DB trắng và đường migration ra CÙNG hình
+        # dạng; chuỗi rỗng chứ không NULL vì tầng đọc coi rỗng là "không có vết", khỏi phải phân
+        # biệt hai kiểu vắng mặt.
+        db.execute(text(
+            f"ALTER TABLE audit_logs ADD COLUMN {ten} {kieu} NOT NULL DEFAULT ''"))
+    for ten_index, cot in _INDEX_0336:
+        db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS {ten_index} ON audit_logs ({', '.join(cot)})"))
+    db.commit()
+
+
+MIGRATIONS.append(("0336_nhat_ky_loc_may_chu", _migrate_nhat_ky_loc_may_chu))

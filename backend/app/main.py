@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import audit_context
 from .config import assert_secure_config, settings
 from .db import SessionLocal, init_db
 from .db_migrations import run_migrations
@@ -143,6 +144,24 @@ app.add_middleware(
     # PHÁT `Access-Control-Expose-Headers` cho JS đọc được.
     expose_headers=["Content-Disposition"],
 )
+
+
+@app.middleware("http")
+async def _vet_nguoi_goi(request, call_next):
+    """Đặt IP + thiết bị của request vào context để `AuditLogRepository` ghi kèm mỗi dòng nhật ký.
+
+    Đặt ở middleware chứ không truyền tham số: hơn 200 chỗ gọi `audit.create(...)` nằm trong
+    services, chúng không cầm `Request` và cũng không nên cầm. Sau proxy thì `request.client.host`
+    là IP của nginx, nên lấy `X-Forwarded-For` trước — chỉ phần tử ĐẦU (client thật), phần còn lại
+    là chuỗi proxy.
+    """
+    xff = request.headers.get("x-forwarded-for", "")
+    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+    tokens = audit_context.dat(ip, request.headers.get("user-agent", ""))
+    try:
+        return await call_next(request)
+    finally:
+        audit_context.tra_lai(tokens)
 
 app.include_router(auth.router)
 app.include_router(files.router)

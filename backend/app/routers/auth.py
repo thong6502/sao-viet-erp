@@ -22,8 +22,10 @@ from ..deps import (
     get_authorization_service,
     get_profile_service,
     get_refresh_service,
+    get_audit_repository,
     get_refresh_token_repository,
 )
+from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.refresh_token_repo import RefreshTokenRepository
 from ..schemas.auth import (
     ChangePasswordRequest,
@@ -94,15 +96,24 @@ def login(
     response: Response,
     auth: Annotated[AuthService, Depends(get_auth_service)],
     refresh: Annotated[RefreshTokenService, Depends(get_refresh_service)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> TokenResponse:
     try:
         token, user = auth.login(payload.username, payload.password)
     except AuthError:
+        # Nhật ký PHẢI có cả lần hỏng: một màn tên "audit trail" mà không biết ai đã thử vào hệ
+        # thống thì không dùng được để truy. `actor_user_id` rỗng vì chưa xác thực được ai —
+        # tên gõ vào nằm ở `detail`, đúng chất "người tự xưng", không phải danh tính.
+        audit.create(
+            actor_user_id=None, action="dang_nhap_that_bai", target="auth",
+            detail=f"tên đăng nhập: {payload.username}",
+        )
         # Generic message — never reveal whether the username exists (spec-0001).
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tên đăng nhập hoặc mật khẩu không đúng",
         ) from None
+    audit.create(actor_user_id=user.id, action="dang_nhap", target=f"user:{user.id}", detail="")
     _set_refresh_cookie(response, refresh.issue(user, user_agent=request.headers.get("user-agent")))
     _set_file_cookie(response, user)
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
@@ -134,11 +145,16 @@ def refresh_session(
 def logout(
     request: Request,
     refresh: Annotated[RefreshTokenService, Depends(get_refresh_service)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> Response:
     # Idempotent: revoke the presented refresh token (if any) and clear the cookie.
     raw = request.cookies.get(REFRESH_COOKIE)
     if raw:
-        refresh.revoke(raw)
+        uid = refresh.revoke(raw)
+        # CHỈ ghi khi thật sự thu hồi được một phiên sống: bấm Đăng xuất hai lần, hay cookie cũ
+        # của phiên đã hết hạn, không đáng một dòng nhật ký.
+        if uid is not None:
+            audit.create(actor_user_id=uid, action="dang_xuat", target=f"user:{uid}", detail="")
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     _clear_refresh_cookie(response)
     _clear_file_cookie(response)

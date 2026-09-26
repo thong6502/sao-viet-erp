@@ -69,6 +69,12 @@ SCOPELESS_MODULES = frozenset(MODULE_KEYS) | {
     # Quy trình kinh doanh (24/09/2026): bản đồ luồng tĩnh, không đọc dữ liệu của ai nên không có
     # "quy trình của tôi".
     "quy_trinh_kinh_doanh",
+    # Nhật ký (25/09/2026): `routers/rbac.py` chưa bao giờ đọc scope của khoá này — bật Xem là
+    # thấy toàn bộ, chọn "Của tôi" hay "Tất cả" đều như nhau, tức ô phạm vi đang NÓI DỐI người đi
+    # cấp quyền. Nhật ký cũng không có nghĩa "của tôi": xem nhật ký của chính mình thì vô dụng cho
+    # việc truy. Cái thật sự giới hạn tầm nhìn là QUYỀN TRÊN TỪNG MÀN — dòng của màn nào người xem
+    # không mở được thì `ActivityService` che đi (và nói rõ có bao nhiêu dòng bị che).
+    "activity_log",
     # Báo cáo kho (24/09/2026): sổ của CẢ KHO. `routers/kho_baocao.py` không đọc scope quyền —
     # `_scope_kho_ids` là lọc theo kho người dùng chọn, không phải phạm vi của vai.
     "bao_cao_kho",

@@ -266,8 +266,11 @@ def get_profile_service(
 def get_activity_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
+    authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
 ) -> ActivityService:
-    return ActivityService(audit, users)
+    # `authz` để màn Nhật ký che dòng của những màn người xem không mở được (`detail` chứa số
+    # tiền thật: giá gốc lô, tiền hoá đơn, đơn giá giờ máy).
+    return ActivityService(audit, users, authz)
 
 
 def get_customer_repository(

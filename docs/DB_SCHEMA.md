@@ -945,8 +945,11 @@ quyền, khóa tài khoản) for the Activity Log.
 | Column          | Type (SQLAlchemy → SQLite / Postgres)                  | Key             | Null | Default        | Meaning                                                      |
 | --------------- | ------------------------------------------------------ | --------------- | ---- | -------------- | ------------------------------------------------------------ |
 | `id`            | `Integer` → `INTEGER` / `SERIAL`                       | **PK**          | no   | auto-increment | Surrogate primary key.                                       |
-| `actor_user_id` | `Integer` → `INTEGER`                                  | **FK→users.id** | yes  | —              | The user who performed the action (null if system/seed).     |
-| `action`        | `String(64)` → `VARCHAR(64)`                           | —               | no   | —              | Action code (e.g. `assign_role`, `lock_user`).               |
+| `actor_user_id` | `Integer` → `INTEGER`                                  | **FK→users.id** (CASCADE) | yes  | —    | The user who performed the action (null if system/seed). ⚠️ FK là `ON DELETE CASCADE` theo luật chung của dự án (guard `test_user_fk_cascade`): xoá cứng một tài khoản là XOÁ LUÔN mọi dòng nhật ký của người đó. Hiện chưa có endpoint xoá user nào nên chưa phát tác. |
+| `actor_name_luc_do` | `String(120)` → `VARCHAR(120)`                     | —               | no   | `""`           | Tên người thao tác CHỤP TẠI LÚC GHI (mg `0336`). Trước đó tên tra từ `users` lúc ĐỌC ⇒ đổi tên là mọi dòng cũ đổi theo. Rỗng = dòng cũ (tầng đọc tra ngược sang `users`) hoặc việc của máy. |
+| `ip`            | `String(45)` → `VARCHAR(45)`                           | —               | no   | `""`           | IP người gọi, điền tự động từ `app/audit_context.py` (middleware; lấy phần tử đầu của `X-Forwarded-For` khi sau proxy). Rỗng = seeder / tác vụ nền. |
+| `user_agent`    | `String(255)` → `VARCHAR(255)`                         | —               | no   | `""`           | Thiết bị / trình duyệt người gọi. Rỗng = seeder / tác vụ nền. |
+| `action`        | `String(64)` → `VARCHAR(64)`                           | **IX** (cặp)    | no   | —              | Action code (e.g. `assign_role`, `lock_user`). Nhãn tiếng Việt + nhóm + khoá quyền của mã tra ở `app/audit_registry.py` (có guard test). |
 | `target`        | `String(255)` → `VARCHAR(255)`                         | **IX** (cặp)    | no   | `""`           | What the action targeted (e.g. the affected user/role). Danh mục/phiếu ghi dạng `loai:id`. |
 | `detail`        | `Text` → `TEXT`                                        | —               | no   | `""`           | Free-text detail / before→after summary.                     |
 | `created_at`    | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX**          | no   | now (UTC)      | When the action happened (indexed for time-ordered listing). |
@@ -956,7 +959,9 @@ quyền, khóa tài khoản) for the Activity Log.
 - Primary key: `id`.
 - Index: `ix_audit_logs_created_at` on `created_at` (time-ordered listing).
 - Index: `ix_audit_logs_target_created_at` on (`target`, `created_at`) — tab Nhật ký của từng bản ghi (`WHERE target = 'loai:id' ORDER BY created_at DESC`), migration `0301`.
-- Foreign keys: `actor_user_id FK→users.id`.
+- Index: `ix_audit_logs_action_created_at` on (`action`, `created_at`) — lọc theo hành động ở màn Nhật ký, migration `0336`.
+- Index: `ix_audit_logs_actor_created_at` on (`actor_user_id`, `created_at`) — lọc theo người thao tác, migration `0336`.
+- Foreign keys: `actor_user_id FK→users.id` (**ON DELETE CASCADE**).
 
 **Relationships**
 

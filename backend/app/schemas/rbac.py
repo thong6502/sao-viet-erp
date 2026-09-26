@@ -283,15 +283,80 @@ class RoleAssignResult(BaseModel):
 
 
 class AuditRow(BaseModel):
-    """A row in the Activity Log: who did what, to what, when."""
+    """A row in the Activity Log: who did what, to what, when.
+
+    `nhan`/`nhom` do MÁY CHỦ dịch (`app/audit_registry.py`) — trước đây frontend tự khai 16 mã
+    trong khi backend ghi gần 300, nên phần lớn dòng hiện nhãn tiếng Anh tự chế."""
 
     id: int
     actor_user_id: int | None = None
     actor_name: str | None = None
+    #: Ai, từ đâu. Rỗng với dòng cũ (trước mg `0336`) và với việc của máy (seeder / tác vụ nền).
+    ip: str | None = None
+    user_agent: str | None = None
     action: str
+    nhan: str = ""
+    nhom: str = "khac"
     target: str
+    target_loai: str | None = None
     detail: str
     created_at: datetime
+
+
+class AuditPage(BaseModel):
+    """Một trang nhật ký. `so_dong_bi_an` chỉ có ở trang ĐẦU (không đếm lại mỗi lần lật)."""
+
+    items: list[AuditRow]
+    #: Trang đang xem, 1 là mới nhất.
+    trang: int = 1
+    #: Mốc ảnh chụp của trang 1. Màn gửi lại nguyên si ở các trang sau để xấp trang không trượt khi
+    #: có dòng mới ghi vào giữa lúc đang đọc.
+    neo: str | None = None
+    tong: int | None = None
+    #: Số dòng khớp bộ lọc nhưng bị che vì người xem không mở được màn sinh ra dòng. Màn PHẢI hiện
+    #: con số này — nhật ký nuốt dòng im lặng thì người đọc không biết mình đang thiếu gì.
+    so_dong_bi_an: int | None = None
+    tu: datetime | None = None
+    den: datetime | None = None
+
+
+class AuditActionOut(BaseModel):
+    ma: str
+    nhan: str
+    nhom: str
+    so_dong: int
+
+
+class AuditActorOut(BaseModel):
+    id: int | None = None
+    ten: str | None = None
+    so_dong: int
+
+
+class AuditNhomOut(BaseModel):
+    khoa: str
+    nhan: str
+    so_dong: int
+
+
+class AuditLoaiOut(BaseModel):
+    """Loại đối tượng của khối danh mục — để màn dịch `giay:12` thành "Giấy #12" và bấm sang
+    đúng màn, thay vì in mã thô."""
+
+    loai: str
+    nhan: str
+    path: str
+
+
+class AuditFacets(BaseModel):
+    """Danh mục cho hai dropdown + chip nhóm, đếm theo khoảng ngày đang xem."""
+
+    hanh_dong: list[AuditActionOut]
+    nguoi: list[AuditActorOut]
+    nhom: list[AuditNhomOut]
+    loai: list[AuditLoaiOut]
+    tu: datetime | None = None
+    den: datetime | None = None
 
 
 class RoleOut(BaseModel):

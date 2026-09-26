@@ -291,6 +291,10 @@ export interface ModuleNotificationSummary {
 export type QuoteEvent =
   | { type: "quote_decision"; quote_id: number; code: string; decision: "approved" | "rejected" }
   | { type: "quote_pending_changed"; code?: string }
+  // Nhật ký hoạt động có dòng mới. Tín hiệu TRẦN, không mang nội dung: người đang mở màn chưa
+  // chắc có quyền đọc dòng vừa ghi. Máy chủ tiết chế tối đa 3 giây một lần (mọi thao tác trong hệ
+  // đều ghi audit, bắn từng dòng là ngập kênh).
+  | { type: "nhat_ky_moi" }
   // Đơn hàng bán dùng CHUNG kênh hub (bám logic SSE báo giá): quyết định duyệt/đủ cọc gửi riêng
   // người soạn; 'pending_changed' là tín hiệu danh sách chờ đổi → refetch notify-summary theo vai.
   // `order_decision` đã gỡ cùng luồng duyệt đơn đặc thù (backend không publish nữa).
@@ -3047,10 +3051,68 @@ export interface AuditRow {
   id: number;
   actor_user_id: number | null;
   actor_name: string | null;
+  /** Ai, từ đâu. Rỗng với dòng cũ (trước mg `0336`) và với việc của máy. */
+  ip: string | null;
+  user_agent: string | null;
   action: string;
+  /** Nhãn tiếng Việt do MÁY CHỦ dịch (`app/audit_registry.py`) — FE không tự khai bảng nhãn nữa. */
+  nhan: string;
+  nhom: string;
   target: string;
+  target_loai: string | null;
   detail: string;
   created_at: string;
+}
+
+/** Một trang nhật ký. `so_dong_bi_an` chỉ có ở trang ĐẦU. */
+export interface AuditPage {
+  items: AuditRow[];
+  trang: number;
+  /** Mốc ảnh chụp của trang 1 — gửi lại nguyên si ở các trang sau để xấp trang không trượt. */
+  neo: string | null;
+  tong: number | null;
+  /** Số dòng khớp bộ lọc nhưng bị che vì thiếu quyền trên màn sinh ra dòng. */
+  so_dong_bi_an: number | null;
+  tu: string | null;
+  den: string | null;
+}
+
+export interface AuditFacets {
+  hanh_dong: { ma: string; nhan: string; nhom: string; so_dong: number }[];
+  nguoi: { id: number | null; ten: string | null; so_dong: number }[];
+  nhom: { khoa: string; nhan: string; so_dong: number }[];
+  /** Loại đối tượng của khối danh mục — để dịch `giay:12` thành "Giấy #12" và bấm sang đúng màn. */
+  loai: { loai: string; nhan: string; path: string }[];
+  tu: string | null;
+  den: string | null;
+}
+
+/** Bộ lọc của màn Nhật ký — gửi thẳng lên máy chủ, không lọc lại ở trình duyệt. */
+export interface AuditQuery {
+  q?: string;
+  tu_ngay?: string;
+  den_ngay?: string;
+  action?: string[];
+  actor_id?: number[];
+  loai?: string[];
+  limit?: number;
+  trang?: number;
+  neo?: string | null;
+}
+
+function auditParams(v: AuditQuery): string {
+  const p = new URLSearchParams();
+  if (v.q) p.set("q", v.q);
+  if (v.tu_ngay) p.set("tu_ngay", v.tu_ngay);
+  if (v.den_ngay) p.set("den_ngay", v.den_ngay);
+  (v.action ?? []).forEach((a) => p.append("action", a));
+  (v.actor_id ?? []).forEach((a) => p.append("actor_id", String(a)));
+  (v.loai ?? []).forEach((a) => p.append("loai", a));
+  if (v.limit) p.set("limit", String(v.limit));
+  if (v.trang && v.trang > 1) p.set("trang", String(v.trang));
+  if (v.neo) p.set("neo", v.neo);
+  const s = p.toString();
+  return s ? `?${s}` : "";
 }
 
 /** Current user's CRUD flags on one module (spec-09 — frontend action gating). */
@@ -9947,8 +10009,31 @@ export const api = {
         body: JSON.stringify({ user_ids: userIds, role_id: roleId }),
       });
     },
-    activityLog(token: string): Promise<AuditRow[]> {
-      return authed<AuditRow[]>("/api/audit", token);
+    /** Một TRANG nhật ký. Lọc + phân trang ở máy chủ (25/09/2026) — trước đây endpoint trả cứng
+     *  100 dòng mới nhất và màn hình tự lọc/cắt trang trên đúng 100 dòng ấy. */
+    activityLog(token: string, v: AuditQuery = {}): Promise<AuditPage> {
+      return authed<AuditPage>(`/api/audit${auditParams(v)}`, token);
+    },
+    /** Danh mục hành động / người / nhóm, đếm theo khoảng ngày đang xem. */
+    activityFacets(token: string, v: AuditQuery = {}): Promise<AuditFacets> {
+      const p = auditParams({ q: v.q, tu_ngay: v.tu_ngay, den_ngay: v.den_ngay });
+      return authed<AuditFacets>(`/api/audit/facets${p}`, token);
+    },
+    /** Tải CSV theo ĐÚNG bộ lọc đang xem — máy chủ stream, không còn giới hạn 100 dòng đã tải. */
+    async activityExport(token: string, v: AuditQuery = {}): Promise<string> {
+      const doFetch = (bearer: string) =>
+        fetch(`${BASE_URL}/api/audit/export${auditParams(v)}`, {
+          credentials: "include",
+          cache: "no-store",
+          headers: authHeader(bearer),
+        });
+      let resp = await doFetch(token);
+      if (resp.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) resp = await doFetch(fresh);
+      }
+      if (!resp.ok) throw new ApiError(`Xuất CSV thất bại (${resp.status}).`, resp.status);
+      return URL.createObjectURL(await resp.blob());
     },
     roles(token: string, departmentId: number): Promise<Role[]> {
       return authed<Role[]>(`/api/roles?department_id=${departmentId}`, token);

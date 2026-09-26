@@ -103,8 +103,14 @@ class RefreshTokenService:
         new_raw = self.issue(user, family_id=row.family_id, user_agent=user_agent)
         return new_raw, user
 
-    def revoke(self, raw: str) -> None:
-        """Revoke a refresh token (logout). No-op if it is unknown/already revoked."""
+    def revoke(self, raw: str) -> int | None:
+        """Revoke a refresh token (logout). No-op if it is unknown/already revoked.
+
+        Trả `user_id` của phiên vừa thu hồi để endpoint ghi được dòng nhật ký "Đăng xuất" —
+        endpoint chỉ cầm chuỗi token trong cookie, không biết đó là ai."""
         row = self.tokens.get_by_hash(hash_refresh_token(raw))
-        if row is not None:
-            self.tokens.revoke(row)
+        if row is None:
+            return None
+        uid = row.user_id
+        self.tokens.revoke(row)
+        return uid

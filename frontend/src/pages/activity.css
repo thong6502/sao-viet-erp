@@ -460,31 +460,30 @@
 }
 
 /* --------------------------------------------------------------------------
-   Toolbar & Multi-Filter Controls
+   Toolbar & Multi-Filter Controls - Redesigned Enterprise Glass Card
    -------------------------------------------------------------------------- */
-.act-toolbar {
+.act-filters {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
+  gap: 10px;
+  background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 12px 14px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02);
 }
 
-.act-toolbar__row {
+.act-filter-main {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.act-search-box {
+.act-search {
   position: relative;
-  flex: 1 1 280px;
-  min-width: 220px;
+  flex: 1 1 240px;
+  min-width: 180px;
 }
 
 .act-search-icon {
@@ -498,7 +497,7 @@
 
 .act-search-input {
   width: 100%;
-  padding: 7px 32px 7px 32px;
+  padding: 7px 30px 7px 32px;
   border-radius: 8px;
   border: 1px solid #cbd5e1;
   background: #f8fafc;
@@ -535,6 +534,103 @@
   color: #334155;
 }
 
+.act-date-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 2px 4px;
+  flex-wrap: wrap;
+}
+
+.act-date-inputs {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 26px;
+}
+
+.act-date-input {
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+  font-family: var(--ff-sans);
+}
+
+.act-date-input:focus-visible {
+  outline: none;
+  background: #ffffff;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.act-date-sep {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.act-segmented-dates {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #e2e8f0;
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.act-date-btn {
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.act-date-btn:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.act-date-btn:active {
+  background: #ffffff;
+  color: #4f46e5;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.act-btn-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #ef4444;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.act-btn-reset:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
 .act-select-group {
   position: relative;
   display: inline-flex;
@@ -548,8 +644,25 @@
   pointer-events: none;
 }
 
-.act-select-input {
-  padding: 7px 12px 7px 30px;
+/* Ba ô lọc dùng <Select searchable> (components/Select.tsx) thay thẻ <select> gốc: danh sách
+   hành động đã gần 300 mã, thẻ gốc không cho gõ tìm nên người dùng phải cuộn mò từng dòng.
+   Ở đây chỉ mượn lại đúng bộ mặt cũ của `.act-select-input` cho nút bấm. */
+.act-select-group .sel {
+  width: auto; /* .sel mặc định 100% — trong hàng lọc thì ô phải co theo nội dung */
+}
+
+/* Icon nằm ĐÈ mép trái ô chọn. Thẻ <select> cũ không định vị nên icon (absolute) tự nằm trên;
+   `.sel` của Select lại là `position: relative` và đứng SAU icon trong DOM, nên nền trắng của nó
+   che mất icon — phải nâng icon lên một tầng. `pointer-events: none` sẵn có giữ cho click vẫn
+   xuyên xuống nút. */
+.act-select-group .act-select-icon {
+  z-index: 1;
+}
+
+.act-select-group .act-sel-trigger {
+  min-width: 200px;
+  max-width: 260px;
+  padding: 6px 10px 6px 30px; /* chừa chỗ cho icon nằm đè bên trái */
   border-radius: 8px;
   border: 1px solid #cbd5e1;
   background: #ffffff;
@@ -560,20 +673,37 @@
   transition: border-color 0.15s ease;
 }
 
-.act-select-input:hover {
+/* Ô hành động: nhãn dài nhất trong ba ô ("Sửa chuỗi công đoạn của lệnh"). */
+.act-select-group .act-sel-trigger--wide {
+  min-width: 240px;
+  max-width: 300px;
+}
+
+.act-select-group .act-sel-trigger:hover:not(:disabled) {
   border-color: var(--ash-2);
 }
 
-.act-select-input:focus {
-  outline: none;
+.act-select-group .act-sel-trigger.is-open,
+.act-select-group .act-sel-trigger:focus-visible {
   border-color: #6366f1;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+/* Popover treo ở document.body (portal) nên ra ngoài mọi selector bọc theo màn — phải có class
+   riêng mới với tới được. `hint` ở đây là SỐ LẦN, nên cho chữ số cùng bề ngang để cột đếm
+   không nhấp nhô khi cuộn. */
+.act-sel-list {
+  max-width: min(420px, calc(100vw - 16px));
+}
+
+.act-sel-list .sel__opt-hint {
+  font-variant-numeric: tabular-nums;
 }
 
 .act-view-toggle {
   display: inline-flex;
   align-items: center;
-  padding: 3px;
+  padding: 2px;
   background: #f1f5f9;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
@@ -583,7 +713,7 @@
 .act-view-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   padding: 5px 10px;
   border-radius: 6px;
   font-size: 12px;
@@ -599,27 +729,45 @@
   color: #0f172a;
 }
 
-.act-view-btn--active {
+.act-view-btn.is-active {
   background: #ffffff;
   color: #4f46e5;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-/* Category Pills Row */
-.act-category-row {
+.act-filter-sub {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
-  padding-top: 4px;
+}
+
+/* Category Pills Row */
+.act-pills-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-top: 8px;
   border-top: 1px dashed #e2e8f0;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+}
+
+.act-pills-strip::-webkit-scrollbar {
+  height: 4px;
+}
+
+.act-pills-strip::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
 }
 
 .act-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
+  padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
@@ -628,6 +776,8 @@
   border: 1px solid #e2e8f0;
   cursor: pointer;
   transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .act-pill:hover {
@@ -636,35 +786,15 @@
   border-color: #cbd5e1;
 }
 
-.act-pill--active {
+.act-pill.is-active {
   background: #0f172a;
   color: #ffffff;
   border-color: #0f172a;
 }
 
-.act-pill--active .act-pill-count {
+.act-pill.is-active .act-pill-count {
   background: rgba(255, 255, 255, 0.2);
   color: #ffffff;
-}
-
-.act-pill--purple.act-pill--active {
-  background: #7c3aed;
-  border-color: #7c3aed;
-}
-
-.act-pill--emerald.act-pill--active {
-  background: #059669;
-  border-color: #059669;
-}
-
-.act-pill--amber.act-pill--active {
-  background: #d97706;
-  border-color: #d97706;
-}
-
-.act-pill--cyan.act-pill--active {
-  background: #0891b2;
-  border-color: #0891b2;
 }
 
 .act-pill-count {
@@ -1189,7 +1319,7 @@
 .act-page-btns {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .act-btn-p {
@@ -1216,9 +1346,57 @@
   cursor: not-allowed;
 }
 
+/* Ô số trang. Cùng khung 28px với hai nút mũi tên để cả dãy nằm trên một đường cơ sở; chữ số
+   dùng `tabular-nums` nên bề ngang không nhảy khi đổi từ 9 sang 10. */
 .act-page-num {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.act-page-num:hover:not(:disabled):not(.act-page-num--active) {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
   color: #0f172a;
+}
+
+.act-page-num--active {
+  background: #ea580c;
+  border-color: #ea580c;
+  color: #ffffff;
+  cursor: default;
+}
+
+.act-page-num:disabled {
+  cursor: not-allowed;
+}
+
+/* Chỗ đứt quãng: chỉ là dấu, không bấm được — nên không đóng khung như ô số. */
+.act-page-dots {
+  min-width: 18px;
+  text-align: center;
+  color: #94a3b8;
+  user-select: none;
+}
+
+@media (max-width: 720px) {
+  /* Màn hẹp: giữ mũi tên + trang đang xem, giấu bớt ô số để dãy không đẩy vỡ hàng. Trang đang
+     xem và hai đầu dãy vẫn còn, vẫn nhảy xa được. */
+  .act-page-num:not(.act-page-num--active):not(:first-of-type):not(:last-of-type) {
+    display: none;
+  }
+  .act-page-dots {
+    display: none;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -1418,4 +1596,225 @@
   border-top: 1px solid #e2e8f0;
   display: flex;
   justify-content: flex-end;
+}
+
+/* === Nhật ký hoạt động — lọc ở MÁY CHỦ (25/09/2026) ======================================== */
+/* Bộ lọc, phân trang và xuất CSV trước đây chạy trên 100 dòng đã tải về; nay hỏi thẳng máy chủ.
+   Phần thêm dưới đây phục vụ ba thứ mới trên màn: ô chọn KHOẢNG NGÀY thật, băng "có dòng mới"
+   (kênh SSE) và băng "N dòng bị ẩn vì thiếu quyền". */
+
+/* Ba màu nhóm chưa có trong bảng badge cũ (Kế toán · Mua hàng · Hệ thống). */
+.badge--green { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.badge--teal  { background: #f0fdfa; color: #0f766e; border: 1px solid #99f6e4; }
+.badge--red   { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+
+.act-tl-node.badge--green { border-color: #10b981; color: #059669; background: #ecfdf5; }
+.act-tl-node.badge--teal  { border-color: #14b8a6; color: #0f766e; background: #f0fdfa; }
+.act-tl-node.badge--red   { border-color: #ef4444; color: #b91c1c; background: #fef2f2; }
+
+/* --- Khoảng ngày --------------------------------------------------------------------------- */
+.act-khoang-ngay {
+  gap: 6px;
+  padding-left: 26px;
+}
+
+.act-date-input {
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  color: #0f172a;
+  font-family: var(--ff-sans);
+}
+
+.act-date-input:focus-visible {
+  outline: 2px solid #94a3b8;
+  outline-offset: 1px;
+}
+
+.act-date-sep {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+
+.act-nhanh {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* --- Hai băng thông báo --------------------------------------------------------------------- */
+.act-bang-moi {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.act-bang-moi:hover { background: #dbeafe; }
+
+.act-bang-an {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* --- Đối tượng bấm sang được màn của nó ----------------------------------------------------- */
+.act-target-pill--link {
+  cursor: pointer;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.act-target-pill--link:hover { background: #dbeafe; }
+
+.act-modal-val--wrap {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 5px;
+  word-break: break-word;
+}
+
+/* Điện thoại: hàng lọc xếp dọc, ô ngày không bị bóp còn 2 ký tự. */
+@media (max-width: 720px) {
+  .act-khoang-ngay {
+    width: 100%;
+    padding-left: 26px;
+  }
+
+  .act-date-input {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .act-nhanh { width: 100%; }
+}
+
+/* --- IP & User Agent Enhancements in Modal -------------------------------- */
+.act-modal-field--full {
+  grid-column: 1 / -1;
+}
+
+.act-ip-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.act-ip-icon {
+  color: #64748b;
+}
+
+.act-btn-icon-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.act-btn-icon-copy:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.act-btn-icon-copy--dark {
+  color: #94a3b8;
+}
+
+.act-btn-icon-copy--dark:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.act-copy-icon--success {
+  color: #10b981;
+}
+
+.act-ua-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.act-ua-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.act-ua-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.act-ua-badge--device {
+  background: #f1f5f9;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+
+.act-ua-badge--browser {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.act-ua-badge--os {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+.act-raw-ua-box {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #0f172a;
+  border-radius: 8px;
+  margin-top: 4px;
+}
+
+.act-raw-ua-text {
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  color: #38bdf8;
+  word-break: break-all;
+  white-space: pre-wrap;
+  line-height: 1.4;
+  flex: 1;
 }

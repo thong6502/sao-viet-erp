@@ -369,7 +369,9 @@ export function AccountTab({
           activity.map((a) => (
             <InfoField
               key={a.id}
-              label={`${a.action} · ${fmtDate(a.created_at)}`}
+              // `nhan` là nhãn tiếng Việt máy chủ tra từ `audit_registry`; rơi về mã thô chỉ khi
+              // gặp mã đời cũ chưa khai — trước đây chỗ này in thẳng "RESET_PASSWORD".
+              label={`${a.nhan || a.action} · ${fmtDate(a.created_at)}`}
               value={a.actor_name ?? a.detail}
               icon={Activity}
             />
