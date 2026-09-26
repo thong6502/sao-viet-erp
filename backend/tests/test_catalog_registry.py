@@ -65,6 +65,11 @@ SCOPELESS_CU = frozenset({
     # `ton_kho` (mg `0334`, cùng đợt): màn Tồn kho của từng kho. Thấy kho nào là do KHAI BÁO KHO
     # quyết định — `kho_voucher.py` lọc theo `kho_id` người dùng chọn, không đọc scope của vai.
     "ton_kho",
+    # `activity_log` (25/09/2026) — nhật ký KHÔNG có "của tôi": nó ghi việc của cả hệ thống, và
+    # cái quyết định ai thấy dòng nào là NGƯỜI XEM CÓ MỞ ĐƯỢC MÀN SINH RA DÒNG ĐÓ KHÔNG, không
+    # phải scope của vai (`ActivityService._chan`). Để scope `own` ở đây là dựng một hàng rào giả
+    # rồi tự tin vào nó.
+    "activity_log",
 })
 
 #: `nhat_ky_danh_muc.LOAI_MODULE` — 17 khoá: 11 tên chính, 3 tên đời cũ
