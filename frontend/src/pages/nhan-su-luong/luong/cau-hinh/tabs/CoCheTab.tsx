@@ -151,6 +151,17 @@ export function CoCheTab({
                 value={p.phu_cap_ca_min_cong}
                 onChange={(v) => setP("phu_cap_ca_min_cong", v)}
               />
+              <ParamField
+                label="Công tối thiểu để tạm ứng / nhận lương đợt 1"
+                hint="Phải có ít nhất ngần này CÔNG TÍNH LƯƠNG (đi làm + phép có lương + lễ) tính từ ngày 1 của kỳ tới ngày lập phiếu thì mới lập được phiếu tạm ứng hoặc phiếu lương đợt 1 — kể cả phiếu nhân viên tự xin. Chưa đủ là bị chặn. 0 = tắt điều kiện."
+                suffix="công"
+                step={0.5}
+                min={0}
+                max={31}
+                readOnly={readOnly}
+                value={p.tam_ung_cong_toi_thieu}
+                onChange={(v) => setP("tam_ung_cong_toi_thieu", v)}
+              />
             </div>
           </section>
           <section className="rc-sec">

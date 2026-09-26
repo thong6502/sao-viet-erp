@@ -382,6 +382,7 @@ _HD += _dong("luong", "luong", {
     "delete_line_component": "Xoá khoản của dòng lương",
     "bo_de_line_component": "Bỏ đè khoản của dòng lương",
     "bulk_assign_component": "Gán khoản lương hàng loạt",
+    "unassign_all_component": "Gỡ khoản lương khỏi toàn bộ nhân viên",
     "set_employee_components": "Đặt khoản lương của nhân sự",
 })
 

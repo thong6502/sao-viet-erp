@@ -22,6 +22,10 @@ os.environ["SEED_DEMO"] = "false"
 # hàng chục test cố ý khai ca 9h/10h/24h làm số tròn (540', 600'…). Test của chính luật này bật
 # lại bằng PUT /api/luong/params {"ca_khop_gio_chuan": true}.
 os.environ["SEED_CA_KHOP_GIO_CHUAN"] = "false"
+# Điều kiện "đủ N công mới được tạm ứng / lương đợt 1" (25/09/2026) mặc định 13 ở dev/prod; bộ test
+# TẮT (0) vì hàng chục test lập phiếu tạm ứng cho người chưa chấm công ngày nào. Test của chính
+# luật này (`test_dieu_kien_tam_ung.py`) bật lại bằng PUT /api/luong/params.
+os.environ["SEED_TAM_UNG_CONG_TOI_THIEU"] = "0"
 # Tắt ticker nhắc lịch hẹn (SSE) trong test — tránh đụng DB in-memory + treo loop.
 os.environ["CARE_REMINDER_SECONDS"] = "0"
 # Hạ tầng: ÉP về chế độ offline, bất kể `backend/.env` của máy đang trỏ đi đâu.

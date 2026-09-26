@@ -218,6 +218,42 @@ class PayrollComponentService:
                            if go_nhap else "")),
         }
 
+    def unassign_all(self, *, actor, component_id: int, scope: str | None = None) -> dict:
+        """GỠ một khoản khỏi TẤT CẢ nhân viên đang được gán (chủ 26/09/2026: *"lỡ gán cho 100 nhân
+        viên rồi giờ muốn xoá thì gỡ hết ra khỏi nhân viên thế thì bất tiện quá"*).
+
+        Chỉ gỡ người trong PHẠM VI người bấm (cùng nguồn `list_scoped_all` với gán hàng loạt) — tổ
+        trưởng không gỡ được tiền của tổ khác; ai ngoài phạm vi còn giữ khoản thì báo `remaining`.
+        Kỳ lương ĐÃ CHỐT không đổi (đã đóng băng ở `payroll_lines`); kỳ nháp bấm Tính lại mới hết.
+
+        Mức riêng từng người KHÔNG có bản lưu nào khác (`employee_salary_components` không version)
+        ⇒ nhật ký ghi lại mã NV + số tiền từng người trước khi gỡ, để còn khai lại nếu gỡ nhầm."""
+        c = self.components.get_component(component_id)
+        if c is None:
+            raise ComponentNotFound("Không tìm thấy khoản thu nhập.")
+        rows = self.components.rows_of_component(component_id)
+        if not rows:
+            return {"removed": 0, "remaining": 0}
+        if self.employees is None:
+            raise ComponentValidationError("Chưa cấu hình được danh sách nhân viên.")
+        in_scope = {e.id: e for e in self.employees.list_scoped_all(scope=scope, actor=actor)}
+        go = [r for r in rows if r.employee_id in in_scope]
+        remaining = len(rows) - len(go)
+        if not go:
+            raise ComponentValidationError(
+                f"{len(rows)} nhân viên đang được gán khoản này đều ngoài phạm vi quản lý của bạn.")
+        vet = ", ".join(f"{in_scope[r.employee_id].code or r.employee_id}:{float(r.amount):,.0f}"
+                        for r in go)
+        removed = self.components.clear_component_for(
+            component_id=component_id, employee_ids=[r.employee_id for r in go])
+        self.components.commit()
+        self.audit.create(
+            actor_user_id=getattr(actor, "id", None), action="unassign_all_component",
+            target=f"payroll_component:{component_id}",
+            detail=f"{c.name}: gỡ khỏi {removed} NV — mức trước khi gỡ: {vet}",
+        )
+        return {"removed": removed, "remaining": remaining}
+
     def employees_holding_inactive(self, component_id: int) -> list[int]:
         """NV còn được gán một khoản ĐÃ NGỪNG ÁP DỤNG — nuôi cảnh báo đỏ ở màn danh mục."""
         c = self.components.get_component(component_id)

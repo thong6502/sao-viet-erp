@@ -155,6 +155,19 @@ class PayrollComponentRepository:
             row.amount = amount
             row.note = note
 
+    def clear_component_for(self, *, component_id: int, employee_ids) -> int:
+        """GỠ một khoản khỏi NHIỀU người một lượt (không commit) — trả số dòng đã gỡ."""
+        ids = sorted({int(i) for i in employee_ids})
+        n = 0
+        for i in range(0, len(ids), 500):   # SQLite cũ giới hạn 999 tham số / câu
+            n += self.db.execute(
+                delete(EmployeeSalaryComponent).where(
+                    EmployeeSalaryComponent.component_id == component_id,
+                    EmployeeSalaryComponent.employee_id.in_(ids[i:i + 500]),
+                )
+            ).rowcount or 0
+        return n
+
     def clear_employee_value(self, *, employee_id: int, component_id: int) -> None:
         """GỠ khoản khỏi người này — kỳ sau không còn trả nữa."""
         self.db.execute(

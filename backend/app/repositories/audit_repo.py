@@ -73,6 +73,35 @@ class AuditLogRepository:
         ).scalar_one_or_none()
         return (ten or "")[:120]
 
+    def _ten_luc_do_nhieu(self, ids: set[int]) -> dict[int, str]:
+        """Như `_ten_luc_do` nhưng MỘT truy vấn cho cả lô — `create_many` gọi với hàng nghìn dòng."""
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(User.id, User.name).where(User.id.in_(ids))
+        ).all()
+        return {i: (t or "")[:120] for i, t in rows}
+
+    def create_many(self, entries: list[dict]) -> None:
+        """Nhiều dòng nhật ký một lượt, KHÔNG commit — cho thao tác hàng loạt gom một giao dịch
+        (duyệt 1000 phiếu tạm ứng vẫn phải có đủ 1000 dòng vết, chỉ không chốt 1000 lần).
+        Mỗi phần tử: `{actor_user_id, action, target, detail}`."""
+        if not entries:
+            return
+        # Ba cột vết điền như `create`, không thì lô hàng nghìn dòng lại là những dòng DUY NHẤT
+        # trong bảng không có tên người chụp sẵn và không có IP. Tên tra MỘT lượt cho cả lô.
+        ip, ua = hien_tai()
+        ten = self._ten_luc_do_nhieu(
+            {e["actor_user_id"] for e in entries if e.get("actor_user_id")}
+        )
+        self.db.add_all([
+            AuditLog(actor_user_id=e.get("actor_user_id"), action=e["action"],
+                     target=e.get("target", ""), detail=e.get("detail", ""),
+                     actor_name_luc_do=ten.get(e.get("actor_user_id"), ""), ip=ip, user_agent=ua)
+            for e in entries
+        ])
+        self.db.flush()
+
     def create_collapsing(
         self,
         *,

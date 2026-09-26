@@ -70,7 +70,7 @@ export function TamUngCuaToiTab({
     );
   return (
     <div>
-      <div className="cc-toolbar lg-toolbar">
+      <div className="cc-toolbar lg-toolbar lg-toolbar--sat">
         {canCreate && (
           <button
             className="btn btn--primary"

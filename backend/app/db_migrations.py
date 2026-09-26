@@ -15949,12 +15949,63 @@ MIGRATIONS.append(("0334_tach_module_ton_kho", _migrate_tach_module_ton_kho))
 MIGRATIONS.append(("0335_user_fks_delete_cascade_lan_3", _migrate_user_fks_delete_cascade))
 
 
-# mg 0336 — màn Nhật ký hoạt động: lọc/phân trang chuyển về MÁY CHỦ (25/09/2026).
+# mg 0336 / 0337 — lúc viết trên nhánh refactor-project mang số 0330 / 0331; gộp nhánh dev (đã có
+# 0330–0335) thì đánh lại số cho khỏi trùng. Cả hai CHẠY LẠI VÔ HẠI (kiểm cột đã có) nên DB đã
+# ghi 0330_tam_ung… / 0331_salary… chạy lại dưới số mới cũng không đổi gì.
+def _migrate_tam_ung_cong_toi_thieu(db: Session) -> None:
+    """mg 0336 — `payroll_params.tam_ung_cong_toi_thieu` (công tối thiểu để tạm ứng / lương đợt 1,
+    25/09/2026). Mặc định 13 như xưởng đang làm tay."""
+    insp = inspect(db.get_bind())
+    if "payroll_params" not in set(insp.get_table_names()):
+        return
+    if "tam_ung_cong_toi_thieu" in _existing_columns(insp, "payroll_params"):
+        return
+    db.execute(text(
+        "ALTER TABLE payroll_params ADD COLUMN tam_ung_cong_toi_thieu NUMERIC(5,2) NOT NULL DEFAULT 13"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0336_tam_ung_cong_toi_thieu", _migrate_tam_ung_cong_toi_thieu))
+
+
+def _migrate_salary_advance_payment_voucher(db: Session) -> None:
+    """mg 0337 — `salary_advances.payment_voucher_id` (25/09/2026): chi một lượt cho nhiều người ra
+    MỘT phiếu chi cho cả lô ⇒ phiếu tạm ứng trỏ tới phiếu chi của nó. Chuyển dữ liệu cũ: phiếu chi
+    một-một (`payment_vouchers.salary_advance_id`) còn hiệu lực thì gắn ngược sang cột mới."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "salary_advances" not in tables:
+        return
+    if "payment_voucher_id" not in _existing_columns(insp, "salary_advances"):
+        db.execute(text("ALTER TABLE salary_advances ADD COLUMN payment_voucher_id INTEGER"))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_salary_advances_payment_voucher_id "
+            "ON salary_advances (payment_voucher_id)"
+        ))
+    if "payment_vouchers" in tables:
+        db.execute(text(
+            "UPDATE salary_advances SET payment_voucher_id = ("
+            " SELECT pv.id FROM payment_vouchers pv"
+            " WHERE pv.salary_advance_id = salary_advances.id AND pv.status <> 'cancelled'"
+            " ORDER BY pv.id DESC LIMIT 1)"
+            " WHERE payment_voucher_id IS NULL"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0337_salary_advance_payment_voucher", _migrate_salary_advance_payment_voucher))
+
+
+# mg 0338 — màn Nhật ký hoạt động: lọc/phân trang chuyển về MÁY CHỦ (25/09/2026).
+# (Viết ra lúc mang số 0336; gộp nhánh dev thì 0336/0337 đã có chủ nên đánh lại 0338. Chạy lại
+# VÔ HẠI — kiểm cột đã có + `CREATE INDEX IF NOT EXISTS` — nên DB dev từng ghi dưới tên
+# `0336_nhat_ky_loc_may_chu` chạy lại dưới tên mới cũng không đổi gì.)
 #
 # Trước đó `GET /api/audit` trả cứng 100 dòng mới nhất, không nhận tham số; màn hình lọc, cắt
 # trang và xuất CSV trên đúng 100 dòng ấy — dòng thứ 101 trở đi KHÔNG có đường nào lấy ra, và
 # "30 ngày qua" chỉ lọc trong ảnh chụp đó. Ba cột + hai index dưới đây là phần DB của việc mở ra.
-_COT_0336 = (
+_COT_0338 = (
     # Tên người thao tác CHỤP TẠI LÚC GHI. Trước đây tên tra từ `users` lúc ĐỌC ⇒ đổi tên một
     # người là mọi dòng cũ của họ đổi theo, nhật ký nói sai về quá khứ.
     ("actor_name_luc_do", "VARCHAR(120)"),
@@ -15964,7 +16015,7 @@ _COT_0336 = (
     ("user_agent", "VARCHAR(255)"),
 )
 
-_INDEX_0336 = (
+_INDEX_0338 = (
     # Lọc theo hành động / theo người, luôn kèm sắp xếp theo thời gian. Không có hai index này thì
     # mỗi lần lọc là quét cả bảng — mà mg `0301` đã ghi đây là bảng phình nhanh nhất hệ.
     ("ix_audit_logs_action_created_at", ("action", "created_at")),
@@ -15983,7 +16034,7 @@ def _migrate_nhat_ky_loc_may_chu(db) -> None:
     if "audit_logs" not in set(insp.get_table_names()):
         return
     co = _existing_columns(insp, "audit_logs")
-    for ten, kieu in _COT_0336:
+    for ten, kieu in _COT_0338:
         if ten in co:
             continue
         # NOT NULL + server_default để `create_all` trên DB trắng và đường migration ra CÙNG hình
@@ -15991,10 +16042,10 @@ def _migrate_nhat_ky_loc_may_chu(db) -> None:
         # biệt hai kiểu vắng mặt.
         db.execute(text(
             f"ALTER TABLE audit_logs ADD COLUMN {ten} {kieu} NOT NULL DEFAULT ''"))
-    for ten_index, cot in _INDEX_0336:
+    for ten_index, cot in _INDEX_0338:
         db.execute(text(
             f"CREATE INDEX IF NOT EXISTS {ten_index} ON audit_logs ({', '.join(cot)})"))
     db.commit()
 
 
-MIGRATIONS.append(("0336_nhat_ky_loc_may_chu", _migrate_nhat_ky_loc_may_chu))
+MIGRATIONS.append(("0338_nhat_ky_loc_may_chu", _migrate_nhat_ky_loc_may_chu))

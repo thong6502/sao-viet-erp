@@ -54,6 +54,8 @@ class ParamsIn(BaseModel):
     # SUẤT CƠM TĂNG CA — ngưỡng phút/ngày (chỉ áp cho NGÀY LÀM VIỆC) và tiền một suất.
     com_tang_ca_nguong_phut: int | None = Field(default=None, ge=0, le=1440)
     com_tang_ca_muc: float | None = Field(default=None, ge=0)
+    # Công tính lương tối thiểu (từ ngày 1 tới ngày lập phiếu) để lập phiếu tạm ứng / lương đợt 1.
+    tam_ung_cong_toi_thieu: float | None = Field(default=None, ge=0, le=31)
     # Phụ cấp cơm/ca đêm KHÔNG còn ở cấp công ty — khai theo từng CA (`work_shifts`).
 
 
@@ -78,6 +80,7 @@ class ParamsOut(BaseModel):
     # Mặc định để dòng params CŨ (chưa có cột) không vỡ validate — cùng lối các trường trên.
     com_tang_ca_nguong_phut: int = 180
     com_tang_ca_muc: float = 0
+    tam_ung_cong_toi_thieu: float = 13
     # 3 tỷ lệ NSDLĐ: DORMANT 07/09/2026 — chỉ còn trả ra cho tương thích, màn không hiện, PUT bỏ qua.
     bhxh_rate_er: float = 0.175
     bhyt_rate_er: float = 0.03
@@ -326,6 +329,39 @@ class AdvanceIn(BaseModel):
     kind: str = Field(default="tam_ung", pattern="^(tam_ung|luong_dot_1)$")
 
 
+class AdvanceBulkItem(BaseModel):
+    employee_id: int
+    amount: float = Field(gt=0)
+
+
+class AdvanceBulkIn(BaseModel):
+    """Lập phiếu tạm ứng / lương đợt 1 cho NHIỀU người một lượt (25/09/2026)."""
+    period_year: int = Field(ge=2000, le=2100)
+    period_month: int = Field(ge=1, le=12)
+    advance_date: date
+    reason: str | None = Field(default=None, max_length=255)
+    kind: str = Field(default="tam_ung", pattern="^(tam_ung|luong_dot_1)$")
+    items: list[AdvanceBulkItem] = Field(min_length=1, max_length=3000)   # nhà máy ~1000 người
+
+
+class UngVienTamUngOut(BaseModel):
+    employee_id: int
+    code: str | None = None
+    name: str | None = None
+    department_id: int | None = None
+    department_name: str | None = None      # router fills — lọc theo tổ ở hộp Lập phiếu
+    cong: float
+    du_dieu_kien: bool
+    so_tien_goi_y: float | None = None
+    so_phieu_da_co: int = 0
+
+
+class UngVienTamUngListOut(BaseModel):
+    nguong: float
+    den_ngay: int
+    items: list[UngVienTamUngOut]
+
+
 class MyAdvanceIn(BaseModel):
     """Nhân viên tự lập đề nghị tạm ứng cho CHÍNH MÌNH (không có employee_id — suy từ user)."""
     period_year: int = Field(ge=2000, le=2100)
@@ -340,6 +376,13 @@ class AdvanceDecisionIn(BaseModel):
     note: str | None = Field(default=None, max_length=255)
 
 
+class AdvanceBulkDecisionIn(BaseModel):
+    """Duyệt / từ chối nhiều phiếu một lượt (25/09/2026)."""
+    ids: list[int] = Field(min_length=1, max_length=3000)
+    approve: bool
+    note: str | None = Field(default=None, max_length=255)
+
+
 class AdvanceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -347,6 +390,8 @@ class AdvanceOut(BaseModel):
     code: str | None = None                # mã tạm ứng TU26-xxxx (sinh khi tạo)
     employee_id: int
     employee_name: str | None = None       # router fills
+    employee_code: str | None = None       # router fills — tìm theo mã NV ở màn Tạm ứng
+    department_id: int | None = None       # router fills — lọc theo tổ
     department_name: str | None = None     # router fills — cho phiếu in
     bank_account: str | None = None        # router fills (bank của NV)
     bank_name: str | None = None           # router fills
@@ -359,6 +404,10 @@ class AdvanceOut(BaseModel):
     status: str
     decision_note: str | None = None
     created_at: datetime
+    # Phiếu chi CÒN HIỆU LỰC của phiếu này (router danh sách điền, 25/09/2026) — màn Tạm ứng gắn
+    # chip mã PC, không phải tự tải sổ phiếu chi cả công ty để dò.
+    phieu_chi_id: int | None = None
+    phieu_chi_code: str | None = None
 
 
 class AdvancesOut(BaseModel):
@@ -698,6 +747,11 @@ class BulkAssignOut(BaseModel):
     skipped_existing: int = 0    # đã có mức riêng, không đè (mặc định)
     skipped_out_of_scope: int = 0
     total: int = 0
+
+
+class UnassignAllOut(BaseModel):
+    removed: int = 0            # số NV vừa gỡ khoản
+    remaining: int = 0          # số NV còn giữ vì ngoài phạm vi người bấm
 
 
 class ComponentDeleteOut(BaseModel):

@@ -2175,6 +2175,10 @@ def seed_payroll(db: Session) -> None:
         repo.create_params(
             ca_khop_gio_chuan=(os.environ.get("SEED_CA_KHOP_GIO_CHUAN", "true").strip().lower()
                                != "false"),
+            # Công tối thiểu để tạm ứng / lương đợt 1 (25/09/2026): dev/prod 13 như xưởng làm tay.
+            # Bộ test đặt 0 qua conftest — hàng chục test lập phiếu tạm ứng cho người chưa chấm
+            # công ngày nào; test của chính luật này bật lại bằng PUT /api/luong/params.
+            tam_ung_cong_toi_thieu=float(os.environ.get("SEED_TAM_UNG_CONG_TOI_THIEU", "13")),
         )
 
     # Mức nền demo: GĐ khai tay ở đây; khối SX/văn phòng do `seed_tai_khoan_va_luong_sx` /

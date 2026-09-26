@@ -1,5 +1,5 @@
 // Modal nhân viên tự đề nghị tạm ứng (tách từ pages/LuongPage.tsx).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../api/client";
 import { MonthPicker } from "../../../../components/MonthPicker";
 import { curYm, errText, khoangKyUng, ymLabel } from "../shared/helpers";
@@ -45,6 +45,29 @@ export function MyAdvanceModal({
   // Lịch của trình duyệt đã làm mờ tháng ngoài `min`/`max`, nhưng gõ tay thì vẫn lọt ⇒ so lại.
   // So chuỗi `YYYY-MM` là đúng thứ tự thời gian nên không cần đổi sang Date.
   const kyNgoaiKhoang = ym < kyRange.min || ym > kyRange.max;
+
+  // ĐIỀU KIỆN CÔNG (25/09/2026): phải đủ N công tính lương từ ngày 1 của kỳ tới ngày ứng — máy chủ
+  // chặn cứng. Hỏi TRƯỚC để người ta biết mình đang có bao nhiêu công, khỏi bấm Gửi rồi mới bị chặn.
+  // `null` = chưa biết (đang tải / hỏi hỏng) ⇒ không khoá nút, để máy chủ nói.
+  const [dk, setDk] = useState<{ nguong: number; den_ngay: number; cong: number; du_dieu_kien: boolean } | null>(null);
+  useEffect(() => {
+    if (kyNgoaiKhoang || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      setDk(null);
+      return;
+    }
+    const [y, m] = ym.split("-").map(Number);
+    let alive = true;
+    setDk(null);
+    api.luong
+      .dieuKienTamUngCuaToi(token, { year: y, month: m, advanceDate: dateStr })
+      .then((r) => alive && setDk(r))
+      .catch(() => alive && setDk(null));
+    return () => {
+      alive = false;
+    };
+  }, [token, ym, dateStr, kyNgoaiKhoang]);
+  const chuaDuCong = dk !== null && !dk.du_dieu_kien;
+  const [yDk, mDk] = ym.split("-");
 
   async function save() {
     if (amount <= 0) {
@@ -142,6 +165,15 @@ export function MyAdvanceModal({
             <span className="ns-field__label">Lý do</span>
             <input value={reason} onChange={(e) => setReason(e.target.value)} />
           </label>
+          {dk && dk.nguong > 0 && (
+            <p className={`lg-ky-status lg-ky-status--${dk.du_dieu_kien ? "ok" : "bad"}`} role="status">
+              Công tính lương của bạn từ 01/{mDk} tới {String(dk.den_ngay).padStart(2, "0")}/{mDk}/{yDk}:{" "}
+              <b>{dk.cong.toLocaleString("vi-VN")} công</b>
+              {dk.du_dieu_kien
+                ? ` — đủ điều kiện (từ ${dk.nguong.toLocaleString("vi-VN")} công).`
+                : ` — cần từ ${dk.nguong.toLocaleString("vi-VN")} công mới được ${isDot1 ? "xin lương đợt 1" : "đề nghị tạm ứng"}.`}
+            </p>
+          )}
         </div>
         <footer className="ns-modal__foot">
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
@@ -150,11 +182,13 @@ export function MyAdvanceModal({
           <button
             className="btn btn--primary"
             onClick={save}
-            disabled={busy || kyNgoaiKhoang}
+            disabled={busy || kyNgoaiKhoang || chuaDuCong}
             title={
               kyNgoaiKhoang
                 ? `Kỳ lương chỉ chọn được từ ${ymLabel(kyRange.min)} đến ${ymLabel(kyRange.max)}.`
-                : undefined
+                : chuaDuCong && dk
+                  ? `Chưa đủ ${dk.nguong.toLocaleString("vi-VN")} công tính lương.`
+                  : undefined
             }
           >
             {busy ? "Đang gửi…" : "Gửi đề nghị"}

@@ -91,6 +91,15 @@ class AccountingNotFound(AccountingError):
     pass
 
 
+class AccountingBulkBlocked(AccountingValidationError):
+    """Chi MỘT LƯỢT bị chặn vì vài phiếu vướng — không phiếu chi nào được ghi. `vuong_ids` = id
+    phiếu tạm ứng vướng, để màn hình bỏ chọn đúng chúng rồi bấm lại (25/09/2026)."""
+
+    def __init__(self, message: str, vuong_ids):
+        super().__init__(message)
+        self.vuong_ids = [int(i) for i in vuong_ids]
+
+
 class AccountingConflict(AccountingError):
     pass
 
@@ -1034,7 +1043,8 @@ class AccountingService:
             # Tiền ĐÃ RA két ⇒ phiếu tạm ứng sang ĐÃ CHI. Từ 07/09/2026 chỉ trạng thái này mới trừ vào
             # lương (chủ: "kế toán phải lập phiếu chi mới trừ"). `decided_at` để chốt lương (L12) biết
             # phiếu đổi trạng thái sau lần Tính lại.
-            self._payroll.update_advance(advance, status=ADV_PAID, decided_at=_now())
+            self._payroll.update_advance(advance, status=ADV_PAID, decided_at=_now(),
+                                         payment_voucher_id=saved.id)
         self.audit.create(
             actor_user_id=actor.id,
             action="create_payment_voucher",
@@ -1168,23 +1178,29 @@ class AccountingService:
         # Phiếu chi TỪ TẠM ỨNG (07/09/2026, bản rà B5): kỳ lương của phiếu đã chốt/đã chi thì khoản
         # ứng đã trừ vào lương — huỷ phiếu chi lúc này là thợ mất tiền. Kỳ còn nháp thì trả phiếu tạm
         # ứng về ĐÃ DUYỆT (chưa chi) để Tính lại thôi trừ.
-        a_tam_ung = None
-        if voucher.salary_advance_id is not None and self._payroll is not None:
-            a_tam_ung = self._payroll.get_advance(int(voucher.salary_advance_id))
-            if a_tam_ung is not None:
-                ky = self._payroll.get_period_by_ym(int(a_tam_ung.period_year), int(a_tam_ung.period_month))
-                if ky is not None and ky.status in ("locked", "paid"):
-                    raise AccountingConflict(
-                        f"Phiếu tạm ứng {a_tam_ung.code or a_tam_ung.id} đã trừ vào bảng lương "
-                        f"{int(a_tam_ung.period_month):02d}/{int(a_tam_ung.period_year)} (đã chốt) — mở lại kỳ "
-                        "lương trước rồi mới huỷ phiếu chi.")
+        # Phiếu chi MỘT LƯỢT (25/09/2026): huỷ là CẢ LÔ về "đã duyệt — chờ chi" (chủ chốt — không gỡ lẻ
+        # từng người khỏi phiếu chi; sai thì huỷ cả phiếu rồi lập lại cho những người đã nhận tiền).
+        lo = self._lo_cua_phieu_chi(voucher)
+        for y, m in sorted({(int(a.period_year), int(a.period_month)) for a in lo}):
+            ky = self._payroll.get_period_by_ym(y, m)
+            if ky is not None and ky.status in ("locked", "paid"):
+                ten = (f"Phiếu tạm ứng {lo[0].code or lo[0].id}" if len(lo) == 1
+                       else f"{len(lo)} phiếu tạm ứng của phiếu chi này")
+                raise AccountingConflict(
+                    f"{ten} đã trừ vào bảng lương {m:02d}/{y} (đã chốt) — mở lại kỳ "
+                    "lương trước rồi mới huỷ phiếu chi.")
         voucher.status = PAYMENT_VOUCHER_CANCELLED
         voucher.cancel_reason = cleaned_reason
         voucher.cancelled_by_user_id = actor.id
         voucher.cancelled_at = _now()
-        saved = self.repo.save_voucher(voucher)
-        if a_tam_ung is not None and a_tam_ung.status == ADV_PAID:
-            self._payroll.update_advance(a_tam_ung, status=ADV_APPROVED, decided_at=_now())
+        luc = _now()
+        for a in lo:
+            if a.status == ADV_PAID:
+                a.status = ADV_APPROVED
+                a.decided_at = luc
+            if a.payment_voucher_id == voucher.id:
+                a.payment_voucher_id = None
+        saved = self.repo.save_voucher(voucher)   # một commit cho phiếu chi + cả lô
         self.audit.create(
             actor_user_id=actor.id,
             action="cancel_payment_voucher",
@@ -2549,9 +2565,15 @@ class AccountingService:
             "note": _text(values.get("note"), label="Ghi chú", max_length=2000),
         }
 
-    def _prepare_standalone_voucher(self, values: dict, *, advance=None) -> dict:
+    def _prepare_standalone_voucher(self, values: dict, *, advance=None, lo_tam_ung=None) -> dict:
         source_type = (values.get("source_type") or "").strip()
-        if advance is not None:
+        if lo_tam_ung:
+            # Phiếu chi MỘT LƯỢT cho nhiều phiếu tạm ứng (25/09/2026): số tiền = TỔNG lô, lấy từ
+            # phiếu đã duyệt chứ không từ payload; người nhận do nơi gọi đặt ("Theo bảng kê…").
+            source_type = VOUCHER_SOURCE_SALARY_ADVANCE
+            values = dict(values)
+            values["amount"] = int(round(sum(float(a.amount or 0) for a in lo_tam_ung)))
+        elif advance is not None:
             source_type = VOUCHER_SOURCE_SALARY_ADVANCE
             # Số tiền và người nhận LẤY TỪ PHIẾU TẠM ỨNG, không nhận từ payload — nếu không thì
             # kế toán gõ số khác số đã duyệt và phiếu chi không còn khớp phiếu duyệt.
@@ -2663,6 +2685,7 @@ class AccountingService:
             "credit_account": _text(values.get("credit_account"), label="Tài khoản Có", max_length=64),
             "note": _text(values.get("note"), label="Ghi chú", max_length=2000),
             "source_code_snapshot": (advance.code or f"TU#{advance.id}") if advance is not None
+                                    else f"Lô {len(lo_tam_ung)} phiếu tạm ứng" if lo_tam_ung
                                     else source_labels[source_type],
             "supplier_name_snapshot": recipient_name,
             "supplier_tax_code_snapshot": None,
@@ -2737,6 +2760,165 @@ class AccountingService:
             if self.repo.get_voucher_by_code(code) is None:
                 return code
         raise AccountingConflict("Không sinh được mã chứng từ duy nhất, vui lòng thử lại.")
+
+    def create_vouchers_from_advances_batch(
+        self, *, actor, salary_advance_ids: list[int], shared: dict
+    ) -> list[dict]:
+        """Chi MỘT LƯỢT cho các phiếu tạm ứng / lương đợt 1 ĐÃ DUYỆT ⇒ **MỘT phiếu chi cho cả lô**
+        (chủ đổi ý 25/09/2026: "cho dù một nhân viên hay 1000 nhân viên cùng lúc, cũng chỉ 1 phiếu
+        chi"). Số tiền = tổng lô; người nhận "Theo bảng kê đính kèm (N người)" — bảng kê in từ
+        `bang_ke_tam_ung`. Lô MỘT người thì như lập lẻ: tên + tài khoản của chính người đó.
+
+        Chuyển khoản: kế toán lập phiếu SAU khi ngân hàng báo kết quả, và chỉ để lại những người đã
+        chuyển THÀNH CÔNG; ai lỗi thì bỏ khỏi lượt, chi sau. Sai thì huỷ cả phiếu chi rồi lập lại
+        (chủ chốt — không gỡ lẻ một người khỏi phiếu chi).
+
+        THẨM ĐỊNH TRƯỚC, GHI SAU: một phiếu vướng (chưa duyệt, đã có phiếu chi, người nhận chưa
+        khai số tài khoản khi chuyển khoản…) là KHÔNG ghi gì; lỗi gom theo câu, kèm id phiếu vướng."""
+        if not salary_advance_ids:
+            raise AccountingValidationError("Chưa chọn phiếu tạm ứng nào.")
+        if len(salary_advance_ids) > 3000:
+            raise AccountingValidationError("Chọn tối đa 3000 phiếu cho một lượt chi.")
+        if self._payroll is None or self._employees is None:
+            raise AccountingValidationError("Chưa nối được phân hệ Lương / Nhân sự để đọc phiếu tạm ứng.")
+        chuyen_khoan = (shared.get("voucher_type") or "").strip() == VOUCHER_BANK_TRANSFER
+        # Lương chuyển đi thì CÔNG TY chịu phí — không thì người nhận hụt so với số đã duyệt.
+        chung = {**shared, "currency": "VND", "exchange_rate": 1, "bank_fee_bearer": None}
+
+        # NẠP MỘT LẦN. Cùng các chốt của `_advance_cho_phieu_chi`: một tạm ứng chỉ MỘT phiếu chi còn
+        # hiệu lực (xét trước), chỉ phiếu ĐÃ DUYỆT.
+        ids = list(dict.fromkeys(int(i) for i in salary_advance_ids))
+        theo_id = {a.id: a for a in self._payroll.get_advances_by_ids(ids)}
+        da_co = self.repo.live_vouchers_by_salary_advance_ids(ids)
+        nv = self._employees.map_by_ids({a.employee_id for a in theo_id.values()})
+
+        theo_loi: dict[str, list[str]] = {}
+        vuong: list[int] = []
+        lo: list = []
+        for aid in ids:
+            a = theo_id.get(aid)
+            emp = nv.get(a.employee_id) if a is not None else None
+            # Báo lỗi bằng TÊN người (kế toán nhìn danh sách theo tên), kể cả lỗi "chưa duyệt".
+            nhan = emp.full_name if emp is not None else f"#{aid}"
+            try:
+                if a is None:
+                    raise AccountingNotFound("Không tìm thấy phiếu tạm ứng")
+                if aid in da_co:
+                    raise AccountingConflict(f"Phiếu tạm ứng đã có phiếu chi {da_co[aid].code} rồi")
+                if a.status != ADV_APPROVED:
+                    raise AccountingValidationError("Chỉ lập phiếu chi cho phiếu tạm ứng ĐÃ DUYỆT")
+                if chuyen_khoan and not (((emp.bank_account if emp else None) or "").strip()
+                                         and ((emp.bank_name if emp else None) or "").strip()):
+                    raise AccountingValidationError(
+                        "Chưa khai số tài khoản / ngân hàng trong hồ sơ nhân sự")
+                lo.append(a)
+            except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+                theo_loi.setdefault(str(exc).rstrip(". "), []).append(nhan)
+                vuong.append(aid)
+        if theo_loi:
+            phan = []
+            for cau, ai in theo_loi.items():
+                ds = ", ".join(ai[:5]) + (f" và {len(ai) - 5} người khác" if len(ai) > 5 else "")
+                phan.append(f"{cau} ({ds})")
+            raise AccountingBulkBlocked("Chưa lập phiếu chi nào — " + "; ".join(phan) + ".", vuong)
+
+        kinds = {a.kind or "tam_ung" for a in lo}
+        loai = ("Thanh toán lương đợt 1" if kinds == {"luong_dot_1"}
+                else "Tạm ứng lương" if kinds == {"tam_ung"} else "Chi tạm ứng + lương đợt 1")
+        ky = "tháng " + ", ".join(f"{m:02d}/{y}" for y, m in sorted(
+            {(int(a.period_year), int(a.period_month)) for a in lo}))
+        if len(lo) == 1:
+            # Lô MỘT người: như lập lẻ — tên + tài khoản của chính người đó.
+            a = lo[0]
+            emp = nv.get(a.employee_id)
+            ten = emp.full_name if emp is not None else f"NV#{a.employee_id}"
+            values = {**chung, "content": f"{loai} {ky} — {ten}"[:500]}
+            if chuyen_khoan:
+                values.update(beneficiary_account_holder=ten,
+                              beneficiary_account_number=emp.bank_account.strip(),
+                              beneficiary_bank_name=emp.bank_name.strip(),
+                              beneficiary_bank_branch=None)
+            prepared = self._prepare_standalone_voucher(values, advance=a)
+        else:
+            so_nguoi = len({a.employee_id for a in lo})
+            theo_bang_ke = f"Theo bảng kê đính kèm ({so_nguoi} người)"
+            values = {**chung, "cash_recipient_name": theo_bang_ke,
+                      "content": f"{loai} {ky} — {so_nguoi} người (theo bảng kê)"[:500]}
+            if chuyen_khoan:
+                # UNC một lô: thụ hưởng là DANH SÁCH — chi tiết từng tài khoản nằm ở bảng kê / file MB.
+                values.update(beneficiary_account_holder=theo_bang_ke,
+                              beneficiary_account_number="Theo bảng kê",
+                              beneficiary_bank_name="Theo bảng kê",
+                              beneficiary_bank_branch=None)
+            prepared = self._prepare_standalone_voucher(values, lo_tam_ung=lo)
+        if not chuyen_khoan:
+            prepared.update(beneficiary_account_holder_snapshot=None,
+                            beneficiary_account_number_snapshot=None,
+                            beneficiary_bank_name_snapshot=None,
+                            beneficiary_bank_branch_snapshot=None)
+
+        # GHI MỘT GIAO DỊCH: phiếu chi + mọi phiếu tạm ứng sang ĐÃ CHI (mới trừ vào lương) và trỏ
+        # về phiếu chi này; `decided_at` để chốt lương (L12) biết phiếu đổi sau lần Tính lại.
+        phieu = self._new_voucher(None, prepared, actor.id, doc_no=self._next_voucher_doc_no())
+        self.repo.add_vouchers([phieu])
+        luc = _now()
+        for a in lo:
+            a.status = ADV_PAID
+            a.decided_at = luc
+            a.payment_voucher_id = phieu.id
+        self.audit.create_many(
+            [{"actor_user_id": actor.id, "action": "create_payment_voucher",
+              "target": f"payment_voucher:{phieu.id}",
+              "detail": f"{phieu.code} <- {len(lo)} phiếu tạm ứng (chi một lượt)"}]
+            + [{"actor_user_id": actor.id, "action": "pay_salary_advance",
+                "target": f"salary_advance:{a.id}",
+                "detail": f"{a.code or a.id} · {float(a.amount):,.0f}đ → {phieu.code}"}
+               for a in lo]
+        )
+        pc_id = phieu.id
+        self.repo.commit()
+        return [self._voucher_out(self.repo.get_vouchers_by_ids([pc_id])[0])]
+
+    def bang_ke_tam_ung(self, voucher_id: int) -> dict:
+        """BẢNG KÊ đính kèm phiếu chi một lượt — từng người: mã, tên, tổ, loại, số tiền, tài khoản
+        (chuyển khoản) hoặc cột ký nhận (tiền mặt, in ở FE). Phiếu chi lẻ cũng in được (1 dòng)."""
+        v = self._voucher(voucher_id)
+        lo = self._lo_cua_phieu_chi(v)
+        if not lo:
+            raise AccountingNotFound("Phiếu chi này không chi phiếu tạm ứng nào.")
+        nv = self._employees.map_by_ids({a.employee_id for a in lo}) if self._employees else {}
+        rows = []
+        for a in lo:
+            e = nv.get(a.employee_id)
+            rows.append({
+                "salary_advance_id": a.id, "ma_phieu": a.code, "kind": a.kind or "tam_ung",
+                "employee_id": a.employee_id,
+                "ma_nv": getattr(e, "code", None), "ten": getattr(e, "full_name", None),
+                "department_id": getattr(e, "department_id", None),
+                "so_tien": int(round(float(a.amount or 0))),
+                "so_tai_khoan": getattr(e, "bank_account", None),
+                "ngan_hang": getattr(e, "bank_name", None),
+            })
+        rows.sort(key=lambda r: (r["department_id"] or 0, r["ma_nv"] or "", r["salary_advance_id"]))
+        return {
+            "voucher_id": v.id, "code": v.code, "doc_no": v.doc_no, "voucher_type": v.voucher_type,
+            "voucher_date": v.voucher_date, "content": v.content, "status": v.status,
+            "so_nguoi": len({r["employee_id"] for r in rows}),
+            "tong": sum(r["so_tien"] for r in rows), "rows": rows,
+        }
+
+    def _lo_cua_phieu_chi(self, voucher) -> list:
+        """Mọi phiếu tạm ứng phiếu chi này đã chi: theo cột mới `salary_advances.payment_voucher_id`
+        (lô, từ 25/09/2026) + phiếu một-một cũ qua `payment_vouchers.salary_advance_id`."""
+        if self._payroll is None:
+            return []
+        lo = list(self._payroll.advances_by_payment_voucher(voucher.id))
+        if voucher.salary_advance_id is not None and not any(
+                a.id == voucher.salary_advance_id for a in lo):
+            a0 = self._payroll.get_advance(int(voucher.salary_advance_id))
+            if a0 is not None and a0.payment_voucher_id in (None, voucher.id):
+                lo.append(a0)
+        return lo
 
     def _advance_cho_phieu_chi(self, salary_advance_id: int | None):
         """Phiếu tạm ứng hợp lệ để lập phiếu chi. Bốn chốt, theo đúng chốt của chủ 18/08/2026."""

@@ -197,6 +197,13 @@ class PayrollParams(Base):
     # Tiền MỘT suất. MẶC ĐỊNH 0 = TẮT — bật sẵn một khoản ra tiền cho cả nhà máy mà chưa ai duyệt
     # số là tự ý tăng quỹ lương. Cùng lối với `cong_doan_rate`.
     com_tang_ca_muc: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # --- ĐIỀU KIỆN TẠM ỨNG / LƯƠNG ĐỢT 1 (25/09/2026) ---
+    # Phải có ít nhất ngần này CÔNG TÍNH LƯƠNG (đi làm + phép có lương + lễ) từ ngày 1 của kỳ tới
+    # ngày lập phiếu thì mới lập được phiếu tạm ứng / thanh toán lương đợt 1 — chặn CỨNG ở
+    # `PayrollService.create_advance`. Mặc định 13 như xưởng đang làm tay. `0` = tắt điều kiện.
+    tam_ung_cong_toi_thieu: Mapped[float] = mapped_column(
+        Numeric(5, 2), nullable=False, default=13, server_default="13"
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -316,6 +323,12 @@ class SalaryAdvance(Base):
     decision_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    # Phiếu chi CÒN HIỆU LỰC đã chi phiếu này (25/09/2026, mg 0337). Chủ chốt: chi một lượt cho 1 hay
+    # 1000 người thì chỉ MỘT phiếu chi cho cả lô ⇒ quan hệ nay là NHIỀU tạm ứng → một phiếu chi, không
+    # còn một-một qua `payment_vouchers.salary_advance_id`. Huỷ phiếu chi ⇒ xoá về NULL. KHÔNG khai
+    # ForeignKey: `payment_vouchers` đã có khoá ngoại ngược lại (`salary_advance_id`), hai chiều là vòng
+    # phụ thuộc làm `create_all` / `drop_all` không sắp được thứ tự bảng.
+    payment_voucher_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
 
 class PayrollPeriod(Base):

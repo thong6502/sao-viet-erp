@@ -200,6 +200,44 @@ class VoucherBatchIn(BaseModel):
     credit_account: str | None = Field(default=None, max_length=64)
 
 
+class VoucherFromAdvancesBatchIn(BaseModel):
+    """Chi MỘT LƯỢT cho nhiều phiếu tạm ứng đã duyệt ⇒ MỘT phiếu chi cho cả lô (25/09/2026). Chỉ
+    phần CHUNG — số tiền (tổng lô), người nhận ("Theo bảng kê…"), nội dung máy tự điền."""
+    salary_advance_ids: list[int] = Field(min_length=1, max_length=3000)
+    voucher_type: str = Field(min_length=1, max_length=24)
+    voucher_date: date
+    company_bank_account_id: int | None = Field(default=None, gt=0)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class BangKeTamUngRowOut(BaseModel):
+    salary_advance_id: int
+    ma_phieu: str | None = None
+    kind: str = "tam_ung"
+    employee_id: int
+    ma_nv: str | None = None
+    ten: str | None = None
+    department_id: int | None = None
+    department_name: str | None = None      # router fills
+    so_tien: int
+    so_tai_khoan: str | None = None
+    ngan_hang: str | None = None
+
+
+class BangKeTamUngOut(BaseModel):
+    """Bảng kê đính kèm phiếu chi một lượt (25/09/2026) — in kèm phiếu 02-TT / UNC của cả lô."""
+    voucher_id: int
+    code: str
+    doc_no: str | None = None
+    voucher_type: str
+    voucher_date: date | None = None
+    content: str | None = None
+    status: str
+    so_nguoi: int
+    tong: int
+    rows: list[BangKeTamUngRowOut]
+
+
 class VoucherBatchOut(BaseModel):
     vouchers: list[PaymentVoucherOut]
     total_amount: int = 0
