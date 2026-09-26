@@ -8,6 +8,7 @@ export function VoucherRowActions({
   row,
   canExport,
   startPrint,
+  startPrintBangKe,
   closeDetailThen,
   canCancel,
   setCancelling,
@@ -16,6 +17,8 @@ export function VoucherRowActions({
   row: PaymentVoucherRow;
   canExport: boolean;
   startPrint: (row: PaymentVoucherRow) => void;
+  /** Bảng kê đính kèm phiếu chi tạm ứng / lương đợt 1 (chi một lượt ghi "Theo bảng kê"). */
+  startPrintBangKe?: (row: PaymentVoucherRow) => void;
   closeDetailThen: (action: () => void) => void;
   canCancel: boolean;
   setCancelling: Dispatch<SetStateAction<PaymentVoucherRow | null>>;
@@ -32,6 +35,11 @@ export function VoucherRowActions({
       {showExport && (
         <Button variant="ghost" onClick={() => startPrint(row)}>
           In phiếu
+        </Button>
+      )}
+      {showExport && startPrintBangKe && row.source_type === "salary_advance" && (
+        <Button variant="ghost" onClick={() => startPrintBangKe(row)}>
+          In bảng kê
         </Button>
       )}
       {/* KHÔNG có nút SỬA (chủ chốt 07/08/2026): phiếu chi phát hành ra là TIỀN ĐÃ RỜI KÉT,

@@ -75,6 +75,8 @@ export const PARAMS_A = [
   "ot_night_extra_pct",
   "adjust_max_per_month",
   "phu_cap_ca_min_cong",
+  // Điều kiện công để tạm ứng / lương đợt 1 (25/09/2026) — thiếu ở đây là ô sửa được mà lưu không đi.
+  "tam_ung_cong_toi_thieu",
   "com_tang_ca_nguong_phut",
   "com_tang_ca_muc",
   // Trần giờ làm thêm (Đ107) — thiếu hai tên này thì ô có hiện nhưng thanh "Lưu thay đổi"

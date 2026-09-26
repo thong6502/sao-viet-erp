@@ -22,6 +22,7 @@ import { CancelVoucherModal } from "./modals/CancelVoucherModal";
 import { StandaloneVoucherDialog } from "./modals/StandaloneVoucherDialog";
 import { PaymentVoucherDialog } from "./PaymentVoucherDialog";
 import { printVoucher } from "./print";
+import { taiVaInBangKe } from "../../../utils/printBangKeTamUng";
 import { PAGE_SIZE } from "./shared/list-constants";
 import "../../accounting.css";
 import "../../purchase.css";
@@ -287,6 +288,7 @@ export function PaymentVouchersPage({
         row={row}
         canExport={canExport}
         startPrint={startPrint}
+        startPrintBangKe={(r) => token && void taiVaInBangKe(token, r.id).catch((e: Error) => setError(e.message))}
         closeDetailThen={closeDetailThen}
         canCancel={canCancel}
         setCancelling={setCancelling}

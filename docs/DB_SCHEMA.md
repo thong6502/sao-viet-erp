@@ -2791,6 +2791,7 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `com_tang_ca_nguong_phut` | `Integer` | no | `180` | Ngưỡng phút tăng ca trong MỘT NGÀY để được suất cơm — chỉ áp cho NGÀY LÀM VIỆC. Ngày nghỉ theo Lịch chung (gồm lễ, off1x) cứ có tăng ca là có suất. Thêm qua migration 0190. |
 | `com_tang_ca_muc` | `Numeric(14,2)` | no | `0` | Tiền MỘT suất cơm tăng ca. Mặc định 0 = TẮT (chủ tự khai) — cùng lối `cong_doan_rate`. Thêm qua migration 0190. |
 | `bhxh_mien_tu_so_ngay` | `Integer` | no | `14` | **SỐ NGÀY nghỉ không lương trong tháng mà từ đó tháng đó KHÔNG ĐÓNG BHXH.** ⚠️ MỨC LUẬT, không phải chính sách công ty: QĐ 595/QĐ-BHXH Đ42.4 — không làm việc và không hưởng tiền lương từ **14 ngày làm việc** trở lên trong tháng thì tháng đó không đóng BHXH. Engine đếm `ngay_khong_luong = standard_cong − actual_cong − plain_cong` (`plain_cong` là ngày off1x CÓ đi làm và CÓ trả 1× nên phải cộng lại, không thì người làm ngày đó mất BHXH oan). `0` = **TẮT LUẬT**: tháng nào cũng trừ BHXH, như hành vi trước 04/08/2026 — engine kiểm `> 0` TRƯỚC khi so, thiếu chốt đó thì `>= 0` luôn đúng và cả xưởng mất sạch BHXH. Trước 04/08/2026 số 14 viết cứng trong `payroll_service`. Thêm qua migration 0158. |
+| `tam_ung_cong_toi_thieu` | `Numeric(5,2)` | no | `13` | **ĐIỀU KIỆN TẠM ỨNG / LƯƠNG ĐỢT 1** (25/09/2026): phải có ít nhất ngần này CÔNG TÍNH LƯƠNG (đi làm + phép có lương + lễ — đúng `total_cong` của bảng công) tính từ ngày 1 của kỳ tới hết NGÀY LẬP PHIẾU thì mới lập được phiếu tạm ứng (`kind=tam_ung`) hoặc thanh toán lương đợt 1 (`kind=luong_dot_1`). Chặn CỨNG ở `PayrollService.create_advance` (cả phiếu nhân viên tự xin). `0` = tắt điều kiện. Thêm qua migration 0336. |
 | `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
 
 ---
@@ -2937,6 +2938,7 @@ dụng từ ngày" như `khoan_chi_tieu_ngay`. Chế độ hiệu lực ngày D 
 | `decision_note` | `String(255)`   | —                           | yes  | —         | Ghi chú duyệt.                       |
 | `created_by`    | `Integer`       | **FK→users.id**             | yes  | —         | Người tạo.                           |
 | `created_at`    | `DateTime(tz)`  | —                           | no   | now       | Khi tạo.                             |
+| `payment_voucher_id` | `Integer`  | **IX**                      | yes  | —         | Phiếu chi CÒN HIỆU LỰC đã chi phiếu này (mg 0337, 25/09/2026). Chi một lượt nhiều người = MỘT phiếu chi cho cả lô ⇒ nhiều tạm ứng → một phiếu chi. Huỷ phiếu chi ⇒ NULL. Không FK (tránh vòng với `payment_vouchers.salary_advance_id`). |
 
 ---
 

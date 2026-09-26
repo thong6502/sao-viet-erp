@@ -2226,6 +2226,45 @@ class AttendanceService:
         p = self.attendance.get_period_by_ym(year, month)
         return p is not None and p.status == APERIOD_LOCKED
 
+    @staticmethod
+    def cong_ngay(cell: dict) -> float:
+        """Phần CÔNG TÍNH LƯƠNG (`total_cong`) mà MỘT ô ngày của `monthly_timesheet` góp vào.
+
+        Chép đúng các nhánh cộng `total_cong` trong vòng ngày của `monthly_timesheet`, không bịa luật
+        mới — `test_cong_den_ngay_khop_tong_cong` ép Σ mọi ngày của tháng == `total_cong`:
+          • ngày 'off1x' (`plain`)          → 0 (bị trừ lại khỏi base);
+          • lễ có đi làm, trùng nghỉ tuần    → công làm + 1 công lễ;
+          • lễ có đi làm (thường)           → tối thiểu 1 công lễ;
+          • còn lại (làm thường/nghỉ tuần, phép, lễ nghỉ, phần hoàn phép giờ đã cộng vào ô) → `cong`.
+        """
+        cong = float(cell.get("cong") or 0)
+        if cell.get("plain"):
+            return 0.0
+        if cell.get("cong_le"):
+            return cong + 1.0 if cell.get("le_nghi_tuan") else max(cong, 1.0)
+        return cong
+
+    def cong_tinh_luong_den_ngay(
+        self, *, year: int, month: int, den_ngay: int, only_employee_id: int | None = None,
+        scope=None, actor=None,
+    ) -> dict[int, dict]:
+        """Công tính lương từ ngày 1 tới HẾT ngày `den_ngay` của tháng (25/09/2026 — điều kiện
+        tạm ứng / lương đợt 1). `den_ngay` ≤ 0 ⇒ 0 công; ≥ số ngày tháng ⇒ cả tháng.
+
+        Tính trên lưới ngày của CHÍNH `monthly_timesheet` (một lượt cho cả danh sách) — không có đường
+        tính công thứ hai. Trả `{employee_id: {cong, code, name, department_id}}`."""
+        tk = self.monthly_timesheet(year=year, month=month, scope=scope, actor=actor,
+                                    only_employee_id=only_employee_id)
+        ra: dict[int, dict] = {}
+        for row in tk["rows"]:
+            cong = sum(self.cong_ngay(c) for d, c in (row.get("days") or {}).items()
+                       if int(d) <= den_ngay)
+            ra[row["employee_id"]] = {
+                "cong": round(cong, 2), "code": row.get("employee_code"),
+                "name": row.get("employee_name"), "department_id": row.get("department_id"),
+            }
+        return ra
+
     def metrics_map(self, year: int, month: int) -> dict[int, dict]:
         """{emp_id → {cong, ot_minutes, night_days}} cho Lương (Pha 4a): đọc SNAPSHOT nếu kỳ
         công đã CHỐT; chưa chốt thì tính LIVE từ Bảng công tháng. Nguồn duy nhất — cong_map rút từ đây."""

@@ -79,6 +79,14 @@ export function errText(e: unknown): string {
   return e instanceof Error ? e.message : "Có lỗi xảy ra.";
 }
 
+/** Id các dòng VƯỚNG khi thao tác hàng loạt bị chặn (máy chủ trả `detail = {message, vuong_ids}`)
+ *  — để màn hình bỏ chọn đúng chúng rồi bấm lại. Lỗi khác trả mảng rỗng. */
+export function vuongIds(e: unknown): number[] {
+  const d = (e as { detail?: unknown } | null)?.detail;
+  const ids = d && typeof d === "object" ? (d as { vuong_ids?: unknown }).vuong_ids : undefined;
+  return Array.isArray(ids) ? ids.filter((x): x is number => typeof x === "number") : [];
+}
+
 /** 6 cột thưởng NGỪNG GHI từ 28/07/2026 — giữ lại vì kỳ đã chốt vẫn có số. */
 export function legacyBonusRows(l: PayrollLine): [string, number][] {
   return (

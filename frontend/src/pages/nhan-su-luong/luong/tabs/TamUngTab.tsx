@@ -1,22 +1,35 @@
-// Tab Tạm ứng (tách từ pages/LuongPage.tsx).
-import { useCallback, useEffect, useState } from "react";
+// Tab Tạm ứng (tách từ pages/LuongPage.tsx). Từ 25/09/2026 chạy cho nhà máy ~1000 người: tab trạng
+// thái + lọc loại / tổ / tìm + 50 dòng một trang, chọn nhiều qua mọi trang — luật ở `tamUngLoc.ts`.
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Calendar, Wallet } from "lucide-react";
 import {
   api,
-  type EmployeeRow,
-  type PaymentVoucherRow,
   type SalaryAdvance,
 } from "../../../../api/client";
+import { ConfirmDialog } from "../../../../components/ConfirmDialog";
 import type { NavigateFn } from "../../../../components/AppShell";
 import { MonthPicker } from "../../../../components/MonthPicker";
+import { Pager, trangHopLe } from "../../../../components/Pager";
 import { useCan } from "../../../../auth/permissions";
-import { printAdvanceRequest } from "../../../../utils/printAdvanceRequest";
-import { RowActionButton } from "../../../../components/RowActionButton";
-import { advPrintData, curYm, errText, money } from "../shared/helpers";
-import { AddAdvanceModal } from "../modals/AddAdvanceModal";
+import { curYm, errText, money, vuongIds } from "../shared/helpers";
+import { LapHangLoatModal } from "../modals/LapHangLoatModal";
 import { LapPhieuChiModal } from "../modals/LapPhieuChiModal";
-
-// --- Tab: Tạm ứng -----------------------------------------------------------
+import { PhieuChiMotLuotModal } from "../modals/PhieuChiMotLuotModal";
+import { TamUngBang } from "./TamUngBang";
+import { TamUngBoLoc } from "./TamUngBoLoc";
+import { TamUngChonNhieu, taiFileChuyenKhoan, useTiaLuaChon } from "./TamUngChonNhieu";
+import { TuNote } from "./TamUngHanhDong";
+import {
+  BO_LOC_TRONG,
+  CO_TRANG,
+  demTheoTab,
+  dsTo,
+  khopBoLoc,
+  tachLoai,
+  thuocTab,
+  type BoLocTamUng,
+  type TabTrangThai,
+} from "./tamUngLoc";
 
 export function TamUngTab({
   token,
@@ -36,86 +49,124 @@ export function TamUngTab({
   // 04/08/2026) ⇒ đi theo ô của phân hệ Phiếu chi, không theo `luong:approve`.
   const canLapPhieuChi = can("phieu_chi", "create");
   const canXemPhieuChi = can("phieu_chi", "read");
+  const canXuat = can("luong", "export");
   const [ym, setYm] = useState(curYm);
   const [items, setItems] = useState<SalaryAdvance[]>([]);
-  const [emps, setEmps] = useState<EmployeeRow[]>([]);
-  const [adding, setAdding] = useState<null | "tam_ung" | "luong_dot_1">(null);
-  // advance_id → phiếu chi CÒN HIỆU LỰC. Phiếu ĐÃ HUỶ bị loại ra vì backend cũng bỏ qua nó
-  // (`get_voucher_by_salary_advance` lọc `status != cancelled`): huỷ phiếu chi xong là lập lại
-  // được, chip phải biến mất theo — không thì kế toán tưởng đã chi rồi và bỏ sót tiền.
-  const [pcTheoTamUng, setPcTheoTamUng] = useState<Map<number, PaymentVoucherRow>>(
-    () => new Map(),
-  );
+  const [tab, setTab] = useState<TabTrangThai>("tat_ca");
+  const [loc, setLoc] = useState<BoLocTamUng>(BO_LOC_TRONG);
+  const [trang, setTrang] = useState(1);
+  const [chon, setChon] = useState<Set<number>>(() => new Set());
+  const [chiXemChon, setChiXemChon] = useState(false);
+  const [hangLoat, setHangLoat] = useState(false);
   const [lapPcCho, setLapPcCho] = useState<SalaryAdvance | null>(null);
-  const [pcVuaLap, setPcVuaLap] = useState<PaymentVoucherRow | null>(null);
+  // Phiếu chi vừa lập — lẻ hay MỘT LƯỢT đều là MỘT phiếu chi (25/09/2026); `soPhieu` = số phiếu tạm ứng.
+  const [pcVuaLap, setPcVuaLap] = useState<{ id: number; code: string; tong: number; soPhieu: number } | null>(null);
   const [actErr, setActErr] = useState<string | null>(null);
+  const [actVuong, setActVuong] = useState<number[]>([]);
+  const [busyNhieu, setBusyNhieu] = useState(false);
+  const [xacNhan, setXacNhan] = useState<{ duyet: boolean; advs: SalaryAdvance[] } | null>(null);
+  const [pcNhieuCho, setPcNhieuCho] = useState<SalaryAdvance[] | null>(null);
+  const [daDuyetNhieu, setDaDuyetNhieu] = useState<string | null>(null);
   const [year, month] = ym.split("-").map(Number);
 
   const load = useCallback(() => {
+    // Máy chủ gắn sẵn mã phiếu chi lên từng dòng (`phieu_chi_code`) — không còn tự tải sổ phiếu
+    // chi cả công ty để dò (chỉ 1000 phiếu gần nhất: sang tháng thứ hai là mất mã trên dòng).
     api.luong
       .advances(token, year, month)
       .then((r) => setItems(r.items))
       .catch(() => setItems([]));
   }, [token, year, month]);
-  // Danh sách tạm ứng CHƯA trả cờ "đã lập phiếu chi" ⇒ đối chiếu bằng sổ phiếu chi, map theo
-  // `salary_advance_id`. Ai không có ô xem phiếu chi thì bỏ qua hẳn (gọi vào chỉ ăn 403).
-  const loadPhieuChi = useCallback(() => {
-    if (!canXemPhieuChi) {
-      setPcTheoTamUng(new Map());
-      return;
-    }
-    api.accounting
-      .salaryAdvanceVouchers(token)
-      .then((rows) => {
-        const map = new Map<number, PaymentVoucherRow>();
-        for (const pc of rows) {
-          if (pc.salary_advance_id == null || pc.status === "cancelled") continue;
-          map.set(pc.salary_advance_id, pc);
-        }
-        setPcTheoTamUng(map);
-      })
-      .catch(() => setPcTheoTamUng(new Map()));
-  }, [token, canXemPhieuChi]);
   useEffect(() => {
     load();
-    loadPhieuChi();
-  }, [load, loadPhieuChi, eventTick]);
+  }, [load, eventTick]);
+
+  // Đổi KỲ hoặc TAB ⇒ xoá lựa chọn (mỗi tab một loại việc). Đổi loại / tổ / tìm / trang ⇒ GIỮ.
+  function xoaChon() {
+    setChon(new Set());
+    setChiXemChon(false);
+    setTrang(1);
+  }
+  const doiKy = (v: string) => (setYm(v), xoaChon());
+  const doiTab = (t: TabTrangThai) => (setTab(t), xoaChon());
+  function doiLoc(l: BoLocTamUng) {
+    setLoc(l);
+    setTrang(1);
+  }
+
+  const tabRows = useMemo(() => items.filter((a) => thuocTab(a, tab)), [items, tab]);
+  const dangLoc = useMemo(() => tabRows.filter((a) => khopBoLoc(a, loc)), [tabRows, loc]);
+  const hien = chiXemChon ? tabRows.filter((a) => chon.has(a.id)) : dangLoc;
+  const trangNay = hien.slice((trang - 1) * CO_TRANG, trang * CO_TRANG);
+  const dem = useMemo(() => demTheoTab(items, loc), [items, loc]);
+  const to = useMemo(() => dsTo(items), [items]);
+  const coCotChon =
+    (tab === "cho_duyet" && canApproveAdvance) ||
+    (tab === "cho_chi" && (canLapPhieuChi || canXuat));
+  useTiaLuaChon(items, setChon, (a) => thuocTab(a, tab), tab);
   useEffect(() => {
-    api.employees
-      .list(token, { size: 200, sort: "code" })
-      .then((r) => setEmps(r.items))
-      .catch(() => setEmps([]));
-  }, [token]);
+    const ve = trangHopLe(trang, hien.length, CO_TRANG);
+    if (ve !== null) setTrang(ve);
+  }, [trang, hien.length]);
+
+  // File chuyển khoản theo mẫu lô lương BIZ MBBank — xuất ĐÚNG những phiếu đã duyệt / đã chi đang
+  // hiện theo tab + bộ lọc (hoặc phiếu đang tick).
+  function xuatExcel(advs: SalaryAdvance[]) {
+    setActErr(null);
+    setActVuong([]);
+    const ids = advs.filter((a) => a.status === "approved" || a.status === "paid").map((a) => a.id);
+    if (ids.length === 0) {
+      setActErr("Không có phiếu đã duyệt / đã chi nào trong bộ lọc đang xem để xuất.");
+      return;
+    }
+    taiFileChuyenKhoan(token, year, month, ids).catch((e) => setActErr(errText(e)));
+  }
+
+  async function quyetNhieu(advs: SalaryAdvance[], approve: boolean) {
+    setBusyNhieu(true);
+    setActErr(null);
+    setActVuong([]);
+    setDaDuyetNhieu(null);
+    try {
+      const r = await api.luong.decideAdvancesBulk(token, { ids: advs.map((a) => a.id), approve });
+      setDaDuyetNhieu(`Đã ${approve ? "duyệt" : "từ chối"} ${r.items.length} phiếu.`);
+      setChon(new Set());
+      setChiXemChon(false);
+      load();
+    } catch (e) {
+      // Một phiếu vướng là không phiếu nào đổi — hiện nguyên câu server và cho bỏ chọn đúng phiếu vướng.
+      setActErr(errText(e));
+      setActVuong(vuongIds(e));
+    } finally {
+      setBusyNhieu(false);
+      setXacNhan(null);
+    }
+  }
 
   async function act(fn: () => Promise<unknown>) {
     setActErr(null);
+    setActVuong([]);
     try {
       await fn();
       load();
-      loadPhieuChi();
     } catch (e) {
-      // Nuốt lỗi ở đây là chỗ hỏng cũ: huỷ tạm ứng ĐÃ lập phiếu chi nay bị chặn 400 kèm CÂU
-      // GIẢI THÍCH + mã phiếu chi ("… huỷ phiếu chi trước rồi mới huỷ được."). Hiện NGUYÊN CÂU
-      // của backend — viết lại là mất mã phiếu, người dùng không biết phải huỷ cái nào.
+      // Huỷ tạm ứng ĐÃ lập phiếu chi bị chặn kèm CÂU GIẢI THÍCH + mã phiếu chi — hiện NGUYÊN CÂU.
       setActErr(errText(e));
     }
   }
 
-  const STATUS: Record<string, [string, string]> = {
-    pending: ["Chờ duyệt", "ns-badge--muted"],
-    approved: ["Đã duyệt — chờ phiếu chi", "ns-badge--ok"],
-    // Kế toán đã lập phiếu chi (07/09/2026): CHỈ phiếu này mới trừ vào lương.
-    paid: ["Đã chi", "ns-badge--info"],
-    rejected: ["Từ chối", "ns-badge--danger"],
-    cancelled: ["Đã hủy", "ns-badge--muted"],
-  };
-  const KIND: Record<string, [string, string]> = {
-    tam_ung: ["Tạm ứng", "ns-badge--muted"],
-    luong_dot_1: ["Lương đợt 1", "ns-badge--info"],
-  };
+  function boChonVuong() {
+    setChon((cu) => new Set([...cu].filter((id) => !actVuong.includes(id))));
+    setActErr(null);
+    setActVuong([]);
+  }
+
   const totalApproved = items
     .filter((a) => a.status === "approved" || a.status === "paid")
     .reduce((s, a) => s + a.amount, 0);
+  const biCheKhiXacNhan = xacNhan
+    ? xacNhan.advs.filter((a) => !dangLoc.some((b) => b.id === a.id)).length
+    : 0;
 
   return (
     <div>
@@ -125,75 +176,75 @@ export function TamUngTab({
             <span className="lg-date-icon">
               <Calendar size={14} />
             </span>
-            <MonthPicker value={ym} onChange={setYm} ariaLabel="Kỳ lương" />
+            <MonthPicker value={ym} onChange={doiKy} ariaLabel="Kỳ lương" />
           </div>
         </div>
         <div className="lg-toolbar-actions">
           <span className="lg-approved-badge">
             Đã duyệt: <b>{money(totalApproved)}đ</b>
           </span>
-          {canCreateAdvance && (
+          {canXuat && (
             <button
               className="btn btn--ghost"
-              onClick={() => setAdding("luong_dot_1")}
+              onClick={() => xuatExcel(dangLoc)}
+              title="File chuyển khoản các phiếu đã duyệt / đã chi đang hiện theo tab + bộ lọc — mẫu lô lương BIZ MBBank; tiền mặt ghi TIỀN MẶT"
             >
-              + Phiếu lương đợt 1
+              Xuất Excel
             </button>
           )}
+          {/* MỘT nút cho cả tạm ứng lẫn lương đợt 1, một người hay nhiều người (25/09/2026). */}
           {canCreateAdvance && (
             <button
               className="btn btn--primary"
-              onClick={() => setAdding("tam_ung")}
+              onClick={() => setHangLoat(true)}
+              title="Lập phiếu tạm ứng / lương đợt 1 — cho một người hoặc chọn tất cả người đủ điều kiện công"
             >
-              + Thêm ứng
+              + Lập phiếu
             </button>
           )}
         </div>
       </div>
 
       {actErr && (
-        <div className="banner banner--error lg-tu-note">
-          <span>{actErr}</span>
-          <button
-            type="button"
-            className="lg-tu-note__x"
-            aria-label="Đóng thông báo"
-            onClick={() => setActErr(null)}
-          >
-            ×
-          </button>
-        </div>
+        <TuNote
+          tone="error"
+          onClose={() => {
+            setActErr(null);
+            setActVuong([]);
+          }}
+          link={
+            actVuong.length > 0
+              ? { label: `Bỏ chọn ${actVuong.length} phiếu vướng`, onClick: boChonVuong }
+              : null
+          }
+        >
+          {actErr}
+        </TuNote>
       )}
       {/* Báo THÀNH CÔNG ở lại tới khi tự đóng (không tự tắt sau vài giây) vì nó mang MÃ PHIẾU
           CHI bấm được — mã trôi mất là kế toán phải đi tìm lại trong sổ quỹ. */}
       {pcVuaLap && (
-        <div className="banner banner--success lg-tu-note">
-          <span>
-            Đã lập phiếu chi <b className="lg-tu-note__code">{pcVuaLap.code}</b>{" "}
-            — {money(pcVuaLap.amount)}đ, tiền đã ra khỏi két.
-          </span>
-          {navigate && (
-            <button
-              type="button"
-              className="lg-tu-note__link"
-              onClick={() =>
-                navigate("ke-toan-phieu-chi", {
-                  focusVoucherQuery: pcVuaLap.code,
-                })
-              }
-            >
-              Mở phiếu chi
-            </button>
-          )}
-          <button
-            type="button"
-            className="lg-tu-note__x"
-            aria-label="Đóng thông báo"
-            onClick={() => setPcVuaLap(null)}
-          >
-            ×
-          </button>
-        </div>
+        <TuNote
+          tone="success"
+          onClose={() => setPcVuaLap(null)}
+          link={
+            navigate
+              ? {
+                  label: "Mở phiếu chi",
+                  onClick: () => navigate("ke-toan-phieu-chi", { focusVoucherQuery: pcVuaLap.code }),
+                }
+              : null
+          }
+        >
+          Đã lập phiếu chi <b className="lg-tu-note__code">{pcVuaLap.code}</b>
+          {pcVuaLap.soPhieu > 1 ? ` cho ${pcVuaLap.soPhieu} phiếu — tổng ` : " — "}
+          {money(pcVuaLap.tong)}đ, tiền đã ra khỏi két.
+        </TuNote>
+      )}
+      {daDuyetNhieu && (
+        <TuNote tone="success" onClose={() => setDaDuyetNhieu(null)}>
+          {daDuyetNhieu}
+        </TuNote>
       )}
 
       {items.length === 0 ? (
@@ -201,161 +252,118 @@ export function TamUngTab({
           <div className="lg-table-empty-icon">
             <Wallet size={20} />
           </div>
-          <span className="lg-table-empty-title">
-            Chưa có tạm ứng tháng này
-          </span>
+          <span className="lg-table-empty-title">Chưa có tạm ứng tháng này</span>
           <span className="lg-table-empty-desc">
-            Nhấp nút "+ Thêm ứng" để lập phiếu tạm ứng lương cho nhân viên trong
-            kỳ.
+            Nhấp nút "+ Lập phiếu" để lập phiếu tạm ứng / lương đợt 1 cho nhân viên trong kỳ.
           </span>
         </div>
       ) : (
-        <div className="lg-emp-table-wrapper">
-          <table className="ns__table">
-            <thead>
-              <tr>
-                <th>Mã</th>
-                <th>Nhân viên</th>
-                <th>Loại</th>
-                <th>Ngày ứng</th>
-                <th className="lg-num">Số tiền</th>
-                <th>Lý do</th>
-                <th>Trạng thái</th>
-                {/* "Thao tác" — tên cột thống nhất toàn hệ, KHÔNG dùng "Hành động". */}
-                <th className="lg-actcol">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((a) => {
-                const [label, cls] = STATUS[a.status] ?? [
-                  a.status,
-                  "ns-badge--muted",
-                ];
-                const [kLabel, kCls] = KIND[a.kind] ?? KIND.tam_ung;
-                const pc = pcTheoTamUng.get(a.id) ?? null;
-                return (
-                  <tr key={a.id}>
-                    <td>{a.code ?? "—"}</td>
-                    <td>
-                      <b>{a.employee_name ?? `NV#${a.employee_id}`}</b>
-                    </td>
-                    <td>
-                      <span className={`ns-badge ${kCls}`}>{kLabel}</span>
-                    </td>
-                    <td>{a.advance_date}</td>
-                    <td className="lg-num">{money(a.amount)}đ</td>
-                    <td>{a.reason ?? "—"}</td>
-                    <td>
-                      <span className={`ns-badge ${cls}`}>{label}</span>
-                    </td>
-                    {/* Nút chữ trên dòng → `RowActionButton` dense. `danger` GIỮ NGUYÊN cho Từ
-                        chối / Hủy: mất tín hiệu đỏ là bấm nhầm vào tiền của người ta. */}
-                    <td className="lg-rowact">
-                      <RowActionButton
-                        dense
-                        label="In phiếu đề nghị"
-                        icon="printer"
-                        onClick={() => printAdvanceRequest(advPrintData(a))}
-                      />
-                      {canApproveAdvance && a.status === "pending" && (
-                        <>
-                          <RowActionButton
-                            dense
-                            label="Duyệt"
-                            icon="check"
-                            onClick={() =>
-                              act(() => api.luong.approveAdvance(token, a.id))
-                            }
-                          />
-                          <RowActionButton
-                            dense
-                            danger
-                            label="Từ chối"
-                            icon="x"
-                            onClick={() =>
-                              act(() => api.luong.rejectAdvance(token, a.id))
-                            }
-                          />
-                        </>
-                      )}
-                      {/* CHỈ phiếu ĐÃ DUYỆT mới ra được tiền. Đã có phiếu chi thì thay nút bằng
-                          CHIP mã phiếu — một phiếu tạm ứng chỉ một phiếu chi, bày nút lần hai chỉ
-                          để người ta bấm rồi ăn 409. */}
-                      {(a.status === "approved" || a.status === "paid") &&
-                        (pc ? (
-                          navigate ? (
-                            <button
-                              type="button"
-                              className="lg-pc-chip"
-                              title={`Mở phiếu chi ${pc.code} bên Kế toán`}
-                              onClick={() =>
-                                navigate("ke-toan-phieu-chi", {
-                                  focusVoucherQuery: pc.code,
-                                })
-                              }
-                            >
-                              {pc.code}
-                            </button>
-                          ) : (
-                            <span
-                              className="lg-pc-chip lg-pc-chip--static"
-                              title={`Đã lập phiếu chi ${pc.code}`}
-                            >
-                              {pc.code}
-                            </span>
-                          )
-                        ) : canLapPhieuChi ? (
-                          <RowActionButton
-                            dense
-                            variant="accent"
-                            label="Lập phiếu chi"
-                            icon="clipboard"
-                            onClick={() => setLapPcCho(a)}
-                          />
-                        ) : null)}
-                      {/* Đã lập phiếu chi thì backend chặn huỷ (400). Chặn luôn ở NÚT để lý do
-                          đọc được ngay trên tooltip — kèm MÃ phiếu chi, vì đó chính là thứ phải
-                          đi huỷ trước. Bấm được mà ăn lỗi thì `act()` vẫn hiện nguyên câu
-                          backend trả về. */}
-                      {canApproveAdvance && a.status === "approved" && (
-                        <RowActionButton
-                          dense
-                          danger
-                          disabled={pc != null}
-                          label={
-                            pc
-                              ? `Đã lập phiếu chi ${pc.code} — huỷ phiếu chi trước`
-                              : "Hủy phiếu đã duyệt"
-                          }
-                          icon="ban"
-                          onClick={() =>
-                            act(() => api.luong.cancelAdvance(token, a.id))
-                          }
-                        />
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <TamUngBoLoc tab={tab} onTab={doiTab} dem={dem} loc={loc} onLoc={doiLoc} to={to} />
+          <TamUngChonNhieu
+            tab={tab}
+            tabRows={tabRows}
+            dangLoc={dangLoc}
+            chon={chon}
+            setChon={setChon}
+            chiXemChon={chiXemChon}
+            setChiXemChon={(v) => {
+              setChiXemChon(v);
+              setTrang(1);
+            }}
+            busy={busyNhieu}
+            canDuyet={canApproveAdvance}
+            canLapPhieuChi={canLapPhieuChi}
+            canXuat={canXuat}
+            onDuyet={(advs) => setXacNhan({ duyet: true, advs })}
+            onTuChoi={(advs) => setXacNhan({ duyet: false, advs })}
+            onLapPhieuChi={(advs) => setPcNhieuCho(advs)}
+            onXuatExcel={xuatExcel}
+          />
+          {hien.length === 0 ? (
+            <div className="lg-table-empty-state">
+              <span className="lg-table-empty-title">Không có phiếu nào khớp</span>
+              <span className="lg-table-empty-desc">
+                Đổi tab trạng thái, bỏ bớt bộ lọc loại / tổ hoặc từ khoá tìm rồi xem lại.
+              </span>
+            </div>
+          ) : (
+            <>
+              <TamUngBang
+                rows={trangNay}
+                coCotChon={coCotChon}
+                chon={chon}
+                setChon={setChon}
+                navigate={canXemPhieuChi ? navigate : undefined}
+                canApproveAdvance={canApproveAdvance}
+                canLapPhieuChi={canLapPhieuChi}
+                act={act}
+                token={token}
+                onLapPhieuChi={setLapPcCho}
+              />
+              <Pager
+                total={hien.length}
+                page={trang}
+                size={CO_TRANG}
+                onPage={setTrang}
+                unit="phiếu"
+                note={coCotChon ? "ô tick đầu bảng chọn cả trang đang xem" : undefined}
+              />
+            </>
+          )}
+        </>
       )}
 
-      {adding && (
-        <AddAdvanceModal
+      {hangLoat && (
+        <LapHangLoatModal
           token={token}
-          emps={emps}
           year={year}
           month={month}
-          kind={adding}
-          onClose={() => setAdding(null)}
+          onClose={() => setHangLoat(false)}
           onSaved={() => {
-            setAdding(null);
+            setHangLoat(false);
             load();
           }}
         />
       )}
+
+      {pcNhieuCho && (
+        <PhieuChiMotLuotModal
+          token={token}
+          advs={pcNhieuCho}
+          onClose={() => setPcNhieuCho(null)}
+          onDone={(r) => {
+            const [pc] = r.vouchers;
+            setPcVuaLap({ id: pc.id, code: pc.code, tong: r.total_amount, soPhieu: pcNhieuCho.length });
+            setPcNhieuCho(null);
+            setActErr(null);
+            setChon(new Set());
+            setChiXemChon(false);
+            load();
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={xacNhan != null}
+        title={`${xacNhan?.duyet ? "Duyệt" : "Từ chối"} ${xacNhan?.advs.length ?? 0} phiếu?`}
+        message={
+          xacNhan
+            ? tachLoai(xacNhan.advs) +
+              (biCheKhiXacNhan > 0
+                ? ` — trong đó ${biCheKhiXacNhan} phiếu đang không hiện vì bộ lọc.`
+                : ".") +
+              (xacNhan.duyet
+                ? ""
+                : " Phiếu bị từ chối không duyệt lại được — muốn ứng tiếp thì lập phiếu mới.")
+            : undefined
+        }
+        confirmLabel={`${xacNhan?.duyet ? "Duyệt" : "Từ chối"} ${xacNhan?.advs.length ?? 0} phiếu`}
+        danger={!xacNhan?.duyet}
+        busy={busyNhieu}
+        onConfirm={() => xacNhan && void quyetNhieu(xacNhan.advs, xacNhan.duyet)}
+        onCancel={() => setXacNhan(null)}
+      />
 
       {lapPcCho && (
         <LapPhieuChiModal
@@ -365,8 +373,8 @@ export function TamUngTab({
           onDone={(pc) => {
             setLapPcCho(null);
             setActErr(null);
-            setPcVuaLap(pc);
-            loadPhieuChi();
+            setPcVuaLap({ id: pc.id, code: pc.code, tong: pc.amount, soPhieu: 1 });
+            load();
           }}
         />
       )}
