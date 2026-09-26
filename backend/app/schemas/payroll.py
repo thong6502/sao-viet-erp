@@ -749,6 +749,11 @@ class BulkAssignOut(BaseModel):
     total: int = 0
 
 
+class UnassignAllOut(BaseModel):
+    removed: int = 0            # số NV vừa gỡ khoản
+    remaining: int = 0          # số NV còn giữ vì ngoài phạm vi người bấm
+
+
 class ComponentDeleteOut(BaseModel):
     """Nói rõ việc vừa xảy ra: xoá hẳn hay chỉ ngừng áp dụng. `message` là câu hiển thị nguyên văn
     — màn hình KHÔNG được tự chế lại, tránh báo "đã xoá" khi thực ra chỉ tắt đi."""

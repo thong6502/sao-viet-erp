@@ -2937,3 +2937,32 @@ def test_MUC_DONG_BH_khai_qua_API_va_canh_bao_truoc_chot(client):
     canh_bao = r.json()["canh_bao_chot"] or ""
     assert "chưa khai Mức đóng BHXH" in canh_bao, canh_bao
     assert "NV Chưa khai BH" in canh_bao and "NV Khai BH" not in canh_bao, canh_bao
+
+
+def test_go_khoan_khoi_tat_ca_nhan_vien_roi_xoa_duoc(client):
+    """Chủ 26/09/2026: lỡ gán một khoản cho cả trăm người thì phải gỡ được MỘT lượt để xoá —
+    trước đây bắt vào từng hồ sơ gỡ tay. Nhật ký giữ mức từng người trước khi gỡ."""
+    token = _admin_token(client)
+    cid = _comp(client, token, name="PC lỡ gán")
+    ids = [_make_emp(client, token, name=f"NV Gỡ Hết {i}", status="active") for i in range(3)]
+    assert _bulk(client, token, cid, amount=300_000, employee_ids=ids).status_code == 200
+
+    # Còn người gán ⇒ xoá bị chặn như cũ.
+    assert client.delete(f"/api/luong/components/{cid}", headers=_h(token)).status_code == 400
+
+    r = client.post(f"/api/luong/components/{cid}/unassign-all", headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert r.json() == {"removed": 3, "remaining": 0}
+    assert all(_emp_comp_amount(client, token, e, cid) is None for e in ids)
+
+    r = client.delete(f"/api/luong/components/{cid}", headers=_h(token))
+    assert r.status_code == 200 and r.json()["deleted"] is True
+
+    from app.db import SessionLocal
+    from app.models.audit import AuditLog
+    db = SessionLocal()
+    try:
+        vet = db.query(AuditLog).filter(AuditLog.action == "unassign_all_component").one()
+        assert "gỡ khỏi 3 NV" in vet.detail and "300,000" in vet.detail
+    finally:
+        db.close()

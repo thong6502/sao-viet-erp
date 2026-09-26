@@ -58,6 +58,7 @@ from ..schemas.payroll import (
     ComponentDeleteOut,
     BulkAssignIn,
     BulkAssignOut,
+    UnassignAllOut,
     ComponentAmountsOut,
     ComponentHoldersOut,
     ComponentIn,
@@ -1315,6 +1316,19 @@ def component_employee_amounts(component_id: int, repo: CompRepo, employees: Emp
                for r in repo.rows_of_component(component_id)
                if duoc_xem is None or r.employee_id in duoc_xem],
     )
+
+
+@router.post("/components/{component_id}/unassign-all", response_model=UnassignAllOut)
+def unassign_all_component(component_id: int, csvc: CompService, authz: Authz,
+                           user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    """GỠ một khoản khỏi TẤT CẢ nhân viên đang được gán (trong phạm vi người bấm) — để xoá được
+    khoản lỡ gán cho cả trăm người (chủ 26/09/2026)."""
+    try:
+        res = csvc.unassign_all(actor=user, component_id=component_id,
+                                scope=_emp_scope_for(authz, user))
+    except ComponentError as exc:
+        _comp_raise(exc)
+    return UnassignAllOut(**res)
 
 
 @router.post("/components/{component_id}/bulk-assign", response_model=BulkAssignOut)

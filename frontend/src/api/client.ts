@@ -11387,6 +11387,11 @@ export const api = {
       bulkAssign(token: string, id: number, input: BulkAssignInput): Promise<BulkAssignResult> {
         return authed<BulkAssignResult>(`/api/luong/components/${id}/bulk-assign`, token, { method: "POST", body: JSON.stringify(input) });
       },
+      /** GỠ khoản khỏi TẤT CẢ nhân viên đang được gán (trong phạm vi người bấm) — để xoá được khoản
+       *  lỡ gán cho cả trăm người (26/09/2026). `remaining` = số người ngoài phạm vi còn giữ. */
+      unassignAll(token: string, id: number): Promise<{ removed: number; remaining: number }> {
+        return authed<{ removed: number; remaining: number }>(`/api/luong/components/${id}/unassign-all`, token, { method: "POST" });
+      },
     },
     /** Phát phiếu lương theo CỬA SỔ. `luc` trống = mở NGAY; `den` trống = mở không thời hạn. */
     congBo(token: string, year: number, month: number, luc?: string | null, den?: string | null): Promise<PayrollPeriod> {
