@@ -12,6 +12,8 @@ Engine tính 1 dòng lương/NV/kỳ (xem docs/spec-luong.md + docs/prd-cau-hinh
 """
 from __future__ import annotations
 
+import calendar
+import os
 import secrets
 from calendar import monthrange
 from datetime import date, datetime, timezone
@@ -46,6 +48,7 @@ from ..models.payroll import (
     PERIOD_LOCKED,
     PERIOD_PAID,
     SALARY_COMPONENT_KEYS,
+    SalaryAdvance,
     TO_TRUONG_CHE_DO,
     TO_TRUONG_CHIA,
     TO_TRUONG_KHONG,
@@ -71,6 +74,27 @@ class PayrollForbidden(PayrollError):
 
 class PayrollLocked(PayrollError):
     """Kỳ lương đã chốt — không sửa được."""
+
+
+class PayrollBulkBlocked(PayrollValidationError):
+    """Thao tác HÀNG LOẠT bị chặn vì vài dòng vướng — không dòng nào được ghi. `vuong_ids` = id
+    các dòng vướng (phiếu tạm ứng, hoặc nhân viên khi lập phiếu) để màn hình bỏ chọn đúng chúng
+    rồi bấm lại, thay vì người dùng tự dò trong câu "…và 42 lỗi khác" (25/09/2026)."""
+
+    def __init__(self, message: str, vuong_ids):
+        super().__init__(message)
+        self.vuong_ids = [int(i) for i in vuong_ids]
+
+
+def _gom_loi(theo_cau: dict[str, list[str]], *, toi_da_ten: int = 5) -> str:
+    """`{câu lỗi: [tên/mã…]}` → "câu A (X, Y và 3 phiếu khác); câu B (Z)" — 1000 phiếu cùng một
+    lỗi (kỳ đã khoá) là MỘT câu, không phải 1000 dòng lặp."""
+    phan = []
+    for cau, ai in theo_cau.items():
+        ds = ", ".join(ai[:toi_da_ten]) + (
+            f" và {len(ai) - toi_da_ten} phiếu khác" if len(ai) > toi_da_ten else "")
+        phan.append(f"{cau} ({ds})")
+    return "; ".join(phan)
 
 
 def _round(x) -> float:
@@ -292,7 +316,11 @@ class PayrollService:
         """Tham số lương — tự tạo 1 dòng mặc định nếu chưa có."""
         p = self.payroll.get_params()
         if p is None:
-            p = self.payroll.create_params()
+            # Dòng tạo LƯỜI ở lần đọc đầu phải nhận cùng mức khởi tạo với `seed_payroll` — bộ test
+            # (conftest) đặt 0 để hàng chục test lập tạm ứng cho người chưa chấm công không vấp
+            # luật "đủ N công" (25/09/2026). Dev/prod không đặt biến ⇒ 13.
+            p = self.payroll.create_params(
+                tam_ung_cong_toi_thieu=float(os.environ.get("SEED_TAM_UNG_CONG_TOI_THIEU", "13")))
         return p
 
     def _audit(self, actor, action: str, target: str, detail: str) -> None:
@@ -324,6 +352,8 @@ class PayrollService:
             "com_tang_ca_nguong_phut", "com_tang_ca_muc",
             # Ca phải khớp giờ công chuẩn (07/09/2026) — sót ở rổ này là ô cấu hình GIẢ.
             "ca_khop_gio_chuan",
+            # Công tối thiểu để được tạm ứng / lương đợt 1 (25/09/2026).
+            "tam_ung_cong_toi_thieu",
         }
         data = {k: v for k, v in fields.items() if k in allowed and v is not None}
         data["updated_at"] = datetime.now(timezone.utc)
@@ -995,8 +1025,8 @@ class PayrollService:
 
     # --- advances (tạm ứng) -------------------------------------------------
 
-    def _new_advance_code(self, advance_date, kind=ADV_KIND_TAM_UNG) -> str:
-        """Mã phiếu <TU|L1>-YYMMDD-XXXX (duy nhất, thử lại nếu trùng). Tiền tố L1 = lương đợt 1."""
+    @staticmethod
+    def _advance_code_head(advance_date, kind) -> str:
         pre = "L1" if kind == ADV_KIND_LUONG_DOT_1 else "TU"
         d = advance_date
         if isinstance(d, str):
@@ -1004,7 +1034,31 @@ class PayrollService:
                 d = date.fromisoformat(d[:10])
             except ValueError:
                 d = date.today()
-        ymd = d.strftime("%y%m%d")
+        return f"{pre}-{d.strftime('%y%m%d')}"
+
+    def _new_advance_codes(self, advance_date, kind, n: int) -> list[str]:
+        """`n` mã phiếu KHÁC NHAU một lượt — hỏi DB trùng theo lô, không hỏi từng mã."""
+        head = self._advance_code_head(advance_date, kind)
+        ra: list[str] = []
+        da_thu: set[str] = set()
+        for _ in range(20):
+            thieu = n - len(ra)
+            if thieu <= 0:
+                break
+            thu: set[str] = set()
+            while len(thu) < thieu:
+                c = f"{head}-{''.join(secrets.choice(_ADV_CODE_ALPHABET) for _ in range(4))}"
+                if c not in da_thu:
+                    thu.add(c)
+            da_thu |= thu
+            ra += sorted(thu - self.payroll.advance_codes_taken(thu))
+        if len(ra) < n:
+            raise PayrollValidationError("Không sinh đủ mã phiếu tạm ứng — thử lại.")
+        return ra[:n]
+
+    def _new_advance_code(self, advance_date, kind=ADV_KIND_TAM_UNG) -> str:
+        """Mã phiếu <TU|L1>-YYMMDD-XXXX (duy nhất, thử lại nếu trùng). Tiền tố L1 = lương đợt 1."""
+        pre, ymd = self._advance_code_head(advance_date, kind).split("-")
         for _ in range(20):
             suffix = "".join(secrets.choice(_ADV_CODE_ALPHABET) for _ in range(4))
             code = f"{pre}-{ymd}-{suffix}"
@@ -1035,10 +1089,58 @@ class PayrollService:
                 + " trước, sửa xong nhớ bấm “Tính lại”."
             )
 
+    # --- ĐIỀU KIỆN CÔNG để tạm ứng / lương đợt 1 (chủ chốt 25/09/2026) -------------------------
+    #
+    # Phải có ≥ `payroll_params.tam_ung_cong_toi_thieu` CÔNG TÍNH LƯƠNG (đi làm + phép có lương + lễ
+    # — đúng `total_cong` của bảng công) từ ngày 1 của KỲ tới hết NGÀY LẬP PHIẾU. Chặn CỨNG, cả phiếu
+    # HCNS lập lẫn phiếu nhân viên tự xin — mọi đường đều qua `create_advance`. Muốn linh động thì hạ
+    # số ở Cấu hình lương; `0` = tắt.
+
+    @staticmethod
+    def _den_ngay_trong_ky(period_year: int, period_month: int, advance_date: date) -> int:
+        """Đếm công tới ngày NÀO của kỳ: ngày lập phiếu nếu nằm trong kỳ; lập cho kỳ đã qua ⇒ cả
+        tháng; lập TRƯỚC khi kỳ bắt đầu ⇒ 0 (chưa có ngày công nào để đủ điều kiện)."""
+        so_ngay = calendar.monthrange(period_year, period_month)[1]
+        if advance_date < date(period_year, period_month, 1):
+            return 0
+        if advance_date > date(period_year, period_month, so_ngay):
+            return so_ngay
+        return advance_date.day
+
+    def dieu_kien_tam_ung(self, *, period_year: int, period_month: int, advance_date: date,
+                          scope=None, actor=None, only_employee_id: int | None = None) -> dict:
+        """Ngưỡng + công từng người (trong phạm vi) tính tới ngày lập phiếu. MỘT lượt
+        `monthly_timesheet` cho cả danh sách."""
+        nguong = float(self.get_params().tam_ung_cong_toi_thieu or 0)
+        den = self._den_ngay_trong_ky(period_year, period_month, advance_date)
+        cong = self.attendance.cong_tinh_luong_den_ngay(
+            year=period_year, month=period_month, den_ngay=den,
+            only_employee_id=only_employee_id, scope=scope, actor=actor,
+        ) if self.attendance is not None else {}
+        return {"nguong": nguong, "den_ngay": den, "cong": cong}
+
+    def _chan_chua_du_cong(self, emp, *, period_year, period_month, advance_date, kind) -> None:
+        dk = self.dieu_kien_tam_ung(period_year=period_year, period_month=period_month,
+                                    advance_date=advance_date, only_employee_id=emp.id)
+        nguong = dk["nguong"]
+        if nguong <= 0:
+            return
+        cong = float((dk["cong"].get(emp.id) or {}).get("cong") or 0)
+        if cong + 1e-9 < nguong:
+            viec = "nhận lương đợt 1" if kind == ADV_KIND_LUONG_DOT_1 else "tạm ứng"
+            raise PayrollValidationError(
+                f"{emp.full_name} mới có {cong:g}/{nguong:g} công tính lương "
+                f"(từ 01/{period_month:02d} tới {dk['den_ngay']:02d}/{period_month:02d}/{period_year}) "
+                f"— chưa đủ điều kiện {viec}. Mức công tối thiểu đổi ở Cấu hình lương.")
+
     def create_advance(self, *, employee_id, actor, period_year, period_month, scope=None,
-                        advance_date, amount, reason=None, kind=ADV_KIND_TAM_UNG):
+                        advance_date, amount, reason=None, kind=ADV_KIND_TAM_UNG,
+                        _da_kiem_cong: bool = False):
         """Tạo phiếu tạm ứng (kind=tam_ung) hoặc phiếu thanh toán lương đợt 1 (kind=luong_dot_1).
-        Trần tạm ứng ĐÃ GỠ (chủ 2026-07-24) — không còn giới hạn số tiền."""
+        Trần tạm ứng ĐÃ GỠ (chủ 2026-07-24) — không còn giới hạn số tiền.
+
+        `_da_kiem_cong` CHỈ cho `create_advances_bulk` — nó đã kiểm công cả danh sách bằng một lượt
+        bảng công, kiểm lại từng người là chạy bảng công N lần."""
         emp = self.employees.get_by_id(employee_id)
         if emp is None:
             raise PayrollNotFound("Không tìm thấy nhân viên.")
@@ -1048,6 +1150,9 @@ class PayrollService:
         # được phiếu tạm ứng đứng tên người khác.
         self.chan_ngoai_pham_vi(employee_id=employee_id, scope=scope, actor=actor)
         self._chan_neu_ky_luong_da_khoa(period_year, period_month, "lập thêm phiếu tạm ứng")
+        if not _da_kiem_cong:
+            self._chan_chua_du_cong(emp, period_year=period_year, period_month=period_month,
+                                    advance_date=advance_date, kind=kind)
         code = self._new_advance_code(advance_date, kind=kind)
         row = self.payroll.create_advance(
             code=code, employee_id=employee_id, period_year=period_year, period_month=period_month,
@@ -1058,12 +1163,158 @@ class PayrollService:
                     f"{row.code or row.id} · {kind} · {float(amount):,.0f}đ")
         return row
 
+    def ung_vien_tam_ung(self, *, period_year: int, period_month: int, advance_date: date,
+                         kind: str, scope=None, actor=None) -> dict:
+        """Người trong phạm vi kèm công tới ngày lập phiếu, đủ / chưa đủ điều kiện, số tiền gợi ý
+        (lương đợt 1 = "Lương trả 1 lần" trong hồ sơ lương) và đã có phiếu cùng loại trong kỳ chưa
+        — nguồn của nút "Chọn tất cả người đủ điều kiện" (25/09/2026)."""
+        dk = self.dieu_kien_tam_ung(period_year=period_year, period_month=period_month,
+                                    advance_date=advance_date, scope=scope, actor=actor)
+        nguong = dk["nguong"]
+        muc = self.payroll.latest_salaries_map(advance_date) if kind == ADV_KIND_LUONG_DOT_1 else {}
+        # Phiếu cùng loại CÒN SỐNG trong kỳ (chờ / duyệt / đã chi) — lương đợt 1 thường một lần/kỳ.
+        da_co: dict[int, int] = {}
+        for a in self.payroll.list_advances(year=period_year, month=period_month):
+            if (a.kind or ADV_KIND_TAM_UNG) == kind and a.status in (ADV_PENDING, ADV_APPROVED, ADV_PAID):
+                da_co[a.employee_id] = da_co.get(a.employee_id, 0) + 1
+        items = []
+        for emp_id, c in dk["cong"].items():
+            s_row = muc.get(emp_id)
+            items.append({
+                "employee_id": emp_id, "code": c["code"], "name": c["name"],
+                "department_id": c["department_id"], "cong": c["cong"],
+                "du_dieu_kien": nguong <= 0 or c["cong"] + 1e-9 >= nguong,
+                "so_tien_goi_y": (float(s_row.luong_dot_1 or 0) if s_row is not None else 0.0)
+                if kind == ADV_KIND_LUONG_DOT_1 else None,
+                "so_phieu_da_co": da_co.get(emp_id, 0),
+            })
+        items.sort(key=lambda x: (x["code"] or "", x["name"] or ""))
+        return {"nguong": nguong, "den_ngay": dk["den_ngay"], "items": items}
+
+    def create_advances_bulk(self, *, actor, scope, period_year: int, period_month: int,
+                             advance_date: date, kind: str, reason: str | None,
+                             items: list[dict]) -> list:
+        """Lập phiếu cho NHIỀU người một lượt (25/09/2026). Kiểm HẾT danh sách trước khi ghi —
+        còn một người chưa đủ công / ngoài phạm vi / số tiền ≤ 0 là KHÔNG ghi phiếu nào, báo rõ
+        từng người (lập nửa danh sách rồi dừng là HCNS phải dò lại xem ai đã có phiếu)."""
+        if not items:
+            raise PayrollValidationError("Chưa chọn nhân viên nào.")
+        self._chan_neu_ky_luong_da_khoa(period_year, period_month, "lập thêm phiếu tạm ứng")
+        dk = self.dieu_kien_tam_ung(period_year=period_year, period_month=period_month,
+                                    advance_date=advance_date, scope=scope, actor=actor)
+        nguong = dk["nguong"]
+        theo_cau: dict[str, list[str]] = {}
+        vuong: list[int] = []
+        da_gap: set[int] = set()
+        for it in items:
+            eid = int(it["employee_id"])
+            c = dk["cong"].get(eid)
+            ten = c["name"] if c else f"NV #{eid}"
+            if eid in da_gap:
+                cau = "bị chọn hai lần"
+            elif c is None:
+                cau = "ngoài phạm vi của bạn hoặc không có trong bảng công kỳ này"
+            elif nguong > 0 and c["cong"] + 1e-9 < nguong:
+                cau = f"chưa đủ {nguong:g} công"
+                ten = f"{c['name']} {c['cong']:g} công"
+            elif it.get("amount") is None or float(it["amount"]) <= 0:
+                cau = "số tiền phải > 0"
+            else:
+                cau = None
+            if cau:
+                theo_cau.setdefault(cau, []).append(ten)
+                vuong.append(eid)
+            da_gap.add(eid)
+        if theo_cau:
+            raise PayrollBulkBlocked("Chưa lập phiếu nào — " + _gom_loi(theo_cau) + ".", vuong)
+        # MỘT giao dịch cho cả lượt (1000 người: 25 giây → vài giây). Các chốt từng phiếu của
+        # `create_advance` đều đã qua ở trên cho CẢ danh sách: phạm vi + có hồ sơ (người không trong
+        # `dk["cong"]` bị chặn), số tiền > 0, kỳ chưa khoá, đủ công.
+        codes = self._new_advance_codes(advance_date, kind, len(items))
+        actor_id = getattr(actor, "id", None)
+        rows = [
+            SalaryAdvance(
+                code=code, employee_id=int(it["employee_id"]), period_year=period_year,
+                period_month=period_month, advance_date=advance_date, amount=it["amount"],
+                reason=reason, kind=kind, status=ADV_PENDING, created_by=actor_id,
+            )
+            for code, it in zip(codes, items)
+        ]
+        self.payroll.add_advances(rows)
+        if self.audit is not None:
+            self.audit.create_many([
+                {"actor_user_id": actor_id, "action": "payroll_create_advance",
+                 "target": f"salary_advance:{r.id}",
+                 "detail": f"{r.code} · {kind} · {float(r.amount):,.0f}đ (lập hàng loạt)"}
+                for r in rows
+            ])
+        ids = [r.id for r in rows]
+        self.payroll.commit()
+        theo_id = {a.id: a for a in self.payroll.get_advances_by_ids(ids)}
+        return [theo_id[i] for i in ids]
+
     def list_advances(self, *, year, month, status=None, scope=None, actor=None):
         rows = self.payroll.list_advances(year=year, month=month, status=status)
         duoc_xem = self.nv_duoc_xem(scope=scope, actor=actor)
         if duoc_xem is None:
             return rows
         return [a for a in rows if int(a.employee_id) in duoc_xem]
+
+    def dong_file_chuyen_khoan(self, *, year: int, month: int, ids: list[int] | None = None,
+                               scope=None, actor=None) -> list[dict]:
+        """Dòng cho file chuyển khoản tạm ứng / lương đợt 1 (khuôn BIZ MBBank — `tam_ung_excel`).
+
+        Chỉ phiếu ĐÃ DUYỆT / ĐÃ CHI của kỳ, trong phạm vi người xuất (chờ duyệt, từ chối, đã huỷ
+        không phải tiền phải trả). `ids` = chỉ những phiếu đang tick trên màn.
+
+        Tiền mặt hay chuyển khoản: phiếu ĐÃ có phiếu chi thì theo HÌNH THỨC của phiếu chi (tiền
+        thật đã đi đường nào) và tài khoản in trên phiếu chi; chưa có thì theo HỒ SƠ — khai đủ số tài
+        khoản + ngân hàng là chuyển khoản, thiếu một trong hai là tiền mặt."""
+        from ..models.accounting import VOUCHER_BANK_TRANSFER
+
+        rows = [a for a in self.list_advances(year=year, month=month, scope=scope, actor=actor)
+                if a.status in (ADV_APPROVED, ADV_PAID)]
+        if ids:
+            muon = {int(i) for i in ids}
+            rows = [a for a in rows if int(a.id) in muon]
+        nv = self.employees.map_by_ids({a.employee_id for a in rows})
+        pc_map = (self._vouchers.live_vouchers_by_salary_advance_ids([a.id for a in rows])
+                  if self._vouchers is not None else {})
+        out = []
+        for a in rows:
+            e = nv.get(a.employee_id)
+            so_tk = (getattr(e, "bank_account", None) or "").strip()
+            ngan_hang = (getattr(e, "bank_name", None) or "").strip()
+            pc = pc_map.get(a.id)
+            if pc is not None:
+                chuyen_khoan = pc.voucher_type == VOUCHER_BANK_TRANSFER
+                # Tài khoản in trên phiếu chi CHỈ là của người này khi phiếu chi lẻ; phiếu chi MỘT
+                # LƯỢT ghi "Theo bảng kê" ⇒ lấy tài khoản từ hồ sơ.
+                if chuyen_khoan and pc.salary_advance_id == a.id:
+                    so_tk = (pc.beneficiary_account_number_snapshot or so_tk).strip()
+                    ngan_hang = (pc.beneficiary_bank_name_snapshot or ngan_hang).strip()
+            else:
+                chuyen_khoan = bool(so_tk and ngan_hang)
+            out.append({
+                "id": a.id, "ma_nv": getattr(e, "code", None) or "",
+                "ten": getattr(e, "full_name", None) or f"NV#{a.employee_id}",
+                "so_tai_khoan": so_tk, "ngan_hang": ngan_hang, "so_tien": float(a.amount or 0),
+                "kind": a.kind, "ly_do": a.reason, "chuyen_khoan": chuyen_khoan,
+            })
+        # Chuyển khoản liền một khối ở trên (tải lên ngân hàng), tiền mặt xuống cuối; trong mỗi khối
+        # lương đợt 1 trước tạm ứng, rồi theo mã nhân viên.
+        out.sort(key=lambda d: (not d["chuyen_khoan"], d["kind"] != ADV_KIND_LUONG_DOT_1,
+                                d["ma_nv"], d["id"]))
+        return out
+
+    def phieu_chi_theo_tam_ung(self, advance_ids) -> dict[int, tuple[int, str]]:
+        """`{advance_id: (id, mã) phiếu chi còn hiệu lực}` — màn Tạm ứng gắn mã PC lên dòng.
+        Trước 25/09/2026 màn tự tải 1000 phiếu chi GẦN NHẤT của cả công ty để dò, nên sang tháng
+        thứ hai ở quy mô ~1000 người, dòng "Đã chi" mất mã PC và hiện lại nút "Lập phiếu chi"."""
+        if self._vouchers is None or not advance_ids:
+            return {}
+        return {aid: (v.id, v.code)
+                for aid, v in self._vouchers.live_vouchers_by_salary_advance_ids(advance_ids).items()}
 
     def count_pending_advances(self) -> int:
         """Số tạm ứng đang CHỜ DUYỆT (mọi kỳ) — nuôi badge real-time cho người duyệt."""
@@ -1082,6 +1333,11 @@ class PayrollService:
         a = self.payroll.get_advance(advance_id)
         if a is None:
             raise PayrollNotFound("Không tìm thấy đề nghị tạm ứng.")
+        self._kiem_quyen_duyet_advance(a, actor=actor, scope=scope)
+        return self._ghi_quyet_dinh_advance(a, actor=actor, approve=approve, note=note)
+
+    def _kiem_quyen_duyet_advance(self, a, *, actor, scope) -> None:
+        """Mọi chốt trước khi duyệt / từ chối MỘT phiếu — dùng chung cho duyệt lẻ và duyệt nhiều."""
         emp = self.employees.get_by_id(a.employee_id)
         if emp is not None and not self.employees.can_access(
             employee=emp, scope=scope, actor=actor
@@ -1097,6 +1353,84 @@ class PayrollService:
             raise PayrollValidationError("Đề nghị đã được xử lý.")
         self._chan_neu_ky_luong_da_khoa(
             a.period_year, a.period_month, "duyệt / từ chối phiếu tạm ứng của kỳ đó")
+
+    def decide_advances_bulk(self, *, advance_ids: list[int], actor, approve: bool, scope: str,
+                             note=None) -> list:
+        """Duyệt / từ chối NHIỀU phiếu một lượt (25/09/2026) — chủ: lập phiếu cho cả xưởng một cú
+        mà bắt duyệt từng phiếu thì bất tiện. Vẫn GIỮ bước duyệt, chỉ gộp thao tác.
+
+        Kiểm HẾT trước, ghi sau (cùng nếp `create_advances_bulk`): còn một phiếu vướng (đã có người
+        xử lý, ngoài phạm vi, tự duyệt của mình, kỳ đã khoá) là KHÔNG phiếu nào đổi trạng thái — báo
+        rõ từng phiếu, người duyệt bỏ tick phiếu đó rồi bấm lại."""
+        if not advance_ids:
+            raise PayrollValidationError("Chưa chọn phiếu nào.")
+        ids = list(dict.fromkeys(int(i) for i in advance_ids))
+        # Cùng các chốt của `_kiem_quyen_duyet_advance` nhưng NẠP MỘT LẦN (1000 phiếu: 33 giây →
+        # vài giây): phạm vi qua `nv_duoc_xem` — cùng nguồn phạm vi với danh sách; kỳ khoá hỏi một
+        # lần cho mỗi kỳ.
+        theo_id = {a.id: a for a in self.payroll.get_advances_by_ids(ids)}
+        nv = self.employees.map_by_ids({a.employee_id for a in theo_id.values()})
+        duoc_xem = self.nv_duoc_xem(scope=scope, actor=actor)
+        toi = (self.employees.get_by_user_id(actor.id)
+               if scope is not None and scope != SCOPE_ALL else None)
+        khoa: dict[tuple[int, int], str | None] = {}
+
+        def loi_khoa(y: int, m: int) -> str | None:
+            if (y, m) not in khoa:
+                try:
+                    self._chan_neu_ky_luong_da_khoa(y, m, "duyệt / từ chối phiếu tạm ứng của kỳ đó")
+                    khoa[(y, m)] = None
+                except PayrollLocked as exc:
+                    khoa[(y, m)] = str(exc).rstrip(".")
+            return khoa[(y, m)]
+
+        theo_cau: dict[str, list[str]] = {}
+        vuong: list[int] = []
+        ok = []
+        for aid in ids:
+            a = theo_id.get(aid)
+            if a is None:
+                cau, nhan = "phiếu không còn", f"#{aid}"
+            else:
+                e = nv.get(a.employee_id)
+                nhan = f"{a.code or a.id} {e.full_name}" if e else str(a.code or a.id)
+                if duoc_xem is not None and a.employee_id not in duoc_xem:
+                    cau = "ngoài phạm vi quản lý của bạn"
+                elif toi is not None and toi.id == a.employee_id:
+                    cau = "không tự duyệt phiếu của chính mình — nhờ cấp trên duyệt"
+                elif a.status != ADV_PENDING:
+                    cau = "đã được xử lý"
+                else:
+                    cau = loi_khoa(int(a.period_year), int(a.period_month))
+            if cau:
+                theo_cau.setdefault(cau, []).append(nhan)
+                vuong.append(aid)
+            else:
+                ok.append(a)
+        if theo_cau:
+            viec = "duyệt" if approve else "từ chối"
+            raise PayrollBulkBlocked(f"Chưa {viec} phiếu nào — " + _gom_loi(theo_cau) + ".", vuong)
+        now = datetime.now(timezone.utc)
+        actor_id = getattr(actor, "id", None)
+        for a in ok:
+            a.status = ADV_APPROVED if approve else ADV_REJECTED
+            a.decided_by = actor_id
+            a.decided_at = now
+            a.decision_note = note
+        if self.audit is not None:
+            self.audit.create_many([
+                {"actor_user_id": actor_id, "action": "payroll_decide_advance",
+                 "target": f"salary_advance:{a.id}",
+                 "detail": f"{'DUYỆT' if approve else 'TỪ CHỐI'} {a.code or a.id} · "
+                           f"{float(a.amount):,.0f}đ" + (f" · {note}" if note else "")
+                           + " (duyệt nhiều phiếu)"}
+                for a in ok
+            ])
+        self.payroll.commit()
+        theo_id = {a.id: a for a in self.payroll.get_advances_by_ids(ids)}
+        return [theo_id[i] for i in ids]
+
+    def _ghi_quyet_dinh_advance(self, a, *, actor, approve: bool, note=None):
         out = self.payroll.update_advance(
             a, status=ADV_APPROVED if approve else ADV_REJECTED,
             decided_by=getattr(actor, "id", None), decided_at=datetime.now(timezone.utc),

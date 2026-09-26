@@ -37,6 +37,19 @@ class AuditLogRepository:
             self.db.flush()
         return entry
 
+    def create_many(self, entries: list[dict]) -> None:
+        """Nhiều dòng nhật ký một lượt, KHÔNG commit — cho thao tác hàng loạt gom một giao dịch
+        (duyệt 1000 phiếu tạm ứng vẫn phải có đủ 1000 dòng vết, chỉ không chốt 1000 lần).
+        Mỗi phần tử: `{actor_user_id, action, target, detail}`."""
+        if not entries:
+            return
+        self.db.add_all([
+            AuditLog(actor_user_id=e.get("actor_user_id"), action=e["action"],
+                     target=e.get("target", ""), detail=e.get("detail", ""))
+            for e in entries
+        ])
+        self.db.flush()
+
     def create_collapsing(
         self,
         *,

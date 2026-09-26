@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 
 from ..deps import (
     get_accounting_service,
+    get_department_repository,
     get_authorization_service,
     get_module_notification_repository,
     get_order_service,
@@ -21,6 +22,7 @@ from ..deps import (
 from ..models.purchase import PR_DRAFT
 from ..realtime import hub
 from ..models.user import User
+from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.module_notification_repo import (
     CHANNEL_THU_MUA,
     ModuleNotificationRepository,
@@ -51,6 +53,8 @@ from ..schemas.accounting import (
     PaymentVoucherOut,
     VoucherBatchIn,
     VoucherBatchOut,
+    VoucherFromAdvancesBatchIn,
+    BangKeTamUngOut,
     PayablesDetailOut,
     PayablesSummaryOut,
     ReceivablesDetailOut,
@@ -64,6 +68,7 @@ from ..schemas.accounting import (
 from ..schemas.purchase import PurchaseRequestListOut
 from ..services import bao_cao_cong_no, bao_cao_cong_no_excel
 from ..services.accounting_service import (
+    AccountingBulkBlocked,
     AccountingConflict,
     AccountingNotFound,
     AccountingService,
@@ -847,6 +852,59 @@ def create_payment_vouchers_batch(
     )
 
 
+@router.post(
+    "/api/accounting/payment-vouchers/from-advances",
+    response_model=VoucherBatchOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_payment_vouchers_from_advances(
+    payload: VoucherFromAdvancesBatchIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE_PC, "create"))],
+) -> VoucherBatchOut:
+    """Chi MỘT LƯỢT cho nhiều phiếu tạm ứng / lương đợt 1 đã duyệt ⇒ MỘT phiếu chi cho cả lô
+    (chủ chốt 25/09/2026). `vouchers` luôn có đúng một phần tử."""
+    body = payload.model_dump()
+    ids = body.pop("salary_advance_ids")
+    try:
+        rows = svc.create_vouchers_from_advances_batch(actor=user, salary_advance_ids=ids, shared=body)
+    except AccountingBulkBlocked as exc:
+        # Kèm id phiếu tạm ứng vướng để màn hình bỏ chọn đúng chúng rồi bấm lại.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail={"message": str(exc), "vuong_ids": exc.vuong_ids}) from None
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    # Kèm tín hiệu tạm ứng để màn Tạm ứng của HCNS thấy "Đã chi" ngay (real-time).
+    if rows:
+        _notify_accounting_changed(rows[0].get("code"), voucher_code=rows[0].get("code"),
+                                   actor_user_id=user.id)
+        hub.broadcast({"type": "advance_pending_changed", "code": rows[0].get("code")})
+    return VoucherBatchOut(
+        vouchers=[PaymentVoucherOut(**r) for r in rows],
+        total_amount=sum(int(r.get("amount_vnd") or 0) for r in rows),
+    )
+
+
+@router.get("/api/accounting/payment-vouchers/{voucher_id}/bang-ke-tam-ung",
+            response_model=BangKeTamUngOut)
+def bang_ke_tam_ung(
+    voucher_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
+    _: Annotated[User, Depends(require_permission(MODULE_PC, "read"))],
+) -> BangKeTamUngOut:
+    """Bảng kê đính kèm phiếu chi tạm ứng / lương đợt 1 (một lượt hay lẻ) — từng người, số tiền, tài
+    khoản; tiền mặt thì FE in thêm cột ký nhận."""
+    try:
+        out = BangKeTamUngOut(**svc.bang_ke_tam_ung(voucher_id))
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    ten_to = {d.id: d.name for d in departments.list_all()}
+    for r in out.rows:
+        r.department_name = ten_to.get(r.department_id)
+    return out
+
+
 # ĐÃ GỠ 07/08/2026 — `PUT /api/accounting/payment-vouchers/{id}`. Phiếu chi phát hành ra là tiền
 # đã rời két, không sửa. Sai thì huỷ rồi lập lại; chỉ còn đính kèm tài liệu là sửa được.
 
@@ -873,6 +931,9 @@ def cancel_payment_voucher(
         actor_user_id=user.id,
         recipient_user_id=row.get("purchase_created_by_user_id"),
     )
+    if row.get("source_type") == "salary_advance":
+        # Huỷ phiếu chi tạm ứng ⇒ cả lô về "Chờ chi" — màn Tạm ứng của HCNS phải thấy ngay.
+        hub.broadcast({"type": "advance_pending_changed", "code": row.get("code")})
     return PaymentVoucherOut(**row)
 
 

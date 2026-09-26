@@ -304,6 +304,40 @@ class PayrollRepository:
     def get_advance(self, advance_id: int) -> SalaryAdvance | None:
         return self.db.get(SalaryAdvance, advance_id)
 
+    # Thao tác HÀNG LOẠT (25/09/2026 — nhà máy ~1000 người): nạp theo lô và thêm KHÔNG commit, để
+    # service chốt cả lượt một giao dịch. Đo trên Postgres: lập / duyệt 1000 phiếu từng phiếu một
+    # tốn 25–33 giây (mỗi phiếu ~10 truy vấn + 1 commit).
+
+    def get_advances_by_ids(self, ids) -> list[SalaryAdvance]:
+        ids = sorted({int(i) for i in ids})
+        out: list[SalaryAdvance] = []
+        for i in range(0, len(ids), 500):   # SQLite cũ giới hạn 999 tham số / câu
+            out += self.db.execute(
+                select(SalaryAdvance).where(SalaryAdvance.id.in_(ids[i:i + 500]))
+            ).scalars().all()
+        return out
+
+    def advances_by_payment_voucher(self, voucher_id: int) -> list[SalaryAdvance]:
+        """Mọi phiếu tạm ứng một phiếu chi đã chi (phiếu chi một lượt = cả lô, 25/09/2026)."""
+        return list(self.db.execute(
+            select(SalaryAdvance).where(SalaryAdvance.payment_voucher_id == int(voucher_id))
+            .order_by(SalaryAdvance.id)
+        ).scalars())
+
+    def advance_codes_taken(self, codes) -> set[str]:
+        codes = list(codes)
+        out: set[str] = set()
+        for i in range(0, len(codes), 500):
+            out |= set(self.db.execute(
+                select(SalaryAdvance.code).where(SalaryAdvance.code.in_(codes[i:i + 500]))
+            ).scalars())
+        return out
+
+    def add_advances(self, rows: list[SalaryAdvance]) -> None:
+        """Thêm nhiều phiếu, CHỈ flush (có id) — người gọi `commit()` cả lượt."""
+        self.db.add_all(rows)
+        self.db.flush()
+
     def update_advance(self, a: SalaryAdvance, **fields) -> SalaryAdvance:
         for k, v in fields.items():
             setattr(a, k, v)

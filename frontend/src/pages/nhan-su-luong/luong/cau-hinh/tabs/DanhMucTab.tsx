@@ -146,6 +146,17 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
     setDelBusy(true);
     setDelErr(null);
     try {
+      // Còn người đang gán (26/09/2026): gỡ khỏi TẤT CẢ trước — một lượt — rồi xoá luôn.
+      if (del.employee_count > 0) {
+        const g = await api.luong.components.unassignAll(token, del.id);
+        if (g.remaining > 0) {
+          load();
+          setDelErr(
+            `Đã gỡ khỏi ${g.removed} nhân viên, nhưng còn ${g.remaining} người ngoài phạm vi quản lý của bạn vẫn được gán — nhờ người quản lý họ gỡ tiếp rồi mới xoá được.`,
+          );
+          return;
+        }
+      }
       const res = await api.luong.components.remove(token, del.id);
       setDel(null);
       load();
@@ -513,11 +524,17 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
         danger
         title={
           delGan
-            ? `Chưa xoá được khoản “${del?.name ?? ""}”`
+            ? `Gỡ khoản “${del?.name ?? ""}” khỏi nhân viên để xoá?`
             : `Xoá khoản “${del?.name ?? ""}”?`
         }
-        hideConfirm={delGan}
-        confirmLabel={delChot ? "Ngừng áp dụng khoản này" : "Xoá khoản"}
+        confirmLabel={
+          delGan
+            ? `Gỡ khỏi ${del?.employee_count ?? 0} nhân viên rồi ${delChot ? "ngừng áp dụng" : "xoá"}`
+            : delChot
+              ? "Ngừng áp dụng khoản này"
+              : "Xoá khoản"
+        }
+        countdownSeconds={delGan ? 3 : 0}
         busy={delBusy}
         error={delErr}
         onCancel={() => {
@@ -528,9 +545,12 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
         {del &&
           (delGan ? (
             <p className="cdlg__msg">
-              Còn <b>{del.employee_count} nhân viên</b> đang được gán khoản này nên
-              chưa xoá được. Vào <b>Lương → Lương nhân viên</b> (hoặc nút Gán hàng
-              loạt) gỡ khỏi từng người trước, rồi quay lại xoá.
+              Còn <b>{del.employee_count} nhân viên</b> đang được gán khoản này. Bấm nút
+              bên dưới sẽ <b>gỡ khoản khỏi tất cả {del.employee_count} người</b> một lượt
+              rồi {delChot ? "chuyển khoản sang Ngừng áp dụng (đã có trong kỳ lương đã chốt)" : "xoá khoản"}.
+              Từ kỳ lương sau họ không còn khoản này; kỳ đã chốt giữ nguyên số cũ, kỳ nháp
+              bấm “Tính lại” để cập nhật. Mức tiền từng người trước khi gỡ được ghi vào
+              nhật ký.
             </p>
           ) : delChot ? (
             <p className="cdlg__msg">

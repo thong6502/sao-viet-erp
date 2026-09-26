@@ -24,6 +24,7 @@ from ..models.accounting import (
     SupplierBankAccount,
 )
 from ..models.customer import Customer
+from ..models.payroll import SalaryAdvance
 from ..models.order import Order
 from ..models.purchase import PurchaseRequest, PurchaseRequestSource, Supplier
 
@@ -149,12 +150,53 @@ class AccountingRepository:
         """Phiếu chi đã lập cho một phiếu tạm ứng — None nếu chưa lập.
 
         Dùng ở HAI chỗ: chặn lập phiếu chi lần hai, và chặn huỷ phiếu tạm ứng khi tiền đã ra."""
-        return self.db.execute(
-            select(PaymentVoucher).where(
-                PaymentVoucher.salary_advance_id == salary_advance_id,
-                PaymentVoucher.status != PAYMENT_VOUCHER_CANCELLED,
-            )
-        ).scalars().first()
+        return self.live_vouchers_by_salary_advance_ids([salary_advance_id]).get(int(salary_advance_id))
+
+    def live_vouchers_by_salary_advance_ids(self, ids) -> dict[int, PaymentVoucher]:
+        """`{salary_advance_id: phiếu chi CÒN HIỆU LỰC}` cho nhiều phiếu tạm ứng — một lượt thay vì
+        hỏi từng phiếu (màn Tạm ứng gắn mã PC lên dòng, file chuyển khoản, chi một lượt)."""
+        ids = sorted({int(i) for i in ids})
+        out: dict[int, PaymentVoucher] = {}
+        for i in range(0, len(ids), 500):
+            phan = ids[i:i + 500]
+            # 1) Cột `salary_advances.payment_voucher_id` — phiếu chi một lượt (nhiều tạm ứng → một
+            #    phiếu chi, 25/09/2026) và mọi phiếu lập từ đó về sau.
+            for aid, v in self.db.execute(
+                select(SalaryAdvance.id, PaymentVoucher)
+                .join(PaymentVoucher, PaymentVoucher.id == SalaryAdvance.payment_voucher_id)
+                .where(SalaryAdvance.id.in_(phan),
+                       PaymentVoucher.status != PAYMENT_VOUCHER_CANCELLED)
+            ).all():
+                out[int(aid)] = v
+            # 2) Phiếu chi một-một cũ (`payment_vouchers.salary_advance_id`) — mg 0337 đã gắn ngược,
+            #    giữ nhánh này cho phiếu lập trước khi có cột.
+            con = [aid for aid in phan if aid not in out]
+            if con:
+                for v in self.db.execute(
+                    select(PaymentVoucher).where(
+                        PaymentVoucher.salary_advance_id.in_(con),
+                        PaymentVoucher.status != PAYMENT_VOUCHER_CANCELLED,
+                    )
+                ).scalars():
+                    out[int(v.salary_advance_id)] = v
+        return out
+
+    def add_vouchers(self, vouchers: list[PaymentVoucher]) -> None:
+        """Thêm nhiều phiếu chi, CHỈ flush — người gọi `commit()` cả lượt (chi một lượt)."""
+        self.db.add_all(vouchers)
+        self.db.flush()
+
+    def get_vouchers_by_ids(self, ids) -> list[PaymentVoucher]:
+        ids = sorted({int(i) for i in ids})
+        out: list[PaymentVoucher] = []
+        for i in range(0, len(ids), 500):
+            out += self.db.execute(
+                self._voucher_stmt().where(PaymentVoucher.id.in_(ids[i:i + 500]))
+            ).scalars().all()
+        return out
+
+    def commit(self) -> None:
+        self._commit()
 
     def get_voucher_by_code(self, code: str) -> PaymentVoucher | None:
         return self.db.execute(
